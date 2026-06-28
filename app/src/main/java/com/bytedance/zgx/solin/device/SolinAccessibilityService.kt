@@ -204,6 +204,7 @@ class SolinAccessibilityService : AccessibilityService() {
         target: String?,
         timeoutMillis: Long,
         ocrGroundingHint: UiOcrGroundingHint? = null,
+        allowClipboardPasteFallback: Boolean = false,
     ): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
             if (text.isBlank()) {
@@ -237,12 +238,20 @@ class SolinAccessibilityService : AccessibilityService() {
                     }
             }
             prepareEditableForTextInput(editableNode)
-            val performed = setTextDirectly(editableNode, text) || pasteTextIntoEditable(editableNode, text)
+            val directTextPerformed = setTextDirectly(editableNode, text)
+            val pasteFallbackPerformed = !directTextPerformed &&
+                allowClipboardPasteFallback &&
+                pasteTextIntoEditable(editableNode, text)
+            val performed = directTextPerformed || pasteFallbackPerformed
             if (performed) {
                 UiPrimitiveResult.succeeded("已向输入框写入 ${text.length} 个字符")
             } else {
                 UiPrimitiveResult.failed(
-                    reason = "输入框不支持直接写入文本",
+                    reason = if (allowClipboardPasteFallback) {
+                        "输入框不支持直接写入文本"
+                    } else {
+                        "输入框不支持直接写入文本，剪贴板粘贴 fallback 未启用"
+                    },
                     failureKind = UiActionFailureKind.KeyboardObscured,
                 )
             }
@@ -719,12 +728,19 @@ class SolinAccessibilityService : AccessibilityService() {
             target: String?,
             timeoutMillis: Long,
             ocrGroundingHint: UiOcrGroundingHint? = null,
+            allowClipboardPasteFallback: Boolean = false,
         ): UiActionReadResult {
             val service = activeService?.get()
                 ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
             showControlProgress("正在输入文本")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
-                service.typeText(text, target, timeoutMillis, ocrGroundingHint)
+                service.typeText(
+                    text = text,
+                    target = target,
+                    timeoutMillis = timeoutMillis,
+                    ocrGroundingHint = ocrGroundingHint,
+                    allowClipboardPasteFallback = allowClipboardPasteFallback,
+                )
             }
         }
 

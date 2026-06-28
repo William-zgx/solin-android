@@ -204,6 +204,37 @@ class ModelRepositoryPathTest {
     }
 
     @Test
+    fun currentActiveChatCandidateRequiresCurrentFileVerificationForRecommendedChat() {
+        val verifiedChat = installedModel(
+            id = DEFAULT_CHAT_MODEL_ID,
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            withVerifiedCatalogEvidence = true,
+        )
+        var verifierCalls = 0
+
+        assertFalse(
+            installedModelCanBecomeCurrentActiveChatModel(
+                model = verifiedChat,
+                currentFileVerifier = { _, model ->
+                    verifierCalls += 1
+                    assertEquals(DEFAULT_CHAT_MODEL_ID, model.id)
+                    false
+                },
+            ),
+        )
+        assertEquals(1, verifierCalls)
+
+        assertTrue(
+            installedModelCanBecomeCurrentActiveChatModel(
+                model = verifiedChat,
+                currentFileVerifier = { _, _ -> true },
+            ),
+        )
+    }
+
+    @Test
     fun canDeleteInstalledModelFileAllowsOnlyManagedLiteRtLmFiles() {
         withTempModelDir { internalRoot ->
             withTempModelDir { externalRoot ->

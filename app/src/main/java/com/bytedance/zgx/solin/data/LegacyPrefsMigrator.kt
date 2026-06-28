@@ -146,11 +146,12 @@ class LegacyPrefsMigrator(
 
     private fun migrateDownload(downloadId: Long, sourceJson: String?) {
         if (downloadId <= 0L || sourceJson.isNullOrBlank() || database.downloadRecordDao().record() != null) return
+        val sanitizedSourceJson = sanitizePersistedDownloadSourceJson(sourceJson) ?: return
         database.downloadRecordDao().upsert(
             DownloadRecordEntity(
                 id = PENDING_DOWNLOAD_RECORD_ID,
                 downloadManagerId = downloadId,
-                sourceJson = sourceJson,
+                sourceJson = sanitizedSourceJson,
                 updatedAtMillis = System.currentTimeMillis(),
             ),
         )

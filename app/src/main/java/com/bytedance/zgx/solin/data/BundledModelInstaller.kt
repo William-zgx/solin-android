@@ -6,6 +6,8 @@ import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.ModelCatalog
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import org.json.JSONObject
 
 data class BundledModelInstallResult(
@@ -155,14 +157,7 @@ class AssetBundledModelInstaller(
         check(ModelCatalog.matchesExpectedSha256(temp, expectedSha256)) {
             "Bundled model SHA-256 mismatch: $assetFileName"
         }
-        if (target.exists() && !target.delete()) {
-            temp.delete()
-            error("Unable to replace bundled model target: ${target.absolutePath}")
-        }
-        if (!temp.renameTo(target)) {
-            temp.delete()
-            error("Unable to publish bundled model target: ${target.absolutePath}")
-        }
+        publishBundledModelTempFile(temp, target)
         return 1
     }
 
@@ -198,5 +193,38 @@ class AssetBundledModelInstaller(
 
     private companion object {
         const val ASSET_ROOT = "solin-bundled-models"
+    }
+}
+
+internal fun publishBundledModelTempFile(
+    temp: File,
+    target: File,
+    atomicMove: (File, File) -> Unit = { from, to ->
+        Files.move(
+            from.toPath(),
+            to.toPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+    },
+    replaceMove: (File, File) -> Unit = { from, to ->
+        Files.move(
+            from.toPath(),
+            to.toPath(),
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+    },
+) {
+    val atomicFailure = runCatching {
+        atomicMove(temp, target)
+    }.exceptionOrNull()
+    if (atomicFailure == null) return
+
+    runCatching {
+        replaceMove(temp, target)
+    }.getOrElse { replaceFailure ->
+        replaceFailure.addSuppressed(atomicFailure)
+        temp.delete()
+        throw replaceFailure
     }
 }

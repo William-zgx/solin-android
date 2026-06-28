@@ -216,7 +216,12 @@ private class OcrGroundingCurrentScreenControlProvider(
         )
     }
 
-    override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult {
+    override fun typeText(
+        text: String,
+        target: String?,
+        timeoutMillis: Long,
+        allowClipboardPasteFallback: Boolean,
+    ): UiActionReadResult {
         val validationSnapshot = ocrGroundingValidationSnapshot()
         val hint = if (target.isNullOrBlank()) {
             cache.consumeForSearchEntry(currentSnapshot = validationSnapshot)
@@ -230,6 +235,7 @@ private class OcrGroundingCurrentScreenControlProvider(
             target = target,
             ocrGroundingHint = hint,
             timeoutMillis = timeoutMillis,
+            allowClipboardPasteFallback = allowClipboardPasteFallback,
         )
     }
 
@@ -1303,6 +1309,7 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
     ): ToolResult {
         val target = request.arguments["target"].orEmpty()
+        expectedForegroundPackagePreflight(request, actionType = "tap", target = target)?.let { return it }
         dangerousUiActionPreflight(request, actionType = "tap", target = target)?.let { return it }
         return actionResult(
             request = request,
@@ -1311,7 +1318,7 @@ class DeviceControlToolExecutor(
             result = provider.tap(
                 target = target,
                 timeoutMillis = request.timeoutMillis(),
-            ),
+            ).withExpectedForegroundPackageVerification(request),
         )
     }
 
@@ -1320,6 +1327,7 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
     ): ToolResult {
         val target = request.arguments["target"].orEmpty()
+        expectedForegroundPackagePreflight(request, actionType = "type_text", target = target)?.let { return it }
         dangerousUiActionPreflight(request, actionType = "type_text", target = target)?.let { return it }
         return actionResult(
             request = request,
@@ -1329,7 +1337,8 @@ class DeviceControlToolExecutor(
                 text = request.arguments["text"].orEmpty(),
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
-            ),
+                allowClipboardPasteFallback = request.allowClipboardPasteFallback(),
+            ).withExpectedForegroundPackageVerification(request),
         )
     }
 
@@ -1337,6 +1346,7 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
+        expectedForegroundPackagePreflight(request, actionType = "submit_search", target = "")?.let { return it }
         dangerousUiActionPreflight(request, actionType = "submit_search", target = "")?.let { return it }
         return actionResult(
             request = request,
@@ -1344,7 +1354,7 @@ class DeviceControlToolExecutor(
             target = "",
             result = provider.submitSearch(
                 timeoutMillis = request.timeoutMillis(),
-            ),
+            ).withExpectedForegroundPackageVerification(request),
         )
     }
 
@@ -1360,6 +1370,7 @@ class DeviceControlToolExecutor(
                 data = request.deviceControlBaseData(),
             )
         val target = request.arguments["target"].orEmpty()
+        expectedForegroundPackagePreflight(request, actionType = "scroll", target = target)?.let { return it }
         dangerousUiActionPreflight(request, actionType = "scroll", target = target)?.let { return it }
         return actionResult(
             request = request,
@@ -1369,9 +1380,61 @@ class DeviceControlToolExecutor(
                 direction = direction,
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
-            ),
+            ).withExpectedForegroundPackageVerification(request),
             extraData = mapOf("direction" to direction.schemaValue),
         )
+    }
+
+    private fun expectedForegroundPackagePreflight(
+        request: ToolRequest,
+        actionType: String,
+        target: String,
+    ): ToolResult? {
+        val expectedPackage = request.expectedForegroundPackageName() ?: return null
+        return when (
+            val result = preflightProvider?.observeCurrentScreen(
+                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+            )
+        ) {
+            is ScreenStateReadResult.Available -> {
+                val snapshot = result.snapshot
+                if (snapshot.packageName == expectedPackage) {
+                    null
+                } else {
+                    request.foregroundPackageGateFailure(
+                        actionType = actionType,
+                        target = target,
+                        expectedPackage = expectedPackage,
+                        actualPackage = snapshot.packageName,
+                        snapshot = snapshot,
+                    )
+                }
+            }
+
+            is ScreenStateReadResult.PermissionDenied ->
+                request.deviceControlPermissionDenied(result.reason)
+
+            is ScreenStateReadResult.Failed ->
+                request.foregroundPackageGateFailure(
+                    actionType = actionType,
+                    target = target,
+                    expectedPackage = expectedPackage,
+                    actualPackage = null,
+                    snapshot = null,
+                    summary = "无法确认目标应用仍在前台，已停止自动 UI 动作。",
+                )
+
+            null ->
+                request.foregroundPackageGateFailure(
+                    actionType = actionType,
+                    target = target,
+                    expectedPackage = expectedPackage,
+                    actualPackage = null,
+                    snapshot = null,
+                    summary = "当前屏幕控制 preflight 不可用，无法确认目标应用仍在前台。",
+                )
+        }
     }
 
     private fun dangerousUiActionPreflight(
@@ -1425,7 +1488,9 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
+        expectedForegroundPackagePreflight(request, actionType = "wait", target = "")?.let { return it }
         val result = provider.waitForScreen(timeoutMillis = request.timeoutMillis())
+            .withExpectedForegroundPackageVerification(request)
         val verification = result.searchVerificationFor(request)
         return actionResult(
             request = request,
@@ -1493,18 +1558,74 @@ class DeviceControlToolExecutor(
                     },
                     summary = result.reason,
                     retryable = result.retryable,
-	                data = request.deviceControlBaseData() + mapOf(
-	                    "actionType" to actionType,
-	                    "status" to UiActionStatus.Failed.schemaValue(),
-	                    "retryable" to result.retryable.toString(),
-	                    "summary" to result.reason,
-	                    "failureKind" to result.failureKind.schemaValue,
-	                ) + target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty(),
-	            )
+                    data = request.deviceControlBaseData() + mapOf(
+                        "actionType" to actionType,
+                        "status" to UiActionStatus.Failed.schemaValue(),
+                        "retryable" to result.retryable.toString(),
+                        "summary" to result.reason,
+                        "failureKind" to result.failureKind.schemaValue,
+                    ) + target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty(),
+                )
         }
 
     private fun ToolRequest.timeoutMillis(): Long =
         arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: DEFAULT_UI_ACTION_TIMEOUT_MILLIS
+
+    private fun ToolRequest.allowClipboardPasteFallback(): Boolean =
+        arguments["allowClipboardPasteFallback"]?.toBooleanStrictOrNull() == true
+
+    private fun ToolRequest.expectedForegroundPackageName(): String? =
+        arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+            ?: arguments["targetPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+
+    private fun ToolRequest.foregroundPackageGateFailure(
+        actionType: String,
+        target: String,
+        expectedPackage: String,
+        actualPackage: String?,
+        snapshot: ScreenStateSnapshot?,
+        summary: String = "目标应用未保持在前台，已停止自动 UI 动作。",
+    ): ToolResult =
+        failed(
+            code = ToolErrorCode.ExecutionFailed,
+            summary = summary,
+            retryable = false,
+            data = deviceControlBaseData() +
+                mapOf(
+                    "actionType" to actionType,
+                    "status" to UiActionStatus.Failed.schemaValue(),
+                    "retryable" to false.toString(),
+                    "summary" to "foreground_package_mismatch",
+                    "failureKind" to UiActionFailureKind.AppNotForeground.schemaValue,
+                    "expectedPackageName" to expectedPackage,
+                    "actualPackageName" to actualPackage.orEmpty(),
+                    "beforeObservationId" to snapshot?.id.orEmpty(),
+                    "afterObservationId" to snapshot?.id.orEmpty(),
+                    "verificationSummary" to summary,
+                    "screenObservationDiffSummary" to "blocked_before_execution;reason=app_not_foreground",
+                ) +
+                target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
+                snapshot?.toBeforeObservationData().orEmpty() +
+                snapshot?.toAfterObservationData().orEmpty(),
+        )
+
+    private fun UiActionReadResult.withExpectedForegroundPackageVerification(
+        request: ToolRequest,
+    ): UiActionReadResult {
+        val expectedPackage = request.expectedForegroundPackageName() ?: return this
+        if (this !is UiActionReadResult.Available) return this
+        if (result.status != UiActionStatus.Succeeded) return this
+        val afterPackage = result.after?.packageName
+        if (afterPackage == expectedPackage) return this
+        return copy(
+            result = result.copy(
+                status = UiActionStatus.Failed,
+                summary = "目标应用未保持在前台，已停止自动 UI 动作。",
+                retryable = false,
+                failureKind = UiActionFailureKind.AppNotForeground,
+            ),
+        )
+    }
 
     private fun UiActionReadResult.searchVerificationFor(request: ToolRequest): SearchResultVerification? {
         val query = request.arguments["verifySearchQuery"]?.trim()?.takeIf { it.isNotBlank() } ?: return null
@@ -1513,7 +1634,7 @@ class DeviceControlToolExecutor(
             before = execution.before,
             after = execution.after,
             query = query,
-            expectedPackageName = request.arguments["expectedPackageName"],
+            expectedPackageName = request.expectedForegroundPackageName(),
             expectedAppName = request.arguments["expectedAppName"],
         )
     }

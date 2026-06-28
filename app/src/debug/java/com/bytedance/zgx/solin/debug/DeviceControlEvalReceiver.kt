@@ -23,6 +23,7 @@ import java.io.File
 
 class DeviceControlEvalReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != ACTION_DEVICE_CONTROL_EVAL) return
         val pendingResult = goAsync()
         val appContext = context.applicationContext
         Thread {
@@ -86,6 +87,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                             text = intent.getStringExtra(EXTRA_TEXT).orEmpty(),
                             target = intent.getStringExtra(EXTRA_TARGET),
                             timeoutMillis = intent.timeoutMillis(),
+                            allowClipboardPasteFallback = false,
                         ).toLines(
                             command = command,
                             target = intent.getStringExtra(EXTRA_TARGET),
@@ -346,6 +348,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         const val EXTRA_EXPECTED_PACKAGE_NAME = "expectedPackageName"
         const val EXTRA_EXPECTED_APP_NAME = "expectedAppName"
         const val EXTRA_APP_NAME = "appName"
+        const val ACTION_DEVICE_CONTROL_EVAL = "com.bytedance.zgx.solin.debug.DEVICE_CONTROL_EVAL"
         const val COMMAND_START_CONTROL_SESSION = "start_control_session"
         const val COMMAND_STOP_CONTROL_SESSION = "stop_control_session"
         const val COMMAND_OPEN_APP_BY_NAME = "open_app_by_name"

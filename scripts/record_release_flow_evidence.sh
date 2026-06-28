@@ -13,8 +13,10 @@ RELEASE_FLOW_KEYS="${RELEASE_FLOW_KEYS:-}"
 RELEASE_FLOW_ALL="${RELEASE_FLOW_ALL:-0}"
 RELEASE_FLOW_NOTE="${RELEASE_FLOW_NOTE:-Release flow was explicitly confirmed by the named owner.}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+SOURCE_EVIDENCE_FILES="${SOURCE_EVIDENCE_FILES:-}"
 RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 ORIGINAL_ARGS=("$@")
+SOURCE_EVIDENCE_PATHS=()
 
 REQUIRED_RELEASE_FLOWS=(
   firstInstall
@@ -44,7 +46,9 @@ Usage:
     scripts/record_release_flow_evidence.sh
 
 The script records formal release-flow evidence only for keys explicitly
-provided by the caller. It exits non-zero until every required flow is accepted.
+provided by the caller. SOURCE_EVIDENCE_FILES must point at one or more
+existing evidence files, separated by commas. It exits non-zero until every
+required flow is accepted.
 USAGE
 }
 
@@ -63,6 +67,37 @@ contains_key() {
     fi
   done
   return 1
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+parse_source_evidence_files() {
+  local raw_path source_path
+  [[ -n "$SOURCE_EVIDENCE_FILES" ]] ||
+    fail missing-source-evidence-files "SOURCE_EVIDENCE_FILES is required for release flow evidence."
+  IFS=, read -r -a raw_source_paths <<< "$SOURCE_EVIDENCE_FILES"
+  for raw_path in "${raw_source_paths[@]}"; do
+    source_path="$(printf '%s' "$raw_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [[ -n "$source_path" ]] || continue
+    [[ -f "$source_path" ]] ||
+      fail source-evidence-file-missing "Source evidence file is missing: $source_path"
+    SOURCE_EVIDENCE_PATHS+=("$source_path")
+  done
+  [[ "${#SOURCE_EVIDENCE_PATHS[@]}" -gt 0 ]] ||
+    fail missing-source-evidence-files "SOURCE_EVIDENCE_FILES is required for release flow evidence."
+}
+
+write_source_evidence_bindings() {
+  local index=0
+  local source_path
+  printf 'sourceEvidenceFileCount=%s\n' "${#SOURCE_EVIDENCE_PATHS[@]}"
+  for source_path in "${SOURCE_EVIDENCE_PATHS[@]}"; do
+    index=$((index + 1))
+    printf 'sourceEvidenceFile%sPath=%s\n' "$index" "$source_path"
+    printf 'sourceEvidenceFile%sSha256=%s\n' "$index" "$(sha256_file "$source_path")"
+  done
 }
 
 command_line() {
@@ -97,6 +132,9 @@ write_report() {
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
     printf 'date=%s\n' "$VALIDATION_DATE"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
+    if [[ "${#SOURCE_EVIDENCE_PATHS[@]}" -gt 0 ]]; then
+      write_source_evidence_bindings
+    fi
     printf 'requiredFlows=%s\n' "$(join_csv "${REQUIRED_RELEASE_FLOWS[@]}")"
     printf 'acceptedFlows=%s\n' "$accepted"
     printf 'pendingFlows=%s\n' "$pending"
@@ -293,6 +331,7 @@ fi
 if [[ "${#accepted_flows[@]}" -eq 0 ]]; then
   fail missing-accepted-flows "Set RELEASE_FLOW_ALL=1 or RELEASE_FLOW_KEYS=<comma-separated keys>."
 fi
+parse_source_evidence_files
 
 mkdir -p "$ARTIFACT_DIR"
 for flow in "${accepted_flows[@]}"; do
@@ -312,6 +351,7 @@ for flow in "${accepted_flows[@]}"; do
     printf 'reproduciblePath=%s\n' "$evidence_path"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
+    write_source_evidence_bindings
     printf 'evidenceSummary=%s\n' "$RELEASE_FLOW_NOTE"
     write_flow_contract_fields "$flow"
   } > "$evidence_path"

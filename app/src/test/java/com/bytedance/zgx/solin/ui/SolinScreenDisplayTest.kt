@@ -13,10 +13,12 @@ import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
+import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.capability.CapabilityMatrix
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -396,6 +398,47 @@ class SolinScreenDisplayTest {
         assertTrue(text.contains("已配置 API Key"))
         assertTrue(text.contains("连接状态：可达"))
         assertTrue(!text.contains("不要展示密钥"))
+    }
+
+    @Test
+    fun remoteSendDisclosureSuppressSessionOnlyAppliesToOncePerSessionQuietText() {
+        val quietTextDisclosure = PendingRemoteSendDisclosure(
+            kind = RemoteSendDisclosureKind.CurrentInput,
+            prompt = "普通问题",
+            messagePrivacy = MessagePrivacy.RemoteEligible,
+            remoteHost = "api.example.com",
+            remoteModelName = "model-a",
+            remoteHistoryCount = 0,
+            localOnlyHistoryFilteredCount = 0,
+            imageAttachmentCount = 0,
+            protectedSourceCount = 0,
+            apiKeyConfigured = true,
+        )
+
+        assertTrue(
+            remoteSendDisclosureCanSuppressForSession(
+                policy = RemoteSendDisclosurePolicy.OncePerSession,
+                disclosure = quietTextDisclosure,
+            ),
+        )
+        assertFalse(
+            remoteSendDisclosureCanSuppressForSession(
+                policy = RemoteSendDisclosurePolicy.EveryMessage,
+                disclosure = quietTextDisclosure,
+            ),
+        )
+        assertFalse(
+            remoteSendDisclosureCanSuppressForSession(
+                policy = RemoteSendDisclosurePolicy.OncePerSession,
+                disclosure = quietTextDisclosure.copy(imageAttachmentCount = 1),
+            ),
+        )
+        assertFalse(
+            remoteSendDisclosureCanSuppressForSession(
+                policy = RemoteSendDisclosurePolicy.OncePerSession,
+                disclosure = quietTextDisclosure.copy(sensitiveHitCategories = listOf("疑似密钥")),
+            ),
+        )
     }
 
     @Test

@@ -365,7 +365,8 @@ broadcast_command() {
   local request_id output_file
   shift
   request_id="${name}-$(date +%s)"
-  "${ADB[@]}" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" --es requestId "$request_id" "$@" >/dev/null
+  "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
+    -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es requestId "$request_id" "$@" >/dev/null
   for _ in {1..60}; do
     output_file="$(read_result "$name")"
     if grep -Fq "requestId=$request_id" "$output_file"; then

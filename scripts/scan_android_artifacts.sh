@@ -317,7 +317,7 @@ for artifact in "${ARTIFACTS[@]}"; do
   esac
   while IFS= read -r finding; do
     add_finding forbidden-artifact-file "$artifact:$finding"
-  done < <(grep -E '(^|/)[^/]+[.](litertlm|jks|keystore|pem|p12)$' "$entry_list" || true)
+  done < <(grep -E '(^|/)([^/]+[.]litertlm([.]part[^/]*)?|[^/]+[.]tflite|sentencepiece[.]model|[^/]+[.](jks|keystore|pem|p12))$' "$entry_list" || true)
   rm -f "$entry_list"
   sensitive_index=0
   while IFS= read -r _finding; do
@@ -325,7 +325,7 @@ for artifact in "${ARTIFACTS[@]}"; do
     add_finding sensitive-string "$artifact:string:$sensitive_index:sensitive-string-redacted"
   done < <(unzip -p "$artifact" 2>/dev/null |
     strings |
-    grep -E '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[abprs]-[0-9A-Za-z-]{16,}|sk-[A-Za-z0-9_-]{24,}|code[.]byted[.]org)' \
+    grep -E '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[abprs]-[0-9A-Za-z-]{16,}|sk-[A-Za-z0-9_-]{24,}|hf_[A-Za-z0-9]{20,}|[Bb]earer[[:space:]]+[A-Za-z0-9._~+/=-]{20,}|(^|[^A-Za-z0-9_])([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Tt][Oo][Kk][Ee][Nn])[[:space:]]*[:=][[:space:]]*["'\''"]?[A-Za-z0-9._~+/=-]{20,}|code[.]byted[.]org)' \
     || true)
   if [[ "$REQUIRE_SIGNED" == "1" ]]; then
     signing_status="$(artifact_signing_status "$artifact")"

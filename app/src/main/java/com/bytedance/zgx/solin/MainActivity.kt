@@ -56,7 +56,8 @@ class MainActivity : ComponentActivity() {
     private var pendingMediaProjectionConfirmation: PendingAgentConfirmation? = null
     private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
     private var speechRecognizer: SpeechRecognizer? = null
-    private var voiceInputCancellationRequested = false
+    private var consumedShareIntentKey: String? = null
+    private val voiceInputSessions = VoiceInputSessionGate()
     private val systemResourceMonitor: SystemResourceMonitor by lazy {
         SystemResourceMonitor(applicationContext)
     }
@@ -164,9 +165,10 @@ class MainActivity : ComponentActivity() {
         viewModel.restoreStartupState(
             skipModelRuntimeWork = skipStartupModelRuntimeWork,
         )
+        consumedShareIntentKey = savedInstanceState?.getString(KEY_CONSUMED_SHARE_INTENT)
         configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
         restorePendingSpecialAccessRequirement(savedInstanceState)
-        handleSharedIntent(intent)
+        handleSharedIntent(intent, allowPreviouslyConsumed = false)
 
         setContent {
             SolinTheme {
@@ -245,7 +247,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
-        handleSharedIntent(intent)
+        handleSharedIntent(intent, allowPreviouslyConsumed = true)
     }
 
     override fun onResume() {
@@ -257,10 +259,14 @@ class MainActivity : ComponentActivity() {
         pendingSpecialAccessRequirement?.id?.let {
             outState.putString(KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID, it)
         }
+        consumedShareIntentKey?.let {
+            outState.putString(KEY_CONSUMED_SHARE_INTENT, it)
+        }
         super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        voiceInputSessions.cancelActiveSession()
         speechRecognizer?.destroy()
         speechRecognizer = null
         shareIntentScope.cancel()
@@ -274,8 +280,11 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun handleSharedIntent(intent: Intent?) {
+    private fun handleSharedIntent(intent: Intent?, allowPreviouslyConsumed: Boolean) {
         val sharedIntent = intent ?: return
+        val shareKey = sharedIntent.shareIntentConsumptionKey() ?: return
+        if (!allowPreviouslyConsumed && consumedShareIntentKey == shareKey) return
+        consumedShareIntentKey = shareKey
         shareIntentScope.launch {
             val readMode = sharedInputReadMode()
             val sharedInput = withContext(Dispatchers.IO) {
@@ -337,8 +346,8 @@ class MainActivity : ComponentActivity() {
         val recognizer = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
             speechRecognizer = it
         }
-        voiceInputCancellationRequested = false
-        recognizer.setRecognitionListener(appVoiceRecognitionListener())
+        val sessionId = voiceInputSessions.startSession()
+        recognizer.setRecognitionListener(appVoiceRecognitionListener(sessionId))
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
@@ -346,51 +355,70 @@ class MainActivity : ComponentActivity() {
         viewModel.startVoiceInputCapture()
         runCatching { recognizer.startListening(intent) }
             .onFailure {
-                viewModel.reportVoiceInputUnavailable("语音输入启动失败")
+                if (voiceInputSessions.isActive(sessionId)) {
+                    voiceInputSessions.clearIfActive(sessionId)
+                    viewModel.reportVoiceInputUnavailable("语音输入启动失败")
+                }
             }
     }
 
     private fun finishVoiceInput() {
+        val sessionId = voiceInputSessions.activeSessionId
         runCatching { speechRecognizer?.stopListening() }
-            .onSuccess { viewModel.finishVoiceInputCapture() }
+            .onSuccess {
+                if (voiceInputSessions.isActive(sessionId)) {
+                    viewModel.finishVoiceInputCapture()
+                }
+            }
             .onFailure {
-                viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
+                if (voiceInputSessions.isActive(sessionId)) {
+                    voiceInputSessions.clearIfActive(sessionId)
+                    viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
+                }
             }
     }
 
     private fun cancelVoiceInput() {
-        voiceInputCancellationRequested = true
+        voiceInputSessions.cancelActiveSession()
         runCatching { speechRecognizer?.cancel() }
         viewModel.reportVoiceInputUnavailable("语音输入已取消")
     }
 
-    private fun appVoiceRecognitionListener(): RecognitionListener =
+    private fun appVoiceRecognitionListener(sessionId: Long): RecognitionListener =
         object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                viewModel.startVoiceInputCapture()
+                if (voiceInputSessions.isActive(sessionId)) {
+                    viewModel.startVoiceInputCapture()
+                }
             }
 
             override fun onBeginningOfSpeech() = Unit
 
             override fun onRmsChanged(rmsdB: Float) {
-                viewModel.updateVoiceInputLevel(rmsDb = rmsdB)
+                if (voiceInputSessions.isActive(sessionId)) {
+                    viewModel.updateVoiceInputLevel(rmsDb = rmsdB)
+                }
             }
 
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
-                viewModel.finishVoiceInputCapture()
+                if (voiceInputSessions.isActive(sessionId)) {
+                    viewModel.finishVoiceInputCapture()
+                }
             }
 
             override fun onError(error: Int) {
-                if (voiceInputCancellationRequested) {
-                    voiceInputCancellationRequested = false
+                if (!voiceInputSessions.isActive(sessionId)) {
                     return
                 }
+                voiceInputSessions.clearIfActive(sessionId)
                 viewModel.reportVoiceInputUnavailable(error.voiceInputErrorMessage())
             }
 
             override fun onResults(results: Bundle?) {
+                if (!voiceInputSessions.isActive(sessionId)) return
+                voiceInputSessions.clearIfActive(sessionId)
                 val transcript = results?.recognizedSpeechText()
                 if (transcript.isNullOrBlank()) {
                     viewModel.reportVoiceInputUnavailable("未识别到语音")
@@ -400,7 +428,9 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                partialResults?.recognizedSpeechText()?.let(viewModel::updateVoiceInputPartialTranscript)
+                if (voiceInputSessions.isActive(sessionId)) {
+                    partialResults?.recognizedSpeechText()?.let(viewModel::updateVoiceInputPartialTranscript)
+                }
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -591,6 +621,8 @@ class MainActivity : ComponentActivity() {
             "com.bytedance.zgx.solin.extra.DEBUG_UI_FONT_SCALE"
         private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
             "com.bytedance.zgx.solin.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
+        private const val KEY_CONSUMED_SHARE_INTENT =
+            "com.bytedance.zgx.solin.state.CONSUMED_SHARE_INTENT"
         private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(
             "text/*",
             "image/*",
@@ -647,6 +679,76 @@ internal fun sharedInputReadModeFor(
         inferenceMode != InferenceMode.Remote -> SharedInputReadMode.LocalPrompt
         remoteConfigured && remoteSupportsVisionInput -> SharedInputReadMode.RemoteVision
         else -> SharedInputReadMode.RemoteVisionUnsupportedSignal
+    }
+
+internal class VoiceInputSessionGate {
+    var activeSessionId: Long = 0L
+        private set
+    private var nextSessionId: Long = 0L
+
+    fun startSession(): Long {
+        activeSessionId = ++nextSessionId
+        return activeSessionId
+    }
+
+    fun cancelActiveSession() {
+        if (activeSessionId != 0L) {
+            activeSessionId = 0L
+        }
+    }
+
+    fun clearIfActive(sessionId: Long) {
+        if (isActive(sessionId)) {
+            activeSessionId = 0L
+        }
+    }
+
+    fun isActive(sessionId: Long): Boolean =
+        sessionId != 0L && sessionId == activeSessionId
+}
+
+internal fun Intent.shareIntentConsumptionKey(): String? {
+    val actionValue = action?.takeIf {
+        it == Intent.ACTION_SEND || it == Intent.ACTION_SEND_MULTIPLE
+    } ?: return null
+    val streamHashes = sharedStreamUrisForConsumptionKey()
+        .map { uri -> uri.toString().hashCode().toString() }
+        .sorted()
+    val textHash = getCharSequenceExtra(Intent.EXTRA_TEXT)
+        ?.toString()
+        ?.hashCode()
+        ?.toString()
+        .orEmpty()
+    val subjectHash = getCharSequenceExtra(Intent.EXTRA_SUBJECT)
+        ?.toString()
+        ?.hashCode()
+        ?.toString()
+        .orEmpty()
+    val clipHashes = buildList {
+        val clip = clipData ?: return@buildList
+        repeat(clip.itemCount) { index ->
+            clip.getItemAt(index).uri?.let { uri ->
+                add(uri.toString().hashCode().toString())
+            }
+        }
+    }.sorted()
+    return listOf(
+        actionValue,
+        type.orEmpty(),
+        dataString.orEmpty().hashCode().toString(),
+        textHash,
+        subjectHash,
+        streamHashes.joinToString(separator = ","),
+        clipHashes.joinToString(separator = ","),
+    ).joinToString(separator = "|")
+}
+
+@Suppress("DEPRECATION")
+private fun Intent.sharedStreamUrisForConsumptionKey(): List<Uri> =
+    when (action) {
+        Intent.ACTION_SEND -> listOfNotNull(getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+        Intent.ACTION_SEND_MULTIPLE -> getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+        else -> emptyList()
     }
 
 private fun Bundle.recognizedSpeechText(): String? =

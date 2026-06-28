@@ -2291,6 +2291,15 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf("timeoutMillis" to "10001"),
                 reason = "test",
             ),
+            ToolRequest(
+                id = "type-invalid-paste-fallback",
+                toolName = MobileActionFunctions.UI_TYPE_TEXT,
+                arguments = mapOf(
+                    "text" to "hello",
+                    "allowClipboardPasteFallback" to "sometimes",
+                ),
+                reason = "test",
+            ),
         )
 
         cases.forEach { request ->
@@ -2303,6 +2312,144 @@ class RoutingAndValidatingToolExecutorTest {
             assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
             assertEquals(true.toString(), result.data["requiresLocalModel"])
         }
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun deviceControlExpectedPackageGateBlocksTapBeforeSideEffect() {
+        val delegate = RecordingDelegate()
+        val screenProvider = StaticCurrentScreenControlProvider(
+            observeResult = ScreenStateReadResult.Available(
+                staticSnapshot(
+                    id = "wrong-app",
+                    packageName = "com.other.app",
+                    textSummary = "Other app",
+                ),
+            ),
+        )
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = screenProvider,
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "tap-wrong-package",
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = mapOf(
+                    "target" to "搜索入口",
+                    "expectedPackageName" to "com.target.app",
+                    "timeoutMillis" to "500",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertEquals("app_not_foreground", result.data["failureKind"])
+        assertEquals("tap", result.data["actionType"])
+        assertTrue(screenProvider.tapTargets.isEmpty())
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun deviceControlTargetPackageAliasBlocksWaitWhenAppLeavesForeground() {
+        val delegate = RecordingDelegate()
+        val screenProvider = StaticCurrentScreenControlProvider(
+            observeResult = ScreenStateReadResult.Available(
+                staticSnapshot(
+                    id = "target-app",
+                    packageName = "com.target.app",
+                    textSummary = "Target app",
+                ),
+            ),
+            actionResult = UiActionReadResult.Available(
+                UiActionExecutionResult(
+                    status = UiActionStatus.Succeeded,
+                    before = staticSnapshot(
+                        id = "before",
+                        packageName = "com.target.app",
+                        textSummary = "Target app",
+                    ),
+                    after = staticSnapshot(
+                        id = "after",
+                        packageName = "com.other.app",
+                        textSummary = "Other app",
+                    ),
+                    summary = "已等待屏幕稳定",
+                    retryable = false,
+                ),
+            ),
+        )
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = screenProvider,
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "wait-left-package",
+                toolName = MobileActionFunctions.UI_WAIT,
+                arguments = mapOf(
+                    "targetPackageName" to "com.target.app",
+                    "timeoutMillis" to "500",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertEquals("app_not_foreground", result.data["failureKind"])
+        assertEquals("wait", result.data["actionType"])
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun uiTypeTextClipboardPasteFallbackIsDisabledUnlessExplicitlyAllowed() {
+        val delegate = RecordingDelegate()
+        val screenProvider = StaticCurrentScreenControlProvider()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = screenProvider,
+            ),
+        )
+
+        val defaultResult = executor.execute(
+            ToolRequest(
+                id = "type-default-paste-fallback",
+                toolName = MobileActionFunctions.UI_TYPE_TEXT,
+                arguments = mapOf(
+                    "text" to "hello",
+                    "target" to "输入框",
+                    "timeoutMillis" to "500",
+                ),
+                reason = "test",
+            ),
+        )
+        val allowedResult = executor.execute(
+            ToolRequest(
+                id = "type-allowed-paste-fallback",
+                toolName = MobileActionFunctions.UI_TYPE_TEXT,
+                arguments = mapOf(
+                    "text" to "hello",
+                    "target" to "输入框",
+                    "allowClipboardPasteFallback" to "true",
+                    "timeoutMillis" to "500",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, defaultResult.status)
+        assertEquals(ToolStatus.Succeeded, allowedResult.status)
+        assertEquals(listOf(false, true), screenProvider.typeTextClipboardPasteFallbackAllowed)
         assertTrue(delegate.requests.isEmpty())
     }
 
@@ -2784,6 +2931,13 @@ class RoutingAndValidatingToolExecutorTest {
             routingExecutor(
                 delegate = delegate,
                 currentScreenControlProvider = StaticCurrentScreenControlProvider(
+                    observeResult = ScreenStateReadResult.Available(
+                        staticSnapshot(
+                            id = "preflight",
+                            packageName = "com.taobao.taobao",
+                            textSummary = "搜索商品",
+                        ),
+                    ),
                     actionResult = UiActionReadResult.Available(
                         UiActionExecutionResult(
                             status = UiActionStatus.Succeeded,
@@ -2842,6 +2996,7 @@ class RoutingAndValidatingToolExecutorTest {
             routingExecutor(
                 delegate = delegate,
                 currentScreenControlProvider = StaticCurrentScreenControlProvider(
+                    observeResult = ScreenStateReadResult.Available(unchanged),
                     actionResult = UiActionReadResult.Available(
                         UiActionExecutionResult(
                             status = UiActionStatus.Succeeded,
@@ -3020,6 +3175,7 @@ class RoutingAndValidatingToolExecutorTest {
         val typeTextTargets = mutableListOf<String?>()
         val typeTextValues = mutableListOf<String>()
         val typeTextOcrGroundingHints = mutableListOf<UiOcrGroundingHint?>()
+        val typeTextClipboardPasteFallbackAllowed = mutableListOf<Boolean>()
         val submitSearchOcrGroundingHints = mutableListOf<UiOcrGroundingHint?>()
 
         override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
@@ -3045,10 +3201,16 @@ class RoutingAndValidatingToolExecutorTest {
             return actionResult
         }
 
-        override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult {
+        override fun typeText(
+            text: String,
+            target: String?,
+            timeoutMillis: Long,
+            allowClipboardPasteFallback: Boolean,
+        ): UiActionReadResult {
             typeTextValues += text
             typeTextTargets += target
             typeTextOcrGroundingHints += null
+            typeTextClipboardPasteFallbackAllowed += allowClipboardPasteFallback
             return actionResult
         }
 
@@ -3057,10 +3219,12 @@ class RoutingAndValidatingToolExecutorTest {
             target: String?,
             ocrGroundingHint: UiOcrGroundingHint?,
             timeoutMillis: Long,
+            allowClipboardPasteFallback: Boolean,
         ): UiActionReadResult {
             typeTextValues += text
             typeTextTargets += target
             typeTextOcrGroundingHints += ocrGroundingHint
+            typeTextClipboardPasteFallbackAllowed += allowClipboardPasteFallback
             return actionResult
         }
 

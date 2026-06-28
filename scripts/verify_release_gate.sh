@@ -480,7 +480,10 @@ else
 fi
 
 if [[ "$VERIFY_RELEASE_VALIDATION" == "1" ]]; then
-  if ! env "EXPECTED_RELEASE_ARTIFACT_SHA256=$release_artifact_sha256" scripts/verify_release_validation_record.sh --file "$VALIDATION_RECORD_FILE" --report "$ARTIFACT_DIR/release-validation-record.properties"; then
+  if ! env \
+    "EXPECTED_RELEASE_ARTIFACT_TYPE=$release_artifact_type" \
+    "EXPECTED_RELEASE_ARTIFACT_SHA256=$release_artifact_sha256" \
+    scripts/verify_release_validation_record.sh --file "$VALIDATION_RECORD_FILE" --report "$ARTIFACT_DIR/release-validation-record.properties"; then
     fail_gate release-validation-record "$ARTIFACT_DIR/release-validation-record.properties"
   fi
 else

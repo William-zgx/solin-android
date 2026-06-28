@@ -35,6 +35,7 @@ interface CurrentScreenControlProvider {
         text: String,
         target: String? = null,
         timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
+        allowClipboardPasteFallback: Boolean = false,
     ): UiActionReadResult
 
     fun typeTextWithOcrGrounding(
@@ -42,8 +43,14 @@ interface CurrentScreenControlProvider {
         target: String? = null,
         ocrGroundingHint: UiOcrGroundingHint?,
         timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
+        allowClipboardPasteFallback: Boolean = false,
     ): UiActionReadResult =
-        typeText(text = text, target = target, timeoutMillis = timeoutMillis)
+        typeText(
+            text = text,
+            target = target,
+            timeoutMillis = timeoutMillis,
+            allowClipboardPasteFallback = allowClipboardPasteFallback,
+        )
 
     fun submitSearch(timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS): UiActionReadResult
 
@@ -283,11 +290,17 @@ class AndroidCurrentScreenControlProvider : CurrentScreenControlProvider {
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
         )
 
-    override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult =
+    override fun typeText(
+        text: String,
+        target: String?,
+        timeoutMillis: Long,
+        allowClipboardPasteFallback: Boolean,
+    ): UiActionReadResult =
         SolinAccessibilityService.performTypeText(
             text = text.take(MAX_UI_TYPE_TEXT_CHARS),
             target = target?.trim()?.takeIf { it.isNotBlank() },
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+            allowClipboardPasteFallback = allowClipboardPasteFallback,
         )
 
     override fun typeTextWithOcrGrounding(
@@ -295,12 +308,14 @@ class AndroidCurrentScreenControlProvider : CurrentScreenControlProvider {
         target: String?,
         ocrGroundingHint: UiOcrGroundingHint?,
         timeoutMillis: Long,
+        allowClipboardPasteFallback: Boolean,
     ): UiActionReadResult =
         SolinAccessibilityService.performTypeText(
             text = text.take(MAX_UI_TYPE_TEXT_CHARS),
             target = target?.trim()?.takeIf { it.isNotBlank() },
             ocrGroundingHint = ocrGroundingHint,
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+            allowClipboardPasteFallback = allowClipboardPasteFallback,
         )
 
     override fun submitSearch(timeoutMillis: Long): UiActionReadResult =

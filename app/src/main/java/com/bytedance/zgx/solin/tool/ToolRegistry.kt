@@ -965,6 +965,18 @@ private val uiTapSchemaJson = """
           "type": "integer",
           "minimum": 100,
           "maximum": 10000
+        },
+        "expectedPackageName": {
+          "type": "string",
+          "description": "Optional foreground package that must still be active before executing this UI action.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetPackageName": {
+          "type": "string",
+          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
+          "minLength": 1,
+          "maxLength": 200
         }
       },
       "additionalProperties": false
@@ -991,6 +1003,48 @@ private val uiTypeTextSchemaJson = """
           "type": "integer",
           "minimum": 100,
           "maximum": 10000
+        },
+        "allowClipboardPasteFallback": {
+          "type": "boolean",
+          "description": "When true, allows falling back to temporary clipboard paste if direct Accessibility text setting fails. Defaults to false."
+        },
+        "expectedPackageName": {
+          "type": "string",
+          "description": "Optional foreground package that must still be active before executing this UI action.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetPackageName": {
+          "type": "string",
+          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val uiSubmitSearchSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "timeoutMillis": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        },
+        "expectedPackageName": {
+          "type": "string",
+          "description": "Optional foreground package that must still be active before executing this UI action.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetPackageName": {
+          "type": "string",
+          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
+          "minLength": 1,
+          "maxLength": 200
         }
       },
       "additionalProperties": false
@@ -1016,6 +1070,18 @@ private val uiScrollSchemaJson = """
           "type": "integer",
           "minimum": 100,
           "maximum": 10000
+        },
+        "expectedPackageName": {
+          "type": "string",
+          "description": "Optional foreground package that must still be active before executing this UI action.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetPackageName": {
+          "type": "string",
+          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
+          "minLength": 1,
+          "maxLength": 200
         }
       },
       "additionalProperties": false
@@ -1053,7 +1119,13 @@ private val uiWaitSchemaJson = """
         },
         "expectedPackageName": {
           "type": "string",
-          "description": "Optional foreground package expected while verifying search results.",
+          "description": "Optional foreground package that must still be active before waiting and while verifying search results.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetPackageName": {
+          "type": "string",
+          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
           "minLength": 1,
           "maxLength": 200
         },
@@ -2346,7 +2418,12 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
-            pendingArgumentAllowlist = setOf("target", "timeoutMillis"),
+            pendingArgumentAllowlist = setOf(
+                "target",
+                "timeoutMillis",
+                "expectedPackageName",
+                "targetPackageName",
+            ),
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行屏幕点击动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
@@ -2368,7 +2445,14 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
-            pendingArgumentAllowlist = setOf("text", "target", "timeoutMillis"),
+            pendingArgumentAllowlist = setOf(
+                "text",
+                "target",
+                "timeoutMillis",
+                "allowClipboardPasteFallback",
+                "expectedPackageName",
+                "targetPackageName",
+            ),
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行屏幕输入动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
@@ -2380,7 +2464,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             name = MobileActionFunctions.UI_SUBMIT_SEARCH,
             title = "提交当前搜索",
             description = "在用户确认后通过 Accessibility 对当前输入框执行搜索提交；优先使用输入法搜索动作，失败时点击可见搜索按钮。不会发送、发布、支付或删除数据。",
-            inputSchemaJson = uiBackOrWaitSchemaJson,
+            inputSchemaJson = uiSubmitSearchSchemaJson,
             outputSchemaJson = uiActionOutputSchemaJson,
             capability = ToolCapability.DeviceControl,
             permissions = setOf(
@@ -2390,7 +2474,11 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
-            pendingArgumentAllowlist = setOf("timeoutMillis"),
+            pendingArgumentAllowlist = setOf(
+                "timeoutMillis",
+                "expectedPackageName",
+                "targetPackageName",
+            ),
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行搜索提交动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
@@ -2412,7 +2500,13 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
-            pendingArgumentAllowlist = setOf("direction", "target", "timeoutMillis"),
+            pendingArgumentAllowlist = setOf(
+                "direction",
+                "target",
+                "timeoutMillis",
+                "expectedPackageName",
+                "targetPackageName",
+            ),
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行屏幕滚动动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
@@ -2460,6 +2554,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
                 "timeoutMillis",
                 "verifySearchQuery",
                 "expectedPackageName",
+                "targetPackageName",
                 "expectedAppName",
             ),
             privateOutputKeys = uiActionPrivateOutputKeys,

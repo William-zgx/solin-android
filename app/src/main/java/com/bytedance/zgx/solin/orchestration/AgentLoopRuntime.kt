@@ -1078,6 +1078,7 @@ class AgentLoopRuntime(
             observedResult.status == ToolStatus.Failed &&
             request.isDeviceControlTool() &&
             !observedResult.isPermissionFailure() &&
+            !observedResult.isForegroundPackageGateFailure() &&
             retryRequest == null
         ) {
             planModelDeviceControlRecoveryAfterFailure(run, request, localPlanningResult)
@@ -1488,6 +1489,9 @@ class AgentLoopRuntime(
     private fun ToolResult.isPermissionFailure(): Boolean =
         error?.code == ToolErrorCode.PermissionDenied ||
             data["failureKind"] == "permission_missing"
+
+    private fun ToolResult.isForegroundPackageGateFailure(): Boolean =
+        data["failureKind"] == "app_not_foreground"
 
     private fun planNextToolStepFromCurrentSkill(
         run: AgentRun,

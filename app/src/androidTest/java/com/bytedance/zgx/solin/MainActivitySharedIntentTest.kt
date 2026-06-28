@@ -24,6 +24,9 @@ import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.multimodal.SharedTextPreview
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -31,6 +34,27 @@ import org.junit.Test
 class MainActivitySharedIntentTest {
     @get:Rule
     val composeRule = createEmptyComposeRule()
+
+    @Test
+    fun shareIntentConsumptionKeyIsStableForRecreateButChangesForNewShare() {
+        val first = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "same share")
+        }
+        val recreated = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "same share")
+        }
+        val nextShare = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "different share")
+        }
+
+        assertEquals(first.shareIntentConsumptionKey(), recreated.shareIntentConsumptionKey())
+        assertNotEquals(first.shareIntentConsumptionKey(), nextShare.shareIntentConsumptionKey())
+        assertNotNull(first.shareIntentConsumptionKey())
+        assertNull(Intent(Intent.ACTION_VIEW).shareIntentConsumptionKey())
+    }
 
     @Test
     fun actionSendTextIsStagedThroughActivityShareEntry() {

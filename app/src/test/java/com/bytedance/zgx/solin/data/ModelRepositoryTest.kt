@@ -1,7 +1,11 @@
 package com.bytedance.zgx.solin.data
 
 import com.bytedance.zgx.solin.MEMORY_EMBEDDING_MODEL_ID
+import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
+import com.bytedance.zgx.solin.RecommendedModel
+import com.bytedance.zgx.solin.RecommendedModelCompanionFile
+import com.bytedance.zgx.solin.SetupTier
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -26,6 +30,50 @@ class ModelRepositoryTest {
         assertEquals("https://models.example.com/releases/solin-chat.litertlm?token=abc", source.downloadUrl)
         assertEquals(null, source.expectedSha256)
         assertEquals(null, source.modelId)
+    }
+
+    @Test
+    fun persistedPendingDownloadSourceStripsSensitiveQueryAndFragment() {
+        val source = createCustomModelDownloadSource(
+            "https://models.example.com/releases/solin-chat.litertlm?token=abc&expires=123#signed",
+        )
+        requireNotNull(source)
+
+        val persisted = source.toPersistedJson().toString()
+        val restored = modelDownloadSourceFromPersistedJson(persisted)
+
+        assertFalse(persisted.contains("token=abc"))
+        assertFalse(persisted.contains("expires=123"))
+        assertFalse(persisted.contains("signed"))
+        requireNotNull(restored)
+        assertEquals("https://models.example.com/releases/solin-chat.litertlm", restored.downloadUrl)
+        assertEquals(source.fileName, restored.fileName)
+        assertEquals(source.expectedSha256, restored.expectedSha256)
+    }
+
+    @Test
+    fun restoredPendingDownloadSourceAlsoStripsLegacyPersistedQuery() {
+        val legacyJson = """
+            {
+              "title": "自定义模型",
+              "fileName": "solin-chat.litertlm",
+              "downloadUrl": "https://models.example.com/releases/solin-chat.litertlm?token=abc#signed",
+              "expectedBytes": null,
+              "expectedSha256": null,
+              "modelId": null,
+              "registerInstalledModel": true,
+              "requiresHuggingFaceAuthorization": false
+            }
+        """.trimIndent()
+
+        val restored = modelDownloadSourceFromPersistedJson(legacyJson)
+
+        requireNotNull(restored)
+        assertEquals("https://models.example.com/releases/solin-chat.litertlm", restored.downloadUrl)
+        val sanitized = sanitizePersistedDownloadSourceJson(legacyJson)
+        requireNotNull(sanitized)
+        assertFalse(sanitized.contains("token=abc"))
+        assertFalse(sanitized.contains("signed"))
     }
 
     @Test
@@ -119,6 +167,117 @@ class ModelRepositoryTest {
 
             assertTrue(result.isSuccess)
             assertNull(result.getOrThrow())
+        }
+    }
+
+    @Test
+    fun currentRecommendedFileVerificationRejectsChangedBytesWithSameSizeAndTimestamp() {
+        withTempModelDir { modelDir ->
+            val primary = File(modelDir, "tiny-chat.litertlm").apply {
+                writeText("abc", Charsets.UTF_8)
+            }
+            val fixedTimestamp = 1_700_000_000_000L
+            primary.setLastModified(fixedTimestamp)
+            val model = testRecommendedModel(
+                fileName = primary.name,
+                byteSize = primary.length(),
+                sha256Hex = ModelCatalog.sha256Hex(primary),
+            )
+
+            assertTrue(currentFileMatchesRecommendedModel(primary, model))
+
+            primary.writeText("abd", Charsets.UTF_8)
+            primary.setLastModified(fixedTimestamp)
+
+            assertEquals(model.byteSize, primary.length())
+            assertEquals(fixedTimestamp, primary.lastModified())
+            assertFalse(currentFileMatchesRecommendedModel(primary, model))
+        }
+    }
+
+    @Test
+    fun currentRecommendedFileVerificationRequiresCompanionSha() {
+        withTempModelDir { modelDir ->
+            val primary = File(modelDir, "tiny-memory.tflite").apply {
+                writeText("primary", Charsets.UTF_8)
+            }
+            val companion = File(modelDir, "tokenizer.model").apply {
+                writeText("tokenizer", Charsets.UTF_8)
+            }
+            val model = testRecommendedModel(
+                fileName = primary.name,
+                byteSize = primary.length(),
+                sha256Hex = ModelCatalog.sha256Hex(primary),
+                capability = ModelCapability.MemoryEmbedding,
+                companionFiles = listOf(
+                    RecommendedModelCompanionFile(
+                        fileName = companion.name,
+                        byteSize = companion.length(),
+                        sha256Hex = ModelCatalog.sha256Hex(companion),
+                        downloadUrl = "https://models.example.com/${companion.name}",
+                    ),
+                ),
+            )
+
+            assertTrue(currentFileMatchesRecommendedModel(primary, model))
+
+            companion.writeText("bad-token", Charsets.UTF_8)
+
+            assertFalse(currentFileMatchesRecommendedModel(primary, model))
+        }
+    }
+
+    @Test
+    fun recommendedRegistrationStatusRequiresCompleteCompanionBundle() {
+        withTempModelDir { modelDir ->
+            val primary = File(modelDir, "tiny-memory.tflite").apply {
+                writeText("primary", Charsets.UTF_8)
+            }
+            val missingCompanion = File(modelDir, "tokenizer.model")
+            val model = testRecommendedModel(
+                fileName = primary.name,
+                byteSize = primary.length(),
+                sha256Hex = ModelCatalog.sha256Hex(primary),
+                capability = ModelCapability.MemoryEmbedding,
+                companionFiles = listOf(
+                    RecommendedModelCompanionFile(
+                        fileName = missingCompanion.name,
+                        byteSize = 9L,
+                        sha256Hex = "0".repeat(64),
+                        downloadUrl = "https://models.example.com/${missingCompanion.name}",
+                    ),
+                ),
+            )
+
+            assertEquals(
+                ModelVerificationStatus.FailedVerification,
+                recommendedRegistrationVerificationStatus(
+                    file = primary,
+                    model = model,
+                    verifiedSha256 = model.sha256Hex,
+                    requestedStatus = ModelVerificationStatus.VerifiedRecommended,
+                ),
+            )
+
+            missingCompanion.writeText("tokenizer", Charsets.UTF_8)
+            val completeModel = model.copy(
+                companionFiles = listOf(
+                    model.companionFiles.single().copy(
+                        byteSize = missingCompanion.length(),
+                        sha256Hex = ModelCatalog.sha256Hex(missingCompanion),
+                    ),
+                ),
+            )
+
+            assertEquals(
+                ModelVerificationStatus.VerifiedRecommended,
+                recommendedRegistrationVerificationStatus(
+                    file = primary,
+                    model = completeModel,
+                    verifiedSha256 = completeModel.sha256Hex,
+                    requestedStatus = ModelVerificationStatus.VerifiedRecommended,
+                ),
+            )
         }
     }
 
@@ -325,4 +484,27 @@ class ModelRepositoryTest {
         }?.toList().orEmpty()
         assertTrue("Expected no temporary model files, found $tempFiles", tempFiles.isEmpty())
     }
+
+    private fun testRecommendedModel(
+        fileName: String,
+        byteSize: Long,
+        sha256Hex: String,
+        capability: ModelCapability = ModelCapability.Chat,
+        companionFiles: List<RecommendedModelCompanionFile> = emptyList(),
+    ): RecommendedModel =
+        RecommendedModel(
+            id = "test-${fileName.hashCode()}",
+            displayName = "测试模型",
+            shortName = "测试模型",
+            fileName = fileName,
+            byteSize = byteSize,
+            sourceRevision = "test-revision",
+            sha256Hex = sha256Hex,
+            repositoryUrl = "https://models.example.com/repo",
+            downloadUrl = "https://models.example.com/$fileName",
+            deviceHint = "test",
+            capability = capability,
+            setupTier = SetupTier.BasicRecommended,
+            companionFiles = companionFiles,
+        )
 }

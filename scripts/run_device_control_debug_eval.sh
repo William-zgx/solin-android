@@ -267,7 +267,8 @@ broadcast_command() {
   output_file="$(result_file_for "$name")"
   rm -f "$output_file"
   remove_device_result "$request_id"
-  "${ADB[@]}" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" --es requestId "$request_id" "$@" >/dev/null
+  "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
+    -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es requestId "$request_id" "$@" >/dev/null
   for _ in {1..40}; do
     if read_result "$request_id" "$output_file"; then
       if grep -Fq "requestId=$request_id" "$output_file"; then

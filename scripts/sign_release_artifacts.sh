@@ -19,9 +19,14 @@ ARTIFACT_SCAN_REPORT_FILE="${REPORT_FILE}.artifact-scan.properties"
 ALLOW_DEBUG_KEYSTORE="${ALLOW_DEBUG_KEYSTORE:-0}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 REQUIRE_AAB="${REQUIRE_AAB:-1}"
+RELEASE_KEYSTORE_PASSWORD_FILE="${RELEASE_KEYSTORE_PASSWORD_FILE:-}"
+RELEASE_KEY_PASSWORD_FILE="${RELEASE_KEY_PASSWORD_FILE:-}"
 FAILED_TARGET=""
 FAILURE_REASON=""
 ORIGINAL_ARGS=("$@")
+TMP_SECRET_DIR=""
+KEYSTORE_PASSWORD_FILE_RESOLVED=""
+KEY_PASSWORD_FILE_RESOLVED=""
 
 sha256_or_empty() {
   local path="$1"
@@ -56,6 +61,49 @@ report_value() {
   local key="$2"
   [[ -f "$file" ]] || return 0
   awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
+}
+
+read_secret_file() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  tr -d '\r\n' < "$path"
+}
+
+prepare_password_file() {
+  local env_name="$1"
+  local file_env_name="$2"
+  local label="$3"
+  local file_value="${!file_env_name:-}"
+  local secret_value="${!env_name:-}"
+  local out_file
+
+  if [[ -n "$file_value" ]]; then
+    [[ -f "$file_value" ]] ||
+      fail environment "missing-${label}-file" "Password file is missing: $file_env_name=$file_value"
+    out_file="$file_value"
+  else
+    if [[ -z "$secret_value" ]]; then
+      fail environment "missing-${label}" "Missing required environment variable or file: $env_name or $file_env_name"
+    fi
+    if [[ -z "$TMP_SECRET_DIR" ]]; then
+      TMP_SECRET_DIR="$(mktemp -d)"
+      chmod 700 "$TMP_SECRET_DIR"
+    fi
+    out_file="$TMP_SECRET_DIR/${label}.txt"
+    umask 077
+    printf '%s' "$secret_value" > "$out_file"
+  fi
+
+  if [[ ! -s "$out_file" ]]; then
+    fail environment "empty-${label}-file" "Password file is empty: $file_env_name=$out_file"
+  fi
+  printf '%s' "$out_file"
+}
+
+cleanup_secret_files() {
+  if [[ -n "${TMP_SECRET_DIR:-}" ]]; then
+    rm -rf "$TMP_SECRET_DIR"
+  fi
 }
 
 write_report() {
@@ -131,7 +179,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-trap 'status=$?; write_report "$status"; exit "$status"' EXIT
+trap 'status=$?; write_report "$status"; cleanup_secret_files; exit "$status"' EXIT
 
 fail() {
   FAILED_TARGET="$1"
@@ -160,8 +208,8 @@ require_tool() {
 
 require_env RELEASE_KEYSTORE
 require_env RELEASE_KEY_ALIAS
-require_env RELEASE_KEYSTORE_PASSWORD
-require_env RELEASE_KEY_PASSWORD
+KEYSTORE_PASSWORD_FILE_RESOLVED="$(prepare_password_file RELEASE_KEYSTORE_PASSWORD RELEASE_KEYSTORE_PASSWORD_FILE release-keystore-password)"
+KEY_PASSWORD_FILE_RESOLVED="$(prepare_password_file RELEASE_KEY_PASSWORD RELEASE_KEY_PASSWORD_FILE release-key-password)"
 
 if [[ ! -f "$RELEASE_KEYSTORE" ]]; then
   fail keystore release-keystore-missing "Release keystore not found: $RELEASE_KEYSTORE"
@@ -177,7 +225,7 @@ if [[ "$ALLOW_DEBUG_KEYSTORE" != "1" ]]; then
       keytool -list -v \
         -keystore "$RELEASE_KEYSTORE" \
         -alias "$RELEASE_KEY_ALIAS" \
-        -storepass "$RELEASE_KEYSTORE_PASSWORD" 2>/dev/null || true
+        -storepass:file "$KEYSTORE_PASSWORD_FILE_RESOLVED" 2>/dev/null || true
     )"
     if grep -qi 'CN=Android Debug' <<<"$keytool_output"; then
       fail keystore debug-certificate-not-allowed "Refusing Android debug certificate for release signing. Set ALLOW_DEBUG_KEYSTORE=1 only for local smoke validation."
@@ -212,8 +260,8 @@ if [[ -f "$UNSIGNED_APK" ]]; then
   if ! "$APKSIGNER" sign \
     --ks "$RELEASE_KEYSTORE" \
     --ks-key-alias "$RELEASE_KEY_ALIAS" \
-    --ks-pass "pass:$RELEASE_KEYSTORE_PASSWORD" \
-    --key-pass "pass:$RELEASE_KEY_PASSWORD" \
+    --ks-pass "file:$KEYSTORE_PASSWORD_FILE_RESOLVED" \
+    --key-pass "file:$KEY_PASSWORD_FILE_RESOLVED" \
     --out "$SIGNED_APK" \
     "$ALIGNED_APK"; then
     fail apk-signing apksigner-sign-failed "APK signing failed."
@@ -227,8 +275,8 @@ if [[ -f "$UNSIGNED_AAB" ]]; then
   cp "$UNSIGNED_AAB" "$SIGNED_AAB"
   if ! jarsigner \
     -keystore "$RELEASE_KEYSTORE" \
-    -storepass "$RELEASE_KEYSTORE_PASSWORD" \
-    -keypass "$RELEASE_KEY_PASSWORD" \
+    -storepass:file "$KEYSTORE_PASSWORD_FILE_RESOLVED" \
+    -keypass:file "$KEY_PASSWORD_FILE_RESOLVED" \
     "$SIGNED_AAB" \
     "$RELEASE_KEY_ALIAS" >/dev/null; then
     fail aab-signing jarsigner-sign-failed "AAB signing failed."

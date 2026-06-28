@@ -526,6 +526,7 @@ class BuiltInSkillRuntime(
                     id = "wait_target_app",
                     dependsOn = listOf("open_target_app"),
                     summary = "等待${request.appName}前台界面稳定。",
+                    expectedPackageName = expectedPackageName,
                 ),
             ) + currentAppSearchSteps(
                 observeId = "observe_target_app",
@@ -647,11 +648,13 @@ class BuiltInSkillRuntime(
                 dependsOn = listOf(observeId),
                 target = "搜索入口",
                 summary = "聚焦当前应用中的搜索入口。",
+                expectedPackageName = expectedPackageName,
             ),
             waitStep(
                 id = "wait_app_search_field",
                 dependsOn = listOf("focus_app_search"),
                 summary = "等待搜索输入框获得焦点或搜索页稳定。",
+                expectedPackageName = expectedPackageName,
             ),
             typeTextStep(
                 id = "type_app_search_query",
@@ -659,11 +662,13 @@ class BuiltInSkillRuntime(
                 text = query,
                 target = "搜索输入框",
                 summary = "输入搜索关键词：$query。",
+                expectedPackageName = expectedPackageName,
             ),
             submitSearchStep(
                 id = "submit_app_search",
                 dependsOn = listOf("type_app_search_query"),
                 summary = "提交当前应用内搜索：$query。",
+                expectedPackageName = expectedPackageName,
             ),
             waitStep(
                 id = "verify_app_search_results",
@@ -744,11 +749,13 @@ class BuiltInSkillRuntime(
         dependsOn: List<String>,
         target: String,
         summary: String,
+        expectedPackageName: String? = null,
     ): SkillStep.ToolStep {
-        val parameters = mapOf(
-            "target" to target,
-            "timeoutMillis" to "1500",
-        )
+        val parameters = buildMap {
+            put("target", target)
+            put("timeoutMillis", "1500")
+            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+        }
         val draft = ActionDraft(
             functionName = MobileActionFunctions.UI_TAP,
             title = "点击屏幕元素",
@@ -773,11 +780,13 @@ class BuiltInSkillRuntime(
         text: String,
         summary: String,
         target: String? = null,
+        expectedPackageName: String? = null,
     ): SkillStep.ToolStep {
         val parameters = buildMap {
             put("text", text)
             target?.takeIf { it.isNotBlank() }?.let { put("target", it) }
             put("timeoutMillis", "1500")
+            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
         }
         val draft = ActionDraft(
             functionName = MobileActionFunctions.UI_TYPE_TEXT,
@@ -801,8 +810,12 @@ class BuiltInSkillRuntime(
         id: String,
         dependsOn: List<String>,
         summary: String,
+        expectedPackageName: String? = null,
     ): SkillStep.ToolStep {
-        val parameters = mapOf("timeoutMillis" to "1500")
+        val parameters = buildMap {
+            put("timeoutMillis", "1500")
+            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+        }
         val draft = ActionDraft(
             functionName = MobileActionFunctions.UI_SUBMIT_SEARCH,
             title = "提交搜索",
@@ -858,11 +871,13 @@ class BuiltInSkillRuntime(
         dependsOn: List<String>,
         direction: String,
         summary: String,
+        expectedPackageName: String? = null,
     ): SkillStep.ToolStep {
-        val parameters = mapOf(
-            "direction" to direction,
-            "timeoutMillis" to "1500",
-        )
+        val parameters = buildMap {
+            put("direction", direction)
+            put("timeoutMillis", "1500")
+            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+        }
         val draft = ActionDraft(
             functionName = MobileActionFunctions.UI_SCROLL,
             title = "滚动页面",

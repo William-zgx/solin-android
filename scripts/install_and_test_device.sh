@@ -26,6 +26,8 @@ LOGCAT_TAIL_LINES="${LOGCAT_TAIL_LINES:-500}"
 INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-}"
 INSTRUMENTATION_TIMEOUT_SECONDS="${INSTRUMENTATION_TIMEOUT_SECONDS:-900}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+RELEASE_ARTIFACT_TYPE="${RELEASE_ARTIFACT_TYPE:-}"
+APP_APK_MODE="${APP_APK_MODE:-debug}"
 DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
 DEFERRED_REASON="${DEFERRED_REASON:-}"
 STATUS_OVERRIDE="${STATUS_OVERRIDE:-}"
@@ -60,8 +62,36 @@ MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
 SOLIN_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.SolinAccessibilityService"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+DEFAULT_RELEASE_APK="app/build/outputs/apk/release/app-release-signed.apk"
+APP_APK="${APP_APK:-}"
+ANDROID_TEST_APK="${ANDROID_TEST_APK:-app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk}"
 REQUIRED_FREE_KB=$((3 * 1024 * 1024))
+APP_APK_SHA256=""
+
+if [[ -z "$APP_APK" ]]; then
+  case "$APP_APK_MODE" in
+    debug)
+      APP_APK="$DEBUG_APK"
+      ;;
+    release)
+      APP_APK="$DEFAULT_RELEASE_APK"
+      ;;
+    *)
+      APP_APK="$DEBUG_APK"
+      ;;
+  esac
+fi
+
+sha256_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
+
+normalize_sha256() {
+  tr '[:upper:]' '[:lower:]' <<<"$1"
+}
 
 write_verification_report() {
   local exit_code="$1"
@@ -121,6 +151,10 @@ write_verification_report() {
     echo "instrumentation_output_file=$INSTRUMENTATION_OUTPUT_FILE"
     echo "instrumentation_output_sha256=$instrumentation_output_sha256"
     echo "test_count=${INSTRUMENTATION_TEST_COUNT:-}"
+    echo "app_apk_mode=$APP_APK_MODE"
+    echo "app_apk=$APP_APK"
+    echo "app_apk_sha256=$APP_APK_SHA256"
+    echo "releaseArtifactType=$RELEASE_ARTIFACT_TYPE"
     echo "releaseArtifactSha256=$RELEASE_ARTIFACT_SHA256"
     echo "logcat_file=$LOGCAT_FILE"
     echo "logcat_sha256=$logcat_sha256"
@@ -428,6 +462,14 @@ if [[ "$ABI_LIST" != *"arm64-v8a"* ]]; then
     "Connected device is not arm64-v8a compatible: ${ABI_LIST:-unknown}"
 fi
 
+case "$APP_APK_MODE" in
+  debug|release)
+    ;;
+  *)
+    fail_with_reason build invalid-app-apk-mode "APP_APK_MODE must be debug or release."
+    ;;
+esac
+
 DATA_FREE_KB="$("${ADB[@]}" shell df -k /data | awk 'NR == 2 {print $4}' | tr -d '\r')"
 if [[ "$DATA_FREE_KB" =~ ^[0-9]+$ && "$DATA_FREE_KB" -lt "$REQUIRED_FREE_KB" ]]; then
   fail_with_reason data-free-space data-free-below-threshold \
@@ -438,12 +480,37 @@ if [[ "$CLEAN_DEVICE" == "1" ]]; then
   "${ADB[@]}" uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
 fi
 if [[ "$SKIP_BUILD" == "1" ]]; then
-  if [[ "$SKIP_INSTALL" != "1" && ( ! -f "$DEBUG_APK" || ! -f "$ANDROID_TEST_APK" ) ]]; then
+  if [[ "$SKIP_INSTALL" != "1" && ( ! -f "$APP_APK" || ! -f "$ANDROID_TEST_APK" ) ]]; then
     fail_with_reason build skipped-build-apk-missing \
       "SKIP_BUILD=1 requires existing APKs when SKIP_INSTALL is not set."
   fi
 else
-  "$GRADLE_CMD" :app:assembleDebug :app:assembleDebugAndroidTest
+  case "$APP_APK_MODE" in
+    debug)
+      "$GRADLE_CMD" :app:assembleDebug :app:assembleDebugAndroidTest
+      ;;
+    release)
+      "$GRADLE_CMD" :app:assembleDebugAndroidTest
+      [[ -f "$APP_APK" ]] ||
+        fail_with_reason build release-app-apk-missing \
+          "APP_APK_MODE=release requires an existing signed release APK at APP_APK=$APP_APK."
+      ;;
+  esac
+fi
+
+APP_APK_SHA256="$(sha256_file "$APP_APK")"
+if [[ "$APP_APK_MODE" == "release" ]]; then
+  [[ -n "$APP_APK_SHA256" ]] ||
+    fail_with_reason build release-app-apk-missing "Release APP_APK is missing: $APP_APK"
+  if [[ -z "$RELEASE_ARTIFACT_TYPE" ]]; then
+    RELEASE_ARTIFACT_TYPE="apk"
+  fi
+  if [[ -z "$RELEASE_ARTIFACT_SHA256" ]]; then
+    RELEASE_ARTIFACT_SHA256="$APP_APK_SHA256"
+  elif [[ "$(normalize_sha256 "$RELEASE_ARTIFACT_SHA256")" != "$(normalize_sha256 "$APP_APK_SHA256")" ]]; then
+    fail_with_reason release-artifact release-artifact-sha-not-installed-apk \
+      "RELEASE_ARTIFACT_SHA256 must match the release APP_APK SHA-256 for physical-device validation."
+  fi
 fi
 
 solin_accessibility_enabled() {
@@ -466,8 +533,8 @@ require_solin_accessibility_if_needed() {
     return 0
   fi
   cat >&2 <<EOF
-栖知 Accessibility service is not enabled.
-Open system Accessibility settings, enable 栖知, then rerun with SKIP_INSTALL=1
+Solin Accessibility service is not enabled.
+Open system Accessibility settings, enable Solin, then rerun with SKIP_INSTALL=1
 or DEVICE_CONTROL_SKIP_INSTALL=1 so the debug APK is not reinstalled.
 Expected service: $SOLIN_ACCESSIBILITY_SERVICE
 EOF
@@ -476,7 +543,7 @@ EOF
 
 install_device_apks() {
   if [[ "$SKIP_INSTALL" != "1" ]]; then
-    "${ADB[@]}" install -r "$DEBUG_APK" || return
+    "${ADB[@]}" install -r "$APP_APK" || return
     "${ADB[@]}" install -r -t "$ANDROID_TEST_APK" || return
   fi
 }
@@ -592,7 +659,7 @@ instrumentation_test_count_for() {
 }
 
 if ! install_device_apks; then
-  fail_with_reason install install-command-failed "Failed to install 栖知 debug or androidTest APK."
+  fail_with_reason install install-command-failed "Failed to install Solin app or androidTest APK."
 fi
 
 if ! prepare_device_for_instrumentation; then
@@ -649,7 +716,7 @@ USB install / Install via USB, and accept any install confirmation shown on the 
 Then rerun scripts/install_and_test_device.sh.
 EOF
   fi
-  if grep -q "栖知 Accessibility service is not enabled" <<<"$TEST_OUTPUT"; then
+  if grep -q "Solin Accessibility service is not enabled" <<<"$TEST_OUTPUT"; then
     FAILED_TARGET="accessibility-permission"
     FAILURE_REASON="solin-accessibility-not-enabled"
   fi

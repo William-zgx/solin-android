@@ -14,6 +14,8 @@ PACKAGE_NAME="com.bytedance.zgx.solin"
 RUN_GRADLE_BUILD="${RUN_GRADLE_BUILD:-1}"
 INSTALL_ON_DEVICE="${INSTALL_ON_DEVICE:-0}"
 ALLOW_DEBUG_KEYSTORE="${ALLOW_DEBUG_KEYSTORE:-0}"
+RELEASE_KEYSTORE_PASSWORD_FILE="${RELEASE_KEYSTORE_PASSWORD_FILE:-}"
+RELEASE_KEY_PASSWORD_FILE="${RELEASE_KEY_PASSWORD_FILE:-}"
 SIGNED_DIR="${SIGNED_DIR:-app/build/outputs/apk/bundledModels/signed-splits}"
 REPORT_FILE="${REPORT_FILE:-build/verification/bundled-models/package.properties}"
 INSTALL_OUTPUT_FILE="${INSTALL_OUTPUT_FILE:-${REPORT_FILE%.properties}.install.txt}"
@@ -22,7 +24,7 @@ START_OUTPUT_FILE="${START_OUTPUT_FILE:-${REPORT_FILE%.properties}.start.txt}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ORIGINAL_COMMAND="$(printf '%q' "scripts/package_bundled_models.sh")"
 MODEL_LICENSE_REVIEW_FILE="docs/model_license_review.json"
-MODEL_LICENSE_GATE_COMMAND="VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh"
+MODEL_LICENSE_GATE_COMMAND="VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh"
 for original_arg in "$@"; do
   ORIGINAL_COMMAND+=" $(printf '%q' "$original_arg")"
 done
@@ -46,6 +48,9 @@ SIGNED_APK_COUNT=0
 SELECTED_SERIAL=""
 FAILED_TARGET=""
 FAILURE_REASON=""
+TMP_SECRET_DIR=""
+KEYSTORE_PASSWORD_FILE_RESOLVED=""
+KEY_PASSWORD_FILE_RESOLVED=""
 
 shell_command() {
   printf '%s' "$ORIGINAL_COMMAND"
@@ -135,6 +140,7 @@ on_exit() {
     FAILURE_REASON="script-failed"
   fi
   write_report "$code"
+  cleanup_secret_files
   exit "$code"
 }
 trap on_exit EXIT
@@ -145,6 +151,41 @@ fail() {
   shift 2
   echo "package_bundled_models: $*" >&2
   exit 1
+}
+
+prepare_password_file() {
+  local env_name="$1"
+  local file_env_name="$2"
+  local label="$3"
+  local file_value="${!file_env_name:-}"
+  local secret_value="${!env_name:-}"
+  local out_file
+
+  if [[ -n "$file_value" ]]; then
+    [[ -f "$file_value" ]] ||
+      fail signing "missing-${label}-file" "Password file is missing: $file_env_name=$file_value"
+    out_file="$file_value"
+  else
+    [[ -n "$secret_value" ]] ||
+      fail signing "missing-${label}" "Missing $env_name or $file_env_name."
+    if [[ -z "$TMP_SECRET_DIR" ]]; then
+      TMP_SECRET_DIR="$(mktemp -d)"
+      chmod 700 "$TMP_SECRET_DIR"
+    fi
+    out_file="$TMP_SECRET_DIR/${label}.txt"
+    umask 077
+    printf '%s' "$secret_value" > "$out_file"
+  fi
+
+  [[ -s "$out_file" ]] ||
+    fail signing "empty-${label}-file" "Password file is empty: $file_env_name=$out_file"
+  printf '%s' "$out_file"
+}
+
+cleanup_secret_files() {
+  if [[ -n "${TMP_SECRET_DIR:-}" ]]; then
+    rm -rf "$TMP_SECRET_DIR"
+  fi
 }
 
 usage() {
@@ -158,7 +199,7 @@ Compliance note:
   SHA-256 verification, and APK signing do not approve model license,
   redistribution, attribution, notice, store-policy, or public use. Keep
   artifacts internal until docs/model_license_review.json is approved and
-  VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh passes.
+  VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh passes.
 
 Common environment:
   SOLIN_BUNDLED_MODELS_DIR  Directory with already verified model files.
@@ -171,8 +212,8 @@ Common environment:
 Production/team signing environment:
   RELEASE_KEYSTORE
   RELEASE_KEY_ALIAS
-  RELEASE_KEYSTORE_PASSWORD
-  RELEASE_KEY_PASSWORD
+  RELEASE_KEYSTORE_PASSWORD or RELEASE_KEYSTORE_PASSWORD_FILE
+  RELEASE_KEY_PASSWORD or RELEASE_KEY_PASSWORD_FILE
 EOF
 }
 
@@ -205,8 +246,8 @@ configure_signing() {
 
   [[ -n "${RELEASE_KEYSTORE:-}" ]] || fail signing missing-release-keystore "Missing RELEASE_KEYSTORE. Set ALLOW_DEBUG_KEYSTORE=1 only for local smoke signing."
   [[ -n "${RELEASE_KEY_ALIAS:-}" ]] || fail signing missing-release-key-alias "Missing RELEASE_KEY_ALIAS."
-  [[ -n "${RELEASE_KEYSTORE_PASSWORD:-}" ]] || fail signing missing-release-keystore-password "Missing RELEASE_KEYSTORE_PASSWORD."
-  [[ -n "${RELEASE_KEY_PASSWORD:-}" ]] || fail signing missing-release-key-password "Missing RELEASE_KEY_PASSWORD."
+  KEYSTORE_PASSWORD_FILE_RESOLVED="$(prepare_password_file RELEASE_KEYSTORE_PASSWORD RELEASE_KEYSTORE_PASSWORD_FILE release-keystore-password)"
+  KEY_PASSWORD_FILE_RESOLVED="$(prepare_password_file RELEASE_KEY_PASSWORD RELEASE_KEY_PASSWORD_FILE release-key-password)"
   [[ -f "$RELEASE_KEYSTORE" ]] || fail signing release-keystore-missing "Keystore not found: $RELEASE_KEYSTORE"
 
   if [[ "$ALLOW_DEBUG_KEYSTORE" != "1" ]]; then
@@ -257,8 +298,8 @@ for apk in "${RAW_APKS[@]}"; do
   "$APKSIGNER" sign \
     --ks "$RELEASE_KEYSTORE" \
     --ks-key-alias "$RELEASE_KEY_ALIAS" \
-    --ks-pass "pass:$RELEASE_KEYSTORE_PASSWORD" \
-    --key-pass "pass:$RELEASE_KEY_PASSWORD" \
+    --ks-pass "file:$KEYSTORE_PASSWORD_FILE_RESOLVED" \
+    --key-pass "file:$KEY_PASSWORD_FILE_RESOLVED" \
     "$out"
   "$APKSIGNER" verify --verbose "$out" > "$out.verify.txt"
   SIGNED_APKS+=("$out")

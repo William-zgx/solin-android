@@ -837,9 +837,18 @@ class BuiltInSkillRuntimeTest {
         )
         val openAppStep = openAppSearchPlan.steps[0] as SkillStep.ToolStep
         assertEquals("淘宝", openAppStep.request.arguments["appName"])
+        val waitTargetAppStep = openAppSearchPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("com.taobao.taobao", waitTargetAppStep.request.arguments["expectedPackageName"])
+        val openAppTap = openAppSearchPlan.steps[3] as SkillStep.ToolStep
+        assertEquals("com.taobao.taobao", openAppTap.request.arguments["expectedPackageName"])
+        val openAppWaitSearchField = openAppSearchPlan.steps[4] as SkillStep.ToolStep
+        assertEquals("com.taobao.taobao", openAppWaitSearchField.request.arguments["expectedPackageName"])
         val openAppType = openAppSearchPlan.steps[5] as SkillStep.ToolStep
         assertEquals("海河牛奶", openAppType.request.arguments["text"])
         assertEquals("搜索输入框", openAppType.request.arguments["target"])
+        assertEquals("com.taobao.taobao", openAppType.request.arguments["expectedPackageName"])
+        val openAppSubmit = openAppSearchPlan.steps[6] as SkillStep.ToolStep
+        assertEquals("com.taobao.taobao", openAppSubmit.request.arguments["expectedPackageName"])
         val openAppVerify = openAppSearchPlan.steps[7] as SkillStep.ToolStep
         assertEquals("海河牛奶", openAppVerify.request.arguments["verifySearchQuery"])
         assertEquals("com.taobao.taobao", openAppVerify.request.arguments["expectedPackageName"])
@@ -2085,6 +2094,14 @@ class BuiltInSkillRuntimeTest {
         )
         val openAppStep = plan.steps[0] as SkillStep.ToolStep
         assertEquals(expectation.appName, openAppStep.request.arguments["appName"])
+        listOf(1, 3, 4, 5, 6, 7).forEach { index ->
+            val step = plan.steps[index] as SkillStep.ToolStep
+            assertEquals(
+                "step ${step.id} should gate ${expectation.appName}",
+                expectation.expectedPackageName,
+                step.request.arguments["expectedPackageName"],
+            )
+        }
         val typeStep = plan.steps[5] as SkillStep.ToolStep
         assertEquals(expectation.query, typeStep.request.arguments["text"])
         assertEquals("搜索输入框", typeStep.request.arguments["target"])

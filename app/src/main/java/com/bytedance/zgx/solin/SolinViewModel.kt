@@ -158,6 +158,17 @@ private data class PendingRemoteContinuation(
     val remoteToolScope: RemoteToolScope,
 )
 
+private data class PendingSharedInputRemoteSendRestore(
+    val draft: SharedInputDraft,
+    val userInstruction: String,
+    val combinedPrompt: String,
+) {
+    fun matches(pending: PendingRemoteSendDisclosure): Boolean =
+        pending.kind == RemoteSendDisclosureKind.CurrentInput &&
+            pending.prompt == combinedPrompt &&
+            pending.imageAttachments == draft.imageAttachments
+}
+
 class SolinViewModel(
     private val modelRepository: ModelRepositoryFacade,
     private val sessionRepository: SessionStore,
@@ -204,6 +215,7 @@ class SolinViewModel(
     private var nextVoiceInputDraftId = 0L
     private var nextSharedInputDraftId = 0L
     private var pendingRemoteContinuation: PendingRemoteContinuation? = null
+    private var pendingSharedInputRemoteSendRestore: PendingSharedInputRemoteSendRestore? = null
     private var remoteConnectivityProbeJob: Job? = null
     /**
      * Session-scoped suppression of the remote-send disclosure sheet. Set when the user picks
@@ -921,6 +933,7 @@ class SolinViewModel(
     fun selectInferenceMode(mode: InferenceMode) {
         if (_uiState.value.isBusy || _uiState.value.inferenceMode == mode) return
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         // Trust boundary changed (inference mode switch): a prior session-scoped
         // "don't ask again" must not silently carry into the new destination.
@@ -970,6 +983,7 @@ class SolinViewModel(
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         remoteConnectivityProbeJob?.cancel()
         // Trust boundary changed (remote destination/credential): never let a prior
@@ -1075,6 +1089,7 @@ class SolinViewModel(
         val installed = modelRepository.selectInstalledModel(modelId) ?: return
         remoteModelRepository.saveMode(InferenceMode.Local)
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         resetRemoteSendDisclosureSuppression()
         updateModelState(modelRepository.currentState())
@@ -1149,6 +1164,7 @@ class SolinViewModel(
         val backendChoice = preferredBackendForActiveModel(_uiState.value, _uiState.value.backend)
         remoteModelRepository.saveMode(InferenceMode.Local)
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         if (backendChoice != _uiState.value.backend) {
             generationParametersRepository.saveBackend(backendChoice)
@@ -1278,6 +1294,7 @@ class SolinViewModel(
     fun createNewSession() {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         // New session is a fresh trust context; drop any session-scoped disclosure suppression.
         resetRemoteSendDisclosureSuppression()
@@ -1314,6 +1331,7 @@ class SolinViewModel(
     fun selectSession(sessionId: String) {
         if (_uiState.value.isBusy || _uiState.value.activeSessionId == sessionId) return
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         // Switching sessions is a trust-context change; drop session-scoped disclosure suppression.
         resetRemoteSendDisclosureSuppression()
@@ -1349,7 +1367,11 @@ class SolinViewModel(
     fun deleteActiveSession() {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
+        // Deleting the current session changes the remote trust context even when a replacement
+        // empty session is created immediately.
+        resetRemoteSendDisclosureSuppression()
         val deletedSessionId = sessionRepository.activeSessionId
         val messages = sessionRepository.deleteActiveSession() ?: return
         val activeSessionId = sessionRepository.activeSessionId
@@ -2198,15 +2220,22 @@ class SolinViewModel(
         if (pending.requiresSensitiveConsent) return
         // Only honor "don't ask again this session" for non-forced sends.
         // Sensitive disclosures must never be silenced — they re-prompt every time regardless.
-        if (suppressForSession && !pending.forcedBySensitiveContent && pending.imageAttachmentCount == 0) {
+        if (suppressForSession &&
+            _uiState.value.remoteSendDisclosurePolicy == RemoteSendDisclosurePolicy.OncePerSession &&
+            !pending.forcedBySensitiveContent &&
+            pending.imageAttachmentCount == 0
+        ) {
             remoteSendDisclosureSuppressedForSession = true
         }
         recordRemoteSendDecision(RemoteSendDecision.Confirmed, pending)
         remoteSendPendingStore.clearPendingRemoteSend()
         val continuation = pendingRemoteContinuation
+        val sharedInputRestore = pendingSharedInputRemoteSendRestore
+            ?.takeIf { it.matches(pending) }
+        pendingSharedInputRemoteSendRestore = null
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
-                it.copy(
+                it.clearPendingSharedInputDraftForConfirmedRemoteSend(sharedInputRestore).copy(
                     pendingRemoteSendDisclosure = null,
                     statusText = "处理中",
                 )
@@ -2250,9 +2279,13 @@ class SolinViewModel(
         )
         recordRemoteSendDecision(RemoteSendDecision.MaskedSend, pending)
         remoteSendPendingStore.clearPendingRemoteSend()
+        val sharedInputRestore = pendingSharedInputRemoteSendRestore
+            ?.takeIf { it.matches(pending) }
+        pendingSharedInputRemoteSendRestore = null
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
-                it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
+                it.clearPendingSharedInputDraftForConfirmedRemoteSend(sharedInputRestore)
+                    .copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
             } else {
                 it
             }
@@ -2280,9 +2313,13 @@ class SolinViewModel(
         )
         recordRemoteSendDecision(RemoteSendDecision.SentAnyway, pending)
         remoteSendPendingStore.clearPendingRemoteSend()
+        val sharedInputRestore = pendingSharedInputRemoteSendRestore
+            ?.takeIf { it.matches(pending) }
+        pendingSharedInputRemoteSendRestore = null
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
-                it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
+                it.clearPendingSharedInputDraftForConfirmedRemoteSend(sharedInputRestore)
+                    .copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
             } else {
                 it
             }
@@ -2425,8 +2462,9 @@ class SolinViewModel(
     }
 
     fun dismissRemoteSendDisclosure() {
-        _uiState.value.pendingRemoteSendDisclosure?.let { pending ->
-            recordRemoteSendDecision(RemoteSendDecision.Cancelled, pending)
+        val pending = _uiState.value.pendingRemoteSendDisclosure
+        pending?.let { disclosure ->
+            recordRemoteSendDecision(RemoteSendDecision.Cancelled, disclosure)
         }
         val continuation = pendingRemoteContinuation
         pendingRemoteContinuation = null
@@ -2439,9 +2477,16 @@ class SolinViewModel(
             _uiState.updateLastAssistantLocalOnly(reason)
             persistActiveSessionFromUi()
         }
+        val sharedInputRestore = pendingSharedInputRemoteSendRestore
+            ?.takeIf { restore -> pending != null && restore.matches(pending) }
+        pendingSharedInputRemoteSendRestore = null
         _uiState.update {
             if (it.pendingRemoteSendDisclosure != null) {
-                it.copy(
+                it.restoreComposerDraftAfterRemoteSendCancel(
+                    pending = pending,
+                    sharedInputRestore = if (continuation == null) sharedInputRestore else null,
+                    restoreOrdinaryPrompt = continuation == null,
+                ).copy(
                     pendingRemoteSendDisclosure = null,
                     isBusy = false,
                     isGenerating = false,
@@ -2515,6 +2560,7 @@ class SolinViewModel(
 
     private fun stageSharedInputDraft(sharedInput: SharedInput, statusText: String) {
         if (sharedInput.isEmpty) return
+        pendingSharedInputRemoteSendRestore = null
         val imageAttachments = if (_uiState.value.inferenceMode == InferenceMode.Remote) {
             sharedInput.remoteImageAttachments()
         } else {
@@ -2681,6 +2727,9 @@ class SolinViewModel(
     }
 
     fun clearPendingSharedInputDraft(draftId: Long) {
+        if (pendingSharedInputRemoteSendRestore?.draft?.id == draftId) {
+            pendingSharedInputRemoteSendRestore = null
+        }
         _uiState.update {
             if (it.pendingSharedInputDraft?.id == draftId) {
                 it.copy(
@@ -2737,14 +2786,8 @@ class SolinViewModel(
             return
         }
 
-        _uiState.update {
-            if (it.pendingSharedInputDraft?.id == draft.id) {
-                it.copy(pendingSharedInputDraft = null)
-            } else {
-                it
-            }
-        }
         if (!_uiState.value.isReady) {
+            clearPendingSharedInputDraftIfActive(draft.id)
             if (_uiState.value.inferenceMode == InferenceMode.Remote &&
                 !_uiState.value.remoteModelConfig.isConfigured
             ) {
@@ -2766,12 +2809,81 @@ class SolinViewModel(
             _uiState.update { it.copy(statusText = "已接收分享内容") }
             return
         }
+        val cleanedInstruction = userInstruction.trim()
         sendMessageInternal(
             prompt = message,
             explicitMessagePrivacy = draft.privacy,
             imageAttachments = draft.imageAttachments,
             localImageAttachments = draft.localImageAttachments,
             currentPromptEvidenceSummary = draft.evidenceReceiptSummary,
+        )
+        val pending = _uiState.value.pendingRemoteSendDisclosure
+        if (pending != null &&
+            pending.kind == RemoteSendDisclosureKind.CurrentInput &&
+            pending.prompt == message &&
+            pending.imageAttachments == draft.imageAttachments
+        ) {
+            pendingSharedInputRemoteSendRestore = PendingSharedInputRemoteSendRestore(
+                draft = draft,
+                userInstruction = cleanedInstruction,
+                combinedPrompt = message,
+            )
+        } else {
+            pendingSharedInputRemoteSendRestore = null
+            clearPendingSharedInputDraftIfActive(draft.id)
+        }
+    }
+
+    private fun clearPendingSharedInputDraftIfActive(draftId: Long) {
+        _uiState.update {
+            if (it.pendingSharedInputDraft?.id == draftId) {
+                it.copy(pendingSharedInputDraft = null)
+            } else {
+                it
+            }
+        }
+    }
+
+    private fun ChatUiState.clearPendingSharedInputDraftForConfirmedRemoteSend(
+        restore: PendingSharedInputRemoteSendRestore?,
+    ): ChatUiState {
+        if (restore == null) return this
+        return if (pendingSharedInputDraft?.id == restore.draft.id) {
+            copy(pendingSharedInputDraft = null)
+        } else {
+            this
+        }
+    }
+
+    private fun ChatUiState.restoreComposerDraftAfterRemoteSendCancel(
+        pending: PendingRemoteSendDisclosure?,
+        sharedInputRestore: PendingSharedInputRemoteSendRestore?,
+        restoreOrdinaryPrompt: Boolean,
+    ): ChatUiState {
+        if (pending == null || pending.kind != RemoteSendDisclosureKind.CurrentInput) return this
+        if (sharedInputRestore != null) {
+            val restoredSharedDraft = if (pendingSharedInputDraft == null) {
+                copy(pendingSharedInputDraft = sharedInputRestore.draft)
+            } else {
+                this
+            }
+            return restoredSharedDraft.withRecoveredComposerInputDraft(sharedInputRestore.userInstruction)
+        }
+        return if (restoreOrdinaryPrompt) {
+            withRecoveredComposerInputDraft(pending.prompt)
+        } else {
+            this
+        }
+    }
+
+    private fun ChatUiState.withRecoveredComposerInputDraft(text: String): ChatUiState {
+        val cleaned = text.trim()
+        if (cleaned.isBlank()) return this
+        return copy(
+            voiceInputDraft = VoiceInputDraft(
+                id = ++nextVoiceInputDraftId,
+                text = cleaned,
+            ),
         )
     }
 
@@ -4018,7 +4130,7 @@ class SolinViewModel(
             RemoteSendDisclosurePolicy.OncePerSession ->
                 !remoteSendDisclosureSuppressedForSession
             RemoteSendDisclosurePolicy.EveryMessage ->
-                !remoteSendDisclosureSuppressedForSession
+                true
         }
     }
 
@@ -4886,6 +4998,7 @@ class SolinViewModel(
     ) {
         val config = _uiState.value.remoteModelConfig
         pendingRemoteContinuation = null
+        pendingSharedInputRemoteSendRestore = null
         remoteSendPendingStore.clearPendingRemoteSend()
         val modeDisclosure = if (showModeDisclosure) {
             buildRemoteModeDisclosure(config)

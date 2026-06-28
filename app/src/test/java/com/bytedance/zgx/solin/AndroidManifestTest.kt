@@ -8,6 +8,15 @@ import org.junit.Test
 
 class AndroidManifestTest {
     @Test
+    fun appDisplayNameCombinesChineseNameWithEnglishBrand() {
+        val manifest = readManifest()
+
+        assertTrue(manifest.contains("""android:label="@string/app_name""""))
+        assertEquals(EXPECTED_APP_DISPLAY_NAME, readMainStringResource("values/strings.xml", "app_name"))
+        assertEquals(EXPECTED_APP_DISPLAY_NAME, readMainStringResource("values-en/strings.xml", "app_name"))
+    }
+
+    @Test
     fun declaresUsageStatsPermissionForSpecialAccessSettings() {
         val manifest = readManifest()
 
@@ -77,6 +86,16 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun debugDeviceControlEvalReceiverIsInternalAndUsesProprietaryAction() {
+        val manifest = readDebugManifest()
+        val receiver = manifest.receiverDeclarationFor(".debug.DeviceControlEvalReceiver")
+
+        assertTrue(receiver.contains("""android:exported="false""""))
+        assertFalse(receiver.contains("""android:exported="true""""))
+        assertTrue(receiver.contains("""com.bytedance.zgx.solin.debug.DEVICE_CONTROL_EVAL"""))
+    }
+
+    @Test
     fun shareTargetsAcceptPickerSupportedDocumentMimeTypes() {
         val manifest = readManifest()
         val sendFilter = manifest.intentFilterFor("android.intent.action.SEND")
@@ -131,6 +150,15 @@ class AndroidManifestTest {
         return manifestFile.readText()
     }
 
+    private fun readMainStringResource(valuesPath: String, name: String): String {
+        val stringsXml = readMainFile("res/$valuesPath")
+        return Regex("""<string\s+name="$name">([^<]*)</string>""")
+            .find(stringsXml)
+            ?.groupValues
+            ?.get(1)
+            ?: error("String resource $name not found in $valuesPath")
+    }
+
     private fun String.intentFilterFor(actionName: String): String =
         Regex("""<intent-filter>[\s\S]*?</intent-filter>""")
             .findAll(this)
@@ -156,6 +184,8 @@ class AndroidManifestTest {
             .first { it.contains("""android:name="$serviceName"""") }
 
     private companion object {
+        const val EXPECTED_APP_DISPLAY_NAME = "栖知 Solin"
+
         val SHARED_ATTACHMENT_MIME_TYPES = listOf(
             "text/*",
             "image/*",

@@ -92,6 +92,23 @@ debug_receiver_broadcast() {
     "$@"
 }
 
+shell_single_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+debug_receiver_configure_remote() {
+  local base_url_quoted model_quoted api_key_quoted
+  base_url_quoted="$(shell_single_quote "$LIVE_REMOTE_BASE_URL")"
+  model_quoted="$(shell_single_quote "$LIVE_REMOTE_MODEL")"
+  api_key_quoted="$(shell_single_quote "$LIVE_REMOTE_API_KEY")"
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell run-as "$PACKAGE_NAME" sh -s <<EOF
+base_url=$base_url_quoted
+model_name=$model_quoted
+api_key=$api_key_quoted
+am broadcast --user 0 -n "$DEBUG_CONFIG_RECEIVER" --es baseUrl "\$base_url" --es modelName "\$model_name" --es apiKey "\$api_key" --ez clearState true
+EOF
+}
+
 clear_remote_config() {
   if [[ -z "${SELECTED_SERIAL:-}" || ! -x "$ADB_BIN" ]]; then
     return
@@ -304,11 +321,7 @@ if ! "${ADB[@]}" install -r "$DEBUG_APK" >/dev/null; then
 fi
 
 set +x
-if ! debug_receiver_broadcast \
-  --es baseUrl "$LIVE_REMOTE_BASE_URL" \
-  --es modelName "$LIVE_REMOTE_MODEL" \
-  --es apiKey "$LIVE_REMOTE_API_KEY" \
-  --ez clearState true >/dev/null; then
+if ! debug_receiver_configure_remote >/dev/null; then
   fail remote-config remote-config-broadcast-failed "Debug remote config broadcast failed."
 fi
 

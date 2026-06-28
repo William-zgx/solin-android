@@ -9460,6 +9460,7 @@ class AgentLoopRuntimeTest {
 
         var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
         assertTrue(plan.request.reason.contains("等待${searchCase.appName}前台界面稳定"))
+        assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = runtime.observeToolResult(
             planned.run.id,
             uiActionResult(
@@ -9478,6 +9479,7 @@ class AgentLoopRuntimeTest {
             ),
         ).requireNextTool(MobileActionFunctions.UI_TAP)
         assertEquals("搜索入口", plan.request.arguments["target"])
+        assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = runtime.observeToolResult(
             planned.run.id,
             uiActionResult(
@@ -9488,6 +9490,7 @@ class AgentLoopRuntimeTest {
                 textSummary = "${searchCase.appName} 搜索输入框",
             ),
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
+        assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = runtime.observeToolResult(
             planned.run.id,
             uiActionResult(
@@ -9499,6 +9502,7 @@ class AgentLoopRuntimeTest {
         ).requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
         assertEquals(searchCase.query, plan.request.arguments["text"])
         assertEquals("搜索输入框", plan.request.arguments["target"])
+        assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = runtime.observeToolResult(
             planned.run.id,
             uiActionResult(
@@ -9509,6 +9513,7 @@ class AgentLoopRuntimeTest {
                 textSummary = "${searchCase.appName} ${searchCase.query}",
             ),
         ).requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = runtime.observeToolResult(
             planned.run.id,
             uiActionResult(

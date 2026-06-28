@@ -464,6 +464,76 @@ class SolinViewModelTest {
         }
 
     @Test
+    fun remoteSendDisclosureEveryMessageIgnoresSuppressForSession() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("第一条远程问题")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+        advanceUntilIdle()
+        assertEquals(1, remoteRuntime.calls.size)
+
+        viewModel.sendMessage("第二条远程问题")
+        advanceUntilIdle()
+
+        val second = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("第二条远程问题", second.prompt)
+        assertEquals(1, remoteRuntime.calls.size)
+    }
+
+    @Test
+    fun deleteActiveSessionResetsRemoteSendSuppression() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore(
+            initialSessions = mapOf(
+                "session-1" to emptyList(),
+                "session-2" to emptyList(),
+            ),
+            initialActiveSessionId = "session-1",
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OncePerSession)
+
+        viewModel.sendMessage("第一条普通远程问题")
+        advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+        advanceUntilIdle()
+        assertEquals(1, remoteRuntime.calls.size)
+
+        viewModel.deleteActiveSession()
+        advanceUntilIdle()
+        viewModel.sendMessage("第二条普通远程问题")
+        advanceUntilIdle()
+
+        val pending = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("第二条普通远程问题", pending.prompt)
+        assertEquals(1, remoteRuntime.calls.size)
+    }
+
+    @Test
     fun remoteSendDisclosureOnlyWhenSensitiveStillConfirmsImageSend() =
         runTest(dispatcher) {
             val remoteRuntime = RecordingRemoteChatRuntime()
@@ -689,6 +759,7 @@ class SolinViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("普通远程问题", viewModel.uiState.value.voiceInputDraft?.text)
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals("已取消远程发送", viewModel.uiState.value.statusText)
     }
@@ -777,11 +848,13 @@ class SolinViewModelTest {
         assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
         assertEquals(1, disclosure.imageAttachmentCount)
         assertEquals("data:image/png;base64,AA==", disclosure.imageAttachments.single().dataUrl)
+        assertNotNull(viewModel.uiState.value.pendingSharedInputDraft)
         assertTrue(remoteRuntime.calls.isEmpty())
 
         viewModel.confirmRemoteSendDisclosure()
         advanceUntilIdle()
 
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         val call = remoteRuntime.calls.single()
         assertTrue(call.prompt.contains("描述这张图"))
@@ -827,12 +900,17 @@ class SolinViewModelTest {
 
         val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
         assertEquals(1, disclosure.imageAttachmentCount)
+        assertNotNull(viewModel.uiState.value.pendingSharedInputDraft)
         assertTrue(remoteRuntime.calls.isEmpty())
 
         viewModel.dismissRemoteSendDisclosure()
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        val restoredDraft = requireNotNull(viewModel.uiState.value.pendingSharedInputDraft)
+        assertEquals("screen.png · 图片", restoredDraft.summary)
+        assertEquals("data:image/png;base64,AA==", restoredDraft.imageAttachments.single().dataUrl)
+        assertEquals("描述这张图", viewModel.uiState.value.voiceInputDraft?.text)
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals("已取消远程发送", viewModel.uiState.value.statusText)
         assertTrue(sessionStore.messages.isEmpty())
@@ -2136,11 +2214,13 @@ class SolinViewModelTest {
         val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
         assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
         assertEquals(1, disclosure.imageAttachmentCount)
+        assertNotNull(viewModel.uiState.value.pendingSharedInputDraft)
         assertTrue(remoteRuntime.calls.isEmpty())
 
         viewModel.confirmRemoteSendDisclosure()
         advanceUntilIdle()
 
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
         val call = remoteRuntime.calls.single()
         assertTrue(call.prompt.contains("描述这张图"))
         assertTrue(call.prompt.contains("已附加 1 张图片"))

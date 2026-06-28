@@ -9,6 +9,7 @@ source "$ROOT_DIR/scripts/release_preflight_fields.sh"
 VALIDATION_RECORD_FILE="${VALIDATION_RECORD_FILE:-docs/release_validation_record.json}"
 ANDROID_TEST_SOURCE_DIR="${ANDROID_TEST_SOURCE_DIR:-app/src/androidTest}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
+EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
 ORIGINAL_ARGS=("$@")
@@ -127,6 +128,7 @@ write_report() {
       printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
       printf 'validationRecordSha256=%s\n' "$(sha256_or_empty "$VALIDATION_RECORD_FILE")"
       printf 'androidTestSourceDir=%s\n' "$ANDROID_TEST_SOURCE_DIR"
+      printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
     } > "$REPORT_FILE"
   fi
@@ -142,7 +144,7 @@ TMP_FAILURES="$(mktemp)"
 trap 'rm -f "$TMP_FAILURES"' EXIT
 
 set +e
-python3 - "$VALIDATION_RECORD_FILE" "$ANDROID_TEST_SOURCE_DIR" "$EXPECTED_RELEASE_ARTIFACT_SHA256" > "$TMP_FAILURES" <<'PY'
+python3 - "$VALIDATION_RECORD_FILE" "$ANDROID_TEST_SOURCE_DIR" "$EXPECTED_RELEASE_ARTIFACT_SHA256" "$EXPECTED_RELEASE_ARTIFACT_TYPE" > "$TMP_FAILURES" <<'PY'
 import json
 import hashlib
 import re
@@ -153,6 +155,7 @@ from pathlib import Path
 record_path = Path(sys.argv[1])
 android_test_source_dir = Path(sys.argv[2])
 expected_release_artifact_sha = sys.argv[3]
+expected_release_artifact_type = sys.argv[4]
 
 try:
     record = json.loads(record_path.read_text())
@@ -205,6 +208,34 @@ def validate_utc_timestamp_fresh(value, max_age_days, prefix):
     elif (now - parsed).days > max_age_days:
         failures.append(f"{prefix}-recorded-at-stale")
 
+def validate_source_evidence_bindings(prefix, evidence_path, props):
+    raw_count = props.get("sourceEvidenceFileCount", "")
+    try:
+        count = int(raw_count)
+    except ValueError:
+        failures.append(f"{prefix}-source-evidence-file-count-invalid")
+        return
+    if count <= 0:
+        failures.append(f"{prefix}-source-evidence-file-count-invalid")
+        return
+    for index in range(1, count + 1):
+        path_value = props.get(f"sourceEvidenceFile{index}Path", "")
+        sha_value = props.get(f"sourceEvidenceFile{index}Sha256", "")
+        source_prefix = f"{prefix}-source-evidence-file-{index}"
+        if not non_empty_string(path_value):
+            failures.append(f"{source_prefix}-path-missing")
+            continue
+        source_path = Path(path_value)
+        if source_path.resolve() == Path(evidence_path).resolve():
+            failures.append(f"{source_prefix}-must-not-be-self")
+        if not source_path.is_file():
+            failures.append(f"{source_prefix}-missing")
+            continue
+        if not re.match(r"^[0-9a-fA-F]{64}$", sha_value):
+            failures.append(f"{source_prefix}-sha-invalid")
+            continue
+        validate_file_sha(source_prefix, source_path, sha_value)
+
 def validate_formal_evidence_audit(section, key, record_entry, evidence_path, props):
     prefix = f"{section}-{key}-evidence"
     expected_schema = {
@@ -232,6 +263,7 @@ def validate_formal_evidence_audit(section, key, record_entry, evidence_path, pr
         failures.append(f"{prefix}-command-missing")
     if props.get("reproduciblePath") != str(evidence_path):
         failures.append(f"{prefix}-reproducible-path-invalid")
+    validate_source_evidence_bindings(prefix, evidence_path, props)
     validation_record_file = props.get("validationRecordFile", "")
     if not non_empty_string(validation_record_file):
         failures.append(f"{prefix}-validation-record-file-missing")
@@ -1249,8 +1281,30 @@ else:
     expected_clean = "1" if physical.get("cleanDevice") is True else "0"
     if props.get("clean_device") != expected_clean:
         failures.append("physical-device-report-clean-device-mismatch")
-    if expected_clean == "0" and props.get("reset_app_data_after_tests") != "0":
+    if props.get("reset_app_data_after_tests") != "0":
         failures.append("physical-device-report-reset-app-data-after-tests-not-disabled")
+    app_apk_mode = props.get("app_apk_mode", "")
+    if app_apk_mode != "release":
+        failures.append("physical-device-report-app-apk-mode-not-release")
+    app_apk = props.get("app_apk", "")
+    app_apk_sha = props.get("app_apk_sha256", "")
+    if not non_empty_string(app_apk):
+        failures.append("physical-device-report-app-apk-missing")
+    elif app_apk.endswith("/debug/app-debug.apk") or app_apk == "app/build/outputs/apk/debug/app-debug.apk":
+        failures.append("physical-device-report-debug-apk-installed")
+    elif not Path(app_apk).is_file():
+        failures.append("physical-device-report-app-apk-file-missing")
+    if not re.match(r"^[0-9a-fA-F]{64}$", app_apk_sha):
+        failures.append("physical-device-report-app-apk-sha-invalid")
+    elif non_empty_string(app_apk) and Path(app_apk).is_file():
+        validate_file_sha("physical-device-report-app-apk", app_apk, app_apk_sha)
+    release_artifact_sha = props.get("releaseArtifactSha256", "")
+    if not re.match(r"^[0-9a-fA-F]{64}$", release_artifact_sha):
+        failures.append("physical-device-report-release-artifact-sha-invalid")
+    elif re.match(r"^[0-9a-fA-F]{64}$", app_apk_sha) and release_artifact_sha.lower() != app_apk_sha.lower():
+        failures.append("physical-device-report-release-artifact-sha-not-installed-apk")
+    if expected_release_artifact_type and expected_release_artifact_type != "apk":
+        failures.append("physical-device-report-release-artifact-type-not-installed-apk")
     try:
         data_free_kb = int(props.get("data_free_kb", ""))
     except ValueError:
@@ -1280,8 +1334,6 @@ else:
             failures.append("physical-device-report-test-count-alias-mismatch")
         if instrumentation_output_count is not None and instrumentation_output_count != actual_count:
             failures.append("physical-device-report-instrumentation-output-count-mismatch")
-    if props.get("debug_apk") != "app/build/outputs/apk/debug/app-debug.apk":
-        failures.append("physical-device-report-debug-apk-invalid")
     if props.get("android_test_apk") != "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk":
         failures.append("physical-device-report-android-test-apk-invalid")
 

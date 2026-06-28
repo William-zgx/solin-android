@@ -281,8 +281,8 @@ on_exit() {
   trap - EXIT
   if [[ -n "$SELECTED_SERIAL" && -x "$ADB_BIN" ]]; then
     if [[ "$CONTROL_SESSION_ACTIVE" == "1" ]]; then
-      "$ADB_BIN" -s "$SELECTED_SERIAL" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" \
-        --es command stop_control_session >/dev/null 2>&1 || true
+      "$ADB_BIN" -s "$SELECTED_SERIAL" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
+        -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es command stop_control_session >/dev/null 2>&1 || true
     fi
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 500 > "$LOGCAT_FILE" 2>/dev/null || true
   fi
@@ -424,7 +424,8 @@ broadcast_command() {
   output_file="$(result_file_for "$name")"
   rm -f "$output_file"
   remove_device_result "$request_id"
-  "${ADB[@]}" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" --es requestId "$request_id" "$@" >/dev/null
+  "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
+    -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es requestId "$request_id" "$@" >/dev/null
   for _ in {1..60}; do
     if read_result "$request_id" "$output_file"; then
       if grep -Fq "requestId=$request_id" "$output_file"; then
@@ -552,8 +553,8 @@ stop_control_session() {
   if [[ "$CONTROL_SESSION_ACTIVE" != "1" ]]; then
     return 0
   fi
-  "${ADB[@]}" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" \
-    --es command stop_control_session >/dev/null 2>&1 || true
+  "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
+    -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es command stop_control_session >/dev/null 2>&1 || true
   CONTROL_SESSION_ACTIVE=0
 }
 

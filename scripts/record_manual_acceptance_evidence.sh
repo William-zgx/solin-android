@@ -13,8 +13,10 @@ MANUAL_ACCEPTANCE_KEYS="${MANUAL_ACCEPTANCE_KEYS:-}"
 MANUAL_ACCEPTANCE_ALL="${MANUAL_ACCEPTANCE_ALL:-0}"
 MANUAL_ACCEPTANCE_NOTE="${MANUAL_ACCEPTANCE_NOTE:-Manual acceptance was explicitly confirmed by the named owner.}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+SOURCE_EVIDENCE_FILES="${SOURCE_EVIDENCE_FILES:-}"
 RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 ORIGINAL_ARGS=("$@")
+SOURCE_EVIDENCE_PATHS=()
 
 REQUIRED_MANUAL_KEYS=(
   modelSetup
@@ -41,7 +43,9 @@ Usage:
     scripts/record_manual_acceptance_evidence.sh
 
 The script records formal manual-acceptance evidence only for keys explicitly
-provided by the caller. It exits non-zero until every required key is accepted.
+provided by the caller. SOURCE_EVIDENCE_FILES must point at one or more
+existing evidence files, separated by commas. It exits non-zero until every
+required key is accepted.
 USAGE
 }
 
@@ -60,6 +64,37 @@ contains_key() {
     fi
   done
   return 1
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+parse_source_evidence_files() {
+  local raw_path source_path
+  [[ -n "$SOURCE_EVIDENCE_FILES" ]] ||
+    fail missing-source-evidence-files "SOURCE_EVIDENCE_FILES is required for manual acceptance evidence."
+  IFS=, read -r -a raw_source_paths <<< "$SOURCE_EVIDENCE_FILES"
+  for raw_path in "${raw_source_paths[@]}"; do
+    source_path="$(printf '%s' "$raw_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [[ -n "$source_path" ]] || continue
+    [[ -f "$source_path" ]] ||
+      fail source-evidence-file-missing "Source evidence file is missing: $source_path"
+    SOURCE_EVIDENCE_PATHS+=("$source_path")
+  done
+  [[ "${#SOURCE_EVIDENCE_PATHS[@]}" -gt 0 ]] ||
+    fail missing-source-evidence-files "SOURCE_EVIDENCE_FILES is required for manual acceptance evidence."
+}
+
+write_source_evidence_bindings() {
+  local index=0
+  local source_path
+  printf 'sourceEvidenceFileCount=%s\n' "${#SOURCE_EVIDENCE_PATHS[@]}"
+  for source_path in "${SOURCE_EVIDENCE_PATHS[@]}"; do
+    index=$((index + 1))
+    printf 'sourceEvidenceFile%sPath=%s\n' "$index" "$source_path"
+    printf 'sourceEvidenceFile%sSha256=%s\n' "$index" "$(sha256_file "$source_path")"
+  done
 }
 
 command_line() {
@@ -94,6 +129,9 @@ write_report() {
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
     printf 'date=%s\n' "$VALIDATION_DATE"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
+    if [[ "${#SOURCE_EVIDENCE_PATHS[@]}" -gt 0 ]]; then
+      write_source_evidence_bindings
+    fi
     printf 'requiredManualKeys=%s\n' "$(join_csv "${REQUIRED_MANUAL_KEYS[@]}")"
     printf 'acceptedManualKeys=%s\n' "$accepted"
     printf 'pendingManualKeys=%s\n' "$pending"
@@ -205,6 +243,7 @@ fi
 if [[ "${#accepted_keys[@]}" -eq 0 ]]; then
   fail missing-accepted-keys "Set MANUAL_ACCEPTANCE_ALL=1 or MANUAL_ACCEPTANCE_KEYS=<comma-separated keys>."
 fi
+parse_source_evidence_files
 
 mkdir -p "$ARTIFACT_DIR"
 for key in "${accepted_keys[@]}"; do
@@ -222,6 +261,7 @@ for key in "${accepted_keys[@]}"; do
     printf 'reproduciblePath=%s\n' "$evidence_path"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
+    write_source_evidence_bindings
     printf 'evidenceSummary=%s\n' "$MANUAL_ACCEPTANCE_NOTE"
     write_manual_contract_fields "$key"
   } > "$evidence_path"

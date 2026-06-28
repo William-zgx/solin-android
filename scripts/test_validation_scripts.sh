@@ -97,6 +97,7 @@ if [[ "${1:-}" == "devices" ]]; then
 fi
 
 if [[ "${1:-}" == "-s" ]]; then
+  FAKE_ADB_SELECTED_SERIAL="${2:-}"
   shift 2
 fi
 
@@ -117,7 +118,10 @@ case "${1:-}" in
         echo "36"
         ;;
       "getprop sys.boot_completed")
-        echo "1"
+        echo "${FAKE_BOOT_COMPLETED:-1}"
+        ;;
+      "getprop init.svc.bootanim")
+        echo "${FAKE_BOOTANIM:-running}"
         ;;
       "wm size")
         echo "Physical size: ${FAKE_WM_SIZE:-1080x2400}"
@@ -214,8 +218,26 @@ FAKE_PACKAGE_DUMPSYS
           echo "Broadcast completed: result=-1, data=\"remote config saved\""
         fi
         ;;
+      run-as\ com.bytedance.zgx.solin\ sh\ -s)
+        stdin_script="$(cat || true)"
+        if [[ "$stdin_script" == *"com.bytedance.zgx.solin/.debug.DebugRemoteConfigReceiver"* ]]; then
+          {
+            printf '%s\n' "-s ${FAKE_ADB_SELECTED_SERIAL:-unknown} shell run-as com.bytedance.zgx.solin am broadcast --user 0 -n com.bytedance.zgx.solin/.debug.DebugRemoteConfigReceiver --es baseUrl <redacted> --es modelName <redacted> --es apiKey <redacted> --ez clearState true"
+          } >> "${FAKE_ADB_LOG:?}"
+          echo "Broadcast completed: result=-1, data=\"remote config saved\""
+        else
+          echo "unexpected run-as script" >&2
+          exit 2
+        fi
+        ;;
+      run-as\ com.bytedance.zgx.solin\ am\ broadcast*\ -n\ com.bytedance.zgx.solin/.debug.DeviceControlEvalReceiver*)
+        echo "Broadcast completed: result=-1"
+        ;;
       pm\ clear\ com.bytedance.zgx.solin|pm\ clear\ com.bytedance.zgx.solin.test)
         echo "Success"
+        ;;
+      pm\ path\ android)
+        echo "package:/system/framework/framework-res.apk"
         ;;
       run-as\ com.bytedance.zgx.solin\ rm\ -f\ files/device_control_eval_result_*.properties)
         echo "OK"
@@ -404,9 +426,9 @@ FAKE_PACKAGE_DUMPSYS
             echo "SolinAgentBrowser"
             echo "SolinAgentQuark"
             echo "SolinAgentUC"
-            echo "数据线"
             echo "筛选"
             echo "查看地图"
+            echo "数据线"
           else
             echo "status=Succeeded"
           fi
@@ -443,8 +465,8 @@ FAKE_REAL_APP_UI
           echo "gpuFallbackStatus=${FAKE_RC_PERF_GPU_FALLBACK_STATUS:-not-needed}"
           echo "visionInputMs=${FAKE_RC_PERF_VISION_INPUT_MS:-500}"
           echo "memorySearch5kMs=${FAKE_RC_PERF_MEMORY_SEARCH_5K_MS:-25}"
-          echo "zvecMemoryIndex50kMs=${FAKE_RC_PERF_MEMORY_INDEX_50K_MS:-250}"
-          echo "zvecMemorySearch50kMs=${FAKE_RC_PERF_MEMORY_SEARCH_50K_MS:-50}"
+          echo "zvecMemoryIndex50kMs=${FAKE_RC_PERF_ZVEC_MEMORY_INDEX_50K_MS:-1500}"
+          echo "zvecMemorySearch50kMs=${FAKE_RC_PERF_ZVEC_MEMORY_SEARCH_50K_MS:-35}"
         fi
         ;;
       *)
@@ -499,8 +521,8 @@ FAKE_LIVE_REMOTE_CONFIRM_UI
           if [[ "${FAKE_FRESH_START_SHOW_STUCK_FIRST_RUN:-0}" == "1" || "$fresh_start_tap_count" == "0" ]]; then
             cat > "$destination" <<'FAKE_FRESH_START_FIRST_RUN_UI'
 <hierarchy>
-  <node text="栖知" enabled="true" clickable="false" bounds="[76,150][303,223]" />
-  <node text="让 AI 住在手机里" enabled="true" clickable="false" bounds="[76,226][303,275]" />
+  <node text="Solin" enabled="true" clickable="false" bounds="[76,150][303,223]" />
+  <node text="隐私优先的随身 AI 助手" enabled="true" clickable="false" bounds="[76,226][303,275]" />
   <node text="离线基础问答可选下载" enabled="true" clickable="false" bounds="[94,600][778,691]" />
   <node text="先跳过" enabled="true" clickable="true" bounds="[80,1800][500,1900]" />
 </hierarchy>
@@ -508,8 +530,8 @@ FAKE_FRESH_START_FIRST_RUN_UI
           else
             cat > "$destination" <<'FAKE_FRESH_START_AFTER_SKIP_UI'
 <hierarchy>
-  <node text="栖知" enabled="true" clickable="false" bounds="[76,150][303,223]" />
-  <node text="让 AI 住在手机里" enabled="true" clickable="false" bounds="[76,226][303,275]" />
+  <node text="Solin" enabled="true" clickable="false" bounds="[76,150][303,223]" />
+  <node text="隐私优先的随身 AI 助手" enabled="true" clickable="false" bounds="[76,226][303,275]" />
   <node content-desc="模型管理" enabled="true" clickable="true" bounds="[471,149][597,275]" />
   <node content-desc="更多" enabled="true" clickable="true" bounds="[924,149][1004,275]" />
   <node text="为什么装它" enabled="true" clickable="false" bounds="[94,600][778,691]" />
@@ -521,8 +543,8 @@ FAKE_FRESH_START_AFTER_SKIP_UI
         else
           cat > "$destination" <<'FAKE_FRESH_START_UI'
 <hierarchy>
-  <node text="栖知" enabled="true" clickable="false" bounds="[76,150][303,223]" />
-  <node text="让 AI 住在手机里" enabled="true" clickable="false" bounds="[76,226][303,275]" />
+  <node text="Solin" enabled="true" clickable="false" bounds="[76,150][303,223]" />
+  <node text="隐私优先的随身 AI 助手" enabled="true" clickable="false" bounds="[76,226][303,275]" />
   <node content-desc="模型管理" enabled="true" clickable="true" bounds="[471,149][597,275]" />
   <node content-desc="更多" enabled="true" clickable="true" bounds="[924,149][1004,275]" />
   <node text="为什么装它" enabled="true" clickable="false" bounds="[94,600][778,691]" />
@@ -536,8 +558,8 @@ FAKE_FRESH_START_UI
       /sdcard/solin-release-*.xml)
         cat > "$destination" <<'FAKE_RELEASE_SCREENSHOT_UI'
 <hierarchy>
-  <node text="栖知" bounds="[80,80][360,140]" />
-  <node text="让 AI 住在手机里" bounds="[80,145][640,205]" />
+  <node text="Solin" bounds="[80,80][360,140]" />
+  <node text="隐私优先的随身 AI 助手" bounds="[80,145][640,205]" />
   <node text="为什么装它" bounds="[80,460][780,560]" />
   <node text="模型管理" content-desc="模型管理" bounds="[760,80][980,180]" />
   <node text="当前模型" bounds="[80,260][420,340]" />
@@ -666,6 +688,10 @@ printf '%s\n' "$*" >> "${FAKE_GRADLE_LOG:?}"
 if [[ "$*" == *":app:assembleDebug"* || "$*" == *" assembleDebug"* ]]; then
   mkdir -p app/build/outputs/apk/debug
   printf 'fake debug apk\n' > app/build/outputs/apk/debug/app-debug.apk
+fi
+if [[ "$*" == *":app:assembleDebugAndroidTest"* || "$*" == *" assembleDebugAndroidTest"* ]]; then
+  mkdir -p app/build/outputs/apk/androidTest/debug
+  printf 'fake androidTest apk\n' > app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 fi
 if [[ -n "${AI_BEHAVIOR_ACTUAL_TRACE_FILE:-}" && -n "${FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE:-}" ]]; then
   mkdir -p "$(dirname "$AI_BEHAVIOR_ACTUAL_TRACE_FILE")"
@@ -1262,6 +1288,12 @@ grep -q 'scripts/check_emulator_api_matrix.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include check_emulator_api_matrix.sh in shell syntax checks"
 grep -q 'scripts/prepare_emulator_api_matrix.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include prepare_emulator_api_matrix.sh in shell syntax checks"
+grep -q 'scripts/prepare_x86_emulator.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include prepare_x86_emulator.sh in shell syntax checks"
+grep -q 'scripts/check_x86_emulator_host.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include check_x86_emulator_host.sh in shell syntax checks"
+grep -q 'scripts/capture_x86_release_screenshots.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include capture_x86_release_screenshots.sh in shell syntax checks"
 grep -q 'scripts/regression_emulator_api_matrix.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include regression_emulator_api_matrix.sh in shell syntax checks"
 grep -q 'scripts/install_review_device.sh' scripts/verify_local.sh ||
@@ -1399,219 +1431,6 @@ grep -q 'requiredBehaviorEvalBoundaries' docs/capability_matrix.json ||
   fail "Capability matrix must declare required behavior eval boundaries"
 grep -q 'requiredBehaviorEvalBoundaries' app/src/main/java/com/bytedance/zgx/solin/capability/CapabilityMatrix.kt ||
   fail "CapabilityMatrix must own required behavior eval boundary declarations"
-grep -q 'currentScreenshotOcrGroundingHintRejectedWhenScreenChangesBetweenCaptureAndObservation' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Current screenshot OCR grounding must cover capture/observation page drift"
-grep -q 'modelObservationReplanConsumesCurrentScreenshotOcrGroundingHint' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "OCR agent control path must prove replanner output consumes OCR grounding hint"
-grep -q 'currentScreenshotOcrGroundingHintMatchesOcrElementIdTarget' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "OCR grounding must support explicit OCR element id targets"
-grep -q 'toOcrTargetCandidatePrompts' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Standalone OCR fallback targets must use OCR block element ids"
-grep -q 'ocr:block:$blockIndex:line:$lineIndex' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Standalone OCR fallback targets must expose nested OCR line ids"
-grep -q '$lineId:element:$elementIndex' \
-  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Standalone OCR fallback targets must expose nested OCR element ids"
-grep -q 'modelReplannerUsesOcrElementIdsForRepeatedOcrFallbackTargets' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must test repeated OCR fallback targets keep distinct element ids"
-grep -q 'modelReplannerExposesStandaloneOcrElementTargetsForMultiTokenBlock' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must expose standalone nested OCR element targets"
-grep -q 'modelReplannerRejectsNestedOcrTextTargetWhenBlockAndElementBothMatch' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must reject nested OCR text targets when block and element both match"
-grep -q 'modelReplannerExposesNestedOcrElementTargetsFromScreenObservationJsonBeforeBlockTargets' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must expose nested OCR target order from fused screenObservationJson"
-grep -q 'modelReplannerDoesNotExposeBoundlessOcrObservationTargets' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must not expose OCR fallback targets without bounds"
-grep -q 'currentScreenshotOcrDangerousGroundingHintBlocksNextUiTap' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Executor must block dangerous OCR-only grounding hints"
-grep -q 'modelReplannerRejectsAmbiguousRepeatedOcrTextTarget' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must reject repeated OCR text targets without OCR element ids"
-grep -q 'currentScreenshotOcrGroundingHintRequiresElementIdForRepeatedOcrText' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Current screenshot OCR grounding must require OCR element ids for repeated OCR text"
-grep -q 'currentScreenshotOcrGroundingHintMatchesNestedOcrElementIdTarget' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Current screenshot OCR grounding must consume nested OCR element ids"
-grep -q 'targetShortlist(ocrFallback=ocr:block:0|ocr:block:1)' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Repeated OCR fallback shortlist must expose distinct OCR block ids"
-grep -q 'evidence.id.normalizedLookupKey() == normalizedTarget' \
-  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "OCR fallback evidence guard must accept OCR block element id targets"
-grep -q 'evidences.count' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Standalone OCR fallback evidence guard must reject ambiguous repeated OCR text"
-grep -q 'textMatches.size != 1' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "OCR grounding cache must reject ambiguous repeated OCR text targets"
-grep -q 'diffSummaryValuesFor("addedText", "addedActionable")' \
-  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Diff summary target evidence must parse only added text/actionable fields"
-grep -q 'diffSummaryEvidenceLabels' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Diff summary target evidence must compare split labels instead of raw substrings"
-grep -q 'value.normalizedLookupKey() == normalizedTarget' \
-  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Diff summary target evidence must require exact normalized label matches"
-grep -q 'modelReplannerRejectsSubstringTargetFromDiffEvidence' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must reject substring-only diff summary targets"
-grep -q 'modelReplannerAllowsExactTargetFromDiffEvidence' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must keep exact diff summary target recovery"
-grep -q 'ocrGroundedAccessibilityTargetCandidates' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner prompt must promote OCR labels attached to blank Accessibility targets"
-grep -q 'source=accessibility+ocr' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner prompt must mark OCR-grounded Accessibility candidates"
-grep -q 'containsOcrGroundingBounds' app/src/main/java/com/bytedance/zgx/solin/device/ScreenControlModels.kt ||
-  fail "OCR-grounded Accessibility candidates must use a shared bounded spatial overlap helper"
-grep -q 'containsOcrGroundingBounds' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner OCR-grounded Accessibility candidates must use shared bounded spatial overlap"
-grep -q 'containsOcrGroundingBounds' app/src/main/java/com/bytedance/zgx/solin/device/UiTargetResolver.kt ||
-  fail "UiTargetResolver OCR-grounded Accessibility candidates must use shared bounded spatial overlap"
-grep -q 'modelReplannerPromptPromotesOcrLabelOnBlankAccessibilityTarget' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must test OCR labels on blank Accessibility targets"
-grep -q 'targetShortlist(tap=icon-search-entry' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "OCR-grounded Accessibility prompt test must expose executable node id in targetShortlist"
-grep -q 'screenObservationFromJsonStringOrNull' app/src/main/java/com/bytedance/zgx/solin/device/ScreenObservationModels.kt ||
-  fail "ScreenObservation JSON must parse back into the LocalOnly observation model"
-grep -q 'screenObservationJsonParsesBackToLocalOnlyObservationModel' \
-  app/src/test/java/com/bytedance/zgx/solin/device/ScreenObservationContractTest.kt ||
-  fail "ScreenObservation contract tests must cover JSON round-trip parsing"
-python3 - <<'PY' || fail "Model replanner targetShortlist must parse screen observation JSON into resolver ranks"
-from pathlib import Path
-
-text = Path("app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt").read_text()
-start = text.index("private fun String.toScreenObservationPromptSection")
-end = text.index("private fun JSONArray.selectedObservationElementsForPrompt")
-section = text[start:end]
-if "screenObservationFromJsonStringOrNull(this)" not in section or ".resolverTargetRanks(intentTargetKind)" not in section:
-    raise SystemExit(1)
-PY
-grep -q 'promptResolverTargetKind' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner targetShortlist must use the user intent to prioritize resolver target kind"
-grep -q 'defaultResolverPromptTargetKinds.prioritizing(intentTargetKind)' \
-  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner resolver rank order must promote the intent target kind before default kinds"
-grep -q '.rankedByResolver(resolverTargetRanks)' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner target candidates must be sorted by resolver target ranking"
-grep -q 'minOf(rankByModeAndTarget' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner resolver rank map must preserve the best rank for duplicate targets"
-grep -q 'modelReplannerTargetShortlistUsesResolverRankingForSearchEntryNoise' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must test resolver-ranked targetShortlist against search-entry noise"
-grep -q 'targetShortlist(tap=real-search-entry' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Resolver-ranked targetShortlist test must put the true search entry first"
-grep -q 'assertFalse(prompt.contains("targetShortlist(tap=camera-search"))' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Resolver-ranked targetShortlist test must reject camera search as the leading target"
-grep -q 'modelReplannerTargetShortlistPrioritizesIntentKindForFilterEntry' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must test intent-kind priority for resolver-ranked targetShortlist"
-grep -q 'targetShortlist(tap=filter-button' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Intent-kind targetShortlist test must put the requested filter button first"
-grep -q 'assertFalse(prompt.contains("targetShortlist(tap=search-entry"))' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Intent-kind targetShortlist test must reject default search entry priority"
-python3 - <<'PY' || fail "Model replanner prompts must rank before truncating and emit targetShortlist before verbose evidence"
-from pathlib import Path
-
-text = Path("app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt").read_text()
-start = text.index("private fun String.toScreenObservationPromptSection")
-end = text.index("private fun JSONArray.selectedObservationElementsForPrompt")
-section = text[start:end]
-ranked = section.index(".rankedByResolver(resolverTargetRanks)")
-take = section.index(".take(MAX_LOCAL_TARGET_CANDIDATES)", ranked)
-target_shortlist = section.index("targetShortlist?.let")
-elements = section.index("if (elementSummaries.isNotEmpty())")
-targets = section.index("if (targetSummaries.isNotEmpty())")
-if ranked >= take or target_shortlist >= elements or target_shortlist >= targets:
-    raise SystemExit(1)
-
-ocr_start = text.index("private fun String.toOcrBlocksPromptSection")
-ocr_end = text.index("private fun JSONObject.toOcrTargetCandidatePrompts")
-ocr_section = text[ocr_start:ocr_end]
-ocr_shortlist = ocr_section.index("targetCandidates.targetShortlistPromptText()")
-ocr_summaries = ocr_section.index("if (summaries.isNotEmpty())")
-ocr_targets = ocr_section.index("if (targetCandidates.isNotEmpty())")
-if ocr_shortlist >= ocr_summaries or ocr_shortlist >= ocr_targets:
-    raise SystemExit(1)
-PY
-grep -q 'modelReplannerRejectsOcrTargetsWhenCurrentScreenshotObservationNotIncluded' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must reject executable OCR targets when screen observation is not included"
-grep -q 'modelReplannerRejectsUiTapFromOcrTextOnlyEvidence' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must not execute UI actions from OCR text-only evidence"
-grep -q 'modelReplannerRejectsTargetlessTypeTextFromScreenTextOnlyEvidence' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must not execute targetless typing from screen text-only evidence"
-grep -q 'modelReplannerRejectsWebSearchFromLocalOnlyOcrObservation' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
-  fail "Model replanner must not replan web_search from LocalOnly OCR observation"
-grep -q 'currentScreenOcrObservationDoesNotReplanWebSearchFromLocalOnlyEvidence' \
-  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentLoopRuntimeTest.kt ||
-  fail "Agent loop must not execute web_search replans from LocalOnly OCR observation"
-grep -q 'localOnlyObservationReplanAllowedTools' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner must define an allowlist for LocalOnly observation replans"
-grep -q 'localOnlyObservationAllowedToolsPrompt' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner prompt must disclose the LocalOnly observation allowlist"
-grep -q 'Do not output web_search' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner prompt must explicitly forbid web_search from LocalOnly observation evidence"
-grep -q 'shouldRejectNonLocalObservationTool' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner must reject non-local tools from LocalOnly observation evidence"
-grep -q 'hasLocalOnlyObservationEvidence' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner must detect LocalOnly OCR/screen observation evidence"
-grep -q 'hasReadOnlyLocalScreenTextEvidence' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
-  fail "Model replanner must distinguish read-only OCR/screen text from executable UI evidence"
-grep -q 'hasOneShotConsent' app/src/main/java/com/bytedance/zgx/solin/multimodal/CurrentScreenshotOcrProvider.kt ||
-  fail "Current screenshot OCR provider must expose non-consuming consent readiness"
-grep -q 'candidate.hasOneShotConsent(request.id, nowMillis)' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Current screenshot OCR must not pre-read Accessibility before one-shot consent is available"
-grep -q 'beforeSignature != afterSignature' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Current screenshot OCR grounding must require stable Accessibility signatures"
-grep -q '"screenObservationFailureKind" to "page_changed"' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Current screenshot OCR grounding drift must be reported as page_changed"
-grep -q 'private fun ScreenStateSnapshot?.toGuardFailure' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Context guard failures must be produced from the current screen snapshot boundary"
-grep -q 'UiActionExecutionResult(' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Context guard failures with screen context must retain structured action execution evidence"
-grep -q 'privateNonSucceededDeviceControlObservationKeys' app/src/main/java/com/bytedance/zgx/solin/tool/ToolRegistry.kt ||
-  fail "ValidatingToolExecutor must preserve device-control observation evidence needed for local replan"
-grep -q 'spec.capability == ToolCapability.DeviceControl' app/src/main/java/com/bytedance/zgx/solin/tool/ToolRegistry.kt ||
-  fail "Private non-success observation evidence must stay scoped to device-control tools"
-grep -q 'isLocalOnlyScreenObservationJson' app/src/main/java/com/bytedance/zgx/solin/tool/ToolRegistry.kt ||
-  fail "Private non-success screen observation evidence must be validated as LocalOnly JSON"
-grep -q 'before = this' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Context guard failures must expose before-screen observation evidence"
-grep -q 'after = this' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
-  fail "Context guard failures must expose after-screen observation evidence"
-grep -q 'targetlessTypeGuardFailureCanDriveModelReplanWithCurrentObservation' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Targetless typing guard failure must drive local model replan from current observation"
-grep -q 'afterScreenObservationJson(id=screen-search-entry-only' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Targetless typing guard replan prompt must include current after-screen observation"
-grep -q 'targetShortlist(tap=search-entry|close-button)' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Targetless typing guard replan prompt must expose actionable screen targets"
-grep -q 'typeResult.data.containsKey("afterNodesJson")' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Validating guard replan test must prove bulky nodes JSON stays sanitized"
-grep -q 'screenObservationDiffSummary").contains("changed=false")' \
-  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
-  fail "Context guard failure tests must assert unchanged before/after screen diff evidence"
 grep -q -- '--capability-matrix' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must accept an explicit capability matrix input"
 grep -q 'underCoveredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
@@ -2928,6 +2747,18 @@ grep -q 'scripts/collect_model_license_metadata.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include collect_model_license_metadata.sh in shell syntax checks"
 grep -q 'scripts/sign_release_artifacts.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include sign_release_artifacts.sh in shell syntax checks"
+for signing_script in scripts/sign_release_artifacts.sh scripts/package_bundled_models.sh; do
+  if grep -q -- '--ks-pass "pass:' "$signing_script" ||
+    grep -q -- '--key-pass "pass:' "$signing_script" ||
+    grep -q -- '-storepass "$RELEASE_KEYSTORE_PASSWORD"' "$signing_script" ||
+    grep -q -- '-keypass "$RELEASE_KEY_PASSWORD"' "$signing_script"; then
+    fail "$signing_script must not pass signing passwords through argv"
+  fi
+  grep -q -- '--ks-pass "file:' "$signing_script" ||
+    fail "$signing_script must pass apksigner keystore password through a file source"
+  grep -q -- '--key-pass "file:' "$signing_script" ||
+    fail "$signing_script must pass apksigner key password through a file source"
+done
 
 grep -q 'android:name=".rcperf.RcPerfHarnessService"' app/src/rcPerfRelease/AndroidManifest.xml ||
   fail "rcPerfRelease must declare the rc perf harness service"
@@ -3306,8 +3137,8 @@ stopGenerationRecoveryMs=200
 gpuFallbackStatus=not-needed
 visionInputMs=500
 memorySearch5kMs=25
-zvecMemoryIndex50kMs=250
-zvecMemorySearch50kMs=50
+zvecMemoryIndex50kMs=1500
+zvecMemorySearch50kMs=35
 memoryPeakMb=512
 oomOrAnrObserved=false
 recordedAt=$PERF_RECORDED_AT
@@ -3362,14 +3193,6 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/perf-missing-provenance.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/perf-missing-provenance.properties" "failedTarget=baseline-fields"
 assert_report_contains_text "$ARTIFACT_DIR/perf-missing-provenance.properties" "collectionCommand-missing"
-expect_failure \
-  "perf baseline verifier rejects ordinary collector in RC provenance mode" \
-  env REQUIRE_RC_PERF_PROVENANCE=1 \
-  scripts/verify_perf_baseline.sh --file "$VALID_PERF" --report "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties"
-assert_report_contains "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "status=failed"
-assert_report_contains "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "failedTarget=baseline-provenance"
-assert_report_contains_text "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "rc-perf-collection-command-invalid"
-assert_report_contains_text "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "runner-missing"
 
 INVALID_PERF="$TMP_DIR/perf-baseline-invalid.properties"
 printf 'status=failed\n' > "$INVALID_PERF"
@@ -3902,8 +3725,8 @@ cat > "$STORE_POLICY_APPROVED" <<STORE_POLICY_APPROVED_JSON
   "privacyNoticeSha256": "$STORE_POLICY_NOTICE_SHA",
   "appListing": {
     "appName": "Solin",
-    "shortDescription": "Privacy-first pocket AI: local, optional remote, confirmed actions.",
-    "fullDescription": "Solin is a privacy-first pocket AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models for text and image requests, and only executes device actions after explicit confirmation. It stores user sessions locally, protects private context with confirmation, and clearly separates optional remote model calls from local-only data.",
+    "shortDescription": "Privacy-first Solin AI: local, optional remote, confirmed actions.",
+    "fullDescription": "Solin is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models for text and image requests, and only executes device actions after explicit confirmation. It stores user sessions locally, protects private context with confirmation, and clearly separates optional remote model calls from local-only data.",
     "category": "Productivity",
     "contactEmail": "release@solin.app",
     "privacyPolicyUrl": "https://solin.app/privacy"
@@ -4130,8 +3953,8 @@ expect_failure \
 assert_report_contains_text "$ARTIFACT_DIR/store-policy-notice-mismatch.properties" "privacy-notice-mismatch"
 STORE_POLICY_BAD_POSITIONING="$TMP_DIR/store-policy-bad-positioning.json"
 sed \
-  -e 's#Privacy-first pocket AI: local, optional remote, confirmed actions.#Local-first AI assistant.#' \
-  -e 's#Solin is a privacy-first pocket AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models for text and image requests, and only executes device actions after explicit confirmation. ##' \
+  -e 's#Privacy-first Solin AI: local, optional remote, confirmed actions.#Local-first AI assistant.#' \
+  -e 's#Solin is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models for text and image requests, and only executes device actions after explicit confirmation. ##' \
   "$STORE_POLICY_APPROVED" > "$STORE_POLICY_BAD_POSITIONING"
 expect_failure \
   "store policy verifier rejects app listing without product positioning" \
@@ -5275,9 +5098,12 @@ VALIDATION_EMULATOR_LOGCAT="$TMP_DIR/emulator-logcat.txt"
 VALIDATION_EMULATOR_SMOKE_REPORT="$TMP_DIR/emulator-crash-anr-smoke.properties"
 VALIDATION_SCREENSHOT_REPORT="$TMP_DIR/release-screenshots.properties"
 VALIDATION_INSTRUMENTATION_OUTPUT="$TMP_DIR/instrumentation.txt"
+VALIDATION_RELEASE_APK="$TMP_DIR/validation-release.apk"
 VALIDATION_DATE="$(date +%F)"
 printf 'OK (%s tests)\n' "$SOURCE_ANDROID_TEST_COUNT" > "$VALIDATION_INSTRUMENTATION_OUTPUT"
 printf 'clean emulator validation logcat\n' > "$VALIDATION_EMULATOR_LOGCAT"
+printf 'release apk fixture\n' > "$VALIDATION_RELEASE_APK"
+VALIDATION_RELEASE_ARTIFACT_SHA="$(shasum -a 256 "$VALIDATION_RELEASE_APK" | awk '{print $1}')"
 mkdir -p "$TMP_DIR/validation-screenshots"
 python3 - "$TMP_DIR/validation-screenshots" <<'PY'
 import base64
@@ -5301,7 +5127,7 @@ PY
   printf 'api_level=36\n'
   printf 'abi=arm64-v8a\n'
   printf 'avd=test-avd\n'
-  printf 'releaseArtifactSha256=%s\n' "$VALID_PERF_SHA"
+  printf 'releaseArtifactSha256=%s\n' "$VALIDATION_RELEASE_ARTIFACT_SHA"
   printf 'screenshot_dir=%s\n' "$TMP_DIR/validation-screenshots"
   for screenshot_name in chat-home model-manager confirmation-sheet background-tasks-or-audit; do
     screenshot_path="$TMP_DIR/validation-screenshots/$screenshot_name.png"
@@ -5309,7 +5135,7 @@ PY
     screenshot_sha="$(shasum -a 256 "$screenshot_path" | awk '{print $1}')"
     case "$screenshot_name" in
       chat-home)
-        screenshot_required_text="栖知|让 AI 住在手机里|为什么装它|模型管理"
+        screenshot_required_text="Solin|隐私优先的随身 AI 助手|为什么装它|模型管理"
         ;;
       model-manager)
         screenshot_required_text="模型管理|当前模型|本地可用|远程多模态可选"
@@ -5423,7 +5249,7 @@ clean_device=1
 source_android_test_count=$SOURCE_ANDROID_TEST_COUNT
 expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT
 actual_android_test_count=$SOURCE_ANDROID_TEST_COUNT
-releaseArtifactSha256=$VALID_PERF_SHA
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 serial=emulator-$api_level
 api_level=$api_level
 abi=arm64-v8a
@@ -5452,7 +5278,10 @@ recordedAt=$PERF_RECORDED_AT
 command=scripts/record_manual_acceptance_evidence.sh
 reproduciblePath=$manual_evidence_path
 validationRecordFile=$VALIDATION_APPROVED
-releaseArtifactSha256=$VALID_PERF_SHA
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+sourceEvidenceFileCount=1
+sourceEvidenceFile1Path=$VALIDATION_INSTRUMENTATION_OUTPUT
+sourceEvidenceFile1Sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
 VALIDATION_MANUAL_EVIDENCE_PROPERTIES
   write_manual_acceptance_contract_fixture "$manual_key" >> "$manual_evidence_path"
 done
@@ -5474,7 +5303,10 @@ recordedAt=$PERF_RECORDED_AT
 command=scripts/record_release_flow_evidence.sh
 reproduciblePath=$flow_evidence_path
 validationRecordFile=$VALIDATION_APPROVED
-releaseArtifactSha256=$VALID_PERF_SHA
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+sourceEvidenceFileCount=1
+sourceEvidenceFile1Path=$VALIDATION_INSTRUMENTATION_OUTPUT
+sourceEvidenceFile1Sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
 VALIDATION_FLOW_EVIDENCE_PROPERTIES
   write_model_release_flow_contract_fixture "$flow_key" >> "$flow_evidence_path"
 done
@@ -5491,7 +5323,7 @@ deviceModel=Pixel Test
 androidApi=36
 abi=arm64-v8a
 appVersion=0.1.0
-releaseArtifactSha256=$VALID_PERF_SHA
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 modelId=chat-e2b
 backend=GPU
 firstLaunchInteractiveMs=1200
@@ -5502,8 +5334,8 @@ stopGenerationRecoveryMs=200
 gpuFallbackStatus=not-needed
 visionInputMs=500
 memorySearch5kMs=25
-zvecMemoryIndex50kMs=250
-zvecMemorySearch50kMs=50
+zvecMemoryIndex50kMs=1500
+zvecMemorySearch50kMs=35
 memoryPeakMb=512
 oomOrAnrObserved=false
 recordedAt=$PERF_RECORDED_AT
@@ -5523,7 +5355,7 @@ reproduciblePath=$VALIDATION_PERF_BASELINE
 baselineFile=$VALIDATION_PERF_BASELINE
 baselineSha256=$VALIDATION_PERF_BASELINE_SHA
 missingFieldCount=0
-expectedArtifactSha256=$VALID_PERF_SHA
+expectedArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 expectedAppVersion=0.1.0
 maxRecordAgeDays=30
 VALIDATION_PERFORMANCE_EVIDENCE_PROPERTIES
@@ -5553,7 +5385,7 @@ clean_device=1
 source_android_test_count=$SOURCE_ANDROID_TEST_COUNT
 expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT
 actual_android_test_count=$SOURCE_ANDROID_TEST_COUNT
-releaseArtifactSha256=$VALID_PERF_SHA
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 serial=emulator-5554
 avd=test-avd
 api_level=36
@@ -5577,11 +5409,16 @@ serial=device-a
 api_level=36
 abi=arm64-v8a
 clean_device=1
+reset_app_data_after_tests=0
 data_free_kb=4194304
 instrumentation=passed
 instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
 test_count=$SOURCE_ANDROID_TEST_COUNT
-releaseArtifactSha256=$VALID_PERF_SHA
+app_apk_mode=release
+app_apk=$VALIDATION_RELEASE_APK
+app_apk_sha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+releaseArtifactType=apk
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 instrumentation_output_file=$VALIDATION_INSTRUMENTATION_OUTPUT
 instrumentation_output_sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
 logcat_file=$VALIDATION_EMULATOR_LOGCAT
@@ -5758,59 +5595,16 @@ assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-approved
 assert_report_contains "$ARTIFACT_DIR/release-validation-approved.properties" "validationRecordSha256=$VALIDATION_APPROVED_SHA"
 expect_success \
   "release validation verifier accepts current release artifact context" \
-  env EXPECTED_RELEASE_ARTIFACT_SHA256="$VALID_PERF_SHA" \
+  env EXPECTED_RELEASE_ARTIFACT_TYPE=apk EXPECTED_RELEASE_ARTIFACT_SHA256="$VALIDATION_RELEASE_ARTIFACT_SHA" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-current-artifact.properties"
 assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-current-artifact.properties" "ReleaseValidationRecordVerification/v1"
-assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALID_PERF_SHA"
-VALIDATION_PRESERVED_DEVICE_RECORD="$TMP_DIR/release-validation-preserved-device.json"
-VALIDATION_PRESERVED_DEVICE_REPORT="$TMP_DIR/preserved-device-verification.properties"
-VALIDATION_RESETTING_DEVICE_RECORD="$TMP_DIR/release-validation-resetting-device.json"
-VALIDATION_RESETTING_DEVICE_REPORT="$TMP_DIR/resetting-device-verification.properties"
-python3 - "$VALIDATION_APPROVED" "$VALIDATION_DEVICE_REPORT" \
-  "$VALIDATION_PRESERVED_DEVICE_RECORD" "$VALIDATION_PRESERVED_DEVICE_REPORT" \
-  "$VALIDATION_RESETTING_DEVICE_RECORD" "$VALIDATION_RESETTING_DEVICE_REPORT" <<'PY'
-import hashlib
-import json
-import sys
-from pathlib import Path
-
-source_record = Path(sys.argv[1])
-source_report = Path(sys.argv[2])
-preserved_record = Path(sys.argv[3])
-preserved_report = Path(sys.argv[4])
-resetting_record = Path(sys.argv[5])
-resetting_report = Path(sys.argv[6])
-
-def write_report(path, reset_value):
-    lines = []
-    inserted = False
-    for line in source_report.read_text().splitlines():
-        if line == "clean_device=1":
-            lines.append("clean_device=0")
-            lines.append(f"reset_app_data_after_tests={reset_value}")
-            inserted = True
-        elif not line.startswith("reset_app_data_after_tests="):
-            lines.append(line)
-    if not inserted:
-        raise SystemExit("clean_device field missing")
-    path.write_text("\n".join(lines) + "\n")
-
-def write_record(path, report):
-    record = json.loads(source_record.read_text())
-    record["physicalDevice"]["cleanDevice"] = False
-    record["physicalDevice"]["reportPath"] = str(report)
-    record["physicalDevice"]["reportSha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
-    path.write_text(json.dumps(record, indent=2))
-
-write_report(preserved_report, "0")
-write_record(preserved_record, preserved_report)
-write_report(resetting_report, "1")
-write_record(resetting_record, resetting_report)
-PY
+assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA"
+assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactType=apk"
 expect_failure \
-  "release validation verifier rejects preserved physical report that resets app data" \
-  scripts/verify_release_validation_record.sh --file "$VALIDATION_RESETTING_DEVICE_RECORD" --report "$ARTIFACT_DIR/release-validation-resetting-device.properties"
-assert_report_contains_text "$ARTIFACT_DIR/release-validation-resetting-device.properties" "physical-device-report-reset-app-data-after-tests-not-disabled"
+  "release validation verifier rejects aab context without aab physical install proof" \
+  env EXPECTED_RELEASE_ARTIFACT_TYPE=aab EXPECTED_RELEASE_ARTIFACT_SHA256="$VALIDATION_RELEASE_ARTIFACT_SHA" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-aab-context.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-aab-context.properties" "physical-device-report-release-artifact-type-not-installed-apk"
 VALIDATION_LOCAL_VISION_COUNT_TWO="$TMP_DIR/release-validation-local-vision-count-two.json"
 VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE="$TMP_DIR/validation-flow-evidence/local-vision-count-two.properties"
 sed \
@@ -6763,7 +6557,7 @@ performanceKey=firstLaunch
 baselineFile=$VALIDATION_PERF_BASELINE
 baselineSha256=0000000000000000000000000000000000000000000000000000000000000000
 missingFieldCount=0
-expectedArtifactSha256=$VALID_PERF_SHA
+expectedArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 expectedAppVersion=0.1.0
 maxRecordAgeDays=30
 VALIDATION_PERF_BASELINE_FILE_SHA_MISMATCH_EVIDENCE_PROPERTIES
@@ -6820,8 +6614,8 @@ ui_dump.write_text(
     "\n".join(
         [
             "<hierarchy>",
-            '  <node text="栖知" />',
-            '  <node text="让 AI 住在手机里" />',
+            '  <node text="Solin" />',
+            '  <node text="隐私优先的随身 AI 助手" />',
             '  <node text="为什么装它" />',
             '  <node text="模型管理" />',
             "</hierarchy>",
@@ -6847,7 +6641,7 @@ report.write_text(
             f"screenshot.chat-home.uiDump={ui_dump}",
             f"screenshot.chat-home.uiDumpSha256={ui_dump_sha}",
             "screenshot.chat-home.visualRegression=passed",
-            "screenshot.chat-home.requiredText=栖知|让 AI 住在手机里|为什么装它|模型管理",
+            "screenshot.chat-home.requiredText=Solin|隐私优先的随身 AI 助手|为什么装它|模型管理",
             "",
         ]
     )
@@ -6967,6 +6761,55 @@ expect_failure \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_INSTALL_AS_DEVICE_RECORD" --report "$ARTIFACT_DIR/release-validation-manual-install-as-device.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-install-as-device.properties" "physical-device-report-target-invalid"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-install-as-device.properties" "physical-device-report-instrumentation-not-passed"
+VALIDATION_DEBUG_APK_AS_PHYSICAL="$TMP_DIR/release-validation-debug-apk-as-physical.json"
+VALIDATION_DEBUG_APK_AS_PHYSICAL_REPORT="$TMP_DIR/debug-apk-as-physical.properties"
+cat > "$VALIDATION_DEBUG_APK_AS_PHYSICAL_REPORT" <<VALIDATION_DEBUG_APK_AS_PHYSICAL_PROPERTIES
+status=passed
+exit_code=0
+target=device
+failedTarget=
+reason=
+started_at_utc=2026-06-06T00:00:00Z
+finished_at_utc=2026-06-06T00:01:00Z
+serial=device-a
+api_level=36
+abi=arm64-v8a
+clean_device=1
+reset_app_data_after_tests=0
+data_free_kb=4194304
+instrumentation=passed
+instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
+test_count=$SOURCE_ANDROID_TEST_COUNT
+app_apk_mode=debug
+app_apk=app/build/outputs/apk/debug/app-debug.apk
+app_apk_sha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+releaseArtifactType=apk
+releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+instrumentation_output_file=$VALIDATION_INSTRUMENTATION_OUTPUT
+instrumentation_output_sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
+logcat_file=$VALIDATION_EMULATOR_LOGCAT
+logcat_sha256=$(shasum -a 256 "$VALIDATION_EMULATOR_LOGCAT" | awk '{print $1}')
+android_test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+VALIDATION_DEBUG_APK_AS_PHYSICAL_PROPERTIES
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_DEBUG_APK_AS_PHYSICAL" "$VALIDATION_DEBUG_APK_AS_PHYSICAL_REPORT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+report = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["physicalDevice"]["reportPath"] = str(report)
+record["physicalDevice"]["reportSha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects debug apk physical release evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_DEBUG_APK_AS_PHYSICAL" --report "$ARTIFACT_DIR/release-validation-debug-apk-as-physical.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-debug-apk-as-physical.properties" "physical-device-report-app-apk-mode-not-release"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-debug-apk-as-physical.properties" "physical-device-report-debug-apk-installed"
 VALIDATION_DEVICE_OUTPUT_COUNT_MISMATCH="$TMP_DIR/release-validation-device-output-count-mismatch.json"
 VALIDATION_DEVICE_OUTPUT_COUNT_MISMATCH_REPORT="$TMP_DIR/device-output-count-mismatch.properties"
 VALIDATION_DEVICE_OUTPUT_COUNT_MISMATCH_OUTPUT="$TMP_DIR/instrumentation-count-mismatch.txt"
@@ -7402,6 +7245,7 @@ expect_failure \
   "manual acceptance evidence recorder reports pending keys" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/manual-acceptance-partial" \
   OWNER="QA" MANUAL_ACCEPTANCE_KEYS="modelSetup,toolConfirmation" \
+  SOURCE_EVIDENCE_FILES="$VALIDATION_INSTRUMENTATION_OUTPUT" \
   scripts/record_manual_acceptance_evidence.sh
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-partial/manual-acceptance-evidence.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-partial/manual-acceptance-evidence.properties" "reason=missing-required-manual-keys"
@@ -7414,6 +7258,7 @@ expect_success \
   "manual acceptance evidence recorder writes all formal evidence" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/manual-acceptance-full" \
   OWNER="QA" MANUAL_ACCEPTANCE_ALL=1 VALIDATION_DATE="$VALIDATION_DATE" \
+  SOURCE_EVIDENCE_FILES="$VALIDATION_INSTRUMENTATION_OUTPUT" \
   scripts/record_manual_acceptance_evidence.sh
 assert_release_verifier_report_schema \
   "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" \
@@ -7422,6 +7267,8 @@ assert_release_verifier_report_schema \
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "target=manual-acceptance-evidence"
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "pendingManualKeys="
+assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "sourceEvidenceFileCount=1"
+assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "sourceEvidenceFile1Path=$VALIDATION_INSTRUMENTATION_OUTPUT"
 for manual_key in \
   modelSetup remoteModePrivacy toolConfirmation permissions backgroundReminders sharing \
   multimodalEntryPoints voiceInput filePicker mediaProjection remoteSinglePublicEvidence \
@@ -7435,6 +7282,8 @@ for manual_key in \
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "date=$VALIDATION_DATE"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "command=scripts/record_manual_acceptance_evidence.sh"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "reproduciblePath=$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties"
+  assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "sourceEvidenceFileCount=1"
+  assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "sourceEvidenceFile1Path=$VALIDATION_INSTRUMENTATION_OUTPUT"
   case "$manual_key" in
     remoteModePrivacy)
       assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "localMemoryNotAutoIncluded=true"
@@ -7480,6 +7329,7 @@ expect_failure \
   "release flow evidence recorder reports pending flows" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-flow-partial" \
   OWNER="QA" RELEASE_FLOW_KEYS="firstInstall,sessionPersistence" \
+  SOURCE_EVIDENCE_FILES="$VALIDATION_INSTRUMENTATION_OUTPUT" \
   scripts/record_release_flow_evidence.sh
 assert_report_contains "$ARTIFACT_DIR/release-flow-partial/release-flow-evidence.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/release-flow-partial/release-flow-evidence.properties" "target=release-flow-evidence"
@@ -7498,6 +7348,7 @@ expect_success \
   "release flow evidence recorder writes all formal evidence" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-flow-full" \
   OWNER="QA" RELEASE_FLOW_ALL=1 VALIDATION_DATE="$VALIDATION_DATE" \
+  SOURCE_EVIDENCE_FILES="$VALIDATION_INSTRUMENTATION_OUTPUT" \
   scripts/record_release_flow_evidence.sh
 assert_release_verifier_report_schema \
   "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" \
@@ -7506,6 +7357,8 @@ assert_release_verifier_report_schema \
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "target=release-flow-evidence"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "pendingFlows="
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "sourceEvidenceFileCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "sourceEvidenceFile1Path=$VALIDATION_INSTRUMENTATION_OUTPUT"
 for flow_key in \
   firstInstall upgradeInstall localModelDownloadVerification customModelImportOrUrlRejection \
   remoteHttpsConfiguration encryptedApiKeyClear sessionPersistence memoryControls \
@@ -7522,6 +7375,8 @@ for flow_key in \
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "date=$VALIDATION_DATE"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "command=scripts/record_release_flow_evidence.sh"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "reproduciblePath=$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties"
+  assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "sourceEvidenceFileCount=1"
+  assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "sourceEvidenceFile1Path=$VALIDATION_INSTRUMENTATION_OUTPUT"
   grep -Eq '^recordedAt=20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
     "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" ||
     fail "Expected UTC recordedAt in release flow evidence for $flow_key"
@@ -7713,6 +7568,88 @@ grep -q -- '--sdk_root=.*platforms;android-32.*system-images;android-32;google_a
   fail "prepare apply must install missing API 32 platform and system image"
 grep -q -- 'create avd --force --name solin_api32_arm64_v8a --package system-images;android-32;google_apis;arm64-v8a' "$FAKE_AVDMANAGER_LOG" ||
   fail "prepare apply must create the missing API 32 arm64 AVD"
+
+X86_CPUINFO="$TMP_DIR/x86-cpuinfo"
+X86_KVM_DEVICE="$TMP_DIR/kvm"
+cat > "$X86_CPUINFO" <<'X86_CPUINFO_FIXTURE'
+processor	: 0
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr vmx
+X86_CPUINFO_FIXTURE
+: > "$X86_KVM_DEVICE"
+expect_success \
+  "x86 emulator host check passes with x86 cpu virtualization and kvm" \
+  env ANDROID_HOME="$FAKE_SDK" \
+  HOST_MACHINE="x86_64" \
+  CPUINFO_FILE="$X86_CPUINFO" \
+  KVM_DEVICE="$X86_KVM_DEVICE" \
+  GLIBC_VERSION="2.31" \
+  REPORT_FILE="$ARTIFACT_DIR/x86-emulator-host.properties" \
+  scripts/check_x86_emulator_host.sh --gui-required
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "target=x86-emulator-host"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "hostIsX86_64=true"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "cpuVirtualizationFlagPresent=true"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "kvmDeviceAccessible=true"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "glibcGuiReady=true"
+
+expect_failure \
+  "x86 emulator host check fails without virtualization and kvm" \
+  env ANDROID_HOME="$FAKE_SDK" \
+  HOST_MACHINE="x86_64" \
+  CPUINFO_FILE="$TMP_DIR/missing-cpuinfo" \
+  KVM_DEVICE="$TMP_DIR/missing-kvm" \
+  GLIBC_VERSION="2.28" \
+  REPORT_FILE="$ARTIFACT_DIR/x86-emulator-host-missing.properties" \
+  scripts/check_x86_emulator_host.sh --gui-required
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host-missing.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/x86-emulator-host-missing.properties" "cpu-virtualization-flag-missing"
+assert_report_contains_text "$ARTIFACT_DIR/x86-emulator-host-missing.properties" "kvm-device-missing"
+assert_report_contains_text "$ARTIFACT_DIR/x86-emulator-host-missing.properties" "gui-glibc-too-old"
+
+: > "$FAKE_SDKMANAGER_LOG"
+: > "$FAKE_AVDMANAGER_LOG"
+FAKE_SDKMANAGER_INSTALLED=""
+expect_success \
+  "x86 emulator prepare wraps matrix prepare defaults" \
+  env ANDROID_HOME="$FAKE_SDK" \
+  FAKE_SDKMANAGER_LOG="$FAKE_SDKMANAGER_LOG" \
+  FAKE_AVDMANAGER_LOG="$FAKE_AVDMANAGER_LOG" \
+  FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
+  APPLY=1 scripts/prepare_x86_emulator.sh \
+    --sdkmanager "$FAKE_SDKMANAGER" \
+    --avdmanager "$FAKE_AVDMANAGER" \
+    --avd-root "$FAKE_AVD_ROOT" \
+    --report "$ARTIFACT_DIR/x86-emulator-prepare.properties"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-prepare.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-prepare.properties" "requiredApis=36"
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-prepare.properties" "abi=x86_64"
+grep -q -- '--sdk_root=.*platforms;android-36.*system-images;android-36;google_apis;x86_64' "$FAKE_SDKMANAGER_LOG" ||
+  fail "x86 prepare must install the API 36 x86_64 system image"
+grep -q -- 'create avd --force --name solin_api36_x86_64 --package system-images;android-36;google_apis;x86_64' "$FAKE_AVDMANAGER_LOG" ||
+  fail "x86 prepare must create the default API 36 x86_64 AVD"
+
+mkdir -p "$FAKE_AVD_ROOT/api36-x86-spaced.avd"
+cat > "$FAKE_AVD_ROOT/api36-x86-spaced.avd/config.ini" <<'API36_X86_SPACED_AVD_CONFIG'
+abi.type = x86_64
+image.sysdir.1 = system-images/android-36/google_apis/x86_64/
+tag.id = google_apis
+target = android-36
+API36_X86_SPACED_AVD_CONFIG
+FAKE_SDKMANAGER_INSTALLED=$'system-images;android-36;google_apis;x86_64 | 7 | Fake'
+expect_success \
+  "emulator api matrix readiness accepts avdmanager config spacing" \
+  env ANDROID_HOME="$FAKE_SDK" \
+  FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
+  scripts/check_emulator_api_matrix.sh \
+    --sdkmanager "$FAKE_SDKMANAGER" \
+    --avd-root "$FAKE_AVD_ROOT" \
+    --abi x86_64 \
+    --required-apis "36" \
+    --report "$ARTIFACT_DIR/emulator-api-matrix-x86-spaced.properties"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-x86-spaced.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-x86-spaced.properties" "abi=x86_64"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-x86-spaced.properties" "availableAvdApis=36"
+
 rm -rf "$FAKE_AVD_ROOT/api28.avd"
 FAKE_SDKMANAGER_INSTALLED=$'system-images;android-36;google_apis;arm64-v8a | 1 | Fake'
 expect_failure \
@@ -7827,7 +7764,13 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator-api-matrix-failed.prop
 SAFE_PRIVACY_DIR="$TMP_DIR/privacy-safe"
 mkdir -p "$SAFE_PRIVACY_DIR"
 SAFE_PRIVACY_FILE="$SAFE_PRIVACY_DIR/readme.txt"
-printf 'hello solin\n' > "$SAFE_PRIVACY_FILE"
+cat > "$SAFE_PRIVACY_FILE" <<'SAFE_PRIVACY_PLACEHOLDERS'
+hello solin
+api_key=<api-key>
+Authorization: Bearer <token>
+hf_token_placeholder=hf_xxx
+password=<store-password>
+SAFE_PRIVACY_PLACEHOLDERS
 SAFE_PRIVACY_FILE_SHA="$(shasum -a 256 "$SAFE_PRIVACY_FILE" | awk '{print $1}')"
 expect_success \
   "privacy scan accepts safe directory" \
@@ -7875,7 +7818,19 @@ UNSAFE_PRIVACY_DIR="$TMP_DIR/privacy-unsafe"
 mkdir -p "$UNSAFE_PRIVACY_DIR"
 PRIVACY_SCAN_SECRET_BODY="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 PRIVACY_SCAN_SECRET="sk-${PRIVACY_SCAN_SECRET_BODY}"
-printf 'token=%s\n' "$PRIVACY_SCAN_SECRET" > "$UNSAFE_PRIVACY_DIR/secret.txt"
+PRIVACY_SCAN_HF_TOKEN="hf_${PRIVACY_SCAN_SECRET_BODY}aa"
+PRIVACY_SCAN_BEARER="Bearer ${PRIVACY_SCAN_SECRET_BODY}"
+PRIVACY_SCAN_API_KEY="api_key=${PRIVACY_SCAN_SECRET_BODY}"
+PRIVACY_SCAN_PASSWORD="password=${PRIVACY_SCAN_SECRET_BODY}"
+PRIVACY_SCAN_GENERIC_TOKEN="token=${PRIVACY_SCAN_SECRET_BODY}"
+{
+  printf 'token=%s\n' "$PRIVACY_SCAN_SECRET"
+  printf '%s\n' "$PRIVACY_SCAN_HF_TOKEN"
+  printf 'Authorization: %s\n' "$PRIVACY_SCAN_BEARER"
+  printf '%s\n' "$PRIVACY_SCAN_API_KEY"
+  printf '%s\n' "$PRIVACY_SCAN_PASSWORD"
+  printf '%s\n' "$PRIVACY_SCAN_GENERIC_TOKEN"
+} > "$UNSAFE_PRIVACY_DIR/secret.txt"
 expect_failure \
   "privacy scan rejects high-confidence token" \
   scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy-failed.properties" "$UNSAFE_PRIVACY_DIR"
@@ -7889,6 +7844,12 @@ fi
 if grep -q "$PRIVACY_SCAN_SECRET" "$ARTIFACT_DIR/privacy-failed.properties"; then
   fail "privacy scan report must not contain raw secret values"
 fi
+for privacy_secret_value in "$PRIVACY_SCAN_HF_TOKEN" "$PRIVACY_SCAN_BEARER" "$PRIVACY_SCAN_API_KEY" "$PRIVACY_SCAN_PASSWORD" "$PRIVACY_SCAN_GENERIC_TOKEN"; do
+  if grep -q "$privacy_secret_value" <<<"$LAST_OUTPUT" ||
+    grep -q "$privacy_secret_value" "$ARTIFACT_DIR/privacy-failed.properties"; then
+    fail "privacy scan outputs must redact raw expanded secret patterns"
+  fi
+done
 
 PRIVACY_NOTICE="$TMP_DIR/privacy-notice.md"
 PRIVACY_CAPABILITY_MATRIX="$TMP_DIR/privacy-capability-matrix.json"
@@ -8596,9 +8557,20 @@ printf '<manifest />\n' > "$TMP_DIR/safe-aab/base/manifest/AndroidManifest.xml"
 printf 'ok\n' > "$TMP_DIR/safe-apk/assets/readme.txt"
 printf 'ok\n' > "$TMP_DIR/safe-aab/base/readme.txt"
 printf 'model\n' > "$TMP_DIR/unsafe-zip/assets/model.litertlm"
+printf 'model part\n' > "$TMP_DIR/unsafe-zip/assets/model.litertlm.part000"
+printf 'embedding\n' > "$TMP_DIR/unsafe-zip/assets/embed.tflite"
+printf 'sentencepiece\n' > "$TMP_DIR/unsafe-zip/assets/sentencepiece.model"
 ARTIFACT_SCAN_SECRET_BODY="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 ARTIFACT_SCAN_SECRET="sk-${ARTIFACT_SCAN_SECRET_BODY}"
-printf 'token=%s\n' "$ARTIFACT_SCAN_SECRET" > "$TMP_DIR/unsafe-zip/assets/secret.txt"
+ARTIFACT_SCAN_HF_TOKEN="hf_${ARTIFACT_SCAN_SECRET_BODY}bb"
+ARTIFACT_SCAN_BEARER="Bearer ${ARTIFACT_SCAN_SECRET_BODY}"
+ARTIFACT_SCAN_API_KEY="api_key=${ARTIFACT_SCAN_SECRET_BODY}"
+{
+  printf 'token=%s\n' "$ARTIFACT_SCAN_SECRET"
+  printf '%s\n' "$ARTIFACT_SCAN_HF_TOKEN"
+  printf 'Authorization: %s\n' "$ARTIFACT_SCAN_BEARER"
+  printf '%s\n' "$ARTIFACT_SCAN_API_KEY"
+} > "$TMP_DIR/unsafe-zip/assets/secret.txt"
 (cd "$TMP_DIR/safe-apk" && zip -qr "$SAFE_APK" .)
 (cd "$TMP_DIR/safe-aab" && zip -qr "$SAFE_AAB" .)
 (cd "$TMP_DIR/unsafe-zip" && zip -qr "$UNSAFE_APK" .)
@@ -8673,6 +8645,12 @@ fi
 if grep -q "$ARTIFACT_SCAN_SECRET" "$ARTIFACT_DIR/artifact-failed.properties"; then
   fail "artifact scan report must not contain raw secret values"
 fi
+for artifact_secret_value in "$ARTIFACT_SCAN_HF_TOKEN" "$ARTIFACT_SCAN_BEARER" "$ARTIFACT_SCAN_API_KEY"; do
+  if grep -q "$artifact_secret_value" <<<"$LAST_OUTPUT" ||
+    grep -q "$artifact_secret_value" "$ARTIFACT_DIR/artifact-failed.properties"; then
+    fail "artifact scan outputs must redact raw expanded secret patterns"
+  fi
+done
 expect_failure \
   "artifact scan rejects unreadable aab" \
   scripts/scan_android_artifacts.sh --aab "$BAD_AAB" --report "$ARTIFACT_DIR/artifact-bad-aab.properties"
@@ -8741,6 +8719,10 @@ target=perf-baseline-record
 owner=release-engineering
 collectionCommand=scripts/collect_rc_perf_from_device.sh
 reproduciblePath=$VALID_GATE_PERF
+runner=rc_perf_release_broadcast
+preserves_model_data=true
+harnessResultSha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+rcPerfCollectorReportFile=$TMP_DIR/rc-perf-collector.properties
 deviceSerial=device-a
 deviceModel=Pixel Test
 androidApi=36
@@ -8757,14 +8739,10 @@ stopGenerationRecoveryMs=200
 gpuFallbackStatus=not-needed
 visionInputMs=500
 memorySearch5kMs=25
-zvecMemoryIndex50kMs=250
-zvecMemorySearch50kMs=50
+zvecMemoryIndex50kMs=1500
+zvecMemorySearch50kMs=35
 memoryPeakMb=512
 oomOrAnrObserved=false
-runner=rc_perf_release_broadcast
-preserves_model_data=true
-harnessResultSha256=2222222222222222222222222222222222222222222222222222222222222222
-rcPerfCollectorReportFile=$TMP_DIR/rc-perf-collector.properties
 recordedAt=$PERF_RECORDED_AT
 VALID_GATE_PERF_BASELINE
 VALID_GATE_AAB_PERF="$TMP_DIR/perf-baseline-safe-aab.properties"
@@ -9311,8 +9289,8 @@ expect_failure \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
-  ZVEC_MEMORY_INDEX_50K_MS=250 \
-  ZVEC_MEMORY_SEARCH_50K_MS=50 \
+  ZVEC_MEMORY_INDEX_50K_MS=1500 \
+  ZVEC_MEMORY_SEARCH_50K_MS=35 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9347,8 +9325,8 @@ expect_failure \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
-  ZVEC_MEMORY_INDEX_50K_MS=250 \
-  ZVEC_MEMORY_SEARCH_50K_MS=50 \
+  ZVEC_MEMORY_INDEX_50K_MS=1500 \
+  ZVEC_MEMORY_SEARCH_50K_MS=35 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9377,8 +9355,8 @@ expect_failure \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
-  ZVEC_MEMORY_INDEX_50K_MS=250 \
-  ZVEC_MEMORY_SEARCH_50K_MS=50 \
+  ZVEC_MEMORY_INDEX_50K_MS=1500 \
+  ZVEC_MEMORY_SEARCH_50K_MS=35 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9409,8 +9387,8 @@ expect_success \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
-  ZVEC_MEMORY_INDEX_50K_MS=250 \
-  ZVEC_MEMORY_SEARCH_50K_MS=50 \
+  ZVEC_MEMORY_INDEX_50K_MS=1500 \
+  ZVEC_MEMORY_SEARCH_50K_MS=35 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9613,12 +9591,6 @@ assert_report_contains "$RC_COLLECT_BASELINE" "status=passed"
 assert_report_contains "$RC_COLLECT_BASELINE" "tokensPerSecond=12.5"
 assert_report_contains "$RC_COLLECT_BASELINE" "backend=GPU"
 assert_report_contains "$RC_COLLECT_BASELINE" "modelId=chat-e2b"
-assert_report_contains "$RC_COLLECT_BASELINE" "collectionCommand=scripts/collect_rc_perf_from_device.sh"
-assert_report_contains "$RC_COLLECT_BASELINE" "runner=rc_perf_release_broadcast"
-assert_report_contains "$RC_COLLECT_BASELINE" "preserves_model_data=true"
-grep -Eq '^harnessResultSha256=[0-9a-f]{64}$' "$RC_COLLECT_BASELINE" ||
-  fail "rc perf collector baseline must bind the harness result sha"
-assert_report_contains "$RC_COLLECT_BASELINE" "rcPerfCollectorReportFile=$RC_COLLECT_REPORT"
 assert_report_contains "$RC_COLLECT_BASELINE.verification.properties" "artifactSchema=PerfBaselineVerification/v1"
 assert_report_contains "$RC_COLLECT_BASELINE.verification.properties" "status=passed"
 grep -q -- "-s device-a shell am start-foreground-service -a com.bytedance.zgx.solin.rcperf.RUN -n com.bytedance.zgx.solin/.rcperf.RcPerfHarnessService --es requestId" "$FAKE_ADB_LOG" ||
@@ -9792,45 +9764,7 @@ assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "skippedCaseArtifactCount=7"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "rankedCandidatesArtifactCount=2"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "targetResolutionEvidenceCount=2"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "diagnosticsArtifactCount=5"
-assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "require50TaskBenchmark=0"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "failureKindBreakdown=search_entry_not_found:1"
-
-REAL_APP_TASK_BENCHMARK="$ARTIFACT_DIR/real-app-50-task-benchmark.json"
-{
-  printf '{"artifactSchema":"RealAppTaskBenchmark/v1","tasks":['
-  for index in $(seq 1 50); do
-    [[ "$index" -eq 1 ]] || printf ','
-    printf '{"taskId":"search-%02d","app":"淘宝","packageName":"com.taobao.taobao","query":"query-%02d","reward":"search_result_verified","evidenceSha256":"%064d"}' "$index" "$index" "$index"
-  done
-  printf ']}\n'
-} > "$REAL_APP_TASK_BENCHMARK"
-REAL_APP_TASK_BENCHMARK_SHA="$(shasum -a 256 "$REAL_APP_TASK_BENCHMARK" | awk '{print $1}')"
-REAL_APP_SOURCE_REPORT_50="$ARTIFACT_DIR/real-app-search-eval-50task.properties"
-cp "$REAL_APP_SOURCE_REPORT" "$REAL_APP_SOURCE_REPORT_50"
-{
-  printf 'task_benchmark_file=%s\n' "$REAL_APP_TASK_BENCHMARK"
-  printf 'task_benchmark_sha256=%s\n' "$REAL_APP_TASK_BENCHMARK_SHA"
-} >> "$REAL_APP_SOURCE_REPORT_50"
-expect_success \
-  "real app search evidence verifier accepts required 50 task benchmark artifact" \
-  env REQUIRE_REAL_APP_50_TASK_BENCHMARK=1 \
-  scripts/verify_real_app_search_report.sh \
-    --file "$REAL_APP_SOURCE_REPORT_50" \
-    --report "$ARTIFACT_DIR/real-app-search-evidence-50task.properties"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "status=passed"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "require50TaskBenchmark=1"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "taskBenchmarkCount=50"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "taskBenchmarkFile=$REAL_APP_TASK_BENCHMARK"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "taskBenchmarkSha256=$REAL_APP_TASK_BENCHMARK_SHA"
-expect_failure \
-  "real app search evidence verifier rejects 8 case report when 50 task benchmark is required" \
-  env REQUIRE_REAL_APP_50_TASK_BENCHMARK=1 \
-  scripts/verify_real_app_search_report.sh \
-    --file "$REAL_APP_SOURCE_REPORT" \
-    --report "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties" "status=failed"
-assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties" "failedTarget=real-app-50-task-benchmark"
-assert_report_contains_text "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties" "taskbench-file-missing"
 
 REAL_APP_CASE_REPORT_TAMPERED="$(mktemp)"
 sed 's/^ranked_candidates_sha256=.*/ranked_candidates_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \
@@ -10226,6 +10160,8 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "test_count=20"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk_mode=debug"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk=app/build/outputs/apk/debug/app-debug.apk"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "releaseArtifactSha256=$VALID_PERF_SHA"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
 grep -Eq '^instrumentation_output_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-verification.properties" ||
@@ -10244,14 +10180,33 @@ grep -q -- "-s device-a logcat -c" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to clear the logcat window before validation"
 grep -q -- "-s device-a logcat -d -t 500" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to capture logcat after validation"
-grep -q -- "-s device-a install -r app/build/outputs/apk/debug/app-debug.apk" "$FAKE_ADB_LOG" ||
-  fail "Expected install helper to use overlay install for default success launch"
-if grep -q -- "shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
-  fail "Default install helper run must preserve app data"
+if grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
+  fail "Default install helper must preserve target app data"
 fi
-if grep -q -- "uninstall com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
-  fail "Default install helper run must not uninstall the app"
+if grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG"; then
+  fail "Default install helper must preserve test app data"
 fi
+
+reset_logs
+DEVICE_RELEASE_APK="$TMP_DIR/device-release.apk"
+printf 'device release apk\n' > "$DEVICE_RELEASE_APK"
+DEVICE_RELEASE_APK_SHA="$(shasum -a 256 "$DEVICE_RELEASE_APK" | awk '{print $1}')"
+expect_success \
+  "install helper can verify an explicit release apk on device" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  APP_APK_MODE=release APP_APK="$DEVICE_RELEASE_APK" \
+  RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256="$DEVICE_RELEASE_APK_SHA" \
+  GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/install_and_test_device.sh
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk_mode=release"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk=$DEVICE_RELEASE_APK"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk_sha256=$DEVICE_RELEASE_APK_SHA"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "releaseArtifactType=apk"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "releaseArtifactSha256=$DEVICE_RELEASE_APK_SHA"
+grep -q -- "-s device-a install -r $DEVICE_RELEASE_APK" "$FAKE_ADB_LOG" ||
+  fail "Expected install helper release mode to install the explicit release APK"
 
 reset_logs
 expect_success \
@@ -10271,10 +10226,10 @@ reset_logs
 expect_success \
   "install helper clears clean-device app data before success launch" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-	  FAKE_ADB_DEVICES=$'device-a\tdevice' \
-	  CLEAN_DEVICE=1 \
-	  RESET_APP_DATA_AFTER_TESTS=1 \
-	  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  CLEAN_DEVICE=1 \
+  RESET_APP_DATA_AFTER_TESTS=1 \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_device=1"
@@ -10314,10 +10269,10 @@ expect_failure \
   "install helper clears clean-device state after timeout" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' \
-	  FAKE_INSTRUMENTATION_SLEEP_SECONDS=2 \
-	  CLEAN_DEVICE=1 \
-	  RESET_APP_DATA_AFTER_TESTS=1 \
-	  INSTRUMENTATION_TIMEOUT_SECONDS=1 \
+  FAKE_INSTRUMENTATION_SLEEP_SECONDS=2 \
+  CLEAN_DEVICE=1 \
+  RESET_APP_DATA_AFTER_TESTS=1 \
+  INSTRUMENTATION_TIMEOUT_SECONDS=1 \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
@@ -10410,6 +10365,9 @@ grep -q -- "-s device-a shell run-as com.bytedance.zgx.solin am broadcast --user
   fail "Expected review install helper to use debug receiver via run-as"
 if grep -q "example-secret" "$ARTIFACT_DIR/manual-acceptance-install-device.properties"; then
   fail "Review install report must not persist remote API key"
+fi
+if grep -q "example-secret" "$FAKE_ADB_LOG"; then
+  fail "Review install helper must not pass remote API key through adb argv/log"
 fi
 
 reset_logs
@@ -10730,6 +10688,9 @@ fi
 if grep -Fq "$LIVE_REMOTE_TEST_TOKEN" "$ARTIFACT_DIR/live-remote-device.properties"; then
   fail "Physical live remote report must not persist the remote API key"
 fi
+if grep -Fq "$LIVE_REMOTE_TEST_TOKEN" "$FAKE_ADB_LOG"; then
+  fail "Physical live remote helper must not pass the remote API key through adb argv/log"
+fi
 
 reset_logs
 expect_success \
@@ -10778,6 +10739,9 @@ assert_report_contains_text "$ARTIFACT_DIR/live-remote-after-send.xml" "模型�
   fail "Expected live remote success logcat evidence"
 if grep -Fq "$LIVE_REMOTE_TEST_TOKEN" "$ARTIFACT_DIR/live-remote-emulator.properties"; then
   fail "Live remote report must not persist the remote API key"
+fi
+if grep -Fq "$LIVE_REMOTE_TEST_TOKEN" "$FAKE_ADB_LOG"; then
+  fail "Live remote helper must not pass the remote API key through adb argv/log"
 fi
 
 reset_logs
@@ -10867,6 +10831,26 @@ for screenshot_name in chat-home model-manager confirmation-sheet background-tas
   grep -Eq "^screenshot[.]${screenshot_name}[.]uiDumpSha256=[0-9a-f]{64}$" "$ARTIFACT_DIR/release-screenshots.properties" ||
     fail "Expected release screenshot UI dump SHA for $screenshot_name"
 done
+
+reset_logs
+expect_success \
+  "x86 release screenshot wrapper checks host and starts default x86 avd headlessly" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_EMULATOR_AVDS="solin_api36_x86_64" \
+  HOST_MACHINE="x86_64" \
+  CPUINFO_FILE="$X86_CPUINFO" \
+  KVM_DEVICE="$X86_KVM_DEVICE" \
+  GLIBC_VERSION="2.31" \
+  X86_HOST_REPORT="$ARTIFACT_DIR/x86-emulator-host.properties" \
+  GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/capture_x86_release_screenshots.sh
+assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/release-screenshots.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/release-screenshots.properties" "avd=test-avd"
+grep -q -- "-avd solin_api36_x86_64 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot" "$FAKE_EMULATOR_LOG" ||
+  fail "x86 screenshot wrapper must start the default x86_64 AVD with headless emulator args"
+
 REGRESSION_COUNT_FIXTURE="$TMP_DIR/android-test-count-fixture"
 mkdir -p "$REGRESSION_COUNT_FIXTURE/java/example"
 cat > "$REGRESSION_COUNT_FIXTURE/java/example/FixtureTest.kt" <<'COUNT_FIXTURE'

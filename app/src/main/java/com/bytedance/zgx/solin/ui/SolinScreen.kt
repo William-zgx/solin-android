@@ -250,7 +250,7 @@ fun SolinScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pocketMindTechBackdrop(),
+                .solinTechBackdrop(),
         ) {
             Column(
                 modifier = Modifier
@@ -474,6 +474,7 @@ fun SolinScreen(
                 ) {
                     RemoteSendDisclosureSheet(
                         disclosure = disclosure,
+                        disclosurePolicy = state.remoteSendDisclosurePolicy,
                         onConfirm = onConfirmRemoteSendDisclosure,
                         onMaskAndSend = onConfirmRemoteSendWithMasking,
                         onSendAnyway = onConfirmRemoteSendDespiteSensitive,
@@ -521,7 +522,7 @@ private fun appendComposerInput(current: String, addition: String): String {
     }
 }
 
-private enum class PocketGlyphKind {
+private enum class SolinGlyphKind {
     Add,
     Bell,
     Chat,
@@ -540,8 +541,8 @@ private enum class PocketGlyphKind {
 }
 
 @Composable
-private fun PocketGlyph(
-    kind: PocketGlyphKind,
+private fun SolinGlyph(
+    kind: SolinGlyphKind,
     modifier: Modifier = Modifier.size(20.dp),
     tint: Color = MaterialTheme.colorScheme.primary,
 ) {
@@ -557,13 +558,13 @@ private fun PocketGlyph(
         fun p(x: Float, y: Float) = Offset(w * x, h * y)
 
         when (kind) {
-            PocketGlyphKind.Add -> {
+            SolinGlyphKind.Add -> {
                 drawCircle(tint, radius = unit * 0.42f, center = p(0.5f, 0.5f), style = stroke)
                 drawLine(tint, p(0.34f, 0.5f), p(0.66f, 0.5f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.5f, 0.34f), p(0.5f, 0.66f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Bell -> {
+            SolinGlyphKind.Bell -> {
                 val bell = Path().apply {
                     moveTo(w * 0.28f, h * 0.58f)
                     lineTo(w * 0.32f, h * 0.42f)
@@ -578,7 +579,7 @@ private fun PocketGlyph(
                 drawLine(tint, p(0.43f, 0.80f), p(0.57f, 0.80f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Chat -> {
+            SolinGlyphKind.Chat -> {
                 val bubble = Path().apply {
                     moveTo(w * 0.26f, h * 0.24f)
                     lineTo(w * 0.76f, h * 0.24f)
@@ -598,19 +599,19 @@ private fun PocketGlyph(
                 drawLine(tint, p(0.32f, 0.55f), p(0.55f, 0.55f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Check -> {
+            SolinGlyphKind.Check -> {
                 drawCircle(tint, radius = unit * 0.40f, center = p(0.5f, 0.5f), style = stroke)
                 drawLine(tint, p(0.34f, 0.52f), p(0.46f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.46f, 0.64f), p(0.68f, 0.38f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Close -> {
+            SolinGlyphKind.Close -> {
                 drawCircle(tint, radius = unit * 0.38f, center = p(0.5f, 0.5f), style = stroke)
                 drawLine(tint, p(0.38f, 0.38f), p(0.62f, 0.62f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.62f, 0.38f), p(0.38f, 0.62f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Delete -> {
+            SolinGlyphKind.Delete -> {
                 drawLine(tint, p(0.30f, 0.34f), p(0.70f, 0.34f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.42f, 0.22f), p(0.58f, 0.22f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.46f, 0.22f), p(0.42f, 0.34f), strokeWidth = stroke.width, cap = StrokeCap.Round)
@@ -625,7 +626,7 @@ private fun PocketGlyph(
                 drawPath(bin, tint, style = stroke)
             }
 
-            PocketGlyphKind.Download -> {
+            SolinGlyphKind.Download -> {
                 drawLine(tint, p(0.50f, 0.20f), p(0.50f, 0.58f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.34f, 0.44f), p(0.50f, 0.60f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.66f, 0.44f), p(0.50f, 0.60f), strokeWidth = stroke.width, cap = StrokeCap.Round)
@@ -634,7 +635,7 @@ private fun PocketGlyph(
                 drawLine(tint, p(0.74f, 0.64f), p(0.74f, 0.76f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Memory -> {
+            SolinGlyphKind.Memory -> {
                 drawCircle(tint, radius = unit * 0.09f, center = p(0.30f, 0.32f), style = stroke)
                 drawCircle(tint, radius = unit * 0.09f, center = p(0.70f, 0.32f), style = stroke)
                 drawCircle(tint, radius = unit * 0.09f, center = p(0.50f, 0.72f), style = stroke)
@@ -643,13 +644,13 @@ private fun PocketGlyph(
                 drawLine(tint, p(0.39f, 0.32f), p(0.61f, 0.32f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.More -> {
+            SolinGlyphKind.More -> {
                 drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.26f))
                 drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.5f))
                 drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.74f))
             }
 
-            PocketGlyphKind.Send -> {
+            SolinGlyphKind.Send -> {
                 val arrow = Path().apply {
                     moveTo(w * 0.24f, h * 0.22f)
                     lineTo(w * 0.82f, h * 0.50f)
@@ -662,7 +663,7 @@ private fun PocketGlyph(
                 drawPath(arrow, tint)
             }
 
-            PocketGlyphKind.Shield -> {
+            SolinGlyphKind.Shield -> {
                 val shield = Path().apply {
                     moveTo(w * 0.50f, h * 0.16f)
                     lineTo(w * 0.80f, h * 0.28f)
@@ -677,7 +678,7 @@ private fun PocketGlyph(
                 drawLine(tint, p(0.48f, 0.60f), p(0.66f, 0.40f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Spark -> {
+            SolinGlyphKind.Spark -> {
                 drawLine(tint, p(0.50f, 0.12f), p(0.50f, 0.38f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.50f, 0.62f), p(0.50f, 0.88f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.12f, 0.50f), p(0.38f, 0.50f), strokeWidth = stroke.width, cap = StrokeCap.Round)
@@ -689,13 +690,13 @@ private fun PocketGlyph(
                 drawCircle(tint, radius = unit * 0.055f, center = p(0.76f, 0.24f))
             }
 
-            PocketGlyphKind.Stop -> {
+            SolinGlyphKind.Stop -> {
                 drawCircle(tint, radius = unit * 0.40f, center = p(0.5f, 0.5f), style = stroke)
                 drawLine(tint, p(0.36f, 0.36f), p(0.64f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.64f, 0.36f), p(0.36f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
-            PocketGlyphKind.Undo -> {
+            SolinGlyphKind.Undo -> {
                 val curve = Path().apply {
                     moveTo(w * 0.32f, h * 0.34f)
                     lineTo(w * 0.18f, h * 0.50f)
@@ -707,7 +708,7 @@ private fun PocketGlyph(
                 drawPath(curve, tint, style = stroke)
             }
 
-            PocketGlyphKind.Voice -> {
+            SolinGlyphKind.Voice -> {
                 drawLine(tint, p(0.18f, 0.55f), p(0.18f, 0.45f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.34f, 0.68f), p(0.34f, 0.32f), strokeWidth = stroke.width, cap = StrokeCap.Round)
                 drawLine(tint, p(0.50f, 0.78f), p(0.50f, 0.22f), strokeWidth = stroke.width, cap = StrokeCap.Round)
@@ -719,7 +720,7 @@ private fun PocketGlyph(
 }
 
 @Composable
-private fun Modifier.pocketMindTechBackdrop(): Modifier {
+private fun Modifier.solinTechBackdrop(): Modifier {
     val base = MaterialTheme.colorScheme.background
     val primary = MaterialTheme.colorScheme.primary
     val secondary = MaterialTheme.colorScheme.secondary
@@ -792,7 +793,7 @@ private fun ChatTopBar(
                 Image(
                     modifier = Modifier
                         .size(if (compactTopBar) 32.dp else 38.dp),
-                    painter = painterResource(R.drawable.ic_solin_brand_mark),
+                    painter = painterResource(R.drawable.solin_brand_mark),
                     contentDescription = null,
                 )
                 Column(
@@ -839,7 +840,7 @@ private fun ChatTopBar(
                 )
                 TopActionButton(
                     modifier = Modifier.testTag("top_session_button"),
-                    glyph = PocketGlyphKind.Chat,
+                    glyph = SolinGlyphKind.Chat,
                     label = "会话",
                     size = actionButtonSize,
                     onClick = onOpenSessions,
@@ -847,7 +848,7 @@ private fun ChatTopBar(
                 Box {
                     TopActionButton(
                         modifier = Modifier.testTag("top_more_button"),
-                        glyph = PocketGlyphKind.More,
+                        glyph = SolinGlyphKind.More,
                         label = "更多",
                         size = actionButtonSize,
                         onClick = { menuExpanded = true },
@@ -859,7 +860,7 @@ private fun ChatTopBar(
                     ) {
                         TopMenuItem(
                             modifier = Modifier.testTag("top_create_session_button"),
-                            glyph = PocketGlyphKind.Add,
+                            glyph = SolinGlyphKind.Add,
                             label = "新建会话",
                             enabled = !state.isBusy,
                             onClick = {
@@ -869,7 +870,7 @@ private fun ChatTopBar(
                         )
                         TopMenuItem(
                             modifier = Modifier.testTag("top_model_menu_button"),
-                            glyph = PocketGlyphKind.Spark,
+                            glyph = SolinGlyphKind.Spark,
                             label = "模型管理",
                             onClick = {
                                 menuExpanded = false
@@ -878,7 +879,7 @@ private fun ChatTopBar(
                         )
                         TopMenuItem(
                             modifier = Modifier.testTag("top_privacy_button"),
-                            glyph = PocketGlyphKind.Shield,
+                            glyph = SolinGlyphKind.Shield,
                             label = "隐私说明",
                             onClick = {
                                 menuExpanded = false
@@ -887,7 +888,7 @@ private fun ChatTopBar(
                         )
                         TopMenuItem(
                             modifier = Modifier.testTag("top_background_tasks_button"),
-                            glyph = PocketGlyphKind.Bell,
+                            glyph = SolinGlyphKind.Bell,
                             label = "后台任务",
                             onClick = {
                                 menuExpanded = false
@@ -960,7 +961,7 @@ private fun CompactModelStatusChip(
 
 @Composable
 private fun TopMenuItem(
-    glyph: PocketGlyphKind,
+    glyph: SolinGlyphKind,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -981,7 +982,7 @@ private fun TopMenuItem(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PocketGlyph(
+        SolinGlyph(
             modifier = Modifier.size(20.dp),
             kind = glyph,
             tint = contentColor,
@@ -999,7 +1000,7 @@ private fun TopMenuItem(
 
 @Composable
 private fun TopActionButton(
-    glyph: PocketGlyphKind,
+    glyph: SolinGlyphKind,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1022,7 +1023,7 @@ private fun TopActionButton(
             disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
         ),
     ) {
-        PocketGlyph(
+        SolinGlyph(
             kind = glyph,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(size * 0.56f),
@@ -1172,8 +1173,8 @@ private fun ChatEmptyState(
                     onClick = onOpenPrivacyNotice,
                     enabled = !state.isBusy,
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Shield,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Shield,
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1223,11 +1224,11 @@ private fun HomePositioningPanel() {
     }
 }
 
-private fun homeValueIcon(kind: HomeValueKind): PocketGlyphKind =
+private fun homeValueIcon(kind: HomeValueKind): SolinGlyphKind =
     when (kind) {
-        HomeValueKind.Local -> PocketGlyphKind.Shield
-        HomeValueKind.Remote -> PocketGlyphKind.Spark
-        HomeValueKind.Action -> PocketGlyphKind.Check
+        HomeValueKind.Local -> SolinGlyphKind.Shield
+        HomeValueKind.Remote -> SolinGlyphKind.Spark
+        HomeValueKind.Action -> SolinGlyphKind.Check
     }
 
 @Composable
@@ -1389,8 +1390,8 @@ private fun QuickModelSetup(
             onClick = onDownloadModel,
             enabled = !state.isBusy && !state.isDownloading,
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Download,
+            SolinGlyph(
+                kind = SolinGlyphKind.Download,
                 modifier = Modifier.size(18.dp),
                 tint = LocalContentColor.current,
             )
@@ -1410,8 +1411,8 @@ private fun QuickModelSetup(
             onClick = onPickModel,
             enabled = !state.isBusy,
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Add,
+            SolinGlyph(
+                kind = SolinGlyphKind.Add,
                 modifier = Modifier.size(18.dp),
                 tint = LocalContentColor.current,
             )
@@ -1479,8 +1480,8 @@ private fun QuickModelSetup(
                 onClick = onOpenRemoteModelConfig,
                 enabled = !state.isBusy,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Spark,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Spark,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -1511,8 +1512,8 @@ private fun QuickModelSetup(
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Spark,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Spark,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -1612,8 +1613,8 @@ private fun RemoteModeDisclosureSheet(
                 .testTag("remote_mode_confirm_button"),
             onClick = onDismiss,
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Spark,
+            SolinGlyph(
+                kind = SolinGlyphKind.Spark,
                 modifier = Modifier.size(18.dp),
                 tint = LocalContentColor.current,
             )
@@ -1665,14 +1666,16 @@ internal fun remoteModeDisclosureDisplayRows(disclosure: PendingRemoteModeDisclo
 @Composable
 private fun RemoteSendDisclosureSheet(
     disclosure: PendingRemoteSendDisclosure,
+    disclosurePolicy: RemoteSendDisclosurePolicy,
     onConfirm: (Boolean) -> Unit,
     onMaskAndSend: () -> Unit,
     onSendAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // Sensitive disclosures and image sends are forced and can never be silenced for the session.
-    val canSuppressForSession = !disclosure.forcedBySensitiveContent &&
-        disclosure.imageAttachmentCount == 0
+    val canSuppressForSession = remoteSendDisclosureCanSuppressForSession(
+        policy = disclosurePolicy,
+        disclosure = disclosure,
+    )
     val requiresSensitiveConsent = disclosure.requiresSensitiveConsent
     var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
     TrustSheetSurface(
@@ -1718,8 +1721,8 @@ private fun RemoteSendDisclosureSheet(
                     .testTag("remote_send_confirm_button"),
                 onClick = { onConfirm(canSuppressForSession && suppressForSession) },
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Spark,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Spark,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -1745,8 +1748,8 @@ private fun RemoteSendDisclosureSheet(
                         .testTag("remote_send_mask_button"),
                     onClick = onMaskAndSend,
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Shield,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Shield,
                         modifier = Modifier.size(18.dp),
                         tint = LocalContentColor.current,
                     )
@@ -1760,8 +1763,8 @@ private fun RemoteSendDisclosureSheet(
                     .testTag("remote_send_anyway_button"),
                 onClick = onSendAnyway,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Spark,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Spark,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -1775,8 +1778,8 @@ private fun RemoteSendDisclosureSheet(
                 .testTag("remote_send_dismiss_button"),
             onClick = onDismiss,
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Close,
+            SolinGlyph(
+                kind = SolinGlyphKind.Close,
                 modifier = Modifier.size(18.dp),
                 tint = LocalContentColor.current,
             )
@@ -1785,6 +1788,15 @@ private fun RemoteSendDisclosureSheet(
         }
     }
 }
+
+internal fun remoteSendDisclosureCanSuppressForSession(
+    policy: RemoteSendDisclosurePolicy,
+    disclosure: PendingRemoteSendDisclosure,
+): Boolean =
+    policy == RemoteSendDisclosurePolicy.OncePerSession &&
+        !disclosure.forcedBySensitiveContent &&
+        !disclosure.requiresSensitiveConsent &&
+        disclosure.imageAttachmentCount == 0
 
 @Composable
 private fun RemoteSendDisclosureRows(disclosure: PendingRemoteSendDisclosure) {
@@ -1924,8 +1936,8 @@ private fun ActionDraftSheet(
                             .testTag("open_special_access_${requirement.id}"),
                         onClick = { onOpenSpecialAccessSettings(requirement) },
                     ) {
-                        PocketGlyph(
-                            kind = PocketGlyphKind.Check,
+                        SolinGlyph(
+                            kind = SolinGlyphKind.Check,
                             modifier = Modifier.size(18.dp),
                             tint = LocalContentColor.current,
                         )
@@ -2080,8 +2092,8 @@ private fun ExternalOutcomeSheet(
                 .testTag("external_outcome_completed_button"),
             onClick = { onRecord(AgentExternalOutcome.Completed) },
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Check,
+            SolinGlyph(
+                kind = SolinGlyphKind.Check,
                 modifier = Modifier.size(18.dp),
                 tint = LocalContentColor.current,
             )
@@ -2094,8 +2106,8 @@ private fun ExternalOutcomeSheet(
                 .testTag("external_outcome_not_completed_button"),
             onClick = { onRecord(AgentExternalOutcome.NotCompleted) },
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Close,
+            SolinGlyph(
+                kind = SolinGlyphKind.Close,
                 modifier = Modifier.size(18.dp),
                 tint = LocalContentColor.current,
             )
@@ -2144,8 +2156,8 @@ private fun PromptSuggestionList(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                     ) {
-                        PocketGlyph(
-                            kind = PocketGlyphKind.Spark,
+                        SolinGlyph(
+                            kind = SolinGlyphKind.Spark,
                             modifier = Modifier
                                 .padding(6.dp)
                                 .size(15.dp),
@@ -2232,8 +2244,8 @@ private fun ModelManagerSheet(
                 onClick = onDismiss,
                 enabled = !state.isBusy,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Close,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Close,
                     tint = LocalContentColor.current,
                     modifier = Modifier.size(20.dp),
                 )
@@ -2511,7 +2523,7 @@ private fun HuggingFaceAuthorizationPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CapabilityMark(
-                    icon = PocketGlyphKind.Shield,
+                    icon = SolinGlyphKind.Shield,
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Column(
@@ -2629,8 +2641,8 @@ private fun AddModelPanel(
             onClick = { onDownloadCustomModel(customModelUrl) },
             enabled = enabled && customModelUrl.isNotBlank(),
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Download,
+            SolinGlyph(
+                kind = SolinGlyphKind.Download,
                 tint = LocalContentColor.current,
             )
             Text(" 从链接下载")
@@ -2642,8 +2654,8 @@ private fun AddModelPanel(
             onClick = onPickModel,
             enabled = enabled,
         ) {
-            PocketGlyph(
-                kind = PocketGlyphKind.Add,
+            SolinGlyph(
+                kind = SolinGlyphKind.Add,
                 tint = LocalContentColor.current,
             )
             Text(" 导入本地文件")
@@ -2863,8 +2875,8 @@ private fun CurrentModelPanel(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onLoadModel,
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Check,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Check,
                         tint = LocalContentColor.current,
                     )
                     Text(" 加载模型")
@@ -2982,8 +2994,8 @@ private fun RemoteModelPanel(
                     config.isConfigured &&
                     config.connectivityStatus != RemoteModelConnectivityStatus.Checking,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Check,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Check,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -3002,8 +3014,8 @@ private fun RemoteModelPanel(
                 onClick = { onRemoteModelConfigChanged(RemoteModelConfig()) },
                 enabled = !state.isBusy && config.hasAnySavedValue(),
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Delete,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Delete,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -3050,17 +3062,17 @@ private fun TrustBoundaryPanel(
                     subtitle = PRODUCT_POSITIONING_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Shield,
+                    icon = SolinGlyphKind.Shield,
                     title = "本地可用",
                     body = PRODUCT_LOCAL_VALUE_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Spark,
+                    icon = SolinGlyphKind.Spark,
                     title = "远程多模态可选",
                     body = PRODUCT_REMOTE_VALUE_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Check,
+                    icon = SolinGlyphKind.Check,
                     title = "动作确认执行",
                     body = PRODUCT_ACTION_VALUE_TEXT,
                 )
@@ -3074,7 +3086,7 @@ private fun TrustBoundaryPanel(
                 )
                 trustCenterCapabilityDisplayRows().forEach { row ->
                     TrustBoundaryRow(
-                        icon = PocketGlyphKind.Shield,
+                        icon = SolinGlyphKind.Shield,
                         title = row.title,
                         body = row.body,
                     )
@@ -3088,22 +3100,22 @@ private fun TrustBoundaryPanel(
                     subtitle = PRIVACY_POLICY_ENTRY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Shield,
+                    icon = SolinGlyphKind.Shield,
                     title = "本地优先",
                     body = TRUST_LOCAL_BOUNDARY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Spark,
+                    icon = SolinGlyphKind.Spark,
                     title = "远程模型",
                     body = TRUST_REMOTE_BOUNDARY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Check,
+                    icon = SolinGlyphKind.Check,
                     title = "敏感权限",
                     body = TRUST_PERMISSION_BOUNDARY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = PocketGlyphKind.Delete,
+                    icon = SolinGlyphKind.Delete,
                     title = "用户控制",
                     body = trustDeletionBoundaryText(state),
                 )
@@ -3158,7 +3170,7 @@ private fun TrustBoundaryPanel(
                 )
                 sensitiveDisclosureRows.forEach { row ->
                     TrustBoundaryRow(
-                        icon = PocketGlyphKind.Shield,
+                        icon = SolinGlyphKind.Shield,
                         title = row.title,
                         body = row.body,
                     )
@@ -3294,7 +3306,7 @@ private fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
 
 @Composable
 private fun TrustBoundaryRow(
-    icon: PocketGlyphKind,
+    icon: SolinGlyphKind,
     title: String,
     body: String,
 ) {
@@ -3303,7 +3315,7 @@ private fun TrustBoundaryRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        PocketGlyph(
+        SolinGlyph(
             modifier = Modifier.size(20.dp),
             kind = icon,
             tint = MaterialTheme.colorScheme.primary,
@@ -3528,8 +3540,8 @@ private fun LongTermMemoryRow(
                 onClick = onForget,
                 enabled = enabled,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Delete,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Delete,
                     tint = LocalContentColor.current,
                     modifier = Modifier.size(20.dp),
                 )
@@ -3590,8 +3602,8 @@ private fun SessionManagerSheet(
                 onClick = onDismiss,
                 enabled = !state.isBusy,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Close,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Close,
                     tint = LocalContentColor.current,
                     modifier = Modifier.size(20.dp),
                 )
@@ -4444,8 +4456,8 @@ private fun BackgroundTaskRow(
                     onClick = onCancel,
                     enabled = enabled,
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Close,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Close,
                         tint = LocalContentColor.current,
                         modifier = Modifier.size(20.dp),
                     )
@@ -4654,8 +4666,8 @@ private fun RecommendedModelCard(
                     onClick = onDownload,
                     enabled = !state.isBusy && !state.isDownloading,
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Download,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Download,
                         tint = LocalContentColor.current,
                     )
                     Text(
@@ -4769,8 +4781,8 @@ private fun ModelRow(
                         disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                     ),
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Delete,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Delete,
                         tint = LocalContentColor.current,
                         modifier = Modifier
                             .size(20.dp)
@@ -4784,14 +4796,14 @@ private fun ModelRow(
 
 @Composable
 private fun CapabilityMark(
-    icon: PocketGlyphKind,
+    icon: SolinGlyphKind,
     tint: Color,
 ) {
     Surface(
         shape = CircleShape,
         color = tint.copy(alpha = 0.16f),
     ) {
-        PocketGlyph(
+        SolinGlyph(
             modifier = Modifier
                 .padding(7.dp)
                 .size(18.dp),
@@ -4801,11 +4813,11 @@ private fun CapabilityMark(
     }
 }
 
-private fun capabilityIcon(capability: ModelCapability): PocketGlyphKind =
+private fun capabilityIcon(capability: ModelCapability): SolinGlyphKind =
     when (capability) {
-        ModelCapability.Chat -> PocketGlyphKind.Chat
-        ModelCapability.MemoryEmbedding -> PocketGlyphKind.Memory
-        ModelCapability.MobileAction -> PocketGlyphKind.Check
+        ModelCapability.Chat -> SolinGlyphKind.Chat
+        ModelCapability.MemoryEmbedding -> SolinGlyphKind.Memory
+        ModelCapability.MobileAction -> SolinGlyphKind.Check
     }
 
 @Composable
@@ -5254,9 +5266,9 @@ private fun MemoryContextStrip(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PocketGlyph(
+            SolinGlyph(
                 modifier = Modifier.size(16.dp),
-                kind = PocketGlyphKind.Memory,
+                kind = SolinGlyphKind.Memory,
                 tint = semanticColors.onMemoryContainer,
             )
             Text(
@@ -5293,9 +5305,9 @@ private fun RecoveryActionEntry(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PocketGlyph(
+            SolinGlyph(
                 modifier = Modifier.size(18.dp),
-                kind = PocketGlyphKind.Undo,
+                kind = SolinGlyphKind.Undo,
                 tint = MaterialTheme.colorScheme.primary,
             )
             Column(
@@ -5736,8 +5748,8 @@ private fun ComposerAttachmentButton(
         enabled = enabled,
         onClick = onClick,
     ) {
-        PocketGlyph(
-            kind = PocketGlyphKind.Add,
+        SolinGlyph(
+            kind = SolinGlyphKind.Add,
             tint = LocalContentColor.current,
         )
     }
@@ -5788,8 +5800,8 @@ private fun ComposerVoiceButton(
         onClick = onClick,
         enabled = enabled,
     ) {
-        PocketGlyph(
-            kind = PocketGlyphKind.Voice,
+        SolinGlyph(
+            kind = SolinGlyphKind.Voice,
             tint = LocalContentColor.current,
         )
     }
@@ -5809,8 +5821,8 @@ private fun ComposerModelButton(
         onClick = onClick,
         enabled = enabled,
     ) {
-        PocketGlyph(
-            kind = PocketGlyphKind.Spark,
+        SolinGlyph(
+            kind = SolinGlyphKind.Spark,
             tint = LocalContentColor.current,
         )
     }
@@ -5863,8 +5875,8 @@ private fun ComposerSendButton(
             },
         ),
     ) {
-        PocketGlyph(
-            kind = if (actionIsStop) PocketGlyphKind.Stop else PocketGlyphKind.Send,
+        SolinGlyph(
+            kind = if (actionIsStop) SolinGlyphKind.Stop else SolinGlyphKind.Send,
             tint = LocalContentColor.current,
         )
     }
@@ -5952,9 +5964,9 @@ private fun PendingSharedInputStrip(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PocketGlyph(
+            SolinGlyph(
                 modifier = Modifier.size(16.dp),
-                kind = PocketGlyphKind.Add,
+                kind = SolinGlyphKind.Add,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Text(
@@ -5971,8 +5983,8 @@ private fun PendingSharedInputStrip(
                     .semantics { contentDescription = "移除附件" },
                 onClick = onRemove,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Close,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Close,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -6032,8 +6044,8 @@ private fun VoiceCaptureBar(
                     .semantics { contentDescription = "取消语音输入" },
                 onClick = onCancel,
             ) {
-                PocketGlyph(
-                    kind = PocketGlyphKind.Close,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Close,
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
@@ -6045,8 +6057,8 @@ private fun VoiceCaptureBar(
                     .semantics { contentDescription = "结束语音输入" },
                     onClick = onFinish,
                 ) {
-                    PocketGlyph(
-                        kind = PocketGlyphKind.Check,
+                    SolinGlyph(
+                        kind = SolinGlyphKind.Check,
                         modifier = Modifier.size(18.dp),
                         tint = LocalContentColor.current,
                     )
