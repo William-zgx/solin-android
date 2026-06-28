@@ -173,6 +173,7 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("top_model_button").performClick()
         composeRule.waitForTag("model_manager_sheet")
         composeRule.onNodeWithTag("model_tab_remote").performClick()
+        composeRule.waitForTag("remote_base_url_input")
         composeRule.replaceTaggedText("remote_base_url_input", baseUrl)
         composeRule.replaceTaggedText("remote_model_name_input", "mock-model")
         composeRule.onNodeWithTag("model_tab_current").performClick()

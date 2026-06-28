@@ -41,7 +41,7 @@ class MainActivitySmokeTest {
 
         composeRule.onNodeWithTag("app_title").assertIsDisplayed()
         composeRule.onNodeWithTag("app_positioning_subtitle").assertIsDisplayed()
-        composeRule.waitForText("让 AI 住在手机里")
+        composeRule.waitForText("隐私优先", substring = true)
         composeRule.waitForText("先配置远程模型或下载本地模型", substring = true)
         composeRule.waitForText("模型未就绪")
         composeRule.onNodeWithTag("home_positioning_panel").performScrollTo().assertIsDisplayed()
