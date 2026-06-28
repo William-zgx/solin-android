@@ -161,7 +161,7 @@ solin_accessibility_enabled() {
 
 if ! solin_accessibility_enabled; then
   fail_with_reason solin-accessibility-not-enabled \
-    "栖知 Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_SOLIN_INSTALL=1."
+    "Solin Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_SOLIN_INSTALL=1."
 fi
 
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null

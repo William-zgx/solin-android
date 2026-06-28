@@ -36,14 +36,14 @@ class SolinScreenDisplayTest {
 
     @Test
     fun trustBoundaryCopyNamesLocalRemotePermissionAndDeletionControls() {
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("让 AI 住在手机里"))
+        assertTrue(PRODUCT_POSITIONING_TEXT.contains("隐私优先的随身 AI 助手"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("本地模型"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("下载或导入"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("远程多模态可选"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("必须确认执行"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("能力与信任中心"))
-        assertTrue(PRODUCT_POSITIONING_SHORT_TEXT.contains("让 AI 住在手机里"))
-        assertTrue(PRODUCT_HOME_TITLE_TEXT.contains("让 AI 住在手机里"))
+        assertTrue(PRODUCT_POSITIONING_SHORT_TEXT.contains("隐私优先的随身 AI 助手"))
+        assertTrue(PRODUCT_HOME_TITLE_TEXT.contains("隐私优先的随身 AI 助手"))
         assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("本地模型"))
         assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("下载或导入"))
         assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("远程多模态可选"))

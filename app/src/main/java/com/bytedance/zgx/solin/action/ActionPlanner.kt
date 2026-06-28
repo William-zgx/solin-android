@@ -240,7 +240,7 @@ class MobileActionPlanner(
     private fun summaryFor(functionName: String, parameters: Map<String, String>): String =
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "将打开系统 Wi-Fi 设置页。"
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "将打开系统使用情况访问权限设置页，由你手动为栖知授权。"
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "将打开系统使用情况访问权限设置页，由你手动为Solin授权。"
             MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
                 "将打开${SystemSettingsTargets.pageLabel(parameters["target"].orEmpty())}，由你手动完成后续操作。"
             MobileActionFunctions.SEARCH_MAPS -> "将在地图中搜索：${parameters["query"].orEmpty()}"

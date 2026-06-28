@@ -24,10 +24,10 @@ class ReminderNotificationHelper(
         notificationManager?.createNotificationChannel(
             NotificationChannel(
                 REMINDER_CHANNEL_ID,
-                "栖知提醒",
+                "Solin提醒",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "栖知后台提醒和定时任务通知"
+                description = "Solin后台提醒和定时任务通知"
             },
         )
     }

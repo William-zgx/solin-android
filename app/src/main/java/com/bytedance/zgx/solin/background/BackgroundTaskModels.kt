@@ -40,7 +40,7 @@ data class ReminderScheduleRequest(
         )
 
     companion object {
-        const val DEFAULT_TITLE = "栖知提醒"
+        const val DEFAULT_TITLE = "Solin提醒"
         const val MIN_DELAY_MINUTES = 1L
     }
 }
@@ -80,7 +80,7 @@ data class PeriodicCheckScheduleRequest(
     companion object {
         const val TASK_ID = "periodic-check-local"
         const val UNIQUE_WORK_NAME = "solin_periodic_local_check"
-        const val TITLE = "栖知后台检查"
+        const val TITLE = "Solin后台检查"
         const val DEFAULT_INTERVAL_MINUTES = 360L
         const val MIN_INTERVAL_MINUTES = 60L
         const val MAX_INTERVAL_MINUTES = 24L * 60L

@@ -141,7 +141,7 @@ internal object AbsoluteReminderActionParser {
             .replace(Regex("""^一下\s*"""), "")
             .replace(Regex("""(?i)^\s*(to|about)\s+"""), "")
             .trimActionLabel()
-            .ifBlank { "栖知提醒" }
+            .ifBlank { "Solin提醒" }
 }
 
 private object ClockTimeParser {

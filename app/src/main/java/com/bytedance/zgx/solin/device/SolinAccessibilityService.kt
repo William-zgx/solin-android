@@ -516,7 +516,7 @@ class SolinAccessibilityService : AccessibilityService() {
     private fun pasteTextIntoEditable(editableNode: AccessibilityNodeInfo, text: String): Boolean {
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
         val previousClip = runCatching { clipboard.primaryClip }.getOrNull()
-        clipboard.setPrimaryClip(ClipData.newPlainText("栖知输入", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Solin输入", text))
         val pasted = editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
         mainHandler.postDelayed(
             { restoreClipboardAfterPaste(clipboard, previousClip) },
@@ -532,7 +532,7 @@ class SolinAccessibilityService : AccessibilityService() {
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 clipboard.clearPrimaryClip()
             } else {
-                clipboard.setPrimaryClip(ClipData.newPlainText("栖知输入", ""))
+                clipboard.setPrimaryClip(ClipData.newPlainText("Solin输入", ""))
             }
         }
     }
@@ -683,7 +683,7 @@ class SolinAccessibilityService : AccessibilityService() {
 
         internal fun readCurrentScreenText(maxChars: Int): CurrentScreenTextReadResult {
             val service = activeService?.get()
-                ?: return CurrentScreenTextReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return CurrentScreenTextReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在读取当前屏幕")
             return runDeviceControlWithTimeout(
                 timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
@@ -695,7 +695,7 @@ class SolinAccessibilityService : AccessibilityService() {
 
         internal fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
             val service = activeService?.get()
-                ?: return ScreenStateReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return ScreenStateReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在观察当前屏幕")
             return runDeviceControlWithTimeout(
                 timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
@@ -716,7 +716,7 @@ class SolinAccessibilityService : AccessibilityService() {
             ocrGroundingHint: UiOcrGroundingHint? = null,
         ): UiActionReadResult {
             val service = activeService?.get()
-                ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在点击：$target")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
                 service.tapTarget(target, timeoutMillis, ocrGroundingHint)
@@ -731,7 +731,7 @@ class SolinAccessibilityService : AccessibilityService() {
             allowClipboardPasteFallback: Boolean = false,
         ): UiActionReadResult {
             val service = activeService?.get()
-                ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在输入文本")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
                 service.typeText(
@@ -749,7 +749,7 @@ class SolinAccessibilityService : AccessibilityService() {
             ocrGroundingHint: UiOcrGroundingHint? = null,
         ): UiActionReadResult {
             val service = activeService?.get()
-                ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在提交搜索")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
                 service.submitSearch(timeoutMillis, ocrGroundingHint)
@@ -762,7 +762,7 @@ class SolinAccessibilityService : AccessibilityService() {
             timeoutMillis: Long,
         ): UiActionReadResult {
             val service = activeService?.get()
-                ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在滚动页面")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
                 service.scrollTarget(direction, target, timeoutMillis)
@@ -771,7 +771,7 @@ class SolinAccessibilityService : AccessibilityService() {
 
         internal fun performPressBack(timeoutMillis: Long): UiActionReadResult {
             val service = activeService?.get()
-                ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在返回上一页")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
                 service.pressBack(timeoutMillis)
@@ -780,7 +780,7 @@ class SolinAccessibilityService : AccessibilityService() {
 
         internal fun performWait(timeoutMillis: Long): UiActionReadResult {
             val service = activeService?.get()
-                ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
             showControlProgress("正在等待页面稳定")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
                 service.waitForScreen(timeoutMillis)
@@ -859,7 +859,7 @@ private fun String.controlProgressMessage(): String {
         .trim()
         .takeIf { it.isNotBlank() }
         ?: DeviceControlSessionService.DEFAULT_REASON
-    return "栖知 · ${compact.take(64)}"
+    return "Solin · ${compact.take(64)}"
 }
 
 private fun AccessibilityNodeInfo.findFocusedEditableForTyping(): AccessibilityNodeInfo? =

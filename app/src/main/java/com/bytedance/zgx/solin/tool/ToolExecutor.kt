@@ -1212,7 +1212,7 @@ class CurrentScreenTextToolExecutor(
             is CurrentScreenTextReadResult.PermissionDenied ->
                 request.failed(
                     code = ToolErrorCode.PermissionDenied,
-                    summary = "需要开启栖知无障碍服务才能读取当前屏幕文本",
+                    summary = "需要开启Solin无障碍服务才能读取当前屏幕文本",
                     retryable = true,
                     data = request.localOnlyData() + mapOf(
                         "specialAccess" to "accessibility_screen_text",
@@ -1673,7 +1673,7 @@ class DeviceControlToolExecutor(
     private fun ToolRequest.deviceControlPermissionDenied(reason: String): ToolResult =
         failed(
             code = ToolErrorCode.PermissionDenied,
-            summary = reason.ifBlank { "需要开启栖知无障碍服务才能控制当前屏幕" },
+            summary = reason.ifBlank { "需要开启Solin无障碍服务才能控制当前屏幕" },
             retryable = true,
             data = deviceControlBaseData() + mapOf(
                 "specialAccess" to SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,

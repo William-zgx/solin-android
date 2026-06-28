@@ -130,7 +130,7 @@ internal object DeviceSettingsActionParser {
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ActionDraft(
                 functionName = MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
                 title = "打开使用情况访问权限设置",
-                summary = "将打开系统使用情况访问权限设置页，由你手动为栖知授权。",
+                summary = "将打开系统使用情况访问权限设置页，由你手动为Solin授权。",
                 parameters = emptyMap(),
                 requiresConfirmation = true,
             )
@@ -1296,7 +1296,7 @@ internal object RecentNotificationsActionParser {
         ).any { it in input } ||
             Regex("""(?:当前应用|当前\s*app|本应用)?\s*最近\s*\d{1,2}\s*条?\s*(?:消息|通知|讯息)""")
                 .containsMatchIn(input) ||
-            ((input.contains("栖知") || input.contains("Solin", ignoreCase = true)) && "通知" in input && ("最近" in input || "摘要" in input))
+            ((input.contains("Solin") || input.contains("Solin", ignoreCase = true)) && "通知" in input && ("最近" in input || "摘要" in input))
         return hasChineseTrigger || englishPattern.containsMatchIn(normalized)
     }
 

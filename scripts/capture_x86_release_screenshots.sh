@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 ANDROID_API="${ANDROID_API:-36}"
 EMULATOR_ABI="${EMULATOR_API_MATRIX_ABI:-x86_64}"
-AVD_NAME_PREFIX="${AVD_NAME_PREFIX:-pocketmind_api}"
+AVD_NAME_PREFIX="${AVD_NAME_PREFIX:-solin_api}"
 DEFAULT_AVD_NAME="${AVD_NAME_PREFIX}${ANDROID_API}_${EMULATOR_ABI//-/_}"
 DEFAULT_EMULATOR_ARGS="-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot"
 USER_SET_EMULATOR_ARGS=0

@@ -15686,17 +15686,17 @@ ARTIFACT_DIR=build/verification/device-wireless-action-observation-20260627-1230
 ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
 ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
 PATH=/Users/bytedance/Library/Android/sdk/platform-tools:$PATH \
-CLEAN_DEVICE=0 RESET_APP_DATA_AFTER_TESTS=0 REQUIRE_POCKETMIND_ACCESSIBILITY=0 \
+CLEAN_DEVICE=0 RESET_APP_DATA_AFTER_TESTS=0 REQUIRE_SOLIN_ACCESSIBILITY=0 \
 scripts/install_and_test_device.sh
 
 ARTIFACT_DIR=build/verification/device-control-debug-wireless-action-observation-rerun-20260627-124000 \
 ANDROID_SERIAL=192.168.1.27:35537 SKIP_BUILD=1 SKIP_INSTALL=1 \
-AUTO_ENABLE_POCKETMIND_ACCESSIBILITY=1 \
+AUTO_ENABLE_SOLIN_ACCESSIBILITY=1 \
 scripts/run_device_control_debug_eval.sh
 
 ARTIFACT_DIR=build/verification/real-app-search-wireless-action-observation-final-20260627-125900 \
 ANDROID_SERIAL=192.168.1.27:35537 SKIP_BUILD=1 SKIP_INSTALL=1 \
-FORCE_STOP_TARGET_APP=1 AUTO_ENABLE_POCKETMIND_ACCESSIBILITY=1 \
+FORCE_STOP_TARGET_APP=1 AUTO_ENABLE_SOLIN_ACCESSIBILITY=1 \
 scripts/run_real_app_search_eval.sh
 ```
 

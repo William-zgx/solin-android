@@ -96,9 +96,9 @@ class SolinAccessibilityServiceDeviceControlTest {
         ActivityScenario.launch<MainActivity>(
             mainActivitySkipStartupIntent(targetContext, ReadyRemoteModelConfig),
         ).use {
-            val initial = waitForScreenState(textContains = "栖知")
+            val initial = waitForScreenState(textContains = "Solin")
             assertEquals(targetContext.packageName, initial.packageName)
-            assertTrue(initial.nodes.any { node -> node.text.contains("栖知") })
+            assertTrue(initial.nodes.any { node -> node.text.contains("Solin") })
 
             val typed = SolinAccessibilityService.performTypeText(
                 text = "device control emulator input",
@@ -256,8 +256,8 @@ class SolinAccessibilityServiceDeviceControlTest {
     }
 
     private fun manualEnableMessage(flattened: String, observedValue: String): String =
-        "栖知 Accessibility is not active. Expected $flattened, got: $observedValue. " +
-            "Install the debug and test APKs, enable 栖知 in system Accessibility settings, " +
+        "Solin Accessibility is not active. Expected $flattened, got: $observedValue. " +
+            "Install the debug and test APKs, enable Solin in system Accessibility settings, " +
             "then rerun device-control acceptance with SKIP_INSTALL=1 or DEVICE_CONTROL_SKIP_INSTALL=1."
 
     private fun waitForScreenState(

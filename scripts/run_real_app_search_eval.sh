@@ -378,7 +378,7 @@ ensure_solin_accessibility_for_eval() {
     return 0
   fi
   if [[ "$AUTO_ENABLE_SOLIN_ACCESSIBILITY" == "1" ]]; then
-    echo "栖知 Accessibility is not enabled; enabling it through adb secure settings for real-app eval."
+    echo "Solin Accessibility is not enabled; enabling it through adb secure settings for real-app eval."
     enable_solin_accessibility_for_eval
   fi
   if ! solin_accessibility_enabled; then
@@ -388,7 +388,7 @@ ensure_solin_accessibility_for_eval() {
 
 if ! ensure_solin_accessibility_for_eval; then
   fail_with_reason accessibility solin-accessibility-not-enabled \
-    "栖知 Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
+    "Solin Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
 fi
 
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null

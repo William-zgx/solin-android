@@ -23,7 +23,7 @@ EMULATOR_LOG="${ARTIFACT_DIR}-emulator.log"
 PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 DEBUG_CONFIG_RECEIVER="${PACKAGE_NAME}/.debug.DebugRemoteConfigReceiver"
-DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+DEBUG_APK="${DEBUG_APK:-app/build/outputs/apk/debug/app-debug.apk}"
 SKIP_STARTUP_MODEL_RUNTIME_EXTRA="com.bytedance.zgx.solin.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
 DEBUG_SCREENSHOT_REMOTE_BASE_URL_EXTRA="com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_BASE_URL"
 DEBUG_SCREENSHOT_REMOTE_MODEL_NAME_EXTRA="com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
@@ -305,7 +305,7 @@ capture_screenshot() {
 screenshot_required_texts() {
   case "$1" in
     chat-home)
-      printf '%s\n' "栖知" "让 AI 住在手机里" "为什么装它" "模型管理"
+      printf '%s\n' "Solin" "隐私优先的随身 AI 助手" "为什么装它" "模型管理"
       ;;
     model-manager)
       printf '%s\n' "模型管理" "当前模型" "本地可用" "远程多模态可选"
@@ -333,7 +333,7 @@ from pathlib import Path
 name = sys.argv[1]
 xml_path = Path(sys.argv[2])
 required = {
-    "chat-home": ["栖知", "让 AI 住在手机里", "为什么装它", "模型管理"],
+    "chat-home": ["Solin", "隐私优先的随身 AI 助手", "为什么装它", "模型管理"],
     "model-manager": ["模型管理", "当前模型", "本地可用", "远程多模态可选"],
     "confirmation-sheet": ["即将发送到远程模型", "确认后才会", "取消"],
     "background-tasks-or-audit": ["后台任务", "最近审计日志", "最近 Agent 轨迹", "暂无运行中的后台任务"],

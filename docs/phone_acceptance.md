@@ -182,7 +182,7 @@ APPLY=1 scripts/prepare_x86_emulator.sh
 scripts/capture_x86_release_screenshots.sh
 ```
 
-默认 AVD 为 `pocketmind_api36_x86_64`，默认 headless 启动参数为 `-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot`。如果要打开模拟器窗口，可显式传空的 `EMULATOR_ARGS`，但当前新版 Android Emulator 的 Qt UI 可能要求 glibc 2.30 或更新：
+默认 AVD 为 `solin_api36_x86_64`，默认 headless 启动参数为 `-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot`。如果要打开模拟器窗口，可显式传空的 `EMULATOR_ARGS`，但当前新版 Android Emulator 的 Qt UI 可能要求 glibc 2.30 或更新：
 
 ```bash
 EMULATOR_ARGS= scripts/capture_x86_release_screenshots.sh

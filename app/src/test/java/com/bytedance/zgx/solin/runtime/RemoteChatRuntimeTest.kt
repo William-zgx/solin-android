@@ -48,7 +48,7 @@ class RemoteChatRuntimeTest {
         val messages = body.getJSONArray("messages")
         assertEquals(22, messages.length())
         assertEquals("system", messages.getJSONObject(0).getString("role"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("栖知"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("Solin"))
         assertTrue(messages.getJSONObject(0).getString("content").contains("用户当前输入一致的语言"))
         assertTrue(messages.getJSONObject(0).getString("content").contains("优先调用合适工具获取证据"))
         assertTrue(messages.getJSONObject(0).getString("content").contains("多个独立工具调用"))
