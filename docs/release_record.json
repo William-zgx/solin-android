@@ -3,7 +3,7 @@
   "policy": "Release builds require VERIFY_RELEASE_RECORD=1 and an approved record before public distribution. PUBLIC_RELEASE=1 requires the record to name the final public AAB, matching artifact SHA-256, matching signing certificate SHA-256, and a public distribution channel.",
   "status": "pending_release_record",
   "release": {
-    "applicationId": "com.bytedance.zgx.pocketmind",
+    "applicationId": "com.bytedance.zgx.solin",
     "versionCode": 1,
     "versionName": "0.1.0",
     "gitCommit": "",

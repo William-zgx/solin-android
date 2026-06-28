@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 FIXTURE_DIR="app/src/test/resources/ai_behavior_eval"
 CAPABILITY_MATRIX_FILE="docs/capability_matrix.json"
-ACTION_MODELS_FILE="${ACTION_MODELS_FILE:-app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt}"
+ACTION_MODELS_FILE="${ACTION_MODELS_FILE:-app/src/main/java/com/bytedance/zgx/solin/action/ActionModels.kt}"
 REPORT_FILE=""
 MIN_CASES_PER_CATEGORY=2
 REQUIRE_BOUNDARY_MAP=0

@@ -10,11 +10,11 @@ plugins {
 }
 
 val bundledModelsSourceDir = providers
-    .gradleProperty("pocketmind.bundledModelsDir")
-    .orElse(providers.environmentVariable("POCKETMIND_BUNDLED_MODELS_DIR"))
+    .gradleProperty("solin.bundledModelsDir")
+    .orElse(providers.environmentVariable("SOLIN_BUNDLED_MODELS_DIR"))
 val bundledModelsHuggingFaceToken = providers
-    .gradleProperty("pocketmind.huggingFaceToken")
-    .orElse(providers.environmentVariable("POCKETMIND_HF_TOKEN"))
+    .gradleProperty("solin.huggingFaceToken")
+    .orElse(providers.environmentVariable("SOLIN_HF_TOKEN"))
 val bundledModelsAssetRoot = layout.buildDirectory.dir("generated/bundledModels/assets")
 val bundledModelsCacheRoot = rootProject.layout.projectDirectory.dir("app/build/bundled-model-cache")
 
@@ -136,7 +136,7 @@ fun copyChunk(sourceFile: File, target: File, chunk: ChunkSpec) {
 }
 
 android {
-    namespace = "com.bytedance.zgx.pocketmind.modelpack.e2b.extra"
+    namespace = "com.bytedance.zgx.solin.modelpack.e2b.extra"
     compileSdk = 36
 
     defaultConfig { minSdk = 28 }
@@ -165,7 +165,7 @@ val prepareBundledModelsAssets by tasks.registering(PrepareModelPackAssetsTask::
     inputs.property("bundledModelsSourceDir", bundledModelsSourceDir.orNull ?: "")
 
     doLast {
-        val assetDir = outputDir.get().asFile.resolve("pocketmind-bundled-models")
+        val assetDir = outputDir.get().asFile.resolve("solin-bundled-models")
         val cacheDir = bundledModelsCacheRoot.asFile
         val sourceDir = bundledModelsSourceDir.orNull?.takeIf { it.isNotBlank() }?.let(::file)
         val huggingFaceAuthorizationHeader = bundledModelsHuggingFaceToken.orNull

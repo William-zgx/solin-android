@@ -6,7 +6,7 @@
     "status": "passed",
     "reportPath": "build/verification/goal-emulator-trust-center-final-rerun/regression-emulator.properties",
     "reportSha256": "df6a7c11398710fa654396a2c952afb9e7dafc0a91441ae57d3059794290cf63",
-    "avd": "pocketmind_api36_arm64",
+    "avd": "solin_api36_arm64",
     "apiLevel": 36,
     "abi": "arm64-v8a",
     "cleanDevice": true
@@ -52,7 +52,7 @@
     {
       "apiLevel": 36,
       "status": "passed",
-      "evidence": "API 36 arm64 clean-device emulator regression passed 56 AndroidTest(s) on pocketmind_api36_arm64 with source AndroidTest count matching the current regression report after Trust/Capability Center fixes.",
+      "evidence": "API 36 arm64 clean-device emulator regression passed 56 AndroidTest(s) on solin_api36_arm64 with source AndroidTest count matching the current regression report after Trust/Capability Center fixes.",
       "evidencePath": "build/verification/goal-emulator-trust-center-final-rerun/regression-emulator.properties",
       "evidenceSha256": "df6a7c11398710fa654396a2c952afb9e7dafc0a91441ae57d3059794290cf63"
     }

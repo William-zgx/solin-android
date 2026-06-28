@@ -1,0 +1,179 @@
+package com.bytedance.zgx.solin.resource
+
+import android.app.ActivityManager
+import android.content.Context
+import android.os.Build
+import android.os.Debug
+import android.os.PowerManager
+import android.os.SystemClock
+import android.system.Os
+import android.system.OsConstants
+import java.io.File
+import kotlin.math.roundToInt
+
+internal const val SYSTEM_RESOURCE_SAMPLE_INTERVAL_MS = 1_500L
+
+private const val BYTES_PER_KIB = 1024L
+private const val BYTES_PER_MIB = 1024L * 1024L
+private const val DEFAULT_CLOCK_TICKS_PER_SECOND = 100L
+
+enum class ResourcePressure(val label: String) {
+    Normal("流畅"),
+    Warm("可能卡顿"),
+    Hot("高负载"),
+}
+
+enum class ThermalPressure(val label: String) {
+    Unknown("未知"),
+    Normal("正常"),
+    Warm("偏热"),
+    Hot("过热"),
+}
+
+data class SystemResourceSnapshot(
+    val appPssBytes: Long,
+    val javaHeapBytes: Long,
+    val nativeHeapBytes: Long,
+    val availableRamBytes: Long,
+    val lowMemory: Boolean,
+    val appCpuPercent: Int?,
+    val thermalPressure: ThermalPressure,
+) {
+    val pressurePercent: Int
+        get() = calculatePressurePercent(
+            appPssBytes = appPssBytes,
+            availableRamBytes = availableRamBytes,
+            lowMemory = lowMemory,
+            appCpuPercent = appCpuPercent,
+            thermalPressure = thermalPressure,
+        )
+
+    val pressure: ResourcePressure
+        get() = when {
+            pressurePercent >= 75 -> ResourcePressure.Hot
+            pressurePercent >= 50 -> ResourcePressure.Warm
+            else -> ResourcePressure.Normal
+        }
+}
+
+class SystemResourceMonitor(
+    context: Context,
+    private val procStatReader: () -> String? = { File("/proc/self/stat").readText() },
+    private val elapsedRealtimeMillis: () -> Long = { SystemClock.elapsedRealtime() },
+) {
+    private val appContext = context.applicationContext
+    private val activityManager = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+    private val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    private val processors = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+    private val ticksPerSecond = readClockTicksPerSecond()
+    private var previousCpuSample: CpuTickSample? = null
+
+    fun sample(): SystemResourceSnapshot? = runCatching {
+        val memoryInfo = Debug.MemoryInfo()
+        Debug.getMemoryInfo(memoryInfo)
+        val systemMemory = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(systemMemory)
+        val runtime = Runtime.getRuntime()
+
+        SystemResourceSnapshot(
+            appPssBytes = memoryInfo.totalPss.toLong() * BYTES_PER_KIB,
+            javaHeapBytes = runtime.totalMemory() - runtime.freeMemory(),
+            nativeHeapBytes = Debug.getNativeHeapAllocatedSize(),
+            availableRamBytes = systemMemory.availMem,
+            lowMemory = systemMemory.lowMemory,
+            appCpuPercent = sampleCpuPercent(),
+            thermalPressure = thermalPressure(),
+        )
+    }.getOrNull()
+
+    private fun sampleCpuPercent(): Int? {
+        val ticks = parseProcStatCpuTicks(procStatReader() ?: return null) ?: return null
+        val current = CpuTickSample(
+            totalTicks = ticks,
+            elapsedRealtimeMillis = elapsedRealtimeMillis(),
+        )
+        val percent = calculateAppCpuPercent(
+            previous = previousCpuSample,
+            current = current,
+            processors = processors,
+            ticksPerSecond = ticksPerSecond,
+        )
+        previousCpuSample = current
+        return percent
+    }
+
+    private fun thermalPressure(): ThermalPressure {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return ThermalPressure.Unknown
+        val status = powerManager?.currentThermalStatus ?: return ThermalPressure.Unknown
+        return when (status) {
+            PowerManager.THERMAL_STATUS_NONE,
+            PowerManager.THERMAL_STATUS_LIGHT,
+            -> ThermalPressure.Normal
+            PowerManager.THERMAL_STATUS_MODERATE -> ThermalPressure.Warm
+            else -> ThermalPressure.Hot
+        }
+    }
+}
+
+internal data class CpuTickSample(
+    val totalTicks: Long,
+    val elapsedRealtimeMillis: Long,
+)
+
+internal fun parseProcStatCpuTicks(statLine: String): Long? {
+    val commEnd = statLine.lastIndexOf(") ")
+    if (commEnd < 0) return null
+    val fields = statLine
+        .substring(commEnd + 2)
+        .trim()
+        .split(Regex("\\s+"))
+    if (fields.size <= 12) return null
+    val utime = fields[11].toLongOrNull() ?: return null
+    val stime = fields[12].toLongOrNull() ?: return null
+    return utime + stime
+}
+
+internal fun calculateAppCpuPercent(
+    previous: CpuTickSample?,
+    current: CpuTickSample,
+    processors: Int,
+    ticksPerSecond: Long,
+): Int? {
+    previous ?: return null
+    val tickDelta = current.totalTicks - previous.totalTicks
+    val millisDelta = current.elapsedRealtimeMillis - previous.elapsedRealtimeMillis
+    if (tickDelta < 0L || millisDelta <= 0L || ticksPerSecond <= 0L) return null
+    val cpuMillis = tickDelta * 1_000.0 / ticksPerSecond
+    val availableMillis = millisDelta * processors.coerceAtLeast(1)
+    return ((cpuMillis / availableMillis) * 100.0).roundToInt().coerceIn(0, 100)
+}
+
+private fun calculatePressurePercent(
+    appPssBytes: Long,
+    availableRamBytes: Long,
+    lowMemory: Boolean,
+    appCpuPercent: Int?,
+    thermalPressure: ThermalPressure,
+): Int {
+    val memoryPressure = when {
+        lowMemory -> 90
+        availableRamBytes in 1 until 256L * BYTES_PER_MIB -> 90
+        availableRamBytes in 1 until 512L * BYTES_PER_MIB -> 70
+        appPssBytes >= 1_200L * BYTES_PER_MIB -> 80
+        appPssBytes >= 768L * BYTES_PER_MIB -> 60
+        else -> 20
+    }
+    val thermalPercent = when (thermalPressure) {
+        ThermalPressure.Hot -> 90
+        ThermalPressure.Warm -> 70
+        ThermalPressure.Normal,
+        ThermalPressure.Unknown,
+        -> 0
+    }
+    return maxOf(memoryPressure, appCpuPercent ?: 0, thermalPercent).coerceIn(0, 100)
+}
+
+private fun readClockTicksPerSecond(): Long =
+    runCatching { Os.sysconf(OsConstants._SC_CLK_TCK).takeIf { it > 0L } }
+        .getOrNull()
+        ?: DEFAULT_CLOCK_TICKS_PER_SECOND

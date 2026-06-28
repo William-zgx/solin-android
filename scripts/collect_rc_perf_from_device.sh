@@ -30,7 +30,7 @@ HARNESS_RESULT_FILE="${HARNESS_RESULT_FILE:-${ARTIFACT_DIR}/rc-perf-harness-resu
 LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 OUT_FILE="${OUT_FILE:-build/verification/rc/perf-baseline.properties}"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${MAIN_ACTIVITY:-${PACKAGE_NAME}/.MainActivity}"
 HARNESS_COMPONENT="${PACKAGE_NAME}/.rcperf.RcPerfHarnessService"
 RC_PERF_ACTION="${PACKAGE_NAME}.rcperf.RUN"

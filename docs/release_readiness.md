@@ -9,7 +9,7 @@ checklist and not the evidence log.
 
 ## Status
 
-PocketMind is suitable for internal development, lab validation, and targeted
+Solin is suitable for internal development, lab validation, and targeted
 tester builds. It is not ready for broad public distribution.
 The canonical release-gate flow is in `docs/release_checklist.md`; this page
 only summarizes current readiness and blockers.

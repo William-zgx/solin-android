@@ -10,18 +10,18 @@ export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 DEBUG_CONFIG_RECEIVER="${PACKAGE_NAME}/.debug.DebugRemoteConfigReceiver"
 
-REVIEW_TARGET="${POCKETMIND_REVIEW_TARGET:-device}"
-APK_MODE="${POCKETMIND_REVIEW_APK_MODE:-debug}"
-APK_PATH_OVERRIDE="${POCKETMIND_REVIEW_APK_PATH:-}"
+REVIEW_TARGET="${SOLIN_REVIEW_TARGET:-device}"
+APK_MODE="${SOLIN_REVIEW_APK_MODE:-debug}"
+APK_PATH_OVERRIDE="${SOLIN_REVIEW_APK_PATH:-}"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 
-REMOTE_BASE_URL="${POCKETMIND_REVIEW_REMOTE_BASE_URL:-}"
-REMOTE_MODEL="${POCKETMIND_REVIEW_REMOTE_MODEL:-}"
-REMOTE_API_KEY="${POCKETMIND_REVIEW_REMOTE_API_KEY:-}"
+REMOTE_BASE_URL="${SOLIN_REVIEW_REMOTE_BASE_URL:-}"
+REMOTE_MODEL="${SOLIN_REVIEW_REMOTE_MODEL:-}"
+REMOTE_API_KEY="${SOLIN_REVIEW_REMOTE_API_KEY:-}"
 
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/manual-acceptance-install-${REVIEW_TARGET}-$(date +%Y%m%d-%H%M%S)}"
@@ -115,7 +115,7 @@ select_target() {
     device|emulator)
       ;;
     *)
-      fail target invalid-target "POCKETMIND_REVIEW_TARGET must be device or emulator."
+      fail target invalid-target "SOLIN_REVIEW_TARGET must be device or emulator."
       ;;
   esac
 
@@ -165,7 +165,7 @@ prepare_apk() {
     release)
       [[ -n "$APK_PATH_OVERRIDE" ]] ||
         fail apk signed-release-apk-required \
-          "Set POCKETMIND_REVIEW_APK_PATH to an already signed release APK for formal-package review installs."
+          "Set SOLIN_REVIEW_APK_PATH to an already signed release APK for formal-package review installs."
       if remote_config_requested; then
         fail remote-config release-remote-config-injection-unsupported \
           "Remote config injection is only available for debug review APKs."
@@ -173,7 +173,7 @@ prepare_apk() {
       APK_PATH="$APK_PATH_OVERRIDE"
       ;;
     *)
-      fail apk invalid-apk-mode "POCKETMIND_REVIEW_APK_MODE must be debug or release."
+      fail apk invalid-apk-mode "SOLIN_REVIEW_APK_MODE must be debug or release."
       ;;
   esac
 
@@ -194,7 +194,7 @@ collect_package_info() {
 configure_remote_if_requested() {
   if has_partial_remote_config; then
     fail remote-config incomplete-remote-config \
-      "Set POCKETMIND_REVIEW_REMOTE_BASE_URL, POCKETMIND_REVIEW_REMOTE_MODEL, and POCKETMIND_REVIEW_REMOTE_API_KEY together."
+      "Set SOLIN_REVIEW_REMOTE_BASE_URL, SOLIN_REVIEW_REMOTE_MODEL, and SOLIN_REVIEW_REMOTE_API_KEY together."
   fi
   if ! remote_config_requested; then
     return
@@ -204,7 +204,7 @@ configure_remote_if_requested() {
       "Remote config injection is only available for debug review APKs."
 
   REMOTE_CONFIG_STATUS="requested"
-  REMOTE_CONFIG_SOURCE="POCKETMIND_REVIEW_REMOTE_BASE_URL,POCKETMIND_REVIEW_REMOTE_MODEL,POCKETMIND_REVIEW_REMOTE_API_KEY"
+  REMOTE_CONFIG_SOURCE="SOLIN_REVIEW_REMOTE_BASE_URL,SOLIN_REVIEW_REMOTE_MODEL,SOLIN_REVIEW_REMOTE_API_KEY"
   if ! "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast \
     --user 0 \
     -n "$DEBUG_CONFIG_RECEIVER" \

@@ -10,7 +10,7 @@ APKSIGNER="${APKSIGNER:-$BUILD_TOOLS_DIR/apksigner}"
 ADB_BIN="${ADB_BIN:-$ANDROID_SDK/platform-tools/adb}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 RUN_GRADLE_BUILD="${RUN_GRADLE_BUILD:-1}"
 INSTALL_ON_DEVICE="${INSTALL_ON_DEVICE:-0}"
 ALLOW_DEBUG_KEYSTORE="${ALLOW_DEBUG_KEYSTORE:-0}"
@@ -55,7 +55,7 @@ print_compliance_notice() {
   cat >&2 <<EOF
 package_bundled_models: compliance note:
   bundledModels APKs include third-party model bytes.
-  POCKETMIND_HF_TOKEN, SHA-256 verification, and APK signing do not approve model
+  SOLIN_HF_TOKEN, SHA-256 verification, and APK signing do not approve model
   license, redistribution, attribution, notice, store-policy, or public use.
   Keep artifacts internal until ${MODEL_LICENSE_REVIEW_FILE} is approved and
   '${MODEL_LICENSE_GATE_COMMAND}' passes.
@@ -161,8 +161,8 @@ Compliance note:
   VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh passes.
 
 Common environment:
-  POCKETMIND_BUNDLED_MODELS_DIR  Directory with already verified model files.
-  POCKETMIND_HF_TOKEN            Hugging Face token for this build invocation only.
+  SOLIN_BUNDLED_MODELS_DIR  Directory with already verified model files.
+  SOLIN_HF_TOKEN            Hugging Face token for this build invocation only.
   RUN_GRADLE_BUILD=0             Reuse existing raw APK outputs.
   ALLOW_DEBUG_KEYSTORE=1         Use ~/.android/debug.keystore if release env is absent.
   INSTALL_ON_DEVICE=1            adb install-multiple --no-incremental -r after signing.

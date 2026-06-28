@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedFor": "PocketMind multi-agent capability roadmap",
+  "generatedFor": "Solin multi-agent capability roadmap",
   "updatedDate": "2026-06-25",
   "policy": "This ledger tracks roadmap completion evidence. Local verifier evidence never replaces physical device, emulator, production signing, performance, store, security, legal, or release-owner approval evidence.",
   "items": [
@@ -11,7 +11,7 @@
       "status": "done",
       "evidence": [
         "docs/intent_routing_skill_arbitration.md",
-        "app/src/test/java/com/bytedance/zgx/pocketmind/orchestration/AgentLoopRuntimeTest.kt",
+        "app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentLoopRuntimeTest.kt",
         "docs/validation_report.md"
       ],
       "remainingWork": "Rerun targeted and full JVM regressions during the final unified validation pass.",
@@ -23,8 +23,8 @@
       "ownerAgent": "Agent 2",
       "status": "partial",
       "evidence": [
-        "app/src/main/java/com/bytedance/zgx/pocketmind/device/UiTargetResolver.kt",
-        "app/src/test/java/com/bytedance/zgx/pocketmind/device/UiAutomatorDumpReplayTest.kt",
+        "app/src/main/java/com/bytedance/zgx/solin/device/UiTargetResolver.kt",
+        "app/src/test/java/com/bytedance/zgx/solin/device/UiAutomatorDumpReplayTest.kt",
         "scripts/verify_real_app_search_report.sh",
         "docs/validation_report.md"
       ],

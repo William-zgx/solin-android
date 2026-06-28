@@ -9,13 +9,13 @@
 
 namespace {
 
-constexpr const char *kLogTag = "PocketMindZvec";
+constexpr const char *kLogTag = "SolinZvec";
 constexpr const char *kStoreClass =
-    "com/bytedance/zgx/pocketmind/storage/ZvecNativeStore";
+    "com/bytedance/zgx/solin/storage/ZvecNativeStore";
 constexpr const char *kRecordClass =
-    "com/bytedance/zgx/pocketmind/storage/ZvecNativeStore$Record";
+    "com/bytedance/zgx/solin/storage/ZvecNativeStore$Record";
 constexpr const char *kHitClass =
-    "com/bytedance/zgx/pocketmind/storage/ZvecNativeStore$Hit";
+    "com/bytedance/zgx/solin/storage/ZvecNativeStore$Hit";
 constexpr int kOk = static_cast<int>(ZVEC_OK);
 
 std::atomic<int> g_last_error_code{kOk};
@@ -149,7 +149,7 @@ bool AddVectorField(zvec_collection_schema_t *schema, int dimensions) {
 
 zvec_collection_schema_t *CreateSchema(int dimensions) {
   zvec_collection_schema_t *schema =
-      zvec_collection_schema_create("pocketmind_vectors_v1");
+      zvec_collection_schema_create("solin_vectors_v1");
   if (schema == nullptr) {
     SetLast(ZVEC_ERROR_RESOURCE_EXHAUSTED);
     return nullptr;
@@ -466,7 +466,7 @@ jobjectArray NativeQuery(JNIEnv *env, jobject, jlong handle, jfloatArray vector,
   }
   jmethodID hit_constructor = env->GetMethodID(
       hit_class, "<init>",
-      "(Lcom/bytedance/zgx/pocketmind/storage/ZvecNativeStore$Record;F)V");
+      "(Lcom/bytedance/zgx/solin/storage/ZvecNativeStore$Record;F)V");
   if (hit_constructor == nullptr) {
     zvec_docs_free(results, result_count);
     return nullptr;
@@ -551,11 +551,11 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
       {"nativeDelete", "(JLjava/lang/String;)Z",
        reinterpret_cast<void *>(NativeDelete)},
       {"nativeFetch",
-       "(JLjava/lang/String;)Lcom/bytedance/zgx/pocketmind/storage/"
+       "(JLjava/lang/String;)Lcom/bytedance/zgx/solin/storage/"
        "ZvecNativeStore$Record;",
        reinterpret_cast<void *>(NativeFetch)},
       {"nativeQuery",
-       "(J[FI)[Lcom/bytedance/zgx/pocketmind/storage/ZvecNativeStore$Hit;",
+       "(J[FI)[Lcom/bytedance/zgx/solin/storage/ZvecNativeStore$Hit;",
        reinterpret_cast<void *>(NativeQuery)},
       {"nativeFlush", "(J)Z", reinterpret_cast<void *>(NativeFlush)},
       {"nativeClose", "(J)I", reinterpret_cast<void *>(NativeClose)},

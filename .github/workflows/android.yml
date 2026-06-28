@@ -140,7 +140,7 @@ jobs:
         run: |
           echo "no" | avdmanager create avd \
             --force \
-            --name pocketmind_ci_api36_arm64 \
+            --name solin_ci_api36_arm64 \
             --package "system-images;android-36;google_apis;arm64-v8a"
 
       - name: Set up Gradle
@@ -148,7 +148,7 @@ jobs:
 
       - name: Run connected emulator regression
         run: |
-          AVD_NAME=pocketmind_ci_api36_arm64 \
+          AVD_NAME=solin_ci_api36_arm64 \
           ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
           EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
@@ -197,7 +197,7 @@ jobs:
         run: |
           APPLY=1 \
           REQUIRED_APIS="28 32 33 34 36" \
-          AVD_NAME_PREFIX=pocketmind_ci_api \
+          AVD_NAME_PREFIX=solin_ci_api \
           REPORT_FILE=build/verification/ci-emulator-api-matrix-prepare/prepare.properties \
           scripts/prepare_emulator_api_matrix.sh
 

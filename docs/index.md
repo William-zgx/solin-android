@@ -31,7 +31,7 @@ flowchart TD
 
 | Document | Role | Keep it focused on |
 | --- | --- | --- |
-| `../README.md` | Project entrance | What PocketMind is, how to build, where to go next |
+| `../README.md` | Project entrance | What Solin is, how to build, where to go next |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
 | `agent_loop_multi_agent_plan.md` | Historical design note | Early migration intent and what has changed since then |
 | `screen_ocr_agent_optimization_plan.md` | Optimization plan | Next-stage screen observation, OCR grounding, phone-control eval, and multi-agent work split |

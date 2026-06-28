@@ -12,9 +12,9 @@ behavior stays in `docs/privacy_notice.md`.
 ```mermaid
 flowchart TD
     Manifest["docs/model_manifest.md\npinned model metadata"] --> Source{"Verified local\nmodel dir?"}
-    Source -->|Yes| LocalDir["POCKETMIND_BUNDLED_MODELS_DIR"]
+    Source -->|Yes| LocalDir["SOLIN_BUNDLED_MODELS_DIR"]
     Source -->|No| Download["Gradle downloads pinned\nHugging Face artifacts"]
-    Download --> Token["POCKETMIND_HF_TOKEN\nonly when gated assets need it"]
+    Download --> Token["SOLIN_HF_TOKEN\nonly when gated assets need it"]
     LocalDir --> Split["base + modelpack split APKs"]
     Download --> Split
     Split --> Review["Model license + redistribution\napproval for any external handoff"]
@@ -29,7 +29,7 @@ The `bundledModels` split set contains third-party model bytes. Treat any copy
 of those signed APKs as a model redistribution artifact unless legal/release
 approval says otherwise.
 
-- Local build, SHA-256 verification, Android signing, and `POCKETMIND_HF_TOKEN`
+- Local build, SHA-256 verification, Android signing, and `SOLIN_HF_TOKEN`
   prove only build access and package identity. They do not approve model
   licensing, redistribution, attribution, notice, store-policy, or public use.
 - Until every recommended model in `docs/model_license_review.json` is reviewed
@@ -59,7 +59,7 @@ The package includes the pinned recommended model set from
 - `chat-e4b`: `gemma-4-E4B-it.litertlm`
 
 On first launch, `AssetBundledModelInstaller` reads
-`assets/pocketmind-bundled-models/manifest.json`, copies bundled assets into the
+`assets/solin-bundled-models/manifest.json`, copies bundled assets into the
 app model download directory, verifies size and SHA-256 against the catalog,
 registers the models as recommended verified models, and selects the default
 local E2B chat model when no previous active model exists.
@@ -89,17 +89,17 @@ install-copy time before final SHA-256 verification.
 Prefer a local directory that already contains verified model files:
 
 ```bash
-export POCKETMIND_BUNDLED_MODELS_DIR=/path/to/verified/model/files
+export SOLIN_BUNDLED_MODELS_DIR=/path/to/verified/model/files
 ./gradlew checkBundledModelsPackageOutputs
 ```
 
 If that directory is absent, Gradle downloads the pinned Hugging Face artifacts
-into `app/build/bundled-model-cache`. Set `POCKETMIND_HF_TOKEN` only for this
+into `app/build/bundled-model-cache`. Set `SOLIN_HF_TOKEN` only for this
 build invocation when gated model assets are needed. Do not place tokens in
 `gradle.properties`, source files, commit messages, screenshots, build reports,
 or release notes.
 
-`POCKETMIND_HF_TOKEN` is a download credential, not a license approval. It is
+`SOLIN_HF_TOKEN` is a download credential, not a license approval. It is
 also separate from the in-app Hugging Face read token saved in encrypted local
 storage for user-initiated gated model downloads, and separate from any remote
 model API key.
@@ -190,7 +190,7 @@ build/verification/bundled-models/package.properties
 After a successful install:
 
 ```bash
-adb -s "$ANDROID_SERIAL" shell pm path com.bytedance.zgx.pocketmind
+adb -s "$ANDROID_SERIAL" shell pm path com.bytedance.zgx.solin
 ```
 
 should list the base APK plus all four modelpack splits.

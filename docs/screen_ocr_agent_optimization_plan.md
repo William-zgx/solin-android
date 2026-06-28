@@ -1,12 +1,12 @@
 # 屏幕理解与手机操作优化计划
 
-本文定义 PocketMind 下一阶段“用本地模型更可靠地理解屏幕并操作手机”的执行计划。
+本文定义栖知下一阶段“用本地模型更可靠地理解屏幕并操作手机”的执行计划。
 它不是发布验收记录；完成证据仍写入 `docs/validation_report.md` 和
 `docs/phone_acceptance.md`。
 
 ## 根目标
 
-让 PocketMind 在用户明确授权后，能把“当前屏幕上有什么、下一步该点哪里、执行后是否成功”
+让栖知在用户明确授权后，能把“当前屏幕上有什么、下一步该点哪里、执行后是否成功”
 表示为可验证的本地证据，并在真实手机上完成更多低风险、多步骤任务。
 
 成功标准：
@@ -88,9 +88,9 @@ flowchart TD
 | Agent | 产物 | 首要文件 |
 | --- | --- | --- |
 | Coordinator Agent | 拆分接口、合并节奏、发布门槛 | `docs/screen_ocr_agent_optimization_plan.md` |
-| Contract Agent | `ScreenObservation` / `ObservationElement` 数据模型和 JSON trace | `app/src/main/java/com/bytedance/zgx/pocketmind/device/` |
-| OCR Agent | ML Kit OCR block 化、bounds 保留、LocalOnly 输出 | `app/src/main/java/com/bytedance/zgx/pocketmind/multimodal/` |
-| Accessibility Agent | 节点采集、稳定 ID、执行前后 snapshot diff | `PocketMindAccessibilityService.kt` |
+| Contract Agent | `ScreenObservation` / `ObservationElement` 数据模型和 JSON trace | `app/src/main/java/com/bytedance/zgx/solin/device/` |
+| OCR Agent | ML Kit OCR block 化、bounds 保留、LocalOnly 输出 | `app/src/main/java/com/bytedance/zgx/solin/multimodal/` |
+| Accessibility Agent | 节点采集、稳定 ID、执行前后 snapshot diff | `SolinAccessibilityService.kt` |
 | Grounding Agent | 混合候选排序、坐标 fallback、可解释 evidence | `UiTargetResolver.kt` |
 | App Profile Agent | 外置 App profile DSL、真实 App 页面样本 | `docs/`、`app/src/test/resources/` |
 | Planner Agent | 本地模型 action grammar、step budget、replan prompt | `AgentLoopRuntime.kt`、`skill/` |
@@ -187,7 +187,7 @@ gantt
 
 ## 开源参考
 
-| 项目 | 可借鉴点 | 在 PocketMind 中的落点 |
+| 项目 | 可借鉴点 | 在栖知中的落点 |
 | --- | --- | --- |
 | [AndroidWorld](https://github.com/google-research/android_world) | 任务 DSL、动态参数、可重复 benchmark、reward signal | 真机/eval 任务格式和成功判定。 |
 | [DroidBot](https://github.com/honeynet/droidbot) | UI 状态图、探索式输入、事件转移记录 | 页面状态签名、失败重放、App profile 样本采集。 |
@@ -218,7 +218,7 @@ gantt
 
 1. Contract Agent：新增 `ScreenObservation` 数据模型、schema 测试、trace 摘要。
 2. OCR Agent：把 `ImageTextExtractor` 输出从纯文本扩展为 block list，并保持兼容文本摘要。
-3. Accessibility Agent：为 `PocketMindAccessibilityService` 输出统一 observation，补稳定元素 ID。
+3. Accessibility Agent：为 `SolinAccessibilityService` 输出统一 observation，补稳定元素 ID。
 4. Grounding Agent：让 `UiTargetResolver` 同时消费 Accessibility 和 OCR candidates。
 5. Eval Agent：新增 10 个 UI dump + OCR block 回放样本，先覆盖搜索入口负例。
 6. Safety Agent：补远程模式、审计、隐私 notice 和 store policy 回归断言。

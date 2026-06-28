@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Solin</string>
+    <string name="app_subtitle">Quiet intelligence, close at hand.</string>
+    <string name="accessibility_service_description">After you confirm a Solin tool, it observes accessible state exposed by the current screen and performs taps, typing, scrolling, or Back only within the confirmation flow; it does not read screenshot pixels.</string>
+</resources>

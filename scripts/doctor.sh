@@ -60,9 +60,9 @@ fi
 [[ -x ./gradlew ]] || fail "Gradle wrapper is missing or not executable."
 
 if [[ "$REQUIRE_ADB" == "1" ]]; then
-  echo "PocketMind Android device toolchain OK"
+  echo "Solin Android device toolchain OK"
 else
-  echo "PocketMind Android local environment OK"
+  echo "Solin Android local environment OK"
 fi
 echo "JDK: $JAVA_VERSION"
 echo "Android SDK: $ANDROID_SDK"

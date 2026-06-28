@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PocketMind"
+rootProject.name = "Solin"
 include(":app")
 include(":modelpackE2b")
 include(":modelpackE2bExtra")

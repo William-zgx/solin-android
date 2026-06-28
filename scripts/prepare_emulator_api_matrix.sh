@@ -9,7 +9,7 @@ AVD_ROOT="${AVD_ROOT:-$HOME/.android/avd}"
 REQUIRED_APIS="${REQUIRED_APIS:-28 32 33 34 36}"
 EMULATOR_TAG="${EMULATOR_API_MATRIX_TAG:-google_apis}"
 EMULATOR_ABI="${EMULATOR_API_MATRIX_ABI:-arm64-v8a}"
-AVD_NAME_PREFIX="${AVD_NAME_PREFIX:-pocketmind_api}"
+AVD_NAME_PREFIX="${AVD_NAME_PREFIX:-solin_api}"
 APPLY="${APPLY:-0}"
 REPORT_FILE="${REPORT_FILE:-build/verification/emulator-api-matrix-prepare.properties}"
 SDKMANAGER_CMD="${SDKMANAGER_CMD:-}"
@@ -34,7 +34,7 @@ Options:
   --avd-root <path>       Directory containing *.avd folders.
   --tag <id>              Emulator system image tag, default google_apis.
   --abi <abi>             Emulator ABI, default arm64-v8a.
-  --avd-prefix <prefix>   AVD name prefix, default pocketmind_api.
+  --avd-prefix <prefix>   AVD name prefix, default solin_api.
   --apply                 Install missing SDK packages and create missing AVDs.
   --sdkmanager <path>     sdkmanager executable path.
   --avdmanager <path>     avdmanager executable path.

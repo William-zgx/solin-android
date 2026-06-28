@@ -100,8 +100,8 @@ capture_failure_artifacts() {
   if [[ "$status" -ne 0 && -n "${SELECTED_SERIAL:-}" && -x "$ADB_BIN" ]]; then
     mkdir -p "$ARTIFACT_DIR"
     "$ADB_BIN" -s "$SELECTED_SERIAL" exec-out screencap -p > "$SCREENSHOT_FILE" 2>/dev/null || true
-    "$ADB_BIN" -s "$SELECTED_SERIAL" shell uiautomator dump /sdcard/pocketmind-window.xml >/dev/null 2>&1 || true
-    "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/pocketmind-window.xml "$WINDOW_DUMP_FILE" >/dev/null 2>&1 || true
+    "$ADB_BIN" -s "$SELECTED_SERIAL" shell uiautomator dump /sdcard/solin-window.xml >/dev/null 2>&1 || true
+    "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/solin-window.xml "$WINDOW_DUMP_FILE" >/dev/null 2>&1 || true
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 300 > "$LOGCAT_FILE" 2>/dev/null || true
     echo "Emulator failure artifacts: $ARTIFACT_DIR" >&2
   elif [[ "$status" -ne 0 && -f "$EMULATOR_LOG" ]]; then

@@ -16,11 +16,11 @@ GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ORIGINAL_ARGS=("$@")
 
 JVM_TEST_TARGETS=(
-  "com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest"
-  "com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest"
-  "com.bytedance.zgx.pocketmind.tool.ToolRegistryTest"
-  "com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest"
-  "com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest"
+  "com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest"
+  "com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest"
+  "com.bytedance.zgx.solin.tool.ToolRegistryTest"
+  "com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest"
+  "com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest"
 )
 
 command_line() {

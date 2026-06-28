@@ -12,7 +12,7 @@ ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 EMULATOR_BIN="${ANDROID_EMULATOR:-${ANDROID_SDK}/emulator/emulator}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 
@@ -26,7 +26,7 @@ MODEL_MANAGER_DUMP_FILE="${ARTIFACT_DIR}/model-manager.xml"
 LOGCAT_FILE="${ARTIFACT_DIR}/logcat.txt"
 EMULATOR_LOG="${ARTIFACT_DIR}/emulator.log"
 
-MAIN_COPY_TEXT="${MAIN_COPY_TEXT:-隐私优先的随身 AI 助手}"
+MAIN_COPY_TEXT="${MAIN_COPY_TEXT:-让 AI 住在手机里}"
 FORBIDDEN_FIRST_RUN_TEXT="${FORBIDDEN_FIRST_RUN_TEXT:-离线基础问答可选下载}"
 FIRST_RUN_SKIP_LABEL="${FIRST_RUN_SKIP_LABEL:-先跳过}"
 MODEL_MANAGER_BUTTON_LABEL="${MODEL_MANAGER_BUTTON_LABEL:-模型管理}"
@@ -88,7 +88,7 @@ capture_artifacts() {
   if [[ -n "${SELECTED_SERIAL:-}" && -x "$ADB_BIN" ]]; then
     mkdir -p "$ARTIFACT_DIR"
     "$ADB_BIN" -s "$SELECTED_SERIAL" exec-out screencap -p > "$SCREENSHOT_FILE" 2>/dev/null || true
-    dump_ui /sdcard/pocketmind-fresh-start.xml "$WINDOW_DUMP_FILE"
+    dump_ui /sdcard/solin-fresh-start.xml "$WINDOW_DUMP_FILE"
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 300 > "$LOGCAT_FILE" 2>/dev/null || true
   fi
 }
@@ -302,7 +302,7 @@ TOP_MORE_BUTTON_VISIBLE="true"
 MODEL_MANAGER_CLICK_OPENED="false"
 tap_clickable_node_by_label "$MODEL_MANAGER_BUTTON_LABEL" "$WINDOW_DUMP_FILE"
 sleep 2
-dump_ui /sdcard/pocketmind-model-manager.xml "$MODEL_MANAGER_DUMP_FILE"
+dump_ui /sdcard/solin-model-manager.xml "$MODEL_MANAGER_DUMP_FILE"
 [[ -s "$MODEL_MANAGER_DUMP_FILE" ]] ||
   fail evidence model-manager-window-dump-missing "Model manager UI dump was not captured."
 if ! grep -Fq "$MODEL_MANAGER_EXPECTED_TEXT" "$MODEL_MANAGER_DUMP_FILE"; then

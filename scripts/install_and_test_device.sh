@@ -12,7 +12,7 @@ ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
-REQUIRE_POCKETMIND_ACCESSIBILITY="${REQUIRE_POCKETMIND_ACCESSIBILITY:-0}"
+REQUIRE_SOLIN_ACCESSIBILITY="${REQUIRE_SOLIN_ACCESSIBILITY:-0}"
 RESET_APP_DATA_AFTER_TESTS="${RESET_APP_DATA_AFTER_TESTS:-1}"
 KEEP_DEVICE_AWAKE_FOR_TESTS="${KEEP_DEVICE_AWAKE_FOR_TESTS:-1}"
 ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS="${ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS:-1}"
@@ -54,11 +54,11 @@ FAILURE_REASON=""
 SCRIPT_COMPLETED=0
 REPORT_WRITTEN=0
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
-POCKETMIND_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.PocketMindAccessibilityService"
+SOLIN_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.SolinAccessibilityService"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 REQUIRED_FREE_KB=$((3 * 1024 * 1024))
@@ -101,7 +101,7 @@ write_verification_report() {
     echo "clean_device=$CLEAN_DEVICE"
     echo "skip_build=$SKIP_BUILD"
     echo "skip_install=$SKIP_INSTALL"
-    echo "require_pocketmind_accessibility=$REQUIRE_POCKETMIND_ACCESSIBILITY"
+    echo "require_solin_accessibility=$REQUIRE_SOLIN_ACCESSIBILITY"
     echo "reset_app_data_after_tests=$RESET_APP_DATA_AFTER_TESTS"
     echo "keep_device_awake_for_tests=$KEEP_DEVICE_AWAKE_FOR_TESTS"
     echo "device_awake_prepared=$DEVICE_AWAKE_PREPARED"
@@ -443,7 +443,7 @@ else
   "$GRADLE_CMD" assembleDebug assembleDebugAndroidTest
 fi
 
-pocketmind_accessibility_enabled() {
+solin_accessibility_enabled() {
   local dump bound_section enabled_line
   dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
   bound_section="$(awk '
@@ -452,21 +452,21 @@ pocketmind_accessibility_enabled() {
     /Enabled services:/ {printing = 0}
   ' <<<"$dump")"
   enabled_line="$(grep -m 1 'Enabled services:' <<<"$dump" || true)"
-  grep -Fq "$POCKETMIND_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
+  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
 }
 
-require_pocketmind_accessibility_if_needed() {
-  if [[ "$REQUIRE_POCKETMIND_ACCESSIBILITY" != "1" ]]; then
+require_solin_accessibility_if_needed() {
+  if [[ "$REQUIRE_SOLIN_ACCESSIBILITY" != "1" ]]; then
     return 0
   fi
-  if pocketmind_accessibility_enabled; then
+  if solin_accessibility_enabled; then
     return 0
   fi
   cat >&2 <<EOF
-PocketMind Accessibility service is not enabled.
-Open system Accessibility settings, enable PocketMind, then rerun with SKIP_INSTALL=1
+栖知 Accessibility service is not enabled.
+Open system Accessibility settings, enable 栖知, then rerun with SKIP_INSTALL=1
 or DEVICE_CONTROL_SKIP_INSTALL=1 so the debug APK is not reinstalled.
-Expected service: $POCKETMIND_ACCESSIBILITY_SERVICE
+Expected service: $SOLIN_ACCESSIBILITY_SERVICE
 EOF
   return 1
 }
@@ -484,7 +484,7 @@ prepare_device_for_instrumentation() {
   prepare_runtime_permission_dialog_tests
   collapse_system_overlays
   prepare_miui_background_activity_starts
-  require_pocketmind_accessibility_if_needed || return
+  require_solin_accessibility_if_needed || return
 }
 
 run_instrumentation_tests() {
@@ -589,7 +589,7 @@ instrumentation_test_count_for() {
 }
 
 if ! install_device_apks; then
-  fail_with_reason install install-command-failed "Failed to install PocketMind debug or androidTest APK."
+  fail_with_reason install install-command-failed "Failed to install 栖知 debug or androidTest APK."
 fi
 
 if ! prepare_device_for_instrumentation; then
@@ -646,9 +646,9 @@ USB install / Install via USB, and accept any install confirmation shown on the 
 Then rerun scripts/install_and_test_device.sh.
 EOF
   fi
-  if grep -q "PocketMind Accessibility service is not enabled" <<<"$TEST_OUTPUT"; then
+  if grep -q "栖知 Accessibility service is not enabled" <<<"$TEST_OUTPUT"; then
     FAILED_TARGET="accessibility-permission"
-    FAILURE_REASON="pocketmind-accessibility-not-enabled"
+    FAILURE_REASON="solin-accessibility-not-enabled"
   fi
   if [[ -z "$FAILED_TARGET" ]]; then
     FAILED_TARGET="instrumentation"

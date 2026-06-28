@@ -1,0 +1,53 @@
+package com.bytedance.zgx.solin
+
+import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class MainActivitySharedInputModeTest {
+    @Test
+    fun remoteWithoutVisionUsesProtectedUnsupportedSignal() {
+        assertEquals(
+            SharedInputReadMode.LocalPrompt,
+            sharedInputReadModeFor(
+                inferenceMode = InferenceMode.Local,
+                localSupportsVisionInput = false,
+                remoteConfigured = false,
+                remoteSupportsVisionInput = false,
+            ),
+        )
+        assertEquals(
+            SharedInputReadMode.LocalVision,
+            sharedInputReadModeFor(
+                inferenceMode = InferenceMode.Local,
+                localSupportsVisionInput = true,
+                remoteConfigured = false,
+                remoteSupportsVisionInput = false,
+            ),
+        )
+        assertEquals(
+            SharedInputReadMode.RemoteVision,
+            sharedInputReadModeFor(
+                inferenceMode = InferenceMode.Remote,
+                remoteConfigured = true,
+                remoteSupportsVisionInput = true,
+            ),
+        )
+        assertEquals(
+            SharedInputReadMode.RemoteVisionUnsupportedSignal,
+            sharedInputReadModeFor(
+                inferenceMode = InferenceMode.Remote,
+                remoteConfigured = true,
+                remoteSupportsVisionInput = false,
+            ),
+        )
+        assertEquals(
+            SharedInputReadMode.RemoteVisionUnsupportedSignal,
+            sharedInputReadModeFor(
+                inferenceMode = InferenceMode.Remote,
+                remoteConfigured = false,
+                remoteSupportsVisionInput = true,
+            ),
+        )
+    }
+}

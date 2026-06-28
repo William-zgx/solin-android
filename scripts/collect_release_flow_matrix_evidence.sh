@@ -213,88 +213,88 @@ flow_source_files() {
   case "$1" in
     firstInstall)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityFirstRunSetupUiTest.kt \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivitySmokeTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityFirstRunSetupUiTest.kt \
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySmokeTest.kt
       ;;
     localModelDownloadVerification)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/data/ModelRepositoryTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/ChatUiStateModelVerificationTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/data/ModelRepositoryTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/ChatUiStateModelVerificationTest.kt
       ;;
     customModelImportOrUrlRejection)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/data/ModelRepositoryTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/data/ModelRepositoryTest.kt
       ;;
     remoteHttpsConfiguration)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/RemoteModelConfigTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/PocketMindViewModelTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/runtime/RemoteChatRuntimeTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/RemoteModelConfigTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/SolinViewModelTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/runtime/RemoteChatRuntimeTest.kt
       ;;
     encryptedApiKeyClear)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/data/RemoteModelRepositoryTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/data/RemoteModelRepositoryTest.kt
       ;;
     sessionPersistence)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/data/SessionRepositoryTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/data/SessionRepositoryTest.kt
       ;;
     memoryControls)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityLongTermMemoryUiTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/memory/MemoryQualityContractTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityLongTermMemoryUiTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/memory/MemoryQualityContractTest.kt
       ;;
     privacyAndDataControls)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivitySmokeTest.kt \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityComprehensiveTest.kt \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityLongTermMemoryUiTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/ui/PocketMindScreenDisplayTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySmokeTest.kt \
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityComprehensiveTest.kt \
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityLongTermMemoryUiTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/ui/SolinScreenDisplayTest.kt
       ;;
     remindersAfterReboot)
       printf '%s\n' \
-        app/src/test/java/com/bytedance/zgx/pocketmind/background/ScheduledTaskRepositoryTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/background/ReminderAlarmReceiverTest.kt \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/background/AndroidReminderAlarmPendingIntentTest.kt
+        app/src/test/java/com/bytedance/zgx/solin/background/ScheduledTaskRepositoryTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/background/ReminderAlarmReceiverTest.kt \
+        app/src/androidTest/java/com/bytedance/zgx/solin/background/AndroidReminderAlarmPendingIntentTest.kt
       ;;
     shareAndPickerInput)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivitySharedIntentTest.kt \
-        app/src/debug/java/com/bytedance/zgx/pocketmind/debug/CountingSharedContentProvider.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/multimodal/SharedInputTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/ui/PocketMindScreenDisplayTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySharedIntentTest.kt \
+        app/src/debug/java/com/bytedance/zgx/solin/debug/CountingSharedContentProvider.kt \
+        app/src/test/java/com/bytedance/zgx/solin/multimodal/SharedInputTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/ui/SolinScreenDisplayTest.kt
       ;;
     voiceInput)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityAdaptiveUiTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/PocketMindViewModelTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/ui/PocketMindScreenDisplayTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityAdaptiveUiTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/SolinViewModelTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/ui/SolinScreenDisplayTest.kt
       ;;
     adaptiveUi)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivityAdaptiveUiTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityAdaptiveUiTest.kt
       ;;
     accessibilityText)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivitySkillUiTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/tool/ToolRegistryTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySkillUiTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/tool/ToolRegistryTest.kt
       ;;
     recentMediaOcr)
       printf '%s\n' \
-        app/src/test/java/com/bytedance/zgx/pocketmind/skill/BuiltInSkillRuntimeTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/tool/DeviceContextToolExecutorTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/orchestration/AgentLoopRuntimeTest.kt
+        app/src/test/java/com/bytedance/zgx/solin/skill/BuiltInSkillRuntimeTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/tool/DeviceContextToolExecutorTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentLoopRuntimeTest.kt
       ;;
     mediaProjectionCancellation)
       printf '%s\n' \
-        app/src/androidTest/java/com/bytedance/zgx/pocketmind/MainActivitySkillUiTest.kt \
-        app/src/test/java/com/bytedance/zgx/pocketmind/multimodal/CurrentScreenshotOcrContractTest.kt
+        app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySkillUiTest.kt \
+        app/src/test/java/com/bytedance/zgx/solin/multimodal/CurrentScreenshotOcrContractTest.kt
       ;;
   esac
 }

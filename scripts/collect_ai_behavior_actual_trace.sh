@@ -89,7 +89,7 @@ write_report() {
 if ! env AI_BEHAVIOR_ACTUAL_TRACE_FILE="$ACTUAL_TRACE_FILE" "$GRADLE_CMD" \
   "-PaiBehaviorActualTraceFile=$ACTUAL_TRACE_FILE" \
   :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
   --rerun-tasks; then
   write_report failed "actual-trace-generator-failed"
   echo "AI behavior actual trace generator failed." >&2

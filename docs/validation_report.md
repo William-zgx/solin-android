@@ -1,4 +1,4 @@
-# PocketMind 验证报告
+# Solin 验证报告
 
 本文件是 append-only 验证证据日志。它记录“实际跑过什么、结果是什么、证据在哪里”，不替代
 `docs/release_readiness.md` 的当前状态判断，也不替代 release owner / store /
@@ -98,7 +98,7 @@ git diff --check
   `MissingModel(MobileAction)`。
 - 这补齐了上一轮 action planner/replanner profile gate 的相邻绕行面：本地聊天模型不能在没有
   mobile-action profile 时仅靠 `call:share_text{...}` 直接生成待确认动作。
-- `PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory`
+- `SolinViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory`
   更新为显式安装已验证 chat + mobile-action profile，确保成功路径仍绑定动作模型能力。
 
 验证命令：
@@ -106,18 +106,18 @@ git diff --check
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelWebSearchToolCallExecutesAfterAnswerGenerationWithoutConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelActionToolCallWithoutMobileActionProfileFailsClosed' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelToolCallAuditSummariesDoNotPersistArguments' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelInvalidToolArgumentsFailBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelWebSearchToolCallExecutesAfterAnswerGenerationWithoutConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelActionToolCallWithoutMobileActionProfileFailsClosed' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelToolCallAuditSummariesDoNotPersistArguments' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelInvalidToolArgumentsFailBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   scripts/verify_local.sh
@@ -141,7 +141,7 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zo
   `ModelCapabilityProfile.supportsMobileActionPlanning`；未传 profile 时 fail-closed，不再由旧
   capability set 放行。
 - `AssistantRouter` / `AssistantOrchestrator` 新增可选
-  `installedCapabilityProfiles` 参数；`PocketMindViewModel` 发送消息时传入
+  `installedCapabilityProfiles` 参数；`SolinViewModel` 发送消息时传入
   `ChatUiState.installedCapabilityProfiles`，该列表只来自可用模型的
   `InstalledModelSummary.capabilityProfile`。
 - 新增 JVM 覆盖：初始 model-backed action planning 和 observation replan 都在
@@ -154,21 +154,21 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zo
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWithoutMobileActionReturnsMissingModel' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningPrefersCapabilityProfilesOverCapabilitySet' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWorksWhenMobileActionInstalled' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanPrefersCapabilityProfilesOverCapabilitySet' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWithoutMobileActionReturnsMissingModel' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningPrefersCapabilityProfilesOverCapabilitySet' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWorksWhenMobileActionInstalled' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanPrefersCapabilityProfilesOverCapabilitySet' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeCompatibilityTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeCompatibilityTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   scripts/verify_local.sh
@@ -235,9 +235,9 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zo
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest \
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --trace-diff build/verification/ai-behavior-high-risk-current.jsonl \
@@ -291,8 +291,8 @@ bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest \
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --trace-diff build/verification/ai-behavior-required-boundary-current.jsonl \
@@ -347,8 +347,8 @@ bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest
 
 scripts/test_validation_scripts.sh
 
@@ -389,8 +389,8 @@ bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh script
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest
 
 scripts/test_validation_scripts.sh
 
@@ -536,7 +536,7 @@ bash scripts/test_validation_scripts.sh
 
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
-  ./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.device.UiTargetResolverTest
+  ./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.device.UiTargetResolverTest
 
 bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
 
@@ -602,22 +602,22 @@ bash scripts/test_validation_scripts.sh
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ModelCatalogTest
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.ModelCatalogTest
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
-  ./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ModelCatalogTest
+  ./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.ModelCatalogTest
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests com.bytedance.zgx.pocketmind.RemoteModelConfigTest \
-    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest
+    --tests com.bytedance.zgx.solin.RemoteModelConfigTest \
+    --tests com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest --rerun-tasks \
-    --tests com.bytedance.zgx.pocketmind.ModelCatalogTest \
-    --tests com.bytedance.zgx.pocketmind.RemoteModelConfigTest \
-    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest \
-    --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+    --tests com.bytedance.zgx.solin.ModelCatalogTest \
+    --tests com.bytedance.zgx.solin.RemoteModelConfigTest \
+    --tests com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest \
+    --tests com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest
 ```
 
 结果：
@@ -661,11 +661,11 @@ bash scripts/test_validation_scripts.sh
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   ./gradlew :app:testDebugUnitTest --rerun-tasks \
-  --tests com.bytedance.zgx.pocketmind.device.UiTargetResolverTest \
-  --tests com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ruleBackedObservationReplanDoesNotRequireMobileAction \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled
+  --tests com.bytedance.zgx.solin.device.UiTargetResolverTest \
+  --tests com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.ruleBackedObservationReplanDoesNotRequireMobileAction \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   scripts/verify_local.sh
@@ -705,11 +705,11 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 ```bash
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   ./gradlew :app:testDebugUnitTest --rerun-tasks \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
-  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.writesAgentLoopRuntimeActualTraceJsonl \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWithoutMobileActionReturnsMissingModel \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ruleBackedActionPlanningDoesNotRequireMobileAction \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWorksWhenMobileActionInstalled
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest.writesAgentLoopRuntimeActualTraceJsonl \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWithoutMobileActionReturnsMissingModel \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.ruleBackedActionPlanningDoesNotRequireMobileAction \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWorksWhenMobileActionInstalled
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-jvm \
@@ -845,8 +845,8 @@ bash scripts/test_validation_scripts.sh
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest'
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest'
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --report build/verification/ai-behavior-page-not-changed.properties
@@ -952,13 +952,13 @@ bash scripts/test_validation_scripts.sh
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.localOnlyOcrAndScreenToolsUseLocalEvidenceContinuationPolicy'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.localOnlyOcrAndScreenToolsUseLocalEvidenceContinuationPolicy'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContractTest'
 
 bash scripts/test_validation_scripts.sh
 ```
@@ -1018,8 +1018,8 @@ scripts/test_validation_scripts.sh
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.evidence.EvidenceModelsTest' \
-    --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+    --tests 'com.bytedance.zgx.solin.evidence.EvidenceModelsTest' \
+    --tests 'com.bytedance.zgx.solin.contracts.PhaseOneContractModelsTest'
 ```
 
 结果：
@@ -1088,9 +1088,9 @@ bash -n scripts/record_release_flow_evidence.sh scripts/collect_release_flow_mat
 scripts/test_validation_scripts.sh
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localVisionSharedImageIsSentToLocalRuntimeAndStaysLocalOnly' \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.localVisionPromptOmitsAttachmentMetadataAndDoesNotClaimUnsupported' \
-  --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localVisionSharedImageIsSentToLocalRuntimeAndStaysLocalOnly' \
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest.localVisionPromptOmitsAttachmentMetadataAndDoesNotClaimUnsupported' \
+  --tests 'com.bytedance.zgx.solin.MainActivitySharedInputModeTest'
 
 rm -rf build/verification/local-vision-release-flow-smoke && \
   OWNER=QA RELEASE_FLOW_ALL=1 \
@@ -1202,8 +1202,8 @@ scripts/test_validation_scripts.sh
 bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest'
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   ARTIFACT_DIR=build/verification/ai-behavior-real-app-failure-modes \
   scripts/collect_ai_behavior_actual_trace.sh
@@ -1268,8 +1268,8 @@ scripts/test_validation_scripts.sh
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
-    --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest'
+    --tests 'com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest' \
+    --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest'
 ```
 
 结果：
@@ -1362,14 +1362,14 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosurePersistsNonSensitiveMarkerUntilDecision' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.selectingInstalledLocalModelClearsPendingRemoteSendMarker' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupConsumesToolContinuationMarkerAndFailsModelRun'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteSendDisclosurePersistsNonSensitiveMarkerUntilDecision' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.selectingInstalledLocalModelClearsPendingRemoteSendMarker' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupConsumesToolContinuationMarkerAndFailsModelRun'
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.data.RemoteModelRepositoryTest'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.data.RemoteModelRepositoryTest'
 ```
 
 结果：
@@ -1377,7 +1377,7 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app
 - 通过：目标 JVM 测试验证 marker 保存/清理、启动消费、无 prompt 泄漏、无远程调用、
   tool continuation run fail-closed，以及 pending 远程发送期间切到已安装本地模型会清理
   marker 和 pending disclosure。
-- 通过：完整 `PocketMindViewModelTest` 与 `RemoteModelRepositoryTest` 回归。
+- 通过：完整 `SolinViewModelTest` 与 `RemoteModelRepositoryTest` 回归。
 - 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地 JVM 验证。
 
 ## 2026-06-21 Model License Metadata Freshness Gate
@@ -1423,7 +1423,7 @@ scripts/test_validation_scripts.sh
 验证命令：
 
 ```bash
-scripts/verify_privacy_review.sh --report /tmp/pocketmind-privacy-review.properties || true
+scripts/verify_privacy_review.sh --report /tmp/solin-privacy-review.properties || true
 bash -n scripts/verify_privacy_review.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
 ```
@@ -1452,9 +1452,9 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.RemoteModelConfigTest'
+  --tests 'com.bytedance.zgx.solin.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.RemoteModelConfigTest'
 ```
 
 结果：
@@ -1522,11 +1522,11 @@ scripts/test_validation_scripts.sh
 bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.contracts.PhaseOneContractModelsTest'
 
 scripts/test_validation_scripts.sh
 
@@ -1582,7 +1582,7 @@ scripts/test_validation_scripts.sh
 - `InstalledModelSummary.capabilityProfile` 和 `ChatUiState.activeLocalCapabilityProfile`
   成为 active local profile 的单一入口；推荐模型走 catalog profile，自定义模型走
   `custom-local-chat`，unknown/stale recommended id 返回 null。
-- `PocketMindViewModel` 的 `modelHealth.profileId`、`loadModel()` runtime capabilities、
+- `SolinViewModel` 的 `modelHealth.profileId`、`loadModel()` runtime capabilities、
   `localMaxTotalTokens` 和 `localPreferredBackends` 全部改走 active capability profile，
   避免自定义 active 模型在健康状态、runtime 配置或 evidence 中回退显示为
   `chat-e2b` / 默认视觉 profile。
@@ -1596,12 +1596,12 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
-  --tests 'com.bytedance.zgx.pocketmind.ChatUiStateModelVerificationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.loadCustomImportedModelConfiguresTextOnlyRuntimeCapabilities' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unknownRecommendedActiveModelDoesNotReportDefaultOrVerifiedProfile' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.loadModelConfiguresRuntimeFromActiveModelCapabilityProfile' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.solin.ChatUiStateModelVerificationTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.loadCustomImportedModelConfiguresTextOnlyRuntimeCapabilities' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.unknownRecommendedActiveModelDoesNotReportDefaultOrVerifiedProfile' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.loadModelConfiguresRuntimeFromActiveModelCapabilityProfile' \
+  --tests 'com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest'
 
 scripts/test_validation_scripts.sh
 
@@ -1652,21 +1652,21 @@ git diff --check
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.docs.ModelManifestDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 
 scripts/test_validation_scripts.sh
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --actual-trace build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl \
-  --trace-diff /tmp/pocketmind-ai-behavior-allowed-failure-tighten.jsonl \
+  --trace-diff /tmp/solin-ai-behavior-allowed-failure-tighten.jsonl \
   --require-actual-trace \
   --require-runtime-trace-source \
-  --report /tmp/pocketmind-ai-behavior-allowed-failure-tighten.properties
+  --report /tmp/solin-ai-behavior-allowed-failure-tighten.properties
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_CONTRACT_TESTS=1 \
@@ -1722,11 +1722,11 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 验证命令：
 
 ```bash
-scripts/privacy_scan.sh --report /tmp/pocketmind-privacy-current.properties app/src/main docs scripts
+scripts/privacy_scan.sh --report /tmp/solin-privacy-current.properties app/src/main docs scripts
 
 scripts/verify_store_policy_record.sh \
   --file docs/store_policy_record.json \
-  --report /tmp/pocketmind-store-after-mechanical.properties
+  --report /tmp/solin-store-after-mechanical.properties
 ```
 
 结果：
@@ -1764,12 +1764,12 @@ scripts/test_validation_scripts.sh
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --actual-trace build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl \
-  --trace-diff /tmp/pocketmind-ci-final-gate-ai-trace-diff.jsonl \
+  --trace-diff /tmp/solin-ci-final-gate-ai-trace-diff.jsonl \
   --require-actual-trace \
   --require-runtime-trace-source \
-  --report /tmp/pocketmind-ci-final-gate-ai.properties
+  --report /tmp/solin-ci-final-gate-ai.properties
 
-ARTIFACT_DIR=/tmp/pocketmind-ci-final-gate-public-dry-run \
+ARTIFACT_DIR=/tmp/solin-ci-final-gate-public-dry-run \
   PUBLIC_RELEASE=1 \
   VERIFY_CONTRACT_TESTS=0 \
   EXPECTED_SIGNING_CERT_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
@@ -1784,7 +1784,7 @@ ARTIFACT_DIR=/tmp/pocketmind-ci-final-gate-public-dry-run \
   actual trace 输入和 final gate marker。
 - 通过：strict `verify_ai_behavior_eval.sh` 返回 `AI behavior eval fixtures passed: 31 cases across
   7 categories and 6 MVP scenarios`，报告
-  `/tmp/pocketmind-ci-final-gate-ai.properties` 记录 `requireActualTrace=1`、
+  `/tmp/solin-ci-final-gate-ai.properties` 记录 `requireActualTrace=1`、
   `requireRuntimeTraceSource=1`、`traceDiffMismatchCount=0`。
 - 符合预期失败：public gate dry-run 使用
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE=build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl`
@@ -1805,7 +1805,7 @@ ARTIFACT_DIR=/tmp/pocketmind-ci-final-gate-public-dry-run \
 - `AppInteractionProfiles` 扩充淘宝、高德、京东和浏览器族的真实搜索入口提示词：
   淘宝搜索发现/搜索宝贝、 高德“你要去哪儿”/公交地铁、京东商品/店铺搜索、Quark/UC
   常见“搜索词或网址”地址栏。
-- `UiTargetResolver` 和 `PocketMindAccessibilityService` 同步搜索入口强语义与负向语义，
+- `UiTargetResolver` 和 `SolinAccessibilityService` 同步搜索入口强语义与负向语义，
   让 explain 证据路径和实际 Accessibility 点击路径都降低拍照搜索、相机、扫一扫、找同款等
   视觉搜索入口的优先级。
 - 新增 UIAutomator XML replay 测试基础设施：
@@ -1822,10 +1822,10 @@ ARTIFACT_DIR=/tmp/pocketmind-ci-final-gate-public-dry-run \
 
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCurrentAppUiSkillsAsObserveActVerifyTemplates' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.openAppUiSearchRuntimeFlowCoversCommonAppProfiles'
+  --tests 'com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest' \
+  --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansCurrentAppUiSkillsAsObserveActVerifyTemplates' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.openAppUiSearchRuntimeFlowCoversCommonAppProfiles'
 
 git diff --check
 
@@ -1877,8 +1877,8 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk scripts/verify_local.sh
 bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest'
+  --tests 'com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest' \
+  --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest'
 
 ./scripts/test_validation_scripts.sh
 
@@ -1920,8 +1920,8 @@ scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --report build/verification/ai-behavior-remote-send-confirmation-gate.properties
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest'
 
 ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-remote-send-gate \
   ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
@@ -1960,10 +1960,10 @@ ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-remote-send-gate \
 
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-memory-forget-v20 \
@@ -2026,15 +2026,15 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk scripts/verify_local.sh
 
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansDeviceUiTemplateSkillsWithDeterministicSteps' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.openAppUiSearchThenBackRequestsCheckpointBeforePressingBack' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.openAppUiSearchThenBackPressesBackAfterUserConfirmsCheckpoint' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansDeviceUiTemplateSkillsWithDeterministicSteps' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.openAppUiSearchThenBackRequestsCheckpointBeforePressingBack' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.openAppUiSearchThenBackPressesBackAfterUserConfirmsCheckpoint' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest.recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.writesAgentLoopRuntimeActualTraceJsonl' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest.projectsRestoredPendingConfirmationWithoutExecutedTools'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest.writesAgentLoopRuntimeActualTraceJsonl' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest.recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest.projectsRestoredPendingConfirmationWithoutExecutedTools'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-app-search-back-v18 \
@@ -2146,14 +2146,14 @@ git diff --check
 
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localSharedPdfImageOcrTruncationIsRecordedInRunDataReceipt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stagedSharedImageWaitsForExplicitSendAndStaysLocalOnly' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.remoteToolSnapshotFiltersToolsNotEligibleForScope' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.remoteModelCannotRequestScopeEligibleToolMissingFromExposedSnapshot' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.remoteMixedBatchRejectionRecordsAttemptedToolNames'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localSharedPdfImageOcrTruncationIsRecordedInRunDataReceipt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.stagedSharedImageWaitsForExplicitSendAndStaysLocalOnly' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.remoteToolSnapshotFiltersToolsNotEligibleForScope' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.remoteModelCannotRequestScopeEligibleToolMissingFromExposedSnapshot' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.remoteMixedBatchRejectionRecordsAttemptedToolNames'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-ocr-recovery-v13 \
@@ -2223,9 +2223,9 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.debug.DeviceControlEvalResultFormatterTest' \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+  --tests 'com.bytedance.zgx.solin.debug.DeviceControlEvalResultFormatterTest' \
+  --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest'
 
 scripts/test_validation_scripts.sh
 ```
@@ -2270,13 +2270,13 @@ bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh \
   scripts/test_validation_scripts.sh
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
-  --trace-diff /tmp/pocketmind-ai-behavior-audit-check.jsonl \
-  --report /tmp/pocketmind-ai-behavior-audit-check.properties
+  --trace-diff /tmp/solin-ai-behavior-audit-check.jsonl \
+  --report /tmp/solin-ai-behavior-audit-check.properties
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew \
   -PaiBehaviorActualTraceFile=build/verification/ai-behavior-actual-trace-generator-check/ai-behavior-actual-trace.jsonl \
   :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
   --rerun-tasks
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
@@ -2349,14 +2349,14 @@ scripts/test_validation_scripts.sh
 bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
-  --trace-diff /tmp/pocketmind-ai-behavior-id-check.jsonl \
-  --report /tmp/pocketmind-ai-behavior-id-check.properties
+  --trace-diff /tmp/solin-ai-behavior-id-check.jsonl \
+  --report /tmp/solin-ai-behavior-id-check.properties
 
 scripts/test_validation_scripts.sh
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest'
 ```
 
 结果：
@@ -2396,9 +2396,9 @@ bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh \
 scripts/test_validation_scripts.sh
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest' \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.solin.contracts.PhaseOneContractModelsTest' \
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest'
 ```
 
 结果：
@@ -2483,7 +2483,7 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   memory context 都 fail-closed，本地模式只允许 `LocalOnly` memory hit 进入 context。
 - `AgentLoopRuntime` 的 prompt evidence 使用 `MemoryHit.isAvailableForLocalContext()` 过滤，
   即使误传非 LocalOnly 或过期 hit，也不会拼进模型 prompt fallback。
-- `PocketMindViewModel` 远程语义记忆测试扩展到敏感 `UserFact`，断言 remote prompt/history
+- `SolinViewModel` 远程语义记忆测试扩展到敏感 `UserFact`，断言 remote prompt/history
   不包含敏感事实原文。
 - 数据库版本升至 15，并新增 `MIGRATION_14_15`；Android migration test 覆盖旧
   `memory_records` 默认 metadata。该 instrumentation 测试已编译，尚未在真机执行。
@@ -2494,10 +2494,10 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 git diff --check
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryQualityContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.memoryContextBuildFailureStillAllowsDeviceContextPrompt'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryQualityContractTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.memoryContextBuildFailureStillAllowsDeviceContextPrompt'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   scripts/verify_local.sh
@@ -2511,7 +2511,7 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   fallback 的本地 context 保护。
 - 通过：提升权限后运行 `scripts/verify_local.sh`，返回 `Validation script tests passed`、
   Gradle `BUILD SUCCESSFUL`、`Android artifact scan passed`、`Local verification passed`。
-- 未执行：`PocketMindDatabaseMigrationTest.migration14To15AddsMemoryRecordMetadataDefaults`
+- 未执行：`SolinDatabaseMigrationTest.migration14To15AddsMemoryRecordMetadataDefaults`
   是 Android instrumentation 测试；本轮因为 ADB 无设备未运行，只通过 `verify_local.sh`
   编译了 debug AndroidTest APK。
 
@@ -2530,7 +2530,7 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   LiteRT engine config；本地图片输入、上下文窗口和 engine `maxNumTokens` 不再依赖全局假设。
 - `AdaptiveGenerationPolicy` 改为按当前模型 `contextWindowTokens` 计算输入预算；
   健康运行时保留 profile 可用窗口，降级/质量保护时仍保守收缩。
-- `PocketMindViewModel` 在加载模型前按 active profile 选择可用 backend，拒绝不支持的
+- `SolinViewModel` 在加载模型前按 active profile 选择可用 backend，拒绝不支持的
   GPU/CPU 切换，并把 profile 的 context/backend 能力同步到 `ChatUiState`。
 - Compose 设置面板按 `localPreferredBackends` 禁用不支持的 backend 按钮，token 上限展示继续来自
   active profile。
@@ -2544,11 +2544,11 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 git diff --check
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
-  --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryPathTest' \
-  --tests 'com.bytedance.zgx.pocketmind.runtime.LiteRtRuntimeConfigTest' \
-  --tests 'com.bytedance.zgx.pocketmind.runtime.AdaptiveGenerationPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.loadModelConfiguresRuntimeFromActiveModelCapabilityProfile'
+  --tests 'com.bytedance.zgx.solin.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.solin.data.ModelRepositoryPathTest' \
+  --tests 'com.bytedance.zgx.solin.runtime.LiteRtRuntimeConfigTest' \
+  --tests 'com.bytedance.zgx.solin.runtime.AdaptiveGenerationPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.loadModelConfiguresRuntimeFromActiveModelCapabilityProfile'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   scripts/verify_local.sh
@@ -2606,7 +2606,7 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 本轮覆盖项：
 
 - 远程模式下，用户主动选择的 `image/*` 附件不再受普通文本发送策略静默放行；
-  只要请求带有 `ChatImageAttachment`，`PocketMindViewModel` 都会先生成
+  只要请求带有 `ChatImageAttachment`，`SolinViewModel` 都会先生成
   `PendingRemoteSendDisclosure`，并在用户确认前保持 remote runtime idle。
 - 图片远程发送确认不能被 `OncePerSession` 的“本会话不再提示”静默覆盖；
   UI 也不再在图片确认卡上提供 suppress 选项。
@@ -2683,8 +2683,8 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
-  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+  --tests 'com.bytedance.zgx.solin.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.solin.contracts.PhaseOneContractModelsTest'
 
 bash -n scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
@@ -2763,7 +2763,7 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/ve
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest'
+  --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest'
 
 scripts/verify_ai_behavior_eval.sh --require-boundary-map \
   --report build/verification/ai-behavior-eval-phase3.properties
@@ -2804,22 +2804,22 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/te
 
 ```bash
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.naturalWifiCommandsPlanToolBeforeModelAnswer'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.naturalWifiCommandsPlanToolBeforeModelAnswer'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest.explainIncludesRankedScoreEvidenceAndFailureKind'
+  --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest.explainIncludesRankedScoreEvidenceAndFailureKind'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+  --tests 'com.bytedance.zgx.solin.contracts.PhaseOneContractModelsTest'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.naturalWifiCommandsPlanToolBeforeModelAnswer'
+  --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest' \
+  --tests 'com.bytedance.zgx.solin.contracts.PhaseOneContractModelsTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.naturalWifiCommandsPlanToolBeforeModelAnswer'
 
 ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/verify_local.sh
 ```
@@ -2856,8 +2856,8 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/ve
 ANDROID_SERIAL=fb6272c RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh
 SKIP_BUILD=1 SKIP_INSTALL=1 ANDROID_SERIAL=fb6272c scripts/run_real_app_search_eval.sh
 SKIP_BUILD=1 SKIP_INSTALL=1 ANDROID_SERIAL=fb6272c scripts/run_device_control_debug_eval.sh
-$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
-sqlite3 build/verification/pocketmind-db-after-device-tests.db "select 'installed_models=' || count(*) from installed_models; select 'download_records=' || count(*) from download_records; select 'chat_sessions=' || count(*) from chat_sessions; select 'chat_messages=' || count(*) from chat_messages;"
+$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -W -n com.bytedance.zgx.solin/.MainActivity
+sqlite3 build/verification/solin-db-after-device-tests.db "select 'installed_models=' || count(*) from installed_models; select 'download_records=' || count(*) from download_records; select 'chat_sessions=' || count(*) from chat_sessions; select 'chat_messages=' || count(*) from chat_messages;"
 ```
 
 结果：
@@ -2881,12 +2881,12 @@ sqlite3 build/verification/pocketmind-db-after-device-tests.db "select 'installe
   `search_entry_not_found`，`gaode.case.properties` 为 `editable_not_found`，
   `chrome.case.properties` 因 `package_not_installed:com.android.chrome` 跳过。
 - 通过：主 Activity 真机启动返回 `Status: ok`，并保存 UI/交互证据
-  `build/verification/pocketmind-main-20260617-0011.xml`、
-  `build/verification/pocketmind-model-sheet-20260617-0011.xml`、
-  `build/verification/pocketmind-input-20260617-0011.xml` 和
-  `build/verification/pocketmind-after-input-20260617-0011.xml`；输入框可输入测试文本并启用发送入口，随后已清空测试文本。
+  `build/verification/solin-main-20260617-0011.xml`、
+  `build/verification/solin-model-sheet-20260617-0011.xml`、
+  `build/verification/solin-input-20260617-0011.xml` 和
+  `build/verification/solin-after-input-20260617-0011.xml`；输入框可输入测试文本并启用发送入口，随后已清空测试文本。
 - 数据保留核对：用户提醒不要删除已下载模型数据后，本轮未继续执行卸载、`pm clear` 或默认清数据脚本；只读数据库副本
-  `build/verification/pocketmind-db-after-device-tests.db` 显示
+  `build/verification/solin-db-after-device-tests.db` 显示
   `installed_models=0`、`download_records=0`、`chat_sessions=0`、
   `chat_messages=0`。该结果只能说明当时可见数据库为空，不能替代已有模型数据保护策略。
 - 未执行：未用真实 vision-capable 远程 endpoint 做图片发送通过性验证；当前文档只绑定代码行为边界，即远程图片请求使用 OpenAI-compatible
@@ -2913,7 +2913,7 @@ sqlite3 build/verification/pocketmind-db-after-device-tests.db "select 'installe
 $HOME/Library/Android/sdk/platform-tools/adb devices -l
 $HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell 'getprop ro.product.manufacturer; getprop ro.product.model; getprop ro.build.version.release; getprop ro.build.version.sdk; getprop ro.product.cpu.abilist64; df -k /data | tail -n 1'
 ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh
-$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -W -n com.bytedance.zgx.solin/.MainActivity
 ```
 
 结果：
@@ -2977,7 +2977,7 @@ adb -s fb6272c install -r app/build/outputs/apk/release/app-release-local-signed
 
 本轮覆盖项：
 
-- 扩展 `PocketMindViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace`：
+- 扩展 `SolinViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace`：
   远程模型网络失败后，UI 必须恢复为非 busy、非 generating、仍可用 remote ready 状态，
   并清空 `pendingRemoteSendDisclosure`。
 - 同一测试继续模拟第二次远程发送：先重新出现远程发送确认，确认后 remote runtime
@@ -2989,7 +2989,7 @@ adb -s fb6272c install -r app/build/outputs/apk/release/app-release-local-signed
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace'
 ```
 
 结果：
@@ -3041,10 +3041,10 @@ shasum -a 256 build/verification/emulator-api-matrix-readiness.properties
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
 bash -n scripts/capture_release_screenshots.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
-  AVD_NAME=pocketmind_api36_arm64 \
+  AVD_NAME=solin_api36_arm64 \
   ARTIFACT_DIR=build/verification/release-screenshots-current \
   REPORT_FILE=build/verification/release-screenshots-current/release-screenshots.properties \
   EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' \
@@ -3059,7 +3059,7 @@ scripts/verify_release_validation_record.sh \
 
 - 通过：`build/verification/release-screenshots-current/release-screenshots.properties`
   记录 `status=passed`、`target=release-screenshots`、`clean_device=1`、
-  `api_level=36`、`avd=pocketmind_api36_arm64`。
+  `api_level=36`、`avd=solin_api36_arm64`。
 - 通过：四张截图 `chat-home`、`model-manager`、`confirmation-sheet`、
   `background-tasks-or-audit` 均记录 PNG SHA、UI dump、UI dump SHA、
   `visualRegression=passed` 和 `requiredText`。
@@ -3147,15 +3147,15 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
-  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason' \
+  --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest \
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason' \
   :app:compileDebugAndroidTestKotlin
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
   BOOT_TIMEOUT_SECONDS=180 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest,com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest,com.bytedance.zgx.solin.MainActivityFirstRunSetupUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=360 LOGCAT_TAIL_LINES=5000 \
   ARTIFACT_DIR=build/verification/home-positioning-first-run-smoke-current \
   scripts/verify_emulator.sh
@@ -3164,7 +3164,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 结果：
 
 - 通过：targeted JVM tests 和 AndroidTest Kotlin 编译。
-- 通过：API 36 arm64 `pocketmind_api36_arm64` clean-device emulator smoke，
+- 通过：API 36 arm64 `solin_api36_arm64` clean-device emulator smoke，
   `build/verification/home-positioning-first-run-smoke-current/device-verification.properties`
   记录 `status=passed`、`instrumentation_test_count=7`、`clean_device=1`。
 - 通过：`build/verification/home-positioning-first-run-smoke-current/crash-anr-smoke.properties`
@@ -3197,7 +3197,7 @@ bash -n scripts/verify_release_operations_record.sh scripts/test_validation_scri
 scripts/test_validation_scripts.sh
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
-  BOOT_TIMEOUT_SECONDS=180 INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' \
+  BOOT_TIMEOUT_SECONDS=180 INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
   ARTIFACT_DIR=build/verification/crash-anr-operations-smoke-clean-current \
   scripts/verify_emulator.sh
@@ -3207,7 +3207,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 - 通过：validation script self-tests，覆盖 approved operations 正例、
   failed smoke report 但 SHA 匹配的负例，以及 logcat SHA 被篡改的负例。
-- 通过：API 36 arm64 `pocketmind_api36_arm64` clean-device smoke，
+- 通过：API 36 arm64 `solin_api36_arm64` clean-device smoke，
   `MainActivitySmokeTest` 6 个测试通过。
 - 通过：`build/verification/crash-anr-operations-smoke-clean-current/crash-anr-smoke.properties`
   记录 `status=passed`、`instrumentationTestCount=6`、`logcatSizeBytes=665048`、
@@ -3265,16 +3265,16 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
-  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest \
+  --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest \
   :app:compileDebugAndroidTestKotlin
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/media-permission-ui-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/remote-attachment-notice-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityAdaptiveUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
 ```
 
@@ -3321,19 +3321,19 @@ scripts/test_validation_scripts.sh
 - 语音入口近场文案同步说明：系统语音转写、只进入输入框、不自动发送、不读取本地音频文件、
   开启前先确认。
 - Capability Matrix 和 `docs/capability_matrix.json` 同步把 `voice_transcript_input`
-  标记为需要确认，并把 `PocketMindVoiceInputConsentUiTest` 纳入必测用例。
+  标记为需要确认，并把 `SolinVoiceInputConsentUiTest` 纳入必测用例。
 
 验证命令：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
-  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending' \
+  --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest \
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending' \
   :app:compileDebugAndroidTestKotlin
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/voice-input-consent-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.SolinVoiceInputConsentUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
@@ -3341,7 +3341,7 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT
 
 - 通过：targeted JVM tests，覆盖展示文案、Capability Matrix/JSON 合同和语音权限失败恢复。
 - 通过：AndroidTest Kotlin 编译。
-- 通过：API 36 arm64 `PocketMindVoiceInputConsentUiTest`，
+- 通过：API 36 arm64 `SolinVoiceInputConsentUiTest`，
   `build/verification/voice-input-consent-current/device-verification.properties`
   记录 `status=passed`、`instrumentation_test_count=1`。
 
@@ -3359,22 +3359,22 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.memoryDisabledKeepsSavedRecordsVisibleAndClearable' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosureBlocksRuntimeUntilConfirmed' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModelToolBatchExecutionRequiresConfirmationAndObservationBeforeCompletion' \
-  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.memoryDisabledKeepsSavedRecordsVisibleAndClearable' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteSendDisclosureBlocksRuntimeUntilConfirmed' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModelToolBatchExecutionRequiresConfirmationAndObservationBeforeCompletion' \
+  --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest \
   :app:compileDebugAndroidTestKotlin
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/memory-disabled-clear-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityLongTermMemoryUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityLongTermMemoryUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
 结果：
 
-- 通过：targeted JVM tests 和 `PocketMindScreenDisplayTest`，覆盖记忆关闭后的可见/可删控制、
+- 通过：targeted JVM tests 和 `SolinScreenDisplayTest`，覆盖记忆关闭后的可见/可删控制、
   远程发送保留提示、工具结果续写披露类型。
 - 通过：AndroidTest Kotlin 编译。
 - 通过：API 36 arm64 `MainActivityLongTermMemoryUiTest`，
@@ -3401,10 +3401,10 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT
 ```bash
 scripts/test_validation_scripts.sh
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.data.SessionRepositoryTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deleteOnlyActiveSessionClearsMessagesAndPendingSharedDraft' \
-  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  --tests com.bytedance.zgx.solin.data.SessionRepositoryTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deleteOnlyActiveSessionClearsMessagesAndPendingSharedDraft' \
+  --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest \
   :app:compileDebugAndroidTestKotlin
 git diff --check
 ```
@@ -3434,23 +3434,23 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupShowsSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotReopenSetupWhenRemoteModelIsConfigured' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.savingRemoteConfigDismissesFreshSetup'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupShowsSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupDoesNotReopenSetupWhenRemoteModelIsConfigured' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.savingRemoteConfigDismissesFreshSetup'
 ./gradlew :app:compileDebugAndroidTestKotlin
 scripts/test_validation_scripts.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/first-run-setup-ui-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityFirstRunSetupUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/fresh-start-first-run-skip-current \
   scripts/verify_fresh_start_main_shell_emulator.sh
 bash scripts/verify_local.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
   ARTIFACT_DIR=build/verification/first-run-main-smoke-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
@@ -3475,7 +3475,7 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT
 本轮覆盖项：
 
 - 无本地/远程模型时，首屏从“接入默认页”观感收敛为主界面：主标题改为
-  “开始和 PocketMind 对话”，先展示离线问答、显式记忆、图片/文件和确认动作。
+  “开始和 Solin 对话”，先展示离线问答、显式记忆、图片/文件和确认动作。
 - 模型接入降级为紧凑的“模型未就绪”状态条；首屏移除模型选择 chip，模型切换仍保留在模型管理页。
 - 首页按钮文案保持单行：配置远程模型、下载模型、导入模型、模型管理。
 - Targeted smoke 固定 `home_capability_pills` 与 `model_startup_banner`，避免回退到大接入面板。
@@ -3485,22 +3485,22 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugKotlin \
   :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest' \
+  --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest'
 ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
   ARTIFACT_DIR=build/verification/main-shell-entry-final \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.solin.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.solin.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
   scripts/verify_emulator.sh
 ANDROID_SERIAL=emulator-5554 \
   ARTIFACT_DIR=build/verification/main-shell-entry-fresh-start-final \
-  MAIN_COPY_TEXT='开始和 PocketMind 对话' \
+  MAIN_COPY_TEXT='开始和 Solin 对话' \
   scripts/verify_fresh_start_main_shell_emulator.sh
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.pocketmind
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am force-stop com.bytedance.zgx.pocketmind.test
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am force-stop com.bytedance.zgx.pocketmind
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 uninstall com.bytedance.zgx.pocketmind.test
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.pocketmind
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.solin
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am force-stop com.bytedance.zgx.solin.test
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am force-stop com.bytedance.zgx.solin
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 uninstall com.bytedance.zgx.solin.test
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.solin
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am start -W -n com.bytedance.zgx.solin/.MainActivity
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 exec-out uiautomator dump /dev/tty \
   > build/verification/current-main-shell-after-wording/current.xml
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 exec-out screencap -p \
@@ -3516,13 +3516,13 @@ ANDROID_SERIAL=emulator-5554 \
 - 通过：API 36 arm64 fresh-start，
   `build/verification/main-shell-entry-fresh-start-final/fresh-start-main-shell.properties`
   包含 `status=passed`、`first_run_setup_visible=false`、`main_shell_copy_visible=true`。
-- 通过：当前模拟器已安装并停在新首页；UI dump 显示“开始和 PocketMind 对话”、
+- 通过：当前模拟器已安装并停在新首页；UI dump 显示“开始和 Solin 对话”、
   “没有模型时只展示启动选项”、“模型未就绪”、“配置远程模型，立即试用”、
   “下载模型”、“导入模型”和“模型管理”。截图保存于
   `build/verification/current-main-shell-after-wording/current.png`。
-- 说明：targeted smoke 后模拟器上曾残留 `com.bytedance.zgx.pocketmind.test` instrumentation，
+- 说明：targeted smoke 后模拟器上曾残留 `com.bytedance.zgx.solin.test` instrumentation，
   导致 `uiautomator dump` 报 UiAutomation already registered，并短暂显示空白测试窗口；force-stop
-  并卸载 test APK 后，正式 App 进程表只剩 `com.bytedance.zgx.pocketmind`，当前首页恢复正常。
+  并卸载 test APK 后，正式 App 进程表只剩 `com.bytedance.zgx.solin`，当前首页恢复正常。
 
 ## 2026-06-07 Calendar local planning and skill smoke stability
 
@@ -3539,12 +3539,12 @@ ANDROID_SERIAL=emulator-5554 \
 
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModePlansCalendarAvailabilityLocallyAfterSendDisclosure' \
-  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+  --tests 'com.bytedance.zgx.solin.safety.SafetyPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModePlansCalendarAvailabilityLocallyAfterSendDisclosure' \
+  --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
 ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
   ARTIFACT_DIR=build/verification/calendar-skill-runtime-final \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest#calendarAvailabilityConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess,com.bytedance.zgx.pocketmind.MainActivitySkillUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest#calendarAvailabilityConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess,com.bytedance.zgx.solin.MainActivitySkillUiTest' \
   scripts/verify_emulator.sh
 ```
 
@@ -3574,32 +3574,32 @@ ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
 
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotShowSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable'
+  --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest' \
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupDoesNotShowSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable'
 ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
   ARTIFACT_DIR=build/verification/sensitive-disclosure-ui-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.solin.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.solin.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
   scripts/verify_emulator.sh
 ANDROID_SERIAL=emulator-5554 \
   ARTIFACT_DIR=build/verification/start-path-guidance-fresh-start-current \
   scripts/verify_fresh_start_main_shell_emulator.sh
 ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
   ARTIFACT_DIR=build/verification/runtime-permission-disclosure-current2 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest' \
   scripts/verify_emulator.sh
 scripts/verify_local.sh
 ```
 
 结果：
 
-- 通过：`CapabilityMatrixDocumentationTest` 和 `PocketMindScreenDisplayTest`，覆盖敏感披露
+- 通过：`CapabilityMatrixDocumentationTest` 和 `SolinScreenDisplayTest`，覆盖敏感披露
   JSON/代码一致性、必测类存在性、数据/同意/远程/撤销字段完整性，以及隐私页展示文本。
 - 通过：`AgentCoreDocumentationTest`，确认 README 顶部产品合同、首屏信任流和 manual/automatic
   验收分离仍符合文档契约。
-- 通过：`PocketMindViewModelTest` 两条无模型启动回归，确认无本地/远程模型时保持主界面待准备态，
+- 通过：`SolinViewModelTest` 两条无模型启动回归，确认无本地/远程模型时保持主界面待准备态，
   状态文案收敛为“选择远程模型或下载本地模型后即可开始”。
 - 通过：API 36 arm64 模拟器 targeted smoke，
   `build/verification/sensitive-disclosure-ui-current/device-verification.properties`
@@ -3639,7 +3639,7 @@ ARTIFACT_DIR=build/verification/product-contract-regression-current \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 scripts/regression_emulator.sh
 /Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
-  shell dumpsys package com.bytedance.zgx.pocketmind
+  shell dumpsys package com.bytedance.zgx.solin
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
   exec-out uiautomator dump /dev/tty > build/verification/current-screen/ui.xml
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
@@ -3659,7 +3659,7 @@ ARTIFACT_DIR=build/verification/product-contract-flow-matrix-current \
   `expected_android_test_count=35`、`actual_android_test_count=35`、`clean_device=1`；
   report SHA-256 为
   `ed29aeb0a5cfe0508bf273ecfbbc2c6c8a95f8a1d1306c4a6f108410ca8a2844`。
-- 通过：当前模拟器安装包前台为 `com.bytedance.zgx.pocketmind/.MainActivity`，
+- 通过：当前模拟器安装包前台为 `com.bytedance.zgx.solin/.MainActivity`，
   `lastUpdateTime=2026-06-07 05:37:02`；UI dump 显示“隐私优先的随身 AI 助手”、
   “配置远程模型（无需下载）”和“未找到可用模型，请下载、导入或配置远程模型”。
 - 通过：点击“配置远程模型（无需下载）”后打开模型管理远程页，UI dump 显示
@@ -3693,7 +3693,7 @@ ARTIFACT_DIR=build/verification/product-contract-flow-matrix-current \
 
 ```bash
 ANDROID_SERIAL=emulator-5554 ARTIFACT_DIR=build/verification/smoke-isolated-current \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' \
   scripts/install_and_test_device.sh
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 \
@@ -3756,11 +3756,11 @@ git diff --check
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugKotlin \
   :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+  --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
 ARTIFACT_DIR=build/verification/product-positioning-entry-smoke-rerun \
   CLEAN_DEVICE=1 \
   ANDROID_SERIAL=emulator-5554 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.solin.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.solin.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
   scripts/verify_emulator.sh
 ARTIFACT_DIR=build/verification/product-positioning-fresh-start-current \
   ANDROID_SERIAL=emulator-5554 \
@@ -3777,17 +3777,17 @@ ARTIFACT_DIR=build/verification/release-flow-matrix-expanded-current \
 
 结果：
 
-- 通过：debug Kotlin、androidTest Kotlin 编译和 `PocketMindScreenDisplayTest`。
+- 通过：debug Kotlin、androidTest Kotlin 编译和 `SolinScreenDisplayTest`。
 - 通过：API 36 arm64 干净模拟器 targeted smoke，
   `build/verification/product-positioning-entry-smoke-rerun/emulator-verification.properties`
-  包含 `status=passed`、`avd=pocketmind_api36_arm64`；嵌套
+  包含 `status=passed`、`avd=solin_api36_arm64`；嵌套
   `device-verification.properties` 包含 `status=passed`、`instrumentation_test_count=3`。
 - 通过：API 36 arm64 真实 fresh-start，
   `build/verification/product-positioning-fresh-start-current/fresh-start-main-shell.properties`
   包含 `status=passed`、`first_run_setup_visible=false`、`main_shell_copy_visible=true`。
 - 通过：`scripts/test_validation_scripts.sh`，确认 release-flow 脚本自测通过，且 debug
   APK 自测后恢复为有效 APK；`aapt dump badging` 读取到
-  `package: name='com.bytedance.zgx.pocketmind' versionCode='1' versionName='0.1.0'`。
+  `package: name='com.bytedance.zgx.solin' versionCode='1' versionName='0.1.0'`。
 - 通过：最新首屏截图和 UI dump 已保存到
   `build/verification/product-positioning-entry-screen/current.png` 和同名 XML；截图显示
   “隐私优先的随身 AI 助手”和“配置远程模型（无需下载）”。
@@ -3816,22 +3816,22 @@ ARTIFACT_DIR=build/verification/release-flow-matrix-expanded-current \
 
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+  --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
 shasum -a 256 docs/privacy_notice.md docs/store_policy_review_evidence/pending.properties \
   docs/privacy_review_evidence/release-pending.properties \
   docs/privacy_review_evidence/security-pending.properties \
   docs/privacy_review_evidence/legal-pending.properties
 ARTIFACT_DIR=build/verification/model-path-guidance-adaptive-ui-final \
   ANDROID_SERIAL=emulator-5554 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityAdaptiveUiTest' \
   scripts/install_and_test_device.sh
-ANDROID_SERIAL=emulator-5554 ARTIFACT_DIR=build/verification/privacy-entry-smoke INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' scripts/install_and_test_device.sh
+ANDROID_SERIAL=emulator-5554 ARTIFACT_DIR=build/verification/privacy-entry-smoke INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' scripts/install_and_test_device.sh
 scripts/verify_local.sh
 ```
 
 结果：
 
-- 通过：`PocketMindScreenDisplayTest`，覆盖产品定位、模型路径说明、远程发送图片字节披露、
+- 通过：`SolinScreenDisplayTest`，覆盖产品定位、模型路径说明、远程发送图片字节披露、
   远程发送确认、语音隐私说明和 run data receipt 展示合同。
 - 通过：privacy notice 当前 SHA 为
   `672d8aa10462659c079c3cb467bbe694b32938e562cc1f8a07f5899df0620430`；store policy /
@@ -3864,24 +3864,24 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.foregroundAppActionParserCreatesUsageStatsReadDraft' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.calendarAvailabilityParserCreatesReadOnlyDraft'
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.foregroundAppActionParserCreatesUsageStatsReadDraft' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.calendarAvailabilityParserCreatesReadOnlyDraft'
 ./gradlew --no-daemon -Pkotlin.incremental=false assembleDebug assembleDebugAndroidTest
 ARTIFACT_DIR=build/verification/permission-ui-stable \
-  AVD_NAME=pocketmind_api36_arm64 \
+  AVD_NAME=solin_api36_arm64 \
   EMULATOR_SELECT_TIMEOUT_SECONDS=180 \
   BOOT_TIMEOUT_SECONDS=360 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest,com.bytedance.zgx.pocketmind.MainActivitySpecialAccessUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest,com.bytedance.zgx.solin.MainActivitySpecialAccessUiTest' \
   scripts/verify_emulator.sh
 ARTIFACT_DIR=build/verification/adaptive-ui-stable-final3 \
   ANDROID_SERIAL=emulator-5554 \
   GRADLE_CMD=/usr/bin/true \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityAdaptiveUiTest' \
   scripts/verify_emulator.sh
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.pocketmind
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.solin
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am start -W -n com.bytedance.zgx.solin/.MainActivity
 ```
 
 结果：
@@ -3900,8 +3900,8 @@ ARTIFACT_DIR=build/verification/adaptive-ui-stable-final3 \
   `build/verification/adaptive-ui-stable-final3/device-verification.properties` 包含
   `instrumentation_test_count=2`。
 - 通过：API 36 arm64 模拟器手动冷启动，`am start -W` 返回 `LaunchState: COLD`、
-  `TotalTime: 1645`，Window 焦点为 `com.bytedance.zgx.pocketmind/.MainActivity`；UI dump
-  显示 `PocketMind`、`主界面已就绪` 和
+  `TotalTime: 1645`，Window 焦点为 `com.bytedance.zgx.solin/.MainActivity`；UI dump
+  显示 `Solin`、`主界面已就绪` 和
   `未找到可用模型，请下载、导入或配置远程模型`。证据：
   `build/verification/manual-cold-start-check/cold-start-screen.png`、
   `build/verification/manual-cold-start-check/cold-start-ui.xml`。
@@ -3934,13 +3934,13 @@ ARTIFACT_DIR=build/verification/adaptive-ui-stable-final3 \
 
 ```bash
 ./gradlew --no-daemon :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosureBlocksRuntimeUntilConfirmed' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDisclosureKeepsAttachmentForConfirmedVisionSend' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel' \
-  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest.remoteSendDisclosureRowsNameDestinationAndProtectedData'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteSendDisclosureBlocksRuntimeUntilConfirmed' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteImageDisclosureKeepsAttachmentForConfirmedVisionSend' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel' \
+  --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest.remoteSendDisclosureRowsNameDestinationAndProtectedData'
 scripts/verify_local.sh
 ARTIFACT_DIR=build/verification/remote-send-disclosure-emulator-rerun \
-  AVD_NAME=pocketmind_api36_arm64 \
+  AVD_NAME=solin_api36_arm64 \
   EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
   BOOT_TIMEOUT_SECONDS=360 \
   scripts/regression_emulator.sh
@@ -3954,11 +3954,11 @@ ARTIFACT_DIR=build/verification/remote-send-disclosure-emulator-rerun \
   debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
 - 通过：API 36 arm64 emulator regression，
   `build/verification/remote-send-disclosure-emulator-rerun/regression-emulator.properties`
-  包含 `status=passed`、`actual_android_test_count=30`、`avd=pocketmind_api36_arm64`、
+  包含 `status=passed`、`actual_android_test_count=30`、`avd=solin_api36_arm64`、
   `abi=arm64-v8a`。
 - 首次尝试 `build/verification/remote-send-disclosure-emulator/regression-emulator.properties`
   未进入测试，`failedTarget=emulator-verification`，原因是脚本等待单一授权 emulator 时
-  当前 emulator 掉线；已用显式 `AVD_NAME=pocketmind_api36_arm64` 重跑并通过。
+  当前 emulator 掉线；已用显式 `AVD_NAME=solin_api36_arm64` 重跑并通过。
 
 ## 2026-06-07 Product positioning and CI emulator regression wiring
 
@@ -3989,14 +3989,14 @@ ARTIFACT_DIR=build/verification/remote-send-disclosure-emulator-rerun \
 git diff --check
 ruby -e 'require "yaml"; YAML.load_file(".github/workflows/android.yml"); puts "workflow yaml parsed"'
 bash -n scripts/regression_emulator.sh scripts/verify_emulator.sh scripts/install_and_test_device.sh
-./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
 scripts/verify_local.sh
 ```
 
 结果：
 
 - 通过：本地 whitespace、workflow YAML parse、相关 shell syntax 检查。
-- 通过：`PocketMindScreenDisplayTest` 覆盖产品定位、App 内隐私说明入口、远程发送边界、
+- 通过：`SolinScreenDisplayTest` 覆盖产品定位、App 内隐私说明入口、远程发送边界、
   本地模型下载理由、动作确认数据去向、麦克风就近说明和信任/删除控制文案。
 - 通过：`scripts/verify_local.sh`，覆盖 validation script self-tests、JVM tests、lint、
   debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
@@ -4015,8 +4015,8 @@ scripts/verify_local.sh
 验证命令：
 
 ```bash
-AVD_NAME=pocketmind_api36_arm64 ARTIFACT_DIR=build/verification/core-fresh-start-current scripts/verify_fresh_start_main_shell_emulator.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/core-emulator-second-current scripts/regression_emulator.sh
+AVD_NAME=solin_api36_arm64 ARTIFACT_DIR=build/verification/core-fresh-start-current scripts/verify_fresh_start_main_shell_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/core-emulator-second-current scripts/regression_emulator.sh
 ```
 
 结果：
@@ -4034,7 +4034,7 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 
 本轮覆盖项：
 
-- 将无模型首屏从“PocketMind 已进入，模型待配置”调整为更明确的“主界面已就绪”，并把
+- 将无模型首屏从“Solin 已进入，模型待配置”调整为更明确的“主界面已就绪”，并把
   首页次级入口“更多”改为“模型管理”，降低看起来仍停在默认接入页的误解。
 - `scripts/verify_fresh_start_main_shell_emulator.sh` 的 main-shell 断言同步到新首屏文案，
   并为 `adb install` 增加最多 3 次重试；安装失败时写入明确
@@ -4047,7 +4047,7 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 ```bash
 ./gradlew --no-daemon :app:assembleDebug --rerun-tasks
 scripts/test_validation_scripts.sh
-ARTIFACT_DIR=build/verification/current-page-check-final-retry AVD_NAME=pocketmind_api36_arm64 scripts/verify_fresh_start_main_shell_emulator.sh
+ARTIFACT_DIR=build/verification/current-page-check-final-retry AVD_NAME=solin_api36_arm64 scripts/verify_fresh_start_main_shell_emulator.sh
 scripts/verify_local.sh
 git diff --check
 rg -n "<provider endpoint/model/API-key denylist>" -S . -g '!**/.git/**' -g '!**/.gradle/**' -g '!**/build/**'
@@ -4205,7 +4205,7 @@ scripts/verify_model_license_review.sh --report build/verification/model-license
 
 ```bash
 ARTIFACT_DIR=build/verification/release-flow-matrix-current REPORT_FILE=build/verification/release-flow-matrix-current/release-flow-matrix-candidate-evidence.properties scripts/collect_release_flow_matrix_evidence.sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=pocketmind_api36_arm64 ARTIFACT_DIR=build/verification/upgrade-install-emulator-current REPORT_FILE=build/verification/upgrade-install-emulator-current/upgrade-install-emulator.properties EMULATOR_ARGS='-wipe-data -no-window -no-audio -no-boot-anim -no-snapshot-save -gpu swiftshader_indirect' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/verify_upgrade_install_emulator.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=solin_api36_arm64 ARTIFACT_DIR=build/verification/upgrade-install-emulator-current REPORT_FILE=build/verification/upgrade-install-emulator-current/upgrade-install-emulator.properties EMULATOR_ARGS='-wipe-data -no-window -no-audio -no-boot-anim -no-snapshot-save -gpu swiftshader_indirect' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/verify_upgrade_install_emulator.sh
 scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
 ```
 
@@ -4231,7 +4231,7 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
 本轮覆盖项：
 
 - 首屏不再把“准备基础能力包”作为全新安装默认页；没有本地模型和远程配置时仍进入
-  PocketMind 主界面，并通过主界面卡片提示去下载、导入或配置远程模型。
+  Solin 主界面，并通过主界面卡片提示去下载、导入或配置远程模型。
 - 新增 `scripts/install_review_device.sh` 作为人工验收安装入口；它不运行
   instrumentation、不默认清 App 数据，报告标记为 `target=manual-acceptance-install`
   和 `regressionEvidence=false`。
@@ -4242,8 +4242,8 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
 
 ```bash
 scripts/test_validation_scripts.sh
-./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotShowSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotReopenSetupWhenRemoteModelIsConfigured'
-ARTIFACT_DIR=build/verification/fresh-start-main-shell-current AVD_NAME=pocketmind_api36_arm64 scripts/verify_fresh_start_main_shell_emulator.sh
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupDoesNotShowSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startupDoesNotReopenSetupWhenRemoteModelIsConfigured'
+ARTIFACT_DIR=build/verification/fresh-start-main-shell-current AVD_NAME=solin_api36_arm64 scripts/verify_fresh_start_main_shell_emulator.sh
 scripts/verify_local.sh
 ```
 
@@ -4280,9 +4280,9 @@ scripts/verify_local.sh
 
 ```bash
 scripts/test_validation_scripts.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest ARTIFACT_DIR=build/verification/emulator-api36-default-args-smoke-current scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MainActivitySmokeTest ARTIFACT_DIR=build/verification/emulator-api36-default-args-smoke-current scripts/verify_emulator.sh
 scripts/verify_local.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/regression-emulator-api36-default-args-current scripts/regression_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/regression-emulator-api36-default-args-current scripts/regression_emulator.sh
 scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
 ```
 
@@ -4297,7 +4297,7 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
 - 通过：完整 API 36 regression，
   `build/verification/regression-emulator-api36-default-args-current/regression-emulator.properties`
   记录 `status=passed`、`actual_android_test_count=28`、`api_level=36`、
-  `abi=arm64-v8a`、`avd=pocketmind_api36_arm64`，SHA-256 为
+  `abi=arm64-v8a`、`avd=solin_api36_arm64`，SHA-256 为
   `d2fc72b000b39ad20e77741ba43b1abeb2646fca580108ebeafcf582c215ee4f`。
 - 预期失败：release validation record 仍未 approved，当前失败原因继续是未完成的
   physical device full evidence、API 28/32/33/34 matrix、manual acceptance、flow
@@ -4311,7 +4311,7 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
 - 在真实设备 `fb6272c` 上重新安装当前 debug APK 和 androidTest APK，并完整跑
   `MainActivitySmokeTest` 4 条发布 smoke。
 - `scripts/live_remote_emulator.sh` 保持默认只选 emulator；新增显式
-  `POCKETMIND_LIVE_REMOTE_TARGET=device` 后才允许选择真机 serial。
+  `SOLIN_LIVE_REMOTE_TARGET=device` 后才允许选择真机 serial。
 - live remote 输入坐标改为读取设备屏幕尺寸后按比例计算，覆盖 1200x2670 真机；
   成功路径也保存 screenshot、UI dump 和 logcat evidence。
 - 使用用户提供的远程模型配置做真机 live remote 验证；API key 只通过静默 stdin/env
@@ -4320,10 +4320,10 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
 验证命令：
 
 ```bash
-ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=600 ARTIFACT_DIR=build/verification/physical-device-install-retry-wide-timeout VERIFICATION_REPORT_FILE=build/verification/physical-device-install-retry-wide-timeout/device-verification.properties INSTRUMENTATION_OUTPUT_FILE=build/verification/physical-device-install-retry-wide-timeout/instrumentation.txt scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=600 ARTIFACT_DIR=build/verification/physical-device-install-retry-wide-timeout VERIFICATION_REPORT_FILE=build/verification/physical-device-install-retry-wide-timeout/device-verification.properties INSTRUMENTATION_OUTPUT_FILE=build/verification/physical-device-install-retry-wide-timeout/instrumentation.txt scripts/install_and_test_device.sh
 bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-POCKETMIND_LIVE_REMOTE_TARGET=device ANDROID_SERIAL=fb6272c POCKETMIND_LIVE_REMOTE_BASE_URL=<redacted> POCKETMIND_LIVE_REMOTE_MODEL=<redacted> POCKETMIND_LIVE_REMOTE_API_KEY=<provided-secret> POCKETMIND_LIVE_REMOTE_PROMPT="Return POCKETMIND_LIVE_OK" POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT=POCKETMIND_LIVE_OK POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=60 ARTIFACT_DIR=build/verification/live-remote-device-deepseek-final REPORT_FILE=build/verification/live-remote-device-deepseek-final/live-remote-device.properties scripts/live_remote_emulator.sh
+SOLIN_LIVE_REMOTE_TARGET=device ANDROID_SERIAL=fb6272c SOLIN_LIVE_REMOTE_BASE_URL=<redacted> SOLIN_LIVE_REMOTE_MODEL=<redacted> SOLIN_LIVE_REMOTE_API_KEY=<provided-secret> SOLIN_LIVE_REMOTE_PROMPT="Return SOLIN_LIVE_OK" SOLIN_LIVE_REMOTE_EXPECTED_TEXT=SOLIN_LIVE_OK SOLIN_LIVE_REMOTE_WAIT_SECONDS=60 ARTIFACT_DIR=build/verification/live-remote-device-deepseek-final REPORT_FILE=build/verification/live-remote-device-deepseek-final/live-remote-device.properties scripts/live_remote_emulator.sh
 ```
 
 结果：
@@ -4333,13 +4333,13 @@ POCKETMIND_LIVE_REMOTE_TARGET=device ANDROID_SERIAL=fb6272c POCKETMIND_LIVE_REMO
   记录 `status=passed`、`target=device`、`api_level=36`、`abi=arm64-v8a`、
   `instrumentation=passed`、`instrumentation_test_count=4`，SHA-256
   `bb50a6deb34bede4681deb9e93437546fd197a239c0b7bf59089e8911b1a18b7`。
-- 通过：live remote 真机验证返回 `POCKETMIND_LIVE_OK`，报告
+- 通过：live remote 真机验证返回 `SOLIN_LIVE_OK`，报告
   `build/verification/live-remote-device-deepseek-final/live-remote-device.properties`
   记录 `status=passed`、`target=live-remote-device`、`device_target=device`、
   `serial=fb6272c`，并链接 screenshot、UI dump 和 logcat，SHA-256
   `29845bd67c9b3e1eef3134cf1840944e6cbad4750af45d7faa6e7c1434ac20cc`。
 - 通过：live remote 报告只记录 `base_url=<redacted>`、`model=<redacted>` 和
-  `api_key_source=POCKETMIND_LIVE_REMOTE_API_KEY`；实际 API key 未落盘。
+  `api_key_source=SOLIN_LIVE_REMOTE_API_KEY`；实际 API key 未落盘。
 
 ## 2026-06-06 Physical smoke scope narrowing
 
@@ -4355,7 +4355,7 @@ POCKETMIND_LIVE_REMOTE_TARGET=device ANDROID_SERIAL=fb6272c POCKETMIND_LIVE_REMO
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
-ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=180 ARTIFACT_DIR=build/verification/physical-device-smoke-after-narrowing scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=180 ARTIFACT_DIR=build/verification/physical-device-smoke-after-narrowing scripts/install_and_test_device.sh
 ```
 
 结果：
@@ -4387,9 +4387,9 @@ ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.po
 bash -n scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
 git diff --check
 scripts/test_validation_scripts.sh
-ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=180 ARTIFACT_DIR=build/verification/physical-device-smoke scripts/install_and_test_device.sh
-ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager INSTRUMENTATION_TIMEOUT_SECONDS=120 ARTIFACT_DIR=build/verification/physical-device-smoke-chat scripts/install_and_test_device.sh
-ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#sessionManagerShowsSessionControls INSTRUMENTATION_TIMEOUT_SECONDS=120 ARTIFACT_DIR=build/verification/physical-device-smoke-session scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=180 ARTIFACT_DIR=build/verification/physical-device-smoke scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MainActivitySmokeTest#chatShellShowsModelManager INSTRUMENTATION_TIMEOUT_SECONDS=120 ARTIFACT_DIR=build/verification/physical-device-smoke-chat scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MainActivitySmokeTest#sessionManagerShowsSessionControls INSTRUMENTATION_TIMEOUT_SECONDS=120 ARTIFACT_DIR=build/verification/physical-device-smoke-session scripts/install_and_test_device.sh
 ```
 
 结果：
@@ -4409,7 +4409,7 @@ ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.po
   记录 `failedTarget=install`、`reason=install-user-restricted`，
   SHA-256 `51cd84b15c4ddfa38f6741533a9159f5d37a4f81d058fa99308172a1cd81d01d`。
 - 远程模型真机验证未执行：当前主包已被 clean uninstall，设备只剩
-  `com.bytedance.zgx.pocketmind.test`；需要用户在手机上允许 USB 安装后，才能通过
+  `com.bytedance.zgx.solin.test`；需要用户在手机上允许 USB 安装后，才能通过
   debug receiver 临时注入远程配置。远程 API key 不写入 repo、报告或 commit。
 
 ## 2026-06-06 Release validation API nested evidence hardening
@@ -4877,7 +4877,7 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stagedSharedImageWithoutOcrWarnsLocalModelThatVisualContentIsUnavailable' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.stagedSharedImageWithoutOcrWarnsLocalModelThatVisualContentIsUnavailable' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest'
 git diff --check
 bash -n scripts/check_emulator_api_matrix.sh scripts/regression_emulator_api_matrix.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
 scripts/test_validation_scripts.sh
@@ -5249,7 +5249,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 - `scripts/live_remote_emulator.sh` 的 report 新增 `failedTarget`、`reason`、
   `evidence_dir`、`screenshot`、`ui_dump` 和 `logcat_file`。
-- 缺少 `POCKETMIND_LIVE_REMOTE_BASE_URL` / model / API key、非 emulator serial、
+- 缺少 `SOLIN_LIVE_REMOTE_BASE_URL` / model / API key、非 emulator serial、
   assemble/install/config broadcast、UI 输入、远端请求失败、预期文本缺失等路径会写入
   机器可读失败原因。
 - 失败且已选中 emulator 时，会尽量捕获截图、UI dump 和短 logcat。
@@ -5271,8 +5271,8 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
   screenshot / UI dump / logcat evidence path，以及 API key redaction。
 - 通过：`scripts/verify_local.sh`。
 - 未执行真实 live remote 模型请求：当前没有临时注入
-  `POCKETMIND_LIVE_REMOTE_BASE_URL`、`POCKETMIND_LIVE_REMOTE_MODEL` 和
-  `POCKETMIND_LIVE_REMOTE_API_KEY`。
+  `SOLIN_LIVE_REMOTE_BASE_URL`、`SOLIN_LIVE_REMOTE_MODEL` 和
+  `SOLIN_LIVE_REMOTE_API_KEY`。
 
 ## 2026-06-06 Emulator failure evidence contract hardening
 
@@ -5610,7 +5610,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
 scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
 ```
 
@@ -5778,9 +5778,9 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 AVD_NAME=focus_agent_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=90 BOOT_TIMEOUT_SECONDS=300 \
   EMULATOR_ARGS="-no-window -no-audio -no-boot-anim -no-snapshot-save" \
   ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
@@ -5809,7 +5809,7 @@ scripts/verify_privacy_review.sh --report build/verification/privacy-review-curr
   显式转成 `LocalOnly`，避免无标题旧会话把分享文本、OCR 摘录或其他本地内容写进
   session title。
 - 新增 instrumentation 回归：
-  `PocketMindDatabaseMigrationTest.legacyPrefsMigratorDerivesUntitledLegacyMessagesAsLocalOnlyTitle`，
+  `SolinDatabaseMigrationTest.legacyPrefsMigratorDerivesUntitledLegacyMessagesAsLocalOnlyTitle`，
   断言旧私密用户消息导入后标题为 `本地内容`，且不包含原始 secret token。
 
 验证命令：
@@ -5842,9 +5842,9 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.publicEvidenceOutputSchemasRequireRemotePrivacyDeclaration' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.publicEvidenceContinuationRejectsResultMissingRemotePrivacyDeclaration' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialPublicEvidenceContinuationIncludesPriorEvidence'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.publicEvidenceOutputSchemasRequireRemotePrivacyDeclaration' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.publicEvidenceContinuationRejectsResultMissingRemotePrivacyDeclaration' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.sequentialPublicEvidenceContinuationIncludesPriorEvidence'
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
 ```
 
@@ -5866,7 +5866,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest'
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
 ```
 
@@ -5916,16 +5916,16 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeSendsSharedImageAttachmentToVisionRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeFailsClosedWhenRouteIncludesMemoryContext' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeFailsClosedWhenRouteRewritesPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeSendsSharedImageAttachmentToVisionRuntime' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeFailsClosedWhenRouteIncludesMemoryContext' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeFailsClosedWhenRouteRewritesPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryQualityContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryQualityContractTest' \
+  --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest'
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
 ```
 
@@ -6018,9 +6018,9 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localGenerationFailureUpdatesModelHealth' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localGenerationFailureUpdatesModelHealth' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
 ```
 
 结果：
@@ -6041,8 +6041,8 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.remoteToolExposureRequiresExplicitReviewedAllowlist' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.remoteToolExposureRequiresExplicitReviewedAllowlist' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools'
 ```
 
 结果：
@@ -6065,8 +6065,8 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync'
 ```
 
 结果：
@@ -6087,7 +6087,7 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory'
 ```
 
 结果：
@@ -6134,7 +6134,7 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest'
 ```
 
 结果：
@@ -6158,7 +6158,7 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest'
 ```
 
 结果：
@@ -6184,9 +6184,9 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.docs.ModelManifestDocumentationTest'
 ```
 
 结果：
@@ -6209,9 +6209,9 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.MainActivitySharedInputModeTest'
 
 ANDROID_HOME="$HOME/Library/Android/sdk" \
 ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
@@ -6228,7 +6228,7 @@ scripts/regression_emulator.sh
 
 结果：
 
-- 通过：目标 JVM 回归，覆盖 `SharedInputTest`、`PocketMindViewModelTest` 和
+- 通过：目标 JVM 回归，覆盖 `SharedInputTest`、`SolinViewModelTest` 和
   `MainActivitySharedInputModeTest`。
 - 通过：`scripts/verify_local.sh`，包含 validation script 回归、JVM tests、lint、
   debug/androidTest APK assembly、release assembly 和 APK 内容检查。
@@ -6339,11 +6339,11 @@ scripts/test_validation_scripts.sh
 验证命令：
 
 ```bash
-./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugKotlin
 git diff --check
-rg -n "远程模型模式下，选择附件只生成受保护信号|聊天中只应追加安全摘要|自动回归与必须手工验收的结论必须分开记录|Scripted regression and manual acceptance must be recorded separately|链接域名|目标包" README.md docs app/src/main/java/com/bytedance/zgx/pocketmind/ui/PocketMindScreen.kt app/src/test/java/com/bytedance/zgx/pocketmind -g '!**/build/**'
-rg -n "聊天中应追加一条结构化执行结果|Agent run trace, audit log, and chat session|typed chat card" README.md docs app/src/test/java/com/bytedance/zgx/pocketmind/docs/AgentCoreDocumentationTest.kt
+rg -n "远程模型模式下，选择附件只生成受保护信号|聊天中只应追加安全摘要|自动回归与必须手工验收的结论必须分开记录|Scripted regression and manual acceptance must be recorded separately|链接域名|目标包" README.md docs app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt app/src/test/java/com/bytedance/zgx/solin -g '!**/build/**'
+rg -n "聊天中应追加一条结构化执行结果|Agent run trace, audit log, and chat session|typed chat card" README.md docs app/src/test/java/com/bytedance/zgx/solin/docs/AgentCoreDocumentationTest.kt
 ```
 
 结果：
@@ -6351,7 +6351,7 @@ rg -n "聊天中应追加一条结构化执行结果|Agent run trace, audit log,
 - 通过：`:app:compileDebugKotlin`。
 - 通过：`git diff --check`。
 - 通过：关键文案存在性扫描。旧工具结果口径只出现在本轮验证记录的扫描命令/说明和文档测试的否定断言中；`typed chat card` 只出现在 README 否定说明、本轮验证记录和文档测试断言中。
-- 未通过/阻塞：定向 JVM 测试第一次成功编译并执行目标测试集，但旧断言失败；修正断言后，重跑在 `compileDebugUnitTestKotlin` 阶段被当前工作区内 `PocketMindViewModelTest.kt` 的 `lastRouteDeviceContext` 相关未解析符号和 `SkillRunExecutorTest.kt` 的 `reminderCancelSkillPlan` 未解析符号阻塞。这两个文件不在本轮 UI/docs worker 写入范围内，本轮未修改。
+- 未通过/阻塞：定向 JVM 测试第一次成功编译并执行目标测试集，但旧断言失败；修正断言后，重跑在 `compileDebugUnitTestKotlin` 阶段被当前工作区内 `SolinViewModelTest.kt` 的 `lastRouteDeviceContext` 相关未解析符号和 `SkillRunExecutorTest.kt` 的 `reminderCancelSkillPlan` 未解析符号阻塞。这两个文件不在本轮 UI/docs worker 写入范围内，本轮未修改。
 - 未执行：语音输入、Android 系统文档选择器和 MediaProjection 前台同意的手工验收；不能据此写成已手工通过。
 
 ## 2026-06-04 Agent safety/runtime integration 验证
@@ -6380,8 +6380,8 @@ rg -n "聊天中应追加一条结构化执行结果|Agent run trace, audit log,
 验证命令：
 
 ```bash
-./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeOnlyExposesPublicEvidenceToolsToRemoteRuntime --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchRetriesOnlyRetryableFailures --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.terminalRunRejectsLateExternalOutcomeConfirmation --tests com.bytedance.zgx.pocketmind.AndroidManifestTest --tests com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest --tests com.bytedance.zgx.pocketmind.device.ForegroundAppProviderTest --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest --tests com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest --tests com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreDoesNotPersistWebSearchObservationSummaryOrResultData
-./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.solin.safety.SafetyPolicyTest --tests com.bytedance.zgx.solin.SolinViewModelTest.remoteModeOnlyExposesPublicEvidenceToolsToRemoteRuntime --tests com.bytedance.zgx.solin.SolinViewModelTest.remotePublicEvidenceToolCallBatchRetriesOnlyRetryableFailures --tests com.bytedance.zgx.solin.SolinViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel --tests com.bytedance.zgx.solin.SolinViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.terminalRunRejectsLateExternalOutcomeConfirmation --tests com.bytedance.zgx.solin.AndroidManifestTest --tests com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest --tests com.bytedance.zgx.solin.device.ForegroundAppProviderTest --tests com.bytedance.zgx.solin.tool.ToolRegistryTest --tests com.bytedance.zgx.solin.tool.ToolSchemaContractTest --tests com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest --tests com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreDoesNotPersistWebSearchObservationSummaryOrResultData
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.solin.tool.ToolSchemaContractTest
 scripts/test_validation_scripts.sh
 bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
 git diff --check
@@ -6421,7 +6421,7 @@ KEY_PREFIX='s''k' FORBIDDEN_REMOTE_MARKERS='e715''d561|deep''seek|api\.deep''see
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.pocketmind.device.ForegroundAppProviderTest' --tests 'com.bytedance.zgx.pocketmind.device.RecentFileCollectorTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.AndroidManifestTest' --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.solin.device.ForegroundAppProviderTest' --tests 'com.bytedance.zgx.solin.device.RecentFileCollectorTest' --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest'
 ./gradlew :app:testDebugUnitTest
 ```
 
@@ -6443,7 +6443,7 @@ KEY_PREFIX='s''k' FORBIDDEN_REMOTE_MARKERS='e715''d561|deep''seek|api\.deep''see
   batch 工具执行异常转成失败结果进入 Agent observation；batch `Cancelled` 结果映射为
   Agent `Cancel`；streaming 混合 `tool_calls` / legacy `function_call` fail closed。
 - 确认远程模型 endpoint/model/key 不作为源码、脚本默认值或文档推荐配置存在；
-  live remote 验证只能通过 `POCKETMIND_LIVE_REMOTE_*` 显式临时注入，报告只写来源变量，
+  live remote 验证只能通过 `SOLIN_LIVE_REMOTE_*` 显式临时注入，报告只写来源变量，
   并在脚本退出时清空 debug App 中保存的远程配置。
 - 整理提交前证据：旧 stash 属于早期 `feat/agent-loop-second-cycle-query-recent-files`
   分支的 device/action/tool 改动，未纳入本轮已验证提交。
@@ -6458,8 +6458,8 @@ git stash show --stat stash@{0}
 scripts/verify_local.sh
 bash -n scripts/*.sh
 scripts/test_validation_scripts.sh
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.publicEvidenceToolBatchCancelledResultCancelsRun' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localEvidenceContinuationTakesPriorityOverObservationReplanner' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.publicEvidenceToolBatchCancelledResultCancelsRun' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localEvidenceContinuationTakesPriorityOverObservationReplanner' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure'
 rg -n "\\bsk-[A-Za-z0-9_-]{20,}\\b" . -g '!**/build/**' -g '!**/.gradle/**' -g '!**/.git/**'
 git diff --check
 ```
@@ -6491,8 +6491,8 @@ git diff --check
   技术方案，明确远程 `tool_calls` 的当前行为：单个公开只读 evidence 工具可执行，
   多个公开只读 evidence 工具可并发执行，混入私密读取、外部动作或副作用工具时整批拒绝。
 - 移除 live remote emulator 脚本中的 provider-specific 默认 endpoint/model/key；
-  真实远程模型验证必须通过 `POCKETMIND_LIVE_REMOTE_BASE_URL`、
-  `POCKETMIND_LIVE_REMOTE_MODEL` 和 `POCKETMIND_LIVE_REMOTE_API_KEY` 显式临时注入。
+  真实远程模型验证必须通过 `SOLIN_LIVE_REMOTE_BASE_URL`、
+  `SOLIN_LIVE_REMOTE_MODEL` 和 `SOLIN_LIVE_REMOTE_API_KEY` 显式临时注入。
 - 记录最新 release 包的 ad hoc 本地签名、覆盖安装和启动 smoke。该安装只用于内部真机
   检查，不代表正式分发签名，也不替代完整真机 instrumentation 或模拟器回归。
 
@@ -6505,14 +6505,14 @@ BUILD_TOOLS=/Users/bytedance/Library/Android/sdk/build-tools/36.0.0
 "$BUILD_TOOLS/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk app/build/outputs/apk/release/app-release-local-aligned-20260603-0025.apk
 "$BUILD_TOOLS/apksigner" verify --verbose app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk
 /Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c install -r app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell dumpsys package com.bytedance.zgx.pocketmind | rg 'versionCode|versionName|lastUpdateTime|firstInstallTime|Package \['
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell cmd package resolve-activity --brief com.bytedance.zgx.pocketmind
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -n com.bytedance.zgx.pocketmind/.MainActivity
-/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell pidof -s com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell dumpsys package com.bytedance.zgx.solin | rg 'versionCode|versionName|lastUpdateTime|firstInstallTime|Package \['
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell cmd package resolve-activity --brief com.bytedance.zgx.solin
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -n com.bytedance.zgx.solin/.MainActivity
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell pidof -s com.bytedance.zgx.solin
 shasum -a 256 app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk
 bash -n scripts/*.sh
-rg -n "POCKETMIND_LIVE_REMOTE|\\bsk-[A-Za-z0-9_-]{16,}\\b" app/src/main scripts docs README.md || true
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+rg -n "SOLIN_LIVE_REMOTE|\\bsk-[A-Za-z0-9_-]{16,}\\b" app/src/main scripts docs README.md || true
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 git diff --check
 ```
 
@@ -6523,11 +6523,11 @@ git diff --check
 - 通过：真机 `fb6272c` 覆盖安装返回 `Success`，未卸载 App、未清理 App 数据。
 - 通过：设备包信息确认 `versionCode=1`、`versionName=0.1.0`、
   `lastUpdateTime=2026-06-03 00:25:28`；activity 解析为
-  `com.bytedance.zgx.pocketmind/.MainActivity`；启动后进程 PID 为 `14570`。
+  `com.bytedance.zgx.solin/.MainActivity`；启动后进程 PID 为 `14570`。
 - APK：`app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk`，
   SHA-256 `cefffdfe4c9bd424e3fd8075262b2ac71af3f69183d33b78129c6231f221c951`。
 - 通过：脚本语法检查无输出；远程配置扫描显示 App 源码没有真实 API key，
-  live 脚本只保留空默认的 `POCKETMIND_LIVE_REMOTE_*` 读取入口；历史 live
+  live 脚本只保留空默认的 `SOLIN_LIVE_REMOTE_*` 读取入口；历史 live
   验证记录不展开具体 provider endpoint/model，只记录为用户临时环境变量事实。
 - 通过：文档合同测试 `AgentCoreDocumentationTest` 和 `git diff --check`。
 - 未执行完整真机 instrumentation 或完整模拟器回归；不能据此更新
@@ -6552,9 +6552,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:compileDebugKotlin
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 scripts/doctor.sh
@@ -6584,8 +6584,8 @@ git diff --check
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' --tests 'com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest' --tests 'com.bytedance.zgx.solin.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -6608,17 +6608,17 @@ git diff --check
 - 修复 `scripts/live_remote_emulator.sh` 的 ADB 文本输入和发送流程：空格使用
   `%s` 编码，输入后先收起键盘再点击发送，并将默认等待时间提升到 45 秒。
 - 调整默认 live 提示词，使提示词本身不包含预期 token；通过条件仍要求远程助手
-  回复 `POCKETMIND_LIVE_OK`，避免把用户输入误判为成功。
+  回复 `SOLIN_LIVE_OK`，避免把用户输入误判为成功。
 - 验证密钥只经由临时环境变量注入，artifact 和仓库不记录密钥值。
 
 验证命令：
 
 ```bash
 bash -n scripts/live_remote_emulator.sh
-POCKETMIND_LIVE_REMOTE_API_KEY=<hidden> \
-POCKETMIND_LIVE_REMOTE_BASE_URL=<user-provided-openai-compatible-base-url> \
-POCKETMIND_LIVE_REMOTE_MODEL=<user-provided-model> \
-POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=60 \
+SOLIN_LIVE_REMOTE_API_KEY=<hidden> \
+SOLIN_LIVE_REMOTE_BASE_URL=<user-provided-openai-compatible-base-url> \
+SOLIN_LIVE_REMOTE_MODEL=<user-provided-model> \
+SOLIN_LIVE_REMOTE_WAIT_SECONDS=60 \
 ARTIFACT_DIR=build/verification/live-remote-20260602-193827 \
 ANDROID_SERIAL=emulator-5554 \
 scripts/live_remote_emulator.sh
@@ -6630,13 +6630,13 @@ rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-20260602-193
 
 - 通过：`build/verification/live-remote-20260602-193827/live-remote-emulator.properties`
   记录 `status=passed`、用户临时注入的 base URL / model 来源变量、
-  `expected_text=POCKETMIND_LIVE_OK`。后续脚本版本已改为 redacted actual
+  `expected_text=SOLIN_LIVE_OK`。后续脚本版本已改为 redacted actual
   endpoint/model，只保留 `base_url_source` / `model_source`。
 - UI 证据：`build/verification/live-remote-20260602-193827/live-remote-result.png`
   和同名 XML 显示用户临时注入的远程模型处于已就绪状态、`远程可用`，并显示远程助手回复
-  `POCKETMIND_LIVE_OK`。
+  `SOLIN_LIVE_OK`。
 - 密钥边界：仓库和本次 artifact 的 OpenAI-style key 模式扫描均无命中；report 仅记录
-  `api_key_source=POCKETMIND_LIVE_REMOTE_API_KEY`。后续脚本版本退出时会清空 debug App
+  `api_key_source=SOLIN_LIVE_REMOTE_API_KEY`。后续脚本版本退出时会清空 debug App
   保存的远程配置。
 
 ## 2026-06-02 Emulator remote model and Agent capability walkthrough
@@ -6653,8 +6653,8 @@ rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-20260602-193
   按本计划约束，不使用也不落盘聊天中出现过的 API key。
 - 补充 `scripts/live_remote_emulator.sh` 作为真实远程模型模拟器验收入口：debug-only
   receiver 只存在于 debug APK，脚本不内置 provider endpoint/model/key；必须从
-  `POCKETMIND_LIVE_REMOTE_BASE_URL`、`POCKETMIND_LIVE_REMOTE_MODEL` 和
-  `POCKETMIND_LIVE_REMOTE_API_KEY` 显式读取配置，artifact 只记录来源变量名并 redacts
+  `SOLIN_LIVE_REMOTE_BASE_URL`、`SOLIN_LIVE_REMOTE_MODEL` 和
+  `SOLIN_LIVE_REMOTE_API_KEY` 显式读取配置，artifact 只记录来源变量名并 redacts
   actual endpoint/model/key。
 
 验证命令：
@@ -6665,11 +6665,11 @@ rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-20260602-193
 bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/regression_emulator.sh scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityComprehensiveTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
-adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivitySkillUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
-adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityLongTermMemoryUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
-adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
-adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivitySpecialAccessUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.solin.MainActivityComprehensiveTest com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.solin.MainActivitySkillUiTest com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.solin.MainActivityLongTermMemoryUiTest com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.solin.MainActivitySpecialAccessUiTest com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 结果：
@@ -6688,8 +6688,8 @@ adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmin
   和同名 XML 显示 `mock-model · 远程 · 已就绪`、`远程可用`，并保留远程工具调用后的
   `Web 搜索` 动作草稿。
 - 真实远程 live 仍未执行：当前环境没有完整的
-  `POCKETMIND_LIVE_REMOTE_BASE_URL`、`POCKETMIND_LIVE_REMOTE_MODEL` 和
-  `POCKETMIND_LIVE_REMOTE_API_KEY` 配置，因此未生成
+  `SOLIN_LIVE_REMOTE_BASE_URL`、`SOLIN_LIVE_REMOTE_MODEL` 和
+  `SOLIN_LIVE_REMOTE_API_KEY` 配置，因此未生成
   `live-remote-emulator.properties status=passed`。
 - 无 key 预检通过失败路径验证：
   `build/verification/live-remote-no-key-20260602/live-remote-emulator.properties`
@@ -6711,7 +6711,7 @@ adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmin
 
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
 ```
 
@@ -6752,8 +6752,8 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.pocketmind.device.DeviceContextModelsTest' --tests 'com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest' --tests 'com.bytedance.zgx.pocketmind.background.BackgroundSkillSpecTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentContinuationCursorV2Test'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.solin.device.DeviceContextModelsTest' --tests 'com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContractTest' --tests 'com.bytedance.zgx.solin.background.BackgroundSkillSpecTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentContinuationCursorV2Test'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 bash -n scripts/*.sh
@@ -6799,9 +6799,9 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest \
-  --tests com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest \
-  --tests com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest
+  --tests com.bytedance.zgx.solin.skill.SkillRunProgressorTest \
+  --tests com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest \
+  --tests com.bytedance.zgx.solin.skill.SkillRunExecutorTest
 ```
 
 结果：
@@ -6827,11 +6827,11 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore
 ```
 
 结果：
@@ -6859,12 +6859,12 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput
 ```
 
 结果：
@@ -6892,8 +6892,8 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor
 
 ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin && git diff --check
 ```
@@ -6920,12 +6920,12 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 ```bash
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin \
   :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.completedExternalOutcomeConfirmationCanPlanNextTool \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool \
-  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.completedExternalOutcomeConfirmationCanPlanNextTool \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest
 
 ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin && git diff --check
 ```
@@ -6944,7 +6944,7 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 - `recordExternalOutcome()` 在重启后的 Room trace summary 场景中可恢复最小
   `ToolRequest` 与 unverified `ToolResult`，记录 `ExternalOutcomeConfirmed`；
   恢复路径不读取原始工具参数、外发文本、URL query 或 raw payload。
-- `PocketMindViewModel.restoreStartupState()` 会在普通 pending action 之后恢复
+- `SolinViewModel.restoreStartupState()` 会在普通 pending action 之后恢复
   `pendingExternalOutcome`；有待确认外部结果时，新消息会被阻塞，直到用户明确记录
   outcome。
 
@@ -6953,8 +6953,8 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 ```bash
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin \
   :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool
 ```
 
 结果：
@@ -7014,22 +7014,22 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat'
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 ./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
 git diff --check
 ```
@@ -7039,7 +7039,7 @@ git diff --check
 - 通过：定向 Agent loop cancellation / hard budget、Room pending cleanup、ViewModel
   stop-generation run cancel 回归。
 - 通过：Agent core documentation、AgentLoopRuntime / AgentTraceStore /
-  PocketMindViewModel 完整测试类、完整 JVM 单测、AndroidTest Kotlin 编译和
+  SolinViewModel 完整测试类、完整 JVM 单测、AndroidTest Kotlin 编译和
   diff whitespace 检查。
 
 ## 2026-06-02 Emulator regression artifact gate
@@ -7076,7 +7076,7 @@ git diff --check
 ```bash
 bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/regression_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 ./gradlew :app:compileDebugAndroidTestKotlin
 AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
 ```
@@ -7113,13 +7113,13 @@ AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapsho
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest'
 ./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
 git diff --check
 ```
@@ -7157,14 +7157,14 @@ git diff --check
 
 ```bash
 ./gradlew testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
-  --tests com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
-  --tests com.bytedance.zgx.pocketmind.action.ActionPlannerTest \
-  --tests com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest \
-  --tests com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
+  --tests com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest \
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.solin.action.ActionPlannerTest \
+  --tests com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest \
+  --tests com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest
 ./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
 git diff --check
 ```
@@ -7202,14 +7202,14 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload' \
   --no-daemon
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest \
-  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
   --no-daemon
 ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
 git diff --check
@@ -7250,7 +7250,7 @@ git diff --check
 ```bash
 bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest --no-daemon
+./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest --no-daemon
 ./gradlew :app:testDebugUnitTest --no-daemon
 git diff --check
 ```
@@ -7287,8 +7287,8 @@ git diff --check
 
 ```bash
 ./gradlew testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
-  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
 ```
 
 结果：targeted Tool Registry / Validating executor 非成功隐私合同回归通过。
@@ -7323,9 +7323,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
+  --tests com.bytedance.zgx.solin.skill.SkillRunProgressorTest \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
   --no-daemon
 ```
 
@@ -7338,7 +7338,7 @@ git diff --check
 
 - `ReminderBootReceiver` 从只处理 `BOOT_COMPLETED` 扩展为处理
   `BOOT_COMPLETED` 与 `MY_PACKAGE_REPLACED`，应用包更新后即使用户未立即打开
-  PocketMind，也能复用现有 `ReminderRescheduler` 重排仍处于 `Scheduled` 的本地
+  Solin，也能复用现有 `ReminderRescheduler` 重排仍处于 `Scheduled` 的本地
   reminder alarm。
 - `AndroidManifestTest` 锁住 reminder recovery receiver 的两个系统恢复 action，
   防止后续改动退回到只覆盖开机恢复。
@@ -7356,9 +7356,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest \
-  --tests com.bytedance.zgx.pocketmind.AndroidManifestTest \
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.solin.tool.ToolSchemaContractTest \
+  --tests com.bytedance.zgx.solin.AndroidManifestTest \
   --no-daemon
 ```
 
@@ -7384,8 +7384,8 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.reenabledPeriodicCheckUnsuppressesNewTaskStateMemory' \
+  --tests com.bytedance.zgx.solin.tool.ToolSchemaContractTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.reenabledPeriodicCheckUnsuppressesNewTaskStateMemory' \
   --no-daemon
 ```
 
@@ -7416,11 +7416,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
-  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest \
-  --tests com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest \
-  --tests com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest \
-  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest \
+  --tests com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
   --no-daemon
 
 ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
@@ -7438,7 +7438,7 @@ git diff --check
   deterministic preference id。
 - `MemoryRepository.rebuild` 会跳过显式 remember / forget 控制命令；用户删除
   偏好后，历史里的控制命令不会把已删除偏好重新索引回来。
-- `PocketMindViewModel.sendMessage` 在模型尚未准备或远程模式下也会本地处理
+- `SolinViewModel.sendMessage` 在模型尚未准备或远程模式下也会本地处理
   forget 命令，只写入 `LocalOnly` 控制/status 消息，绕过 chat/action router 与
   remote runtime。
 - 后续远程问题不会携带 remember/forget 控制消息、已删除偏好文本或本地状态消息。
@@ -7449,9 +7449,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory' \
+  --tests com.bytedance.zgx.solin.memory.MemoryRepositoryTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory' \
   --no-daemon
 ```
 
@@ -7477,7 +7477,7 @@ AndroidTest Kotlin 编译、diff whitespace 检查和敏感 diff 扫描通过。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
   --no-daemon
 ```
 
@@ -7502,13 +7502,13 @@ AndroidTest Kotlin 编译、diff whitespace 检查和敏感 diff 扫描通过。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest'
 ```
 
 结果：targeted clipboard / registry / Agent / Skill 回归测试通过；完整 JVM 单测、
@@ -7531,7 +7531,7 @@ AndroidTest Kotlin 编译、diff whitespace 检查和敏感 diff 扫描通过。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+  --tests 'com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest'
 ```
 
 结果：通过。新增文档契约测试和完整 JVM 单测通过；diff whitespace 检查与敏感
@@ -7560,14 +7560,14 @@ diff 扫描无命中。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsSkillPendingWithoutCheckpoint' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsSkillPendingWithoutCheckpointOnStartupRepair' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsCheckpointWhenCompletedOutputKeysChange' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreClearsStaleCheckpointWhenSavingPlainPendingConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsChangedOutputKeysForCompletedStep'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsSkillPendingWithoutCheckpoint' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsSkillPendingWithoutCheckpointOnStartupRepair' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsCheckpointWhenCompletedOutputKeysChange' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreClearsStaleCheckpointWhenSavingPlainPendingConfirmation' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsChangedOutputKeysForCompletedStep'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -7599,8 +7599,8 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt' \
   --no-daemon
 ./gradlew :app:testDebugUnitTest --no-daemon
 ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon
@@ -7628,8 +7628,8 @@ scripts/verify_local.sh
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditEventTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateDeviceOutputKeysRemainDeclaredInOutputSchemas' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.audit.ToolAuditEventTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.privateDeviceOutputKeysRemainDeclaredInOutputSchemas' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace'
 ```
 
 结果：targeted JVM 隐私边界测试通过。
@@ -7638,9 +7638,9 @@ scripts/verify_local.sh
 
 本轮覆盖项：
 
-- 新增 `PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`。
-- 新增 `PocketMindViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation`。
-- 扩展 `PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation`。
+- 新增 `SolinViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`。
+- 新增 `SolinViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation`。
+- 扩展 `SolinViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation`。
 - 新增 `AgentLoopRuntimeTest.modelGenerationFailureMarksGeneratingRunFailedAndIgnoresLateOutput`。
 - 新增 `AgentLoopRuntimeTest.modelGenerationFailureIsNoOpAfterRunLeavesGeneratingState`。
 - 远程 OpenAI-compatible runtime 返回 `RemoteChatEvent.ParseError` 时，ViewModel
@@ -7658,12 +7658,12 @@ scripts/verify_local.sh
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelGenerationFailureMarksGeneratingRunFailedAndIgnoresLateOutput'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelGenerationFailureIsNoOpAfterRunLeavesGeneratingState'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation'
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelGenerationFailureMarksGeneratingRunFailedAndIgnoresLateOutput'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelGenerationFailureIsNoOpAfterRunLeavesGeneratingState'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 ./gradlew :app:testDebugUnitTest
 ANDROID_HOME=/Users/bytedance/Library/Android/sdk ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk scripts/verify_local.sh
 git diff --check
@@ -7810,7 +7810,7 @@ instrumentation `OK (20 tests)`，脚本输出 `Emulator verification passed`。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest'
 ```
 
 结果：通过。
@@ -7830,14 +7830,14 @@ instrumentation `OK (20 tests)`，脚本输出 `Emulator verification passed`。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureKeepsTaskVisible' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureHidesConcurrentlyRunningTask' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsScheduledTaskVisible'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelScheduledBackgroundTaskFailureKeepsTaskVisible' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelScheduledBackgroundTaskFailureHidesConcurrentlyRunningTask' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.disablePeriodicCheckPolicyFailureKeepsScheduledTaskVisible'
 ```
 
 结果：通过。
@@ -7867,18 +7867,18 @@ instrumentation `OK (20 tests)`，脚本输出 `Emulator verification passed`。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsDirectSharedTextBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes' \
-  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest.composerAttachmentPickerUsesShareTargetMimeTypes'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsDirectSharedTextBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes' \
+  --tests 'com.bytedance.zgx.solin.AndroidManifestTest.composerAttachmentPickerUsesShareTargetMimeTypes'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -7908,12 +7908,12 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.retryableLocalEvidenceToolContinuesToLocalModelAfterSuccessfulRetry' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsPrivateRefsWhenCompletedStepIdContainsDot'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.retryableLocalEvidenceToolContinuesToLocalModelAfterSuccessfulRetry' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsPrivateRefsWhenCompletedStepIdContainsDot'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -7933,7 +7933,7 @@ scripts/verify_local.sh
 
 - `MemoryRepository` 明确区分 `NoVerifiedModel`、`RuntimeUnavailable`、
   `RuntimeLoadFailed` 和 `Active`；`semanticMemoryEnabled` 只在 `Active` 时为真。
-- `PocketMindViewModel`/`ChatUiState` 同步暴露 runtime status，避免把已校验
+- `SolinViewModel`/`ChatUiState` 同步暴露 runtime status，避免把已校验
   memory asset 误显示为已启用语义召回。
 - 生产现在注入 fail-closed `LiteRtEmbeddingRuntimeFactory`；当前 LiteRT-LM
   SDK 未暴露公开 embedding vector API，所以已安装 memory asset 时报告
@@ -7946,11 +7946,11 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateReportsUnavailableSemanticRuntimeWhenFactoryIsMissing' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModeSemanticMemoryStatusAndPromptUseSemanticHit' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateReportsUnavailableSemanticRuntimeWhenFactoryIsMissing' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localModeSemanticMemoryStatusAndPromptUseSemanticHit' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -8013,12 +8013,12 @@ HEAD 复跑通过，instrumentation 仍为 `OK (14 tests)`。
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialMiddleCompositeSkillSegmentContinuesToTailAfterInternalToolsComplete' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialMiddlePrivateReadSegmentDoesNotPlanWhenTailRemains' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.sequentialMiddleCompositeSkillSegmentContinuesToTailAfterInternalToolsComplete' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.sequentialMiddlePrivateReadSegmentDoesNotPlanWhenTailRemains' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -8074,12 +8074,12 @@ git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -8112,10 +8112,10 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation' \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation' \
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -8190,9 +8190,9 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.genericAppFileAndMediaWordsFallBackToAnswerWithoutActionPlanning' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.genericAppFileAndMediaWordsFallBackToAnswerWithoutActionPlanning' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation'
 git diff --check
 rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
 ```
@@ -8219,13 +8219,13 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.executesCompositeCurrentScreenTextSummaryShareSkillInDependencyOrder' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.currentScreenTextPrivateOutputCannotBindDirectlyToLaterShareArgument' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.currentScreenTextSummarySharePlansShareAfterLocalModelResult' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredCurrentScreenTextSummarySharePendingFailsClosedAfterRestart' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.currentScreenTextSummaryShareShowsSecondConfirmationAfterLocalSummary' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextSummaryShareBeforeRemoteContinuation'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest.executesCompositeCurrentScreenTextSummaryShareSkillInDependencyOrder' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest.currentScreenTextPrivateOutputCannotBindDirectlyToLaterShareArgument' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.currentScreenTextSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredCurrentScreenTextSummarySharePendingFailsClosedAfterRestart' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.currentScreenTextSummaryShareShowsSecondConfirmationAfterLocalSummary' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsCurrentScreenTextSummaryShareBeforeRemoteContinuation'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -8259,9 +8259,9 @@ diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
 
 ```bash
 ./gradlew :app:testDebugUnitTest --rerun-tasks \
-  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModeSemanticMemoryStatusAndPromptUseSemanticHit
+  --tests com.bytedance.zgx.solin.memory.MemoryRepositoryTest \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.localModeSemanticMemoryStatusAndPromptUseSemanticHit
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -8330,14 +8330,14 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest --rerun-tasks \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandPersistsPreferenceMemoryOnceForDuplicateCommands' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandPersistsEnglishPreferenceMemory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandBypassesRouterAndRemoteRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteRememberCommandDoesNotEnterLaterRemoteHistory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandMemoryStoreFailureDoesNotFallbackToRemote' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandWorksBeforeModelIsReady' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetRememberCommandMemoryDoesNotReindexFromHistory'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandPersistsPreferenceMemoryOnceForDuplicateCommands' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandReplacesConflictingPreferenceMemory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandPersistsEnglishPreferenceMemory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandBypassesRouterAndRemoteRuntime' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteRememberCommandDoesNotEnterLaterRemoteHistory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandMemoryStoreFailureDoesNotFallbackToRemote' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandWorksBeforeModelIsReady' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.forgetRememberCommandMemoryDoesNotReindexFromHistory'
 ```
 
 结果：targeted remember 本地控制命令、远程模式保护、存储失败 fail-closed 和遗忘
@@ -8376,11 +8376,11 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest --rerun-tasks \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt'
 ```
 
 结果：targeted RTF/Text/OCR/Office shared-input 和远程模式保护回归测试通过。
@@ -8421,10 +8421,10 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
 ./gradlew :app:compileDebugAndroidTestKotlin
 ```
 
@@ -8461,9 +8461,9 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.ImageTextExtractorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.recentScreenshotOcrSuccessReturnsLocalOnlyTextWithoutImageIdentifiers' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.recentImageOcrSuccessScansImagesAndReturnsLocalOnlyTextWithoutImageIdentifiers'
+  --tests 'com.bytedance.zgx.solin.multimodal.ImageTextExtractorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.recentScreenshotOcrSuccessReturnsLocalOnlyTextWithoutImageIdentifiers' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.recentImageOcrSuccessScansImagesAndReturnsLocalOnlyTextWithoutImageIdentifiers'
 ```
 
 结果：targeted OCR layout-preserving text excerpt 回归测试通过。
@@ -8500,10 +8500,10 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt'
 ```
 
 结果：targeted Office Open XML shared-input excerpt 回归测试通过。
@@ -8540,9 +8540,9 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateReconcilesPeriodicCheckBeforeLoadingBackgroundTasks' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateReschedulesReminderAlarmsBeforeLoadingBackgroundTasks'
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateReconcilesPeriodicCheckBeforeLoadingBackgroundTasks' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateReschedulesReminderAlarmsBeforeLoadingBackgroundTasks'
 ```
 
 结果：targeted periodic check startup reconcile 回归测试通过。
@@ -8564,11 +8564,11 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools'
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools'
 ```
 
 结果：targeted reminder audit metadata minimization 回归测试通过。
@@ -8605,11 +8605,11 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.pendingSpecialAccessRequirementRestoresFromCurrentPendingConfirmationOnly'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.pendingSpecialAccessRequirementRestoresFromCurrentPendingConfirmationOnly'
 ```
 
 结果：targeted Accessibility special-access boundary 回归测试通过。
@@ -8633,10 +8633,10 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest'
 ```
 
 结果：targeted Tool output schema / routing / device-context 回归测试通过。
@@ -8665,9 +8665,9 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
 ```
 
 结果：targeted pending restore / fail-closed 回归测试通过。
@@ -8692,10 +8692,10 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreHydratesPriorToolRequestsForRestoreDedupWithoutOldConfirmations' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationContinuesSequentialNextActionAfterObservation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationRejectsReplannedOldRequestId'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreHydratesPriorToolRequestsForRestoreDedupWithoutOldConfirmations' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationContinuesSequentialNextActionAfterObservation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationRejectsReplannedOldRequestId'
 
 ./gradlew :app:compileDebugAndroidTestKotlin
 ```
@@ -8715,8 +8715,8 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.foregroundAppObservationRedactsAppIdentityFromTrace'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.foregroundAppObservationRedactsAppIdentityFromTrace'
 ```
 
 结果：通过。
@@ -8736,12 +8736,12 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelRunningBackgroundTaskFailureRefreshesStaleTaskLists' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork'
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelRunningBackgroundTaskFailureRefreshesStaleTaskLists' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork'
 ```
 
 结果：通过。
@@ -8761,9 +8761,9 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstSequentialInputFallsBackToAnswerWhenRulePlannerRejectsIt'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstSequentialInputFallsBackToAnswerWhenRulePlannerRejectsIt'
 ```
 
 结果：通过。
@@ -8782,7 +8782,7 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin \
   :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest.buildChatCompletionBody_excludesLocalOnlyHistory'
+  --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest.buildChatCompletionBody_excludesLocalOnlyHistory'
 ```
 
 结果：通过。
@@ -8801,10 +8801,10 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest'
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest'
 ```
 
 结果：通过。
@@ -8832,10 +8832,10 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.data.SessionRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.data.SessionRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest'
 ```
 
 结果：通过。
@@ -8844,7 +8844,7 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest'
 ```
 
 结果：通过。
@@ -8853,9 +8853,9 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.pureChatAnswerCompletesAgentTraceRun' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unknownToolResultPrivacyIsTreatedAsLocalOnlyBeforeRemoteContinuation' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.pureChatAnswerCompletesAgentTraceRun' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.unknownToolResultPrivacyIsTreatedAsLocalOnlyBeforeRemoteContinuation' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult'
 ```
 
 结果：通过。
@@ -8880,13 +8880,13 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersCancelReminderDraftWithTaskId' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCancelReminderSkillFirstWithoutActionDraft' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansReminderAsBackgroundToolStep' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstCancelReminderBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesCancelReminderTaskId'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersCancelReminderDraftWithTaskId' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansCancelReminderSkillFirstWithoutActionDraft' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansReminderAsBackgroundToolStep' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstCancelReminderBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.validatesCancelReminderTaskId'
 ```
 
 结果：通过。
@@ -8910,16 +8910,16 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.contactDraftRequiresExplicitNameAndRejectsNonDraftInputs' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansContactDraftWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstContactDraftBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.contactDraftSkillFirstConfirmationDoesNotRequestContactsPermission' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.contactDraftRequiresExplicitNameAndRejectsNonDraftInputs' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansContactDraftWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstContactDraftBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.contactDraftSkillFirstConfirmationDoesNotRequestContactsPermission' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
 ```
 
 结果：通过。
@@ -8943,14 +8943,14 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersRecentImageOcrOnlyWhenTextExtractionIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentImageOcrWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentImageOcrBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentImageOcrSkillFirstConfirmationStillRequestsImageReadPermission'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersRecentImageOcrOnlyWhenTextExtractionIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansRecentImageOcrWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstRecentImageOcrBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.recentImageOcrSkillFirstConfirmationStillRequestsImageReadPermission'
 ```
 
 结果：通过。
@@ -8972,14 +8972,14 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersRecentScreenshotOcrOnlyWhenTextExtractionIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentScreenshotOcrBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentScreenshotOcrSkillFirstConfirmationStillRequestsImageReadPermission'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersRecentScreenshotOcrOnlyWhenTextExtractionIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansRecentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstRecentScreenshotOcrBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.recentScreenshotOcrSkillFirstConfirmationStillRequestsImageReadPermission'
 ```
 
 结果：通过。
@@ -9003,26 +9003,26 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersCurrentScreenTextOnlyForAccessibleTextRequests' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCurrentScreenTextWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstCurrentScreenTextBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.currentScreenTextSkillFirstConfirmationDeclaresAccessibilitySpecialAccessOnly'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersCurrentScreenTextOnlyForAccessibleTextRequests' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansCurrentScreenTextWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstCurrentScreenTextBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.currentScreenTextSkillFirstConfirmationDeclaresAccessibilitySpecialAccessOnly'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：通过。
@@ -9046,30 +9046,30 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersCalendarAvailabilityDraftWhenIsoWindowIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCalendarAvailabilityWithoutActionDraftWhenIsoWindowIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.calendarAvailabilitySkillFirstConfirmationStillRequestsCalendarPermission' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesCalendarAvailabilityStartAndEndArguments' \
- --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersCalendarAvailabilityDraftWhenIsoWindowIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansCalendarAvailabilityWithoutActionDraftWhenIsoWindowIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.calendarAvailabilitySkillFirstConfirmationStillRequestsCalendarPermission' \
+  --tests 'com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.validatesCalendarAvailabilityStartAndEndArguments' \
+ --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：通过。
@@ -9094,33 +9094,33 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.parsesContactQueryCallOutput' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.contactObservationRedactsPrivateTraceFields' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.contactLookupSkillFirstConfirmationStillRequestsContactsPermission' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.contactSummarySuccessReturnsMinimalLocalOnlyFields' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.contactSummaryFailureIsRetryableAndLocalOnly' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.contactSchemaRejectsMissingQueryAndUnsupportedMaxCount' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.parsesContactQueryCallOutput' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.contactObservationRedactsPrivateTraceFields' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.contactLookupSkillFirstConfirmationStillRequestsContactsPermission' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.contactSummarySuccessReturnsMinimalLocalOnlyFields' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.contactSummaryFailureIsRetryableAndLocalOnly' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.contactSchemaRejectsMissingQueryAndUnsupportedMaxCount' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：通过。
@@ -9132,7 +9132,7 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 - 显式“最近通知/当前应用通知摘要”请求可由 built-in Skill runtime 直接规划为
   `query_recent_notifications` 待确认工具，不再依赖 action planner。
 - Shared notification parser 继续接受中文“最近通知/最近 N 条通知/通知摘要”
-  和英文 `current app` / `this app` / `PocketMind` 通知摘要请求；拒绝裸
+  和英文 `current app` / `this app` / `Solin` 通知摘要请求；拒绝裸
   `notification(s)`、`recent app notifications`、通知权限/渠道/push/listener、
   系统/全局/其他应用通知和通知栏语义，避免越过当前应用边界。
 - 新增 `recent_notifications_context_skill` manifest，风险级别为
@@ -9146,30 +9146,30 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.recentNotificationSummaryMatchesCurrentAppOnlyBoundary' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentNotificationsDeclareNoRuntimePermissionOrSpecialAccess' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.notificationSummarySuccessReturnsLocalOnlyMetadataOnlyJson' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.notificationSummaryPermissionDeniedAndFailureAreStructured' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.recentNotificationSchemaRejectsUnsupportedMaxCount' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.recentNotificationSummaryMatchesCurrentAppOnlyBoundary' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.recentNotificationsDeclareNoRuntimePermissionOrSpecialAccess' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.notificationSummarySuccessReturnsLocalOnlyMetadataOnlyJson' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.notificationSummaryPermissionDeniedAndFailureAreStructured' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.recentNotificationSchemaRejectsUnsupportedMaxCount' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：通过。
@@ -9190,16 +9190,16 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersForegroundAppOnlyForExplicitCurrentAppRequests' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.foregroundAppSuccessReturnsLocalOnlyMinimalFields' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.foregroundAppPermissionDeniedAndFailureAreRetryableLocalFailures' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.declaresDeviceContextTools'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersForegroundAppOnlyForExplicitCurrentAppRequests' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.foregroundAppSuccessReturnsLocalOnlyMinimalFields' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.foregroundAppPermissionDeniedAndFailureAreRetryableLocalFailures' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.declaresDeviceContextTools'
 ```
 
 结果：通过。
@@ -9220,22 +9220,22 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDeepLinkDraftForExplicitUri' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersDeepLinkDraftForExplicitUri' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：通过。
@@ -9260,23 +9260,23 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest'
 ```
 
 结果：通过。
@@ -9300,23 +9300,23 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDraftForNaturalLanguageWebSearch' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.infersDraftForNaturalLanguageWebSearch' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
 ```
 
 补充回归：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesWebSearchQueryArgument' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest.recentAuditEventsDoesNotExposeToolParametersFromPlannedSummary'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.validatesWebSearchQueryArgument' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest.recentAuditEventsDoesNotExposeToolParametersFromPlannedSummary'
 ```
 
 结果：通过。
@@ -9339,11 +9339,11 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
 ```
 
 结果：通过。
@@ -9363,12 +9363,12 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesRequiredArgumentsForDraftTools' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.validatesRequiredArgumentsForDraftTools' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：通过。
@@ -9389,13 +9389,13 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt'
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt'
 ```
 
 结果：通过。
@@ -9421,9 +9421,9 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstShareTextBypassesActionPlannerAndRequestsConfirmation'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstShareTextBypassesActionPlannerAndRequestsConfirmation'
 ```
 
 结果：通过。
@@ -9446,14 +9446,14 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardObservationBuildsContinuationPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.currentScreenTextObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.clipboardObservationBuildsContinuationPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.currentScreenTextObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools'
 ```
 
 结果：通过。
@@ -9478,23 +9478,23 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.currentScreenTextObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.AndroidManifestTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.currentScreenTextObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest'
 
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest'
 
 bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
@@ -9535,15 +9535,15 @@ scripts/install_and_test_device.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation'
 ```
 
 ## 2026-06-01 Preference memory conflict resolution 增量验证
@@ -9555,7 +9555,7 @@ scripts/install_and_test_device.sh
 - 新的同族显式偏好会删除旧的同族偏好记录，再写入当前偏好，避免
   `记住：回答尽量简洁` 与 `记住：回答要详细` 同时进入长期记忆。
 - 不同偏好族仍可共存，例如回答长短和回答语言不会相互覆盖。
-- 当时 `PocketMindViewModel` 仍在用户消息成功进入会话后持久化 `记住` 偏好；
+- 当时 `SolinViewModel` 仍在用户消息成功进入会话后持久化 `记住` 偏好；
   冲突替换后长期记忆 UI 和 in-memory 索引同步展示当前偏好。该入口口径已被
   2026-06-01 Local remember control command 增量验证收窄为本地控制命令。
 
@@ -9563,14 +9563,14 @@ scripts/install_and_test_device.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.explicitPreferenceConflictKeyRecognizesResponseFamilies' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.explicitPreferenceConflictKeyRecognizesResponseFamilies' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandReplacesConflictingPreferenceMemory'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
 scripts/verify_local.sh
@@ -9608,20 +9608,20 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardReadObservationBuildsLocalPromptAndRedactsTrace' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.clipboardReadObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ocrSkillModelStepTakesPrecedenceOverPrivateReadFallbackPrompt' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localOnlyToolResultMetadataForcesGenericModelContinuationLocal' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest.rejectsScreenshotOcrPrivateOutputBindingToToolArgument' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.ocrSkillModelStepTakesPrecedenceOverPrivateReadFallbackPrompt' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localOnlyToolResultMetadataForcesGenericModelContinuationLocal' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest.rejectsScreenshotOcrPrivateOutputBindingToToolArgument' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult'
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 scripts/verify_local.sh
 git diff --check
 rg -n --hidden -S \
@@ -9633,7 +9633,7 @@ rg -n --hidden -S \
 结果：
 
 - 通过：上述 targeted JVM 回归测试，以及 AgentLoopRuntime、SkillRunProgressor、
-  PocketMindViewModel 的全量 targeted JVM 回归。
+  SolinViewModel 的全量 targeted JVM 回归。
 - 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
   `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
 - 通过：`git diff --check`。
@@ -9662,8 +9662,8 @@ rg -n --hidden -S \
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest'
 scripts/verify_local.sh
 git diff --check
 rg -n --hidden -S \
@@ -9699,8 +9699,8 @@ rg -n --hidden -S \
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmIdentityTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest'
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmIdentityTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest'
 ./gradlew :app:assembleDebugAndroidTest
 scripts/verify_local.sh
 git diff --check
@@ -9737,11 +9737,11 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.device.RecentFileCollectorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.device.RecentFileCollectorTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 scripts/verify_local.sh
 git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
@@ -9771,8 +9771,8 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.safety.SafetyPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 scripts/verify_local.sh
 git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
@@ -9801,7 +9801,7 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest'
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest'
 scripts/verify_local.sh
 git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
@@ -9833,10 +9833,10 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest'
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest'
 scripts/verify_local.sh
 git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
@@ -9920,13 +9920,13 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.blankCompositeModelResultFailsWithoutPlanningShare'
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.blankCompositeModelResultFailsWithoutPlanningShare'
 
 scripts/verify_local.sh
 git diff --check
@@ -10003,12 +10003,12 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.recentScreenshotOcrTextCannotBindDirectlyToLaterToolArgument' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentScreenshotOcrPermissionRationaleDisclosesPixelAndOcrRead' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.recentScreenshotOcrPermissionDeniedAndFailureAreStructured' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace'
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest.recentScreenshotOcrTextCannotBindDirectlyToLaterToolArgument' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.recentScreenshotOcrPermissionRationaleDisclosesPixelAndOcrRead' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest.recentScreenshotOcrPermissionDeniedAndFailureAreStructured' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 ./gradlew :app:lintDebug
@@ -10048,11 +10048,11 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes' \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.officeAndRtfAttachmentsRemainMetadataOnlyWithoutPreview' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.recentNotificationSummaryMatchesCurrentAppOnlyBoundary' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest'
+  --tests 'com.bytedance.zgx.solin.AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes' \
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest.officeAndRtfAttachmentsRemainMetadataOnlyWithoutPreview' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest.recentNotificationSummaryMatchesCurrentAppOnlyBoundary' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 ./gradlew :app:lintDebug
@@ -10092,8 +10092,8 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 ./gradlew :app:lintDebug
@@ -10123,14 +10123,14 @@ adb devices -l
   trace step。
 - `AwaitingUserConfirmation` 不会被清理，因为它有 `pending_agent_confirmations`
   作为明确恢复快照，仍可恢复到待确认 UI。
-- `PocketMindViewModel.restoreStartupState()` 启动时执行该 stale run 清理，
+- `SolinViewModel.restoreStartupState()` 启动时执行该 stale run 清理，
   避免 Agent trace UI 长期展示已经不可能继续的运行中状态。
 
 验证命令：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 ./gradlew :app:lintDebug
@@ -10169,8 +10169,8 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderRecoveryActionRequestsAuditedCancelConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.reminderUndoEntryCreatesPendingCancelConfirmationAndDoesNotExecuteUntilConfirmed'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.reminderRecoveryActionRequestsAuditedCancelConfirmation' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.reminderUndoEntryCreatesPendingCancelConfirmationAndDoesNotExecuteUntilConfirmed'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 ./gradlew :app:lintDebug
@@ -10206,19 +10206,19 @@ adb devices -l
   的 runtime 才产生 `MemoryRecallMode.Semantic` 命中。
 - Production `AppContainer` 已注入 fail-closed LiteRT embedding runtime factory；
   verified memory asset 在当前 SDK 路径上会报告 runtime load failed 并回退轻量索引。
-- `PocketMindViewModel` 在 memory rebuild 前同步 verified memory model path，确保
+- `SolinViewModel` 在 memory rebuild 前同步 verified memory model path，确保
   启动/模型校验后的索引使用当前 runtime 边界，同时不要求聊天模型加载。
 
 验证命令：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.semanticRuntimeFactoryReturningNullFallsBackAndReembedsExistingEntries' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.switchingSemanticRuntimeReembedsExistingEntriesWithNewRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport' \
-  --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryPathTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.semanticRuntimeFactoryReturningNullFallsBackAndReembedsExistingEntries' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.switchingSemanticRuntimeReembedsExistingEntriesWithNewRuntime' \
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport' \
+  --tests 'com.bytedance.zgx.solin.data.ModelRepositoryPathTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex'
 ```
 
 ## 2026-05-31 Task-state memory sync 增量验证
@@ -10242,16 +10242,16 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory' \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditEventTest.sanitizedSummaryRedactsGenericTokenAndKeyAssignments' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory' \
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditEventTest.sanitizedSummaryRedactsGenericTokenAndKeyAssignments' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace'
 ```
 
 ## 2026-06-01 Task-state memory suppression 增量验证
@@ -10270,9 +10270,9 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.suppressedTaskStateRecordsAreHiddenAndNotIndexed' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetActiveTaskStateMemoryDoesNotReappearOnRefreshOrChat' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clearLongTermMemorySuppressesActiveTaskStateMemoryResync'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest.suppressedTaskStateRecordsAreHiddenAndNotIndexed' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.forgetActiveTaskStateMemoryDoesNotReappearOnRefreshOrChat' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.clearLongTermMemorySuppressesActiveTaskStateMemoryResync'
 ```
 
 ## 2026-06-01 Emulator verification helper 增量验证
@@ -10326,10 +10326,10 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest'
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest'
 git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
 ```
@@ -10348,10 +10348,10 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsUnmetDependenciesBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation'
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsUnmetDependenciesBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation'
 git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
 ```
@@ -10374,10 +10374,10 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest.schedulesReminderThroughBackgroundScheduler' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent'
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest.schedulesReminderThroughBackgroundScheduler' \
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent'
 ```
 
 ## 2026-05-31 Reminder typed recovery action 增量验证
@@ -10397,9 +10397,9 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderObservationSurfacesBoundedRecoveryHint' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderObservationIgnoresUnsafeRecoveryMetadata' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.reminderObservationStoresTypedRecoveryActionForUi'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.reminderObservationSurfacesBoundedRecoveryHint' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.reminderObservationIgnoresUnsafeRecoveryMetadata' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.reminderObservationStoresTypedRecoveryActionForUi'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 git diff --check
@@ -10442,15 +10442,15 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredClipboardSummarySharePendingFailsClosedAfterRestart' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredClipboardSummarySharePendingFailsClosedAfterRestart' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument'
 ```
 
 ## 2026-05-31 Launch-only external result 增量验证
@@ -10468,9 +10468,9 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus'
 ```
 
 ## 2026-05-31 SkillRun cancellation state 增量验证
@@ -10485,7 +10485,7 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest'
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest'
 ```
 
 ## 2026-05-31 Reminder Skill-first 增量验证
@@ -10507,11 +10507,11 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest'
 ```
 
 ## 2026-05-31 Persisted Trace Summary Rehydration 增量验证
@@ -10529,7 +10529,7 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest'
 ```
 
 ## 2026-05-31 Usage Access 特殊授权增量验证
@@ -10547,14 +10547,14 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.device.ForegroundAppProviderTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.AndroidManifestTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.device.ForegroundAppProviderTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest'
 ```
 
 ## 2026-05-31 Runtime Permission 说明与策略一致性增量验证
@@ -10575,9 +10575,9 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 ```
 
 ## 2026-05-31 Allowlisted App Deep Target 增量验证
@@ -10606,11 +10606,11 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.deepLinkAndAppIntentDoNotRequestRuntimePermissions'
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.deepLinkAndAppIntentDoNotRequestRuntimePermissions'
 ```
 
 ## 2026-05-31 语义记忆运行时边界增量验证
@@ -10635,9 +10635,9 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.injectsMemoryContextWhenMemoryIsEnabledWithoutRequiringEmbeddingModel' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeCompatibilityTest.memoryContextRemainsCompatibleWithoutEmbeddingCapability'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest.injectsMemoryContextWhenMemoryIsEnabledWithoutRequiringEmbeddingModel' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeCompatibilityTest.memoryContextRemainsCompatibleWithoutEmbeddingCapability'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin
 git diff --check
@@ -10658,8 +10658,8 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries'
 ```
 
 ## 2026-05-31 周期检查策略 UX 增量验证
@@ -10682,11 +10682,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest'
 ```
 
 ## 2026-05-31 最近截图元数据查询增量验证
@@ -10708,11 +10708,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest'
 ```
 
 ## 2026-05-31 后台任务历史查看增量验证
@@ -10731,13 +10731,13 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelRunningBackgroundTaskFailureKeepsTaskVisible'
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.cancelRunningBackgroundTaskFailureKeepsTaskVisible'
 ```
 
 ## 2026-05-31 记忆兜底与显式偏好持久化增量验证
@@ -10766,9 +10766,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 ```
 
 ## 2026-05-31 外部 Activity 完成语义 Metadata 增量验证
@@ -10790,9 +10790,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 ```
 
 结果：targeted JVM 外部 Activity completion metadata 测试通过。
@@ -10812,9 +10812,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 ```
 
 结果：targeted JVM pending confirmation 恢复回归测试通过。
@@ -10836,9 +10836,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest'
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest'
 ```
 
 结果：targeted JVM 后台生命周期与提醒工具结果测试通过。
@@ -10867,11 +10867,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 ```
 
 结果：targeted JVM Skill manifest contract 测试通过；完整 JVM 单测、Debug
@@ -10896,10 +10896,10 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState'
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState'
 ```
 
 结果：targeted runtime permission denial 边界测试通过；完整 JVM 单测、Debug
@@ -10924,9 +10924,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest'
+  --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 git diff --check
@@ -10957,9 +10957,9 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
 git diff --check
@@ -11021,8 +11021,8 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11032,7 +11032,7 @@ rg credential-pattern scan excluding build and .gradle outputs
 
 结果：
 
-- 通过：targeted `SharedInputTest` 与 `PocketMindViewModelTest`。
+- 通过：targeted `SharedInputTest` 与 `SolinViewModelTest`。
 - 通过：完整 `:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`。
 - 通过：`:app:lintDebug`。
 - 通过：`git diff --check`。
@@ -11052,8 +11052,8 @@ rg credential-pattern scan excluding build and .gradle outputs
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt'
 
 ./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
@@ -11084,7 +11084,7 @@ adb devices -l
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11114,9 +11114,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditEventTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditEventTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11143,7 +11143,7 @@ git diff --check
   当前 UI 的运行中列表。
 - `ActionExecutor` 补齐 `cancel_reminder` 执行分支，Tool Registry 中已注册的
   取消提醒工具现在能返回结构化取消结果或失败原因。
-- `PocketMindViewModel` 新增运行中后台任务状态、刷新和取消事件；启动时读取
+- `SolinViewModel` 新增运行中后台任务状态、刷新和取消事件；启动时读取
   活跃任务，不展示历史完成/失败/取消记录，取消失败时保留原任务并显示失败提示。
 - UI 新增“后台任务”入口，显示任务标题、触发/检查时间、状态和取消入口；空
   列表显示“暂无运行中的后台任务”。
@@ -11154,12 +11154,12 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest'
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11181,7 +11181,7 @@ git diff --check
 - `MemoryRepository` 新增已保存长期记忆读取边界，只列出显式持久化的偏好
   与任务状态记录，不把普通会话索引或历史 `记住：...` 临时抽取项展示为
   长期记忆。
-- `PocketMindViewModel` 新增长期记忆状态流和单条遗忘/清空事件；遗忘后会
+- `SolinViewModel` 新增长期记忆状态流和单条遗忘/清空事件；遗忘后会
   同步刷新 UI、内存索引和 Room 记录，清空长期记忆不会删除聊天会话。
 - “模型管理 > 高级 > 本地记忆”现在可查看已保存长期记忆、单条遗忘，并通过
   二次确认清空显式长期记忆记录。
@@ -11192,8 +11192,8 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11224,11 +11224,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11254,7 +11254,7 @@ git diff --check
 - 恢复会补回确认所需的 typed live steps，包括多步骤 skill 的
   `SkillPlanned`，保证 “总结剪贴板并分享” 这类后续模型观察还能继续规划
   第二个待确认工具。
-- `PocketMindViewModel.restoreStartupState` 只恢复 UI confirmation state，
+- `SolinViewModel.restoreStartupState` 只恢复 UI confirmation state，
   不执行工具，也不触发 Android runtime permission；新消息仍会被待确认动作
   拦截。
 
@@ -11262,10 +11262,10 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11298,9 +11298,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11321,7 +11321,7 @@ git diff --check
 
 - 从 `query_recent_files` stash 候选实现中提取可用部分，并按当前主线分层
   重新接入 `ToolRegistry`、`RoutingToolExecutor`、`MobileActionPlanner` 和
-  `PocketMindAppContainer`。
+  `SolinAppContainer`。
 - 新增 `ReadsFiles` 权限声明与 Android 文件读取权限 manifest 声明；工具仍需
   用户确认，并把结果标记为 `LocalOnly`。
 - `RecentFilesToolExecutor` 只返回文件名、MIME、粗粒度 kind、大小和修改时间，
@@ -11334,9 +11334,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11366,7 +11366,7 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest'
 ```
 
 结果：通过。
@@ -11390,11 +11390,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest'
 
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
@@ -11436,9 +11436,9 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest'
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:lintDebug
@@ -11476,11 +11476,11 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.data.SessionRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.data.SessionRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolSchemaContractTest'
 
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
 ./gradlew :app:testDebugUnitTest
@@ -11491,10 +11491,10 @@ git diff --check
 模拟器说明：
 
 - SDK 工具位于 `/Users/bytedance/Library/Android/sdk`。
-- `pocketmind_api36_arm64` 与 `focus_agent_api36_arm64` 两个 AVD 在本轮尝试
+- `solin_api36_arm64` 与 `focus_agent_api36_arm64` 两个 AVD 在本轮尝试
   中均未能在限定时间内完成启动，且 emulator 进程自动退出，因此本轮未能执行
   `connectedDebugAndroidTest`。
-- `PocketMindDatabaseMigrationTest` 已通过 `assembleDebugAndroidTest` 编译，
+- `SolinDatabaseMigrationTest` 已通过 `assembleDebugAndroidTest` 编译，
   仍需要在可启动模拟器或真机上执行。
 
 验证时间：2026-05-30
@@ -11567,10 +11567,10 @@ ANDROID_SERIAL=emulator-5554 \
 
 环境：
 
-- AVD：`pocketmind_api36_arm64`
+- AVD：`solin_api36_arm64`
 - Android：API 36 Google APIs ARM64
 - 安装包：`app/build/outputs/apk/release/app-release-local-signed.apk`
-- 模型目录：`/sdcard/Android/data/com.bytedance.zgx.pocketmind/files/Download/`
+- 模型目录：`/sdcard/Android/data/com.bytedance.zgx.solin/files/Download/`
 
 模型补齐结果：
 
@@ -11613,10 +11613,10 @@ scripts/verify_local.sh
 
 环境：
 
-- AVD：`pocketmind_api36_arm64`
+- AVD：`solin_api36_arm64`
 - Android：API 36 Google APIs ARM64
 - 安装包：`app/build/outputs/apk/release/app-release-local-signed.apk`
-- 模型文件：在模拟器内通过 App 首装向导下载 `基础对话 E2B`，文件位于 `/sdcard/Android/data/com.bytedance.zgx.pocketmind/files/Download/gemma-4-E2B-it.litertlm`
+- 模型文件：在模拟器内通过 App 首装向导下载 `基础对话 E2B`，文件位于 `/sdcard/Android/data/com.bytedance.zgx.solin/files/Download/gemma-4-E2B-it.litertlm`
 
 流程：
 
@@ -11631,7 +11631,7 @@ scripts/verify_local.sh
 
 修复：
 
-- `PocketMindViewModel` 读取生成统计时忽略 benchmark 不可用错误。
+- `SolinViewModel` 读取生成统计时忽略 benchmark 不可用错误。
 - `RealLiteRtRuntime.lastGenerationStats()` 对 LiteRT benchmark API 做容错，统计不可用时返回 `null`。
 
 复测结果：
@@ -11639,7 +11639,7 @@ scripts/verify_local.sh
 - 同一模拟器保留已下载模型，覆盖安装修复后的 release 包。
 - 新建会话再次发送 `用三句话解释端侧大模型`，成功返回三句话中文回答。
 - 生成结束后状态回到 `基础对话 E2B · CPU · 已就绪`，未再出现 benchmark 导致的生成失败。
-- 截图：`/tmp/pocketmind-real-dialogue-fixed.png`
+- 截图：`/tmp/solin-real-dialogue-fixed.png`
 
 验证命令：
 
@@ -11656,12 +11656,12 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
 scripts/doctor.sh
 
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
 scripts/verify_local.sh
 ```
 
@@ -11669,7 +11669,7 @@ scripts/verify_local.sh
 
 覆盖项：
 
-- `PocketMindViewModel` 已拆到 runtime、model repository、download service 和 session repository 边界。
+- `SolinViewModel` 已拆到 runtime、model repository、download service 和 session repository 边界。
 - `MainActivity` 仅保留 Activity wiring；Compose UI 移到 `ui/`，markdown 分段逻辑已可 JVM 测试。
 - 下载取消会先取消 monitor job 并清除 active download id，避免取消后被轮询覆盖为“下载任务不存在”。
 - Release 已开启 R8/resource shrink，并在本地门禁中加入 75 MB APK 预算。
@@ -11692,8 +11692,8 @@ scripts/verify_local.sh
 命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 ```
 
@@ -11719,8 +11719,8 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/androi
 命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
 GRADLE_CMD=/tmp/gradle-9.5.1/bin/gradle \
 scripts/verify_local.sh
 ```
@@ -11766,7 +11766,7 @@ scripts/install_and_test_device.sh
 App 内点击“下载推荐模型”后，模型文件成功下载到：
 
 ```text
-/storage/emulated/0/Android/data/com.bytedance.zgx.pocketmind/files/Download/chat-model.litertlm
+/storage/emulated/0/Android/data/com.bytedance.zgx.solin/files/Download/chat-model.litertlm
 ```
 
 文件大小：
@@ -11778,7 +11778,7 @@ App 内点击“下载推荐模型”后，模型文件成功下载到：
 App 偏好已保存模型路径：
 
 ```xml
-<string name="model_path">/storage/emulated/0/Android/data/com.bytedance.zgx.pocketmind/files/Download/chat-model.litertlm</string>
+<string name="model_path">/storage/emulated/0/Android/data/com.bytedance.zgx.solin/files/Download/chat-model.litertlm</string>
 ```
 
 加载结果：
@@ -11827,8 +11827,8 @@ App 偏好已保存模型路径：
 验证命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
 scripts/verify_local.sh
 ```
 
@@ -11837,8 +11837,8 @@ scripts/verify_local.sh
 真机命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk \
 ./gradlew :app:connectedDebugAndroidTest --console=plain
 ```
 
@@ -11847,7 +11847,7 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/androi
 安装命令：
 
 ```bash
-/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk/platform-tools/adb \
+/Users/bytedance/Documents/Codex/2026-05-24/solin-model/android-sdk/platform-tools/adb \
   -s fb6272c install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -11919,11 +11919,11 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 ```bash
 scripts/test_validation_scripts.sh
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.audit.ToolAuditRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest' \
+  --tests 'com.bytedance.zgx.solin.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.solin.background.ScheduledTaskRepositoryTest'
 ./gradlew :app:compileDebugAndroidTestKotlin
 ./gradlew :app:testDebugUnitTest
 ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
@@ -11931,7 +11931,7 @@ ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
 scripts/verify_local.sh
 ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
 ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
-AVD_NAME=pocketmind_api36_arm64 \
+AVD_NAME=solin_api36_arm64 \
 EMULATOR_ARGS='-no-window -no-snapshot -no-audio -gpu swiftshader_indirect' \
 CLEAN_DEVICE=1 \
 BOOT_TIMEOUT_SECONDS=360 \
@@ -11945,7 +11945,7 @@ scripts/verify_emulator.sh
 - 通过：目标单测、全量 `:app:testDebugUnitTest`、`compileDebugAndroidTestKotlin`。
 - 通过：`scripts/verify_local.sh`，覆盖 validation script tests、unit tests、
   lintDebug、debug/androidTest/release 构建、APK 资产和 ABI/体积约束。
-- 通过：`pocketmind_api36_arm64` AVD，serial `emulator-5554`，API 36，
+- 通过：`solin_api36_arm64` AVD，serial `emulator-5554`，API 36，
   ABI `arm64-v8a`，`CLEAN_DEVICE=1`，instrumentation `OK (12 tests)`。
 - 记录：真机 `fb6272c` 构建与主 APK 安装通过，但测试 APK 安装被设备策略
   拦截为 `INSTALL_FAILED_USER_RESTRICTED`；需要在手机开发者选项中允许 USB
@@ -11967,8 +11967,8 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandBypassesRouterAndRemoteRuntime' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteRememberCommandDoesNotEnterLaterRemoteHistory'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rememberCommandBypassesRouterAndRemoteRuntime' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteRememberCommandDoesNotEnterLaterRemoteHistory'
 
 AVD_NAME=focus_agent_api36_arm64 \
 EMULATOR_ARGS='-no-snapshot -no-audio -no-window -no-boot-anim' \
@@ -12006,8 +12006,8 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsShared*'
+  --tests 'com.bytedance.zgx.solin.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeRejectsShared*'
 ```
 
 结果：
@@ -12030,8 +12030,8 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+  --tests 'com.bytedance.zgx.solin.safety.SafetyPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest'
 ```
 
 结果：
@@ -12056,8 +12056,8 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
 
 ./gradlew :app:testDebugUnitTest
 ```
@@ -12085,10 +12085,10 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.sendMessagePassesActiveSessionIdToAgentRoute' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation'
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.sendMessagePassesActiveSessionIdToAgentRoute' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation'
 
 ./gradlew :app:assembleDebugAndroidTest
 
@@ -12126,10 +12126,10 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteToolCallBecomesPendingConfirmationWithoutExecutingTool' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rejectedRemoteToolCallShowsActionFailureAndRefreshesTrace'
+  --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteToolCallBecomesPendingConfirmationWithoutExecutingTool' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.rejectedRemoteToolCallShowsActionFailureAndRefreshesTrace'
 
 ./gradlew :app:testDebugUnitTest --rerun-tasks
 
@@ -12165,14 +12165,14 @@ scripts/verify_emulator.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelToolCallOutputRequestsConfirmationAfterAnswerGeneration' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelToolCallAuditSummariesDoNotPersistArguments' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ordinaryModelAnswerStillCompletesWithoutActionParsingFallback' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelInvalidToolArgumentsFailBeforeConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelToolRequestCannotReusePriorToolRequestId' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelToolCallOutputRequestsConfirmationAfterAnswerGeneration' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelToolCallAuditSummariesDoNotPersistArguments' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.ordinaryModelAnswerStillCompletesWithoutActionParsingFallback' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.localModelInvalidToolArgumentsFailBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelToolRequestCannotReusePriorToolRequestId' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
 
 ./gradlew :app:testDebugUnitTest
 
@@ -12231,7 +12231,7 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin \
-  :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  :app:testDebugUnitTest --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
   --no-daemon
 ```
 
@@ -12259,7 +12259,7 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin \
-  :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  :app:testDebugUnitTest --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
   --no-daemon
 ```
 
@@ -12273,7 +12273,7 @@ scripts/test_validation_scripts.sh
 
 本轮覆盖项：
 
-- 生产 `PocketMindAppContainer` 现在向 `MemoryRepository` 注入
+- 生产 `SolinAppContainer` 现在向 `MemoryRepository` 注入
   `LiteRtEmbeddingRuntimeFactory`，让已校验 memory asset 走统一 runtime probe
   边界。
 - `LiteRtEmbeddingRuntimeFactory` 明确 fail closed：当前 `litertlm-android`
@@ -12288,7 +12288,7 @@ scripts/test_validation_scripts.sh
 验证命令：
 
 ```bash
-./gradlew testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest'
+./gradlew testDebugUnitTest --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest'
 ```
 
 结果：
@@ -12317,12 +12317,12 @@ scripts/test_validation_scripts.sh
 
 ```bash
 ./gradlew testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest'
 git diff --check
 ./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
 ```
@@ -12361,12 +12361,12 @@ git diff --check
 
 ```bash
 ./gradlew testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierSurvivesDirectConfirmWithoutPendingLookup' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding'
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.solin.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierSurvivesDirectConfirmWithoutPendingLookup' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding'
 ```
 
 结果：
@@ -12399,15 +12399,15 @@ git diff --check
 
 ```bash
 ./gradlew testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
-  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
-  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.retryableSideEffectToolFailuresDoNotScheduleAutomaticRetry' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.periodicCheckObservationDoesNotSurfaceUnsupportedRecoveryAction' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresEveryToolSpecAllowlistedPendingArgumentShape'
+  --tests 'com.bytedance.zgx.solin.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.solin.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.retryableSideEffectToolFailuresDoNotScheduleAutomaticRetry' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.periodicCheckObservationDoesNotSurfaceUnsupportedRecoveryAction' \
+  --tests 'com.bytedance.zgx.solin.orchestration.AgentTraceStoreTest.roomStoreRestoresEveryToolSpecAllowlistedPendingArgumentShape'
 ```
 
 结果：
@@ -12440,10 +12440,10 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged
 ```
 
 结果：
@@ -12463,7 +12463,7 @@ git diff --check
   / response-length 偏好，而不删除无关长期记忆。
 - `MemoryRepository` 的 answer-style family 判断改为 token-aware Latin term 匹配，
   避免 `english` 误命中 `length` 这类子串；中文关键词仍保持子串匹配。
-- `PocketMindViewModel` 的显式 forget 命令继续作为 `LocalOnly` 控制命令处理，
+- `SolinViewModel` 的显式 forget 命令继续作为 `LocalOnly` 控制命令处理，
   不进入 chat/action router 或 remote runtime；忘记偏好族后 memory hits 和长期记忆
   UI 同步刷新。
 
@@ -12471,10 +12471,10 @@ git diff --check
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.explicitPreferenceForgetConflictKeysRecognizeFamilyTargets \
-  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily \
-  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.forgetPreferenceStillDeletesExactUnrelatedPreference \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime
+  --tests com.bytedance.zgx.solin.memory.MemoryRepositoryTest.explicitPreferenceForgetConflictKeysRecognizeFamilyTargets \
+  --tests com.bytedance.zgx.solin.memory.MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily \
+  --tests com.bytedance.zgx.solin.memory.MemoryRepositoryTest.forgetPreferenceStillDeletesExactUnrelatedPreference \
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime
 ```
 
 结果：
@@ -12507,15 +12507,15 @@ git diff --check
 
 ```bash
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest \
-  --tests com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime'
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest \
+  --tests com.bytedance.zgx.solin.orchestration.AssistantOrchestratorTest \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime'
 
 ./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
-  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolExecutionBoundaryTest
+  --tests com.bytedance.zgx.solin.tool.WebSearchProviderTest \
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.solin.tool.ToolExecutionBoundaryTest
 
 scripts/doctor.sh && scripts/verify_local.sh
 
@@ -13366,7 +13366,7 @@ git diff --check
 ```bash
 bash -n scripts/verify_fresh_start_main_shell_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-AVD_NAME=pocketmind_api36_arm64 ARTIFACT_DIR=build/verification/fresh-start-interactive-current scripts/verify_fresh_start_main_shell_emulator.sh
+AVD_NAME=solin_api36_arm64 ARTIFACT_DIR=build/verification/fresh-start-interactive-current scripts/verify_fresh_start_main_shell_emulator.sh
 bash scripts/verify_local.sh
 git diff --check
 ```
@@ -13378,7 +13378,7 @@ git diff --check
   记录 `first_run_setup_visible=false`、`main_shell_copy_visible=true`、
   `model_manager_click_opened=true`。
 - 通过：`fresh-start.xml` 包含 `隐私优先的随身 AI 助手` 和
-  `开始和 PocketMind 对话`，不包含 `离线基础问答可选下载`。
+  `开始和 Solin 对话`，不包含 `离线基础问答可选下载`。
 - 通过：点击后 `model-manager.xml` 包含 `模型管理`、`当前模型` 和
   `选择本地离线或可选远程；远程发送和设备动作仍会先确认。`
 - 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
@@ -13404,12 +13404,12 @@ git diff --check
 ```bash
 bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-POCKETMIND_LIVE_REMOTE_BASE_URL=<provided-remote-base-url> \
-POCKETMIND_LIVE_REMOTE_MODEL=<provided-remote-model> \
-POCKETMIND_LIVE_REMOTE_API_KEY=<provided-secret> \
-POCKETMIND_LIVE_REMOTE_PROMPT='Return POCKETMIND_LIVE_OK' \
-POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT=POCKETMIND_LIVE_OK \
-POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=75 \
+SOLIN_LIVE_REMOTE_BASE_URL=<provided-remote-base-url> \
+SOLIN_LIVE_REMOTE_MODEL=<provided-remote-model> \
+SOLIN_LIVE_REMOTE_API_KEY=<provided-secret> \
+SOLIN_LIVE_REMOTE_PROMPT='Return SOLIN_LIVE_OK' \
+SOLIN_LIVE_REMOTE_EXPECTED_TEXT=SOLIN_LIVE_OK \
+SOLIN_LIVE_REMOTE_WAIT_SECONDS=75 \
 ARTIFACT_DIR=build/verification/live-remote-emulator-deepseek-current \
 REPORT_FILE=build/verification/live-remote-emulator-deepseek-current/live-remote-emulator.properties \
 scripts/live_remote_emulator.sh
@@ -13419,7 +13419,7 @@ git diff --check
 
 结果：
 
-- 通过：API 36 arm64 emulator 真实远程模型请求返回 `POCKETMIND_LIVE_OK`，
+- 通过：API 36 arm64 emulator 真实远程模型请求返回 `SOLIN_LIVE_OK`，
   `live-remote-emulator.properties` 记录 `status=passed`、`target=live-remote-emulator`、
   `device_target=emulator`、`remote_confirmation_handled=true`。
 - 通过：`after_send_dump` 证明远程发送前出现确认 sheet，最终 `ui_dump` 证明收到
@@ -13482,8 +13482,8 @@ git diff --check
 
 ```bash
 scripts/test_validation_scripts.sh
-./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=240 ARTIFACT_DIR=build/verification/privacy-data-controls-smoke-current3 INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' INSTRUMENTATION_TIMEOUT_SECONDS=180 scripts/verify_emulator.sh
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=240 ARTIFACT_DIR=build/verification/privacy-data-controls-smoke-current3 INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' INSTRUMENTATION_TIMEOUT_SECONDS=180 scripts/verify_emulator.sh
 scripts/collect_crash_anr_smoke_evidence.sh --device-report build/verification/privacy-data-controls-smoke-current2/device-verification.properties --instrumentation-output build/verification/privacy-data-controls-smoke-current2/instrumentation.txt --logcat build/verification/privacy-data-controls-smoke-current2/logcat.txt --report build/verification/privacy-data-controls-smoke-current2/crash-anr-smoke-rerun.properties --window 'privacy data controls targeted emulator rerun' --track local-emulator
 ```
 
@@ -13575,7 +13575,7 @@ scripts/test_validation_scripts.sh
 ```bash
 bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/adaptive-ui-flow-gate-current3 INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/adaptive-ui-flow-gate-current3 INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityAdaptiveUiTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 bash scripts/verify_local.sh
 ```
 
@@ -13599,17 +13599,17 @@ bash scripts/verify_local.sh
   `scripts/record_release_flow_evidence.sh` 都会写出这些 voice contract 字段。
 - `scripts/verify_release_validation_record.sh` 会拒绝缺少上述字段的正式
   `voiceInput` release flow evidence；`scripts/test_validation_scripts.sh` 新增弱证据负例。
-- `PocketMindViewModelTest` 新增权限失败/恢复契约测试：权限失败后清空 capture、
+- `SolinViewModelTest` 新增权限失败/恢复契约测试：权限失败后清空 capture、
   不生成 draft、不发送 session message、不触发远程 runtime 或工具动作，之后可以重新进入收音状态。
 - 系统麦克风权限弹窗的文案和按钮交互不作为 Compose AndroidTest 门禁；release gate
-  验证 PocketMind 自身的失败/恢复行为，系统 permission controller 交互保留为手工/真机验收证据。
+  验证 Solin 自身的失败/恢复行为，系统 permission controller 交互保留为手工/真机验收证据。
 
 验证命令：
 
 ```bash
 bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending'
 ```
 
 结果：
@@ -13628,7 +13628,7 @@ scripts/test_validation_scripts.sh
   SHA 失败清理、pending 下载任务丢失恢复。
 - `customModelImportOrUrlRejection` release flow evidence 新增必填字段：
   非 `.litertlm` 自定义下载 URL 必须被拒绝。
-- `PocketMindViewModelTest` 新增下载失败恢复契约：目录不可用不 enqueue、下载失败清
+- `SolinViewModelTest` 新增下载失败恢复契约：目录不可用不 enqueue、下载失败清
   pending 并删除目标、SHA 失败删除坏文件且不注册模型、启动恢复时下载任务丢失会清理 pending。
 - `ModelRepositoryTest` 新增下载源和校验契约：非 `.litertlm` HTTPS URL 拒绝、
   expected size 不匹配拒绝、SHA 不匹配拒绝、无 SHA 的自定义文件仅在大小匹配时接受。
@@ -13636,10 +13636,10 @@ scripts/test_validation_scripts.sh
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startModelDownloadReportsUnavailableDirectoryWithoutEnqueueing' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startCustomModelDownloadRejectsInvalidUrlWithoutEnqueueing' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadShaFailureDeletesFileClearsPendingAndStopsDownloading' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateClearsPendingDownloadWhenDownloadTaskMissing'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.data.ModelRepositoryTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startModelDownloadReportsUnavailableDirectoryWithoutEnqueueing' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startCustomModelDownloadRejectsInvalidUrlWithoutEnqueueing' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.monitorDownloadShaFailureDeletesFileClearsPendingAndStopsDownloading' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.restoreStartupStateClearsPendingDownloadWhenDownloadTaskMissing'
 scripts/test_validation_scripts.sh
 bash scripts/verify_local.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/model-download-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/model-download-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
 结果：
@@ -13671,10 +13671,10 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.data.ModelRepositoryTest'
 scripts/test_validation_scripts.sh
 bash scripts/verify_local.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/model-import-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/model-import-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
 结果：
@@ -13692,7 +13692,7 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 
 - 远程模式未配置时，发送尝试不再静默返回；会写入本地 `LocalOnly` 提示，说明需要先配置远程模型，
   并明确“还没有发送你的内容”，避免用户点击后无反馈。
-- `PocketMindViewModelTest` 新增远程记忆边界合同：远程发送时 route 层收到
+- `SolinViewModelTest` 新增远程记忆边界合同：远程发送时 route 层收到
   `memoryEnabled=false`，设备上下文为 null，Run Data Receipt 标记 destination 为 `Remote`、
   `memoryContextIncluded=false`，并声明本地记忆/设备上下文被保护。
 - 远程未配置发送尝试新增 JVM 合同：不调用 remote runtime、不进入 router、不持久化用户 prompt，
@@ -13706,11 +13706,11 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeDoesNotEnableMemoryContextOrReceiptForRemoteSend' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeUnconfiguredSendAttemptShowsLocalNoticeWithoutCallingRuntime' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeDoesNotEnableMemoryContextOrReceiptForRemoteSend' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteModeUnconfiguredSendAttemptShowsLocalNoticeWithoutCallingRuntime' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace'
 bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
 bash scripts/verify_local.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-boundary-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-boundary-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
 结果：
@@ -13744,12 +13744,12 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest.sendWithImageUsesOpenAiVisionContentPartInHttpFixture'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest.sendWithImageUsesOpenAiVisionContentPartInHttpFixture'
 ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
 scripts/test_validation_scripts.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-vision-share-gate-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest' INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-vision-share-gate-current INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySharedIntentTest' INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
 bash scripts/verify_local.sh
-AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-vision-share-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+AVD_NAME=solin_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-vision-share-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
 ```
 
 结果：
@@ -13782,9 +13782,9 @@ AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT
 验证命令：
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest' --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest#actionSendTextUsesProtectedSignalWhenActivityStartsInRemoteMode
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest' --tests 'com.bytedance.zgx.solin.MainActivitySharedInputModeTest' --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivitySharedIntentTest#actionSendTextUsesProtectedSignalWhenActivityStartsInRemoteMode
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivitySharedIntentTest
 git diff --check
 rg -n --hidden -g '!build/**' -g '!**/.git/**' 'sk-[A-Za-z0-9]{16,}' . || true
 ```
@@ -13805,8 +13805,8 @@ rg -n --hidden -g '!build/**' -g '!**/.git/**' 'sk-[A-Za-z0-9]{16,}' . || true
 本轮覆盖项：
 
 - 顶栏从“标题和五个入口挤在同一行”改为“定位标题行 + 操作入口行”，小屏首屏可完整显示
-  `PocketMind` 与“隐私优先的随身 AI 助手”。
-- 空状态主卡标题从“开始和 PocketMind 对话”收敛为“隐私优先的随身 AI 助手”，副标题第一句直接说明：
+  `Solin` 与“隐私优先的随身 AI 助手”。
+- 空状态主卡标题从“开始和 Solin 对话”收敛为“隐私优先的随身 AI 助手”，副标题第一句直接说明：
   本地可用、远程多模态可选、设备动作必须确认执行。
 - `MainActivitySmokeTest` 锁住首屏定位副标题和主卡主定位第一眼可见。
 - 新增 `clearingRemoteConfigWhileInRemoteModeBlocksRemoteSend` JVM 回归：
@@ -13817,11 +13817,11 @@ rg -n --hidden -g '!build/**' -g '!**/.git/**' 'sk-[A-Za-z0-9]{16,}' . || true
 
 ```bash
 ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clearingRemoteConfigWhileInRemoteModeBlocksRemoteSend' --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.clearingRemoteConfigWhileInRemoteModeBlocksRemoteSend' --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivitySmokeTest#chatShellShowsModelManager
 ./gradlew :app:installDebug
-adb shell am start -n com.bytedance.zgx.pocketmind/.MainActivity --ez com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK true
-adb exec-out screencap -p > /tmp/pocketmind-positioning-first-screen.png
+adb shell am start -n com.bytedance.zgx.solin/.MainActivity --ez com.bytedance.zgx.solin.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK true
+adb exec-out screencap -p > /tmp/solin-positioning-first-screen.png
 ```
 
 结果：
@@ -13829,8 +13829,8 @@ adb exec-out screencap -p > /tmp/pocketmind-positioning-first-screen.png
 - 通过：debug 和 androidTest Kotlin 编译。
 - 通过：目标 JVM 测试覆盖首屏定位文案和清除远程配置后的发送拦截。
 - 通过：API 36 emulator `MainActivitySmokeTest#chatShellShowsModelManager`。
-- 通过：截图 `/tmp/pocketmind-positioning-first-screen.png` 显示首屏主卡标题为
-  “隐私优先的随身 AI 助手”，顶栏完整显示 `PocketMind` 与定位副标题。
+- 通过：截图 `/tmp/solin-positioning-first-screen.png` 显示首屏主卡标题为
+  “隐私优先的随身 AI 助手”，顶栏完整显示 `Solin` 与定位副标题。
 
 ## 2026-06-07 Store positioning, privacy entry, and release screenshot contract
 
@@ -13844,18 +13844,18 @@ adb exec-out screencap -p > /tmp/pocketmind-positioning-first-screen.png
 - `verify_store_policy_record.sh` 新增 Store listing 主定位检查；脚本自测新增缺失主定位的负例。
 - `docs/privacy_notice.md` 开头从 internal testing 草稿口径收敛为 Android release candidate
   隐私边界说明；同步 store policy 和 privacy review 的 notice SHA / evidence SHA。
-- release screenshot capture / validation 合同不再要求旧文案“开始和 PocketMind 对话”，
-  改为要求 `PocketMind | 隐私优先的随身 AI 助手 | 为什么装它 | 模型管理`。
+- release screenshot capture / validation 合同不再要求旧文案“开始和 Solin 对话”，
+  改为要求 `Solin | 隐私优先的随身 AI 助手 | 为什么装它 | 模型管理`。
 
 验证命令：
 
 ```bash
 bash -n scripts/capture_release_screenshots.sh scripts/verify_release_validation_record.sh scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest'
 scripts/verify_store_policy_record.sh --report build/verification/store-policy-current/store-policy.properties || true
 scripts/verify_privacy_review.sh --report build/verification/privacy-review-current/privacy-review.properties || true
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#homePrivacyEntryOpensAppPrivacyNotice
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.solin.MainActivitySmokeTest#homePrivacyEntryOpensAppPrivacyNotice
 ```
 
 结果：
@@ -13891,9 +13891,9 @@ scripts/verify_privacy_review.sh --report build/verification/privacy-review-curr
 
 ```bash
 ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest'
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest#actionSendImageInRemoteModeWithVisionDisabledShowsUnsupportedNoticeWithoutReadingImage
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.MainActivitySharedInputModeTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivitySharedIntentTest#actionSendImageInRemoteModeWithVisionDisabledShowsUnsupportedNoticeWithoutReadingImage
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivitySharedIntentTest
 ```
 
 结果：
@@ -13920,9 +13920,9 @@ scripts/verify_privacy_review.sh --report build/verification/privacy-review-curr
 
 ```bash
 ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest#contactLookupConfirmThenDenyPermissionShowsDeniedStateAndNoToolResult
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt'
-./gradlew :app:compileDebugAndroidTestKotlin && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest#contactLookupConfirmThenDenyPermissionShowsDeniedStateAndNoToolResult
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt'
+./gradlew :app:compileDebugAndroidTestKotlin && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivityRuntimePermissionUiTest
 ```
 
 结果：
@@ -13956,15 +13956,15 @@ scripts/verify_privacy_review.sh --report build/verification/privacy-review-curr
 验证命令：
 
 ```bash
-./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivityVoicePermissionUiTest
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending' --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending'
+./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.MainActivityVoicePermissionUiTest
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending' --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.solin.SolinVoiceInputConsentUiTest
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.AndroidManifestTest' --tests 'com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending'
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
   BOOT_TIMEOUT_SECONDS=180 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityVoicePermissionUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityVoicePermissionUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
   ARTIFACT_DIR=build/verification/voice-permission-denial-current \
   scripts/verify_emulator.sh
@@ -13975,13 +13975,13 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 - 通过：androidTest Kotlin 编译、Capability Matrix 文档契约、Manifest 契约和 ViewModel
   语音权限失败/恢复状态机定向测试。
 - 通过：API 36 emulator `MainActivityVoicePermissionUiTest`，裸 Gradle connected test 1/1 通过。
-- 通过：API 36 emulator `PocketMindVoiceInputConsentUiTest`，App 内语音显著同意弹窗 1/1 通过。
+- 通过：API 36 emulator `SolinVoiceInputConsentUiTest`，App 内语音显著同意弹窗 1/1 通过。
 - 通过：`scripts/verify_emulator.sh` 生成
   `build/verification/voice-permission-denial-current/device-verification.properties`，
   记录 `status=passed`、`instrumentation_test_count=1`、
-  `instrumentation_class=com.bytedance.zgx.pocketmind.MainActivityVoicePermissionUiTest`。
+  `instrumentation_class=com.bytedance.zgx.solin.MainActivityVoicePermissionUiTest`。
 - 通过：`build/verification/voice-permission-denial-current/emulator-verification.properties`
-  记录 `status=passed`、`api_level=36`、`abi=arm64-v8a`、`avd=pocketmind_api36_arm64`。
+  记录 `status=passed`、`api_level=36`、`abi=arm64-v8a`、`avd=solin_api36_arm64`。
 
 剩余风险：
 
@@ -13995,7 +13995,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 本轮覆盖项：
 
-- `PocketMindExternalOutcomeUiTest` 从单一“已完成”按钮覆盖扩展为三种外部结果选择：
+- `SolinExternalOutcomeUiTest` 从单一“已完成”按钮覆盖扩展为三种外部结果选择：
   `Completed`、`NotCompleted`、`OpenedOnly`。
 - 测试仍先断言外部结果确认 sheet 和三个按钮全部可见，再点击指定按钮，
   验证 UI 写回同一个 `PendingExternalOutcomeConfirmation` 和对应
@@ -14010,7 +14010,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
   BOOT_TIMEOUT_SECONDS=180 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.PocketMindExternalOutcomeUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.SolinExternalOutcomeUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
   ARTIFACT_DIR=build/verification/external-outcome-ui-current \
   scripts/verify_emulator.sh
@@ -14019,14 +14019,14 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 结果：
 
 - 通过：Debug AndroidTest Kotlin 编译。
-- 通过：API 36 emulator `PocketMindExternalOutcomeUiTest` 3/3：
+- 通过：API 36 emulator `SolinExternalOutcomeUiTest` 3/3：
   `externalOutcomeSheetReportsCompletedSelection`、
   `externalOutcomeSheetReportsNotCompletedSelection`、
   `externalOutcomeSheetReportsOpenedOnlySelection`。
 - 通过：`scripts/verify_emulator.sh` 生成
   `build/verification/external-outcome-ui-current/device-verification.properties`，
   记录 `status=passed`、`instrumentation_test_count=3`、
-  `instrumentation_class=com.bytedance.zgx.pocketmind.PocketMindExternalOutcomeUiTest`。
+  `instrumentation_class=com.bytedance.zgx.solin.SolinExternalOutcomeUiTest`。
 - 通过：敏感配置扫描未发现 DeepSeek endpoint、模型名或 API key 被写入仓库。
 
 剩余风险：
@@ -14042,25 +14042,25 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 本轮覆盖项：
 
-- `PocketMindVoiceInputConsentUiTest` 新增 `voiceTranscriptDraftFillsComposerOnceWithoutSending`。
+- `SolinVoiceInputConsentUiTest` 新增 `voiceTranscriptDraftFillsComposerOnceWithoutSending`。
 - 测试先在 `composer_input` 输入已有文本，再注入
   `ChatUiState.voiceInputDraft = VoiceInputDraft(id = 42, text = "  语音转写结果  ")`。
 - 测试断言输入框最终为 `已有内容\n语音转写结果`，证明 UI 层会清理转写文本并追加到
   composer，而不是直接发送。
 - 测试断言 `onVoiceInputConsumed(42)` 只触发一次，并且 `onSendMessage` 未触发；
   强化语音转写“只生成草稿、不自动发送”的产品边界。
-- `PocketMindVoiceInputConsentUiTest` 抽出共用 `PocketMindScreen` helper，
+- `SolinVoiceInputConsentUiTest` 抽出共用 `SolinScreen` helper，
   保留原有语音显著同意弹窗覆盖。
 
 验证命令：
 
 ```bash
 ./gradlew :app:compileDebugAndroidTestKotlin
-./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.SolinViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage'
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
   BOOT_TIMEOUT_SECONDS=180 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.SolinVoiceInputConsentUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
   ARTIFACT_DIR=build/verification/voice-transcript-draft-ui-current \
   scripts/verify_emulator.sh
@@ -14071,13 +14071,13 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 - 通过：Debug AndroidTest Kotlin 编译。
 - 通过：JVM `voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`，覆盖转写清洗、
   draft 消费、不新增消息、不触发远程模型或工具。
-- 通过：API 36 emulator `PocketMindVoiceInputConsentUiTest` 2/2：
+- 通过：API 36 emulator `SolinVoiceInputConsentUiTest` 2/2：
   `voiceButtonRequiresAppConsentBeforeStartingVoiceInput`、
   `voiceTranscriptDraftFillsComposerOnceWithoutSending`。
 - 通过：`scripts/verify_emulator.sh` 生成
   `build/verification/voice-transcript-draft-ui-current/device-verification.properties`，
   记录 `status=passed`、`instrumentation_test_count=2`、
-  `instrumentation_class=com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest`。
+  `instrumentation_class=com.bytedance.zgx.solin.SolinVoiceInputConsentUiTest`。
 
 剩余风险：
 
@@ -14095,7 +14095,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 - `DownloadManager.STATUS_FAILED + ERROR_INSUFFICIENT_SPACE` 等下载失败后，
   如果这是首启向导触发且本地模型仍未就绪，UI 状态会恢复 `showFirstRunSetup=true`，
   让用户继续看到“为什么下载、空间不足、可先远程/导入”的恢复入口。
-- 新增 `PocketMindViewModelTest.setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery`，
+- 新增 `SolinViewModelTest.setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery`，
   覆盖下载已入队、目标文件写入 partial、随后存储不足失败的交叉状态。
 - 保留普通下载失败合同：pending download 清理、partial 文件删除、进度清零和
   “下载失败：存储空间不足”文案。
@@ -14105,14 +14105,14 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 ```bash
 ./gradlew :app:compileDebugKotlin
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason'
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason'
 ./gradlew :app:compileDebugAndroidTestKotlin
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
   ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
   BOOT_TIMEOUT_SECONDS=180 \
-  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest' \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.solin.MainActivityFirstRunSetupUiTest' \
   INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
   ARTIFACT_DIR=build/verification/first-run-download-failure-recovery-current \
   scripts/verify_emulator.sh
@@ -14128,7 +14128,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 - 通过：`scripts/verify_emulator.sh` 生成
   `build/verification/first-run-download-failure-recovery-current/device-verification.properties`，
   记录 `status=passed`、`instrumentation_test_count=1`、
-  `instrumentation_class=com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest`。
+  `instrumentation_class=com.bytedance.zgx.solin.MainActivityFirstRunSetupUiTest`。
 
 剩余风险：
 
@@ -14155,7 +14155,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
 
 ```bash
 ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
-  ANDROID_SERIAL=emulator-5554 AVD_NAME=pocketmind_api36_arm64 CLEAN_DEVICE=1 \
+  ANDROID_SERIAL=emulator-5554 AVD_NAME=solin_api36_arm64 CLEAN_DEVICE=1 \
   EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 \
   ARTIFACT_DIR=build/verification/product-contract-regression-current \
   REGRESSION_REPORT_FILE=build/verification/product-contract-regression-current/regression-emulator.properties \
@@ -14171,7 +14171,7 @@ scripts/verify_release_validation_record.sh \
 
 结果：
 
-- 通过：API 36 arm64 `pocketmind_api36_arm64` clean-device 完整模拟器回归，
+- 通过：API 36 arm64 `solin_api36_arm64` clean-device 完整模拟器回归，
   `actual_android_test_count=51`、`source_android_test_count=51`、
   `expected_android_test_count=51`。
 - 通过：当前 regression report SHA-256 为
@@ -14249,8 +14249,8 @@ git diff --check
 ```bash
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
-  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory'
+  --tests 'com.bytedance.zgx.solin.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.solin.SolinViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory'
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   ./gradlew :app:compileDebugAndroidTestKotlin
@@ -14293,11 +14293,11 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 ```bash
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ./gradlew testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.remoteImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary
+  --tests com.bytedance.zgx.solin.multimodal.SharedInputTest.remoteImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
   ./gradlew testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.multimodal.SharedInputTest \
+  --tests com.bytedance.zgx.solin.multimodal.SharedInputTest \
   --rerun-tasks
 ```
 
@@ -14329,7 +14329,7 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests com.bytedance.zgx.pocketmind.ModelCatalogTest
+    --tests com.bytedance.zgx.solin.ModelCatalogTest
 ```
 
 结果：
@@ -14365,15 +14365,15 @@ scripts/test_validation_scripts.sh
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest'
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorEvalFixturesTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
-    --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest'
+    --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest' \
+    --tests 'com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
@@ -14432,8 +14432,8 @@ scripts/test_validation_scripts.sh
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
-    --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest'
+    --tests 'com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest' \
+    --tests 'com.bytedance.zgx.solin.device.UiTargetResolverTest'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
@@ -14485,9 +14485,9 @@ scripts/test_validation_scripts.sh
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.ChatUiStateModelVerificationTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest'
+    --tests 'com.bytedance.zgx.solin.ChatUiStateModelVerificationTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorPlanningTraceProjectorTest'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
@@ -14544,9 +14544,9 @@ scripts/test_validation_scripts.sh
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest' \
-    --tests 'com.bytedance.zgx.pocketmind.ChatUiStateModelVerificationTest' \
-    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+    --tests 'com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest' \
+    --tests 'com.bytedance.zgx.solin.ChatUiStateModelVerificationTest' \
+    --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
@@ -14599,9 +14599,9 @@ bash -n scripts/record_release_flow_evidence.sh \
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest' \
-    --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent' \
-    --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.registersCurrentScreenshotOcrToolSpec'
+    --tests 'com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContractTest' \
+    --tests 'com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent' \
+    --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.registersCurrentScreenshotOcrToolSpec'
 
 scripts/test_validation_scripts.sh
 
@@ -14809,11 +14809,11 @@ Roadmap 状态：
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew :app:testDebugUnitTest \
-    --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
-    --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
-    --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateDeviceOutputKeysRemainDeclaredInOutputSchemas' \
-    --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
-    --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace'
+    --tests 'com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest' \
+    --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
+    --tests 'com.bytedance.zgx.solin.tool.ToolRegistryTest.privateDeviceOutputKeysRemainDeclaredInOutputSchemas' \
+    --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
+    --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace'
 
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
@@ -15145,8 +15145,8 @@ git diff --check
 
 scripts/verify_ai_behavior_eval.sh \
   --require-boundary-map \
-  --trace-diff /tmp/pocketmind-ai-behavior-trace-diff.jsonl \
-  --report /tmp/pocketmind-ai-behavior-eval.properties
+  --trace-diff /tmp/solin-ai-behavior-trace-diff.jsonl \
+  --report /tmp/solin-ai-behavior-eval.properties
 
 # 本地生成 fake agent_loop_runtime actual trace 后运行 strict verifier：
 scripts/verify_ai_behavior_eval.sh \
@@ -15203,9 +15203,9 @@ Roadmap 状态：
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   ./gradlew testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDraftIsDiscardedWhenSwitchingToReadyLocalMode \
-  --tests com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.localImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary \
-  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest
+  --tests com.bytedance.zgx.solin.SolinViewModelTest.remoteImageDraftIsDiscardedWhenSwitchingToReadyLocalMode \
+  --tests com.bytedance.zgx.solin.multimodal.SharedInputTest.localImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary \
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest
 
 scripts/verify_privacy_review.sh \
   --report build/verification/privacy-review-current.properties || true
@@ -15314,12 +15314,12 @@ bash -n scripts/verify_model_capability_profiles.sh \
   scripts/test_validation_scripts.sh scripts/verify_local.sh
 
 scripts/verify_model_capability_profiles.sh \
-  --report /tmp/pocketmind-model-capability-profiles.properties
+  --report /tmp/solin-model-capability-profiles.properties
 
 # 本地 memory profile remoteEligible=true 负例：
 MODEL_CAPABILITY_PROFILES_FILE=/tmp/<generated>/bad-local-remote.json \
   scripts/verify_model_capability_profiles.sh \
-  --report /tmp/pocketmind-model-capability-bad.properties
+  --report /tmp/solin-model-capability-bad.properties
 ```
 
 结果：
@@ -15448,10 +15448,10 @@ bash -n scripts/verify_model_memory_multimodal_local_gates.sh \
   scripts/test_validation_scripts.sh
 
 scripts/verify_capability_matrix.sh \
-  --report /tmp/pocketmind-capability-matrix.properties
+  --report /tmp/solin-capability-matrix.properties
 
 scripts/verify_model_memory_multimodal_local_gates.sh \
-  --report /tmp/pocketmind-model-memory-multimodal.properties
+  --report /tmp/solin-model-memory-multimodal.properties
 
 # fake actual trace only; no device/emulator
 scripts/verify_ai_behavior_eval.sh ... --reject-allowed-failures
@@ -15461,7 +15461,7 @@ DEFER_DEVICE_TESTS=1 scripts/run_real_app_search_eval.sh
 DEFER_PERF_BASELINE=1 scripts/collect_perf_baseline.sh
 DEFER_EMULATOR_MATRIX=1 scripts/regression_emulator_api_matrix.sh
 
-python3 -m json.tool docs/roadmap_gap_matrix.json >/tmp/pocketmind-roadmap-gap-matrix.json
+python3 -m json.tool docs/roadmap_gap_matrix.json >/tmp/solin-roadmap-gap-matrix.json
 git diff --check
 ```
 
@@ -15531,16 +15531,16 @@ Roadmap 状态：
 ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
 
 ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
-  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest
+  --tests com.bytedance.zgx.solin.ui.SolinScreenDisplayTest \
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest
 
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 
 adb -s fb6272c install -r -t app/build/outputs/apk/debug/app-debug.apk
 adb -s fb6272c shell am start -W -S -a android.intent.action.MAIN \
   -c android.intent.category.LAUNCHER \
-  -n com.bytedance.zgx.pocketmind/.MainActivity
-adb -s fb6272c shell uiautomator dump /sdcard/pocketmind-window.xml
+  -n com.bytedance.zgx.solin/.MainActivity
+adb -s fb6272c shell uiautomator dump /sdcard/solin-window.xml
 adb -s fb6272c logcat -d -v time
 ```
 
@@ -15550,15 +15550,15 @@ adb -s fb6272c logcat -d -v time
 - 通过：目标文案/能力矩阵文档单测。
 - 通过：`:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`。
 - 通过：真机 `fb6272c`（Xiaomi 23127PN0CC / API 36 / arm64-v8a）安装 debug APK 并启动
-  PocketMind，UI dump 证明 `更多` 可点击区域为 `[1044,152][1188,296]`。
-- 通过：点击 `更多` 后，UI dump package 为 `com.bytedance.zgx.pocketmind`，菜单包含
+  Solin，UI dump 证明 `更多` 可点击区域为 `[1044,152][1188,296]`。
+- 通过：点击 `更多` 后，UI dump package 为 `com.bytedance.zgx.solin`，菜单包含
   `新建会话`、`设备资源`、`模型管理`、`隐私说明`、`后台任务`，其中 `设备资源`
   bounds 为 `[714,446][1170,590]`。
 - 通过：资源详情 sheet 显示 `设备资源 · 流畅`、`App 内存`、`可用 RAM`、`App CPU`、
   `温度`、`高级指标` 和 `Heap`；没有旧的 `20%` 大号 badge 文本。
 - 通过：logcat 未发现 fatal/ANR 关键字。
 - 预期风险记录：定向
-  `com.bytedance.zgx.pocketmind.MainActivityCompactResourceUiTest`
+  `com.bytedance.zgx.solin.MainActivityCompactResourceUiTest`
   instrumentation 在同一 MIUI 真机上 180 秒超时；本轮按测试通道风险记录，不能替代 release
   physical-device evidence。
 - 证据边界：本轮 UI dump、截图和 logcat 只在人工调试会话中检查，未保留为
@@ -15592,14 +15592,14 @@ rg -n "Screen/OCR Safety Docs Minimum Loop|Safety/Docs 最小闭环|不自动进
   docs/screen_ocr_agent_optimization_plan.md docs/privacy_notice.md docs/validation_report.md
 git diff --check -- docs/screen_ocr_agent_optimization_plan.md docs/privacy_notice.md docs/validation_report.md
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
-  --tests com.bytedance.zgx.pocketmind.device.ScreenObservationContractTest \
-  --tests com.bytedance.zgx.pocketmind.device.UiTargetResolverTest \
-  --tests com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest \
-  --tests com.bytedance.zgx.pocketmind.multimodal.ImageTextExtractorTest \
-  --tests com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
-  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest \
-  --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest
+  --tests com.bytedance.zgx.solin.device.ScreenObservationContractTest \
+  --tests com.bytedance.zgx.solin.device.UiTargetResolverTest \
+  --tests com.bytedance.zgx.solin.device.UiAutomatorDumpReplayTest \
+  --tests com.bytedance.zgx.solin.multimodal.ImageTextExtractorTest \
+  --tests com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContractTest \
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.solin.tool.ToolSchemaContractTest
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest
 ```
 

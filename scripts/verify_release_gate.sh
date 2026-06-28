@@ -272,10 +272,10 @@ fi
 
 if [[ "$VERIFY_CONTRACT_TESTS" == "1" ]]; then
   if ! "$GRADLE_CMD" :app:testDebugUnitTest \
-    --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
-    --tests com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest \
-    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest \
-    --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest; then
+    --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest \
+    --tests com.bytedance.zgx.solin.docs.ModelManifestDocumentationTest \
+    --tests com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest \
+    --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest; then
     write_simple_child_report \
       "$ARTIFACT_DIR/contract-tests.properties" \
       failed \

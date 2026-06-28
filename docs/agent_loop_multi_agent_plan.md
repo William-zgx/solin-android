@@ -1,8 +1,8 @@
-# PocketMind Agent Loop 与多 Agent 协同历史方案
+# Solin Agent Loop 与多 Agent 协同历史方案
 
 ## 历史说明
 
-本文是历史设计案，记录 PocketMind 从“聊天 + 动作草稿”迁移到统一 Agent Loop
+本文是历史设计案，记录 Solin 从“聊天 + 动作草稿”迁移到统一 Agent Loop
 的早期思路。它不是当前架构合同。
 
 当前模块职责、已完成能力、待补边界和回归命令以这些文档为准：

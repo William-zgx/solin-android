@@ -23,9 +23,9 @@ TEST_INSTALL_OUTPUT_FILE="${TEST_INSTALL_OUTPUT_FILE:-${ARTIFACT_DIR}/install-an
 EMULATOR_LOG="${ARTIFACT_DIR}-emulator.log"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-180}"
 EMULATOR_SELECT_TIMEOUT_SECONDS="${EMULATOR_SELECT_TIMEOUT_SECONDS:-10}"
-UPGRADE_TEST_CLASSES="${UPGRADE_TEST_CLASSES:-com.bytedance.zgx.pocketmind.MainActivitySmokeTest}"
+UPGRADE_TEST_CLASSES="${UPGRADE_TEST_CLASSES:-com.bytedance.zgx.solin.MainActivitySmokeTest}"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
@@ -311,7 +311,7 @@ else
   [[ -n "$BASE_REF" ]] || BASE_REF="$(default_base_ref)"
   [[ -n "$BASE_REF" ]] || fail base-ref base-ref-missing "Could not infer an upgrade base ref from app source history."
   BASE_COMMIT="$(git rev-parse "$BASE_REF")"
-  BASE_WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/pocketmind-upgrade-base.XXXXXX")"
+  BASE_WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/solin-upgrade-base.XXXXXX")"
   rm -rf "$BASE_WORKTREE"
   git worktree add --detach "$BASE_WORKTREE" "$BASE_COMMIT" >/dev/null
 

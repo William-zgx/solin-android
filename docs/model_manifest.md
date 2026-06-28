@@ -1,6 +1,6 @@
 # Model Manifest
 
-This file owns the provenance contract for PocketMind recommended model
+This file owns the provenance contract for Solin recommended model
 artifacts. It is the source used by model license review and release gates for
 model ID, repository, pinned upstream revision, byte size, and SHA-256 digest.
 Runtime privacy behavior belongs in `docs/privacy_notice.md`; internal
@@ -16,7 +16,7 @@ model-included packaging belongs in `docs/bundled_model_package.md`.
   release candidate.
 - Hugging Face authorization is an access boundary only. A read token may allow
   downloading a gated asset after the user or builder has accepted upstream
-  terms; it does not grant PocketMind permission to redistribute that asset.
+  terms; it does not grant Solin permission to redistribute that asset.
 - APK signing proves package identity for Android install/update purposes. It
   does not prove model provenance or grant model authorization.
 - Chat model token budgets are runtime context-window limits. They are not API

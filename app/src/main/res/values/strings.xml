@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PocketMind</string>
-    <string name="accessibility_service_description">在你确认 PocketMind 工具后，观察当前屏幕暴露的可访问状态，并在确认流程内执行点击、输入、滚动或返回；不会读取截图像素。</string>
+    <string name="app_name">栖知</string>
+    <string name="app_subtitle">让 AI 住在手机里</string>
+    <string name="accessibility_service_description">在你确认栖知工具后，观察当前屏幕暴露的可访问状态，并在确认流程内执行点击、输入、滚动或返回；不会读取截图像素。</string>
 </resources>

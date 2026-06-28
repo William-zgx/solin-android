@@ -18,7 +18,7 @@ INSTRUMENTATION_OUTPUT_FILE="${DEVICE_ARTIFACT_DIR}/instrumentation.txt"
 LOGCAT_FILE="${DEVICE_ARTIFACT_DIR}/logcat.txt"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-com.bytedance.zgx.pocketmind.PocketMindAccessibilityServiceDeviceControlTest}"
+INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-com.bytedance.zgx.solin.SolinAccessibilityServiceDeviceControlTest}"
 DEVICE_CONTROL_SKIP_BUILD="${DEVICE_CONTROL_SKIP_BUILD:-${SKIP_BUILD:-0}}"
 DEVICE_CONTROL_SKIP_INSTALL="${DEVICE_CONTROL_SKIP_INSTALL:-${SKIP_INSTALL:-0}}"
 DEVICE_CONTROL_REQUIRE_ACCESSIBILITY="${DEVICE_CONTROL_REQUIRE_ACCESSIBILITY:-1}"
@@ -27,17 +27,17 @@ DEVICE_CONTROL_DEVICE_RUNNER="${DEVICE_CONTROL_DEVICE_RUNNER:-debug_broadcast}"
 
 UNIT_TEST_ARGS=(
   :app:testDebugUnitTest
-  --tests "com.bytedance.zgx.pocketmind.AndroidManifestTest.declaresAccessibilityServiceForScreenStateAndConfirmedGestures"
-  --tests "com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.deviceControlToolsDeclareAccessibilityControlSpecialAccessOnly"
-  --tests "com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest.boundaryPermissionsCannotSkipConfirmationPolicy"
-  --tests "com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCurrentAppUiSkillsAsObserveActVerifyTemplates"
-  --tests "com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest.validatingExecutorRejectsInvalidDeviceControlArguments"
-  --tests "com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest.deviceControlPermissionDeniedKeepsRecoverableLocalOnlyBoundary"
-  --tests "com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired"
-  --tests "com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.localOnlyDeviceContextOutputsRequireLocalModelMetadata"
-  --tests "com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validateResultRejectsPrivateOutputWithRequiresLocalModelFalse"
-  --tests "com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.failedDeviceControlObservationPlansSafeObserveCheckpoint"
-  --tests "com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain"
+  --tests "com.bytedance.zgx.solin.AndroidManifestTest.declaresAccessibilityServiceForScreenStateAndConfirmedGestures"
+  --tests "com.bytedance.zgx.solin.AgentRuntimePermissionPolicyTest.deviceControlToolsDeclareAccessibilityControlSpecialAccessOnly"
+  --tests "com.bytedance.zgx.solin.safety.SafetyPolicyTest.boundaryPermissionsCannotSkipConfirmationPolicy"
+  --tests "com.bytedance.zgx.solin.skill.BuiltInSkillRuntimeTest.plansCurrentAppUiSkillsAsObserveActVerifyTemplates"
+  --tests "com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.validatingExecutorRejectsInvalidDeviceControlArguments"
+  --tests "com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.deviceControlPermissionDeniedKeepsRecoverableLocalOnlyBoundary"
+  --tests "com.bytedance.zgx.solin.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired"
+  --tests "com.bytedance.zgx.solin.tool.ToolRegistryTest.localOnlyDeviceContextOutputsRequireLocalModelMetadata"
+  --tests "com.bytedance.zgx.solin.tool.ToolRegistryTest.validateResultRejectsPrivateOutputWithRequiresLocalModelFalse"
+  --tests "com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.failedDeviceControlObservationPlansSafeObserveCheckpoint"
+  --tests "com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain"
 )
 
 mkdir -p "$ARTIFACT_DIR"
@@ -106,7 +106,7 @@ if [[ "$DEVICE_CONTROL_DEVICE_RUNNER" == "instrumentation" ]]; then
     INSTRUMENTATION_CLASS="$INSTRUMENTATION_CLASS" \
     SKIP_BUILD="$DEVICE_CONTROL_SKIP_BUILD" \
     SKIP_INSTALL="$DEVICE_CONTROL_SKIP_INSTALL" \
-    REQUIRE_POCKETMIND_ACCESSIBILITY="$DEVICE_CONTROL_REQUIRE_ACCESSIBILITY" \
+    REQUIRE_SOLIN_ACCESSIBILITY="$DEVICE_CONTROL_REQUIRE_ACCESSIBILITY" \
     RESET_APP_DATA_AFTER_TESTS="$DEVICE_CONTROL_RESET_APP_DATA_AFTER_TESTS" \
     scripts/install_and_test_device.sh
 else

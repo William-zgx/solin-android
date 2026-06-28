@@ -97,9 +97,9 @@ scripts/install_review_device.sh
 
 ```bash
 ANDROID_SERIAL=<physical-device-serial> \
-POCKETMIND_REVIEW_REMOTE_BASE_URL=<https-base-url> \
-POCKETMIND_REVIEW_REMOTE_MODEL=<model-name> \
-POCKETMIND_REVIEW_REMOTE_API_KEY=<api-key> \
+SOLIN_REVIEW_REMOTE_BASE_URL=<https-base-url> \
+SOLIN_REVIEW_REMOTE_MODEL=<model-name> \
+SOLIN_REVIEW_REMOTE_API_KEY=<api-key> \
 ARTIFACT_DIR=build/verification/manual-acceptance-install-remote-current \
 scripts/install_review_device.sh
 ```
@@ -126,7 +126,7 @@ SIGNED=app/build/outputs/apk/release/app-release-local-signed.apk
   "$ALIGNED"
 "$BUILD_TOOLS/apksigner" verify --verbose "$SIGNED"
 adb -s "$ANDROID_SERIAL" install -r "$SIGNED"
-adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.pocketmind/.MainActivity
+adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.solin/.MainActivity
 ```
 
 覆盖安装后重点确认：已有 Room/DataStore 状态、会话、远程配置和已下载模型按预期保留；如果之前选择过远程模式，需手动切回本地再判断 bundled/local 模型是否可用。
@@ -140,7 +140,7 @@ adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.pocketmind/.MainAct
 验收“安装后直接可用”的内部体验包时，使用 `bundledModels` split 包，不使用普通 debug/release 单 APK。该路径会把推荐的 E2B、E4B、本地记忆模型和设备动作模型打入 install-time modelpack split，并在首启复制、校验、注册到本地模型目录。
 
 ```bash
-export POCKETMIND_BUNDLED_MODELS_DIR=/path/to/verified/model/files
+export SOLIN_BUNDLED_MODELS_DIR=/path/to/verified/model/files
 ALLOW_DEBUG_KEYSTORE=1 \
 INSTALL_ON_DEVICE=1 \
 ANDROID_SERIAL=<physical-device-serial> \
@@ -151,7 +151,7 @@ scripts/package_bundled_models.sh
 
 至少确认：
 
-- `pm path com.bytedance.zgx.pocketmind` 同时列出 `base.apk` 和四个 split：`split_modelpackE2b.apk`、`split_modelpackE2bExtra.apk`、`split_modelpackE4b.apk`、`split_modelpackE4bExtra.apk`。
+- `pm path com.bytedance.zgx.solin` 同时列出 `base.apk` 和四个 split：`split_modelpackE2b.apk`、`split_modelpackE2bExtra.apk`、`split_modelpackE4b.apk`、`split_modelpackE4bExtra.apk`。
 - 模型管理页中 E2B、E4B、本地记忆模型、设备动作模型都显示 `SHA-256 已校验`。
 - 新装或切回本地后，首页显示 `本机模型已就绪`，当前模型为基础对话 E2B，健康状态为 `已加载`，并标明 GPU 或 CPU backend。
 - 本地记忆文件 SHA 校验通过不等于语义记忆 runtime 已可用；embedding runtime probe 失败时，UI 可显示 `已安装待探测` 或 `已回退轻量索引`。
@@ -188,14 +188,14 @@ EMULATOR_ARGS= scripts/capture_x86_release_screenshots.sh
 ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 ```
 
-真实远程模型 debug 检查使用 `scripts/live_remote_emulator.sh`。脚本默认只选 emulator；要在真机上跑必须显式设置 `POCKETMIND_LIVE_REMOTE_TARGET=device`。远程 base URL、model、API key 必须来自环境变量或静默 stdin，报告不得记录实际 key。
+真实远程模型 debug 检查使用 `scripts/live_remote_emulator.sh`。脚本默认只选 emulator；要在真机上跑必须显式设置 `SOLIN_LIVE_REMOTE_TARGET=device`。远程 base URL、model、API key 必须来自环境变量或静默 stdin，报告不得记录实际 key。
 
 ```bash
-POCKETMIND_LIVE_REMOTE_TARGET=device \
+SOLIN_LIVE_REMOTE_TARGET=device \
 ANDROID_SERIAL=<physical-device-serial> \
-POCKETMIND_LIVE_REMOTE_BASE_URL=<https-base-url> \
-POCKETMIND_LIVE_REMOTE_MODEL=<model-name> \
-POCKETMIND_LIVE_REMOTE_API_KEY=<api-key> \
+SOLIN_LIVE_REMOTE_BASE_URL=<https-base-url> \
+SOLIN_LIVE_REMOTE_MODEL=<model-name> \
+SOLIN_LIVE_REMOTE_API_KEY=<api-key> \
 scripts/live_remote_emulator.sh
 ```
 

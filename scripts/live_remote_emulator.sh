@@ -9,7 +9,7 @@ export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
-LIVE_REMOTE_TARGET="${POCKETMIND_LIVE_REMOTE_TARGET:-emulator}"
+LIVE_REMOTE_TARGET="${SOLIN_LIVE_REMOTE_TARGET:-emulator}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/live-remote-${LIVE_REMOTE_TARGET}-$(date +%Y%m%d-%H%M%S)}"
 REPORT_FILE="${REPORT_FILE:-${ARTIFACT_DIR}/live-remote-${LIVE_REMOTE_TARGET}.properties}"
 SCREENSHOT_FILE="${ARTIFACT_DIR}/live-remote-result.png"
@@ -18,16 +18,16 @@ INPUT_DUMP_FILE="${ARTIFACT_DIR}/live-remote-before-input.xml"
 SEND_READY_DUMP_FILE="${ARTIFACT_DIR}/live-remote-before-send.xml"
 AFTER_SEND_DUMP_FILE="${ARTIFACT_DIR}/live-remote-after-send.xml"
 LOGCAT_FILE="${ARTIFACT_DIR}/live-remote-logcat.txt"
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 DEBUG_CONFIG_RECEIVER="${PACKAGE_NAME}/.debug.DebugRemoteConfigReceiver"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 
-LIVE_REMOTE_BASE_URL="${POCKETMIND_LIVE_REMOTE_BASE_URL:-}"
-LIVE_REMOTE_MODEL="${POCKETMIND_LIVE_REMOTE_MODEL:-}"
-LIVE_REMOTE_API_KEY="${POCKETMIND_LIVE_REMOTE_API_KEY:-}"
-LIVE_REMOTE_PROMPT="${POCKETMIND_LIVE_REMOTE_PROMPT:-return uppercase token formed by joining word pocketmind with words live and ok using underscores only}"
-LIVE_REMOTE_EXPECTED_TEXT="${POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT:-POCKETMIND_LIVE_OK}"
+LIVE_REMOTE_BASE_URL="${SOLIN_LIVE_REMOTE_BASE_URL:-}"
+LIVE_REMOTE_MODEL="${SOLIN_LIVE_REMOTE_MODEL:-}"
+LIVE_REMOTE_API_KEY="${SOLIN_LIVE_REMOTE_API_KEY:-}"
+LIVE_REMOTE_PROMPT="${SOLIN_LIVE_REMOTE_PROMPT:-return uppercase token formed by joining word solin with words live and ok using underscores only}"
+LIVE_REMOTE_EXPECTED_TEXT="${SOLIN_LIVE_REMOTE_EXPECTED_TEXT:-SOLIN_LIVE_OK}"
 SELECTED_SERIAL=""
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 API_KEY_SOURCE=""
@@ -104,7 +104,7 @@ select_device() {
     emulator|device)
       ;;
     *)
-      fail target invalid-target "POCKETMIND_LIVE_REMOTE_TARGET must be emulator or device."
+      fail target invalid-target "SOLIN_LIVE_REMOTE_TARGET must be emulator or device."
       ;;
   esac
 
@@ -147,8 +147,8 @@ capture_failure_evidence() {
   fi
   mkdir -p "$ARTIFACT_DIR"
   "$ADB_BIN" -s "$SELECTED_SERIAL" exec-out screencap -p > "$SCREENSHOT_FILE" 2>/dev/null || true
-  "$ADB_BIN" -s "$SELECTED_SERIAL" shell uiautomator dump /sdcard/pocketmind-live-remote.xml >/dev/null 2>&1 || true
-  "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/pocketmind-live-remote.xml "$UI_DUMP_FILE" >/dev/null 2>&1 || true
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell uiautomator dump /sdcard/solin-live-remote.xml >/dev/null 2>&1 || true
+  "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/solin-live-remote.xml "$UI_DUMP_FILE" >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 300 > "$LOGCAT_FILE" 2>/dev/null || true
 }
 
@@ -279,14 +279,14 @@ trap on_exit EXIT
 
 [[ -x "$ADB_BIN" ]] || fail adb adb-missing "adb not found at $ADB_BIN."
 [[ -n "$LIVE_REMOTE_BASE_URL" ]] ||
-  fail configuration missing-base-url "Set POCKETMIND_LIVE_REMOTE_BASE_URL before running live remote validation."
+  fail configuration missing-base-url "Set SOLIN_LIVE_REMOTE_BASE_URL before running live remote validation."
 [[ -n "$LIVE_REMOTE_MODEL" ]] ||
-  fail configuration missing-model "Set POCKETMIND_LIVE_REMOTE_MODEL before running live remote validation."
+  fail configuration missing-model "Set SOLIN_LIVE_REMOTE_MODEL before running live remote validation."
 [[ -n "$LIVE_REMOTE_API_KEY" ]] ||
-  fail configuration missing-api-key "Set POCKETMIND_LIVE_REMOTE_API_KEY before running live remote validation."
-BASE_URL_SOURCE="POCKETMIND_LIVE_REMOTE_BASE_URL"
-MODEL_SOURCE="POCKETMIND_LIVE_REMOTE_MODEL"
-API_KEY_SOURCE="POCKETMIND_LIVE_REMOTE_API_KEY"
+  fail configuration missing-api-key "Set SOLIN_LIVE_REMOTE_API_KEY before running live remote validation."
+BASE_URL_SOURCE="SOLIN_LIVE_REMOTE_BASE_URL"
+MODEL_SOURCE="SOLIN_LIVE_REMOTE_MODEL"
+API_KEY_SOURCE="SOLIN_LIVE_REMOTE_API_KEY"
 
 if ! scripts/doctor.sh --device; then
   fail doctor doctor-device-failed "Android $LIVE_REMOTE_TARGET environment check failed."
@@ -317,7 +317,7 @@ if ! "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null; then
 fi
 sleep 2
 read -r screen_width screen_height <<<"$(read_screen_size)"
-if ! dump_ui /sdcard/pocketmind-live-remote-before-input.xml "$INPUT_DUMP_FILE"; then
+if ! dump_ui /sdcard/solin-live-remote-before-input.xml "$INPUT_DUMP_FILE"; then
   fail evidence input-ui-dump-failed "Live remote input UI dump failed."
 fi
 tap_node_from_dump edittext "" "$INPUT_DUMP_FILE" prompt-field-not-found
@@ -330,12 +330,12 @@ if ! "${ADB[@]}" shell input keyevent 4; then
   fail ui-input keyboard-dismiss-failed "Keyboard dismiss failed."
 fi
 sleep 0.8
-if ! dump_ui /sdcard/pocketmind-live-remote-before-send.xml "$SEND_READY_DUMP_FILE"; then
+if ! dump_ui /sdcard/solin-live-remote-before-send.xml "$SEND_READY_DUMP_FILE"; then
   fail evidence send-ready-ui-dump-failed "Live remote send-ready UI dump failed."
 fi
 tap_node_from_dump label "发送" "$SEND_READY_DUMP_FILE" send-button-not-found
 sleep 1
-if ! dump_ui /sdcard/pocketmind-live-remote-after-send.xml "$AFTER_SEND_DUMP_FILE"; then
+if ! dump_ui /sdcard/solin-live-remote-after-send.xml "$AFTER_SEND_DUMP_FILE"; then
   fail evidence after-send-ui-dump-failed "Live remote after-send UI dump failed."
 fi
 if grep -Fq "即将发送到远程模型" "$AFTER_SEND_DUMP_FILE"; then
@@ -344,15 +344,15 @@ if grep -Fq "即将发送到远程模型" "$AFTER_SEND_DUMP_FILE"; then
 else
   REMOTE_CONFIRMATION_HANDLED="false"
 fi
-sleep "${POCKETMIND_LIVE_REMOTE_WAIT_SECONDS:-45}"
+sleep "${SOLIN_LIVE_REMOTE_WAIT_SECONDS:-45}"
 
 if ! "${ADB[@]}" exec-out screencap -p > "$SCREENSHOT_FILE"; then
   fail evidence screenshot-capture-failed "Live remote screenshot capture failed."
 fi
-if ! "${ADB[@]}" shell uiautomator dump /sdcard/pocketmind-live-remote.xml >/dev/null; then
+if ! "${ADB[@]}" shell uiautomator dump /sdcard/solin-live-remote.xml >/dev/null; then
   fail evidence ui-dump-command-failed "Live remote UI dump command failed."
 fi
-if ! "${ADB[@]}" pull /sdcard/pocketmind-live-remote.xml "$UI_DUMP_FILE" >/dev/null; then
+if ! "${ADB[@]}" pull /sdcard/solin-live-remote.xml "$UI_DUMP_FILE" >/dev/null; then
   fail evidence ui-dump-pull-failed "Live remote UI dump pull failed."
 fi
 if ! "${ADB[@]}" logcat -d -t 300 > "$LOGCAT_FILE"; then

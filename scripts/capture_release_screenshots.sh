@@ -20,17 +20,17 @@ UI_DUMP_DIR="${ARTIFACT_DIR}/ui"
 LOGCAT_FILE="${ARTIFACT_DIR}/logcat.txt"
 EMULATOR_LOG="${ARTIFACT_DIR}-emulator.log"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 DEBUG_CONFIG_RECEIVER="${PACKAGE_NAME}/.debug.DebugRemoteConfigReceiver"
-DEBUG_APK="${DEBUG_APK:-app/build/outputs/apk/debug/app-debug.apk}"
-SKIP_STARTUP_MODEL_RUNTIME_EXTRA="com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
-DEBUG_SCREENSHOT_REMOTE_BASE_URL_EXTRA="com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_BASE_URL"
-DEBUG_SCREENSHOT_REMOTE_MODEL_NAME_EXTRA="com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
+DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+SKIP_STARTUP_MODEL_RUNTIME_EXTRA="com.bytedance.zgx.solin.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
+DEBUG_SCREENSHOT_REMOTE_BASE_URL_EXTRA="com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_BASE_URL"
+DEBUG_SCREENSHOT_REMOTE_MODEL_NAME_EXTRA="com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
 
-SCREENSHOT_REMOTE_BASE_URL="${POCKETMIND_SCREENSHOT_REMOTE_BASE_URL:-https://api.example.com/v1}"
-SCREENSHOT_REMOTE_MODEL="${POCKETMIND_SCREENSHOT_REMOTE_MODEL:-screenshot-evidence-model}"
-CONFIRMATION_PROMPT="${POCKETMIND_SCREENSHOT_CONFIRMATION_PROMPT:-summarize my clipboard and share it}"
+SCREENSHOT_REMOTE_BASE_URL="${SOLIN_SCREENSHOT_REMOTE_BASE_URL:-https://api.example.com/v1}"
+SCREENSHOT_REMOTE_MODEL="${SOLIN_SCREENSHOT_REMOTE_MODEL:-screenshot-evidence-model}"
+CONFIRMATION_PROMPT="${SOLIN_SCREENSHOT_CONFIRMATION_PROMPT:-summarize my clipboard and share it}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
 
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -187,7 +187,7 @@ clear_remote_config() {
 
 dump_ui() {
   local label="$1"
-  local device_file="/sdcard/pocketmind-release-${label}.xml"
+  local device_file="/sdcard/solin-release-${label}.xml"
   local local_file="${UI_DUMP_DIR}/${label}.xml"
   mkdir -p "$UI_DUMP_DIR"
   "${ADB[@]}" shell uiautomator dump "$device_file" >/dev/null
@@ -305,7 +305,7 @@ capture_screenshot() {
 screenshot_required_texts() {
   case "$1" in
     chat-home)
-      printf '%s\n' "PocketMind" "隐私优先的随身 AI 助手" "为什么装它" "模型管理"
+      printf '%s\n' "栖知" "让 AI 住在手机里" "为什么装它" "模型管理"
       ;;
     model-manager)
       printf '%s\n' "模型管理" "当前模型" "本地可用" "远程多模态可选"
@@ -333,7 +333,7 @@ from pathlib import Path
 name = sys.argv[1]
 xml_path = Path(sys.argv[2])
 required = {
-    "chat-home": ["PocketMind", "隐私优先的随身 AI 助手", "为什么装它", "模型管理"],
+    "chat-home": ["栖知", "让 AI 住在手机里", "为什么装它", "模型管理"],
     "model-manager": ["模型管理", "当前模型", "本地可用", "远程多模态可选"],
     "confirmation-sheet": ["即将发送到远程模型", "确认后才会", "取消"],
     "background-tasks-or-audit": ["后台任务", "最近审计日志", "最近 Agent 轨迹", "暂无运行中的后台任务"],
@@ -369,8 +369,8 @@ capture_failure_artifacts() {
   fi
   mkdir -p "$ARTIFACT_DIR"
   "$ADB_BIN" -s "$SELECTED_SERIAL" exec-out screencap -p > "${ARTIFACT_DIR}/failure.png" 2>/dev/null || true
-  "$ADB_BIN" -s "$SELECTED_SERIAL" shell uiautomator dump /sdcard/pocketmind-release-failure.xml >/dev/null 2>&1 || true
-  "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/pocketmind-release-failure.xml "${ARTIFACT_DIR}/failure.xml" >/dev/null 2>&1 || true
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell uiautomator dump /sdcard/solin-release-failure.xml >/dev/null 2>&1 || true
+  "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/solin-release-failure.xml "${ARTIFACT_DIR}/failure.xml" >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 300 > "$LOGCAT_FILE" 2>/dev/null || true
 }
 

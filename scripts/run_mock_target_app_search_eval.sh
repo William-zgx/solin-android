@@ -19,17 +19,17 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/mock-target-app-search-eval-$(d
 REPORT_FILE="${REPORT_FILE:-${ARTIFACT_DIR}/mock-target-app-search-eval.properties}"
 LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
-SKIP_POCKETMIND_INSTALL="${SKIP_POCKETMIND_INSTALL:-0}"
+SKIP_SOLIN_INSTALL="${SKIP_SOLIN_INSTALL:-0}"
 KEEP_MOCK_APPS="${KEEP_MOCK_APPS:-0}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+PACKAGE_NAME="com.bytedance.zgx.solin"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 RECEIVER_NAME="${PACKAGE_NAME}/.debug.DeviceControlEvalReceiver"
 ACTION_NAME="${PACKAGE_NAME}.debug.DEVICE_CONTROL_EVAL"
 RESULT_FILE="files/device_control_eval_result.properties"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-POCKETMIND_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.PocketMindAccessibilityService"
+SOLIN_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.SolinAccessibilityService"
 
 SELECTED_SERIAL=""
 STATUS="failed"
@@ -52,7 +52,7 @@ write_report() {
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=$SELECTED_SERIAL"
     echo "skip_build=$SKIP_BUILD"
-    echo "skip_pocketmind_install=$SKIP_POCKETMIND_INSTALL"
+    echo "skip_solin_install=$SKIP_SOLIN_INSTALL"
     echo "keep_mock_apps=$KEEP_MOCK_APPS"
     echo "run_count=$RUN_COUNT"
     echo "pass_count=$PASS_COUNT"
@@ -143,11 +143,11 @@ fi
 if [[ "$SKIP_BUILD" != "1" ]]; then
   "$GRADLE_CMD" assembleDebug
 fi
-if [[ "$SKIP_POCKETMIND_INSTALL" != "1" ]]; then
+if [[ "$SKIP_SOLIN_INSTALL" != "1" ]]; then
   "${ADB[@]}" install -r "$DEBUG_APK"
 fi
 
-pocketmind_accessibility_enabled() {
+solin_accessibility_enabled() {
   local dump bound_section enabled_line
   dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
   bound_section="$(awk '
@@ -156,12 +156,12 @@ pocketmind_accessibility_enabled() {
     /Enabled services:/ {printing = 0}
   ' <<<"$dump")"
   enabled_line="$(grep -m 1 'Enabled services:' <<<"$dump" || true)"
-  grep -Fq "$POCKETMIND_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
+  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
 }
 
-if ! pocketmind_accessibility_enabled; then
-  fail_with_reason pocketmind-accessibility-not-enabled \
-    "PocketMind Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_POCKETMIND_INSTALL=1."
+if ! solin_accessibility_enabled; then
+  fail_with_reason solin-accessibility-not-enabled \
+    "栖知 Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_SOLIN_INSTALL=1."
 fi
 
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
@@ -184,7 +184,7 @@ build_mock_app() {
   source_dir="$(cd "$source_dir" && pwd)"
   local class_dir="${source_dir}/classes"
   local dex_dir="${source_dir}/dex"
-  local java_pkg_path="com/bytedance/zgx/pocketmind/mocktarget"
+  local java_pkg_path="com/bytedance/zgx/solin/mocktarget"
   local signed_apk="$(cd "$ARTIFACT_DIR" && pwd)/${package_name}.apk"
 
   rm -rf "$source_dir"
@@ -192,7 +192,7 @@ build_mock_app() {
   cat > "${source_dir}/AndroidManifest.xml" <<EOF
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="${package_name}">
   <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="${app_title}">
-    <activity android:name="com.bytedance.zgx.pocketmind.mocktarget.MockTargetActivity" android:exported="true">
+    <activity android:name="com.bytedance.zgx.solin.mocktarget.MockTargetActivity" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
@@ -202,7 +202,7 @@ build_mock_app() {
 </manifest>
 EOF
   cat > "${source_dir}/src/${java_pkg_path}/MockTargetActivity.java" <<EOF
-package com.bytedance.zgx.pocketmind.mocktarget;
+package com.bytedance.zgx.solin.mocktarget;
 
 import android.app.Activity;
 import android.os.Bundle;

@@ -7,8 +7,8 @@ import java.net.URI
 import java.security.MessageDigest
 
 val huggingFaceOAuthClientId: String = providers
-    .gradleProperty("pocketmind.huggingFaceOAuthClientId")
-    .orElse(providers.environmentVariable("POCKETMIND_HF_OAUTH_CLIENT_ID"))
+    .gradleProperty("solin.huggingFaceOAuthClientId")
+    .orElse(providers.environmentVariable("SOLIN_HF_OAUTH_CLIENT_ID"))
     .orElse("")
     .get()
 
@@ -25,19 +25,19 @@ val zvecNativeBaseUrl = "https://github.com/zvec-ai/zvec-dart/releases/download/
 val zvecArm64LibSha256 = "708a58bf32a232890fd3e761bf662c05357aca9e0a4ba2783e4a9f86b78bbe3f"
 val zvecCApiHeaderSha256 = "ea6b3f3373f29799a885442bf51ec1604426055e5b7b56ea2e12d8ccd70b2af0"
 val zvecAndroidArm64ZipSeed = providers
-    .gradleProperty("pocketmind.zvecAndroidArm64Zip")
-    .orElse(providers.environmentVariable("POCKETMIND_ZVEC_ANDROID_ARM64_ZIP"))
+    .gradleProperty("solin.zvecAndroidArm64Zip")
+    .orElse(providers.environmentVariable("SOLIN_ZVEC_ANDROID_ARM64_ZIP"))
     .orNull
 val zvecCApiHeaderSeed = providers
-    .gradleProperty("pocketmind.zvecCApiHeader")
-    .orElse(providers.environmentVariable("POCKETMIND_ZVEC_C_API_HEADER"))
+    .gradleProperty("solin.zvecCApiHeader")
+    .orElse(providers.environmentVariable("SOLIN_ZVEC_C_API_HEADER"))
     .orNull
 val bundledModelsSourceDir = providers
-    .gradleProperty("pocketmind.bundledModelsDir")
-    .orElse(providers.environmentVariable("POCKETMIND_BUNDLED_MODELS_DIR"))
+    .gradleProperty("solin.bundledModelsDir")
+    .orElse(providers.environmentVariable("SOLIN_BUNDLED_MODELS_DIR"))
 val bundledModelsHuggingFaceToken = providers
-    .gradleProperty("pocketmind.huggingFaceToken")
-    .orElse(providers.environmentVariable("POCKETMIND_HF_TOKEN"))
+    .gradleProperty("solin.huggingFaceToken")
+    .orElse(providers.environmentVariable("SOLIN_HF_TOKEN"))
 val bundledModelsAssetRoot = layout.buildDirectory.dir("generated/bundledModels/assets")
 val bundledModelsCacheRoot = layout.buildDirectory.dir("bundled-model-cache")
 val bundledModelPackModules = setOf(
@@ -47,7 +47,7 @@ val bundledModelPackModules = setOf(
     ":modelpackE4bExtra",
 )
 val includeBundledModelPacks = providers
-    .gradleProperty("pocketmind.includeBundledModelPacks")
+    .gradleProperty("solin.includeBundledModelPacks")
     .map(String::toBoolean)
     .orElse(false)
     .get() || gradle.startParameter.taskNames.any { taskName ->
@@ -185,7 +185,7 @@ plugins {
 }
 
 android {
-    namespace = "com.bytedance.zgx.pocketmind"
+    namespace = "com.bytedance.zgx.solin"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
     if (includeBundledModelPacks) {
@@ -193,7 +193,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.bytedance.zgx.pocketmind"
+        applicationId = "com.bytedance.zgx.solin"
         minSdk = 28
         targetSdk = 36
         versionCode = 1
@@ -373,7 +373,7 @@ val prepareBundledModelsAssets by tasks.registering(PrepareBundledModelAssetsTas
     inputs.property("bundledModelsSourceDir", bundledModelsSourceDir.orNull ?: "")
 
     doLast {
-        val assetDir = outputDir.get().asFile.resolve("pocketmind-bundled-models")
+        val assetDir = outputDir.get().asFile.resolve("solin-bundled-models")
         assetDir.deleteRecursively()
         assetDir.mkdirs()
 

@@ -27,7 +27,7 @@ flowchart TD
 ## Scope And Version
 
 - [ ] Release version name, version code, target channel, owner, reviewer, date, release branch, commit SHA, and changelog are final.
-- [ ] Current Gradle identity is recorded: `applicationId=com.bytedance.zgx.pocketmind`, `minSdk=28`, `targetSdk=36`, current `versionCode=1`, and current `versionName=0.1.0`.
+- [ ] Current Gradle identity is recorded: `applicationId=com.bytedance.zgx.solin`, `minSdk=28`, `targetSdk=36`, current `versionCode=1`, and current `versionName=0.1.0`.
 - [ ] `versionCode` is higher than every artifact ever uploaded to the same Play application; rejected uploads still count.
 - [ ] Target audience is explicit: internal testing, closed testing, open testing, staged production, or full production.
 - [ ] Known unsupported or constrained capabilities are called out: continuous screen capture, semantic screen understanding, full PDF layout parsing, legacy Office parsing, arbitrary media OCR, and local image semantic understanding unless a verified vision-capable local model is active. One-shot current-screen/recent-image OCR remains confirmation-gated and `LocalOnly`.

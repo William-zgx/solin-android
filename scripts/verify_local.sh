@@ -53,7 +53,7 @@ scripts/scan_android_artifacts.sh \
   --report build/verification/local/android-artifact-scan.properties
 
 BADGING="$("$AAPT" dump badging "$DEBUG_APK")"
-grep -q "package: name='com.bytedance.zgx.pocketmind'" <<<"$BADGING"
+grep -q "package: name='com.bytedance.zgx.solin'" <<<"$BADGING"
 grep -q "uses-permission: name='android.permission.INTERNET'" <<<"$BADGING"
 grep -q "native-code: 'arm64-v8a'" <<<"$BADGING"
 
@@ -71,7 +71,7 @@ if [[ "$AAB_BYTES" -gt "$MAX_RELEASE_AAB_BYTES" ]]; then
   exit 1
 fi
 
-if grep -R "/resolve/main/" app/src/main/java/com/bytedance/zgx/pocketmind/ModelCatalog.kt >/dev/null; then
+if grep -R "/resolve/main/" app/src/main/java/com/bytedance/zgx/solin/ModelCatalog.kt >/dev/null; then
   echo "Recommended model downloads must be pinned to immutable revisions." >&2
   exit 1
 fi
