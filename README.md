@@ -1,5 +1,9 @@
 # Solin Android
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android-3DDC84.svg)](https://developer.android.com)
+[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#current-status)
+
 Localized release names:
 
 | Locale | App name | Subtitle |
@@ -21,6 +25,27 @@ low-risk app search.
 
 _Cartoon-style GPT Image 2 illustration of Solin's local-first model path,
 optional remote endpoint, and confirmed phone-side tools._
+
+## Table Of Contents
+
+- [Product Contract](#product-contract)
+- [Implementation Highlights](#implementation-highlights)
+- [Brand And Listing Contract](#brand-and-listing-contract)
+- [First Screen And Trust Flow](#first-screen-and-trust-flow)
+- [Phone Control Scope](#phone-control-scope)
+- [Current Status](#current-status)
+- [Repository Scope](#repository-scope)
+- [Quick Start](#quick-start)
+- [Configuration And Secrets](#configuration-and-secrets)
+- [Recommended Models](#recommended-models)
+- [Validation](#validation)
+- [Release Paths](#release-paths)
+- [Documentation Map](#documentation-map)
+- [Project Layout](#project-layout)
+- [Development Notes](#development-notes)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
 ## Product Contract
 
@@ -58,6 +83,8 @@ flowchart LR
 ## Implementation Highlights
 
 - LiteRT-LM local chat with GPU/CPU fallback and explicit model loading.
+- Local memory indexing with explicit runtime probes before semantic recall is
+  treated as available.
 - Bounded local vision input for verified local chat models; unsupported
   models fail closed instead of silently OCRing or uploading images.
 - OpenAI-compatible remote chat with local filtering of `LocalOnly` context.
@@ -67,6 +94,9 @@ flowchart LR
   stay available through the trace/audit surfaces, not a typed chat card.
 - Internal `bundledModels` packaging can build a same-signature split set with
   pinned recommended model assets for lab validation.
+- Release helper scripts produce machine-readable evidence records for local
+  checks, emulator regression, phone validation, signing, policy, and model
+  license review.
 
 ## Brand And Listing Contract
 
@@ -136,6 +166,29 @@ Use these entry points:
 - Release readiness: `docs/release_readiness.md`
 - Release checklist: `docs/release_checklist.md`
 
+## Repository Scope
+
+The canonical repository name is `solin-android`.
+
+This repository is intended to contain:
+
+- Android application source and tests.
+- Build, validation, signing, and evidence helper scripts.
+- Documentation for architecture, privacy, model provenance, device
+  acceptance, release readiness, and release execution.
+- Small documentation and launcher assets required to build or explain the
+  project.
+
+This repository intentionally does not contain:
+
+- Downloaded model weights or bundled-model APK/AAB outputs.
+- API keys, Hugging Face tokens, remote endpoint secrets, keystores, signing
+  passwords, or production certificates.
+- User data, screenshots containing private data, or generated validation
+  artifacts from local `build/` directories.
+- Approval records that imply public model redistribution before legal/release
+  review is complete.
+
 ## Quick Start
 
 Requirements:
@@ -183,6 +236,32 @@ After launch, choose one start path:
 - Import a trusted compatible `.litertlm` model.
 - Install the internal bundled-model experience package when you need an
   installable build that works locally immediately.
+
+## Configuration And Secrets
+
+Solin works without committed secrets. Use runtime UI setup or environment
+variables for temporary local validation.
+
+Common environment variables:
+
+| Variable | Used by | Notes |
+| --- | --- | --- |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Gradle and scripts | Point to the Android SDK when it is not in the default location. |
+| `ANDROID_SERIAL` | Device scripts | Select exactly one authorized phone or emulator. |
+| `SOLIN_HF_TOKEN` | Bundled-model Gradle path | Download credential for gated Hugging Face artifacts; not a license approval. |
+| `SOLIN_LIVE_REMOTE_BASE_URL` | Live remote debug helper | Redacted in reports. |
+| `SOLIN_LIVE_REMOTE_MODEL` | Live remote debug helper | Redacted in reports. |
+| `SOLIN_LIVE_REMOTE_API_KEY` | Live remote debug helper | Must never be written to docs, logs, screenshots, or commits. |
+| `RELEASE_KEYSTORE` and related signing variables | Signing scripts | Use only from a private signing environment. |
+
+Before committing, run a local secret scan over changed files:
+
+```bash
+scripts/privacy_scan.sh --report build/verification/privacy-scan.properties README.md docs app/src/main scripts
+```
+
+If a token or signing secret ever lands in Git history, treat it as compromised:
+revoke it first, then clean the history and rotate any dependent credentials.
 
 ## Recommended Models
 
@@ -270,6 +349,14 @@ Before sharing bundled-model artifacts outside local lab validation, refresh
 model license metadata and pass
 `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`.
 
+For README-only changes, at minimum run the documentation contract tests:
+
+```bash
+./gradlew --no-daemon :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
+  --tests com.bytedance.zgx.solin.docs.ReleaseBlockerDashboardScriptTest
+```
+
 ## Release Paths
 
 There are four distribution shapes:
@@ -333,6 +420,8 @@ scripts/           Local, device, release, and evidence helpers
 ## Development Notes
 
 - Keep model binaries out of Git and ordinary release artifacts.
+- Keep generated files under ignored `build/` or artifact directories unless a
+  script explicitly documents a committed fixture.
 - Use a physical arm64-v8a device for model runtime and performance evidence.
 - Prefer `adb install -r` or the documented split install path when preserving
   local model data.
@@ -360,6 +449,37 @@ For changes that touch device flows, also follow `docs/phone_acceptance.md`.
 Security-sensitive reports should avoid public issue details that include
 tokens, private endpoints, screenshots with personal data, or model/license
 material that cannot be redistributed.
+
+Good first contribution areas:
+
+- Documentation corrections that keep owner docs focused.
+- Tests around tool schemas, safety policy, model capability profiles, and
+  validation scripts.
+- Replay fixtures for low-risk app search and screen-observation regressions.
+- UI accessibility fixes that preserve existing `testTag` values.
+
+Please avoid drive-by rewrites of unrelated modules. Solin's safety boundary is
+part of the feature: new tools, Skills, model paths, and phone-control behavior
+need schema validation, privacy classification, confirmation policy, audit
+coverage, and tests.
+
+## Security
+
+Do not open public issues that include secrets, private endpoints, personal
+data, screenshots with sensitive content, unpublished signing details, or
+redistribution-restricted model files.
+
+Preferred disclosure flow:
+
+1. Reproduce the issue without exposing private payloads.
+2. Capture the smallest safe logs, stack traces, or validation reports.
+3. Contact the repository owner privately before publishing details.
+4. Include affected commit, Android version, device/emulator type, and whether
+   the issue involves local model runtime, remote transport, storage, tools, or
+   release scripts.
+
+Security-sensitive fixes should keep the default fail-closed behavior and add a
+regression test where practical.
 
 ## License
 
