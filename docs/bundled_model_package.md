@@ -184,9 +184,9 @@ adb install-multiple --no-incremental -r <signed split APKs...>
 ```
 
 Do not use `adb install-multiple -r` without `--no-incremental` for this
-package. On `fb6272c` on 2026-06-26, the default incremental install returned
-`Success` quickly but did not leave the main package visible to PackageManager.
-The `--no-incremental` path produced the real install.
+package. A fast incremental `Success` is not sufficient for this large split
+set; treat the install as accepted only after PackageManager lists the base APK
+and all four modelpack splits.
 
 Signing boundary:
 

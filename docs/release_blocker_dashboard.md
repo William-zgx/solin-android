@@ -4,8 +4,8 @@ Compact blocker view for the current RC. It summarizes roadmap/readiness
 evidence; it does not close device, performance, signing, store, legal,
 privacy, or release-owner blockers by itself.
 
-- Roadmap source date: `2026-06-23`
-- Dashboard refreshed: `2026-06-28`
+- Roadmap source date: `2026-06-29`
+- Dashboard refreshed: `2026-06-29`
 - Close rule: a blocker is closed only by linked evidence with owner/date/SHA-256, or by explicit release-owner risk acceptance recorded in the release record.
 - Final authority: `PUBLIC_RELEASE=1 ... scripts/verify_release_gate.sh`
 
@@ -13,9 +13,9 @@ privacy, or release-owner blockers by itself.
 
 | Area | Current state | Blocking reason | Required next evidence |
 | --- | --- | --- | --- |
-| Physical validation and arm64 API matrix | partial | 2026-06-27 wireless API 36 arm64 connected tests passed with `clean_device=0` and `reset_app_data_after_tests=0`, but final release validation and API matrix are still incomplete. | Run release validation on final signed RC artifact, prepare missing API 28/32/33/34 arm64 AVDs, refresh API 36 only if evidence is stale, and attach passed nested reports with SHA-256. |
-| Perf baseline on physical arm64 | partial | 2026-06-27 wireless 50k perf sample passed standalone verifier, but it is bound to `app-release-unsigned.apk`, not the final production-signed RC artifact. | Re-collect RC first launch, model load, first token, tokens/s, memory peak, ANR/OOM, GPU fallback, and 50k memory metrics against the final signed RC artifact; verify it with `scripts/verify_perf_baseline.sh`. |
-| Real-app search physical pass rate | partial | 2026-06-27 debug real-app search eval passed 7 installed apps with 1 skipped browser, but this is debug readiness evidence rather than release validation or a 50 task benchmark. | Run the 50 task physical benchmark and final release validation on arm64 physical hardware; attach `RealAppSearchEvidenceVerification/v1` plus case artifacts and release record links. |
+| Physical validation and arm64 API matrix | partial | Debug/connected evidence exists, but final signed RC physical validation and API matrix are still incomplete. | Run release validation on final signed RC artifact, prepare missing API 28/32/33/34 arm64 AVDs, refresh API 36 only if evidence is stale, and attach passed nested reports with SHA-256. |
+| Perf baseline on physical arm64 | partial | Standalone perf samples do not close the final production-signed RC perf gate. | Re-collect RC first launch, model load, first token, tokens/s, memory peak, ANR/OOM, GPU fallback, and 50k memory metrics against the final signed RC artifact; verify it with `scripts/verify_perf_baseline.sh`. |
+| Real-app search physical pass rate | partial | Debug real-app-search evidence exists, but it is not release validation or a 50 task benchmark. | Run the 50 task physical benchmark and final release validation on arm64 physical hardware; attach `RealAppSearchEvidenceVerification/v1` plus case artifacts and release record links. |
 | Real-app search replay coverage | partial | Replay fixtures exist but changing Taobao, Gaode, JD, and browser surfaces still need coverage. | Continue adding replay fixtures and compare them against the next physical real-app-search run. |
 | Agent behavior actual runtime trace | partial | Fresh public-strict `agent_loop_runtime` trace was not collected. | Run `scripts/collect_ai_behavior_actual_trace.sh` with strict flags and keep trace diff mismatch and allowed-failure counts at zero. |
 | Privacy, store, model license, and release approvals | partial | Human approvals and final public metadata are still required. | Fill real owners/reviewers, public privacy URL, store evidence, privacy/security/legal approvals, model license approvals, signing identity, artifact SHA-256, and approved evidence files. |

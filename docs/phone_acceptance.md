@@ -155,7 +155,7 @@ ANDROID_SERIAL=<physical-device-serial> \
 scripts/package_bundled_models.sh
 ```
 
-安装必须使用脚本固定的 `adb install-multiple --no-incremental -r`。不要退回 incremental install；2026-06-26 在 `fb6272c` 上默认 incremental 曾快速返回 `Success`，但 PackageManager 中没有主包，不能作为安装成功证据。
+安装必须使用脚本固定的 `adb install-multiple --no-incremental -r`。不要退回 incremental install；大型 split 包的快速 incremental `Success` 不能作为安装成功证据，必须以 PackageManager 中可见的 base APK 和四个 modelpack split 为准。
 
 至少确认：
 
@@ -225,21 +225,6 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 - 每个失败 case 使用 `RealAppSearchCaseArtifact/v1`，包含 `failed_step`、debug receiver `result_file` 与 SHA-256、resolver evidence、diagnostics 目录、截图、UIAutomator XML、focused-window dump、logcat 路径和 SHA-256。
 - 淘宝、拼多多、高德、京东、Chrome、Android Browser、Quark、UC 是低风险搜索矩阵目标；未安装只记录 skipped。
 
-2026-06-27 无线真机补充记录，属于历史 debug readiness evidence：
-
-- 设备：`192.168.1.27:35537`，Xiaomi `23127PN0CC`，API 36，`arm64-v8a`。
-- 覆盖安装 connected tests 通过：
-  `build/verification/device-wireless-action-observation-20260627-123000/device-verification.properties`，
-  `clean_device=0`、`reset_app_data_after_tests=0`、`instrumentation_test_count=63`。
-- Device-control debug eval 通过：
-  `build/verification/device-control-debug-wireless-action-observation-rerun-20260627-124000/device-control-debug-eval.properties`，
-  `command_count=39`。
-- Real-app search eval 通过：
-  `build/verification/real-app-search-wireless-action-observation-final-20260627-125900/real-app-search-eval.properties`，
-  `run_count=7`、`pass_count=7`、`skip_count=1`、`fail_count=0`。
-- 本轮使用 `adb install -r` 或 `SKIP_INSTALL=1`，未执行 `pm clear`，未删除已下载或已加载模型。
-- 该记录不替代 final signed RC physical validation、arm64 API matrix、50 task real-app benchmark、release owner sign-off 或 public release gate。
-
 ## 手工验收场景
 
 手工验收只记录用户可见行为和必要系统弹窗，不能用脚本通过、直接调用 ViewModel/reader、mock intent 或 UI 文案存在替代。
@@ -267,8 +252,6 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 | 资源入口 | compact 宽度从 `更多` 菜单进入；普通状态不显示大号百分比圆环；详情优先展示 App 内存、可用 RAM、App CPU、温度，高级 heap 指标靠后。 |
 
 远程模型模式下，`记住：...` 只写入本地记忆控制路径，不把长期记忆文本或 embedding 自动发送给远程模型。OCR 摘录按 LocalOnly 处理；远程视觉发送与 OCR 工具分离，必须经过逐次确认。
-
-2026-06-25 曾在 `fb6272c`、Xiaomi 23127PN0CC、API 36、`arm64-v8a` 上人工观察资源入口通过，但未绑定 `build/verification/` artifact 和 SHA-256；该记录只能作参考，不能替代正式 release physical-device evidence。
 
 ## RC 性能基线
 

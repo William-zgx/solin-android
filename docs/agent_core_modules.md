@@ -2,8 +2,8 @@
 
 This is the current architecture reference for Solin's end-side Agent.
 Keep it about module ownership, boundaries, current status, and regression
-coverage. Historical migration plans belong in
-`docs/agent_loop_multi_agent_plan.md`.
+coverage. Historical command output and validation notes belong in
+`docs/validation_report.md`.
 
 ```mermaid
 flowchart LR

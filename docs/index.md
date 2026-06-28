@@ -8,7 +8,7 @@ flowchart TD
     Need["What do you need?"] --> Run["Run or build the app"]
     Need --> Explain["Understand product or privacy behavior"]
     Need --> Architecture["Change Agent/tool/runtime code"]
-    Need --> ScreenOps["Improve screen understanding or phone operation"]
+    Need --> ScreenOps["Validate screen or phone operation"]
     Need --> Models["Work with model assets"]
     Need --> Device["Validate on phone or emulator"]
     Need --> Release["Prepare a release"]
@@ -20,11 +20,11 @@ flowchart TD
     Architecture --> Core["agent_core_modules.md"]
     Architecture --> Routing["intent_routing_skill_arbitration.md"]
     ScreenOps --> Core
-    ScreenOps --> ScreenPlan["screen_ocr_agent_optimization_plan.md"]
+    ScreenOps --> Phone["phone_acceptance.md"]
     Models --> Manifest["model_manifest.md"]
     Models --> Profiles["model_capability_profiles.json"]
     Models --> Bundled["bundled_model_package.md"]
-    Device --> Phone["phone_acceptance.md"]
+    Device --> Phone
     Release --> Readiness["release_readiness.md"]
     Release --> Checklist["release_checklist.md"]
     Brand --> Readme
@@ -39,8 +39,6 @@ flowchart TD
 | --- | --- | --- |
 | `../README.md` | Project entrance | What Solin is, how to build, where to go next |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
-| `agent_loop_multi_agent_plan.md` | Historical design note | Early migration intent and what has changed since then |
-| `screen_ocr_agent_optimization_plan.md` | Historical/next-stage optimization plan | OCR grounding, phone-control benchmark ideas, and remaining screen-operation gaps; current contracts live in `agent_core_modules.md` and `phone_acceptance.md` |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
 | `model_capability_profiles.json` | Model capability contract | Local/remote runtime capability, modality, privacy, and release-gate profile facts |

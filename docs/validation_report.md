@@ -15622,8 +15622,9 @@ adb -s fb6272c logcat -d -v time
 
 本轮覆盖项：
 
-- `docs/screen_ocr_agent_optimization_plan.md` 记录 Safety/Docs 最小闭环：哪些屏幕/OCR/
-  Accessibility 隐私诉求已有代码/测试边界，哪些仍需真机、人审、性能证据。
+- 屏幕/OCR/Accessibility 的 Safety/Docs 最小闭环已归入当前 owner docs：隐私边界看
+  `docs/privacy_notice.md`，架构与工具合同看 `docs/agent_core_modules.md`，真机验收看
+  `docs/phone_acceptance.md`。
 - `docs/privacy_notice.md` 明确屏幕像素、OCR 摘录、Accessibility 文本、节点/bounds
   元数据、动作后结构化观测和验证摘要均为 `LocalOnly`，不自动进入远程历史、远程 endpoint 或远程 VLM。
 - Runtime/test 本轮完成：`ScreenObservation` 合同、`observe_current_screen.screenObservationJson`、
@@ -15636,8 +15637,8 @@ adb -s fb6272c logcat -d -v time
 
 ```bash
 rg -n "Screen/OCR Safety Docs Minimum Loop|Safety/Docs 最小闭环|不自动进入远程历史|不会自动发送|not automatically|未执行：Gradle/JVM" \
-  docs/screen_ocr_agent_optimization_plan.md docs/privacy_notice.md docs/validation_report.md
-git diff --check -- docs/screen_ocr_agent_optimization_plan.md docs/privacy_notice.md docs/validation_report.md
+  docs/agent_core_modules.md docs/phone_acceptance.md docs/privacy_notice.md docs/validation_report.md
+git diff --check -- docs/agent_core_modules.md docs/phone_acceptance.md docs/privacy_notice.md docs/validation_report.md
 ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
   --tests com.bytedance.zgx.solin.device.ScreenObservationContractTest \
   --tests com.bytedance.zgx.solin.device.UiTargetResolverTest \

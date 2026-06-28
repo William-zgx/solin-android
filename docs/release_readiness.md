@@ -46,7 +46,7 @@ only summarizes current readiness and blockers.
 | Local build gate | Historical local gates have passed `scripts/verify_local.sh`; see `docs/validation_report.md`. | Must be rerun for the current commit before an RC handoff. |
 | Brand/assets | Current source and docs use `栖知 Solin`, current Solin icon resources, and current docs preview images. | Store screenshots and final listing still need release-owner review and fresh screenshot evidence. |
 | Emulator regression | API 36 arm64 emulator/debug evidence exists in historical records. | Current validation record must not reuse stale reports that bind older package/brand state; API 28/32/33/34 arm64 matrix is still incomplete. |
-| Physical device | 2026-06-27 wireless API 36 debug/connected evidence exists with app data preserved. | It is partial readiness evidence, not final signed RC physical validation. |
+| Physical device | Historical debug/connected evidence exists with app data preserved. | It is partial readiness evidence, not final signed RC physical validation. |
 | Real-app search | Replay and debug evidence exist for supported shopping/map/browser surfaces. | Fresh physical real-app evidence and the required 50 task benchmark are still blockers. |
 | Bundled model package | Internal split package path exists and can install base plus four modelpack splits with same-signature `adb install-multiple --no-incremental -r`. | Internal quick-experience evidence only. It is not Play/public release evidence, and external handoff still requires approved model license and redistribution review. |
 | Store/privacy/license | Records and verifiers exist. | Real support contact, public privacy URL, reviewers, approvals, and model redistribution decisions remain pending. |
