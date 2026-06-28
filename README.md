@@ -1,48 +1,33 @@
 # Solin Android
 
+[![Android Verification](https://github.com/William-zgx/solin-android/actions/workflows/android.yml/badge.svg)](https://github.com/William-zgx/solin-android/actions/workflows/android.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84.svg)](https://developer.android.com)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#current-status)
-
-Localized release names:
-
-| Locale | App name | Subtitle |
-| --- | --- | --- |
-| Chinese | 栖知 Solin | 让 AI 住在手机里 |
-| English | 栖知 Solin | Quiet intelligence, close at hand. |
 
 <p align="center">
   <img src="docs/assets/solin_brand_lockup.png" alt="Solin brand lockup" width="280">
 </p>
 
-Solin is a privacy-first Android assistant. It can answer with local
-LiteRT-LM Text+Vision chat models, use a user-configured OpenAI-compatible
-remote endpoint, and run confirmed phone-side tools such as reminders,
-sharing, app navigation, screen text reads, OCR, contacts, calendar, and
-low-risk app search.
-
-![Cartoon Solin Android project visual: local AI stays on device, remote use is optional, and phone-side tools are confirmed.](docs/assets/solin-readme-hero.png)
-
-_Cartoon-style GPT Image 2 illustration of Solin's local-first model path,
-optional remote endpoint, and confirmed phone-side tools._
+Solin Android, shown in the app as `栖知 Solin`, is an experimental
+privacy-first Android assistant. It can answer with local LiteRT-LM
+Text+Vision models, use an optional OpenAI-compatible remote endpoint, and run
+confirmed phone-side tools such as reminders, sharing, app navigation, screen
+text reads, OCR, contacts, calendar, and low-risk app search.
 
 ## Table Of Contents
 
 - [Product Contract](#product-contract)
 - [Implementation Highlights](#implementation-highlights)
-- [Brand And Listing Contract](#brand-and-listing-contract)
 - [First Screen And Trust Flow](#first-screen-and-trust-flow)
 - [Phone Control Scope](#phone-control-scope)
 - [Current Status](#current-status)
-- [Repository Scope](#repository-scope)
 - [Quick Start](#quick-start)
 - [Configuration And Secrets](#configuration-and-secrets)
 - [Recommended Models](#recommended-models)
 - [Validation](#validation)
-- [Release Paths](#release-paths)
-- [Documentation Map](#documentation-map)
 - [Project Layout](#project-layout)
-- [Development Notes](#development-notes)
+- [Documentation](#documentation)
 - [Contributing](#contributing)
 - [Security](#security)
 - [License](#license)
@@ -54,15 +39,15 @@ optional remote endpoint, and confirmed phone-side tools._
   `LocalOnly` unless the user chooses a remote path.
 - Remote is optional: remote chat works only after an endpoint is configured
   and remote mode is selected. Images, suspected sensitive text, and configured
-  remote sends require the documented preview/confirmation policy.
+  remote sends require preview or confirmation.
 - Actions are confirmed: device actions are validated locally and stay behind
   permission, disclosure, confirmation, audit, and fail-closed boundaries;
   high-risk device actions still require confirmation.
 - Models explicit: local chat needs a downloaded, imported, or bundled
-  `.litertlm` chat model. Recommended E2B/E4B chat models support bounded
-  local image input; memory/action assets do not replace a chat model.
+  `.litertlm` chat model. Memory and action assets do not replace a chat
+  model.
 - Users stay in control: keys can be cleared, conversations and memories can
-  be deleted, and release records track privacy/Data safety consistency.
+  be deleted, and privacy-sensitive behavior is documented before release.
 
 ```mermaid
 flowchart LR
@@ -83,45 +68,22 @@ flowchart LR
 ## Implementation Highlights
 
 - LiteRT-LM local chat with GPU/CPU fallback and explicit model loading.
-- Local memory indexing with explicit runtime probes before semantic recall is
-  treated as available.
-- Bounded local vision input for verified local chat models; unsupported
-  models fail closed instead of silently OCRing or uploading images.
+- Local memory indexing with runtime probes before semantic recall is treated
+  as available.
+- Bounded local image input for verified local chat models; unsupported models
+  fail closed instead of silently OCRing or uploading images.
 - OpenAI-compatible remote chat with local filtering of `LocalOnly` context.
 - Registry-driven tools, built-in Skills, local safety policy, redacted trace,
   and audit records.
 - The chat surface only shows a safe result summary; structured tool fields
   stay available through the trace/audit surfaces, not a typed chat card.
-- Internal `bundledModels` packaging can build a same-signature split set with
-  pinned recommended model assets for lab validation.
-- Release helper scripts produce machine-readable evidence records for local
-  checks, emulator regression, phone validation, signing, policy, and model
-  license review.
-
-## Brand And Listing Contract
-
-The release display name is `栖知 Solin` in both Chinese and English locale
-resources. The current launcher, adaptive, monochrome, notification, and
-documentation preview assets use the square Solin mark on the unified
-background color. Public copy and screenshots should use the localized names:
-
-| Locale | Name | Subtitle |
-| --- | --- | --- |
-| zh-CN | 栖知 Solin | 让 AI 住在手机里 |
-| en-US | 栖知 Solin | Quiet intelligence, close at hand. |
-
-Before a release candidate, scan public docs, resources, and scripts for stale
-project names, stale package identifiers, placeholder store contacts, and
-superseded icon assets.
 
 ## First Screen And Trust Flow
 
-Solin opens into the assistant surface. The first-run path asks the user
-to choose remote setup, recommended local download, trusted model import, or
-model management. A controlled `bundledModels` build can make local setup
-immediate for lab validation, but it is a package path rather than ordinary
-public release behavior. Local model setup, remote sends, attachments, voice,
-memory, and tool execution remain visible user choices.
+Solin opens into the assistant surface. On first run, the user chooses remote
+setup, recommended local model download, trusted model import, or model
+management. Local setup, remote sends, attachments, voice, memory, and tool
+execution remain visible user choices.
 
 Scripted regression and manual acceptance must be recorded separately. Voice
 input, the Android system document picker, foreground prompts, and the
@@ -138,95 +100,44 @@ permission changes on the confirmation path.
 
 ## Current Status
 
-Solin is an experimental open-source Android project. It is suitable for
-local development, personal evaluation, and controlled tester builds. It is not
-yet ready for broad app-store or production distribution.
+Solin is suitable for local development, personal evaluation, and controlled
+tester builds. It is not ready for broad app-store or production distribution.
 
-Important open-source boundaries:
+Open-source boundaries:
 
-- The repository contains app source code, tests, scripts, and documentation.
-  It does not contain model weights, API keys, keystores, or release secrets.
+- The repository contains source code, tests, scripts, documentation, and small
+  project assets.
+- The repository does not contain model weights, API keys, keystores, signing
+  passwords, user data, or generated release artifacts.
 - Recommended model downloads are third-party artifacts. Their upstream
   licenses, access rules, and redistribution terms must be reviewed separately.
-- Bundled-model packages contain third-party model bytes. Keep them internal
-  until model license, redistribution, attribution, and notice approvals are
-  recorded in `docs/model_license_review.json`.
-- Phone-control and private-context tools are intentionally conservative. New
-  capabilities should preserve confirmation, audit, and fail-closed behavior.
-- Public distribution still needs production signing, store/privacy/legal/model
-  license approval, physical-device instrumentation, arm64 emulator matrix
-  evidence, and RC performance data on real arm64 hardware.
-
-Use these entry points:
-
-- Developer overview: `README.md`
-- Documentation map: `docs/index.md`
-- Agent architecture reference: `docs/agent_core_modules.md`
-- Device acceptance: `docs/phone_acceptance.md`
-- Release readiness: `docs/release_readiness.md`
-- Release checklist: `docs/release_checklist.md`
-
-## Repository Scope
-
-The canonical repository name is `solin-android`.
-
-This repository is intended to contain:
-
-- Android application source and tests.
-- Build, validation, signing, and evidence helper scripts.
-- Documentation for architecture, privacy, model provenance, device
-  acceptance, release readiness, and release execution.
-- Small documentation and launcher assets required to build or explain the
-  project.
-
-This repository intentionally does not contain:
-
-- Downloaded model weights or bundled-model APK/AAB outputs.
-- API keys, Hugging Face tokens, remote endpoint secrets, keystores, signing
-  passwords, or production certificates.
-- User data, screenshots containing private data, or generated validation
-  artifacts from local `build/` directories.
-- Approval records that imply public model redistribution before legal/release
-  review is complete.
+- Bundled-model packages are internal lab artifacts until model license,
+  redistribution, attribution, and notice approvals are complete.
+- New phone-control or private-context features must preserve confirmation,
+  audit, privacy classification, and fail-closed behavior.
 
 ## Quick Start
 
 Requirements:
 
-- Android SDK 36.
 - JDK 17 or newer.
+- Android SDK 36. The app targets SDK 36 and supports API 28+.
 - A physical arm64-v8a Android device for realistic LiteRT-LM validation.
 
-Clone the project:
+Clone and build:
 
 ```bash
 git clone https://github.com/William-zgx/solin-android.git
 cd solin-android
-```
-
-If your Android SDK is not in the default location, set it before building:
-
-```bash
 export ANDROID_HOME=/path/to/android-sdk
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
-```
-
-Build a debug APK:
-
-```bash
 ./gradlew :app:assembleDebug
 ```
 
-Install it on one connected device:
+Install on one connected device:
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-Or let Gradle install it:
-
-```bash
-./gradlew :app:installDebug
 ```
 
 After launch, choose one start path:
@@ -234,34 +145,30 @@ After launch, choose one start path:
 - Configure an OpenAI-compatible remote endpoint for the fastest first answer.
 - Download the recommended local E2B model for offline basic chat.
 - Import a trusted compatible `.litertlm` model.
-- Install the internal bundled-model experience package when you need an
-  installable build that works locally immediately.
 
 ## Configuration And Secrets
 
-Solin works without committed secrets. Use runtime UI setup or environment
-variables for temporary local validation.
-
-Common environment variables:
+Solin works without committed secrets. Configure remote endpoints in the app or
+use environment variables for local validation.
 
 | Variable | Used by | Notes |
 | --- | --- | --- |
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Gradle and scripts | Point to the Android SDK when it is not in the default location. |
-| `ANDROID_SERIAL` | Device scripts | Select exactly one authorized phone or emulator. |
-| `SOLIN_HF_TOKEN` | Bundled-model Gradle path | Download credential for gated Hugging Face artifacts; not a license approval. |
-| `SOLIN_LIVE_REMOTE_BASE_URL` | Live remote debug helper | Redacted in reports. |
-| `SOLIN_LIVE_REMOTE_MODEL` | Live remote debug helper | Redacted in reports. |
-| `SOLIN_LIVE_REMOTE_API_KEY` | Live remote debug helper | Must never be written to docs, logs, screenshots, or commits. |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Gradle and scripts | Android SDK location. |
+| `ANDROID_SERIAL` | Device scripts | Select one authorized phone or emulator. |
+| `SOLIN_HF_TOKEN` | Bundled-model build | Download credential for gated Hugging Face artifacts; not license approval. |
+| `SOLIN_LIVE_REMOTE_BASE_URL` | Remote debug helper | Redacted in reports. |
+| `SOLIN_LIVE_REMOTE_MODEL` | Remote debug helper | Redacted in reports. |
+| `SOLIN_LIVE_REMOTE_API_KEY` | Remote debug helper | Must never be committed or recorded. |
 | `RELEASE_KEYSTORE` and related signing variables | Signing scripts | Use only from a private signing environment. |
 
-Before committing, run a local secret scan over changed files:
+Run a local secret scan before committing sensitive changes:
 
 ```bash
 scripts/privacy_scan.sh --report build/verification/privacy-scan.properties README.md docs app/src/main scripts
 ```
 
-If a token or signing secret ever lands in Git history, treat it as compromised:
-revoke it first, then clean the history and rotate any dependent credentials.
+If a token or signing secret lands in Git history, treat it as compromised,
+revoke it first, then clean the history and rotate dependent credentials.
 
 ## Recommended Models
 
@@ -270,13 +177,13 @@ registered only after size and SHA-256 verification.
 
 | Capability | Artifact | Approximate size | Purpose |
 | --- | --- | ---: | --- |
-| Basic chat E2B | `.litertlm` chat model | 2.59 GB | Default local Text+Vision chat path; each image is bounded before local runtime use |
-| Local memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB | Semantic memory index only when both files verify and runtime probe succeeds |
-| Device action | `.litertlm` action model | 284 MB | Bounded action planning with rule fallback; not a chat model |
+| Basic chat E2B | `.litertlm` chat model | 2.59 GB | Default local Text+Vision chat path |
+| Local memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB | Semantic memory index after runtime probe |
+| Device action | `.litertlm` action model | 284 MB | Bounded action planning with rule fallback |
 | High-quality chat E4B | `.litertlm` chat model | 3.66 GB | Higher quality local Text+Vision chat option |
 
-Model files are not committed to Git. Ordinary Play/public release artifacts do
-not bundle model files. The internal `bundledModels` package is the documented
+Model files are not committed to Git. Ordinary public release artifacts do not
+bundle model files. The internal `bundledModels` package is the documented
 exception for quick experience and lab validation; see
 `docs/bundled_model_package.md`.
 
@@ -296,10 +203,6 @@ scripts/doctor.sh --device
 ANDROID_SERIAL=<device-or-emulator> scripts/install_and_test_device.sh
 ```
 
-Real-device workflows can delete app data if you choose the wrong helper.
-Follow `docs/phone_acceptance.md` when you need to preserve downloaded models,
-remote configuration, sessions, or manual acceptance state.
-
 Full emulator regression uses the stricter artifact gate:
 
 ```bash
@@ -309,47 +212,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 Record emulator regression as passed only when
 `regression-emulator.properties` contains `status=passed`.
 
-Release validation also needs the arm64 API matrix:
-
-```bash
-scripts/check_emulator_api_matrix.sh
-scripts/prepare_emulator_api_matrix.sh
-scripts/regression_emulator_api_matrix.sh
-```
-
-x86_64 emulator setup for local UI review on an x86 Linux workstation:
-
-```bash
-scripts/check_x86_emulator_host.sh
-APPLY=1 scripts/prepare_x86_emulator.sh
-scripts/capture_x86_release_screenshots.sh
-```
-
-The x86_64 path is for developer simulation and screenshot review. Public
-release evidence still requires the documented arm64 emulator and physical
-arm64 device gates.
-
-Recommended model URL provenance is checked only when requested:
-
-```bash
-VERIFY_MODEL_URLS=1 scripts/verify_local.sh
-```
-
-Internal bundled-model package validation:
-
-```bash
-export SOLIN_BUNDLED_MODELS_DIR=/path/to/verified/model/files
-./gradlew checkBundledModelsPackageOutputs
-ALLOW_DEBUG_KEYSTORE=1 scripts/package_bundled_models.sh
-```
-
-Add `INSTALL_ON_DEVICE=1 ANDROID_SERIAL=<device>` to overwrite-install the
-signed split set with `adb install-multiple --no-incremental -r`.
-Before sharing bundled-model artifacts outside local lab validation, refresh
-model license metadata and pass
-`VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`.
-
-For README-only changes, at minimum run the documentation contract tests:
+README and documentation contract tests:
 
 ```bash
 ./gradlew --no-daemon :app:testDebugUnitTest \
@@ -357,41 +220,9 @@ For README-only changes, at minimum run the documentation contract tests:
   --tests com.bytedance.zgx.solin.docs.ReleaseBlockerDashboardScriptTest
 ```
 
-## Release Paths
-
-There are four distribution shapes:
-
-```mermaid
-flowchart TD
-    Dev["Developer debug APK"] --> DevUse["Local coding and instrumentation"]
-    Review["Ad hoc signed APK"] --> ReviewUse["Manual review while preserving app data"]
-    Bundled["Internal bundledModels split set"] --> BundledUse["Install and use local models immediately"]
-    Public["Production Play AAB"] --> PublicUse["Public or broad distribution"]
-    Bundled -. "not public evidence" .-> Public
-    Dev -. "not production signed" .-> Public
-    Review -. "not Play candidate" .-> Public
-```
-
-Before public or broad production distribution, use
-`docs/release_checklist.md`. It covers signing, AAB, Play policy, privacy,
-model license, screenshots, validation, performance, monitoring, rollback, and
-final release-gate evidence.
-
-## Documentation Map
-
-Start with `docs/index.md`. It explains which document owns which topic and how
-to keep docs short when the project changes.
-
-Common destinations:
-
-- Product and trust boundary: this README, `docs/privacy_notice.md`
-- Architecture and module ownership: `docs/agent_core_modules.md`
-- Model provenance and bundled package: `docs/model_manifest.md`,
-  `docs/bundled_model_package.md`
-- Device/manual acceptance: `docs/phone_acceptance.md`
-- Release readiness and release execution: `docs/release_readiness.md`,
-  `docs/release_checklist.md`
-- Evidence log: `docs/validation_report.md`
+Use `docs/phone_acceptance.md` for flows that need real device behavior or
+must preserve downloaded models, remote configuration, sessions, or manual
+acceptance state.
 
 ## Project Layout
 
@@ -413,42 +244,36 @@ app/src/main/java/com/bytedance/zgx/solin/
   tool/            Tool registry, schemas, results, and providers
   ui/              Compose surfaces
 
-docs/              Project, architecture, validation, privacy, and release docs
+docs/              Architecture, privacy, validation, model, and release docs
 scripts/           Local, device, release, and evidence helpers
 ```
 
-## Development Notes
+## Documentation
 
-- Keep model binaries out of Git and ordinary release artifacts.
-- Keep generated files under ignored `build/` or artifact directories unless a
-  script explicitly documents a committed fixture.
-- Use a physical arm64-v8a device for model runtime and performance evidence.
-- Prefer `adb install -r` or the documented split install path when preserving
-  local model data.
-- Run focused JVM tests for small changes and `scripts/verify_local.sh` before
-  handing off broader changes.
-- Do not commit API keys, Hugging Face tokens, keystores, bearer tokens, or
-  generated release secrets.
+- Architecture and module ownership: `docs/agent_core_modules.md`
+- Privacy boundary: `docs/privacy_notice.md`
+- Model provenance: `docs/model_manifest.md`
+- Bundled-model lab package: `docs/bundled_model_package.md`
+- Device/manual acceptance: `docs/phone_acceptance.md`
+- Release readiness: `docs/release_readiness.md`
+- Documentation index: `docs/index.md`
 
 ## Contributing
 
-Contributions are welcome. A useful change usually includes:
+Contributions are welcome. Useful changes usually include a focused problem
+statement, scoped code or documentation updates, tests or validation notes, and
+safe logs or screenshots for device-specific issues.
 
-- A short explanation of the user-facing problem or developer need.
-- Focused code or documentation changes without unrelated refactors.
-- Tests or a manual validation note for changed behavior.
-- Screenshots, UI dumps, logs, or report paths for device-specific issues.
-
-Before opening a pull request, run:
+Before opening a pull request:
 
 ```bash
 scripts/verify_local.sh
 ```
 
 For changes that touch device flows, also follow `docs/phone_acceptance.md`.
-Security-sensitive reports should avoid public issue details that include
-tokens, private endpoints, screenshots with personal data, or model/license
-material that cannot be redistributed.
+Please avoid unrelated rewrites. New tools, Skills, model paths, and
+phone-control behavior need schema validation, privacy classification,
+confirmation policy, audit coverage, and tests.
 
 Good first contribution areas:
 
@@ -458,15 +283,10 @@ Good first contribution areas:
 - Replay fixtures for low-risk app search and screen-observation regressions.
 - UI accessibility fixes that preserve existing `testTag` values.
 
-Please avoid drive-by rewrites of unrelated modules. Solin's safety boundary is
-part of the feature: new tools, Skills, model paths, and phone-control behavior
-need schema validation, privacy classification, confirmation policy, audit
-coverage, and tests.
-
 ## Security
 
 Do not open public issues that include secrets, private endpoints, personal
-data, screenshots with sensitive content, unpublished signing details, or
+data, sensitive screenshots, unpublished signing details, or
 redistribution-restricted model files.
 
 Preferred disclosure flow:
@@ -474,15 +294,14 @@ Preferred disclosure flow:
 1. Reproduce the issue without exposing private payloads.
 2. Capture the smallest safe logs, stack traces, or validation reports.
 3. Contact the repository owner privately before publishing details.
-4. Include affected commit, Android version, device/emulator type, and whether
-   the issue involves local model runtime, remote transport, storage, tools, or
-   release scripts.
+4. Include affected commit, Android version, device or emulator type, and the
+   affected area.
 
 Security-sensitive fixes should keep the default fail-closed behavior and add a
 regression test where practical.
 
 ## License
 
-Solin Android app code is distributed under the MIT License. Recommended
-model downloads are third-party artifacts governed by their upstream licenses;
-see `docs/model_manifest.md` and the release license checklist.
+Solin Android app code is distributed under the MIT License. Recommended model
+downloads are third-party artifacts governed by their upstream licenses; see
+`docs/model_manifest.md` and `docs/model_license_review.json`.
