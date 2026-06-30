@@ -60,9 +60,10 @@ class ModelCatalogTest {
         assertTrue(ModelCatalog.isCompleteRecommendedModel(3_659_530_240L, optionalChat))
 
         assertEquals(
-            setOf(ModelCapability.Chat, ModelCapability.MemoryEmbedding, ModelCapability.MobileAction),
+            setOf(ModelCapability.Chat, ModelCapability.MemoryEmbedding),
             basicModels.map { it.capability }.toSet(),
         )
+        assertTrue(ModelCatalog.optionalModels().any { it.id == MOBILE_ACTION_MODEL_ID })
         assertEquals(setOf(DEFAULT_CHAT_MODEL_ID), ModelCatalog.defaultSetupModelIds())
         assertNull(ModelCatalog.recommendedModelOrNull("unknown-model-id"))
         assertTrue(ModelCatalog.isChatModel(DEFAULT_CHAT_MODEL_ID))
@@ -87,10 +88,11 @@ class ModelCatalogTest {
         assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), chatProfile.inputModalities)
         assertTrue(ModelFeature.TextGeneration in chatProfile.features)
         assertTrue(ModelFeature.VisionInput in chatProfile.features)
+        assertTrue(ModelFeature.MobileActionPlanning in chatProfile.features)
         assertTrue(chatProfile.supportsChatGeneration)
         assertTrue(chatProfile.supportsVisionInput)
         assertFalse(chatProfile.supportsMemoryEmbedding)
-        assertFalse(chatProfile.supportsMobileActionPlanning)
+        assertTrue(chatProfile.supportsMobileActionPlanning)
         assertFalse(chatProfile.remoteEligible)
         assertFalse(chatProfile.requiresRemoteSendConfirmation)
         assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, chatProfile.contextWindowTokens)

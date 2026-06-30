@@ -73,6 +73,8 @@ Current status:
   `UiActionResult` values. `UiTargetResolver` ranks Accessibility nodes for
   search/edit/submit/filter/result/scroll targets; app profiles improve
   ranking, not safety policy.
+- UI control tools remain unavailable to remote model planning. App-search
+  observation is `LocalOnly` and can only feed the local action-planning model.
 
 Tests:
 
@@ -128,9 +130,16 @@ Current status:
   a fresh user action.
 - Private observations are synthesized locally and take precedence over generic
   replanning. Unknown privacy metadata fails closed as `LocalOnly`.
-- Low-risk phone-control replanning can use the verified `mobile-action-270m`
-  local action model. If the model is missing, fails, or produces no valid
+- Low-risk phone-control replanning can use a verified local action-planning
+  model. Verified E2B/E4B Chat models are preferred for observation-to-action
+  planning; the `mobile-action-270m` model is only a low-resource experimental
+  fallback. If the selected model is missing, fails, or produces no valid
   draft, the runtime falls back to conservative rule planning.
+- App search has two modes: static Skill fallback, and model-driven bootstrap
+  when a verified local action-planning model is available. The bootstrap only opens,
+  waits, and observes; `ModelObservationReplanner` then plans one UI tool per
+  observation, capped at five replans. A verified search result completes the
+  run without asking a model for another step.
 - Pending confirmations, redacted Skill plan shapes, value-free Skill
   checkpoints, and selected no-payload continuation cursors can restore after
   process death. Raw tool arguments, model output, private payload, and
@@ -188,7 +197,11 @@ Current status:
   reminders, periodic-check configuration, background-task queries, web search,
   clipboard context, summary-and-share flows, foreground/current-app context,
   contacts, calendar availability, recent media metadata/OCR, current-screen
-  text/OCR, and system sharing.
+  text/OCR, static and model-driven App search, and system sharing.
+- Model-driven App search manifests are limited to existing low-risk tools:
+  open app, observe screen, tap, type, submit search, scroll, wait, and back.
+  V1 does not cover sending, payment, deletion, order placement, authorization,
+  or public posting.
 
 Tests:
 

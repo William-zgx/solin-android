@@ -995,6 +995,7 @@ class AgentLoopRuntime(
         }
         val request = toolRequestFor(runId, result.requestId) ?: return null
         val safeResult = toolRegistry.validateResult(request, result) ?: result
+        val searchResultVerified = safeResult.isVerifiedSearchResult()
         traceStore.updateState(runId, AgentRunState.Observing)
         val continuation = continuationForToolObservation(run, request, safeResult)
         val continuationPrompt = continuation?.prompt
@@ -1063,17 +1064,19 @@ class AgentLoopRuntime(
             observedResult.status == ToolStatus.Succeeded &&
             retryRequest == null
         ) {
-            planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, localPlanningResult)
+            val deterministicPlan = planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, localPlanningResult)
                 ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, localPlanningResult)
                 ?: planNextCompositeSkillSegmentBeforeContinuation(run, continuation)
-                ?: if (
-                    (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
-                    canPlanNextToolAfterObservation(run, request, localPlanningResult)
-                ) {
-                    planNextToolAfterObservation(run, request, localPlanningResult)
-                } else {
-                    NextObservationPlan.None
-                }
+            deterministicPlan ?: if (searchResultVerified) {
+                NextObservationPlan.None
+            } else if (
+                (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
+                canPlanNextToolAfterObservation(run, request, localPlanningResult)
+            ) {
+                planNextToolAfterObservation(run, request, localPlanningResult)
+            } else {
+                NextObservationPlan.None
+            }
         } else if (
             observedResult.status == ToolStatus.Failed &&
             request.isDeviceControlTool() &&
@@ -1093,6 +1096,7 @@ class AgentLoopRuntime(
             retryAttempt = retryAttempt,
             continuationPrompt = continuationPrompt,
             continuationRequiresLocalModel = continuationRequiresLocalModel,
+            searchResultVerified = searchResultVerified,
             nextToolPlan = nextToolPlan,
         )
         when (decision) {
@@ -1174,6 +1178,7 @@ class AgentLoopRuntime(
         retryAttempt: Int,
         continuationPrompt: String?,
         continuationRequiresLocalModel: Boolean,
+        searchResultVerified: Boolean,
         nextToolPlan: NextObservationPlan,
     ): AgentObservationDecision =
         when {
@@ -1191,6 +1196,8 @@ class AgentLoopRuntime(
 
             nextToolPlan is NextObservationPlan.Rejected ->
                 AgentObservationDecision.Fail(nextToolPlan.reason)
+
+            searchResultVerified -> AgentObservationDecision.Complete
 
             result.status == ToolStatus.Succeeded && continuationPrompt != null ->
                 AgentObservationDecision.ContinueWithModel(
@@ -1267,7 +1274,14 @@ class AgentLoopRuntime(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan? {
-        if (latestSkillPlan(run.id) != null) return null
+        latestSkillPlan(run.id)?.let { skillPlan ->
+            if (
+                !skillPlan.isModelDrivenAppSearchSkill() &&
+                !(skillPlan.isSingleToolStepPlan() && latestModelDrivenAppSearchSkillPlan(run.id) != null)
+            ) {
+                return null
+            }
+        }
         if (!result.hasLocalObservationEvidenceForPlanning()) return null
         val priorRequests = toolRequestsFor(run.id)
         val completedSegmentCount = plannedSequentialSegmentCount(run.id)
@@ -1472,8 +1486,15 @@ class AgentLoopRuntime(
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> true
 
-            else -> isDeviceControlTool() && latestSkillPlan(run.id) == null
+            else -> isDeviceControlTool() &&
+                latestSkillPlan(run.id).allowsModelDrivenAppSearchLocalObservation(run.id)
         }
+
+    private fun SkillPlan?.allowsModelDrivenAppSearchLocalObservation(runId: String): Boolean {
+        val plan = this ?: return true
+        return plan.isModelDrivenAppSearchSkill() ||
+            (plan.isSingleToolStepPlan() && latestModelDrivenAppSearchSkillPlan(runId) != null)
+    }
 
     private fun ToolResult.hasLocalObservationEvidenceForPlanning(): Boolean =
         listOf(
@@ -1492,6 +1513,9 @@ class AgentLoopRuntime(
 
     private fun ToolResult.isForegroundPackageGateFailure(): Boolean =
         data["failureKind"] == "app_not_foreground"
+
+    private fun ToolResult.isVerifiedSearchResult(): Boolean =
+        data["searchVerificationStatus"] == "verified"
 
     private fun planNextToolStepFromCurrentSkill(
         run: AgentRun,
@@ -3003,7 +3027,7 @@ class AgentLoopRuntime(
         runId: String,
         skillPlan: SkillPlan?,
     ): AgentPlan.UseTool {
-        val activeSkillPlan = skillPlan ?: this.skillPlan ?: latestSkillPlan(runId) ?: return this
+        val activeSkillPlan = lowRiskAppControlSkillPlanForRun(runId, skillPlan ?: this.skillPlan) ?: return this
         appControlSessionForRun(runId, activeSkillPlan)?.takeIf { it.lowRisk } ?: return this
         if (!request.isLowRiskAppControlContinuationTool()) return this
         if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
@@ -3018,6 +3042,10 @@ class AgentLoopRuntime(
             safetyDecision = bypassDecision,
         )
     }
+
+    private fun lowRiskAppControlSkillPlanForRun(runId: String, preferred: SkillPlan?): SkillPlan? =
+        preferred?.takeIf { plan -> plan.isLowRiskAppControlSkill() }
+            ?: latestLowRiskAppControlSkillPlan(runId)
 
     private fun AgentPlan.UseTool.exceedsLowRiskAppControlCheckpointForRun(
         runId: String,
@@ -3067,6 +3095,10 @@ class AgentLoopRuntime(
 
     private fun SkillPlan.isLowRiskAppControlSkill(): Boolean =
         manifest.lowRiskAppControlEligible
+
+    private fun SkillPlan.isModelDrivenAppSearchSkill(): Boolean =
+        manifest.id == BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL ||
+            manifest.id == BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL
 
     private fun SkillPlan.hasConfirmedToolStep(runId: String): Boolean {
         val stepRequestIds = toolStepRequestIds()
@@ -3442,6 +3474,20 @@ class AgentLoopRuntime(
         traceStore.steps(runId)
             .asSequence()
             .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
+            .lastOrNull()
+
+    private fun latestLowRiskAppControlSkillPlan(runId: String): SkillPlan? =
+        traceStore.steps(runId)
+            .asSequence()
+            .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
+            .filter { plan -> plan.isLowRiskAppControlSkill() }
+            .lastOrNull()
+
+    private fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
+        traceStore.steps(runId)
+            .asSequence()
+            .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
+            .filter { plan -> plan.isModelDrivenAppSearchSkill() }
             .lastOrNull()
 
     private fun AgentTraceStepSummary.restoredToolRequestSummaryOrNull(): RestoredToolRequestSummary? {

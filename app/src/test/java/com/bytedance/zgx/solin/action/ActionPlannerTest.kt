@@ -190,7 +190,7 @@ class ActionPlannerTest {
                 prompt.contains("- ${spec.name} "),
             )
         }
-        assertTrue(prompt.contains("支持函数来自 ToolRegistry"))
+        assertTrue(prompt.contains("支持函数如下"))
         assertTrue(prompt.contains("参数必须符合对应 JSON schema"))
         assertTrue(prompt.contains("delayMinutes"))
         assertTrue(prompt.contains("triggerAtMillis"))

@@ -2,6 +2,8 @@ package com.bytedance.zgx.solin
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import org.junit.Rule
@@ -59,6 +62,10 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("composer_input").assertIsDisplayed()
         composeRule.onNodeWithTag("composer_voice_button").assertIsDisplayed()
         composeRule.onNodeWithTag("composer_send_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("composer_input").performTextInput("先写一个问题")
+        composeRule.onNodeWithTag("composer_send_button").performClick()
+        composeRule.onNodeWithTag("composer_input")
+            .assertTextContains("先写一个问题", substring = true)
 
         composeRule.onNodeWithTag("top_model_button").performClick()
         composeRule.waitForTag("model_manager_sheet")
@@ -98,6 +105,12 @@ class MainActivitySmokeTest {
 
         composeRule.onNodeWithText("远程模型").assertIsDisplayed()
         composeRule.waitForTag("remote_base_url_input")
+        composeRule.onNodeWithTag("remote_mode_switch").assertIsNotEnabled()
+        composeRule.onNodeWithTag("remote_connectivity_test_button")
+            .performScrollTo()
+            .assertIsNotEnabled()
+        composeRule.waitForText("填写 HTTP(S) 服务地址和模型名后可切换远程模型", substring = true)
+        composeRule.assertTagAbsent("remote_mode_disclosure_sheet")
     }
 
     @Test
@@ -178,6 +191,12 @@ class MainActivitySmokeTest {
     ) {
         waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.assertTagAbsent(tag: String) {
+        waitUntil(timeoutMillis = 2_000) {
+            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
 

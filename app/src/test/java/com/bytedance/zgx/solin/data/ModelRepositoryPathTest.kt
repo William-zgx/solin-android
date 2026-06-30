@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.data
 
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
+import com.bytedance.zgx.solin.HIGH_QUALITY_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.MEMORY_EMBEDDING_MODEL_ID
 import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.ModelCapability
@@ -89,6 +90,80 @@ class ModelRepositoryPathTest {
             )
 
             assertNull(verifiedPath(models, ModelCapability.MemoryEmbedding))
+        }
+    }
+
+    @Test
+    fun verifiedObservationActionPlanningPathPrefersActiveChatThenDefaultChatThenActionFallback() {
+        withTempModelFile { e2bFile ->
+            withTempModelFile { e4bFile ->
+                withTempModelFile { actionFile ->
+                    val e2b = installedModel(
+                        id = DEFAULT_CHAT_MODEL_ID,
+                        path = e2bFile.absolutePath,
+                        recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+                        verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                        withVerifiedCatalogEvidence = true,
+                    )
+                    val e4b = installedModel(
+                        id = HIGH_QUALITY_CHAT_MODEL_ID,
+                        path = e4bFile.absolutePath,
+                        recommendedModelId = HIGH_QUALITY_CHAT_MODEL_ID,
+                        verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                        withVerifiedCatalogEvidence = true,
+                    )
+                    val action = installedModel(
+                        id = MOBILE_ACTION_MODEL_ID,
+                        path = actionFile.absolutePath,
+                        recommendedModelId = MOBILE_ACTION_MODEL_ID,
+                        verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                        withVerifiedCatalogEvidence = true,
+                    )
+                    val models = listOf(action, e4b, e2b)
+
+                    assertEquals(
+                        e2bFile.absolutePath,
+                        verifiedObservationPath(models = models, activeInstalledModelId = null),
+                    )
+                    assertEquals(
+                        e4bFile.absolutePath,
+                        verifiedObservationPath(models = models, activeInstalledModelId = HIGH_QUALITY_CHAT_MODEL_ID),
+                    )
+                    assertEquals(
+                        actionFile.absolutePath,
+                        verifiedObservationPath(models = listOf(action), activeInstalledModelId = null),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun verifiedObservationActionPlanningPathIgnoresUnverifiedChatModels() {
+        withTempModelFile { e2bFile ->
+            withTempModelFile { actionFile ->
+                val unverifiedE2b = installedModel(
+                    id = DEFAULT_CHAT_MODEL_ID,
+                    path = e2bFile.absolutePath,
+                    recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+                    verificationStatus = ModelVerificationStatus.LegacyUnverified,
+                )
+                val action = installedModel(
+                    id = MOBILE_ACTION_MODEL_ID,
+                    path = actionFile.absolutePath,
+                    recommendedModelId = MOBILE_ACTION_MODEL_ID,
+                    verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                    withVerifiedCatalogEvidence = true,
+                )
+
+                assertEquals(
+                    actionFile.absolutePath,
+                    verifiedObservationPath(
+                        models = listOf(unverifiedE2b, action),
+                        activeInstalledModelId = DEFAULT_CHAT_MODEL_ID,
+                    ),
+                )
+            }
         }
     }
 
@@ -286,6 +361,18 @@ class ModelRepositoryPathTest {
         verifiedRecommendedModelPath(
             models = models,
             capability = capability,
+            currentFileVerifier = currentFileVerifier,
+        )
+
+    private fun verifiedObservationPath(
+        models: List<InstalledModelEntity>,
+        activeInstalledModelId: String?,
+        currentFileVerifier: (InstalledModelEntity, RecommendedModel) -> Boolean =
+            { entity, _ -> File(entity.path).exists() },
+    ): String? =
+        verifiedObservationActionPlanningModelPath(
+            models = models,
+            activeInstalledModelId = activeInstalledModelId,
             currentFileVerifier = currentFileVerifier,
         )
 

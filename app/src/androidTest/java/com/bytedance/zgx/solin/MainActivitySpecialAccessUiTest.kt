@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin
 import android.content.Context
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -46,6 +47,8 @@ class MainActivitySpecialAccessUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("open_special_access_accessibility_screen_text")
                 .assertIsDisplayed()
+            composeRule.onNodeWithTag("action_confirm_button")
+                .assertTextContains("打开系统设置")
             composeRule.assertTagAbsent("runtime_permission_requirements")
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
@@ -77,6 +80,8 @@ class MainActivitySpecialAccessUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("open_special_access_accessibility_device_control")
                 .assertIsDisplayed()
+            composeRule.onNodeWithTag("action_confirm_button")
+                .assertTextContains("打开系统设置")
             composeRule.assertTagAbsent("runtime_permission_requirements")
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
@@ -106,6 +111,8 @@ class MainActivitySpecialAccessUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("open_special_access_usage_stats")
                 .assertIsDisplayed()
+            composeRule.onNodeWithTag("action_confirm_button")
+                .assertTextContains("打开系统设置")
             composeRule.assertTagAbsent("runtime_permission_requirements")
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()

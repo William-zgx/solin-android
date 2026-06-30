@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.ActionPlanKind
+import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.extractUiTargetArgumentValue
@@ -39,16 +40,18 @@ private const val MAX_LOCAL_TARGET_CANDIDATES = 8
 private const val MAX_LOCAL_TARGET_LABELS_PER_MODE = 4
 private const val MAX_LOCAL_EVIDENCE_CHARS = 2_000
 private const val MAX_LOCAL_DIAGNOSTICS_CHARS = 800
-private const val MAX_PRIOR_REQUEST_DETAILS = 6
-private const val MAX_PRIOR_REQUEST_DETAILS_CHARS = 900
+private const val MAX_PRIOR_REQUEST_DETAILS = 4
+private const val MAX_PRIOR_REQUEST_DETAILS_CHARS = 360
+private const val MAX_OBSERVATION_MODEL_PROMPT_CHARS = 2_200
 
-private val localOnlyObservationReplanAllowedTools = setOf(
+internal val MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
     MobileActionFunctions.UI_TAP,
     MobileActionFunctions.UI_TYPE_TEXT,
     MobileActionFunctions.UI_SUBMIT_SEARCH,
     MobileActionFunctions.UI_SCROLL,
     MobileActionFunctions.UI_WAIT,
+    MobileActionFunctions.UI_PRESS_BACK,
 )
 private val searchContextTextMarkers = listOf(
     "搜索",
@@ -208,21 +211,40 @@ class ModelObservationReplanner(
         if (modelReplanLimit == 0) return null
         if (context.modelObservationReplanCount() >= modelReplanLimit) return null
         val actionModelPath = actionModelPathProvider()?.takeIf { path -> path.isNotBlank() } ?: return null
-        val planningResult = actionPlanningRuntime.plan(
-            input = context.observationModelPrompt(toolRegistry),
-            actionModelPath = actionModelPath,
-        )
+        val prompts = listOf(
+            context.observationModelPrompt(toolRegistry),
+            context.minimalObservationModelPrompt(toolRegistry),
+        ).distinct()
+        prompts.forEach { prompt ->
+            val planningResult = actionPlanningRuntime.plan(
+                input = prompt,
+                actionModelPath = actionModelPath,
+            )
+            context.toAcceptedModelObservationReplan(planningResult)?.let { replan -> return replan }
+            if (planningResult.usedModel &&
+                planningResult.plan.kind == ActionPlanKind.Draft &&
+                planningResult.plan.draft != null
+            ) {
+                return null
+            }
+        }
+        return null
+    }
+
+    private fun AgentObservationReplanContext.toAcceptedModelObservationReplan(
+        planningResult: ActionPlanningResult,
+    ): AgentObservationReplan? {
         if (!planningResult.usedModel) return null
         if (planningResult.plan.kind != ActionPlanKind.Draft) return null
         val draft = planningResult.plan.draft?.normalizedUiTargetDraft() ?: return null
-        if (context.shouldRejectNonLocalObservationTool(draft, toolRegistry)) return null
+        if (shouldRejectNonLocalObservationTool(draft, toolRegistry)) return null
         if (draft.hasMissingRequiredUiTarget()) return null
-        if (context.shouldRejectDangerousObservationAction(draft)) return null
-        if (context.shouldRejectTextOnlyUiControl(draft)) return null
-        if (context.shouldRejectUnsupportedSubmitSearch(draft)) return null
-        if (context.shouldRejectUnsupportedTargetlessTyping(draft)) return null
-        if (context.shouldRejectUnsupportedObservedTarget(draft)) return null
-        if (context.shouldRejectUnsupportedRepeatTarget(draft)) return null
+        if (shouldRejectDangerousObservationAction(draft)) return null
+        if (shouldRejectTextOnlyUiControl(draft)) return null
+        if (shouldRejectUnsupportedSubmitSearch(draft)) return null
+        if (shouldRejectUnsupportedTargetlessTyping(draft)) return null
+        if (shouldRejectUnsupportedObservedTarget(draft)) return null
+        if (shouldRejectUnsupportedRepeatTarget(draft)) return null
         return AgentObservationReplan(
             request = ToolRequest(
                 toolName = draft.functionName,
@@ -253,7 +275,7 @@ private fun AgentObservationReplanContext.shouldRejectNonLocalObservationTool(
     toolRegistry: ToolRegistry,
 ): Boolean {
     if (!observedResult.hasLocalOnlyObservationEvidence()) return false
-    if (draft.functionName !in localOnlyObservationReplanAllowedTools) return true
+    if (draft.functionName !in MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES) return true
     return toolRegistry.specFor(draft.functionName)?.capability != ToolCapability.DeviceControl
 }
 
@@ -693,61 +715,355 @@ private fun ToolResult.isRecoverableLocalObservationFailure(): Boolean {
         data["screenText"]?.isNotBlank() == true
 }
 
-private fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: ToolRegistry): String {
-    val privateOutputKeys = toolRegistry.privateOutputKeysFor(previousRequest.toolName)
-    val publicDataKeys = observedResult.data.keys
-        .filterNot { key -> key in privateOutputKeys }
-        .sorted()
-        .joinToString()
-        .ifBlank { "none" }
-    val omittedPrivateKeys = privateOutputKeys
-        .filter { key -> key in observedResult.data }
-        .sorted()
-        .joinToString()
-        .ifBlank { "none" }
-    val priorTools = priorRequests
-        .joinToString(separator = " -> ") { request -> request.toolName }
-        .ifBlank { "none" }
-    val priorRequestDetails = priorRequests.priorRequestDetailsPrompt()
-    val previousArgumentKeys = previousRequest.arguments.keys
-        .sorted()
-        .joinToString()
-        .ifBlank { "none" }
+internal fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: ToolRegistry): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
         .safeObservationPromptText()
     val observationSummary = observedResult.summary.safeObservationPromptText()
     val observationDiagnostics = observedResult.observationDiagnosticsPrompt()
     val localObservationEvidence = observedResult.localObservationEvidencePrompt(intentPreview)
     val localOnlyAllowedTools = observedResult.localOnlyObservationAllowedToolsPrompt(toolRegistry)
+    val priorRequestDetails = priorRequests.priorRequestDetailsPrompt()
     return """
-        Decide whether the user's request needs exactly one more mobile tool after the latest observation.
-        Output a tool call only when the next action is clearly required; otherwise output ordinary text with no call.
-        Do not repeat a tool that has already satisfied the request.
-        LocalOnly observation evidence is available only to this local action model; do not treat it as remote-sendable content.
+        This is user-authorized local device UI automation; LocalOnly screen evidence stays on-device, so do not refuse when a listed UI action clearly advances the request.
+        Output exactly one call such as call:ui_tap{"target":"..."} or call:ui_type_text{"target":"...","text":"..."} when clear; otherwise output ordinary text with no call.
+        Decide if the user's request needs exactly one more mobile tool after the latest observation; if unclear, output ordinary text with no call.
+        Do not repeat completed work. LocalOnly evidence stays on-device.
         When LocalOnly observation evidence is present, output only these local device-control tools: $localOnlyAllowedTools.
-        Do not output web_search, external send/share, contacts/files/clipboard, background work, or any other non-listed tool from LocalOnly observation evidence.
+        Do not output web_search or any other non-listed tool from LocalOnly observation evidence.
         When LocalOnly evidence includes targets=[...], copy only the candidate target=... value into the tool target.
-        Use targetShortlist(...) as the exact target string shortlist for tools that accept target.
-        Candidate mode tags describe fit only; never output mode, bounds, confidence, or other candidate metadata as tool arguments.
-        Prefer a type-tagged target for ui_type_text, a tap-tagged target for ui_tap, and a scroll-tagged target for ui_scroll.
-        For ui_scroll, use a scroll-tagged target when one is available; if no scroll candidate or scrollable evidence exists, stop instead of blind scrolling.
-        Use an ocrFallback target only when no Accessibility target fits.
-        If the latest observation shows a failed action, do not repeat the same prior target unless new evidence supports it.
-        If current LocalOnly evidence shows payment, sending, deletion, publishing, ordering, purchase, transfer, or authorization controls, stop instead of planning another UI action.
+        Use only target values from targetShortlist(...) for tools that accept target.
+        Never output mode, bounds, confidence, or other candidate metadata as tool arguments.
+        Prefer a type-tagged target for ui_type_text, a tap-tagged target for ui_tap, and a scroll-tagged target for ui_scroll; use ocrFallback only if no Accessibility target fits.
+        For ui_scroll, stop if no scroll candidate/evidence exists.
+        If the latest action failed, avoid the same target unless new evidence supports it.
+        Stop on payment, sending, deletion, publishing, ordering, purchase, transfer, or authorization controls.
 
         User intent preview: $intentPreview
-        Prior tools: $priorTools
         Prior request details: $priorRequestDetails
         Previous tool: ${previousRequest.toolName}
-        Previous argument keys: $previousArgumentKeys
         Observation status: ${observedResult.status}
         Observation summary: $observationSummary
         Observation diagnostics: $observationDiagnostics
-        Observation public data keys: $publicDataKeys
-        Observation private data keys omitted: $omittedPrivateKeys
         LocalOnly observation evidence: $localObservationEvidence
-        Completed segment count: $completedSegmentCount
     """.trimIndent()
+        .compressForObservationModelContext()
+}
+
+internal fun String.compressForObservationModelContext(
+    maxChars: Int = MAX_OBSERVATION_MODEL_PROMPT_CHARS,
+): String {
+    val normalized = lineSequence()
+        .map { line -> line.trimEnd() }
+        .joinToString(separator = "\n")
+        .trim()
+    if (normalized.length <= maxChars) return normalized
+
+    val valueBudgets = ObservationPromptValueBudgets.forPrompt(maxChars)
+    val compressedLines = normalized.lines().map { line ->
+        when {
+            line.startsWith("LocalOnly observation evidence:") ->
+                line.compressLabeledPromptValue(
+                    label = "LocalOnly observation evidence:",
+                    valueBudget = valueBudgets.localEvidence,
+                    protectedPatterns = localEvidenceProtectedPromptPatterns,
+                    maxListEntries = 4,
+                )
+
+            line.startsWith("Observation diagnostics:") ->
+                line.compressLabeledPromptValue(
+                    label = "Observation diagnostics:",
+                    valueBudget = valueBudgets.diagnostics,
+                    protectedPatterns = diagnosticProtectedPromptPatterns,
+                )
+
+            line.startsWith("Prior request details:") ->
+                line.compressLabeledPromptValue(
+                    label = "Prior request details:",
+                    valueBudget = valueBudgets.priorRequests,
+                    protectedPatterns = priorRequestProtectedPromptPatterns,
+                )
+
+            line.startsWith("Observation summary:") ->
+                line.compressLabeledPromptValue(
+                    label = "Observation summary:",
+                    valueBudget = valueBudgets.summary,
+                    protectedPatterns = emptyList(),
+                )
+
+            line.startsWith("User intent preview:") ->
+                line.compressLabeledPromptValue(
+                    label = "User intent preview:",
+                    valueBudget = valueBudgets.intent,
+                    protectedPatterns = emptyList(),
+                )
+
+            else -> line
+        }
+    }
+    val compressed = compressedLines.joinToString(separator = "\n")
+    if (compressed.length <= maxChars) return compressed
+
+    return compressed.lines()
+        .prioritizedForObservationPrompt()
+        .joinPrioritizedObservationPrompt(maxChars)
+}
+
+private fun AgentObservationReplanContext.minimalObservationModelPrompt(toolRegistry: ToolRegistry): String {
+    val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
+        .safeObservationPromptText(maxLength = 120)
+    val localOnlyAllowedTools = observedResult.localOnlyObservationAllowedToolsPrompt(toolRegistry)
+    val localEvidence = observedResult.localObservationEvidencePrompt(intentPreview)
+    val targetShortlists = localEvidence.targetShortlistSummariesForPrompt()
+    val targetAnchors = targetShortlists.targetShortlistTargetSummary().orEmpty()
+    return """
+        本机已获得用户授权执行手机 UI 自动化。只输出一个 call，不解释，不拒绝。
+        允许工具: $localOnlyAllowedTools
+        用户请求: $intentPreview
+        当前屏幕可用目标: $targetShortlists $targetAnchors
+        上一步工具: ${previousRequest.toolName}
+        若要点击，输出 call:ui_tap{"target":"候选target"}。
+        若要输入搜索词，输出 call:ui_type_text{"target":"候选target","text":"用户要搜索的词"}。
+        若要提交搜索，输出 call:ui_submit_search{}。
+    """.trimIndent().compressForObservationModelContext(maxChars = 1_200)
+}
+
+private data class ObservationPromptValueBudgets(
+    val localEvidence: Int,
+    val diagnostics: Int,
+    val priorRequests: Int,
+    val summary: Int,
+    val intent: Int,
+) {
+    companion object {
+        fun forPrompt(maxChars: Int): ObservationPromptValueBudgets =
+            ObservationPromptValueBudgets(
+                localEvidence = (maxChars * 0.44).toInt().coerceIn(720, 1_600),
+                diagnostics = (maxChars * 0.10).toInt().coerceIn(120, 360),
+                priorRequests = (maxChars * 0.08).toInt().coerceIn(96, 260),
+                summary = (maxChars * 0.06).toInt().coerceIn(80, 180),
+                intent = (maxChars * 0.06).toInt().coerceIn(80, 180),
+            )
+    }
+}
+
+private val localEvidenceProtectedPromptPatterns = listOf(
+    Regex("""targetShortlist\([^)]*\)"""),
+    Regex("""screenObservationDiffSummary=[^|]+"""),
+    Regex("""addedText=[^;|]+"""),
+    Regex("""addedActionable=[^;|]+"""),
+    Regex("""afterScreenObservationJson\(id=[^)]+\)"""),
+    Regex("""screenObservationJson\(id=[^)]+\)"""),
+)
+
+private val diagnosticProtectedPromptPatterns = listOf(
+    Regex("""resultRetryable=[^;|]+"""),
+    Regex("""failureKind=[^;|]+"""),
+    Regex("""actionType=[^;|]+"""),
+    Regex("""target=[^;|]+"""),
+    Regex("""errorCode=[^;|]+"""),
+)
+
+private val priorRequestProtectedPromptPatterns = listOf(
+    Regex("""ui_[a-z_]+\{[^}]*target=[^}]*\}"""),
+    Regex("""observe_current_screen\{[^}]*\}"""),
+)
+
+private fun String.compressLabeledPromptValue(
+    label: String,
+    valueBudget: Int,
+    protectedPatterns: List<Regex>,
+    maxListEntries: Int = 3,
+): String {
+    val value = removePrefix(label).trim()
+    if (value.length <= valueBudget) return this
+    val compactValue = value
+        .compressPromptLists("elements", maxOf(2, maxListEntries / 2))
+        .compressPromptLists("targets", maxListEntries)
+    val shortlistTargetSummary = compactValue.targetShortlistTargetSummary()
+    val compressibleValue = listOfNotNull(shortlistTargetSummary, compactValue)
+        .joinToString(separator = " ")
+    val queryAwareProtectedPatterns = compressibleValue.targetShortlistTargetValuePatterns() + protectedPatterns
+    return "$label ${compressibleValue.extractivePromptCompress(valueBudget, queryAwareProtectedPatterns)}"
+}
+
+private fun String.compressPromptLists(
+    listName: String,
+    maxEntries: Int,
+): String =
+    replace(Regex("""$listName=\[([^]]*)]""")) { match ->
+        val entries = match.groupValues[1]
+            .split("; ")
+            .filter { entry -> entry.isNotBlank() }
+        if (entries.size <= maxEntries) {
+            match.value
+        } else {
+            val kept = entries.take(maxEntries).joinToString(separator = "; ")
+            "$listName=[$kept; ...+${entries.size - maxEntries}]"
+        }
+    }
+
+private fun String.targetShortlistTargetValuePatterns(): List<Regex> {
+    return targetShortlistTargetValues()
+        .map { targetValue -> Regex("""target=${Regex.escape(targetValue)}""") }
+}
+
+private fun String.targetShortlistTargetSummary(): String? {
+    val values = targetShortlistTargetValues()
+    if (values.isEmpty()) return null
+    return values.joinToString(prefix = "shortlistTargets=[", postfix = "]", separator = "|") { value ->
+        "target=$value"
+    }
+}
+
+private fun String.targetShortlistTargetValues(): List<String> {
+    val shortlist = Regex("""targetShortlist\(([^)]*)\)""")
+        .find(this)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: return emptyList()
+    return shortlist
+        .split(",", "|")
+        .mapNotNull { part -> part.substringAfter("=", part).trim().takeIf { it.isNotBlank() } }
+        .distinct()
+}
+
+private fun String.targetShortlistSummariesForPrompt(): String =
+    Regex("""targetShortlist\([^)]*\)""")
+        .findAll(this)
+        .map { match -> match.value }
+        .distinct()
+        .joinToString(separator = " ")
+        .ifBlank { "none" }
+
+private fun String.extractivePromptCompress(
+    maxChars: Int,
+    protectedPatterns: List<Regex>,
+): String {
+    if (length <= maxChars) return this
+    val protectedSnippets = protectedPatterns
+        .flatMap { pattern -> pattern.findAll(this).map { match -> match.value } }
+        .distinct()
+    val protectedText = protectedSnippets.joinToString(separator = " | ")
+        .takeIf { value -> value.isNotBlank() }
+    val reserved = protectedText?.length?.plus(12) ?: 0
+    val headBudget = (maxChars - reserved).coerceAtLeast(maxChars / 3)
+    val head = take(headBudget.coerceAtMost(maxChars)).trimEnd()
+    val joined = buildString {
+        append(head)
+        protectedText?.let { text ->
+            append(" ... ")
+            append(text)
+        }
+    }
+    return if (joined.length <= maxChars) {
+        joined
+    } else {
+        joined.take(maxChars - 3).trimEnd() + "..."
+    }
+}
+
+private fun List<String>.prioritizedForObservationPrompt(): List<String> {
+    val requiredPrefixes = listOf(
+        "This is user-authorized",
+        "Output exactly one call",
+        "Decide if",
+        "When LocalOnly observation evidence",
+        "Do not output web_search",
+        "When LocalOnly evidence includes",
+        "Use only target values",
+        "Never output mode",
+        "Prefer a type-tagged target",
+        "For ui_scroll",
+        "If the latest action failed",
+        "Stop on",
+        "User intent preview:",
+        "Prior request details:",
+        "Previous tool:",
+        "Observation status:",
+        "Observation diagnostics:",
+        "LocalOnly observation evidence:",
+    )
+    return filter { line ->
+        line.isBlank() || requiredPrefixes.any { prefix -> line.startsWith(prefix) }
+    }
+}
+
+private fun List<String>.joinPrioritizedObservationPrompt(maxChars: Int): String {
+    val localEvidenceLine = firstOrNull { line -> line.startsWith("LocalOnly observation evidence:") }
+    val diagnosticsLine = firstOrNull { line -> line.startsWith("Observation diagnostics:") }
+    val baseLines = filterNot { line ->
+        line.startsWith("LocalOnly observation evidence:") ||
+            line.startsWith("Observation diagnostics:")
+    }.prioritizedBaseObservationLines()
+    val localEvidenceBudget = (maxChars * 0.42).toInt().coerceIn(320, 900)
+    val diagnosticsBudget = (maxChars * 0.12).toInt().coerceIn(90, 220)
+    val baseBudget = (maxChars - localEvidenceBudget - diagnosticsBudget - 2).coerceAtLeast(maxChars / 3)
+    val parts = buildList {
+        baseLines.joinPromptLinesWithinBudget(baseBudget)
+            .takeIf { text -> text.isNotBlank() }
+            ?.let(::add)
+        diagnosticsLine
+            ?.extractivePromptCompress(diagnosticsBudget, diagnosticProtectedPromptPatterns)
+            ?.let(::add)
+        localEvidenceLine
+            ?.extractivePromptCompress(
+                localEvidenceBudget,
+                localEvidenceLine.targetShortlistTargetValuePatterns() + localEvidenceProtectedPromptPatterns,
+            )
+            ?.let(::add)
+    }
+    val joined = parts.joinToString(separator = "\n")
+    return if (joined.length <= maxChars) joined else joined.take(maxChars - 3).trimEnd() + "..."
+}
+
+private fun List<String>.joinPromptLinesWithinBudget(maxChars: Int): String {
+    val accepted = mutableListOf<String>()
+    var used = 0
+    for (line in filter { value -> value.isNotBlank() }) {
+        val candidate = if (line.length > 180) {
+            line.extractivePromptCompress(
+                maxChars = 180,
+                protectedPatterns = listOf(Regex("""targetShortlist\([^)]*\)""")),
+            )
+        } else {
+            line
+        }
+        val nextUsed = used + candidate.length + if (accepted.isEmpty()) 0 else 1
+        if (nextUsed > maxChars) continue
+        accepted += candidate
+        used = nextUsed
+    }
+    return accepted.joinToString(separator = "\n")
+}
+
+private fun List<String>.prioritizedBaseObservationLines(): List<String> {
+    val priorityPrefixes = listOf(
+        "This is user-authorized",
+        "Output exactly one call",
+        "User intent preview:",
+        "Previous tool:",
+        "Observation status:",
+        "Prior request details:",
+        "Use only target values",
+        "When LocalOnly observation evidence",
+        "Do not output web_search",
+        "When LocalOnly evidence includes",
+        "Prefer a type-tagged target",
+        "For ui_scroll",
+        "If the latest action failed",
+        "Stop on",
+        "Decide if",
+        "Never output mode",
+    )
+    return withIndex()
+        .sortedWith(
+            compareBy<IndexedValue<String>> { indexed ->
+                priorityPrefixes.indexOfFirst { prefix -> indexed.value.startsWith(prefix) }
+                    .takeIf { index -> index >= 0 }
+                    ?: Int.MAX_VALUE
+            }.thenBy { indexed -> indexed.index },
+        )
+        .map { indexed -> indexed.value }
 }
 
 private fun List<ToolRequest>.priorRequestDetailsPrompt(): String =
@@ -840,7 +1156,7 @@ private fun ToolResult.localOnlyObservationAllowedToolsPrompt(toolRegistry: Tool
     if (!hasLocalOnlyObservationEvidence()) {
         "not_applicable"
     } else {
-        localOnlyObservationReplanAllowedTools
+        MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
             .filter { toolName -> toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl }
             .joinToString(separator = ",")
             .ifBlank { "none" }

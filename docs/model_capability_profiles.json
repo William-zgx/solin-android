@@ -4,10 +4,10 @@
   "contractTest": "ModelCapabilityProfilesDocumentationTest",
   "privacyBoundary": "LocalOnly memory, screenshots, Accessibility text, OCR excerpts, and device context are never implied remote-eligible by a model capability profile.",
   "runtimeNotes": {
-    "chat-e2b": "LiteRT-LM local Text+Vision chat runtime; local image input is bounded to 5 images and 8 MiB per image before runtime use.",
-    "chat-e4b": "LiteRT-LM local Text+Vision chat runtime; local image input is bounded to 5 images and 8 MiB per image before runtime use.",
+    "chat-e2b": "LiteRT-LM local Text+Vision chat runtime; also eligible for local observation-to-action planning. Local image input is bounded to 5 images and 8 MiB per image before runtime use.",
+    "chat-e4b": "LiteRT-LM local Text+Vision chat runtime; also eligible for local observation-to-action planning. Local image input is bounded to 5 images and 8 MiB per image before runtime use.",
     "memory-embedding-gemma-300m": "TFLite EmbeddingGemma runtime with sentencepiece.model companion; both files and the runtime probe must pass before semantic memory is active.",
-    "mobile-action-270m": "LiteRT-LM action-planning runtime; Solin falls back to rule planning when the verified action model is missing or produces no valid draft.",
+    "mobile-action-270m": "Optional experimental low-resource LiteRT-LM action-planning runtime; observation-to-action planning prefers verified local Chat models and falls back to this model only when no verified Chat planning model is available.",
     "remoteOpenAiCompatible": "Remote eligibility means content may cross the remote-send boundary after policy gates; confirmation frequency is controlled by RemoteSendDisclosurePolicy."
   },
   "profiles": [
@@ -20,7 +20,7 @@
         "chat": true,
         "vision": true,
         "memoryEmbedding": false,
-        "mobileAction": false
+        "mobileAction": true
       },
       "inputModalities": [
         "Text",
@@ -28,7 +28,8 @@
       ],
       "features": [
         "TextGeneration",
-        "VisionInput"
+        "VisionInput",
+        "MobileActionPlanning"
       ],
       "contextWindowTokens": 8192,
       "preferredLocalBackends": [
@@ -72,7 +73,7 @@
     },
     {
       "id": "mobile-action-270m",
-      "displayName": "设备动作模型 270M",
+      "displayName": "低资源动作模型 270M",
       "backendKind": "LocalLiteRt",
       "capability": "MobileAction",
       "capabilities": {
@@ -107,7 +108,7 @@
         "chat": true,
         "vision": true,
         "memoryEmbedding": false,
-        "mobileAction": false
+        "mobileAction": true
       },
       "inputModalities": [
         "Text",
@@ -115,7 +116,8 @@
       ],
       "features": [
         "TextGeneration",
-        "VisionInput"
+        "VisionInput",
+        "MobileActionPlanning"
       ],
       "contextWindowTokens": 8192,
       "preferredLocalBackends": [

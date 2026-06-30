@@ -51,6 +51,7 @@ import com.bytedance.zgx.solin.multimodal.AndroidCurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.CompositeAgentObservationReplanner
+import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.solin.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.SequentialActionObservationReplanner
@@ -59,6 +60,8 @@ import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.TfliteTextEmbeddingRuntimeFactory
+import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
+import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
 import com.bytedance.zgx.solin.storage.ZvecNativeLocalVectorIndex
 import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
@@ -146,6 +149,13 @@ class SolinAppContainer(
             cacheDir = appContext.cacheDir,
             toolRegistry = toolRegistry,
         )
+        val observationActionToolRegistry = ToolRegistry.fromSupportedActions(
+            MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES,
+        )
+        val observationActionPlanningRuntime = HybridActionPlanningRuntime(
+            cacheDir = appContext.cacheDir,
+            toolRegistry = observationActionToolRegistry,
+        )
         actionExecutor = ValidatingToolExecutor(
             delegate = RoutingToolExecutor(
                 calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
@@ -175,11 +185,21 @@ class SolinAppContainer(
             toolRegistry = toolRegistry,
             toolAuditSink = toolAuditRepository,
             traceStore = RoomAgentTraceStore(database.agentTraceDao()),
+            skillRuntime = BuiltInSkillRuntime(
+                appSearchPlanningModeProvider = {
+                    if (modelRepository.verifiedObservationActionModelPath() != null) {
+                        AppSearchPlanningMode.ModelDrivenBootstrap
+                    } else {
+                        AppSearchPlanningMode.StaticSkill
+                    }
+                },
+            ),
             observationReplanner = CompositeAgentObservationReplanner(
                 ModelObservationReplanner(
-                    actionPlanningRuntime = actionPlanningRuntime,
-                    actionModelPathProvider = modelRepository::verifiedActionModelPath,
-                    toolRegistry = toolRegistry,
+                    actionPlanningRuntime = observationActionPlanningRuntime,
+                    actionModelPathProvider = modelRepository::verifiedObservationActionModelPath,
+                    toolRegistry = observationActionToolRegistry,
+                    maxModelReplans = 5,
                 ),
                 SequentialActionObservationReplanner(
                     actionPlanningRuntime = actionPlanningRuntime,

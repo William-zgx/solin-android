@@ -30,22 +30,17 @@ class MainActivityFirstRunSetupUiTest {
             mainActivitySkipStartupIntent(targetContext),
         ).use {
             composeRule.waitForTag("app_title", timeoutMillis = 10_000)
-            composeRule.onNodeWithTag("home_positioning_panel")
+            composeRule.onNodeWithTag("model_startup_banner")
                 .performScrollTo()
                 .assertIsDisplayed()
-            composeRule.waitForText("放心用的三件事", timeoutMillis = 10_000)
-            composeRule.waitForText("本地可用", timeoutMillis = 10_000)
-            composeRule.waitForText("远程多模态可选", timeoutMillis = 10_000)
-            composeRule.waitForText("动作确认执行", timeoutMillis = 10_000)
+            composeRule.onNodeWithTag("quick_remote_config_button")
+                .performScrollTo()
+                .assertIsDisplayed()
+            composeRule.waitForText("模型未就绪", timeoutMillis = 10_000)
+            composeRule.waitForText("配置远程模型", timeoutMillis = 10_000)
 
             val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
             if (!setupVisible) {
-                composeRule.onNodeWithTag("model_startup_banner")
-                    .performScrollTo()
-                    .assertIsDisplayed()
-                composeRule.onNodeWithTag("quick_remote_config_button")
-                    .performScrollTo()
-                    .assertIsDisplayed()
                 return@use
             }
 

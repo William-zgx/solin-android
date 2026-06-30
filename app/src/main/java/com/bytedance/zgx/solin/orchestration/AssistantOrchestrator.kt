@@ -9,6 +9,8 @@ import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
+import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.solin.skill.SkillRuntime
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolRegistry
@@ -128,6 +130,7 @@ class AssistantOrchestrator(
     private val toolRegistry: ToolRegistry = ToolRegistry(),
     toolAuditSink: ToolAuditSink = NoOpToolAuditSink,
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
+    private val skillRuntime: SkillRuntime = BuiltInSkillRuntime(),
     actionModelPathProvider: () -> String? = { null },
     observationReplanner: AgentObservationReplanner = CompositeAgentObservationReplanner(
         ModelObservationReplanner(
@@ -148,6 +151,7 @@ class AssistantOrchestrator(
         toolRegistry = toolRegistry,
         auditSink = toolAuditSink,
         traceStore = traceStore,
+        skillRuntime = skillRuntime,
         observationReplanner = observationReplanner,
         deviceControlSessionFinisher = deviceControlSessionFinisher,
     )

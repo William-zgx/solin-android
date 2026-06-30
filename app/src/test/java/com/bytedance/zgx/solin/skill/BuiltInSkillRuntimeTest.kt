@@ -22,6 +22,9 @@ class BuiltInSkillRuntimeTest {
         clockMillis = { Instant.parse("2026-06-14T02:00:00Z").toEpochMilli() },
         zoneId = ZoneId.of("Asia/Shanghai"),
     )
+    private val modelDrivenAppSearchRuntime = BuiltInSkillRuntime(
+        appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap },
+    )
 
     @Test
     fun exposesVersionedManifestsForCoreSkills() {
@@ -247,6 +250,8 @@ class BuiltInSkillRuntimeTest {
             "在当前邮件草稿填写 明天延期" to requireNotNull(runtime.plan("在当前邮件草稿填写 明天延期")),
             "在当前应用搜索 海河牛奶" to requireNotNull(runtime.plan("在当前应用搜索 海河牛奶")),
             "打开淘宝搜索海河牛奶" to requireNotNull(runtime.plan("打开淘宝搜索海河牛奶")),
+            "在当前应用搜索 耳机" to requireNotNull(modelDrivenAppSearchRuntime.plan("在当前应用搜索 耳机")),
+            "打开淘宝搜索耳机" to requireNotNull(modelDrivenAppSearchRuntime.plan("打开淘宝搜索耳机")),
             "点击当前页面的筛选" to requireNotNull(runtime.plan("点击当前页面的筛选")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
             "查看后台任务" to requireNotNull(runtime.plan("查看后台任务")),
@@ -267,8 +272,9 @@ class BuiltInSkillRuntimeTest {
         val registry = ToolRegistry()
 
         expectedBuiltInSkillManifests.forEach { expected ->
+            val skillRuntime = runtimeForExpectedSkill(expected.id)
             expected.triggerExamples.forEach { example ->
-                val plan = requireNotNull(runtime.plan(example)) {
+                val plan = requireNotNull(skillRuntime.plan(example)) {
                     "Trigger example `$example` did not route to any built-in skill"
                 }
                 assertEquals("Trigger example `$example` routed to wrong skill", expected.id, plan.manifest.id)
@@ -950,6 +956,33 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("当前页面搜索功能怎么实现"))
         assertEquals(null, runtime.plan("当前地图 API 怎么用"))
         assertEquals(null, runtime.plan("邮件草稿怎么实现"))
+    }
+
+    @Test
+    fun modelDrivenAppSearchModeOnlyBootstrapsToObservation() {
+        val currentAppPlan = requireNotNull(modelDrivenAppSearchRuntime.plan("在当前应用搜索 海河牛奶"))
+        assertEquals(BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL, currentAppPlan.request.skillId)
+        assertEquals(listOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN), currentAppPlan.steps.toolNames())
+        assertEquals("observe_current_app_search", (currentAppPlan.steps.single() as SkillStep.ToolStep).id)
+        assertTrue(currentAppPlan.validateStructure().errors.joinToString(), currentAppPlan.validateStructure().isValid)
+
+        val openAppPlan = requireNotNull(modelDrivenAppSearchRuntime.plan("打开淘宝搜索海河牛奶"))
+        assertEquals(BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL, openAppPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OPEN_APP_BY_NAME,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            ),
+            openAppPlan.steps.toolNames(),
+        )
+        val openAppStep = openAppPlan.steps[0] as SkillStep.ToolStep
+        assertEquals("淘宝", openAppStep.request.arguments["appName"])
+        val waitStep = openAppPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("com.taobao.taobao", waitStep.request.arguments["expectedPackageName"])
+        val observeStep = openAppPlan.steps[2] as SkillStep.ToolStep
+        assertEquals(listOf("wait_target_app"), observeStep.dependsOn)
+        assertTrue(openAppPlan.validateStructure().errors.joinToString(), openAppPlan.validateStructure().isValid)
     }
 
     @Test
@@ -1689,12 +1722,13 @@ class BuiltInSkillRuntimeTest {
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
         )
 
-        expectedBuiltInSkillManifests.flatMap { manifest -> manifest.triggerExamples }
-            .forEach { example ->
-                val firstPlan = requireNotNull(runtime.plan(example)) {
+        expectedBuiltInSkillManifests.forEach { expected ->
+            val skillRuntime = runtimeForExpectedSkill(expected.id)
+            expected.triggerExamples.forEach { example ->
+                val firstPlan = requireNotNull(skillRuntime.plan(example)) {
                     "Trigger example `$example` did not route to any built-in skill"
                 }
-                val secondPlan = requireNotNull(runtime.plan(example)) {
+                val secondPlan = requireNotNull(skillRuntime.plan(example)) {
                     "Trigger example `$example` did not route to any built-in skill on repeat"
                 }
                 val stepIds = firstPlan.steps.map { step -> step.id }
@@ -1719,6 +1753,7 @@ class BuiltInSkillRuntimeTest {
                     }
                 }
             }
+        }
     }
 
     private data class ExpectedBuiltInSkillManifest(
@@ -1731,6 +1766,16 @@ class BuiltInSkillRuntimeTest {
         val backgroundRequiredTools: List<String> = emptyList(),
         val backgroundAllowedWork: Set<SkillBackgroundWork> = emptySet(),
     )
+
+    private fun runtimeForExpectedSkill(skillId: String): BuiltInSkillRuntime =
+        if (
+            skillId == BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL ||
+            skillId == BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL
+        ) {
+            modelDrivenAppSearchRuntime
+        } else {
+            runtime
+        }
 
     private val expectedBuiltInSkillManifests = listOf(
         ExpectedBuiltInSkillManifest(
@@ -1975,6 +2020,43 @@ class BuiltInSkillRuntimeTest {
                 "ui_type_text",
                 "ui_submit_search",
                 "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "打开淘宝搜索海河牛奶",
+                "open Pinduoduo and search milk",
+            ),
+            lowRiskAppControlEligible = true,
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "model_driven_current_app_ui_search_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_submit_search",
+                "ui_scroll",
+                "ui_wait",
+                "ui_press_back",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "在当前应用搜索 海河牛奶",
+                "search Kotlin in the current app",
+            ),
+            lowRiskAppControlEligible = true,
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "model_driven_open_app_ui_search_skill",
+            requiredTools = listOf(
+                "open_app_by_name",
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_submit_search",
+                "ui_scroll",
+                "ui_wait",
+                "ui_press_back",
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             triggerExamples = listOf(

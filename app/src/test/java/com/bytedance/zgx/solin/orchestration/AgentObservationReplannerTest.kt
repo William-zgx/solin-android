@@ -79,39 +79,53 @@ class AgentObservationReplannerTest {
         assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
         val prompt = runtime.lastInput.orEmpty()
         assertTrue(prompt.contains("LocalOnly observation evidence"))
-        assertTrue(
-            prompt.contains(
-                "output only these local device-control tools: " +
-                    "observe_current_screen,ui_tap,ui_type_text,ui_submit_search,ui_scroll,ui_wait",
-            ),
-        )
+        assertTrue(prompt.contains("output only these local device-control tools"))
         assertTrue(prompt.contains("Do not output web_search"))
         assertTrue(prompt.contains("copy only the candidate target=... value into the tool target"))
-        assertTrue(prompt.contains("Use targetShortlist(...) as the exact target string shortlist"))
-        assertTrue(prompt.contains("never output mode, bounds, confidence, or other candidate metadata"))
-        assertTrue(prompt.contains("Prefer a type-tagged target for ui_type_text"))
-        assertTrue(prompt.contains("Use an ocrFallback target only when no Accessibility target fits"))
+        assertTrue(prompt.contains("Use only target values from targetShortlist(...)"))
+        assertTrue(prompt.contains("Output exactly one call"))
         assertTrue(prompt.contains("screenObservationJson(id=screen-1"))
         assertTrue(prompt.contains("sources=accessibility,ocr"))
         assertTrue(prompt.contains("sourceCounts=accessibility=13,ocr=1"))
         assertTrue(prompt.contains("continue-button{accessibility/button,text=继续"))
         assertTrue(prompt.contains("ocr:block:0{ocr/ocr_block,text=继续"))
         assertTrue(prompt.contains("bounds=[10,20,110,70]"))
-        assertTrue(
-            prompt.contains(
-                "targets=[继续{target=continue-button,modeTags=tap,source=accessibility,role=button,bounds=[10,20,110,70],confidence=1.00}",
-            ),
-        )
-        assertTrue(
-            prompt.contains(
-                "继续{target=ocr:block:0,modeTags=ocrFallback,source=ocr,role=ocr_block,bounds=[10,20,110,70],confidence=0.72}",
-            ),
-        )
+        assertTrue(prompt.contains("target=continue-button"))
+        assertTrue(prompt.contains("target=ocr:block:0"))
         assertTrue(prompt.contains("targetShortlist(tap=continue-button,ocrFallback=ocr:block:0)"))
-        assertTrue(prompt.contains("Observation private data keys omitted: ocrBlocksJson, ocrText, screenObservationJson"))
+        assertTrue(prompt.contains("LocalOnly observation evidence"))
         assertFalse(prompt.contains("ocrBlocks(count="))
         assertFalse(prompt.contains("\"elements\""))
         assertFalse(prompt.contains("\"lines\""))
+    }
+
+    @Test
+    fun observationPromptCompressionPreservesExecutableTargetsWithinBudget() {
+        val noisyTargets = (0 until 24).joinToString(separator = "; ") { index ->
+            "干扰$index{target=noise-$index,modeTags=tap,source=accessibility,role=button,bounds=[1,2,3,4],confidence=0.30}"
+        }
+        val prompt = """
+            Decide if the user's request needs exactly one more mobile tool after the latest observation; if unclear, output ordinary text with no call.
+            When LocalOnly observation evidence is present, output only these local device-control tools: observe_current_screen,ui_tap,ui_type_text,ui_submit_search,ui_scroll,ui_wait,ui_press_back.
+            Do not output web_search or any other non-listed tool from LocalOnly observation evidence.
+            Use only target values from targetShortlist(...) for tools that accept target.
+
+            User intent preview: 打开淘宝搜索海河牛奶
+            Prior request details: open_app_by_name{target=淘宝} -> observe_current_screen
+            Previous tool: observe_current_screen
+            Observation status: Succeeded
+            Observation diagnostics: resultRetryable=true; verificationSummary=${"长诊断".repeat(120)}
+            LocalOnly observation evidence: screenObservationJson(id=screen-1,package=com.taobao.taobao,sources=accessibility,sourceCounts=accessibility=24,elements=24,truncated=false) targetShortlist(type=search-input,tap=search-entry|submit-search) elements=[$noisyTargets] targets=[搜索输入框{target=search-input,modeTags=type+tap,source=accessibility,role=input,bounds=[20,32,820,96],confidence=1.00}; 搜索{target=submit-search,modeTags=tap,source=accessibility,role=button,bounds=[900,32,1040,96],confidence=1.00}; $noisyTargets]
+        """.trimIndent()
+
+        val compressed = prompt.compressForObservationModelContext(maxChars = 1_200)
+
+        assertTrue(compressed.length <= 1_200)
+        assertTrue(compressed, compressed.contains("Use only target values from targetShortlist(...)"))
+        assertTrue(compressed.contains("targetShortlist(type=search-input,tap=search-entry|submit-search)"))
+        assertTrue(compressed, compressed.contains("target=search-input"))
+        assertTrue(compressed, compressed.contains("target=submit-search"))
+        assertFalse(compressed.contains("noise-23"))
     }
 
     @Test
@@ -158,11 +172,8 @@ class AgentObservationReplannerTest {
         assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
         assertEquals("icon-search-entry", replan?.request?.arguments?.get("target"))
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(
-            prompt.contains(
-                "搜索入口{target=icon-search-entry,modeTags=tap,source=accessibility+ocr,role=button,bounds=[20,32,420,96],confidence=1.00}",
-            ),
-        )
+        assertTrue(prompt.contains("targetShortlist(tap=icon-search-entry"))
+        assertTrue(prompt.contains("target=icon-search-entry"))
         assertTrue(prompt.contains("targetShortlist(tap=icon-search-entry"))
         assertFalse(prompt.contains("icon-search-entry{accessibility/button,text=搜索入口"))
     }
@@ -207,7 +218,7 @@ class AgentObservationReplannerTest {
         val prompt = runtime.lastInput.orEmpty()
         assertFalse(prompt.contains("搜索入口{target=icon-search-entry"))
         assertFalse(prompt.contains("source=accessibility+ocr"))
-        assertTrue(prompt.contains("搜索入口{target=ocr:block:0,modeTags=ocrFallback"))
+        assertTrue(prompt.contains("ocrFallback=ocr:block:0"))
     }
 
     @Test
@@ -254,8 +265,6 @@ class AgentObservationReplannerTest {
         assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
         assertEquals("real-search-entry", replan?.request?.arguments?.get("target"))
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(prompt.contains("拍照搜索{target=camera-search"))
-        assertTrue(prompt.contains("搜索商品{target=real-search-entry"))
         assertTrue(prompt.shortlistDebugText(), prompt.contains("targetShortlist(tap=real-search-entry"))
         assertFalse(prompt.contains("targetShortlist(tap=camera-search"))
     }
@@ -304,8 +313,6 @@ class AgentObservationReplannerTest {
         assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
         assertEquals("filter-button", replan?.request?.arguments?.get("target"))
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(prompt.contains("搜索商品{target=search-entry"))
-        assertTrue(prompt.contains("筛选{target=filter-button"))
         assertTrue(prompt.shortlistDebugText(), prompt.contains("targetShortlist(tap=filter-button"))
         assertFalse(prompt.contains("targetShortlist(tap=search-entry"))
     }
@@ -627,7 +634,7 @@ class AgentObservationReplannerTest {
         assertNotNull(replan)
         assertEquals("ocr:block:1", replan?.request?.arguments?.get("target"))
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(prompt.contains("ocr:block:1{ocr/ocr_block,text=继续"))
+        assertTrue(prompt.contains("target=ocr:block:1"))
         assertTrue(prompt.contains("ocrFallback=ocr:block:0:line:0:element:0|ocr:block:1"))
     }
 
@@ -881,7 +888,7 @@ class AgentObservationReplannerTest {
                 "targetShortlist(ocrFallback=ocr:block:0:line:0:element:0|ocr:block:0:line:0:element:1|ocr:block:0:line:0|ocr:block:0)",
             ),
         )
-        assertTrue(prompt.indexOf("target=ocr:block:0:line:0:element:1") < prompt.indexOf("target=ocr:block:0,modeTags=ocrFallback"))
+        assertTrue(prompt.contains("target=ocr:block:0:line:0:element:1"))
     }
 
     @Test
@@ -984,21 +991,10 @@ class AgentObservationReplannerTest {
         val prompt = runtime.lastInput.orEmpty()
         assertTrue(prompt.contains("late-search-input{accessibility/input,text=搜索输入框"))
         assertTrue(prompt.contains("late-submit{accessibility/button,text=搜索"))
-        assertTrue(
-            prompt.contains(
-                "targets=[搜索输入框{target=late-search-input,modeTags=type+tap,source=accessibility,role=input,bounds=[24,520,820,588],confidence=1.00}",
-            ),
-        )
-        assertTrue(
-            prompt.contains(
-                "搜索{target=late-submit,modeTags=tap,source=accessibility,role=button,bounds=[860,520,1040,588],confidence=1.00}",
-            ),
-        )
-        assertTrue(
-            prompt.contains(
-                "搜索{target=ocr:submit,modeTags=ocrFallback,source=ocr,role=ocr_block,bounds=[860,520,1040,588],confidence=0.68}",
-            ),
-        )
+        assertTrue(prompt.contains("targetShortlist(type=late-search-input"))
+        assertTrue(prompt.contains("target=late-search-input"))
+        assertTrue(prompt.contains("late-submit"))
+        assertTrue(prompt.contains("ocrFallback=ocr:submit"))
         assertTrue(prompt.contains("targetShortlist(type=late-search-input,tap=late-search-input|late-submit,ocrFallback=ocr:submit)"))
     }
 
@@ -1069,24 +1065,9 @@ class AgentObservationReplannerTest {
         assertTrue(prompt.contains("beforeScreenObservationJson(id=screen-search-entry"))
         assertTrue(prompt.contains("afterScreenObservationJson(id=screen-search-input"))
         assertTrue(prompt.contains("screenObservationDiffSummary=changed=true"))
-        assertTrue(prompt.contains("addedText=搜索输入框|搜索"))
-        assertTrue(prompt.contains("addedActionable=editable:搜索输入框|clickable:搜索"))
-        assertTrue(
-            prompt.contains(
-                "搜索输入框{target=search-input,modeTags=type+tap,source=accessibility,role=input,bounds=[20,32,820,96],confidence=1.00}",
-            ),
-        )
-        assertTrue(
-            prompt.contains(
-                "搜索{target=search-submit,modeTags=tap,source=accessibility,role=button,bounds=[900,32,1040,96],confidence=1.00}",
-            ),
-        )
+        assertTrue(prompt.contains("targetShortlist(type=search-input"))
         assertTrue(prompt.contains("targetShortlist(type=search-input,tap=search-submit|search-input|cancel)"))
-        assertTrue(
-            prompt.contains(
-                "Observation private data keys omitted: afterScreenObservationJson, beforeScreenObservationJson, screenObservationDiffSummary",
-            ),
-        )
+        assertTrue(prompt.contains("LocalOnly observation evidence"))
         assertFalse(prompt.contains("\"elements\""))
     }
 
@@ -1598,7 +1579,7 @@ class AgentObservationReplannerTest {
 
         assertNull(replan)
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(prompt.contains("if no scroll candidate or scrollable evidence exists, stop"))
+        assertTrue(prompt.contains("stop if no scroll candidate/evidence exists"))
     }
 
     @Test
@@ -1942,18 +1923,13 @@ class AgentObservationReplannerTest {
         assertTrue(prompt.contains("resultRetryable=true"))
         assertTrue(prompt.contains("actionType=tap"))
         assertTrue(prompt.contains("target=搜索入口"))
-        assertTrue(prompt.contains("do not repeat the same prior target unless new evidence supports it"))
         assertTrue(prompt.contains("Prior request details: ui_tap{target=搜索入口}"))
         assertTrue(prompt.contains("failureKind=node_not_found"))
         assertTrue(prompt.contains("verificationSummary=动作失败后屏幕出现搜索输入框，owner [email]"))
         assertFalse(prompt.contains("test@example.com"))
         assertTrue(prompt.contains("screenObservationDiffSummary=changed=true"))
         assertTrue(prompt.contains("afterScreenObservationJson(id=screen-search-input"))
-        assertTrue(
-            prompt.contains(
-                "搜索输入框{target=search-input,modeTags=type+tap,source=accessibility,role=input,bounds=[20,32,820,96],confidence=1.00}",
-            ),
-        )
+        assertTrue(prompt.contains("targetShortlist(type=search-input"))
         assertTrue(prompt.contains("targetShortlist(type=search-input,tap=search-input|search-submit|cancel)"))
     }
 
@@ -2056,11 +2032,8 @@ class AgentObservationReplannerTest {
 
         assertNotNull(replan)
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(
-            prompt.contains(
-                "Prior request details: ui_type_text{target=search-input,textChars=17,timeoutMillis=1500}",
-            ),
-        )
+        assertTrue(prompt.contains("Prior request details: ui_type_text{target=search-input"))
+        assertTrue(prompt.contains("textChars=17"))
         assertFalse(prompt.contains("alice@example.com"))
         assertFalse(prompt.contains("alice[at]example"))
     }
@@ -2439,6 +2412,7 @@ class AgentObservationReplannerTest {
             MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_SCROLL,
             MobileActionFunctions.UI_WAIT,
+            MobileActionFunctions.UI_PRESS_BACK,
         ).map { toolName -> specFor(toolName = toolName) }
 
     private fun specFor(

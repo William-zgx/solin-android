@@ -397,6 +397,7 @@ data class ChatUiState(
     val auditEvents: List<AuditEventSummary> = emptyList(),
     val remoteSendAuditEvents: List<RemoteSendAuditSummary> = emptyList(),
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
+    val grantedSpecialAccessIds: Set<String> = emptySet(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val pendingRemoteModeDisclosure: PendingRemoteModeDisclosure? = null,
     val pendingRemoteSendDisclosure: PendingRemoteSendDisclosure? = null,
@@ -443,6 +444,9 @@ data class ChatUiState(
 
     val optionalChatModels: List<RecommendedModel>
         get() = ModelCatalog.optionalChatModels()
+
+    val optionalModels: List<RecommendedModel>
+        get() = ModelCatalog.optionalModels()
 
     val activeLocalModelSupportsVisionInput: Boolean
         get() = activeLocalCapabilityProfile?.supportsVisionInput == true

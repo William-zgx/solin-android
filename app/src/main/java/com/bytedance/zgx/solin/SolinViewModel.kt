@@ -594,6 +594,7 @@ class SolinViewModel(
 
     fun updateDeviceContextAuthorizationSnapshot(snapshot: DeviceContextAuthorizationSnapshot) {
         deviceContextAuthorizationSnapshot = snapshot
+        _uiState.update { it.copy(grantedSpecialAccessIds = snapshot.grantedSpecialAccessIds) }
     }
 
     fun cancelBackgroundTask(taskId: String) {
@@ -1685,7 +1686,7 @@ class SolinViewModel(
                     is AssistantRoute.Action -> {
                         val localUserMessage = userMessage.copy(privacy = MessagePrivacy.LocalOnly)
                         val planningLabel = if (route.plannedByModel) {
-                            "动作模型实验"
+                            "动作规划模型"
                         } else {
                             "规则回退"
                         }
@@ -1786,11 +1787,16 @@ class SolinViewModel(
                         val capabilityName = when (route.capability) {
                             ModelCapability.Chat -> "对话模型"
                             ModelCapability.MemoryEmbedding -> "记忆模型"
-                            ModelCapability.MobileAction -> "动作模型"
+                            ModelCapability.MobileAction -> "动作规划模型"
+                        }
+                        val installHint = if (route.capability == ModelCapability.MobileAction) {
+                            "请到模型管理安装本地 Chat 模型，或可选低资源动作模型。"
+                        } else {
+                            "请到模型管理安装基础能力包。"
                         }
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
-                            text = "需要先安装$capabilityName，才能完成这个请求。请到模型管理安装基础能力包。",
+                            text = "需要先安装$capabilityName，才能完成这个请求。$installHint",
                             privacy = effectiveMessagePrivacy,
                         )
                         replaceActiveSessionMessages(

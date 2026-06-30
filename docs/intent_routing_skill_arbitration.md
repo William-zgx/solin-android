@@ -19,7 +19,7 @@ flowchart TD
     Settings -->|No| LocalRead{"Explicit local context read?"}
     LocalRead -->|Yes| LocalSkill["Skill-first LocalOnly flow"]
     LocalRead -->|No| AppControl{"App open/search/control intent?"}
-    AppControl -->|Search| AppSearch["app_navigation_skill + UI control"]
+    AppControl -->|Search| AppSearch["static app-search skill or local model-driven bootstrap"]
     AppControl -->|Open| AppOpen["app_navigation_skill"]
     AppControl -->|No| PublicInfo{"Explicit public information search?"}
     PublicInfo -->|Yes| PublicEvidence["web_search"]
@@ -35,7 +35,7 @@ flowchart TD
 | 系统 Wi-Fi 设置动作 | `打开WiFi`、`打开 WiFi`、`打开 Wi-Fi` | `device_settings_skill` / `open_wifi_settings` | 系统设置优先于同名 App。 |
 | 其他系统/权限设置动作 | `打开无障碍设置`、`打开 Usage Access` | `device_settings_skill` / 对应 settings tool | 需要确认；特殊访问不当作普通 runtime permission。 |
 | 明确命名 App 打开 | `打开名为 WiFi 的 App` | App navigation 层 | 不能误触系统 Wi-Fi 设置。 |
-| App 内搜索 | `打开淘宝搜索耳机` | App navigation + UI control | 仅低风险搜索闭环；失败时保留 resolver evidence。 |
+| App 内搜索 | `打开淘宝搜索耳机`、`在当前应用搜索耳机` | Static app-search skill；有已校验本地动作规划模型时走 model-driven bootstrap | V1 只做低风险搜索闭环；observation 只给本地动作规划模型，不暴露给远端；不发送、删除、支付、下单、授权或发布。 |
 | 普通 App 打开 | `打开淘宝` | App navigation 层 | 不接受任意 Intent、Activity、extras 或未白名单 deep target。 |
 | 本地私密读取 | `总结剪贴板`、`读取当前屏幕文字` | Skill-first LocalOnly flow | 需要确认；结果不得进入远程 continuation。 |
 | 公开信息检索 | `查一下今天杭州天气`、`搜索 Rust 最新版本` | `web_search` | 只做 public evidence；个人信息或疑似 secret 查询回到确认/保护路径。 |
@@ -45,6 +45,8 @@ flowchart TD
 - Skill-first parser：只处理边界清楚、参数可本地保守提取的请求。
 - Action planner：作为兼容和补充，不应覆盖明确的系统设置、权限设置、
   LocalOnly 读取或 App navigation Skill。
+- App 搜索：默认使用静态 Skill；当本地动作规划模型已校验时，Skill 只负责
+  打开/等待/首次观察，之后每轮只允许本地模型规划一个低风险 UI tool。
 - Remote planning scope：只暴露 remote-safe planning specs；本地私密 evidence
   工具不进入远程工具列表。
 - `ToolRegistry`：最终确认 tool 是否存在、参数是否合法、risk/permission/tag

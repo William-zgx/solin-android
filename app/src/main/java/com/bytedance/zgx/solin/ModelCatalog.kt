@@ -99,8 +99,12 @@ data class ModelProfile(
         require(ModelFeature.MemoryEmbedding !in features || capability == ModelCapability.MemoryEmbedding) {
             "Memory embedding is only valid for embedding profiles"
         }
-        require(ModelFeature.MobileActionPlanning !in features || capability == ModelCapability.MobileAction) {
-            "Mobile action planning is only valid for action profiles"
+        require(
+            ModelFeature.MobileActionPlanning !in features ||
+                capability == ModelCapability.MobileAction ||
+                capability == ModelCapability.Chat,
+        ) {
+            "Mobile action planning is only valid for chat or action profiles"
         }
         require(backendKind != ModelBackendKind.RemoteOpenAiCompatible || capability == ModelCapability.Chat) {
             "Remote OpenAI-compatible profiles are only valid for chat capability"
@@ -140,6 +144,7 @@ data class ModelHealth(
 enum class SetupTier {
     BasicRecommended,
     OptionalChat,
+    OptionalExperimental,
 }
 
 data class RecommendedModel(
@@ -172,9 +177,14 @@ const val MEMORY_EMBEDDING_MODEL_ID = "memory-embedding-gemma-300m"
 const val MOBILE_ACTION_MODEL_ID = "mobile-action-270m"
 const val CUSTOM_LOCAL_CHAT_PROFILE_ID = "custom-local-chat"
 const val HUGGING_FACE_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
-private const val HIGH_QUALITY_CHAT_MODEL_ID = "chat-e4b"
+const val HIGH_QUALITY_CHAT_MODEL_ID = "chat-e4b"
 
 private val LOCAL_VISION_INPUT_MODEL_IDS = setOf(
+    DEFAULT_CHAT_MODEL_ID,
+    HIGH_QUALITY_CHAT_MODEL_ID,
+)
+
+private val LOCAL_ACTION_PLANNING_MODEL_IDS = setOf(
     DEFAULT_CHAT_MODEL_ID,
     HIGH_QUALITY_CHAT_MODEL_ID,
 )
@@ -220,17 +230,17 @@ val RECOMMENDED_MODELS = listOf(
     ),
     RecommendedModel(
         id = MOBILE_ACTION_MODEL_ID,
-        displayName = "设备动作模型 270M",
-        shortName = "设备动作模型",
+        displayName = "低资源动作模型 270M",
+        shortName = "低资源动作模型",
         fileName = "mobile-actions_q8_ekv1024.litertlm",
         byteSize = 284_426_240L,
         sourceRevision = "82d0f654a6270c518d16c600edce3136221b3347",
         sha256Hex = "92109695f911d1872fa8ae07c1e3ff0ed70f2c3d1690d410ec6db8587c2ab409",
         repositoryUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/82d0f654a6270c518d16c600edce3136221b3347/mobile-actions_q8_ekv1024.litertlm?download=true",
-        deviceHint = "实验资产；当前动作使用本地规则草稿，下载约 271 MB",
+        deviceHint = "可选实验低资源动作模型；主规划优先使用本地 Chat 模型，下载约 271 MB",
         capability = ModelCapability.MobileAction,
-        setupTier = SetupTier.BasicRecommended,
+        setupTier = SetupTier.OptionalExperimental,
     ),
     RecommendedModel(
         id = HIGH_QUALITY_CHAT_MODEL_ID,
@@ -323,6 +333,9 @@ internal object ModelCatalog {
         RECOMMENDED_MODELS.filter {
             it.capability == ModelCapability.Chat && it.setupTier == SetupTier.OptionalChat
         }
+
+    fun optionalModels(): List<RecommendedModel> =
+        RECOMMENDED_MODELS.filter { it.setupTier != SetupTier.BasicRecommended }
 
     fun defaultSetupModelIds(): Set<String> =
         setOf(DEFAULT_CHAT_MODEL_ID)
@@ -478,10 +491,14 @@ private fun RecommendedModel.inputModalities(): Set<ModelInputModality> =
     }
 
 private fun RecommendedModel.features(): Set<ModelFeature> =
-    if (capability == ModelCapability.Chat && id in LOCAL_VISION_INPUT_MODEL_IDS) {
-        setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput)
-    } else {
-        capability.defaultFeatures()
+    buildSet {
+        addAll(capability.defaultFeatures())
+        if (capability == ModelCapability.Chat && id in LOCAL_VISION_INPUT_MODEL_IDS) {
+            add(ModelFeature.VisionInput)
+        }
+        if (capability == ModelCapability.Chat && id in LOCAL_ACTION_PLANNING_MODEL_IDS) {
+            add(ModelFeature.MobileActionPlanning)
+        }
     }
 
 private fun RecommendedModel.defaultPreferredLocalBackends(): Set<BackendChoice> =
