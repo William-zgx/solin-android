@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.LocalModelTokenLimits
+import com.bytedance.zgx.solin.MEMORY_EMBEDDING_MODEL_ID
 import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.ModelCatalog
@@ -6752,7 +6753,7 @@ class AgentLoopRuntimeTest {
             ),
             completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
         )
-        assertEquals(2, actionRuntime.plannedInputs.size)
+        assertEquals(3, actionRuntime.plannedInputs.size)
     }
 
     @Test
@@ -6820,7 +6821,7 @@ class AgentLoopRuntimeTest {
         requireNotNull(completed)
         assertEquals(AgentRunState.Completed, completed.run.state)
         assertEquals(AgentObservationDecision.Complete, completed.decision)
-        assertEquals(2, actionRuntime.plannedInputs.size)
+        assertEquals(3, actionRuntime.plannedInputs.size)
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -8686,7 +8687,7 @@ class AgentLoopRuntimeTest {
             installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
             memoryEnabled = false,
             actionModelPath = "/verified/action-model.task",
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(DEFAULT_CHAT_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID)),
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
@@ -8954,7 +8955,7 @@ class AgentLoopRuntimeTest {
             input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(DEFAULT_CHAT_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID)),
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
