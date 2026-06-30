@@ -25,13 +25,12 @@ import org.junit.Test
 class SolinScreenDisplayTest {
     @Test
     fun remoteAttachmentProtectionNoticeNamesVisionImagePath() {
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("远程图片"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("发送前逐次确认"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("视觉模型"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("远程模式"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("图片发送前会确认"))
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("非图片附件"))
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("分享文本"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("OCR 摘录"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不会自动读取或发送"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("OCR"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不会自动发送"))
     }
 
     @Test
@@ -83,8 +82,9 @@ class SolinScreenDisplayTest {
         assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("留在本机"))
         assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("发送到远程"))
         assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("确认后才执行"))
-        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("可远程发送的对话上下文"))
-        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("切换到远程时提醒一次"))
+        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("OpenAI 兼容"))
+        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("API Key 加密保存在本机"))
+        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("逐次确认"))
         assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("离线可用"))
         assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("2.4 GB"))
         assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("远程模型"))
@@ -395,8 +395,8 @@ class SolinScreenDisplayTest {
         assertTrue(text.contains("设备上下文"))
         assertTrue(text.contains("记录或保留请求"))
         assertTrue(text.contains("图片和响应"))
-        assertTrue(text.contains("已配置 API Key"))
-        assertTrue(text.contains("连接状态：可达"))
+        assertTrue(!text.contains("API Key"))
+        assertTrue(!text.contains("连接状态"))
         assertTrue(!text.contains("不要展示密钥"))
     }
 
@@ -489,7 +489,7 @@ class SolinScreenDisplayTest {
         assertTrue(!text.contains("图片字节会发往该远程地址"))
         assertTrue(text.contains("记录或保留请求和响应"))
         assertTrue(!text.contains("图片和响应"))
-        assertTrue(text.contains("未配置 API Key"))
+        assertTrue(!text.contains("API Key"))
     }
 
     @Test

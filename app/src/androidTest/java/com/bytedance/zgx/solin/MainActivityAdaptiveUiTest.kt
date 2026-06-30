@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -107,7 +108,21 @@ class MainActivityAdaptiveUiTest {
             composeRule.onNodeWithText(REMOTE_ATTACHMENT_PROTECTION_NOTICE).assertIsDisplayed()
 
             composeRule.waitForReadyComposer()
-            composeRule.onNodeWithTag("composer_input").performTextInput("你好")
+            val initialComposerHeight = composeRule.onNodeWithTag("composer_input")
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .height
+            composeRule.onNodeWithTag("composer_input").performTextInput("第一行\n第二行\n第三行")
+            composeRule.onNodeWithTag("composer_input")
+                .assertTextContains("第二行", substring = true)
+            val expandedComposerHeight = composeRule.onNodeWithTag("composer_input")
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .height
+            assertTrue(
+                "Expected composer input to grow for multiline text.",
+                expandedComposerHeight > initialComposerHeight,
+            )
             composeRule.assertLabeledAction("composer_send_button", "发送")
 
             composeRule.onNodeWithTag("top_more_button").performClick()

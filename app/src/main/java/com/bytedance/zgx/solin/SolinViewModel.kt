@@ -594,6 +594,7 @@ class SolinViewModel(
 
     fun updateDeviceContextAuthorizationSnapshot(snapshot: DeviceContextAuthorizationSnapshot) {
         deviceContextAuthorizationSnapshot = snapshot
+        _uiState.update { it.copy(grantedSpecialAccessIds = snapshot.grantedSpecialAccessIds) }
     }
 
     fun cancelBackgroundTask(taskId: String) {

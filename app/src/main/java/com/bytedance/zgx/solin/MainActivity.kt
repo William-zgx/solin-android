@@ -462,7 +462,11 @@ class MainActivity : ComponentActivity() {
 
     private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {
         syncDeviceContextAuthorizationSnapshot()
-        if (pendingRuntimePermissionConfirmation != null || pendingMediaProjectionConfirmation != null) return
+        if (
+            pendingRuntimePermissionConfirmation != null ||
+            pendingMediaProjectionConfirmation != null ||
+            pendingSpecialAccessRequirement != null
+        ) return
         val missingPermissions = confirmation.runtimePermissionsFor()
             .filterNot(::hasRuntimePermission)
         if (missingPermissions.isNotEmpty()) {
@@ -473,10 +477,7 @@ class MainActivity : ComponentActivity() {
         val missingSpecialAccess = confirmation.specialAccessRequirementsFor()
             .filterNot(::hasSpecialAccess)
         if (missingSpecialAccess.isNotEmpty()) {
-            viewModel.rejectAgentConfirmationForSpecialAccessDenial(
-                confirmation = confirmation,
-                deniedRequirements = missingSpecialAccess,
-            )
+            openSpecialAccessSettings(missingSpecialAccess.first())
             return
         }
         if (confirmation.requiresCurrentScreenshotOcrConsent()) {

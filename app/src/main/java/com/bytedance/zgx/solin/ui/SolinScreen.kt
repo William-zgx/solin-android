@@ -300,9 +300,6 @@ fun SolinScreen(
                             onPickModel = { pickModel.launch(arrayOf("*/*")) },
                             onDownloadModel = onDownloadModel,
                             onCancelDownload = onCancelDownload,
-                            onSetupModelToggled = onSetupModelToggled,
-                            onDownloadSetupModels = onDownloadSetupModels,
-                            onSkipFirstRunSetup = onSkipFirstRunSetup,
                             onSendPrompt = onSendMessage,
                         )
                     } else {
@@ -364,11 +361,12 @@ fun SolinScreen(
                     onClearPendingSharedInput = onClearPendingSharedInput,
                     onSend = {
                         val message = input
-                        input = ""
                         if (state.pendingSharedInputDraft != null) {
+                            input = ""
                             onSendPendingSharedInput(message)
                         } else {
                             onSendMessage(message)
+                            if (state.isReady) input = ""
                         }
                     },
                     onStopGeneration = onStopGeneration,
@@ -490,6 +488,7 @@ fun SolinScreen(
                 ) {
                     ActionDraftSheet(
                         confirmation = confirmation,
+                        grantedSpecialAccessIds = state.grantedSpecialAccessIds,
                         onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
                         onConfirm = { onConfirmAgentConfirmation(confirmation) },
                         onDismiss = { onDismissAgentConfirmation(confirmation) },
@@ -1093,9 +1092,6 @@ private fun ChatEmptyState(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
-    onSetupModelToggled: (String, Boolean) -> Unit,
-    onDownloadSetupModels: () -> Unit,
-    onSkipFirstRunSetup: () -> Unit,
     onSendPrompt: (String) -> Unit,
 ) {
     val readyTitle = when {
@@ -1180,17 +1176,10 @@ private fun ChatEmptyState(
                     )
                     Text(" 隐私说明")
                 }
-                HomePositioningPanel()
+                if (state.isReady) {
+                    HomePositioningPanel()
+                }
             }
-        }
-
-        if (state.showFirstRunSetup && !state.isReady) {
-            FirstRunSetupPanel(
-                state = state,
-                onSetupModelToggled = onSetupModelToggled,
-                onDownloadSetupModels = onDownloadSetupModels,
-                onSkip = onSkipFirstRunSetup,
-            )
         }
 
         if (!state.isReady) {
@@ -1485,7 +1474,7 @@ private fun QuickModelSetup(
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
-                Text(" 配置远程模型，立即试用")
+                Text(" 配置远程模型")
             }
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val stackModelActions = stackModelActionsForTextScale || maxWidth < 280.dp
@@ -1817,10 +1806,10 @@ private fun RemoteSendDisclosureRows(disclosure: PendingRemoteSendDisclosure) {
 internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclosure): List<String> {
     val sendSummary = when (disclosure.kind) {
         RemoteSendDisclosureKind.CurrentInput ->
-            "本次会发送：当前输入、可远程发送历史 ${disclosure.remoteHistoryCount} 条"
+            "会发送：当前输入、可远程发送历史 ${disclosure.remoteHistoryCount} 条"
 
         RemoteSendDisclosureKind.ToolResultContinuation ->
-            "本次会发送：工具结果续写提示、可远程发送历史 ${disclosure.remoteHistoryCount} 条"
+            "会发送：工具结果续写提示、可远程发送历史 ${disclosure.remoteHistoryCount} 条"
     }.let { summary ->
         if (disclosure.imageAttachmentCount > 0) {
             "$summary、图片 ${disclosure.imageAttachmentCount} 张；图片字节会发往该远程地址"
@@ -1834,13 +1823,10 @@ internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclo
         "远程服务方可能按其政策记录或保留请求和响应；请只发送你愿意交给该服务处理的内容。"
     }
     return listOf(
-        "远程地址：${disclosure.remoteHost}",
-        "模型：${disclosure.remoteModelName}",
+        "发送到：${disclosure.remoteHost} · ${disclosure.remoteModelName}",
         sendSummary,
         "不会发送：仅本机历史 ${disclosure.localOnlyHistoryFilteredCount} 条、本地记忆、设备上下文、非图片附件",
         retentionNotice,
-        "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
-        "连接状态：${disclosure.connectivityStatus.label}",
     ) + buildList {
         if (disclosure.promptPreview.isNotBlank()) {
             add("将发送内容预览：${disclosure.promptPreview}")
@@ -1857,6 +1843,7 @@ internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclo
 @Composable
 private fun ActionDraftSheet(
     confirmation: PendingAgentConfirmation,
+    grantedSpecialAccessIds: Set<String>,
     onOpenSpecialAccessSettings: (SpecialAccessRequirement) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -1864,6 +1851,8 @@ private fun ActionDraftSheet(
     val draft = confirmation.draft
     val runtimePermissionRequirements = confirmation.runtimePermissionRequirementsFor()
     val specialAccessRequirements = confirmation.specialAccessRequirementsFor()
+    val missingSpecialAccessRequirements = specialAccessRequirements
+        .filterNot { requirement -> requirement.id in grantedSpecialAccessIds }
     TrustSheetSurface(
         accentColor = LocalSolinColors.current.busy,
     ) {
@@ -1914,7 +1903,7 @@ private fun ActionDraftSheet(
                 }
             }
         }
-        if (specialAccessRequirements.isNotEmpty()) {
+        if (missingSpecialAccessRequirements.isNotEmpty()) {
             TrustSheetGroup(
                 modifier = Modifier.testTag("special_access_requirements"),
             ) {
@@ -1924,7 +1913,7 @@ private fun ActionDraftSheet(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                 )
-                specialAccessRequirements.forEach { requirement ->
+                missingSpecialAccessRequirements.forEach { requirement ->
                     Text(
                         text = "${requirement.title}：${requirement.rationale}",
                         style = MaterialTheme.typography.bodySmall,
@@ -1951,9 +1940,13 @@ private fun ActionDraftSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("action_confirm_button"),
-            onClick = onConfirm,
+            onClick = {
+                missingSpecialAccessRequirements.firstOrNull()
+                    ?.let(onOpenSpecialAccessSettings)
+                    ?: onConfirm()
+            },
         ) {
-            Text("确认执行")
+            Text(if (missingSpecialAccessRequirements.isEmpty()) "确认执行" else "打开系统设置")
         }
         OutlinedButton(
             modifier = Modifier
@@ -2908,10 +2901,12 @@ private fun RemoteModelPanel(
                     text = "远程模型",
                     subtitle = REMOTE_MODE_DISCLOSURE_TEXT,
                 )
+                val remoteSwitchEnabled = !state.isBusy &&
+                    (config.isConfigured || state.inferenceMode == InferenceMode.Remote)
                 Switch(
                     modifier = Modifier.testTag("remote_mode_switch"),
                     checked = state.inferenceMode == InferenceMode.Remote,
-                    enabled = !state.isBusy,
+                    enabled = remoteSwitchEnabled,
                     onCheckedChange = {
                         onInferenceModeSelected(
                             if (it) InferenceMode.Remote else InferenceMode.Local,
@@ -2968,7 +2963,7 @@ private fun RemoteModelPanel(
             ) {
                 Text(
                     modifier = Modifier.weight(1f),
-                    text = "图片输入",
+                    text = "允许远程图片输入",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -4103,7 +4098,7 @@ private fun AuditEventSummary.auditTimeLabel(): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
 internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
-    "远程图片仅在发送前逐次确认后交给视觉模型；非图片附件、分享文本和 OCR 摘录不会自动读取或发送。"
+    "远程模式：图片发送前会确认；非图片附件、分享文本和 OCR 不会自动发送。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
     "隐私优先的随身 AI 助手：可下载或导入本地模型，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界和权限。"
@@ -4188,7 +4183,7 @@ internal const val PRIVACY_POLICY_ENTRY_TEXT =
     "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力必须你确认后才执行。"
 
 internal const val REMOTE_MODE_DISCLOSURE_TEXT =
-    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，切换到远程时提醒一次，主动选择的图片会在逐次确认后随请求发送。"
+    "OpenAI 兼容地址和模型名；API Key 加密保存在本机。图片需开启并逐次确认后才会发送。"
 
 internal const val MODEL_DOWNLOAD_RATIONALE_TEXT =
     "本地模型让基础问答离线可用；基础对话模型约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"
@@ -5552,7 +5547,7 @@ private fun Composer(
     onSend: () -> Unit,
     onStopGeneration: () -> Unit,
 ) {
-    val inputEnabled = state.isReady && !state.isBusy
+    val inputEnabled = !state.isBusy
     val attachmentEnabled = !state.isBusy
     val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
     var showVoicePermissionDisclosure by rememberSaveable { mutableStateOf(false) }
@@ -5765,7 +5760,7 @@ private fun ComposerTextInput(
 ) {
     OutlinedTextField(
         modifier = modifier
-            .height(50.dp)
+            .heightIn(min = 50.dp, max = 132.dp)
             .testTag("composer_input"),
         value = input,
         onValueChange = onInputChanged,
@@ -5896,7 +5891,7 @@ private fun RemoteAttachmentProtectionNotice() {
             text = REMOTE_ATTACHMENT_PROTECTION_NOTICE,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -5974,7 +5969,7 @@ private fun PendingSharedInputStrip(
                 text = summary,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             IconButton(
