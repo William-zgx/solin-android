@@ -34,6 +34,7 @@ import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.safety.SafetyOutcome
+import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.SkillManifest
 import com.bytedance.zgx.solin.skill.SkillPlan
@@ -2884,9 +2885,134 @@ class AgentLoopRuntimeTest {
             ),
         )
 
-        assertEquals(AgentRunState.GeneratingAnswer, verified.run.state)
-        require(verified.decision is AgentObservationDecision.ContinueWithModel)
-        assertTrue(verified.decision.requiresLocalModel)
+        assertEquals(AgentRunState.Completed, verified.run.state)
+        assertEquals(AgentObservationDecision.Complete, verified.decision)
+        assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun modelDrivenOpenAppSearchBootstrapsThenReplansUiChainUntilVerified() {
+        val actionRuntime = QueuedModelActionRuntime(
+            listOf(
+                ActionDraft(
+                    functionName = MobileActionFunctions.UI_TAP,
+                    title = "点击搜索入口",
+                    summary = "点击淘宝搜索入口。",
+                    parameters = mapOf("target" to "search_entry"),
+                ),
+                ActionDraft(
+                    functionName = MobileActionFunctions.UI_TYPE_TEXT,
+                    title = "输入搜索词",
+                    summary = "输入搜索关键词：耳机。",
+                    parameters = mapOf("target" to "搜索输入框", "text" to "耳机"),
+                ),
+                ActionDraft(
+                    functionName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+                    title = "提交搜索",
+                    summary = "提交搜索。",
+                    parameters = emptyMap(),
+                ),
+                ActionDraft(
+                    functionName = MobileActionFunctions.UI_WAIT,
+                    title = "等待搜索结果",
+                    summary = "等待搜索结果验证。",
+                    parameters = mapOf("verifySearchQuery" to "耳机"),
+                ),
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = BuiltInSkillRuntime(
+                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap },
+            ),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+                maxModelReplans = 5,
+            ),
+        )
+        val planned = runtime.runOnce(
+            input = "打开淘宝搜索耳机",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+        )
+        assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL, planned.plan.skillRequest?.skillId)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        var plan = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开淘宝",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(plan.request, actionType = "wait"),
+        ).requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            observeScreenResult(
+                request = plan.request,
+                rawScreenObservationJson = searchEntryScreenObservationJson("screen-${plan.request.id}"),
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_TAP)
+        assertTrue(plan.plannedByModel)
+        assertEquals(BuiltInSkillRuntime.DEVICE_CONTROL_SKILL, plan.skillRequest?.skillId)
+        assertEquals("search_entry", plan.request.arguments["target"])
+
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(plan.request, actionType = "tap", target = "search_entry"),
+        ).requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
+        assertTrue(plan.plannedByModel)
+        assertEquals("耳机", plan.request.arguments["text"])
+
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"),
+        ).requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        assertTrue(plan.plannedByModel)
+
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(plan.request, actionType = "submit_search"),
+        ).requireNextTool(MobileActionFunctions.UI_WAIT)
+        assertTrue(plan.plannedByModel)
+        assertEquals("耳机", plan.request.arguments["verifySearchQuery"])
+
+        val verified = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(
+                    request = plan.request,
+                    actionType = "wait",
+                    extraData = mapOf(
+                        "searchVerificationStatus" to "verified",
+                        "searchVerificationEvidence" to "query_visible_after_change",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunState.Completed, verified.run.state)
+        assertEquals(AgentObservationDecision.Complete, verified.decision)
+        assertEquals(4, actionRuntime.plannedInputs.size)
+        assertEquals(List(4) { "/verified/mobile-action.litertlm" }, actionRuntime.actionModelPaths)
         assertEquals(null, runtime.latestPendingConfirmation())
     }
 
@@ -9543,9 +9669,8 @@ class AgentLoopRuntimeTest {
             ),
         )
 
-        assertEquals(AgentRunState.GeneratingAnswer, verified.run.state)
-        require(verified.decision is AgentObservationDecision.ContinueWithModel)
-        assertTrue(verified.decision.requiresLocalModel)
+        assertEquals(AgentRunState.Completed, verified.run.state)
+        assertEquals(AgentObservationDecision.Complete, verified.decision)
         assertEquals(null, runtime.latestPendingConfirmation())
     }
 
@@ -9561,6 +9686,7 @@ class AgentLoopRuntimeTest {
         request: ToolRequest,
         packageName: String = "com.taobao.taobao",
         textSummary: String = "淘宝 搜索商品 海河牛奶",
+        rawScreenObservationJson: String = screenObservationJson("screen-${request.id}", packageName),
     ): ToolResult =
         ToolResult(
             requestId = request.id,
@@ -9574,7 +9700,7 @@ class AgentLoopRuntimeTest {
                 "textSummary" to textSummary,
                 "truncated" to "false",
                 "nodesJson" to "[]",
-                "screenObservationJson" to screenObservationJson("screen-${request.id}", packageName),
+                "screenObservationJson" to rawScreenObservationJson,
                 "maxTextChars" to "2000",
                 "maxNodes" to "50",
                 "packageName" to packageName,
@@ -9586,6 +9712,9 @@ class AgentLoopRuntimeTest {
         packageName: String,
     ): String =
         """{"schemaVersion":1,"observationId":"$observationId","capturedAtMillis":1000,"packageName":"$packageName","privacyLevel":"LocalOnly","sources":["accessibility"],"elementCount":0,"sourceCounts":{},"truncated":false,"elements":[]}"""
+
+    private fun searchEntryScreenObservationJson(observationId: String): String =
+        """{"schemaVersion":1,"observationId":"$observationId","capturedAtMillis":1000,"packageName":"com.taobao.taobao","privacyLevel":"LocalOnly","sources":["accessibility"],"elementCount":1,"sourceCounts":{"accessibility":1},"truncated":false,"elements":[{"id":"search_entry","source":"accessibility","bounds":{"left":0,"top":0,"right":200,"bottom":80},"text":"搜索商品","role":"button","clickability":{"clickable":true,"editable":false,"scrollable":false,"enabled":true},"confidence":1.0,"sensitiveFlags":[],"privacyLevel":"LocalOnly"}]}"""
 
     private fun uiActionResult(
         request: ToolRequest,
@@ -9939,6 +10068,34 @@ class AgentLoopRuntimeTest {
                     fallbackReason = if (modelUsed) null else "test rule fallback",
                 )
             }
+        }
+    }
+
+    private class QueuedModelActionRuntime(
+        drafts: List<ActionDraft>,
+    ) : ActionPlanningRuntime {
+        private val remainingDrafts = ArrayDeque(drafts)
+        private val mutablePlannedInputs = mutableListOf<String>()
+        private val mutableActionModelPaths = mutableListOf<String?>()
+
+        val plannedInputs: List<String>
+            get() = mutablePlannedInputs.toList()
+        val actionModelPaths: List<String?>
+            get() = mutableActionModelPaths.toList()
+
+        override fun isLikelyAction(input: String): Boolean = false
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            mutablePlannedInputs += input
+            mutableActionModelPaths += actionModelPath
+            return ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = remainingDrafts.removeFirst(),
+                ),
+                usedModel = true,
+                fallbackReason = null,
+            )
         }
     }
 

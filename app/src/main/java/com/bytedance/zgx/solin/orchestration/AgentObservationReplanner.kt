@@ -49,6 +49,7 @@ private val localOnlyObservationReplanAllowedTools = setOf(
     MobileActionFunctions.UI_SUBMIT_SEARCH,
     MobileActionFunctions.UI_SCROLL,
     MobileActionFunctions.UI_WAIT,
+    MobileActionFunctions.UI_PRESS_BACK,
 )
 private val searchContextTextMarkers = listOf(
     "搜索",

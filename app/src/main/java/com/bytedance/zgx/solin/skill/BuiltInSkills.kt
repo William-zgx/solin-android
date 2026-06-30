@@ -36,9 +36,15 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import java.time.ZoneId
 import java.util.UUID
 
+enum class AppSearchPlanningMode {
+    StaticSkill,
+    ModelDrivenBootstrap,
+}
+
 class BuiltInSkillRuntime(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val zoneId: ZoneId = ZoneId.systemDefault(),
+    private val appSearchPlanningModeProvider: () -> AppSearchPlanningMode = { AppSearchPlanningMode.StaticSkill },
 ) : SkillRuntime {
     internal val catalog: SkillCatalog = builtInSkillCatalog
     private val manifestsById = catalog.manifestsById
@@ -496,6 +502,14 @@ class BuiltInSkillRuntime(
 
     private fun planCurrentAppUiSearch(input: String): SkillPlan? {
         val query = input.extractCurrentAppUiSearchQuery() ?: return null
+        if (appSearchPlanningModeProvider() == AppSearchPlanningMode.ModelDrivenBootstrap) {
+            return deviceUiTemplatePlan(
+                input = input,
+                skillId = MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL,
+                reason = "将在当前应用内先观察屏幕；后续由本地动作模型逐步规划低风险搜索动作：$query。",
+                steps = listOf(observeScreenStep("observe_current_app_search")),
+            )
+        }
         return deviceUiTemplatePlan(
             input = input,
             skillId = CURRENT_APP_UI_SEARCH_SKILL,
@@ -512,6 +526,27 @@ class BuiltInSkillRuntime(
         val expectedPackageName = AppInteractionProfiles.forAppName(request.appName)
             ?.packageNames
             ?.firstOrNull()
+        if (appSearchPlanningModeProvider() == AppSearchPlanningMode.ModelDrivenBootstrap) {
+            return deviceUiTemplatePlan(
+                input = input,
+                skillId = MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL,
+                reason = "将打开${request.appName}并观察前台界面；后续由本地动作模型逐步规划低风险搜索动作：${request.query}。",
+                steps = listOf(
+                    openAppByNameStep(
+                        id = "open_target_app",
+                        appName = request.appName,
+                        summary = "打开目标应用：${request.appName}。",
+                    ),
+                    waitStep(
+                        id = "wait_target_app",
+                        dependsOn = listOf("open_target_app"),
+                        summary = "等待${request.appName}前台界面稳定。",
+                        expectedPackageName = expectedPackageName,
+                    ),
+                    observeScreenStep("observe_target_app").copy(dependsOn = listOf("wait_target_app")),
+                ),
+            )
+        }
         return deviceUiTemplatePlan(
             input = input,
             skillId = OPEN_APP_UI_SEARCH_SKILL,
@@ -948,6 +983,8 @@ class BuiltInSkillRuntime(
         const val DRAFT_FORM_UI_SKILL = "draft_form_ui_skill"
         const val CURRENT_APP_UI_SEARCH_SKILL = "current_app_ui_search_skill"
         const val OPEN_APP_UI_SEARCH_SKILL = "open_app_ui_search_skill"
+        const val MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL = "model_driven_current_app_ui_search_skill"
+        const val MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL = "model_driven_open_app_ui_search_skill"
         const val CURRENT_PAGE_SIMPLE_INTERACTION_SKILL = "current_page_simple_interaction_skill"
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
         const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
@@ -1810,6 +1847,46 @@ private val builtInSkillManifests = listOf(
         continuesAfterUnverifiedOpenAppLaunch = true,
     ),
     SkillManifest(
+        id = BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL,
+        version = 1,
+        title = "当前应用本地模型搜索",
+        description = "在当前应用或页面内先观察屏幕，随后只允许本地动作模型逐步选择一个低风险 UI 搜索工具；不下单、不支付、不发送、不删除、不授权、不发布。",
+        triggerExamples = listOf("在当前应用搜索 海河牛奶", "search Kotlin in the current app"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_WAIT,
+            MobileActionFunctions.UI_PRESS_BACK,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL,
+        version = 1,
+        title = "打开应用后本地模型搜索",
+        description = "按本机应用名打开目标 App、等待并观察前台界面，随后只允许本地动作模型逐步选择一个低风险 UI 搜索工具；不下单、不支付、不发送、不删除、不授权、不发布。",
+        triggerExamples = listOf("打开淘宝搜索海河牛奶", "open Pinduoduo and search milk"),
+        requiredTools = listOf(
+            MobileActionFunctions.OPEN_APP_BY_NAME,
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_WAIT,
+            MobileActionFunctions.UI_PRESS_BACK,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
+        continuesAfterUnverifiedOpenAppLaunch = true,
+    ),
+    SkillManifest(
         id = BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
         version = 1,
         title = "当前页面轻交互",
@@ -1861,6 +1938,8 @@ private val builtInCompositeSkillIds = setOf(
     BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL,
     BuiltInSkillRuntime.CURRENT_APP_UI_SEARCH_SKILL,
     BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL,
+    BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL,
+    BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL,
     BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
 )
 

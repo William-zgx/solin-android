@@ -59,6 +59,8 @@ import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.TfliteTextEmbeddingRuntimeFactory
+import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
+import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
 import com.bytedance.zgx.solin.storage.ZvecNativeLocalVectorIndex
 import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
@@ -175,11 +177,21 @@ class SolinAppContainer(
             toolRegistry = toolRegistry,
             toolAuditSink = toolAuditRepository,
             traceStore = RoomAgentTraceStore(database.agentTraceDao()),
+            skillRuntime = BuiltInSkillRuntime(
+                appSearchPlanningModeProvider = {
+                    if (modelRepository.verifiedActionModelPath() != null) {
+                        AppSearchPlanningMode.ModelDrivenBootstrap
+                    } else {
+                        AppSearchPlanningMode.StaticSkill
+                    }
+                },
+            ),
             observationReplanner = CompositeAgentObservationReplanner(
                 ModelObservationReplanner(
                     actionPlanningRuntime = actionPlanningRuntime,
                     actionModelPathProvider = modelRepository::verifiedActionModelPath,
                     toolRegistry = toolRegistry,
+                    maxModelReplans = 5,
                 ),
                 SequentialActionObservationReplanner(
                     actionPlanningRuntime = actionPlanningRuntime,
