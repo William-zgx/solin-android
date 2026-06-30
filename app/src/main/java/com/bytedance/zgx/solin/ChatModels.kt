@@ -445,6 +445,9 @@ data class ChatUiState(
     val optionalChatModels: List<RecommendedModel>
         get() = ModelCatalog.optionalChatModels()
 
+    val optionalModels: List<RecommendedModel>
+        get() = ModelCatalog.optionalModels()
+
     val activeLocalModelSupportsVisionInput: Boolean
         get() = activeLocalCapabilityProfile?.supportsVisionInput == true
 

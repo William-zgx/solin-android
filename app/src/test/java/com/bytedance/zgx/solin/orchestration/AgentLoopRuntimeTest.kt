@@ -6752,7 +6752,7 @@ class AgentLoopRuntimeTest {
             ),
             completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
         )
-        assertEquals(3, actionRuntime.plannedInputs.size)
+        assertEquals(2, actionRuntime.plannedInputs.size)
     }
 
     @Test
@@ -6820,7 +6820,7 @@ class AgentLoopRuntimeTest {
         requireNotNull(completed)
         assertEquals(AgentRunState.Completed, completed.run.state)
         assertEquals(AgentObservationDecision.Complete, completed.decision)
-        assertEquals(3, actionRuntime.plannedInputs.size)
+        assertEquals(2, actionRuntime.plannedInputs.size)
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -9533,7 +9533,7 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         assertFalse(observed.decision.requiresLocalModel)
-        assertEquals(2, actionRuntime.plannedInputs.size)
+        assertEquals(3, actionRuntime.plannedInputs.size)
         assertNull(runtime.latestPendingConfirmation())
     }
 

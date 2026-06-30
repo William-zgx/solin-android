@@ -506,7 +506,7 @@ class BuiltInSkillRuntime(
             return deviceUiTemplatePlan(
                 input = input,
                 skillId = MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL,
-                reason = "将在当前应用内先观察屏幕；后续由本地动作模型逐步规划低风险搜索动作：$query。",
+                reason = "将在当前应用内先观察屏幕；后续由本地动作规划模型逐步规划低风险搜索动作：$query。",
                 steps = listOf(observeScreenStep("observe_current_app_search")),
             )
         }
@@ -530,7 +530,7 @@ class BuiltInSkillRuntime(
             return deviceUiTemplatePlan(
                 input = input,
                 skillId = MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL,
-                reason = "将打开${request.appName}并观察前台界面；后续由本地动作模型逐步规划低风险搜索动作：${request.query}。",
+                reason = "将打开${request.appName}并观察前台界面；后续由本地动作规划模型逐步规划低风险搜索动作：${request.query}。",
                 steps = listOf(
                     openAppByNameStep(
                         id = "open_target_app",
@@ -1850,7 +1850,7 @@ private val builtInSkillManifests = listOf(
         id = BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL,
         version = 1,
         title = "当前应用本地模型搜索",
-        description = "在当前应用或页面内先观察屏幕，随后只允许本地动作模型逐步选择一个低风险 UI 搜索工具；不下单、不支付、不发送、不删除、不授权、不发布。",
+        description = "在当前应用或页面内先观察屏幕，随后只允许本地动作规划模型逐步选择一个低风险 UI 搜索工具；不下单、不支付、不发送、不删除、不授权、不发布。",
         triggerExamples = listOf("在当前应用搜索 海河牛奶", "search Kotlin in the current app"),
         requiredTools = listOf(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
@@ -1869,7 +1869,7 @@ private val builtInSkillManifests = listOf(
         id = BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL,
         version = 1,
         title = "打开应用后本地模型搜索",
-        description = "按本机应用名打开目标 App、等待并观察前台界面，随后只允许本地动作模型逐步选择一个低风险 UI 搜索工具；不下单、不支付、不发送、不删除、不授权、不发布。",
+        description = "按本机应用名打开目标 App、等待并观察前台界面，随后只允许本地动作规划模型逐步选择一个低风险 UI 搜索工具；不下单、不支付、不发送、不删除、不授权、不发布。",
         triggerExamples = listOf("打开淘宝搜索海河牛奶", "open Pinduoduo and search milk"),
         requiredTools = listOf(
             MobileActionFunctions.OPEN_APP_BY_NAME,

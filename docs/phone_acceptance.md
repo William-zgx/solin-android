@@ -145,7 +145,7 @@ ALLOW_DEBUG_KEYSTORE=1 scripts/sign_release_artifacts.sh
 
 ## 内置模型体验包
 
-验收“安装后直接可用”的内部体验包时，使用 `bundledModels` split 包，不使用普通 debug/release 单 APK。该路径会把推荐的 E2B、E4B、本地记忆模型和设备动作模型打入 install-time modelpack split，并在首启复制、校验、注册到本地模型目录。
+验收“安装后直接可用”的内部体验包时，使用 `bundledModels` split 包，不使用普通 debug/release 单 APK。该路径会把推荐的 E2B、E4B、本地记忆模型和可选实验低资源动作模型打入 install-time modelpack split，并在首启复制、校验、注册到本地模型目录。
 
 ```bash
 export SOLIN_BUNDLED_MODELS_DIR=/path/to/verified/model/files
@@ -160,7 +160,7 @@ scripts/package_bundled_models.sh
 至少确认：
 
 - `pm path com.bytedance.zgx.solin` 同时列出 `base.apk` 和四个 split：`split_modelpackE2b.apk`、`split_modelpackE2bExtra.apk`、`split_modelpackE4b.apk`、`split_modelpackE4bExtra.apk`。
-- 模型管理页中 E2B、E4B、本地记忆模型、设备动作模型都显示 `SHA-256 已校验`。
+- 模型管理页中 E2B、E4B、本地记忆模型、可选实验低资源动作模型都显示 `SHA-256 已校验`。
 - 新装或切回本地后，首页显示 `本机模型已就绪`，当前模型为基础对话 E2B，健康状态为 `已加载`，并标明 GPU 或 CPU backend。
 - 本地记忆文件 SHA 校验通过不等于语义记忆 runtime 已可用；embedding runtime probe 失败时，UI 可显示 `已安装待探测` 或 `已回退轻量索引`。
 

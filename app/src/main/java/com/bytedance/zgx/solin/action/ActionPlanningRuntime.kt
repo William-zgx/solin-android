@@ -79,7 +79,11 @@ class HybridActionPlanningRuntime(
         return ActionPlanningResult(
             plan = rulePlanner.plan(input),
             usedModel = false,
-            fallbackReason = if (actionModelPath == null) "动作模型未安装或未校验" else "动作模型未产出可执行草稿",
+            fallbackReason = if (actionModelPath == null) {
+                "动作规划模型未安装或未校验"
+            } else {
+                "动作规划模型未产出可执行草稿"
+            },
         )
     }
 
@@ -160,7 +164,7 @@ internal fun actionPrompt(
     }
     return """
         将用户请求转换成一个手机动作调用。只能输出 call:function {"arg":"value"}，不解释。
-        支持函数来自 ToolRegistry；参数必须符合对应 JSON schema：
+        支持函数如下；参数必须符合对应 JSON schema：
         $toolLines
 
         用户请求：$input
@@ -180,14 +184,26 @@ private fun ToolSpec.toActionPromptLine(): String {
     }
     val optionalClause = optionalNames
         .takeIf { names -> names.isNotEmpty() }
-        ?.joinToString(prefix = " 可选参数：")
+        ?.joinToString(prefix = " 可选：")
         .orEmpty()
     val hintClause = planningPromptHint
         ?.takeIf { hint -> hint.isNotBlank() }
-        ?.let { hint -> " $hint" }
+        ?.let { hint -> " ${hint.compactActionPromptText(maxLength = 64)}" }
         .orEmpty()
-    return "- $name $primaryShape$optionalClause。$description$hintClause"
+    val descriptionClause = description
+        .takeIf { value -> value.isNotBlank() }
+        ?.compactActionPromptText(maxLength = 64)
+        ?.let { value -> "。$value" }
+        .orEmpty()
+    return "- $name $primaryShape$optionalClause$descriptionClause$hintClause"
 }
+
+private fun String.compactActionPromptText(maxLength: Int): String =
+    replace(Regex("\\s+"), " ")
+        .trim()
+        .let { value ->
+            if (value.length <= maxLength) value else value.take(maxLength).trimEnd() + "..."
+        }
 
 private fun JSONObject.placeholderFor(name: String): String {
     val enumValues = optStringList("enum")

@@ -74,7 +74,7 @@ Current status:
   search/edit/submit/filter/result/scroll targets; app profiles improve
   ranking, not safety policy.
 - UI control tools remain unavailable to remote model planning. App-search
-  observation is `LocalOnly` and can only feed the local action model.
+  observation is `LocalOnly` and can only feed the local action-planning model.
 
 Tests:
 
@@ -130,11 +130,13 @@ Current status:
   a fresh user action.
 - Private observations are synthesized locally and take precedence over generic
   replanning. Unknown privacy metadata fails closed as `LocalOnly`.
-- Low-risk phone-control replanning can use the verified `mobile-action-270m`
-  local action model. If the model is missing, fails, or produces no valid
+- Low-risk phone-control replanning can use a verified local action-planning
+  model. Verified E2B/E4B Chat models are preferred for observation-to-action
+  planning; the `mobile-action-270m` model is only a low-resource experimental
+  fallback. If the selected model is missing, fails, or produces no valid
   draft, the runtime falls back to conservative rule planning.
 - App search has two modes: static Skill fallback, and model-driven bootstrap
-  when a verified local action model is available. The bootstrap only opens,
+  when a verified local action-planning model is available. The bootstrap only opens,
   waits, and observes; `ModelObservationReplanner` then plans one UI tool per
   observation, capped at five replans. A verified search result completes the
   run without asking a model for another step.

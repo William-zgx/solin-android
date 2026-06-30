@@ -6,8 +6,10 @@ import android.os.Environment
 import android.provider.OpenableColumns
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
+import com.bytedance.zgx.solin.HIGH_QUALITY_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.MODEL_FILE_EXTENSION
+import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RECOMMENDED_MODELS
@@ -361,19 +363,32 @@ class ModelRepository(
             it.fileName.equals(fileName, ignoreCase = true)
         }?.id
 
-    override fun verifiedActionModelPath(): String? =
-        verifiedRecommendedModelPath(
+    override fun verifiedActionModelPath(): String? {
+        refreshCompletedRecommendedBundles()
+        return verifiedRecommendedModelPath(
             models = installedModels(),
             capability = ModelCapability.MobileAction,
             currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
         )
+    }
 
-    override fun verifiedMemoryEmbeddingModelPath(): String? =
-        verifiedRecommendedModelPath(
+    override fun verifiedObservationActionModelPath(): String? {
+        refreshCompletedRecommendedBundles()
+        return verifiedObservationActionPlanningModelPath(
+            models = installedModels(),
+            activeInstalledModelId = settingsStore.activeInstalledModelId(),
+            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
+        )
+    }
+
+    override fun verifiedMemoryEmbeddingModelPath(): String? {
+        refreshCompletedRecommendedBundles()
+        return verifiedRecommendedModelPath(
             models = installedModels(),
             capability = ModelCapability.MemoryEmbedding,
             currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
         )
+    }
 
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
@@ -678,10 +693,57 @@ internal fun verifiedRecommendedModelPath(
     currentFileVerifier: (InstalledModelEntity, RecommendedModel) -> Boolean =
         ::currentFileMatchesVerifiedRecommendedModel,
 ): String? =
+    verifiedRecommendedModelPath(
+        models = models,
+        currentFileVerifier = currentFileVerifier,
+        modelPredicate = { model -> model.capability == capability },
+    )
+
+internal fun verifiedObservationActionPlanningModelPath(
+    models: List<InstalledModelEntity>,
+    activeInstalledModelId: String?,
+    currentFileVerifier: (InstalledModelEntity, RecommendedModel) -> Boolean =
+        ::currentFileMatchesVerifiedRecommendedModel,
+): String? =
+    verifiedRecommendedModelPath(
+        models = models.sortedWith(
+            compareBy { model ->
+                observationActionPlanningModelPriority(
+                    recommendedModelId = model.recommendedModelId,
+                    isActiveInstalledModel = model.id == activeInstalledModelId,
+                )
+            },
+        ),
+        currentFileVerifier = currentFileVerifier,
+        modelPredicate = { model -> ModelCatalog.profileFor(model).supportsMobileActionPlanning },
+    )
+
+private fun observationActionPlanningModelPriority(
+    recommendedModelId: String?,
+    isActiveInstalledModel: Boolean,
+): Int =
+    when {
+        isActiveInstalledModel && recommendedModelId in CHAT_ACTION_PLANNING_MODEL_IDS -> 0
+        recommendedModelId == DEFAULT_CHAT_MODEL_ID -> 1
+        recommendedModelId == HIGH_QUALITY_CHAT_MODEL_ID -> 2
+        recommendedModelId == MOBILE_ACTION_MODEL_ID -> 3
+        else -> 4
+    }
+
+private val CHAT_ACTION_PLANNING_MODEL_IDS = setOf(
+    DEFAULT_CHAT_MODEL_ID,
+    HIGH_QUALITY_CHAT_MODEL_ID,
+)
+
+private fun verifiedRecommendedModelPath(
+    models: List<InstalledModelEntity>,
+    currentFileVerifier: (InstalledModelEntity, RecommendedModel) -> Boolean,
+    modelPredicate: (RecommendedModel) -> Boolean,
+): String? =
     models.firstOrNull { model ->
         val catalogModel = model.recommendedModelId?.let { catalogRecommendedModel(it) }
             ?: return@firstOrNull false
-        catalogModel.capability == capability &&
+        modelPredicate(catalogModel) &&
             model.hasVerifiedRecommendedEvidence(catalogModel) &&
             currentFileVerifier(model, catalogModel)
     }?.path

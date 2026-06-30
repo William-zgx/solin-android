@@ -56,7 +56,7 @@ flowchart TD
 - [ ] Build and package checks use `./gradlew checkBundledModelsPackageOutputs` and `scripts/package_bundled_models.sh`.
 - [ ] All five APKs are signed by the same key: base APK plus `modelpackE2b`, `modelpackE2bExtra`, `modelpackE4b`, and `modelpackE4bExtra`; the package report from `build/verification/bundled-models/package.properties` is attached.
 - [ ] Device install uses `adb install-multiple --no-incremental -r`; fast incremental-install `Success` is not accepted for this split set.
-- [ ] Device smoke records that `pm path` lists `base.apk` plus all four modelpack splits, Model Manager shows E2B, E4B, memory, and action models with `SHA-256 已校验`, and local E2B reaches `已加载` on GPU or CPU fallback.
+- [ ] Device smoke records that `pm path` lists `base.apk` plus all four modelpack splits, Model Manager shows E2B, E4B, memory, and optional low-resource action models with `SHA-256 已校验`, and local E2B reaches `已加载` on GPU or CPU fallback.
 - [ ] Model byte size, SHA-256, license, attribution, and redistribution approval evidence are attached. No API keys, bearer tokens, private hostnames, or release keystore files are bundled.
 
 ## Store, Privacy, And License

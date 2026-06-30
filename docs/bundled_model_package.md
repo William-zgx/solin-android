@@ -222,7 +222,7 @@ Model Manager should show the four recommended models as SHA-256 verified:
 
 - 基础对话 E2B
 - 本地记忆模型
-- 设备动作模型
+- 可选实验低资源动作模型
 - 高质量对话 E4B
 
 For a fresh or local-selected state, the home screen should show

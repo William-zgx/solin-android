@@ -1126,14 +1126,14 @@ class SolinViewModelTest {
         )
         val action = installedModelSummary(
             id = "action-model",
-            displayName = "设备动作模型",
+            displayName = "低资源动作模型",
             path = "/tmp/action.litertlm",
             recommendedModelId = MOBILE_ACTION_MODEL_ID,
             verificationStatus = ModelVerificationStatus.VerifiedRecommended,
         )
         val unverifiedAction = installedModelSummary(
             id = "unverified-action",
-            displayName = "未验证动作模型",
+            displayName = "未验证低资源动作模型",
             path = "/tmp/unverified-action.litertlm",
             recommendedModelId = MOBILE_ACTION_MODEL_ID,
             verificationStatus = ModelVerificationStatus.UnverifiedCustom,
@@ -5839,7 +5839,7 @@ class SolinViewModelTest {
         )
         val action = installedModelSummary(
             id = "action-model",
-            displayName = "设备动作模型",
+            displayName = "低资源动作模型",
             path = "/tmp/action.litertlm",
             recommendedModelId = MOBILE_ACTION_MODEL_ID,
             verificationStatus = ModelVerificationStatus.VerifiedRecommended,
@@ -9574,6 +9574,8 @@ class SolinViewModelTest {
         override fun resolveModelStorageBytes(): Long = 1024L * 1024L * 1024L
 
         override fun verifiedActionModelPath(): String? = null
+
+        override fun verifiedObservationActionModelPath(): String? = null
 
         override fun verifiedMemoryEmbeddingModelPath(): String? = memoryEmbeddingModelPath
 

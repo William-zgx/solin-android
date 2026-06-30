@@ -2456,13 +2456,13 @@ private fun ModelInventoryPanel(
             }
         }
 
-        if (state.optionalChatModels.isNotEmpty()) {
+        if (state.optionalModels.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionTitle(
-                    text = "可选对话模型",
-                    subtitle = "用于高质量或备用对话，不参与首装默认下载。",
+                    text = "可选模型",
+                    subtitle = "用于高质量对话或低资源实验动作规划，不参与首装默认下载。",
                 )
-                state.optionalChatModels.forEach { model ->
+                state.optionalModels.forEach { model ->
                     RecommendedModelCard(
                         model = model,
                         state = state,
@@ -4576,9 +4576,10 @@ private fun RecommendedModelCard(
         model.capability == ModelCapability.MemoryEmbedding ->
             memoryModelStatusText(installed, state.semanticMemoryRuntimeStatus)
 
-        installed && model.capability == ModelCapability.MobileAction -> "实验资产已安装"
+        installed && model.capability == ModelCapability.MobileAction -> "低资源实验已安装"
         installed -> "已安装"
         model.setupTier == SetupTier.BasicRecommended -> "基础包"
+        model.setupTier == SetupTier.OptionalExperimental -> "实验可选"
         else -> "可选"
     }
     Surface(

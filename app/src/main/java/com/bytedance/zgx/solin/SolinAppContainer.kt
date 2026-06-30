@@ -51,6 +51,7 @@ import com.bytedance.zgx.solin.multimodal.AndroidCurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.CompositeAgentObservationReplanner
+import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.solin.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.SequentialActionObservationReplanner
@@ -148,6 +149,13 @@ class SolinAppContainer(
             cacheDir = appContext.cacheDir,
             toolRegistry = toolRegistry,
         )
+        val observationActionToolRegistry = ToolRegistry.fromSupportedActions(
+            MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES,
+        )
+        val observationActionPlanningRuntime = HybridActionPlanningRuntime(
+            cacheDir = appContext.cacheDir,
+            toolRegistry = observationActionToolRegistry,
+        )
         actionExecutor = ValidatingToolExecutor(
             delegate = RoutingToolExecutor(
                 calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
@@ -179,7 +187,7 @@ class SolinAppContainer(
             traceStore = RoomAgentTraceStore(database.agentTraceDao()),
             skillRuntime = BuiltInSkillRuntime(
                 appSearchPlanningModeProvider = {
-                    if (modelRepository.verifiedActionModelPath() != null) {
+                    if (modelRepository.verifiedObservationActionModelPath() != null) {
                         AppSearchPlanningMode.ModelDrivenBootstrap
                     } else {
                         AppSearchPlanningMode.StaticSkill
@@ -188,9 +196,9 @@ class SolinAppContainer(
             ),
             observationReplanner = CompositeAgentObservationReplanner(
                 ModelObservationReplanner(
-                    actionPlanningRuntime = actionPlanningRuntime,
-                    actionModelPathProvider = modelRepository::verifiedActionModelPath,
-                    toolRegistry = toolRegistry,
+                    actionPlanningRuntime = observationActionPlanningRuntime,
+                    actionModelPathProvider = modelRepository::verifiedObservationActionModelPath,
+                    toolRegistry = observationActionToolRegistry,
                     maxModelReplans = 5,
                 ),
                 SequentialActionObservationReplanner(
