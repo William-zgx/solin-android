@@ -221,11 +221,12 @@ def validate_profile(profile, section, seen_ids, metrics):
         requires_confirmation = False
 
     supports_vision = "Vision" in modalities and "VisionInput" in features
+    supports_mobile_action = "MobileActionPlanning" in features
     expected_flags = {
         "chat": capability == "Chat",
         "vision": supports_vision,
         "memoryEmbedding": capability == "MemoryEmbedding" and "MemoryEmbedding" in features,
-        "mobileAction": capability == "MobileAction" and "MobileActionPlanning" in features,
+        "mobileAction": supports_mobile_action,
     }
     for flag, expected in expected_flags.items():
         if capabilities.get(flag) is not expected:
@@ -241,7 +242,7 @@ def validate_profile(profile, section, seen_ids, metrics):
         failures.append(f"profile-text-generation-non-chat:{profile_id}")
     if "MemoryEmbedding" in features and capability != "MemoryEmbedding":
         failures.append(f"profile-memory-feature-mismatch:{profile_id}")
-    if "MobileActionPlanning" in features and capability != "MobileAction":
+    if "MobileActionPlanning" in features and capability not in {"Chat", "MobileAction"}:
         failures.append(f"profile-mobile-action-feature-mismatch:{profile_id}")
 
     context_window = profile.get("contextWindowTokens")

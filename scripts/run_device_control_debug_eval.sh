@@ -184,30 +184,63 @@ if [[ "$SKIP_INSTALL" != "1" ]]; then
 fi
 
 solin_accessibility_enabled() {
-  local dump bound_section enabled_line
+  local dump enabled_section crashed_section
   dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
-  bound_section="$(awk '
-    /Bound services:/ {printing = 1}
+  enabled_section="$(awk '
+    /Enabled services:/ {printing = 1}
     printing {print}
-    /Enabled services:/ {printing = 0}
+    /Binding services:/ {printing = 0}
+    /Crashed services:/ {printing = 0}
   ' <<<"$dump")"
-  enabled_line="$(grep -m 1 'Enabled services:' <<<"$dump" || true)"
-  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
+  crashed_section="$(awk '
+    /Crashed services:/ {printing = 1}
+    printing {print}
+    /Client list info:/ {printing = 0}
+  ' <<<"$dump")"
+  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$enabled_section" &&
+    ! grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$crashed_section"
+}
+
+enabled_accessibility_services_without_solin() {
+  local current="$1"
+  local service updated=""
+  IFS=':' read -r -a services <<<"$current"
+  for service in "${services[@]}"; do
+    if [[ -z "$service" || "$service" == "null" || "$service" == "$SOLIN_ACCESSIBILITY_SERVICE" ]]; then
+      continue
+    fi
+    if [[ -z "$updated" ]]; then
+      updated="$service"
+    else
+      updated="${updated}:$service"
+    fi
+  done
+  printf '%s' "$updated"
 }
 
 enable_solin_accessibility_for_eval() {
-  local current updated
+  local current updated without_solin
   current="$("${ADB[@]}" shell settings get secure enabled_accessibility_services 2>/dev/null | tr -d '\r' || true)"
+  if [[ ":$current:" == *":$SOLIN_ACCESSIBILITY_SERVICE:"* ]]; then
+    without_solin="$(enabled_accessibility_services_without_solin "$current")"
+    if [[ -n "$without_solin" ]]; then
+      "${ADB[@]}" shell settings put secure enabled_accessibility_services "$without_solin"
+      "${ADB[@]}" shell settings put secure accessibility_enabled 1
+    else
+      "${ADB[@]}" shell settings delete secure enabled_accessibility_services >/dev/null 2>&1 || true
+      "${ADB[@]}" shell settings put secure accessibility_enabled 0
+    fi
+    sleep 1
+    current="$without_solin"
+  fi
   if [[ -z "$current" || "$current" == "null" ]]; then
     updated="$SOLIN_ACCESSIBILITY_SERVICE"
-  elif [[ ":$current:" == *":$SOLIN_ACCESSIBILITY_SERVICE:"* ]]; then
-    updated="$current"
   else
     updated="${current}:$SOLIN_ACCESSIBILITY_SERVICE"
   fi
   "${ADB[@]}" shell settings put secure enabled_accessibility_services "$updated"
   "${ADB[@]}" shell settings put secure accessibility_enabled 1
-  sleep 2
+  sleep 3
 }
 
 prepare_interactive_surface() {

@@ -1119,7 +1119,7 @@ private val uiWaitSchemaJson = """
         },
         "expectedPackageName": {
           "type": "string",
-          "description": "Optional foreground package that must still be active before waiting and while verifying search results.",
+          "description": "Optional foreground package that must be active after waiting and while verifying search results.",
           "minLength": 1,
           "maxLength": 200
         },

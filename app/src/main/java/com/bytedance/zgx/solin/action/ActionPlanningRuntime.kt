@@ -39,6 +39,9 @@ data class ActionPlanningResult(
     val plan: ActionPlan,
     val usedModel: Boolean,
     val fallbackReason: String?,
+    val modelAttempted: Boolean = usedModel,
+    val modelOutputPreview: String? = null,
+    val modelFailureReason: String? = null,
 )
 
 sealed class ModelToolOutputParseResult {
@@ -65,25 +68,36 @@ class HybridActionPlanningRuntime(
 
     override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
         if (actionModelPath != null) {
-            val modelPlan = runCatching { modelPlanner.plan(input, actionModelPath) }
-                .getOrNull()
+            val modelAttemptResult = runCatching { modelPlanner.plan(input, actionModelPath) }
+            val modelAttempt = modelAttemptResult.getOrNull()
+            val modelPlan = modelAttempt?.plan
             if (modelPlan?.kind == ActionPlanKind.Draft && modelPlan.draft != null) {
                 return ActionPlanningResult(
                     plan = modelPlan,
                     usedModel = true,
                     fallbackReason = null,
+                    modelAttempted = true,
+                    modelOutputPreview = modelAttempt.output.previewForDiagnostics(),
                 )
             }
+            val modelFailureReason = modelAttempt?.failureReason
+                ?: modelAttemptResult.exceptionOrNull()?.diagnosticReason()
+                ?: "动作规划模型未产出可执行草稿"
+            return ActionPlanningResult(
+                plan = rulePlanner.plan(input),
+                usedModel = false,
+                fallbackReason = "动作规划模型未产出可执行草稿",
+                modelAttempted = true,
+                modelOutputPreview = modelAttempt?.output?.previewForDiagnostics(),
+                modelFailureReason = modelFailureReason,
+            )
         }
 
         return ActionPlanningResult(
             plan = rulePlanner.plan(input),
             usedModel = false,
-            fallbackReason = if (actionModelPath == null) {
-                "动作规划模型未安装或未校验"
-            } else {
-                "动作规划模型未产出可执行草稿"
-            },
+            fallbackReason = "动作规划模型未安装或未校验",
+            modelAttempted = false,
         )
     }
 
@@ -103,7 +117,7 @@ private class ModelBackedActionPlanner(
     private var loadedPath: String? = null
     private var engine: Engine? = null
 
-    fun plan(input: String, modelPath: String): ActionPlan? {
+    fun plan(input: String, modelPath: String): ModelBackedPlanningAttempt {
         val activeEngine = engineFor(modelPath)
         val conversation = activeEngine.createConversation(actionConversationConfig())
         return try {
@@ -113,8 +127,13 @@ private class ModelBackedActionPlanner(
                     output.append(message.textContent())
                 }
             }
-            parser.parseModelOutput(output.toString())
-                ?.let { ActionPlan(ActionPlanKind.Draft, it) }
+            val rawOutput = output.toString()
+            val draft = parser.parseModelOutput(rawOutput)
+            ModelBackedPlanningAttempt(
+                plan = draft?.let { ActionPlan(ActionPlanKind.Draft, it) },
+                output = rawOutput,
+                failureReason = if (draft == null) parser.modelOutputFailureReason(rawOutput) else null,
+            )
         } finally {
             conversation.close()
         }
@@ -143,6 +162,12 @@ private class ModelBackedActionPlanner(
     }
 }
 
+private data class ModelBackedPlanningAttempt(
+    val plan: ActionPlan?,
+    val output: String,
+    val failureReason: String?,
+)
+
 private fun actionConversationConfig(): ConversationConfig =
     ConversationConfig(
         systemInstruction = Contents.of(
@@ -154,6 +179,24 @@ private fun actionConversationConfig(): ConversationConfig =
             temperature = 0.0,
         ),
     )
+
+private fun MobileActionPlanner.modelOutputFailureReason(output: String): String =
+    when (val parseResult = parseModelToolOutput(output)) {
+        ModelToolOutputParseResult.None ->
+            if (output.isBlank()) "blank_model_output" else "missing_call_tool_output"
+
+        is ModelToolOutputParseResult.Parsed -> "model_tool_call_not_accepted"
+        is ModelToolOutputParseResult.Rejected -> parseResult.reason
+    }
+
+private fun String.previewForDiagnostics(maxChars: Int = 240): String? =
+    replace(Regex("""\s+"""), " ")
+        .trim()
+        .takeIf { value -> value.isNotBlank() }
+        ?.take(maxChars)
+
+private fun Throwable.diagnosticReason(): String =
+    "${javaClass.simpleName}:${message.orEmpty()}".take(240)
 
 internal fun actionPrompt(
     input: String,

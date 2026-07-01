@@ -25,6 +25,17 @@ REAL_APP_VERIFY_TIMEOUT_MS="${REAL_APP_VERIFY_TIMEOUT_MS:-4000}"
 REAL_APP_LAUNCH_OBSTRUCTION_RECOVERY="${REAL_APP_LAUNCH_OBSTRUCTION_RECOVERY:-1}"
 REAL_APP_LAUNCH_OBSTRUCTION_WAIT_SECONDS="${REAL_APP_LAUNCH_OBSTRUCTION_WAIT_SECONDS:-4}"
 REAL_APP_BACKGROUND_PACKAGES_TO_STOP="${REAL_APP_BACKGROUND_PACKAGES_TO_STOP:-}"
+REAL_APP_KEEP_DEVICE_AWAKE="${REAL_APP_KEEP_DEVICE_AWAKE:-1}"
+REAL_APP_SEARCH_CASES="${REAL_APP_SEARCH_CASES:-taobao pdd gaode jd chrome android_browser quark uc}"
+RUN_MODEL_DRIVEN_APP_SEARCH_EVAL="${RUN_MODEL_DRIVEN_APP_SEARCH_EVAL:-0}"
+MODEL_DRIVEN_APP_SEARCH_MAX_STEPS="${MODEL_DRIVEN_APP_SEARCH_MAX_STEPS:-12}"
+MODEL_DRIVEN_APP_SEARCH_CASES="${MODEL_DRIVEN_APP_SEARCH_CASES:-taobao}"
+MODEL_DRIVEN_APP_SEARCH_STRICT_MODE="${MODEL_DRIVEN_APP_SEARCH_STRICT_MODE:-none}"
+DEFAULT_DEBUG_EVAL_RESULT_WAIT_ATTEMPTS=60
+if [[ "$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL" == "1" ]]; then
+  DEFAULT_DEBUG_EVAL_RESULT_WAIT_ATTEMPTS=1200
+fi
+DEBUG_EVAL_RESULT_WAIT_ATTEMPTS="${DEBUG_EVAL_RESULT_WAIT_ATTEMPTS:-$DEFAULT_DEBUG_EVAL_RESULT_WAIT_ATTEMPTS}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 PACKAGE_NAME="com.bytedance.zgx.solin"
@@ -260,6 +271,13 @@ write_report() {
     echo "skip_install=$SKIP_INSTALL"
     echo "force_stop_target_app=$FORCE_STOP_TARGET_APP"
     echo "background_packages_stopped=$REAL_APP_BACKGROUND_PACKAGES_TO_STOP"
+    echo "keep_device_awake=$REAL_APP_KEEP_DEVICE_AWAKE"
+    echo "real_app_search_cases=$REAL_APP_SEARCH_CASES"
+    echo "run_model_driven_app_search_eval=$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL"
+    echo "model_driven_app_search_max_steps=$MODEL_DRIVEN_APP_SEARCH_MAX_STEPS"
+    echo "model_driven_app_search_cases=$MODEL_DRIVEN_APP_SEARCH_CASES"
+    echo "model_driven_app_search_strict_mode=$MODEL_DRIVEN_APP_SEARCH_STRICT_MODE"
+    echo "debug_eval_result_wait_attempts=$DEBUG_EVAL_RESULT_WAIT_ATTEMPTS"
     echo "run_count=$RUN_COUNT"
     echo "pass_count=$PASS_COUNT"
     echo "skip_count=$SKIP_COUNT"
@@ -271,7 +289,7 @@ write_report() {
     write_failure_diagnostics_report_fields
     echo "result_file_pattern=${RESULT_FILE_PREFIX}<requestId>${RESULT_FILE_SUFFIX}"
     echo "case_artifact_schema=RealAppSearchCaseArtifact/v1"
-    echo "cases=taobao,pdd,gaode,jd,chrome,android_browser,quark,uc"
+    echo "cases=${REAL_APP_SEARCH_CASES// /,}"
   } > "$REPORT_FILE"
   echo "Real app search eval report: $REPORT_FILE"
 }
@@ -283,6 +301,10 @@ on_exit() {
     if [[ "$CONTROL_SESSION_ACTIVE" == "1" ]]; then
       "$ADB_BIN" -s "$SELECTED_SERIAL" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
         -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es command stop_control_session >/dev/null 2>&1 || true
+    fi
+    if [[ "$REAL_APP_KEEP_DEVICE_AWAKE" == "1" ]]; then
+      "$ADB_BIN" -s "$SELECTED_SERIAL" shell svc power stayon false >/dev/null 2>&1 || true
+      "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power suppress-ambient-display solin-real-app-eval false >/dev/null 2>&1 || true
     fi
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 500 > "$LOGCAT_FILE" 2>/dev/null || true
   fi
@@ -347,30 +369,63 @@ if [[ "$SKIP_INSTALL" != "1" ]]; then
 fi
 
 solin_accessibility_enabled() {
-  local dump bound_section enabled_line
+  local dump enabled_section crashed_section
   dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
-  bound_section="$(awk '
-    /Bound services:/ {printing = 1}
+  enabled_section="$(awk '
+    /Enabled services:/ {printing = 1}
     printing {print}
-    /Enabled services:/ {printing = 0}
+    /Binding services:/ {printing = 0}
+    /Crashed services:/ {printing = 0}
   ' <<<"$dump")"
-  enabled_line="$(grep -m 1 'Enabled services:' <<<"$dump" || true)"
-  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
+  crashed_section="$(awk '
+    /Crashed services:/ {printing = 1}
+    printing {print}
+    /Client list info:/ {printing = 0}
+  ' <<<"$dump")"
+  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$enabled_section" &&
+    ! grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$crashed_section"
+}
+
+enabled_accessibility_services_without_solin() {
+  local current="$1"
+  local service updated=""
+  IFS=':' read -r -a services <<<"$current"
+  for service in "${services[@]}"; do
+    if [[ -z "$service" || "$service" == "null" || "$service" == "$SOLIN_ACCESSIBILITY_SERVICE" ]]; then
+      continue
+    fi
+    if [[ -z "$updated" ]]; then
+      updated="$service"
+    else
+      updated="${updated}:$service"
+    fi
+  done
+  printf '%s' "$updated"
 }
 
 enable_solin_accessibility_for_eval() {
-  local current updated
+  local current updated without_solin
   current="$("${ADB[@]}" shell settings get secure enabled_accessibility_services 2>/dev/null | tr -d '\r' || true)"
+  if [[ ":$current:" == *":$SOLIN_ACCESSIBILITY_SERVICE:"* ]]; then
+    without_solin="$(enabled_accessibility_services_without_solin "$current")"
+    if [[ -n "$without_solin" ]]; then
+      "${ADB[@]}" shell settings put secure enabled_accessibility_services "$without_solin"
+      "${ADB[@]}" shell settings put secure accessibility_enabled 1
+    else
+      "${ADB[@]}" shell settings delete secure enabled_accessibility_services >/dev/null 2>&1 || true
+      "${ADB[@]}" shell settings put secure accessibility_enabled 0
+    fi
+    sleep 1
+    current="$without_solin"
+  fi
   if [[ -z "$current" || "$current" == "null" ]]; then
     updated="$SOLIN_ACCESSIBILITY_SERVICE"
-  elif [[ ":$current:" == *":$SOLIN_ACCESSIBILITY_SERVICE:"* ]]; then
-    updated="$current"
   else
     updated="${current}:$SOLIN_ACCESSIBILITY_SERVICE"
   fi
   "${ADB[@]}" shell settings put secure enabled_accessibility_services "$updated"
   "${ADB[@]}" shell settings put secure accessibility_enabled 1
-  sleep 2
+  sleep 3
 }
 
 ensure_solin_accessibility_for_eval() {
@@ -386,11 +441,26 @@ ensure_solin_accessibility_for_eval() {
   fi
 }
 
+prepare_interactive_surface() {
+  "${ADB[@]}" shell cmd power suppress-ambient-display solin-real-app-eval true >/dev/null 2>&1 || true
+  if [[ "$REAL_APP_KEEP_DEVICE_AWAKE" == "1" ]]; then
+    "${ADB[@]}" shell svc power stayon true >/dev/null 2>&1 || true
+  fi
+  "${ADB[@]}" shell cmd power wakeup 0 >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+  "${ADB[@]}" shell wm dismiss-keyguard >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input keyevent KEYCODE_MENU >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input swipe 600 2100 600 700 200 >/dev/null 2>&1 || true
+  "${ADB[@]}" shell cmd statusbar collapse >/dev/null 2>&1 || true
+  sleep 1
+}
+
 if ! ensure_solin_accessibility_for_eval; then
   fail_with_reason accessibility solin-accessibility-not-enabled \
     "Solin Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
 fi
 
+prepare_interactive_surface
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
 sleep 1
 
@@ -426,7 +496,7 @@ broadcast_command() {
   remove_device_result "$request_id"
   "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
     -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es requestId "$request_id" "$@" >/dev/null
-  for _ in {1..60}; do
+  for _ in $(seq 1 "$DEBUG_EVAL_RESULT_WAIT_ATTEMPTS"); do
     if read_result "$request_id" "$output_file"; then
       if grep -Fq "requestId=$request_id" "$output_file"; then
         echo "$output_file"
@@ -448,6 +518,71 @@ assert_file_contains() {
     echo "Expected $file to contain: $expected" >&2
     cat "$file" >&2
     capture_failure_diagnostics "assert-$(basename "$file" .properties)" "missing_expected:${expected}" || true
+    return 1
+  fi
+}
+
+assert_property_number_at_least() {
+  local file="$1"
+  local key="$2"
+  local minimum="$3"
+  local value
+  value="$(read_result_property "$file" "$key")"
+  if [[ ! "$value" =~ ^[0-9]+$ || "$value" -lt "$minimum" ]]; then
+    echo "Expected $file property $key to be at least $minimum, got: ${value:-missing}" >&2
+    cat "$file" >&2
+    capture_failure_diagnostics "assert-$(basename "$file" .properties)-${key}" "property_below_minimum:${key}:${minimum}" || true
+    return 1
+  fi
+}
+
+model_driven_has_model_planned_step() {
+  local file="$1"
+  local tool_name="$2"
+  local min_text_length="${3:-0}"
+  local step_count index text_length
+  step_count="$(read_result_property "$file" "stepCount")"
+  [[ "$step_count" =~ ^[0-9]+$ ]] || return 1
+  for ((index = 0; index < step_count; index++)); do
+    [[ "$(read_result_property "$file" "step_${index}_tool")" == "$tool_name" ]] || continue
+    [[ "$(read_result_property "$file" "step_${index}_plannedByModel")" == "true" ]] || continue
+    [[ "$(read_result_property "$file" "step_${index}_status")" == "Succeeded" ]] || continue
+    [[ -z "$(read_result_property "$file" "step_${index}_recoveryKind")" ]] || continue
+    if [[ "$min_text_length" =~ ^[0-9]+$ && "$min_text_length" -gt 0 ]]; then
+      text_length="$(read_result_property "$file" "step_${index}_textLength")"
+      [[ "$text_length" =~ ^[0-9]+$ && "$text_length" -ge "$min_text_length" ]] || continue
+    fi
+    return 0
+  done
+  return 1
+}
+
+assert_model_driven_strict_mode() {
+  local file="$1"
+  local case_name="$2"
+  local missing=()
+  case "$MODEL_DRIVEN_APP_SEARCH_STRICT_MODE" in
+    ""|none)
+      return 0
+      ;;
+    submit)
+      model_driven_has_model_planned_step "$file" "ui_submit_search" || missing+=("ui_submit_search")
+      ;;
+    flow)
+      model_driven_has_model_planned_step "$file" "ui_tap" || missing+=("ui_tap")
+      model_driven_has_model_planned_step "$file" "ui_type_text" 1 || missing+=("ui_type_text")
+      model_driven_has_model_planned_step "$file" "ui_submit_search" || missing+=("ui_submit_search")
+      ;;
+    *)
+      echo "Invalid MODEL_DRIVEN_APP_SEARCH_STRICT_MODE: $MODEL_DRIVEN_APP_SEARCH_STRICT_MODE (expected none, submit, or flow)" >&2
+      return 1
+      ;;
+  esac
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "Expected $file to include model-planned successful non-recovery step(s): ${missing[*]}" >&2
+    cat "$file" >&2
+    capture_failure_diagnostics "assert-${case_name}-strict-${MODEL_DRIVEN_APP_SEARCH_STRICT_MODE}" \
+      "missing_model_planned_steps:${missing[*]}" || true
     return 1
   fi
 }
@@ -541,6 +676,7 @@ start_control_session_for_case() {
   local app_name="$2"
   local session_file
 
+  prepare_interactive_surface
   "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
   sleep 0.5
   case_broadcast_command session_file "$case_name" "control_session_timeout" \
@@ -690,6 +826,7 @@ write_case_result() {
 
 case_expected_package() {
   case "$1" in
+    model_driven_*) case_expected_package "${1#model_driven_}" ;;
     taobao) echo "com.taobao.taobao" ;;
     pdd) echo "com.xunmeng.pinduoduo" ;;
     gaode) echo "com.autonavi.minimap" ;;
@@ -704,6 +841,7 @@ case_expected_package() {
 
 case_expected_app_name() {
   case "$1" in
+    model_driven_*) case_expected_app_name "${1#model_driven_}" ;;
     taobao) echo "淘宝" ;;
     pdd) echo "拼多多" ;;
     gaode) echo "高德" ;;
@@ -711,6 +849,21 @@ case_expected_app_name() {
     chrome | android_browser) echo "浏览器" ;;
     quark) echo "夸克" ;;
     uc) echo "UC浏览器" ;;
+    *) echo "" ;;
+  esac
+}
+
+case_search_query() {
+  case "$1" in
+    model_driven_*) case_search_query "${1#model_driven_}" ;;
+    taobao) echo "海河牛奶" ;;
+    pdd) echo "纸巾" ;;
+    gaode) echo "机场" ;;
+    jd) echo "数据线" ;;
+    chrome) echo "SolinAgentChrome" ;;
+    android_browser) echo "SolinAgentBrowser" ;;
+    quark) echo "SolinAgentQuark" ;;
+    uc) echo "SolinAgentUC" ;;
     *) echo "" ;;
   esac
 }
@@ -726,6 +879,7 @@ case_launch_ready_hint() {
 
 case_launch_recovery_target() {
   case "$1" in
+    android_browser) echo "跳过" ;;
     jd) echo "首页" ;;
     uc) echo "首页" ;;
     *) echo "" ;;
@@ -740,6 +894,7 @@ package_installed() {
 launch_package() {
   local package_name="$1"
   local component
+  prepare_interactive_surface
   component="$("${ADB[@]}" shell cmd package resolve-activity --brief "$package_name" 2>/dev/null |
     tr -d '\r' |
     awk '/\// {line = $0} END {print line}')"
@@ -915,15 +1070,142 @@ run_case() {
   stop_control_session
 }
 
+run_model_driven_case() {
+  local case_name="$1"
+  local model_case_name="model_driven_${case_name}"
+  local package_name app_name query model_file failure_reason
+
+  package_name="$(case_expected_package "$case_name")"
+  app_name="$(case_expected_app_name "$case_name")"
+  query="$(case_search_query "$case_name")"
+  if [[ -z "$package_name" || -z "$app_name" || -z "$query" ]]; then
+    echo "Skipping model-driven $case_name: unknown case metadata"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+    LAST_DIAGNOSTICS_DIR=""
+    write_case_result "$model_case_name" "skipped" "unknown_case_metadata" "case_metadata" ""
+    return 0
+  fi
+  if ! package_installed "$package_name"; then
+    echo "Skipping model-driven $case_name: package not installed ($package_name)"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+    LAST_DIAGNOSTICS_DIR=""
+    write_case_result "$model_case_name" "skipped" "package_not_installed:$package_name" "package_check" ""
+    return 0
+  fi
+
+  RUN_COUNT=$((RUN_COUNT + 1))
+  LAST_DIAGNOSTICS_DIR=""
+  echo "Running model-driven $case_name on $package_name"
+  if ! ensure_solin_accessibility_for_eval; then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "solin_accessibility_not_enabled" "accessibility" ""
+    return 1
+  fi
+  prepare_interactive_surface
+  stop_control_session
+  force_stop_target_app "$package_name"
+  stop_background_packages_preserving_data "$package_name"
+  case_broadcast_command model_file "$model_case_name" "model_driven_timeout" \
+    "${model_case_name}-search" \
+    --es command model_driven_app_search \
+    --es text "打开${app_name}搜索${query}" \
+    --es verifySearchQuery "$query" \
+    --es expectedPackageName "$package_name" \
+    --es expectedAppName "$app_name" \
+    --ei maxSteps "$MODEL_DRIVEN_APP_SEARCH_MAX_STEPS" || return 1
+  if [[ "$(read_result_property "$model_file" "status")" == "Failed" ]]; then
+    failure_reason="$(read_result_property "$model_file" "reason")"
+    FAILURE_REASON="${failure_reason:-model_driven_failed}"
+  fi
+  assert_file_contains "$model_file" "resultType=model_driven_app_search" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_missing_result_type" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "status=Succeeded" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "${failure_reason:-model_driven_failed}" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "searchVerificationStatus=verified" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_result_not_verified" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "open_app_by_name" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_open_app_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "ui_" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_ui_step_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_property_number_at_least "$model_file" "modelPlannedStepCount" 1 || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_planned_step_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_property_number_at_least "$model_file" "modelReplanTraceCount" 1 || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_replan_trace_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_property_number_at_least "$model_file" "modelReplanAcceptedCount" 1 || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "accepted_model_replan_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "modelReplanAttempted=true" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_replan_attempt_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_model_driven_strict_mode "$model_file" "$model_case_name" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" \
+      "model_driven_strict_mode_failed:${MODEL_DRIVEN_APP_SEARCH_STRICT_MODE}" \
+      "model_driven_app_search" "$model_file"
+    return 1
+  }
+
+  PASS_COUNT=$((PASS_COUNT + 1))
+  LAST_DIAGNOSTICS_DIR=""
+  write_case_result "$model_case_name" "passed" "" "" "$model_file" \
+    "model_driven_app_search=$model_file"
+}
+
+run_static_case() {
+  case "$1" in
+    taobao) run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "搜索入口" "搜索输入框" "筛选" ;;
+    pdd) run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "搜索入口" "搜索输入框" "筛选" ;;
+    gaode) run_case gaode com.autonavi.minimap "高德" "机场" "搜索入口" "搜索输入框" "查看地图" ;;
+    jd) run_case jd com.jingdong.app.mall "京东" "数据线" "搜索入口" "搜索输入框" "数据线" ;;
+    chrome) run_case chrome com.android.chrome "浏览器" "SolinAgentChrome" "地址栏" "地址栏" "SolinAgentChrome" ;;
+    android_browser) run_case android_browser com.android.browser "浏览器" "SolinAgentBrowser" "地址栏" "地址栏" "SolinAgentBrowser" ;;
+    quark) run_case quark com.quark.browser "夸克" "SolinAgentQuark" "地址栏" "地址栏" "SolinAgentQuark" ;;
+    uc) run_case uc com.UCMobile "UC浏览器" "SolinAgentUC" "地址栏" "地址栏" "SolinAgentUC" ;;
+    *)
+      echo "Skipping unknown real app search case: $1"
+      SKIP_COUNT=$((SKIP_COUNT + 1))
+      LAST_DIAGNOSTICS_DIR=""
+      write_case_result "$1" "skipped" "unknown_case" "case_metadata" ""
+      return 0
+      ;;
+  esac
+}
+
 overall_status=0
-run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "搜索入口" "搜索输入框" "筛选" || overall_status=1
-run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "搜索入口" "搜索输入框" "筛选" || overall_status=1
-run_case gaode com.autonavi.minimap "高德" "机场" "搜索入口" "搜索输入框" "查看地图" || overall_status=1
-run_case jd com.jingdong.app.mall "京东" "数据线" "搜索入口" "搜索输入框" "数据线" || overall_status=1
-run_case chrome com.android.chrome "浏览器" "SolinAgentChrome" "地址栏" "地址栏" "SolinAgentChrome" || overall_status=1
-run_case android_browser com.android.browser "浏览器" "SolinAgentBrowser" "地址栏" "地址栏" "SolinAgentBrowser" || overall_status=1
-run_case quark com.quark.browser "夸克" "SolinAgentQuark" "地址栏" "地址栏" "SolinAgentQuark" || overall_status=1
-run_case uc com.UCMobile "UC浏览器" "SolinAgentUC" "地址栏" "地址栏" "SolinAgentUC" || overall_status=1
+for real_case in $REAL_APP_SEARCH_CASES; do
+  run_static_case "$real_case" || overall_status=1
+done
+
+if [[ "$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL" == "1" ]]; then
+  for model_case in $MODEL_DRIVEN_APP_SEARCH_CASES; do
+    run_model_driven_case "$model_case" || overall_status=1
+  done
+fi
 
 if [[ "$RUN_COUNT" -eq 0 ]]; then
   fail_with_reason target-apps no-target-apps-installed "No target app packages were installed; all cases skipped."

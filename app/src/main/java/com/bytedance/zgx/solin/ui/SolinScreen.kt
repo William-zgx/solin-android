@@ -1176,9 +1176,7 @@ private fun ChatEmptyState(
                     )
                     Text(" 隐私说明")
                 }
-                if (state.isReady) {
-                    HomePositioningPanel()
-                }
+                HomePositioningPanel()
             }
         }
 
@@ -1474,7 +1472,8 @@ private fun QuickModelSetup(
                     modifier = Modifier.size(18.dp),
                     tint = LocalContentColor.current,
                 )
-                Text(" 配置远程模型")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("配置远程模型")
             }
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val stackModelActions = stackModelActionsForTextScale || maxWidth < 280.dp

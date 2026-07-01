@@ -1488,7 +1488,6 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
-        expectedForegroundPackagePreflight(request, actionType = "wait", target = "")?.let { return it }
         val result = provider.waitForScreen(timeoutMillis = request.timeoutMillis())
             .withExpectedForegroundPackageVerification(request)
         val verification = result.searchVerificationFor(request)

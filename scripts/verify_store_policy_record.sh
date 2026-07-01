@@ -318,11 +318,12 @@ def validate_model_capability_profile(profile, section, seen_ids):
         failures.append(f"model-capability-profiles-text-input-missing:{profile_id}")
 
     supports_vision = "Vision" in input_modalities and "VisionInput" in features
+    supports_mobile_action = "MobileActionPlanning" in features
     expected_flags = {
         "chat": capability == "Chat",
         "vision": supports_vision,
         "memoryEmbedding": capability == "MemoryEmbedding",
-        "mobileAction": capability == "MobileAction",
+        "mobileAction": supports_mobile_action,
     }
     for flag, expected in expected_flags.items():
         if capabilities.get(flag) is not expected:
@@ -338,7 +339,7 @@ def validate_model_capability_profile(profile, section, seen_ids):
         failures.append(f"model-capability-profiles-text-generation-non-chat:{profile_id}")
     if "MemoryEmbedding" in features and capability != "MemoryEmbedding":
         failures.append(f"model-capability-profiles-memory-feature-mismatch:{profile_id}")
-    if "MobileActionPlanning" in features and capability != "MobileAction":
+    if "MobileActionPlanning" in features and capability not in {"Chat", "MobileAction"}:
         failures.append(f"model-capability-profiles-mobile-action-feature-mismatch:{profile_id}")
 
     preferred_local_backends = profile.get("preferredLocalBackends")

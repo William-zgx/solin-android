@@ -58,18 +58,30 @@ class MobileActionPlanner(
             ?: ActionPlan(ActionPlanKind.NoAction)
 
     fun parseModelOutput(output: String): ActionDraft? {
-        val match = CALL_PATTERN.find(output.trim()) ?: return null
+        val callOutput = output.singleModelToolCallCandidate() ?: return null
+        val match = CALL_PATTERN.matchEntire(callOutput) ?: return null
         val functionName = match.groupValues[1]
         if (!toolRegistry.isKnownTool(functionName)) return null
-        val parameters = parseStrictJsonObject(match.groupValues[2])
-            ?: parseJsonLikeObject(match.groupValues[2])
+        val rawParameters = match.groupValues[2]
+        val parameters = parseStrictJsonObject(rawParameters)
+            ?: rawParameters
+                .trim()
+                .takeIf { value -> value.startsWith("{") && value.endsWith("}") }
+                ?.let { value -> parseJsonLikeObject(value) }
+            ?: return null
         return functionName.toDraft(parameters)
     }
 
     fun parseModelToolOutput(output: String): ModelToolOutputParseResult {
-        val trimmed = output.trim()
-        if (!trimmed.startsWith("call:")) return ModelToolOutputParseResult.None
-        val match = CALL_PATTERN.matchEntire(trimmed)
+        val candidates = output.modelToolCallCandidates()
+        if (candidates.isEmpty()) return ModelToolOutputParseResult.None
+        if (candidates.size > 1) {
+            return ModelToolOutputParseResult.Rejected(
+                toolName = null,
+                reason = "Multiple model tool calls are not allowed",
+            )
+        }
+        val match = CALL_PATTERN.matchEntire(candidates.single())
             ?: return ModelToolOutputParseResult.Rejected(
                 toolName = null,
                 reason = "Invalid model tool call format",
@@ -419,6 +431,29 @@ class MobileActionPlanner(
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
     }
+}
+
+private fun String.singleModelToolCallCandidate(): String? =
+    modelToolCallCandidates().singleOrNull()
+
+private fun String.modelToolCallCandidates(): List<String> {
+    val normalized = trim().stripSingleMarkdownFence()
+    if (normalized.isBlank()) return emptyList()
+    if (!normalized.trimStart().startsWith("call:")) return emptyList()
+    val callLines = normalized.lines()
+        .map { line -> line.trim() }
+        .filter { line -> line.startsWith("call:") }
+    if (callLines.size > 1) return callLines
+    return listOf(normalized.trim())
+}
+
+private fun String.stripSingleMarkdownFence(): String {
+    val lines = trim().lines()
+    if (lines.size < 3) return trim()
+    val first = lines.first().trim()
+    val last = lines.last().trim()
+    if (!first.startsWith("```") || last != "```") return trim()
+    return lines.drop(1).dropLast(1).joinToString(separator = "\n").trim()
 }
 
 private val UI_TARGET_TOOL_NAMES = setOf(

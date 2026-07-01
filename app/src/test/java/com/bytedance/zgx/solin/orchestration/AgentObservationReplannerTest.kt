@@ -79,11 +79,12 @@ class AgentObservationReplannerTest {
         assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
         val prompt = runtime.lastInput.orEmpty()
         assertTrue(prompt.contains("LocalOnly observation evidence"))
-        assertTrue(prompt.contains("output only these local device-control tools"))
+        assertTrue(prompt, prompt.contains("output only these local device-control tools"))
         assertTrue(prompt.contains("Do not output web_search"))
         assertTrue(prompt.contains("copy only the candidate target=... value into the tool target"))
         assertTrue(prompt.contains("Use only target values from targetShortlist(...)"))
         assertTrue(prompt.contains("Output exactly one call"))
+        assertTrue(prompt, prompt.contains("tap -> type -> submit"))
         assertTrue(prompt.contains("screenObservationJson(id=screen-1"))
         assertTrue(prompt.contains("sources=accessibility,ocr"))
         assertTrue(prompt.contains("sourceCounts=accessibility=13,ocr=1"))
@@ -93,6 +94,8 @@ class AgentObservationReplannerTest {
         assertTrue(prompt.contains("target=continue-button"))
         assertTrue(prompt.contains("target=ocr:block:0"))
         assertTrue(prompt.contains("targetShortlist(tap=continue-button,ocrFallback=ocr:block:0)"))
+        assertTrue(prompt.contains("targetEvidence(id=continue-button,text=继续,mode=tap,role=button"))
+        assertTrue(prompt.contains("id=ocr:block:0,text=继续,mode=ocrFallback,role=ocr_block"))
         assertTrue(prompt.contains("LocalOnly observation evidence"))
         assertFalse(prompt.contains("ocrBlocks(count="))
         assertFalse(prompt.contains("\"elements\""))
@@ -115,7 +118,7 @@ class AgentObservationReplannerTest {
             Previous tool: observe_current_screen
             Observation status: Succeeded
             Observation diagnostics: resultRetryable=true; verificationSummary=${"长诊断".repeat(120)}
-            LocalOnly observation evidence: screenObservationJson(id=screen-1,package=com.taobao.taobao,sources=accessibility,sourceCounts=accessibility=24,elements=24,truncated=false) targetShortlist(type=search-input,tap=search-entry|submit-search) elements=[$noisyTargets] targets=[搜索输入框{target=search-input,modeTags=type+tap,source=accessibility,role=input,bounds=[20,32,820,96],confidence=1.00}; 搜索{target=submit-search,modeTags=tap,source=accessibility,role=button,bounds=[900,32,1040,96],confidence=1.00}; $noisyTargets]
+            LocalOnly observation evidence: screenObservationJson(id=screen-1,package=com.taobao.taobao,sources=accessibility,sourceCounts=accessibility=24,elements=24,truncated=false) targetShortlist(type=search-input,tap=search-entry|submit-search) targetEvidence(id=search-input,text=搜索输入框,mode=type+tap,role=input; id=submit-search,text=搜索,mode=tap,role=button) elements=[$noisyTargets] targets=[搜索输入框{target=search-input,modeTags=type+tap,source=accessibility,role=input,bounds=[20,32,820,96],confidence=1.00}; 搜索{target=submit-search,modeTags=tap,source=accessibility,role=button,bounds=[900,32,1040,96],confidence=1.00}; $noisyTargets]
         """.trimIndent()
 
         val compressed = prompt.compressForObservationModelContext(maxChars = 1_200)
@@ -123,6 +126,7 @@ class AgentObservationReplannerTest {
         assertTrue(compressed.length <= 1_200)
         assertTrue(compressed, compressed.contains("Use only target values from targetShortlist(...)"))
         assertTrue(compressed.contains("targetShortlist(type=search-input,tap=search-entry|submit-search)"))
+        assertTrue(compressed.contains("targetEvidence(id=search-input,text=搜索输入框,mode=type+tap,role=input"))
         assertTrue(compressed, compressed.contains("target=search-input"))
         assertTrue(compressed, compressed.contains("target=submit-search"))
         assertFalse(compressed.contains("noise-23"))
@@ -434,11 +438,9 @@ class AgentObservationReplannerTest {
         val prompt = runtime.lastInput.orEmpty()
         assertTrue(prompt.contains("screenObservationJson(id=screen-accessibility-only"))
         assertTrue(prompt.contains("sourceCounts=accessibility=1"))
-        assertTrue(
-            prompt.contains(
-                "ocrBlocks(count=1) targetShortlist(ocrFallback=ocr:block:0)=[block0{text=继续,bounds=[12,22,112,72]}]",
-            ),
-        )
+        assertTrue(prompt.contains("ocrBlocks(count=1) targetShortlist(ocrFallback=ocr:block:0)"))
+        assertTrue(prompt.contains("targetEvidence(id=ocr:block:0,text=继续,mode=ocrFallback,role=ocr_block)"))
+        assertTrue(prompt.contains("block0{text=继续,bounds=[12,22,112,72]}"))
         assertTrue(
             prompt,
             prompt.indexOf("ocrBlocks(count=1) targetShortlist(ocrFallback=ocr:block:0)") <
@@ -784,13 +786,9 @@ class AgentObservationReplannerTest {
         assertNotNull(replan)
         assertEquals("ocr:block:0:line:0:element:1", replan?.request?.arguments?.get("target"))
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(
-            prompt.contains(
-                "继续{target=ocr:block:0:line:0:element:1,modeTags=ocrFallback,source=ocr,role=ocr_element,bounds=[130,20,230,70]}",
-            ),
-        )
+        assertTrue(prompt, prompt.contains("id=ocr:block:0:line:0:element:1,text=继续,mode=ocrFallback,role=ocr_element"))
         assertTrue(prompt.contains("targetShortlist(ocrFallback=ocr:block:0:line:0:element:0|ocr:block:0:line:0:element:1"))
-        assertTrue(prompt.indexOf("target=ocr:block:0:line:0:element:1") < prompt.indexOf("target=ocr:block:0,modeTags=ocrFallback"))
+        assertTrue(prompt.contains("ocr:block:0:line:0:element:1|ocr:block:0:line:0|ocr:block:0"))
     }
 
     @Test
@@ -989,8 +987,8 @@ class AgentObservationReplannerTest {
 
         assertNotNull(replan)
         val prompt = runtime.lastInput.orEmpty()
-        assertTrue(prompt.contains("late-search-input{accessibility/input,text=搜索输入框"))
-        assertTrue(prompt.contains("late-submit{accessibility/button,text=搜索"))
+        assertTrue(prompt.contains("targetEvidence(id=late-search-input,text=搜索输入框,mode=type+tap,role=input"))
+        assertTrue(prompt.contains("id=late-submit,text=搜索,mode=tap,role=button"))
         assertTrue(prompt.contains("targetShortlist(type=late-search-input"))
         assertTrue(prompt.contains("target=late-search-input"))
         assertTrue(prompt.contains("late-submit"))
@@ -2134,6 +2132,293 @@ class AgentObservationReplannerTest {
     }
 
     @Test
+    fun modelReplannerConvertsTypeTextOnSearchTapOnlyTargetIntoTap() {
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            parameters = mapOf(
+                "target" to "search-entry",
+                "text" to "海河牛奶",
+            ),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-search-entry",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-type-tap-only",
+                    input = "打开淘宝搜索海河牛奶",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to searchEntryObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNotNull(replan)
+        assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
+        assertEquals("search-entry", replan?.request?.arguments?.get("target"))
+        assertFalse(replan?.request?.arguments?.containsKey("text") == true)
+        assertNotNull(runtime.lastInput)
+    }
+
+    @Test
+    fun modelReplannerRejectsTypeTextOnNonSearchTapOnlyTargetEvidence() {
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            parameters = mapOf(
+                "target" to "continue-button",
+                "text" to "海河牛奶",
+            ),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-continue-button",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-type-non-search-tap-only",
+                    input = "打开淘宝搜索海河牛奶",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to screenObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNull(replan)
+        assertNotNull(runtime.lastInput)
+    }
+
+    @Test
+    fun modelReplannerConvertsTypeTextOnOcrLabeledSearchTapTargetIntoTap() {
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            parameters = mapOf(
+                "target" to "icon-search-entry",
+                "text" to "海河牛奶",
+            ),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-ocr-search-entry",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-type-ocr-search-tap-only",
+                    input = "打开淘宝搜索海河牛奶",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to ocrLabeledBlankAccessibilityObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNotNull(replan)
+        assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
+        assertEquals("icon-search-entry", replan?.request?.arguments?.get("target"))
+        assertFalse(replan?.request?.arguments?.containsKey("text") == true)
+    }
+
+    @Test
+    fun modelReplannerAllowsTypeTextOnEditableTargetEvidence() {
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            parameters = mapOf(
+                "target" to "search-input",
+                "text" to "海河牛奶",
+            ),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-search-input",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-type-editable",
+                    input = "打开淘宝搜索海河牛奶",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to searchInputObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNotNull(replan)
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, replan?.request?.toolName)
+        assertEquals("search-input", replan?.request?.arguments?.get("target"))
+    }
+
+    @Test
+    fun modelReplannerAllowsTypeTextWhenSeparateDangerousControlExists() {
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            parameters = mapOf(
+                "target" to "search-input",
+                "text" to "海河牛奶",
+            ),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-search-input-with-delete",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-type-with-delete",
+                    input = "打开淘宝搜索海河牛奶",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to searchInputWithDangerousSiblingObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNotNull(replan)
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, replan?.request?.toolName)
+        assertEquals("search-input", replan?.request?.arguments?.get("target"))
+        assertEquals("accepted", replanner.lastDiagnosticSnapshot()?.reason)
+    }
+
+    @Test
+    fun modelReplannerRejectsTargetedDangerousActionControl() {
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TAP,
+            parameters = mapOf("target" to "delete-recent"),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-delete-control",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-delete-control",
+                    input = "看当前屏幕继续操作",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to searchInputWithDangerousSiblingObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNull(replan)
+        assertEquals("dangerous_observation_action", replanner.lastDiagnosticSnapshot()?.reason)
+    }
+
+    @Test
     fun modelReplannerRejectsDangerousOcrActionEvidence() {
         val runtime = RecordingModelActionRuntime(
             toolName = MobileActionFunctions.UI_TAP,
@@ -2882,6 +3167,56 @@ class AgentObservationReplannerTest {
               "source": "accessibility",
               "bounds": {"left": 20, "top": 120, "right": 120, "bottom": 160},
               "text": "取消",
+              "role": "button",
+              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
+              "confidence": 1.0,
+              "sensitiveFlags": [],
+              "privacyLevel": "LocalOnly"
+            }
+          ]
+        }
+        """.trimIndent()
+
+    private fun searchInputWithDangerousSiblingObservationJson(): String =
+        """
+        {
+          "schemaVersion": 1,
+          "observationId": "screen-search-input-dangerous-sibling",
+          "capturedAtMillis": 2,
+          "packageName": "com.example.app",
+          "privacyLevel": "LocalOnly",
+          "sources": ["accessibility"],
+          "elementCount": 3,
+          "sourceCounts": {"accessibility": 3},
+          "truncated": false,
+          "elements": [
+            {
+              "id": "search-input",
+              "source": "accessibility",
+              "bounds": {"left": 20, "top": 32, "right": 820, "bottom": 96},
+              "text": "搜索输入框",
+              "role": "input",
+              "clickability": {"clickable": true, "editable": true, "scrollable": false, "enabled": true},
+              "confidence": 1.0,
+              "sensitiveFlags": [],
+              "privacyLevel": "LocalOnly"
+            },
+            {
+              "id": "delete-recent",
+              "source": "accessibility",
+              "bounds": {"left": 20, "top": 120, "right": 180, "bottom": 160},
+              "text": "删除",
+              "role": "button",
+              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
+              "confidence": 1.0,
+              "sensitiveFlags": [],
+              "privacyLevel": "LocalOnly"
+            },
+            {
+              "id": "search-submit",
+              "source": "accessibility",
+              "bounds": {"left": 900, "top": 32, "right": 1040, "bottom": 96},
+              "text": "搜索",
               "role": "button",
               "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
               "confidence": 1.0,

@@ -542,6 +542,7 @@ class BuiltInSkillRuntime(
                         dependsOn = listOf("open_target_app"),
                         summary = "等待${request.appName}前台界面稳定。",
                         expectedPackageName = expectedPackageName,
+                        timeoutMillis = "4000",
                     ),
                     observeScreenStep("observe_target_app").copy(dependsOn = listOf("wait_target_app")),
                 ),
@@ -876,9 +877,10 @@ class BuiltInSkillRuntime(
         verifySearchQuery: String? = null,
         expectedPackageName: String? = null,
         expectedAppName: String? = null,
+        timeoutMillis: String = "800",
     ): SkillStep.ToolStep {
         val parameters = buildMap {
-            put("timeoutMillis", "800")
+            put("timeoutMillis", timeoutMillis)
             verifySearchQuery?.takeIf { it.isNotBlank() }?.let { put("verifySearchQuery", it) }
             expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
             expectedAppName?.takeIf { it.isNotBlank() }?.let { put("expectedAppName", it) }
