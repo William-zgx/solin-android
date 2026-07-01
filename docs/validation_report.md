@@ -37,7 +37,60 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | 完整本地门禁 | 最近完整本地门禁条目是历史证据；新提交仍需按需重新运行 `scripts/verify_local.sh`。 | 见 2026-06-22 / 2026-06-23 本地 gate 条目 |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
+| model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-07-01 Model-Driven App Search Documentation Contract
+
+本轮覆盖项：
+
+- README / README.zh-CN 同步说明 model-driven app search 使用已校验本地
+  Chat 或 action-planning model bootstrap；本地规划不可用时回退静态 Skill。
+- Agent core、model-driven plan、phone acceptance 和 release checklist 同步说明
+  `ModelDrivenAppSearchDeviceTest` 这类设备模型 instrumentation 是可选设备级
+  smoke，需要预装并校验过本地规划模型，不能作为普通 CI 硬前提。
+- mock / real app search eval 的 model-driven 模式统一要求
+  `RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`，并通过 `verifySearchQuery`、
+  `expectedPackageName`、`expectedAppName`、`searchVerificationStatus=verified`
+  和 `modelPlannedStepCount >= 1` 证明结果，而不是只看模型输出或页面文本。
+- 文档索引补充 model-driven app search 的事实分工：架构归 agent core / plan，
+  设备命令归 phone acceptance，实际命令证据归 validation report。
+
+验证命令：
+
+```bash
+rg -n "model-driven|model driven|app search|real-app search|mock.*app search|verifySearchQuery|expectedPackageName|expectedAppName|action planning|bootstrap|instrumentation|validation|report" README.md README.zh-CN.md docs
+rg -n "verifySearchQuery|expectedPackageName|expectedAppName|RUN_MODEL_DRIVEN_APP_SEARCH_EVAL|model_driven_app_search|ModelDrivenAppSearchDeviceTest" docs README.md README.zh-CN.md scripts app/src/androidTest app/src/test
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+./gradlew --no-daemon :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+./gradlew --no-daemon :app:compileDebugKotlin \
+  :app:compileDebugAndroidTestKotlin \
+  :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest
+scripts/test_validation_scripts.sh
+git diff --check -- README.md README.zh-CN.md docs/agent_core_modules.md \
+  docs/phone_acceptance.md docs/release_checklist.md \
+  docs/model_driven_app_control_multi_agent_plan.md docs/index.md \
+  docs/validation_report.md
+```
+
+结果：
+
+- 通过：目标 `rg` 复核现有文档与脚本字段，确认本轮只补充用户点名的文档口径。
+- 通过：显式设置 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 后，文档合同 JVM 测试
+  `AgentCoreDocumentationTest` 通过。未设置 SDK 环境变量的首次尝试在 Gradle
+  配置阶段按预期报 `SDK location not found`。
+- 通过：debug Kotlin 与 androidTest Kotlin 编译通过，覆盖
+  `ModelDrivenAppSearchDeviceTest` 的可选模型 smoke 改动。
+- 通过：`scripts/test_validation_scripts.sh`，覆盖 mock model-driven app search eval
+  必须传入 `verifySearchQuery`、`expectedPackageName`、`expectedAppName` 的脚本合同。
+- 通过：`git diff --check`。
+- 未执行：真机 instrumentation、mock/real app search eval、50 task benchmark、RC perf
+  和 release gate；本轮文档更新不新增 release-passing physical evidence。
 
 ## 2026-06-28 Documentation Refresh And Release Evidence Contract
 

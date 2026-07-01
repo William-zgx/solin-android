@@ -519,16 +519,20 @@ run_case() {
 
 run_model_driven_case() {
   local case_name="$1"
-  local app_name="$2"
-  local query="$3"
+  local package_name="$2"
+  local app_name="$3"
+  local query="$4"
   local model_file
 
   RUN_COUNT=$((RUN_COUNT + 1))
-  echo "Running model-driven app search case: $case_name ($app_name)"
+  echo "Running model-driven app search case: $case_name ($package_name)"
 
   model_file="$(broadcast_command "${case_name}-model-driven" \
     --es command model_driven_app_search \
     --es text "打开${app_name}搜索${query}" \
+    --es verifySearchQuery "$query" \
+    --es expectedPackageName "$package_name" \
+    --es expectedAppName "$app_name" \
     --ei maxSteps "$MODEL_DRIVEN_APP_SEARCH_MAX_STEPS")"
   if [[ "$(read_result_property "$model_file" "status")" == "Failed" ]]; then
     FAILURE_REASON="$(read_result_property "$model_file" "reason")"
@@ -573,7 +577,7 @@ run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "百亿补贴"
 run_case gaode com.autonavi.minimap "高德" "机场" "路线"
 
 if [[ "$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL" == "1" ]]; then
-  run_model_driven_case taobao "淘宝" "海河牛奶"
+  run_model_driven_case taobao com.taobao.taobao "淘宝" "海河牛奶"
 fi
 
 echo "Mock target app search eval passed for $PASS_COUNT case(s)."

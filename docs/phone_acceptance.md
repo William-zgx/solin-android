@@ -72,6 +72,8 @@ ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
 
 `doctor --device` 只检查 SDK 工具。设备选择、授权状态、ABI、可用空间、APK 安装、AndroidTest 安装、instrumentation 总数和 App 启动由 `install_and_test_device.sh` 检查。没有授权设备、设备 `offline` / `unauthorized`、未指定目标且存在多台设备时，脚本会在 Gradle 构建、安装和 instrumentation 前退出。
 
+普通本地 CI 不要求设备，也不要求设备上已经安装模型。`ModelDrivenAppSearchDeviceTest` 这类 model-driven 设备级 instrumentation 只用于验证本地 Chat/action-planning 模型能从屏幕 observation 规划一步低风险 UI 工具；它依赖目标设备预装并校验过本地规划模型，缺失时应作为可选设备 smoke 跳过或单独记录，不能被写成普通 CI 硬前提。
+
 默认脚本使用 `adb install -r` 覆盖安装并保留 App 数据。只有显式设置
 `RESET_APP_DATA_AFTER_TESTS=1` 时，脚本才会在退出前执行 `pm clear`，这会删除私有存储中的模型文件、模型登记、远程配置、会话和消息。需要连旧安装包一起清理时使用：
 
@@ -213,16 +215,35 @@ scripts/live_remote_emulator.sh
 
 ```bash
 ANDROID_SERIAL=<physical-device-serial> scripts/run_device_control_debug_eval.sh
+ANDROID_SERIAL=<physical-device-serial> scripts/run_mock_target_app_search_eval.sh
 ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 ```
 
-`run_real_app_search_eval.sh` 验证真实 App 的低风险搜索闭环，不等同于正式 release validation。完成 debug 验收后，应使用 `adb install -r` 覆盖安装最新签名 release 包，以保留已下载模型数据并恢复正式包。
+model-driven app search 不是默认路径，必须显式打开。它依赖设备上已有已校验的
+本地 Chat 或动作规划模型；缺少该模型时，设备级 instrumentation smoke 应跳过，
+不能作为普通 CI 失败：
+
+```bash
+ANDROID_SERIAL=<physical-device-serial> \
+RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1 \
+PREPARE_BUNDLED_MODELS=1 \
+scripts/run_mock_target_app_search_eval.sh
+
+ANDROID_SERIAL=<physical-device-serial> \
+RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1 \
+MODEL_DRIVEN_APP_SEARCH_CASES=taobao \
+MODEL_DRIVEN_APP_SEARCH_STRICT_MODE=flow \
+scripts/run_real_app_search_eval.sh
+```
+
+`run_mock_target_app_search_eval.sh` 使用确定性的 mock 目标 App；`run_real_app_search_eval.sh` 验证真实 App 的低风险搜索闭环。两者的 model-driven 模式都必须把 `verifySearchQuery`、`expectedPackageName`、`expectedAppName` 传入 debug receiver，不能只看页面文字或模型输出；成功至少要求 `searchVerificationStatus=verified` 和 `modelPlannedStepCount >= 1`。这些证据不等同于正式 release validation。完成 debug 验收后，应使用 `adb install -r` 覆盖安装最新签名 release 包，以保留已下载模型数据并恢复正式包。
 
 报告要求：
 
 - 顶层 fatal 必须写 `failedTarget` 和 `reason`，例如 `device-selection` / `selected-device-unavailable`。
 - 已选中设备后必须记录 serial/API/ABI、logcat 路径和 SHA-256。
 - 每个失败 case 使用 `RealAppSearchCaseArtifact/v1`，包含 `failed_step`、debug receiver `result_file` 与 SHA-256、resolver evidence、diagnostics 目录、截图、UIAutomator XML、focused-window dump、logcat 路径和 SHA-256。
+- model-driven case 必须记录 `resultType=model_driven_app_search`、`verifySearchQuery`、`expectedPackageName`、`expectedAppName`、`searchVerificationStatus`、`modelPlannedStepCount` 和 replan trace/accepted count；缺少 query/package/app guard 时不能算搜索结果已验证。
 - 淘宝、拼多多、高德、京东、Chrome、Android Browser、Quark、UC 是低风险搜索矩阵目标；未安装只记录 skipped。
 
 ## 手工验收场景

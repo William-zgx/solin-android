@@ -82,6 +82,7 @@ flowchart TD
 - [ ] Physical device reports include `exit_code=0`, empty `failedTarget`/`reason`, UTC start/finish, sufficient `data_free_kb`, instrumentation output with final `OK`, `instrumentation_test_count`, `logcat_file`, and SHA-256 bindings.
 - [ ] Physical release evidence records `app_apk_mode=release`, `app_apk_sha256 == releaseArtifactSha256`, `RELEASE_ARTIFACT_TYPE=apk`, and a signed APK path. The Play AAB SHA is recorded separately and is not used as proof of a physical APK install.
 - [ ] Upgrade validation uses `adb install -r` and records first-install timestamp preservation, last-update timestamp refresh, versionCode increase, data retention, and instrumentation coverage.
+- [ ] Device model instrumentation that depends on a preinstalled verified local planning model is labeled as optional device-level smoke evidence. It is not a normal CI prerequisite and is not substituted for signed RC physical validation.
 - [ ] Manual acceptance from `docs/phone_acceptance.md` covers model setup, remote-mode privacy, tool confirmation, permissions, background reminders, sharing, multimodal entry points, and resource-status UI.
 - [ ] Manual acceptance records voice input, the Android system document picker,
   and MediaProjection consent separately from scripted regression.
@@ -92,7 +93,8 @@ flowchart TD
 - [ ] Performance sanity points to a real `perf-baseline.properties` collected on non-emulator physical `arm64-v8a` hardware and verified by `scripts/verify_perf_baseline.sh`.
 - [ ] RC performance provenance is collected through `scripts/collect_rc_perf_from_device.sh`, not a hand-written perf file. The baseline records `collectionCommand=scripts/collect_rc_perf_from_device.sh`, `runner=rc_perf_release_broadcast`, `preserves_model_data=true`, 50k memory metrics, final signed RC artifact SHA-256, and no OOM/ANR.
 - [ ] Public-release AI behavior eval uses a deterministic `agent_loop_runtime` actual trace collected by `scripts/collect_ai_behavior_actual_trace.sh`, with runtime provenance, current fixture/capability/action-model hashes, no mismatches, and zero allowed-failure trace diff rows.
-- [ ] Debug device-control and real-app search evidence is attached separately from release physical evidence. It must keep machine-readable failure semantics and case artifacts, but it never replaces fresh release physical validation.
+- [ ] Debug device-control, mock app-search, and real-app search evidence is attached separately from release physical evidence. It must keep machine-readable failure semantics and case artifacts, but it never replaces fresh release physical validation.
+- [ ] When model-driven app-search eval is included, mock and real app modes record `RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`, pass `verifySearchQuery`, `expectedPackageName`, and `expectedAppName` into the debug receiver, and require `searchVerificationStatus=verified` plus `modelPlannedStepCount >= 1`.
 - [ ] The real-app search physical benchmark includes the required 50 task evidence when the release target requires `REQUIRE_50_TASK_BENCHMARK=1`.
 - [ ] `docs/release_validation_record.json` is approved and `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh` passes.
 

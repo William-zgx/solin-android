@@ -57,6 +57,13 @@ JSON files in `docs/` are machine-readable records or capability matrices. They
 are inputs to verifier scripts and should stay structured rather than become
 narrative documentation.
 
+Model-driven app search facts are split intentionally: runtime ownership and
+bootstrap rules live in `agent_core_modules.md` and
+`model_driven_app_control_multi_agent_plan.md`; mock/real device command usage
+and the `verifySearchQuery` / `expectedPackageName` / `expectedAppName` result
+guards live in `phone_acceptance.md`; dated command evidence belongs in
+`validation_report.md`.
+
 ## Editing Rules
 
 - Put a fact in one owner document, then link to it elsewhere.
