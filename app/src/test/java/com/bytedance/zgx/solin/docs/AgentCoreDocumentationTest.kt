@@ -226,6 +226,28 @@ class AgentCoreDocumentationTest {
         )
     }
 
+    @Test
+    fun mockTargetAppSearchEvalCanPrepareBundledModelsBeforeModelDrivenDebugEval() {
+        val script = readRepoFile("scripts/run_mock_target_app_search_eval.sh")
+
+        assertTrue(script.contains("RUN_MODEL_DRIVEN_APP_SEARCH_EVAL"))
+        assertTrue(script.contains("PREPARE_BUNDLED_MODELS"))
+        assertTrue(script.contains("scripts/package_bundled_models.sh"))
+        assertTrue(script.contains("model_driven_app_search"))
+        assertTrue(script.contains("modelPlannedStepCount"))
+        assertTrue(script.contains("searchVerificationStatus=verified"))
+        assertTrue(script.contains("files/device_control_eval_result_${'$'}{request_id}.properties"))
+
+        val prepareIndex = script.indexOf("scripts/package_bundled_models.sh")
+        val debugInstallIndex = script.indexOf("\"${'$'}{ADB[@]}\" install -r \"${'$'}DEBUG_APK\"")
+        val accessibilityIndex = script.indexOf("solin_accessibility_enabled")
+        val modelDrivenIndex = script.indexOf("run_model_driven_case taobao")
+
+        assertTrue("bundled model package must be prepared before debug APK reinstall", prepareIndex in 1 until debugInstallIndex)
+        assertTrue("debug APK reinstall must happen before accessibility check", debugInstallIndex in 1 until accessibilityIndex)
+        assertTrue("model-driven case must run after primitive mock cases are defined", modelDrivenIndex > script.indexOf("run_case gaode"))
+    }
+
     private fun agentCoreSections(): Map<String, String> {
         val doc = agentCoreDoc().readText()
         val headings = Regex("(?m)^## (.+)$").findAll(doc).toList()

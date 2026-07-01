@@ -70,6 +70,56 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun modelToolOutputRejectsCallLineFromExplanation() {
+        val result = planner.parseModelToolOutput(
+            """
+            我会先执行这个低风险动作。
+            call:ui_tap{"target":"搜索栏"}
+            """.trimIndent(),
+        )
+
+        assertEquals(ModelToolOutputParseResult.None, result)
+    }
+
+    @Test
+    fun modelOutputParsesSingleCallLineInsideMarkdownFence() {
+        val draft = planner.parseModelOutput(
+            """
+            ```json
+            call:ui_type_text{"target":"搜索输入框","text":"海河牛奶"}
+            ```
+            """.trimIndent(),
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, draft.functionName)
+        assertEquals("搜索输入框", draft.parameters["target"])
+        assertEquals("海河牛奶", draft.parameters["text"])
+    }
+
+    @Test
+    fun modelToolOutputRejectsMultipleEmbeddedCalls() {
+        val rejected = planner.parseModelToolOutput(
+            """
+            call:ui_tap{"target":"搜索栏"}
+            call:ui_type_text{"target":"搜索输入框","text":"海河牛奶"}
+            """.trimIndent(),
+        )
+
+        rejected as ModelToolOutputParseResult.Rejected
+        assertEquals("Multiple model tool calls are not allowed", rejected.reason)
+    }
+
+    @Test
+    fun modelOutputRejectsTrailingTextAfterCall() {
+        assertNull(
+            planner.parseModelOutput(
+                """call:ui_tap{"target":"搜索栏"} 我会执行这个动作。""",
+            ),
+        )
+    }
+
+    @Test
     fun strictModelToolOutputRejectsBadOrNestedCalls() {
         val badJson = planner.parseModelToolOutput("""call:web_search{"query":}""")
         assertTrue(badJson is ModelToolOutputParseResult.Rejected)

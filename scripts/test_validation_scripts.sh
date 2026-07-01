@@ -185,8 +185,14 @@ case "${1:-}" in
         cat <<'FAKE_ACCESSIBILITY_DUMPSYS'
 Bound services:
   ServiceRecord{com.bytedance.zgx.solin/com.bytedance.zgx.solin.device.SolinAccessibilityService}
-Enabled services: com.bytedance.zgx.solin/com.bytedance.zgx.solin.device.SolinAccessibilityService
 FAKE_ACCESSIBILITY_DUMPSYS
+        if [[ "${FAKE_SOLIN_ACCESSIBILITY_ENABLED:-1}" == "1" ]]; then
+          echo "Enabled services: com.bytedance.zgx.solin/com.bytedance.zgx.solin.device.SolinAccessibilityService"
+        else
+          echo "Enabled services: "
+        fi
+        echo "Binding services: "
+        echo "Crashed services: "
         ;;
       dumpsys\ window|dumpsys\ window\ windows)
         cat <<'FAKE_WINDOW_DUMPSYS'
@@ -311,17 +317,94 @@ FAKE_PACKAGE_DUMPSYS
         package_name="com.example.app"
         case "$case_name" in
           taobao) package_name="com.taobao.taobao" ;;
+          model_driven_taobao) package_name="com.taobao.taobao" ;;
           pdd) package_name="com.xunmeng.pinduoduo" ;;
+          model_driven_pdd) package_name="com.xunmeng.pinduoduo" ;;
           gaode) package_name="com.autonavi.minimap" ;;
+          model_driven_gaode) package_name="com.autonavi.minimap" ;;
           jd) package_name="com.jingdong.app.mall" ;;
+          model_driven_jd) package_name="com.jingdong.app.mall" ;;
           chrome) package_name="com.android.chrome" ;;
+          model_driven_chrome) package_name="com.android.chrome" ;;
           android_browser) package_name="com.android.browser" ;;
+          model_driven_android_browser) package_name="com.android.browser" ;;
           quark) package_name="com.quark.browser" ;;
+          model_driven_quark) package_name="com.quark.browser" ;;
           uc) package_name="com.UCMobile" ;;
+          model_driven_uc) package_name="com.UCMobile" ;;
         esac
         {
           echo "requestId=$request_id"
-          if [[ "$request_id" == *"-observe-"* ]]; then
+          if [[ "$request_id" == model_driven_* ]]; then
+            echo "resultType=model_driven_app_search"
+            echo "status=Succeeded"
+            echo "reason="
+            echo "input=打开淘宝搜索海河牛奶"
+            echo "finalState=Completed"
+            echo "verificationRequired=true"
+            echo "verifySearchQuery=海河牛奶"
+            echo "expectedPackageName=$package_name"
+            echo "expectedAppName=淘宝"
+            echo "stepCount=7"
+            echo "modelPlannedStepCount=4"
+            echo "tools=open_app_by_name,ui_wait,observe_current_screen,ui_tap,ui_type_text,ui_submit_search,ui_wait"
+            echo "toolStatuses=Succeeded,Succeeded,Succeeded,Succeeded,Succeeded,Succeeded,Succeeded"
+            echo "evalGuardAppliedCount=4"
+            echo "modelReplanTraceCount=4"
+            echo "modelReplanAttemptCount=4"
+            echo "modelReplanAcceptedCount=4"
+            echo "modelReplanRejectedCount=0"
+            echo "modelReplanAttempted=true"
+            echo "modelReplanReason=accepted"
+            echo "modelReplanPromptIndex=0"
+            echo "modelReplanUsedModel=true"
+            echo "modelReplanModelAttempted=true"
+            echo "modelReplanModelPlanKind=Draft"
+            echo "modelReplanModelFailureReason="
+            echo "modelReplanModelOutputPreview=call:ui_wait{}"
+            echo "modelReplanTrace_0_attempted=true"
+            echo "modelReplanTrace_0_reason=accepted"
+            echo "modelReplanTrace_0_promptIndex=0"
+            echo "modelReplanTrace_0_usedModel=true"
+            echo "modelReplanTrace_0_modelAttempted=true"
+            echo "modelReplanTrace_0_modelPlanKind=Draft"
+            echo "searchVerificationStatus=verified"
+            echo "step_0_tool=open_app_by_name"
+            echo "step_0_plannedByModel=false"
+            echo "step_0_status=Succeeded"
+            echo "step_1_tool=ui_wait"
+            echo "step_1_plannedByModel=false"
+            echo "step_1_status=Succeeded"
+            echo "step_1_expectedPackageName=$package_name"
+            echo "step_2_tool=observe_current_screen"
+            echo "step_2_plannedByModel=false"
+            echo "step_2_status=Succeeded"
+            echo "step_3_tool=ui_tap"
+            echo "step_3_plannedByModel=true"
+            echo "step_3_status=Succeeded"
+            echo "step_3_target=搜索入口"
+            echo "step_3_expectedPackageName=$package_name"
+            echo "step_3_evalGuardApplied=true"
+            echo "step_4_tool=ui_type_text"
+            echo "step_4_plannedByModel=true"
+            echo "step_4_status=Succeeded"
+            echo "step_4_textLength=4"
+            echo "step_4_expectedPackageName=$package_name"
+            echo "step_4_evalGuardApplied=true"
+            echo "step_5_tool=ui_submit_search"
+            echo "step_5_plannedByModel=true"
+            echo "step_5_status=Succeeded"
+            echo "step_5_expectedPackageName=$package_name"
+            echo "step_5_evalGuardApplied=true"
+            echo "step_6_tool=ui_wait"
+            echo "step_6_plannedByModel=true"
+            echo "step_6_status=Succeeded"
+            echo "step_6_verifySearchQuery=海河牛奶"
+            echo "step_6_expectedPackageName=$package_name"
+            echo "step_6_expectedAppName=淘宝"
+            echo "step_6_searchVerificationStatus=verified"
+            echo "step_6_evalGuardApplied=true"
+          elif [[ "$request_id" == *"-observe-"* ]]; then
             echo "resultType=available"
             echo "packageName=$package_name"
           elif [[ "$request_id" == *"-tap-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "tap" ]]; then
@@ -1302,6 +1385,8 @@ grep -q 'scripts/verify_fresh_start_main_shell_emulator.sh' scripts/verify_local
   fail "verify_local.sh must include verify_fresh_start_main_shell_emulator.sh in shell syntax checks"
 grep -q 'scripts/live_remote_emulator.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include live_remote_emulator.sh in shell syntax checks"
+grep -q 'scripts/run_mock_target_app_search_eval.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include run_mock_target_app_search_eval.sh in shell syntax checks"
 grep -q 'scripts/capture_release_screenshots.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include capture_release_screenshots.sh in shell syntax checks"
 grep -q 'scripts/collect_release_flow_matrix_evidence.sh' scripts/verify_local.sh ||
@@ -2913,7 +2998,7 @@ assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "capabilityMatrixReport
 assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "localVisionProfileCount=2"
 assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "remoteVisionTemplateConfirmationCount=1"
 assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "memoryEmbeddingLocalOnlyCount=1"
-assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "mobileActionLocalOnlyCount=1"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "mobileActionLocalOnlyCount=3"
 assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "ocrLocalOnlyDisclosureCount=2"
 assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "remoteSendDisclosureCount=1"
 assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "runtimeUiEvidenceMode=static-contract"
@@ -9639,6 +9724,22 @@ grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-control-debug-eval
 
 reset_logs
 expect_failure \
+  "real app search eval does not treat bound accessibility service as enabled" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_SOLIN_ACCESSIBILITY_ENABLED=0 AUTO_ENABLE_SOLIN_ACCESSIBILITY=0 \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failedTarget=accessibility"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=solin-accessibility-not-enabled"
+
+reset_logs
+expect_failure \
   "real app search eval archives resolver failure evidence" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
@@ -10064,6 +10165,53 @@ assert_report_contains_text "$ARTIFACT_DIR/taobao.submit_search.ranked-candidate
 assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "case=uc"
 assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "result_file=$ARTIFACT_DIR/uc-verify.properties"
+
+reset_logs
+expect_success \
+  "real app search eval runs optional model-driven app search case" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.taobao.taobao" \
+  RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1 MODEL_DRIVEN_APP_SEARCH_CASES=taobao \
+  MODEL_DRIVEN_APP_SEARCH_STRICT_MODE=flow \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_model_driven_app_search_eval=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "model_driven_app_search_cases=taobao"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "model_driven_app_search_strict_mode=flow"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "debug_eval_result_wait_attempts=1200"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=2"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "pass_count=2"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=0"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
+MODEL_DRIVEN_TAOBAO_CASE_REPORT="$ARTIFACT_DIR/model_driven_taobao.case.properties"
+MODEL_DRIVEN_TAOBAO_RESULT="$ARTIFACT_DIR/model_driven_taobao-search.properties"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_CASE_REPORT" "case=model_driven_taobao"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_CASE_REPORT" "expected_package_name=com.taobao.taobao"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_CASE_REPORT" "expected_app_name=淘宝"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_CASE_REPORT" "status=passed"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_CASE_REPORT" "result_file=$MODEL_DRIVEN_TAOBAO_RESULT"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "resultType=model_driven_app_search"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "status=Succeeded"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "verificationRequired=true"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "expectedPackageName=com.taobao.taobao"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "searchVerificationStatus=verified"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "modelPlannedStepCount=4"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "modelReplanTraceCount=4"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "modelReplanAcceptedCount=4"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "modelReplanAttempted=true"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "modelReplanTrace_0_reason=accepted"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "evalGuardAppliedCount=4"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "step_3_status=Succeeded"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "step_4_status=Succeeded"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "step_5_status=Succeeded"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "step_6_verifySearchQuery=海河牛奶"
+assert_report_contains "$MODEL_DRIVEN_TAOBAO_RESULT" "step_6_searchVerificationStatus=verified"
 
 reset_logs
 expect_failure \

@@ -35,6 +35,7 @@ private const val SCREEN_TEXT_WALK_BUDGET_MILLIS = 1_500L
 private const val SCREEN_STATE_WALK_BUDGET_MILLIS = 3_000L
 private const val OBSERVE_HARD_TIMEOUT_MILLIS = 5_000L
 private const val UI_ACTION_HARD_TIMEOUT_MILLIS = 4_000L
+private const val ACTIVE_WINDOW_ROOT_WAIT_MILLIS = 1_000L
 private const val DEFAULT_POST_ACTION_WAIT_MILLIS = 250L
 private const val MAX_SEARCH_ENTRY_FOCUS_ATTEMPTS = 4
 private const val MAX_SEARCH_ENTRY_FOCUS_WAIT_MILLIS = 3_000L
@@ -363,7 +364,28 @@ class SolinAccessibilityService : AccessibilityService() {
             UiPrimitiveResult.succeeded("已等待屏幕稳定")
         }
 
-    private fun activeWindowRoot(): AccessibilityNodeInfo? =
+    private fun activeWindowRoot(): AccessibilityNodeInfo? {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return activeWindowRootDirect()
+        }
+        val latch = CountDownLatch(1)
+        var root: AccessibilityNodeInfo? = null
+        mainHandler.post {
+            root = runCatching { activeWindowRootDirect() }.getOrNull()
+            latch.countDown()
+        }
+        return if (
+            runCatching {
+                latch.await(ACTIVE_WINDOW_ROOT_WAIT_MILLIS, TimeUnit.MILLISECONDS)
+            }.getOrDefault(false)
+        ) {
+            root
+        } else {
+            null
+        }
+    }
+
+    private fun activeWindowRootDirect(): AccessibilityNodeInfo? =
         windows
             .asSequence()
             .sortedWith(
@@ -618,6 +640,8 @@ class SolinAccessibilityService : AccessibilityService() {
         val attemptedFingerprints = mutableSetOf<String>()
         var matchedCandidates = 0
         var activatedCandidates = 0
+        val perAttemptWaitMillis = (timeoutMillis / MAX_SEARCH_ENTRY_FOCUS_ATTEMPTS)
+            .coerceIn(DEFAULT_POST_ACTION_WAIT_MILLIS, MAX_SEARCH_ENTRY_FOCUS_WAIT_MILLIS)
 
         repeat(MAX_SEARCH_ENTRY_FOCUS_ATTEMPTS) {
             val candidate = currentRoot.findTargetCandidates(
@@ -644,11 +668,12 @@ class SolinAccessibilityService : AccessibilityService() {
                 return@repeat
             }
             activatedCandidates += 1
-            waitForEditable(timeoutMillis)?.let { return EditableFocusResult.Found(it) }
+            waitForEditable(perAttemptWaitMillis)?.let { return EditableFocusResult.Found(it) }
             val refreshedRoot = activeWindowRoot() ?: currentRoot
+            refreshedRoot.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
             if (dismissTransientSearchOverlay(refreshedRoot)) {
                 attemptedFingerprints -= candidateFingerprint
-                waitForEditable(timeoutMillis)?.let { return EditableFocusResult.Found(it) }
+                waitForEditable(perAttemptWaitMillis)?.let { return EditableFocusResult.Found(it) }
             }
             currentRoot = activeWindowRoot() ?: refreshedRoot
         }

@@ -21,6 +21,16 @@ LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_SOLIN_INSTALL="${SKIP_SOLIN_INSTALL:-0}"
 KEEP_MOCK_APPS="${KEEP_MOCK_APPS:-0}"
+RUN_MODEL_DRIVEN_APP_SEARCH_EVAL="${RUN_MODEL_DRIVEN_APP_SEARCH_EVAL:-0}"
+MODEL_DRIVEN_APP_SEARCH_MAX_STEPS="${MODEL_DRIVEN_APP_SEARCH_MAX_STEPS:-12}"
+DEFAULT_DEBUG_EVAL_RESULT_WAIT_ATTEMPTS=60
+if [[ "$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL" == "1" ]]; then
+  DEFAULT_DEBUG_EVAL_RESULT_WAIT_ATTEMPTS=240
+fi
+DEBUG_EVAL_RESULT_WAIT_ATTEMPTS="${DEBUG_EVAL_RESULT_WAIT_ATTEMPTS:-$DEFAULT_DEBUG_EVAL_RESULT_WAIT_ATTEMPTS}"
+PREPARE_BUNDLED_MODELS="${PREPARE_BUNDLED_MODELS:-0}"
+BUNDLED_MODEL_PREPARE_WAIT_SECONDS="${BUNDLED_MODEL_PREPARE_WAIT_SECONDS:-120}"
+BUNDLED_MODELS_ALLOW_DEBUG_KEYSTORE="${BUNDLED_MODELS_ALLOW_DEBUG_KEYSTORE:-1}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 PACKAGE_NAME="com.bytedance.zgx.solin"
@@ -54,6 +64,12 @@ write_report() {
     echo "skip_build=$SKIP_BUILD"
     echo "skip_solin_install=$SKIP_SOLIN_INSTALL"
     echo "keep_mock_apps=$KEEP_MOCK_APPS"
+    echo "run_model_driven_app_search_eval=$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL"
+    echo "model_driven_app_search_max_steps=$MODEL_DRIVEN_APP_SEARCH_MAX_STEPS"
+    echo "debug_eval_result_wait_attempts=$DEBUG_EVAL_RESULT_WAIT_ATTEMPTS"
+    echo "prepare_bundled_models=$PREPARE_BUNDLED_MODELS"
+    echo "bundled_model_prepare_wait_seconds=$BUNDLED_MODEL_PREPARE_WAIT_SECONDS"
+    echo "bundled_models_allow_debug_keystore=$BUNDLED_MODELS_ALLOW_DEBUG_KEYSTORE"
     echo "run_count=$RUN_COUNT"
     echo "pass_count=$PASS_COUNT"
     echo "fail_count=$FAIL_COUNT"
@@ -61,6 +77,7 @@ write_report() {
     echo "debug_apk=$DEBUG_APK"
     echo "logcat_file=$LOGCAT_FILE"
     echo "cases=taobao,pdd,gaode"
+    echo "model_driven_cases=$([[ "$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL" == "1" ]] && echo taobao || true)"
   } > "$REPORT_FILE"
   echo "Mock target app search eval report: $REPORT_FILE"
 }
@@ -140,6 +157,21 @@ if [[ "$("${ADB[@]}" shell getprop ro.kernel.qemu | tr -d '\r')" != "1" ]]; then
   fail_with_reason emulator-required "This mock target app eval installs packages using common app ids; run it only on an emulator."
 fi
 
+if [[ "$PREPARE_BUNDLED_MODELS" == "1" && "$SKIP_SOLIN_INSTALL" == "1" ]]; then
+  fail_with_reason bundled-models-require-debug-reinstall \
+    "PREPARE_BUNDLED_MODELS=1 installs bundled split APKs first; keep SKIP_SOLIN_INSTALL=0 so debug APK with eval receiver is reinstalled after model preparation."
+fi
+
+if [[ "$PREPARE_BUNDLED_MODELS" == "1" ]]; then
+  echo "Installing bundled model split package before debug eval."
+  ALLOW_DEBUG_KEYSTORE="$BUNDLED_MODELS_ALLOW_DEBUG_KEYSTORE" \
+    INSTALL_ON_DEVICE=1 \
+    ANDROID_SERIAL="$SELECTED_SERIAL" \
+    scripts/package_bundled_models.sh
+  "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
+  sleep "$BUNDLED_MODEL_PREPARE_WAIT_SECONDS"
+fi
+
 if [[ "$SKIP_BUILD" != "1" ]]; then
   "$GRADLE_CMD" :app:assembleDebug
 fi
@@ -148,15 +180,21 @@ if [[ "$SKIP_SOLIN_INSTALL" != "1" ]]; then
 fi
 
 solin_accessibility_enabled() {
-  local dump bound_section enabled_line
+  local dump enabled_section crashed_section
   dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
-  bound_section="$(awk '
-    /Bound services:/ {printing = 1}
+  enabled_section="$(awk '
+    /Enabled services:/ {printing = 1}
     printing {print}
-    /Enabled services:/ {printing = 0}
+    /Binding services:/ {printing = 0}
+    /Crashed services:/ {printing = 0}
   ' <<<"$dump")"
-  enabled_line="$(grep -m 1 'Enabled services:' <<<"$dump" || true)"
-  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
+  crashed_section="$(awk '
+    /Crashed services:/ {printing = 1}
+    printing {print}
+    /Client list info:/ {printing = 0}
+  ' <<<"$dump")"
+  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$enabled_section" &&
+    ! grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$crashed_section"
 }
 
 if ! solin_accessibility_enabled; then
@@ -354,10 +392,21 @@ result_file_for() {
 
 read_result() {
   local name="$1"
+  local request_id="${2:-}"
   local output_file
+  local remote_result_file="$RESULT_FILE"
   output_file="$(result_file_for "$name")"
-  "${ADB[@]}" exec-out run-as "$PACKAGE_NAME" cat "$RESULT_FILE" > "$output_file"
+  if [[ -n "$request_id" ]]; then
+    remote_result_file="files/device_control_eval_result_${request_id}.properties"
+  fi
+  "${ADB[@]}" exec-out run-as "$PACKAGE_NAME" cat "$remote_result_file" > "$output_file" 2>/dev/null || true
   echo "$output_file"
+}
+
+read_result_property() {
+  local file="$1"
+  local key="$2"
+  grep -m 1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true
 }
 
 broadcast_command() {
@@ -367,8 +416,8 @@ broadcast_command() {
   request_id="${name}-$(date +%s)"
   "${ADB[@]}" shell run-as "$PACKAGE_NAME" am broadcast --user 0 \
     -n "$RECEIVER_NAME" -a "$ACTION_NAME" --es requestId "$request_id" "$@" >/dev/null
-  for _ in {1..60}; do
-    output_file="$(read_result "$name")"
+  for _ in $(seq 1 "$DEBUG_EVAL_RESULT_WAIT_ATTEMPTS"); do
+    output_file="$(read_result "$name" "$request_id")"
     if grep -Fq "requestId=$request_id" "$output_file"; then
       echo "$output_file"
       return
@@ -384,7 +433,24 @@ assert_file_contains() {
   local file="$1"
   local expected="$2"
   if ! grep -Fq "$expected" "$file"; then
+    FAILURE_REASON="${FAILURE_REASON:-assertion-failed}"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
     echo "Expected $file to contain: $expected" >&2
+    cat "$file" >&2
+    return 1
+  fi
+}
+
+assert_property_number_at_least() {
+  local file="$1"
+  local key="$2"
+  local minimum="$3"
+  local value
+  value="$(read_result_property "$file" "$key")"
+  if [[ ! "$value" =~ ^[0-9]+$ || "$value" -lt "$minimum" ]]; then
+    FAILURE_REASON="${FAILURE_REASON:-assertion-failed}"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo "Expected $file property $key to be >= $minimum, got: ${value:-missing}" >&2
     cat "$file" >&2
     return 1
   fi
@@ -451,6 +517,32 @@ run_case() {
   PASS_COUNT=$((PASS_COUNT + 1))
 }
 
+run_model_driven_case() {
+  local case_name="$1"
+  local app_name="$2"
+  local query="$3"
+  local model_file
+
+  RUN_COUNT=$((RUN_COUNT + 1))
+  echo "Running model-driven app search case: $case_name ($app_name)"
+
+  model_file="$(broadcast_command "${case_name}-model-driven" \
+    --es command model_driven_app_search \
+    --es text "打开${app_name}搜索${query}" \
+    --ei maxSteps "$MODEL_DRIVEN_APP_SEARCH_MAX_STEPS")"
+  if [[ "$(read_result_property "$model_file" "status")" == "Failed" ]]; then
+    FAILURE_REASON="$(read_result_property "$model_file" "reason")"
+  fi
+  assert_file_contains "$model_file" "resultType=model_driven_app_search"
+  assert_file_contains "$model_file" "status=Succeeded"
+  assert_file_contains "$model_file" "searchVerificationStatus=verified"
+  assert_file_contains "$model_file" "open_app_by_name"
+  assert_file_contains "$model_file" "ui_"
+  assert_property_number_at_least "$model_file" "modelPlannedStepCount" 1
+
+  PASS_COUNT=$((PASS_COUNT + 1))
+}
+
 install_mock_app \
   com.taobao.taobao \
   "淘宝" \
@@ -479,5 +571,9 @@ install_mock_app \
 run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "筛选"
 run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "百亿补贴"
 run_case gaode com.autonavi.minimap "高德" "机场" "路线"
+
+if [[ "$RUN_MODEL_DRIVEN_APP_SEARCH_EVAL" == "1" ]]; then
+  run_model_driven_case taobao "淘宝" "海河牛奶"
+fi
 
 echo "Mock target app search eval passed for $PASS_COUNT case(s)."

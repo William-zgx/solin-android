@@ -26,6 +26,8 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -42,7 +44,7 @@ private const val MAX_LOCAL_EVIDENCE_CHARS = 2_000
 private const val MAX_LOCAL_DIAGNOSTICS_CHARS = 800
 private const val MAX_PRIOR_REQUEST_DETAILS = 4
 private const val MAX_PRIOR_REQUEST_DETAILS_CHARS = 360
-private const val MAX_OBSERVATION_MODEL_PROMPT_CHARS = 2_200
+private const val MAX_OBSERVATION_MODEL_PROMPT_CHARS = 2_600
 
 internal val MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
@@ -142,6 +144,7 @@ private data class LocalTargetCandidatePrompt(
     val label: String,
     val targetValue: String,
     val modeTags: List<String>,
+    val role: String,
     val promptText: String,
 )
 
@@ -205,22 +208,55 @@ class ModelObservationReplanner(
     maxModelReplans: Int = DEFAULT_MAX_MODEL_OBSERVATION_REPLANS,
 ) : AgentObservationReplanner {
     private val modelReplanLimit = maxModelReplans.coerceAtLeast(0)
+    private val lastDiagnostic = AtomicReference<ModelObservationReplanDiagnostic?>(null)
+    private val diagnostics = CopyOnWriteArrayList<ModelObservationReplanDiagnostic>()
+
+    fun lastDiagnosticSnapshot(): ModelObservationReplanDiagnostic? = lastDiagnostic.get()
+    fun diagnosticSnapshots(): List<ModelObservationReplanDiagnostic> = diagnostics.toList()
 
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
-        if (!context.observedResult.isModelReplannableObservation()) return null
-        if (modelReplanLimit == 0) return null
-        if (context.modelObservationReplanCount() >= modelReplanLimit) return null
-        val actionModelPath = actionModelPathProvider()?.takeIf { path -> path.isNotBlank() } ?: return null
+        if (!context.observedResult.isModelReplannableObservation()) {
+            recordDiagnostic(ModelObservationReplanDiagnostic.notAttempted("not_model_replannable_observation"))
+            return null
+        }
+        if (modelReplanLimit == 0) {
+            recordDiagnostic(ModelObservationReplanDiagnostic.notAttempted("model_replan_disabled"))
+            return null
+        }
+        if (context.modelObservationReplanCount() >= modelReplanLimit) {
+            recordDiagnostic(ModelObservationReplanDiagnostic.notAttempted("model_replan_limit_reached"))
+            return null
+        }
+        val actionModelPath = actionModelPathProvider()?.takeIf { path -> path.isNotBlank() }
+        if (actionModelPath == null) {
+            recordDiagnostic(ModelObservationReplanDiagnostic.notAttempted("missing_action_model"))
+            return null
+        }
         val prompts = listOf(
             context.observationModelPrompt(toolRegistry),
             context.minimalObservationModelPrompt(toolRegistry),
         ).distinct()
-        prompts.forEach { prompt ->
+        prompts.forEachIndexed { promptIndex, prompt ->
             val planningResult = actionPlanningRuntime.plan(
                 input = prompt,
                 actionModelPath = actionModelPath,
             )
-            context.toAcceptedModelObservationReplan(planningResult)?.let { replan -> return replan }
+            val acceptance = context.acceptModelObservationReplan(planningResult)
+            if (acceptance.replan != null) {
+                recordDiagnostic(
+                    planningResult.toObservationReplanDiagnostic(
+                        promptIndex = promptIndex,
+                        reason = "accepted",
+                    ),
+                )
+                return acceptance.replan
+            }
+            recordDiagnostic(
+                planningResult.toObservationReplanDiagnostic(
+                    promptIndex = promptIndex,
+                    reason = acceptance.rejectionReason ?: "model_replan_not_accepted",
+                ),
+            )
             if (planningResult.usedModel &&
                 planningResult.plan.kind == ActionPlanKind.Draft &&
                 planningResult.plan.draft != null
@@ -231,32 +267,97 @@ class ModelObservationReplanner(
         return null
     }
 
-    private fun AgentObservationReplanContext.toAcceptedModelObservationReplan(
+    private fun recordDiagnostic(diagnostic: ModelObservationReplanDiagnostic) {
+        lastDiagnostic.set(diagnostic)
+        diagnostics += diagnostic
+    }
+
+    private fun AgentObservationReplanContext.acceptModelObservationReplan(
         planningResult: ActionPlanningResult,
-    ): AgentObservationReplan? {
-        if (!planningResult.usedModel) return null
-        if (planningResult.plan.kind != ActionPlanKind.Draft) return null
-        val draft = planningResult.plan.draft?.normalizedUiTargetDraft() ?: return null
-        if (shouldRejectNonLocalObservationTool(draft, toolRegistry)) return null
-        if (draft.hasMissingRequiredUiTarget()) return null
-        if (shouldRejectDangerousObservationAction(draft)) return null
-        if (shouldRejectTextOnlyUiControl(draft)) return null
-        if (shouldRejectUnsupportedSubmitSearch(draft)) return null
-        if (shouldRejectUnsupportedTargetlessTyping(draft)) return null
-        if (shouldRejectUnsupportedObservedTarget(draft)) return null
-        if (shouldRejectUnsupportedRepeatTarget(draft)) return null
-        return AgentObservationReplan(
-            request = ToolRequest(
-                toolName = draft.functionName,
-                arguments = draft.parameters,
-                reason = MODEL_OBSERVATION_REPLAN_REQUEST_REASON,
+    ): ModelObservationReplanAcceptance {
+        if (!planningResult.usedModel) {
+            return ModelObservationReplanAcceptance(
+                rejectionReason = planningResult.modelFailureReason
+                    ?: planningResult.fallbackReason
+                    ?: "model_not_used",
+            )
+        }
+        if (planningResult.plan.kind != ActionPlanKind.Draft) {
+            return ModelObservationReplanAcceptance(
+                rejectionReason = "model_plan_${planningResult.plan.kind.name.lowercase()}",
+            )
+        }
+        val draft = planningResult.plan.draft
+            ?.normalizedUiTargetDraft()
+            ?.tapFirstForSearchTypingTarget(this)
+            ?: return ModelObservationReplanAcceptance(rejectionReason = "missing_model_draft")
+        val rejectionReason = when {
+            shouldRejectNonLocalObservationTool(draft, toolRegistry) -> "non_local_observation_tool"
+            draft.hasMissingRequiredUiTarget() -> "missing_required_ui_target"
+            shouldRejectDangerousObservationAction(draft) -> "dangerous_observation_action"
+            shouldRejectTextOnlyUiControl(draft) -> "text_only_ui_control_without_structured_target"
+            shouldRejectUnsupportedSubmitSearch(draft) -> "unsupported_submit_search"
+            shouldRejectUnsupportedTargetlessTyping(draft) -> "unsupported_targetless_typing"
+            shouldRejectUnsupportedObservedTarget(draft) -> "unsupported_observed_target"
+            shouldRejectUnsupportedRepeatTarget(draft) -> "unsupported_repeat_target"
+            else -> null
+        }
+        if (rejectionReason != null) {
+            return ModelObservationReplanAcceptance(rejectionReason = rejectionReason)
+        }
+        return ModelObservationReplanAcceptance(
+            replan = AgentObservationReplan(
+                request = ToolRequest(
+                    toolName = draft.functionName,
+                    arguments = draft.parameters,
+                    reason = MODEL_OBSERVATION_REPLAN_REQUEST_REASON,
+                ),
+                draft = draft,
+                plannedByModel = true,
+                fallbackReason = MODEL_OBSERVATION_REPLAN_FALLBACK_REASON,
             ),
-            draft = draft,
-            plannedByModel = true,
-            fallbackReason = MODEL_OBSERVATION_REPLAN_FALLBACK_REASON,
         )
     }
 }
+
+data class ModelObservationReplanDiagnostic(
+    val attempted: Boolean,
+    val reason: String,
+    val promptIndex: Int? = null,
+    val usedModel: Boolean = false,
+    val modelAttempted: Boolean = false,
+    val modelPlanKind: String? = null,
+    val modelFailureReason: String? = null,
+    val modelOutputPreview: String? = null,
+) {
+    companion object {
+        fun notAttempted(reason: String): ModelObservationReplanDiagnostic =
+            ModelObservationReplanDiagnostic(
+                attempted = false,
+                reason = reason,
+            )
+    }
+}
+
+private data class ModelObservationReplanAcceptance(
+    val replan: AgentObservationReplan? = null,
+    val rejectionReason: String? = null,
+)
+
+private fun ActionPlanningResult.toObservationReplanDiagnostic(
+    promptIndex: Int,
+    reason: String,
+): ModelObservationReplanDiagnostic =
+    ModelObservationReplanDiagnostic(
+        attempted = true,
+        reason = reason,
+        promptIndex = promptIndex,
+        usedModel = usedModel,
+        modelAttempted = modelAttempted,
+        modelPlanKind = plan.kind.name,
+        modelFailureReason = modelFailureReason ?: fallbackReason,
+        modelOutputPreview = modelOutputPreview,
+    )
 
 private fun ActionDraft.normalizedUiTargetDraft(): ActionDraft {
     if (!functionName.acceptsGuardedUiTarget()) return this
@@ -264,6 +365,25 @@ private fun ActionDraft.normalizedUiTargetDraft(): ActionDraft {
     val normalizedTarget = rawTarget.extractUiTargetArgumentValue(toolName = functionName)
     if (normalizedTarget == rawTarget) return this
     return copy(parameters = parameters + ("target" to normalizedTarget))
+}
+
+private fun ActionDraft.tapFirstForSearchTypingTarget(context: AgentObservationReplanContext): ActionDraft {
+    if (functionName != MobileActionFunctions.UI_TYPE_TEXT) return this
+    val normalizedTarget = parameters["target"].normalizedLookupKey()
+        .takeIf { value -> value.isNotBlank() }
+        ?: return this
+    if (context.observedResult.hasCurrentTargetEvidence(normalizedTarget, MobileActionFunctions.UI_TYPE_TEXT)) {
+        return this
+    }
+    if (!context.observedResult.hasCurrentSearchTapTargetEvidence(normalizedTarget)) return this
+    val tapParameters = parameters
+        .filterKeys { key -> key != "text" && key != "verifySearchQuery" && key != "expectedAppName" }
+    return copy(
+        functionName = MobileActionFunctions.UI_TAP,
+        title = "点击搜索入口",
+        summary = "先点击搜索入口以打开输入框。",
+        parameters = tapParameters,
+    )
 }
 
 private fun ActionDraft.hasMissingRequiredUiTarget(): Boolean =
@@ -299,7 +419,7 @@ private fun AgentObservationReplanContext.shouldRejectUnsupportedObservedTarget(
         .takeIf { value -> value.isNotBlank() }
         ?: return draft.functionName == MobileActionFunctions.UI_SCROLL &&
             !observedResult.hasCurrentScrollableEvidence()
-    return !observedResult.hasCurrentTargetEvidence(nextTarget)
+    return !observedResult.hasCurrentTargetEvidence(nextTarget, draft.functionName)
 }
 
 private fun AgentObservationReplanContext.shouldRejectTextOnlyUiControl(draft: ActionDraft): Boolean {
@@ -310,6 +430,14 @@ private fun AgentObservationReplanContext.shouldRejectTextOnlyUiControl(draft: A
 
 private fun AgentObservationReplanContext.shouldRejectDangerousObservationAction(draft: ActionDraft): Boolean {
     if (!draft.functionName.isAutonomousUiControlAction()) return false
+    val target = draft.parameters["target"].normalizedLookupKey()
+    if (
+        target.isNotBlank() &&
+        draft.functionName.acceptsGuardedUiTarget() &&
+        observedResult.hasCurrentTargetEvidenceSource()
+    ) {
+        return observedResult.hasDangerousTargetEvidence(target, draft.functionName)
+    }
     return observedResult.hasDangerousUiActionEvidence()
 }
 
@@ -326,12 +454,27 @@ private fun ToolResult.hasDangerousUiActionEvidence(): Boolean =
         data["ocrText"].hasStrongDangerousActionText() ||
         data["screenText"].hasStrongDangerousActionText()
 
+private fun ToolResult.hasDangerousTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
+    data["screenObservationJson"].observationHasDangerousTargetEvidence(normalizedTarget, toolName) ||
+        data["afterScreenObservationJson"].observationHasDangerousTargetEvidence(normalizedTarget, toolName) ||
+        data["ocrBlocksJson"].ocrBlocksHaveDangerousTargetEvidence(normalizedTarget)
+
 private fun String?.observationHasDangerousActionEvidence(): Boolean =
     this?.let { rawJson ->
         runCatching {
             val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
             (0 until elements.length()).any { index ->
                 elements.optJSONObject(index)?.isDangerousActionEvidence() == true
+            }
+        }.getOrDefault(false)
+    } ?: false
+
+private fun String?.observationHasDangerousTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
+    this?.let { rawJson ->
+        runCatching {
+            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
+            (0 until elements.length()).any { index ->
+                elements.optJSONObject(index)?.isDangerousTargetEvidence(normalizedTarget, toolName) == true
             }
         }.getOrDefault(false)
     } ?: false
@@ -343,6 +486,16 @@ private fun JSONObject.isDangerousActionEvidence(): Boolean {
         text.hasOcrDangerousActionText()
     } else {
         text.hasDangerousActionText() && hasActionableModeForPrompt()
+    }
+}
+
+private fun JSONObject.isDangerousTargetEvidence(normalizedTarget: String, toolName: String): Boolean {
+    if (!isTargetEvidenceMatch(normalizedTarget)) return false
+    val text = optString("text")
+    return if (optString("source") == "ocr") {
+        text.hasOcrDangerousActionText()
+    } else {
+        text.hasDangerousActionText() && supportsToolTargetMode(toolName)
     }
 }
 
@@ -358,6 +511,18 @@ private fun String?.ocrBlocksHaveDangerousActionEvidence(): Boolean =
         }.getOrDefault(false)
     } ?: false
 
+private fun String?.ocrBlocksHaveDangerousTargetEvidence(normalizedTarget: String): Boolean =
+    this?.let { rawJson ->
+        runCatching {
+            val blocks = JSONArray(rawJson)
+            (0 until blocks.length()).any { index ->
+                val text = blocks.optJSONObject(index)?.optString("text")
+                text.normalizedLookupKey() == normalizedTarget &&
+                    text.hasOcrDangerousActionText()
+            }
+        }.getOrDefault(false)
+    } ?: false
+
 private fun AgentObservationReplanContext.shouldRejectUnsupportedRepeatTarget(draft: ActionDraft): Boolean {
     if (observedResult.status != ToolStatus.Failed) return false
     if (previousRequest.toolName != draft.functionName) return false
@@ -369,7 +534,7 @@ private fun AgentObservationReplanContext.shouldRejectUnsupportedRepeatTarget(dr
         .takeIf { value -> value.isNotBlank() }
         ?: return false
     if (previousTarget != nextTarget) return false
-    return !observedResult.hasEvidenceSupportingRepeatTarget(nextTarget)
+    return !observedResult.hasEvidenceSupportingRepeatTarget(nextTarget, draft.functionName)
 }
 
 private fun String.acceptsGuardedUiTarget(): Boolean =
@@ -392,6 +557,16 @@ private fun ToolResult.hasCurrentTargetEvidence(normalizedTarget: String): Boole
         data["afterScreenObservationJson"].observationHasTargetEvidence(normalizedTarget) ||
         executableStandaloneOcrBlocksJson().ocrBlocksHaveTargetEvidence(normalizedTarget) ||
         data["screenObservationDiffSummary"].diffSummaryHasTargetEvidence(normalizedTarget)
+
+private fun ToolResult.hasCurrentTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
+    data["screenObservationJson"].observationHasTargetEvidence(normalizedTarget, toolName) ||
+        data["afterScreenObservationJson"].observationHasTargetEvidence(normalizedTarget, toolName) ||
+        executableStandaloneOcrBlocksJson().ocrBlocksHaveTargetEvidence(normalizedTarget) ||
+        data["screenObservationDiffSummary"].diffSummaryHasTargetEvidence(normalizedTarget)
+
+private fun ToolResult.hasCurrentSearchTapTargetEvidence(normalizedTarget: String): Boolean =
+    data["screenObservationJson"].observationHasSearchTapTargetEvidence(normalizedTarget) ||
+        data["afterScreenObservationJson"].observationHasSearchTapTargetEvidence(normalizedTarget)
 
 private fun ToolResult.hasCurrentScrollableEvidence(): Boolean =
     data["screenObservationJson"].observationHasScrollableEvidence() ||
@@ -418,9 +593,9 @@ private fun ToolResult.executableStandaloneOcrBlocksJson(): String? {
     return blocksJson
 }
 
-private fun ToolResult.hasEvidenceSupportingRepeatTarget(normalizedTarget: String): Boolean {
+private fun ToolResult.hasEvidenceSupportingRepeatTarget(normalizedTarget: String, toolName: String): Boolean {
     if (data["screenObservationDiffSummary"].hasPositiveScreenChangeSignal()) return true
-    return hasCurrentTargetEvidence(normalizedTarget)
+    return hasCurrentTargetEvidence(normalizedTarget, toolName)
 }
 
 private fun ToolResult.hasLocalOnlyObservationEvidence(): Boolean =
@@ -490,6 +665,22 @@ private fun String?.observationHasTargetEvidence(normalizedTarget: String): Bool
         runCatching {
             val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
             elements.hasTargetEvidence(normalizedTarget)
+        }.getOrDefault(false)
+    } ?: false
+
+private fun String?.observationHasTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
+    this?.let { rawJson ->
+        runCatching {
+            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
+            elements.hasTargetEvidence(normalizedTarget, toolName)
+        }.getOrDefault(false)
+    } ?: false
+
+private fun String?.observationHasSearchTapTargetEvidence(normalizedTarget: String): Boolean =
+    this?.let { rawJson ->
+        runCatching {
+            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
+            elements.hasSearchTapTargetEvidence(normalizedTarget)
         }.getOrDefault(false)
     } ?: false
 
@@ -575,6 +766,41 @@ private fun JSONArray.hasTargetEvidence(normalizedTarget: String): Boolean {
         .count { element -> element.optString("text").matchesOcrTargetText(normalizedTarget) } == 1
 }
 
+private fun JSONArray.hasTargetEvidence(normalizedTarget: String, toolName: String): Boolean {
+    val elements = (0 until length()).mapNotNull(::optJSONObject)
+    if (elements.any { element -> element.isTargetIdEvidence(normalizedTarget, toolName) }) return true
+    if (elements.any { element -> element.isAccessibilityTextTargetEvidence(normalizedTarget, toolName) }) return true
+    return elements
+        .filter { element -> element.optString("source") == "ocr" }
+        .count { element -> element.optString("text").matchesOcrTargetText(normalizedTarget) } == 1
+}
+
+private fun JSONArray.hasSearchTapTargetEvidence(normalizedTarget: String): Boolean {
+    val elements = (0 until length()).mapNotNull(::optJSONObject)
+    val ocrElements = elements.filter { element -> element.optString("source") == "ocr" }
+    return elements.any { element ->
+        element.isTargetEvidenceMatch(normalizedTarget) &&
+            element.supportsToolTargetMode(MobileActionFunctions.UI_TAP) &&
+            element.hasSearchContextText(ocrElements)
+    }
+}
+
+private fun JSONObject.hasSearchContextText(ocrElements: List<JSONObject>): Boolean {
+    if (optString("text").hasSearchContextText()) return true
+    val bounds = optJSONObject("bounds") ?: return false
+    return ocrElements.any { ocrElement ->
+        ocrElement.optString("text").hasSearchContextText() &&
+            bounds.containsOcrGroundingElementBounds(ocrElement.optJSONObject("bounds"))
+    }
+}
+
+private fun JSONObject.isTargetEvidenceMatch(normalizedTarget: String): Boolean =
+    optString("id").normalizedLookupKey() == normalizedTarget ||
+        (
+            optString("source") != "ocr" &&
+                optString("text").normalizedLookupKey() == normalizedTarget
+            )
+
 private fun JSONObject.isTargetIdEvidence(normalizedTarget: String): Boolean {
     val source = optString("source")
     val idMatches = optString("id").normalizedLookupKey() == normalizedTarget
@@ -582,10 +808,34 @@ private fun JSONObject.isTargetIdEvidence(normalizedTarget: String): Boolean {
     return source == "ocr" || hasActionableModeForPrompt()
 }
 
+private fun JSONObject.isTargetIdEvidence(normalizedTarget: String, toolName: String): Boolean {
+    val source = optString("source")
+    val idMatches = optString("id").normalizedLookupKey() == normalizedTarget
+    if (!idMatches) return false
+    return source == "ocr" || supportsToolTargetMode(toolName)
+}
+
 private fun JSONObject.isAccessibilityTextTargetEvidence(normalizedTarget: String): Boolean =
     optString("source") != "ocr" &&
         optString("text").normalizedLookupKey() == normalizedTarget &&
         hasActionableModeForPrompt()
+
+private fun JSONObject.isAccessibilityTextTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
+    optString("source") != "ocr" &&
+        optString("text").normalizedLookupKey() == normalizedTarget &&
+        supportsToolTargetMode(toolName)
+
+private fun JSONObject.supportsToolTargetMode(toolName: String): Boolean {
+    val clickability = optJSONObject("clickability") ?: return false
+    if (clickability.optBoolean("enabled", true) == false) return false
+    return when (toolName) {
+        MobileActionFunctions.UI_TYPE_TEXT -> clickability.optBoolean("editable", false)
+        MobileActionFunctions.UI_TAP -> clickability.optBoolean("clickable", false) ||
+            clickability.optBoolean("editable", false)
+        MobileActionFunctions.UI_SCROLL -> clickability.optBoolean("scrollable", false)
+        else -> hasActionableModeForPrompt()
+    }
+}
 
 private fun JSONObject.isSearchSubmitEvidence(): Boolean {
     val text = optString("text")
@@ -728,12 +978,16 @@ internal fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: 
         Output exactly one call such as call:ui_tap{"target":"..."} or call:ui_type_text{"target":"...","text":"..."} when clear; otherwise output ordinary text with no call.
         Decide if the user's request needs exactly one more mobile tool after the latest observation; if unclear, output ordinary text with no call.
         Do not repeat completed work. LocalOnly evidence stays on-device.
-        When LocalOnly observation evidence is present, output only these local device-control tools: $localOnlyAllowedTools.
+        When LocalOnly observation evidence is present, output only these local device-control tools.
+        Allowed LocalOnly tools: $localOnlyAllowedTools.
         Do not output web_search or any other non-listed tool from LocalOnly observation evidence.
         When LocalOnly evidence includes targets=[...], copy only the candidate target=... value into the tool target.
         Use only target values from targetShortlist(...) for tools that accept target.
         Never output mode, bounds, confidence, or other candidate metadata as tool arguments.
         Prefer a type-tagged target for ui_type_text, a tap-tagged target for ui_tap, and a scroll-tagged target for ui_scroll; use ocrFallback only if no Accessibility target fits.
+        For an app search request, follow tap -> type -> submit.
+        If only tap= search entry is visible and no type= input is visible, output ui_tap with that tap value first; only after a type= input appears output ui_type_text with that type value; after the query is typed and submit evidence exists, output ui_submit_search{}.
+        Do not output ordinary text when a targetShortlist entry clearly advances the app search request.
         For ui_scroll, stop if no scroll candidate/evidence exists.
         If the latest action failed, avoid the same target unless new evidence supports it.
         Stop on payment, sending, deletion, publishing, ordering, purchase, transfer, or authorization controls.
@@ -814,13 +1068,15 @@ private fun AgentObservationReplanContext.minimalObservationModelPrompt(toolRegi
     val localOnlyAllowedTools = observedResult.localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val localEvidence = observedResult.localObservationEvidencePrompt(intentPreview)
     val targetShortlists = localEvidence.targetShortlistSummariesForPrompt()
+    val targetEvidence = localEvidence.targetEvidenceSummariesForPrompt()
     val targetAnchors = targetShortlists.targetShortlistTargetSummary().orEmpty()
     return """
         本机已获得用户授权执行手机 UI 自动化。只输出一个 call，不解释，不拒绝。
         允许工具: $localOnlyAllowedTools
         用户请求: $intentPreview
-        当前屏幕可用目标: $targetShortlists $targetAnchors
+        当前屏幕可用目标: $targetShortlists $targetEvidence $targetAnchors
         上一步工具: ${previousRequest.toolName}
+        如果是应用内搜索，严格按 tap -> type -> submit：当前只有 tap= 搜索入口、还没有 type= 输入框时先 ui_tap；type= 输入框出现后再 ui_type_text；已输入且有提交证据后 ui_submit_search{}。
         若要点击，输出 call:ui_tap{"target":"候选target"}。
         若要输入搜索词，输出 call:ui_type_text{"target":"候选target","text":"用户要搜索的词"}。
         若要提交搜索，输出 call:ui_submit_search{}。
@@ -880,7 +1136,18 @@ private fun String.compressLabeledPromptValue(
         .compressPromptLists("elements", maxOf(2, maxListEntries / 2))
         .compressPromptLists("targets", maxListEntries)
     val shortlistTargetSummary = compactValue.targetShortlistTargetSummary()
-    val compressibleValue = listOfNotNull(shortlistTargetSummary, compactValue)
+    val targetEvidenceSummary = compactValue.targetEvidenceSummariesForPrompt()
+        .takeUnless { summary -> summary == "none" }
+    val compactValueWithoutDuplicatedEvidence = if (targetEvidenceSummary != null) {
+        compactValue.replaceFirst(Regex("""\s*targetEvidence\([^)]*\)"""), "")
+    } else {
+        compactValue
+    }
+    val compressibleValue = listOfNotNull(
+        shortlistTargetSummary,
+        targetEvidenceSummary,
+        compactValueWithoutDuplicatedEvidence,
+    )
         .joinToString(separator = " ")
     val queryAwareProtectedPatterns = compressibleValue.targetShortlistTargetValuePatterns() + protectedPatterns
     return "$label ${compressibleValue.extractivePromptCompress(valueBudget, queryAwareProtectedPatterns)}"
@@ -935,6 +1202,14 @@ private fun String.targetShortlistSummariesForPrompt(): String =
         .joinToString(separator = " ")
         .ifBlank { "none" }
 
+private fun String.targetEvidenceSummariesForPrompt(): String =
+    Regex("""targetEvidence\([^)]*\)""")
+        .findAll(this)
+        .map { match -> match.value }
+        .distinct()
+        .joinToString(separator = " ")
+        .ifBlank { "none" }
+
 private fun String.extractivePromptCompress(
     maxChars: Int,
     protectedPatterns: List<Regex>,
@@ -968,11 +1243,15 @@ private fun List<String>.prioritizedForObservationPrompt(): List<String> {
         "Output exactly one call",
         "Decide if",
         "When LocalOnly observation evidence",
+        "Allowed LocalOnly tools",
         "Do not output web_search",
         "When LocalOnly evidence includes",
         "Use only target values",
         "Never output mode",
         "Prefer a type-tagged target",
+        "For an app search request",
+        "If only tap=",
+        "Do not output ordinary text",
         "For ui_scroll",
         "If the latest action failed",
         "Stop on",
@@ -1045,15 +1324,19 @@ private fun List<String>.prioritizedBaseObservationLines(): List<String> {
         "Observation status:",
         "Prior request details:",
         "Use only target values",
+        "For an app search request",
         "When LocalOnly observation evidence",
+        "Allowed LocalOnly tools",
         "Do not output web_search",
         "When LocalOnly evidence includes",
-        "Prefer a type-tagged target",
-        "For ui_scroll",
-        "If the latest action failed",
-        "Stop on",
-        "Decide if",
         "Never output mode",
+        "Stop on",
+        "For ui_scroll",
+        "Prefer a type-tagged target",
+        "Do not output ordinary text",
+        "If only tap=",
+        "If the latest action failed",
+        "Decide if",
     )
     return withIndex()
         .sortedWith(
@@ -1185,6 +1468,7 @@ private fun String.toScreenObservationPromptSection(
         val targetSummaries = targetCandidates
             .map { candidate -> candidate.promptText }
         val targetShortlist = targetCandidates.targetShortlistPromptText()
+        val targetEvidence = targetCandidates.targetEvidencePromptText()
         val text = buildString {
             append(key)
             append("(id=")
@@ -1202,6 +1486,11 @@ private fun String.toScreenObservationPromptSection(
             append(")")
             targetShortlist?.let { summary ->
                 append(" targetShortlist(")
+                append(summary)
+                append(")")
+            }
+            targetEvidence?.let { summary ->
+                append(" targetEvidence(")
                 append(summary)
                 append(")")
             }
@@ -1328,6 +1617,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
     val clickability = optJSONObject("clickability")
     if (clickability?.optBoolean("enabled", true) == false) return null
     val source = optString("source", "unknown")
+    val role = optString("role", "unknown")
     if (source == "ocr" && optJSONObject("bounds") == null) return null
     val modeTags = buildList {
         if (clickability?.optBoolean("editable", false) == true) add("type")
@@ -1357,7 +1647,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         append(",source=")
         append(source)
         append(",role=")
-        append(optString("role", "unknown"))
+        append(role)
         bounds?.let { value ->
             append(",bounds=")
             append(value)
@@ -1370,6 +1660,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         label = text,
         targetValue = targetValue,
         modeTags = modeTags,
+        role = role,
         promptText = promptText,
     )
 }
@@ -1418,6 +1709,7 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         ?.safeObservationPromptText(maxLength = 72)
         ?: return null
     val clickability = optJSONObject("clickability")
+    val role = optString("role", "unknown")
     val modeTags = buildList {
         if (clickability?.optBoolean("editable", false) == true) add("type")
         if (clickability?.optBoolean("clickable", false) == true) add("tap")
@@ -1431,7 +1723,7 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         append(",modeTags=")
         append(modeTags.joinToString(separator = "+"))
         append(",source=accessibility+ocr,role=")
-        append(optString("role", "unknown"))
+        append(role)
         append(",bounds=")
         append(bounds.boundsPromptText())
         append(",confidence=")
@@ -1442,6 +1734,7 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         label = ocrText,
         targetValue = targetValue,
         modeTags = modeTags,
+        role = role,
         promptText = promptText,
     )
 }
@@ -1464,6 +1757,22 @@ private fun List<LocalTargetCandidatePrompt>.targetShortlistPromptText(): String
         .joinToString(separator = ",")
         .takeIf { value -> value.isNotBlank() }
 }
+
+private fun List<LocalTargetCandidatePrompt>.targetEvidencePromptText(): String? =
+    take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
+        .joinToString(separator = "; ") { candidate ->
+            buildString {
+                append("id=")
+                append(candidate.targetValue.safeObservationPromptText(maxLength = 96))
+                append(",text=")
+                append(candidate.label.safeObservationPromptText(maxLength = 48))
+                append(",mode=")
+                append(candidate.modeTags.joinToString(separator = "+"))
+                append(",role=")
+                append(candidate.role.safeObservationPromptText(maxLength = 32))
+            }
+        }
+        .takeIf { value -> value.isNotBlank() }
 
 private fun List<LocalTargetCandidatePrompt>.rankedByResolver(
     resolverTargetRanks: List<ResolverTargetRank>,
@@ -1584,6 +1893,11 @@ private fun String.toOcrBlocksPromptSection(includeExecutableTargets: Boolean): 
                 append(summary)
                 append(")")
             }
+            targetCandidates.targetEvidencePromptText()?.let { summary ->
+                append(" targetEvidence(")
+                append(summary)
+                append(")")
+            }
             if (summaries.isNotEmpty()) {
                 append("=[")
                 append(summaries.joinToString(separator = "; "))
@@ -1653,6 +1967,7 @@ private fun OcrTargetEvidencePrompt.toOcrTargetCandidatePrompt(): LocalTargetCan
         label = text,
         targetValue = targetValue,
         modeTags = listOf("ocrFallback"),
+        role = role,
         promptText = promptText,
     )
 }
