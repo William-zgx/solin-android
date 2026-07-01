@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.tool.ToolStatus
+
 enum class AgentRunEventKind {
     InputReceived,
     ContextLoaded,
@@ -179,6 +181,274 @@ data class AgentRunEventSummary(
     val riskMarkers: Set<AgentRunRiskMarker>,
     val latestSafeText: String?,
 )
+
+object AgentStepRunEventAdapter {
+    fun adapt(run: AgentRun, steps: List<AgentStep>): List<AgentRunEvent> =
+        buildList {
+            add(
+                AgentRunEvent.InputReceived(
+                    eventId = "${run.id}:input",
+                    runId = run.id,
+                    inputId = "${run.id}:input",
+                    sourceLabel = "typed",
+                ),
+            )
+            steps.forEachIndexed { index, step ->
+                addAll(step.toRunEvents(run.id, index))
+            }
+        }
+
+    private fun AgentStep.toRunEvents(runId: String, index: Int): List<AgentRunEvent> =
+        when (this) {
+            is AgentStep.ContextLoaded -> listOf(
+                AgentRunEvent.ContextLoaded(
+                    eventId = "$runId:context:$index",
+                    runId = runId,
+                    contextId = "$runId:context:$index",
+                    memoryHitCount = memoryHits.size,
+                    deviceContextIncluded = deviceContext != null,
+                    sourceLabels = buildList {
+                        if (memoryHits.isNotEmpty()) add("memory")
+                        if (deviceContext != null) add("device")
+                    },
+                    privacyMarkers = if (memoryHits.isNotEmpty() || deviceContext != null) {
+                        setOf(AgentRunPrivacyMarker.ContainsLocalContext)
+                    } else {
+                        emptySet()
+                    },
+                ),
+            )
+
+            is AgentStep.ModelPlanned -> listOf(
+                AgentRunEvent.PlanCreated(
+                    eventId = "$runId:model-plan:$index",
+                    runId = runId,
+                    planId = "$runId:model-plan:$index",
+                    stepCount = plan.estimatedStepCount(),
+                    toolLabels = plan.safeLabels(),
+                    riskMarkers = plan.riskMarkers(),
+                ),
+            )
+
+            is AgentStep.SkillPlanned -> listOf(
+                AgentRunEvent.PlanCreated(
+                    eventId = "$runId:skill-plan:$index",
+                    runId = runId,
+                    planId = request.id,
+                    stepCount = plan?.steps?.size ?: 1,
+                    toolLabels = listOf(plan?.manifest?.title ?: request.skillId),
+                    riskMarkers = plan?.manifest?.riskLevel?.toRiskMarkers().orEmpty(),
+                ),
+            )
+
+            is AgentStep.ToolRequested -> listOf(
+                AgentRunEvent.PlanCreated(
+                    eventId = "$runId:tool-plan:$index",
+                    runId = runId,
+                    planId = request.id,
+                    stepCount = 1,
+                    toolLabels = listOf(draft.title.ifBlank { request.toolName }),
+                ),
+            )
+
+            is AgentStep.UserConfirmationRequested -> listOf(
+                AgentRunEvent.ConfirmationRequested(
+                    eventId = "$runId:confirmation:$index",
+                    runId = runId,
+                    confirmationId = request.id,
+                    toolCallId = request.id,
+                    actionLabel = draft.title.ifBlank { request.toolName },
+                    privacyMarkers = setOf(AgentRunPrivacyMarker.UserMediated),
+                ),
+            )
+
+            is AgentStep.UserRejected -> listOf(
+                AgentRunEvent.RunCancelled(
+                    eventId = "$runId:user-rejected:$index",
+                    runId = runId,
+                    cancellationId = requestId,
+                    reasonLabel = "user rejected",
+                ),
+            )
+
+            is AgentStep.ToolObserved -> listOf(
+                AgentRunEvent.ToolExecuted(
+                    eventId = "$runId:tool-executed:$index",
+                    runId = runId,
+                    toolCallId = result.requestId,
+                    toolLabel = result.summary,
+                    status = result.status.toRunToolStatus(),
+                ),
+                AgentRunEvent.ObservationRecorded(
+                    eventId = "$runId:observation:$index",
+                    runId = runId,
+                    observationId = result.requestId,
+                    toolCallId = result.requestId,
+                    observationLabel = result.summary,
+                    sourceCount = result.data.size,
+                    privacyMarkers = result.privacyMarkers(),
+                ),
+            )
+
+            is AgentStep.ExternalOutcomeConfirmed -> listOf(
+                AgentRunEvent.ToolExecuted(
+                    eventId = "$runId:external-outcome:$index",
+                    runId = runId,
+                    toolCallId = requestId,
+                    toolLabel = result.summary,
+                    status = result.status.toRunToolStatus(),
+                    riskMarkers = setOf(AgentRunRiskMarker.NeedsHumanReview),
+                ),
+                AgentRunEvent.ObservationRecorded(
+                    eventId = "$runId:external-observation:$index",
+                    runId = runId,
+                    observationId = requestId,
+                    toolCallId = requestId,
+                    observationLabel = outcome.name,
+                    sourceCount = 1,
+                    privacyMarkers = setOf(AgentRunPrivacyMarker.UserMediated),
+                ),
+            )
+
+            is AgentStep.ModelOutputQualityGuardTriggered -> listOf(
+                AgentRunEvent.ObservationRecorded(
+                    eventId = "$runId:quality:$index",
+                    runId = runId,
+                    observationId = "$runId:quality:$index",
+                    observationLabel = "output quality guard: ${trace.issue}",
+                ),
+            )
+
+            is AgentStep.AssistantResponded -> listOf(
+                AgentRunEvent.AnswerGenerated(
+                    eventId = "$runId:answer:$index",
+                    runId = runId,
+                    answerId = "$runId:answer:$index",
+                    safeAnswerPreview = text,
+                    outputLabel = "answer",
+                ),
+            )
+
+            is AgentStep.ToolRejected -> listOf(
+                AgentRunEvent.ToolExecuted(
+                    eventId = "$runId:tool-rejected:$index",
+                    runId = runId,
+                    toolCallId = result.requestId,
+                    toolLabel = result.summary,
+                    status = AgentRunToolStatus.Failed,
+                ),
+            )
+
+            is AgentStep.Failed -> listOf(
+                AgentRunEvent.RunFailed(
+                    eventId = "$runId:failed:$index",
+                    runId = runId,
+                    failureId = "$runId:failed:$index",
+                    reasonLabel = reason,
+                ),
+            )
+
+            is AgentStep.RestoredSummary -> listOf(
+                AgentRunEvent.ObservationRecorded(
+                    eventId = "$runId:restored:$index",
+                    runId = runId,
+                    observationId = "$runId:restored:$index",
+                    observationLabel = summary,
+                ),
+            )
+
+            is AgentStep.ObservationDecided -> when (decision) {
+                AgentObservationDecision.Complete -> listOf(
+                    AgentRunEvent.AnswerGenerated(
+                        eventId = "$runId:answer-complete:$index",
+                        runId = runId,
+                        answerId = "$runId:answer-complete:$index",
+                        outputLabel = "answer",
+                    ),
+                )
+
+                AgentObservationDecision.Cancel -> listOf(
+                    AgentRunEvent.RunCancelled(
+                        eventId = "$runId:cancelled:$index",
+                        runId = runId,
+                        cancellationId = "$runId:cancelled:$index",
+                        reasonLabel = "cancelled",
+                    ),
+                )
+
+                is AgentObservationDecision.Fail -> listOf(
+                    AgentRunEvent.RunFailed(
+                        eventId = "$runId:decision-failed:$index",
+                        runId = runId,
+                        failureId = "$runId:decision-failed:$index",
+                        reasonLabel = decision.reason,
+                    ),
+                )
+
+                else -> emptyList()
+            }
+
+            is AgentStep.IntentRouted,
+            is AgentStep.RemoteToolsExposed,
+            is AgentStep.RunDataReceiptRecorded,
+            is AgentStep.SafetyChecked,
+            is AgentStep.UserConfirmed,
+            is AgentStep.ContinuationCursorRecorded,
+            is AgentStep.ToolRetryScheduled -> emptyList()
+        }
+
+    private fun AgentPlan.estimatedStepCount(): Int =
+        when (this) {
+            is AgentPlan.Answer -> 1
+            is AgentPlan.UseTool -> skillPlan?.steps?.size ?: 1
+            is AgentPlan.RejectedTool -> 1
+            is AgentPlan.MissingModel -> 0
+        }
+
+    private fun AgentPlan.safeLabels(): List<String> =
+        when (this) {
+            is AgentPlan.Answer -> listOf("answer")
+            is AgentPlan.UseTool -> listOf(draft.title.ifBlank { request.toolName })
+            is AgentPlan.RejectedTool -> listOf(result.summary)
+            is AgentPlan.MissingModel -> listOf("missing ${capability.name}")
+        }
+
+    private fun AgentPlan.riskMarkers(): Set<AgentRunRiskMarker> =
+        when (this) {
+            is AgentPlan.UseTool -> emptySet()
+            else -> emptySet()
+        }
+
+    private fun com.bytedance.zgx.solin.tool.RiskLevel.toRiskMarkers(): Set<AgentRunRiskMarker> =
+        when (this) {
+            com.bytedance.zgx.solin.tool.RiskLevel.LowReadOnly -> emptySet()
+            com.bytedance.zgx.solin.tool.RiskLevel.MediumDraftOrNavigation ->
+                setOf(AgentRunRiskMarker.NeedsHumanReview)
+            com.bytedance.zgx.solin.tool.RiskLevel.HighExternalSend ->
+                setOf(AgentRunRiskMarker.ExternalSideEffect, AgentRunRiskMarker.NeedsHumanReview)
+            com.bytedance.zgx.solin.tool.RiskLevel.CriticalDeviceOrPayment ->
+                setOf(
+                    AgentRunRiskMarker.ExternalSideEffect,
+                    AgentRunRiskMarker.DestructiveAction,
+                    AgentRunRiskMarker.NeedsHumanReview,
+                )
+        }
+
+    private fun ToolStatus.toRunToolStatus(): AgentRunToolStatus =
+        when (this) {
+            ToolStatus.Succeeded -> AgentRunToolStatus.Succeeded
+            ToolStatus.Cancelled -> AgentRunToolStatus.Cancelled
+            ToolStatus.Failed,
+            ToolStatus.Rejected -> AgentRunToolStatus.Failed
+        }
+
+    private fun com.bytedance.zgx.solin.tool.ToolResult.privacyMarkers(): Set<AgentRunPrivacyMarker> =
+        when (data["privacy"]) {
+            "LocalOnly" -> setOf(AgentRunPrivacyMarker.LocalOnly)
+            "RemoteEligible" -> emptySet()
+            else -> emptySet()
+        }
+}
 
 object AgentRunEventProjector {
     fun summarize(events: List<AgentRunEvent>): AgentRunEventSummary {

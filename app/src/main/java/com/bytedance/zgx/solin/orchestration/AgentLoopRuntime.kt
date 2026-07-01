@@ -211,6 +211,11 @@ class AgentLoopRuntime(
     fun failStaleInFlightRuns(reason: String): Int =
         traceStore.failStaleInFlightRuns(reason)
 
+    fun runEvents(runId: String): List<AgentRunEvent> {
+        val run = traceStore.run(runId) ?: return emptyList()
+        return AgentStepRunEventAdapter.adapt(run, traceStore.steps(runId))
+    }
+
     fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null

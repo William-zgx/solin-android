@@ -390,6 +390,8 @@ data class ChatUiState(
     val huggingFaceAccessTokenConfigured: Boolean = false,
     val pendingHuggingFaceAuthorizationModelId: String? = null,
     val memoryHits: List<MemoryHit> = emptyList(),
+    val activeRunTimeline: List<RunTimelineItemUiSummary> = emptyList(),
+    val activeMemoryEvidence: List<MemoryEvidenceUiSummary> = emptyList(),
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),
     val backgroundTaskHistory: List<BackgroundTaskSummary> = emptyList(),

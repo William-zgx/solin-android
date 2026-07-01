@@ -65,6 +65,7 @@ import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
+import com.bytedance.zgx.solin.orchestration.AgentRunEvent
 import com.bytedance.zgx.solin.orchestration.AgentRun
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
@@ -5936,6 +5937,59 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun toolConfirmationRoutePopulatesActiveTimeline() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "request-open-settings",
+            toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+            arguments = emptyMap(),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-settings",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                    title = "打开应用设置",
+                    summary = "将打开应用设置页。",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = true,
+                fallbackReason = null,
+            ),
+            runEventsById = mapOf(
+                "run-settings" to listOf(
+                    AgentRunEvent.InputReceived(
+                        eventId = "run-settings:input",
+                        runId = "run-settings",
+                        inputId = "run-settings:input",
+                        sourceLabel = "typed",
+                    ),
+                    AgentRunEvent.ConfirmationRequested(
+                        eventId = "run-settings:confirmation",
+                        runId = "run-settings",
+                        confirmationId = request.id,
+                        toolCallId = request.id,
+                        actionLabel = "打开应用设置",
+                    ),
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("打开这个应用的设置")
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.uiState.value.pendingConfirmation)
+        assertTrue(viewModel.uiState.value.activeRunTimeline.any { it.label == "等待确认" })
+        assertTrue(viewModel.uiState.value.activeRunTimeline.any { it.detail.contains("打开应用设置") })
+    }
+
+    @Test
     fun deniedRuntimePermissionFailsPendingToolWithoutExecutingIt() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore()
         val request = ToolRequest(
@@ -6946,6 +7000,9 @@ class SolinViewModelTest {
         assertTrue(prompt.contains("I prefer concise answers"))
         assertEquals(listOf("pref-1"), viewModel.uiState.value.memoryHits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, viewModel.uiState.value.memoryHits.single().recallMode)
+        assertTrue(viewModel.uiState.value.activeRunTimeline.any { it.label == "加载上下文" })
+        assertTrue(viewModel.uiState.value.activeRunTimeline.any { it.label == "生成回答" })
+        assertEquals(listOf("语义召回"), viewModel.uiState.value.activeMemoryEvidence.map { it.recallLabel })
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
             viewModel.uiState.value.messages.map { it.privacy },
@@ -7041,6 +7098,7 @@ class SolinViewModelTest {
         assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
         assertTrue(viewModel.uiState.value.memoryHits.isEmpty())
+        assertTrue(viewModel.uiState.value.activeMemoryEvidence.isEmpty())
         val call = remoteRuntime.calls.single()
         assertEquals("compressed responses", call.prompt)
         assertFalse(call.prompt.contains("本地记忆"))
@@ -8801,6 +8859,7 @@ class SolinViewModelTest {
         private val restoredPendingExternalOutcome: PendingExternalOutcomeSnapshot? = null,
         private val recoveryRoute: AssistantRoute? = null,
         private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
+        private val runEventsById: Map<String, List<AgentRunEvent>> = emptyMap(),
     ) : AssistantRouter {
         var routeCallCount: Int = 0
             private set
@@ -9110,6 +9169,9 @@ class SolinViewModelTest {
                     trace.run.id == failedTraceRun?.run?.id || trace.run.id == cancelledRun?.run?.id
                 }
         }
+
+        override fun runEvents(runId: String): List<AgentRunEvent> =
+            runEventsById[runId].orEmpty()
 
         override fun deleteRunsForSession(sessionId: String): Int {
             deletedTraceSessionIds += sessionId

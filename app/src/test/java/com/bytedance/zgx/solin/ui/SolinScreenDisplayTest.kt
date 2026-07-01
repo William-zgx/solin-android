@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LocalModelTokenLimits
+import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
 import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.MessagePrivacy
@@ -14,6 +15,7 @@ import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
+import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.capability.CapabilityMatrix
@@ -539,6 +541,40 @@ class SolinScreenDisplayTest {
         assertTrue(text.contains("疑似手机号/电话"))
         assertTrue(text.contains("疑似个人身份信息"))
         assertTrue(text.contains("命中片段：13800001111"))
+    }
+
+    @Test
+    fun runTimelineAndMemoryEvidenceDisplayUseSummariesWithoutRawPrivatePayload() {
+        val timelineText = runTimelineItemDisplayText(
+            RunTimelineItemUiSummary(
+                id = "t1",
+                label = "执行工具",
+                state = "Executing",
+                detail = "打开设置",
+                privacyLabel = "仅本机",
+                riskLabel = "需要确认",
+            ),
+        )
+        val memoryText = memoryEvidenceDisplayText(
+            MemoryEvidenceUiSummary(
+                id = "m1",
+                typeLabel = "偏好",
+                recallLabel = "语义召回",
+                reasonLabel = "alice@example.com password=secret",
+                scoreLabel = "高相关",
+            ),
+        )
+
+        assertTrue(timelineText.contains("执行工具"))
+        assertTrue(timelineText.contains("打开设置"))
+        assertTrue(timelineText.contains("仅本机"))
+        assertTrue(timelineText.contains("需要确认"))
+        assertTrue(memoryText.contains("偏好"))
+        assertTrue(memoryText.contains("语义召回"))
+        assertTrue(memoryText.contains("高相关"))
+        assertTrue(memoryText.contains("[redacted]"))
+        assertFalse(memoryText.contains("alice@example.com"))
+        assertFalse(memoryText.contains("secret"))
     }
 
     @Test

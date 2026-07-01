@@ -115,6 +115,7 @@ import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.LongTermMemorySummary
+import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelHealthState
@@ -128,6 +129,7 @@ import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendAuditSummary
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
+import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.R
 import com.bytedance.zgx.solin.SetupTier
@@ -324,12 +326,21 @@ fun SolinScreen(
                     }
                 }
 
-                if (state.memoryHits.isNotEmpty()) {
+                if (state.activeRunTimeline.isNotEmpty()) {
+                    RunTimelineStrip(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("run_timeline_strip"),
+                        items = state.activeRunTimeline,
+                    )
+                }
+
+                if (state.activeMemoryEvidence.isNotEmpty()) {
                     MemoryContextStrip(
                         modifier = Modifier
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                             .testTag("memory_context_strip"),
-                        hitCount = state.memoryHits.size,
+                        evidence = state.activeMemoryEvidence,
                     )
                 }
 
@@ -5248,7 +5259,7 @@ private fun ParameterSlider(
 @Composable
 private fun MemoryContextStrip(
     modifier: Modifier = Modifier,
-    hitCount: Int,
+    evidence: List<MemoryEvidenceUiSummary>,
 ) {
     val semanticColors = LocalSolinColors.current
     Surface(
@@ -5256,25 +5267,107 @@ private fun MemoryContextStrip(
         shape = MaterialTheme.shapes.medium,
         color = semanticColors.memoryContainer.copy(alpha = 0.72f),
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            SolinGlyph(
-                modifier = Modifier.size(16.dp),
-                kind = SolinGlyphKind.Memory,
-                tint = semanticColors.onMemoryContainer,
-            )
-            Text(
-                text = "已引用本地记忆 $hitCount 条",
-                style = MaterialTheme.typography.labelMedium,
-                color = semanticColors.onMemoryContainer,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SolinGlyph(
+                    modifier = Modifier.size(16.dp),
+                    kind = SolinGlyphKind.Memory,
+                    tint = semanticColors.onMemoryContainer,
+                )
+                Text(
+                    text = "已引用本地记忆 ${evidence.size} 条",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = semanticColors.onMemoryContainer,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            evidence.take(3).forEach { item ->
+                Text(
+                    text = memoryEvidenceDisplayText(item),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = semanticColors.onMemoryContainer.copy(alpha = 0.86f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
+
+@Composable
+private fun RunTimelineStrip(
+    modifier: Modifier = Modifier,
+    items: List<RunTimelineItemUiSummary>,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SolinGlyph(
+                    modifier = Modifier.size(16.dp),
+                    kind = SolinGlyphKind.Spark,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "当前进度",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            items.takeLast(4).forEach { item ->
+                Text(
+                    text = runTimelineItemDisplayText(item),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+internal fun runTimelineItemDisplayText(item: RunTimelineItemUiSummary): String =
+    listOf(item.label, item.detail, item.privacyLabel, item.riskLabel)
+        .mapNotNull { value -> value?.safeStripDisplayText()?.takeIf { it.isNotBlank() } }
+        .joinToString(" · ")
+
+internal fun memoryEvidenceDisplayText(item: MemoryEvidenceUiSummary): String =
+    listOf(item.typeLabel, item.recallLabel, item.reasonLabel, item.scoreLabel)
+        .map { value -> value.safeStripDisplayText() }
+        .filter { value -> value.isNotBlank() }
+        .joinToString(" · ")
+
+private fun String.safeStripDisplayText(): String {
+    val normalized = trim().replace(Regex("\\s+"), " ")
+    return if (PRIVATE_STRIP_TEXT_PATTERNS.any { pattern -> pattern.containsMatchIn(normalized) }) {
+        "[redacted]"
+    } else {
+        normalized.take(80)
+    }
+}
+
+private val PRIVATE_STRIP_TEXT_PATTERNS = listOf(
+    Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"),
+    Regex("(?i)\\b(password|passwd|secret|token|api[_ -]?key|credential|private)\\b\\s*[:=]?\\s*\\S*"),
+)
 
 @Composable
 private fun RecoveryActionEntry(

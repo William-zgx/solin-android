@@ -52,6 +52,7 @@ import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.evidence.toEvidenceReceiptSummary
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
+import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.MemoryRecallMode
 import com.bytedance.zgx.solin.memory.MemoryRecordType
@@ -1646,6 +1647,8 @@ class SolinViewModel(
                 pendingRemoteSendDisclosure = null,
                 latestRecoveryAction = null,
                 pendingExternalOutcome = null,
+                activeRunTimeline = emptyList(),
+                activeMemoryEvidence = emptyList(),
                 statusText = "处理中",
             )
         }
@@ -1712,6 +1715,8 @@ class SolinViewModel(
                                     isGenerating = false,
                                     pendingConfirmation = null,
                                     memoryHits = emptyList(),
+                                    activeRunTimeline = activeRunTimelineFor(route.runId),
+                                    activeMemoryEvidence = emptyList(),
                                     statusText = "工具执行中",
                                 )
                             }
@@ -1752,6 +1757,8 @@ class SolinViewModel(
                                     fallbackReason = route.fallbackReason,
                                 ),
                                 memoryHits = emptyList(),
+                                activeRunTimeline = activeRunTimelineFor(route.runId),
+                                activeMemoryEvidence = emptyList(),
                                 statusText = "动作草稿待确认 · $planningLabel",
                             )
                         }
@@ -1776,6 +1783,8 @@ class SolinViewModel(
                                 isBusy = false,
                                 isGenerating = false,
                                 memoryHits = emptyList(),
+                                activeRunTimeline = emptyList(),
+                                activeMemoryEvidence = emptyList(),
                                 statusText = "动作不可执行",
                             )
                         }
@@ -1809,6 +1818,8 @@ class SolinViewModel(
                                 isBusy = false,
                                 isGenerating = false,
                                 memoryHits = emptyList(),
+                                activeRunTimeline = emptyList(),
+                                activeMemoryEvidence = emptyList(),
                                 statusText = "缺少$capabilityName",
                             )
                         }
@@ -1846,6 +1857,11 @@ class SolinViewModel(
                             it.copy(
                                 isGenerating = true,
                                 memoryHits = route.memoryHits,
+                                activeRunTimeline = activeRunTimelineFor(route.runId),
+                                activeMemoryEvidence = activeMemoryEvidenceFor(
+                                    memoryHits = route.memoryHits,
+                                    includePrivateLocalContext = includePrivateLocalContext,
+                                ),
                                 statusText = "生成中",
                             )
                         }
@@ -1862,6 +1878,7 @@ class SolinViewModel(
                                     isReady = false,
                                     pendingConfirmation = null,
                                     agentTraceRuns = loadAgentTraceRuns(),
+                                    activeRunTimeline = activeRunTimelineFor(route.runId),
                                     statusText = "未加载模型",
                                 )
                             }
@@ -1880,6 +1897,7 @@ class SolinViewModel(
                                     isReady = false,
                                     pendingConfirmation = null,
                                     agentTraceRuns = loadAgentTraceRuns(),
+                                    activeRunTimeline = activeRunTimelineFor(route.runId),
                                     statusText = "请配置远程模型",
                                 )
                             }
@@ -1911,6 +1929,8 @@ class SolinViewModel(
                                         pendingConfirmation = null,
                                         memoryHits = emptyList(),
                                         agentTraceRuns = loadAgentTraceRuns(),
+                                        activeRunTimeline = activeRunTimelineFor(route.runId),
+                                        activeMemoryEvidence = emptyList(),
                                         statusText = "已阻止远程发送",
                                     )
                                 }
@@ -2098,6 +2118,7 @@ class SolinViewModel(
                                     isReady = true,
                                     auditEvents = loadAuditEvents(),
                                     agentTraceRuns = loadAgentTraceRuns(),
+                                    activeRunTimeline = activeRunTimelineFor(route.runId),
                                     statusText = "动作不可执行",
                                 )
                             }
@@ -2146,6 +2167,7 @@ class SolinViewModel(
                                             isReady = true,
                                             auditEvents = loadAuditEvents(),
                                             agentTraceRuns = loadAgentTraceRuns(),
+                                            activeRunTimeline = activeRunTimelineFor(route.runId),
                                             statusText = "动作不可执行",
                                         )
                                     }
@@ -2160,6 +2182,11 @@ class SolinViewModel(
                                 isBusy = false,
                                 isGenerating = false,
                                 isReady = true,
+                                activeRunTimeline = activeRunTimelineFor(route.runId),
+                                activeMemoryEvidence = activeMemoryEvidenceFor(
+                                    memoryHits = route.memoryHits,
+                                    includePrivateLocalContext = includePrivateLocalContext,
+                                ),
                                 statusText = if (useRemoteModel) {
                                     "就绪 · 远程"
                                 } else {
@@ -2172,7 +2199,7 @@ class SolinViewModel(
             } catch (cancellation: CancellationException) {
                 cancelActiveGenerationRun(activeModelRunId)
                 if (_uiState.value.isGenerating) {
-                    finishStoppedGeneration()
+                    finishStoppedGeneration(activeModelRunId)
                 } else if (_uiState.value.isBusy) {
                     _uiState.update {
                         it.copy(
@@ -2199,6 +2226,7 @@ class SolinViewModel(
                         isReady = useRemoteModel && remoteConfig.isConfigured,
                         pendingConfirmation = null,
                         agentTraceRuns = loadAgentTraceRuns(),
+                        activeRunTimeline = activeRunTimelineFor(activeModelRunId),
                         modelHealth = it.failedGenerationModelHealth(
                             useRemoteModel = useRemoteModel,
                             reason = errorMessage,
@@ -2902,14 +2930,15 @@ class SolinViewModel(
 
     fun stopGeneration() {
         val job = generationJob ?: return
+        val runId = activeGenerationRunId
         if (_uiState.value.inferenceMode == InferenceMode.Local) {
             runtime.stop()
         } else {
             remoteRuntime.stop()
         }
-        cancelActiveGenerationRun(activeGenerationRunId)
+        cancelActiveGenerationRun(runId)
         job.cancel()
-        finishStoppedGeneration()
+        finishStoppedGeneration(runId)
     }
 
     fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
@@ -3007,6 +3036,7 @@ class SolinViewModel(
                     isGenerating = false,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                     statusText = "工具确认失败，未执行动作。",
                 )
             }
@@ -3028,6 +3058,7 @@ class SolinViewModel(
                     isGenerating = false,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                     statusText = "工具未执行",
                 )
             }
@@ -3038,6 +3069,7 @@ class SolinViewModel(
                 pendingConfirmation = null,
                 isBusy = true,
                 isGenerating = false,
+                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                 statusText = "工具执行中",
             )
         }
@@ -3142,6 +3174,7 @@ class SolinViewModel(
                         isGenerating = false,
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
+                        activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                         statusText = "已保护${protectedContentName}",
                     )
                 }
@@ -3162,6 +3195,7 @@ class SolinViewModel(
                     isGenerating = true,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                     statusText = "生成中",
                 )
             }
@@ -3186,6 +3220,7 @@ class SolinViewModel(
                 longTermMemories = loadLongTermMemories(),
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                 latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
                 isBusy = false,
                 isGenerating = false,
@@ -3211,6 +3246,7 @@ class SolinViewModel(
                     isGenerating = false,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(runId),
                     statusText = "批量工具不可执行",
                 )
             }
@@ -3224,6 +3260,7 @@ class SolinViewModel(
                 isGenerating = false,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
                 statusText = "工具并发执行中",
             )
         }
@@ -3240,6 +3277,7 @@ class SolinViewModel(
                     isGenerating = false,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(runId),
                     statusText = "批量工具不可执行",
                 )
             }
@@ -3288,6 +3326,7 @@ class SolinViewModel(
                         isGenerating = false,
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
+                        activeRunTimeline = activeRunTimelineFor(runId),
                         statusText = "已保护批量工具结果",
                     )
                 }
@@ -3308,6 +3347,7 @@ class SolinViewModel(
                     isGenerating = true,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(runId),
                     statusText = "生成中",
                 )
             }
@@ -3330,6 +3370,7 @@ class SolinViewModel(
                 longTermMemories = loadLongTermMemories(),
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
                 latestRecoveryAction = observation.recoveryAction,
                 isBusy = false,
                 isGenerating = false,
@@ -3372,6 +3413,7 @@ class SolinViewModel(
                     isGenerating = false,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(runId),
                     statusText = "工具执行中",
                 )
             }
@@ -3390,6 +3432,7 @@ class SolinViewModel(
                 isReady = true,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
                 statusText = pendingStatusText,
             )
         }
@@ -3435,6 +3478,7 @@ class SolinViewModel(
                     pendingExternalOutcome = null,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(pending.runId),
                     statusText = "外部结果确认已过期",
                 )
             }
@@ -3457,6 +3501,7 @@ class SolinViewModel(
                     latestRecoveryAction = null,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(recorded.run.id),
                 )
             }
             handleNextToolPlan(
@@ -3471,6 +3516,7 @@ class SolinViewModel(
                 pendingExternalOutcome = null,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(recorded.run.id),
                 statusText = recorded.assistantMessage,
             )
         }
@@ -3526,6 +3572,7 @@ class SolinViewModel(
                 isGenerating = false,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                 statusText = "权限被拒，工具未执行",
             )
         }
@@ -3578,6 +3625,7 @@ class SolinViewModel(
                 isGenerating = false,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                 statusText = "特殊权限未开启，工具未执行",
             )
         }
@@ -3628,6 +3676,7 @@ class SolinViewModel(
                 isGenerating = false,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                 statusText = "屏幕截图同意已取消，工具未执行",
             )
         }
@@ -3671,6 +3720,7 @@ class SolinViewModel(
                     pendingConfirmation = null,
                     pendingRemoteSendDisclosure = null,
                     agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(runId),
                     statusText = "远程连接不可用",
                 )
             }
@@ -3703,6 +3753,7 @@ class SolinViewModel(
                     pendingRemoteSendDisclosure = disclosure,
                     isBusy = false,
                     isGenerating = false,
+                    activeRunTimeline = activeRunTimelineFor(runId),
                     statusText = "远程续写待确认",
                 )
             }
@@ -3725,6 +3776,7 @@ class SolinViewModel(
                             isReady = remoteConfig.isConfigured,
                             pendingConfirmation = null,
                             agentTraceRuns = loadAgentTraceRuns(),
+                            activeRunTimeline = activeRunTimelineFor(runId),
                             statusText = "已保护工具结果",
                         )
                     }
@@ -3743,6 +3795,7 @@ class SolinViewModel(
                             isReady = false,
                             pendingConfirmation = null,
                             agentTraceRuns = loadAgentTraceRuns(),
+                            activeRunTimeline = activeRunTimelineFor(runId),
                             statusText = "未加载模型",
                         )
                     }
@@ -3761,6 +3814,7 @@ class SolinViewModel(
                             isReady = false,
                             pendingConfirmation = null,
                             agentTraceRuns = loadAgentTraceRuns(),
+                            activeRunTimeline = activeRunTimelineFor(runId),
                             statusText = "请配置远程模型",
                         )
                     }
@@ -4032,6 +4086,7 @@ class SolinViewModel(
                         isReady = true,
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
+                        activeRunTimeline = activeRunTimelineFor(runId),
                         statusText = when (modelObservation?.decision) {
                             is AgentObservationDecision.Fail -> "后续动作不可执行"
                             else -> if (useRemoteModel) {
@@ -4044,7 +4099,7 @@ class SolinViewModel(
                 }
             } catch (cancellation: CancellationException) {
                 cancelActiveGenerationRun(runId)
-                finishStoppedGeneration()
+                finishStoppedGeneration(runId)
                 throw cancellation
             } catch (throwable: Throwable) {
                 val errorMessage = throwable.generationFailureMessage(useRemoteModel)
@@ -4060,6 +4115,7 @@ class SolinViewModel(
                         isReady = useRemoteModel && remoteConfig.isConfigured,
                         pendingConfirmation = null,
                         agentTraceRuns = loadAgentTraceRuns(),
+                        activeRunTimeline = activeRunTimelineFor(runId),
                         modelHealth = it.failedGenerationModelHealth(
                             useRemoteModel = useRemoteModel,
                             reason = errorMessage,
@@ -4111,6 +4167,7 @@ class SolinViewModel(
                 pendingConfirmation = null,
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(pendingConfirmation.runId),
                 statusText = observation?.assistantMessage ?: "已取消动作草稿",
             )
         }
@@ -4774,6 +4831,7 @@ class SolinViewModel(
                 },
                 pendingConfirmation = null,
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
                 modelHealth = it.modelHealth.copy(
                     profileId = report.modelId ?: if (useRemoteModel) {
                         it.remoteModelConfig.modelProfile().id
@@ -5360,6 +5418,18 @@ class SolinViewModel(
                 .map { run -> run.toUiSummary() }
         }.getOrDefault(emptyList())
 
+    private fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> =
+        runId
+            ?.let { id -> runCatching { assistantOrchestrator.runEvents(id) }.getOrDefault(emptyList()) }
+            ?.let(::runTimelineSummariesFor)
+            .orEmpty()
+
+    private fun activeMemoryEvidenceFor(
+        memoryHits: List<MemoryHit>,
+        includePrivateLocalContext: Boolean,
+    ): List<MemoryEvidenceUiSummary> =
+        if (includePrivateLocalContext) memoryEvidenceSummariesFor(memoryHits) else emptyList()
+
     private fun AgentTraceRunSummary.toUiSummary(): AgentTraceRunUiSummary =
         AgentTraceRunUiSummary(
             id = run.id,
@@ -5508,7 +5578,7 @@ class SolinViewModel(
         }
     }
 
-    private fun finishStoppedGeneration() {
+    private fun finishStoppedGeneration(runId: String?) {
         val remoteMode = _uiState.value.inferenceMode == InferenceMode.Remote
         val currentMessages = _uiState.value.messages
         val messages = if (
@@ -5527,6 +5597,7 @@ class SolinViewModel(
                 isGenerating = false,
                 isReady = if (remoteMode) it.remoteModelConfig.isConfigured else runtime.isLoaded,
                 agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
                 statusText = if (remoteMode) {
                     "已停止 · 远程"
                 } else if (!runtime.isLoaded) {

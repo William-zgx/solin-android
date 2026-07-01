@@ -111,6 +111,8 @@ interface AssistantRouter : AutoCloseable {
 
     fun recentTraceRuns(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary> = emptyList()
 
+    fun runEvents(runId: String): List<AgentRunEvent> = emptyList()
+
     fun deleteRunsForSession(sessionId: String): Int = 0
 
     fun availableToolSpecs(): List<ToolSpec> = emptyList()
@@ -264,6 +266,9 @@ class AssistantOrchestrator(
 
     override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> =
         traceStore.recentRunSummaries(limit = limit, stepLimit = stepLimit)
+
+    override fun runEvents(runId: String): List<AgentRunEvent> =
+        agentLoopRuntime.runEvents(runId)
 
     override fun deleteRunsForSession(sessionId: String): Int =
         traceStore.deleteRunsForSession(sessionId)
