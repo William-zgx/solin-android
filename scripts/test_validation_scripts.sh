@@ -1387,6 +1387,15 @@ grep -q 'scripts/live_remote_emulator.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include live_remote_emulator.sh in shell syntax checks"
 grep -q 'scripts/run_mock_target_app_search_eval.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include run_mock_target_app_search_eval.sh in shell syntax checks"
+MOCK_MODEL_DRIVEN_CASE_BLOCK="$(sed -n '/^run_model_driven_case()/,/^}/p' scripts/run_mock_target_app_search_eval.sh)"
+grep -qF -- '--es verifySearchQuery "$query"' <<<"$MOCK_MODEL_DRIVEN_CASE_BLOCK" ||
+  fail "mock model-driven app search eval must pass verifySearchQuery"
+grep -qF -- '--es expectedPackageName "$package_name"' <<<"$MOCK_MODEL_DRIVEN_CASE_BLOCK" ||
+  fail "mock model-driven app search eval must pass expectedPackageName"
+grep -qF -- '--es expectedAppName "$app_name"' <<<"$MOCK_MODEL_DRIVEN_CASE_BLOCK" ||
+  fail "mock model-driven app search eval must pass expectedAppName"
+assert_report_contains_text scripts/run_mock_target_app_search_eval.sh \
+  'run_model_driven_case taobao com.taobao.taobao "淘宝" "海河牛奶"'
 grep -q 'scripts/capture_release_screenshots.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include capture_release_screenshots.sh in shell syntax checks"
 grep -q 'scripts/collect_release_flow_matrix_evidence.sh' scripts/verify_local.sh ||

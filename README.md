@@ -79,6 +79,9 @@ flowchart LR
 - OpenAI-compatible remote chat with local filtering of `LocalOnly` context.
 - Registry-driven tools, built-in Skills, local safety policy, redacted trace,
   and audit records.
+- Model-driven app search can bootstrap from a verified local Chat or
+  action-planning model, then falls back to the static Skill path when local
+  planning is unavailable.
 - The chat surface only shows a safe result summary; structured tool fields
   stay available through the trace/audit surfaces, not a typed chat card.
 
@@ -127,6 +130,9 @@ Requirements:
 - JDK 17 or newer.
 - Android SDK 36. The app targets SDK 36 and supports API 28+.
 - A physical arm64-v8a Android device for realistic LiteRT-LM validation.
+  Model-driven app-search instrumentation is an optional device-level smoke
+  check and requires a device with a verified local planning model already
+  installed; it is not a normal CI prerequisite.
 
 Clone and build:
 
@@ -206,6 +212,11 @@ Device or emulator verification:
 scripts/doctor.sh --device
 ANDROID_SERIAL=<device-or-emulator> scripts/install_and_test_device.sh
 ```
+
+Model-driven app-search evals are debug/device checks. Enable them explicitly
+with `RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`; mock and real app modes validate
+results through `verifySearchQuery`, `expectedPackageName`, and
+`expectedAppName`, and require `searchVerificationStatus=verified`.
 
 Full emulator regression uses the stricter artifact gate:
 

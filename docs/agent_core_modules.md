@@ -130,16 +130,22 @@ Current status:
   a fresh user action.
 - Private observations are synthesized locally and take precedence over generic
   replanning. Unknown privacy metadata fails closed as `LocalOnly`.
-- Low-risk phone-control replanning can use a verified local action-planning
-  model. Verified E2B/E4B Chat models are preferred for observation-to-action
-  planning; the `mobile-action-270m` model is only a low-resource experimental
-  fallback. If the selected model is missing, fails, or produces no valid
-  draft, the runtime falls back to conservative rule planning.
+- Low-risk phone-control replanning can use a verified local Chat or
+  action-planning model. Verified E2B/E4B Chat models are preferred for
+  observation-to-action planning; the `mobile-action-270m` model is only a
+  low-resource experimental fallback. If the selected model is missing, fails,
+  or produces no valid draft, the runtime falls back to conservative rule
+  planning.
 - App search has two modes: static Skill fallback, and model-driven bootstrap
-  when a verified local action-planning model is available. The bootstrap only opens,
-  waits, and observes; `ModelObservationReplanner` then plans one UI tool per
-  observation, capped at five replans. A verified search result completes the
-  run without asking a model for another step.
+  when a verified local Chat/action-planning model is available. The bootstrap
+  only opens, waits, and observes; `ModelObservationReplanner` then plans one UI
+  tool per observation, capped at five replans. A verified search result
+  completes the run without asking a model for another step.
+- Model-driven app-search verification is explicit. Mock and real device evals
+  must pass query/package/app guards into the debug receiver before claiming
+  `searchVerificationStatus=verified`; device instrumentation that needs a
+  preinstalled verified local planning model is optional smoke coverage and
+  skips when that model is absent.
 - Pending confirmations, redacted Skill plan shapes, value-free Skill
   checkpoints, and selected no-payload continuation cursors can restore after
   process death. Raw tool arguments, model output, private payload, and
@@ -555,5 +561,8 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - Treat `device-verification.properties`,
   `emulator-verification.properties`, and `regression-emulator.properties` as
   evidence artifacts, not prose summaries.
-- Full physical-device validation remains required for LiteRT-LM model
-  execution because emulator GPU/backend behavior is not representative.
+- Full physical-device validation remains required before claiming release
+  LiteRT-LM model execution because emulator GPU/backend behavior is not
+  representative. The model-driven app-search instrumentation smoke is narrower:
+  it is optional, requires a preinstalled verified local planning model, and
+  should not be treated as an ordinary CI prerequisite.
