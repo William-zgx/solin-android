@@ -2912,6 +2912,9 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals("submit_search", result.data["actionType"])
         assertEquals("failed", result.data["status"])
         assertEquals("submit_not_found", result.data["failureKind"])
+        assertEquals("no_change", result.data["uiActionOutcome"])
+        assertEquals("changed_false", result.data["uiActionOutcomeReason"])
+        assertEquals("unknown", result.data["appSearchProgressStage"])
         assertEquals("screen-before", result.data["beforeObservationId"])
         assertEquals("screen-before", result.data["afterObservationId"])
         assertTrue(result.data.getValue("beforeScreenObservationJson").contains("screen-before"))
@@ -2980,6 +2983,9 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals("wait", result.data["actionType"])
         assertEquals("verified", result.data["searchVerificationStatus"])
         assertEquals("query_visible_after_change", result.data["searchVerificationEvidence"])
+        assertEquals("verified", result.data["uiActionOutcome"])
+        assertEquals("search_verified", result.data["uiActionOutcomeReason"])
+        assertEquals("verified", result.data["appSearchProgressStage"])
         assertFalse(result.data.containsKey("failureKind"))
         assertTrue(delegate.requests.isEmpty())
     }
@@ -3028,6 +3034,9 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals("result_not_verified", result.data["failureKind"])
         assertEquals("not_verified", result.data["searchVerificationStatus"])
         assertEquals("page_not_changed", result.data["searchVerificationEvidence"])
+        assertEquals("no_change", result.data["uiActionOutcome"])
+        assertEquals("changed_false", result.data["uiActionOutcomeReason"])
+        assertEquals("unknown", result.data["appSearchProgressStage"])
         assertTrue(delegate.requests.isEmpty())
     }
 

@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.debug
 
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.orchestration.AgentObservationReplanContext
 import com.bytedance.zgx.solin.orchestration.AgentRun
 import com.bytedance.zgx.solin.orchestration.AgentRunState
@@ -191,6 +192,20 @@ class ModelDrivenAppSearchRecoveryPlannerTest {
             ModelDrivenAppSearchRecoveryPlanner.KIND_TAP_SEARCH_ENTRY,
             replan.request.modelDrivenAppSearchRecoveryKind(),
         )
+    }
+
+    @Test
+    fun recoveryTapProgressEvidenceMarksEntryTapped() {
+        val data = AppSearchProgressEvidence.fromData(
+            mapOf(
+                "actionType" to "tap",
+                "status" to "succeeded",
+            ),
+        ).toData()
+
+        assertEquals("advanced", data["uiActionOutcome"])
+        assertEquals("status_succeeded", data["uiActionOutcomeReason"])
+        assertEquals("entry_tapped", data["appSearchProgressStage"])
     }
 
     private fun observationResult(

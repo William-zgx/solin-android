@@ -18,6 +18,7 @@ import com.bytedance.zgx.solin.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.solin.device.AndroidNotificationSummaryProvider
 import com.bytedance.zgx.solin.device.AndroidRecentFileProvider
 import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
+import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.AppSearchResultVerifier
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
 import com.bytedance.zgx.solin.device.SolinAccessibilityService
@@ -613,8 +614,14 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         plannedByModel: Boolean,
         evalGuardApplied: Boolean,
         recoveryKind: String?,
-    ): ModelDrivenAppSearchEvalStep =
-        ModelDrivenAppSearchEvalStep(
+    ): ModelDrivenAppSearchEvalStep {
+        val progressData = AppSearchProgressEvidence.fromData(
+            result.data + mapOf(
+                "toolName" to toolName,
+                "status" to result.status.name,
+            ),
+        ).toData()
+        return ModelDrivenAppSearchEvalStep(
             toolName = toolName,
             plannedByModel = plannedByModel,
             status = result.status.name,
@@ -628,9 +635,13 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             verifySearchQuery = arguments["verifySearchQuery"],
             expectedPackageName = arguments["expectedPackageName"] ?: arguments["targetPackageName"],
             expectedAppName = arguments["expectedAppName"],
+            uiActionOutcome = result.data["uiActionOutcome"] ?: progressData["uiActionOutcome"],
+            uiActionOutcomeReason = result.data["uiActionOutcomeReason"] ?: progressData["uiActionOutcomeReason"],
+            appSearchProgressStage = result.data["appSearchProgressStage"] ?: progressData["appSearchProgressStage"],
             evalGuardApplied = evalGuardApplied,
             recoveryKind = recoveryKind,
         )
+    }
 
     private fun maybeRecoverLaunchConfirmation(
         failedRequest: ToolRequest,
@@ -676,7 +687,11 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
 
     private fun UiActionReadResult.toModelDrivenLaunchRecoveryStep(): ModelDrivenAppSearchEvalStep =
         when (this) {
-            is UiActionReadResult.Available ->
+            is UiActionReadResult.Available -> {
+                val progressData = launchRecoveryProgressData(
+                    status = result.status.name.lowercase(),
+                    failureKind = result.failureKind?.schemaValue,
+                )
                 ModelDrivenAppSearchEvalStep(
                     toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
                     plannedByModel = false,
@@ -685,10 +700,18 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     failureKind = result.failureKind?.schemaValue,
                     searchVerificationStatus = null,
                     target = "本次允许",
+                    uiActionOutcome = progressData["uiActionOutcome"],
+                    uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
+                    appSearchProgressStage = progressData["appSearchProgressStage"],
                     recoveryKind = "launch_confirmation",
                 )
+            }
 
-            is UiActionReadResult.PermissionDenied ->
+            is UiActionReadResult.PermissionDenied -> {
+                val progressData = launchRecoveryProgressData(
+                    status = "failed",
+                    failureKind = UiActionFailureKind.PermissionMissing.schemaValue,
+                )
                 ModelDrivenAppSearchEvalStep(
                     toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
                     plannedByModel = false,
@@ -697,10 +720,18 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     failureKind = UiActionFailureKind.PermissionMissing.schemaValue,
                     searchVerificationStatus = null,
                     target = "本次允许",
+                    uiActionOutcome = progressData["uiActionOutcome"],
+                    uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
+                    appSearchProgressStage = progressData["appSearchProgressStage"],
                     recoveryKind = "launch_confirmation",
                 )
+            }
 
-            is UiActionReadResult.Failed ->
+            is UiActionReadResult.Failed -> {
+                val progressData = launchRecoveryProgressData(
+                    status = "failed",
+                    failureKind = failureKind.schemaValue,
+                )
                 ModelDrivenAppSearchEvalStep(
                     toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
                     plannedByModel = false,
@@ -709,9 +740,25 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     failureKind = failureKind.schemaValue,
                     searchVerificationStatus = null,
                     target = "本次允许",
+                    uiActionOutcome = progressData["uiActionOutcome"],
+                    uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
+                    appSearchProgressStage = progressData["appSearchProgressStage"],
                     recoveryKind = "launch_confirmation",
                 )
+            }
         }
+
+    private fun launchRecoveryProgressData(
+        status: String,
+        failureKind: String?,
+    ): Map<String, String> =
+        AppSearchProgressEvidence.fromData(
+            buildMap {
+                put("actionType", "tap")
+                put("status", status)
+                failureKind?.let { value -> put("failureKind", value) }
+            },
+        ).toData()
 
     private fun ToolRequest.withModelDrivenEvalGuards(
         verificationSpec: ModelDrivenAppSearchEvalSpec,
@@ -843,6 +890,9 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             "modelReplanModelPlanKind=${latestModelReplanDiagnostic?.modelPlanKind.orEmpty().cleanValue()}",
             "modelReplanModelFailureReason=${latestModelReplanDiagnostic?.modelFailureReason.orEmpty().cleanValue()}",
             "modelReplanModelOutputPreview=${latestModelReplanDiagnostic?.modelOutputPreview.orEmpty().cleanValue()}",
+            "uiActionOutcome=${steps.latestMeaningful { it.uiActionOutcome }.cleanValue()}",
+            "uiActionOutcomeReason=${steps.latestMeaningful { it.uiActionOutcomeReason }.cleanValue()}",
+            "appSearchProgressStage=${steps.latestMeaningful { it.appSearchProgressStage }.cleanValue()}",
             "searchVerificationStatus=${
                 steps.lastOrNull { it.searchVerificationStatus != null }?.searchVerificationStatus.orEmpty()
             }",
@@ -874,6 +924,9 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 "${prefix}expectedPackageName=${step.expectedPackageName.orEmpty().cleanValue()}",
                 "${prefix}expectedAppName=${step.expectedAppName.orEmpty().cleanValue()}",
                 "${prefix}searchVerificationStatus=${step.searchVerificationStatus.orEmpty().cleanValue()}",
+                "${prefix}uiActionOutcome=${step.uiActionOutcome.orEmpty().cleanValue()}",
+                "${prefix}uiActionOutcomeReason=${step.uiActionOutcomeReason.orEmpty().cleanValue()}",
+                "${prefix}appSearchProgressStage=${step.appSearchProgressStage.orEmpty().cleanValue()}",
                 "${prefix}evalGuardApplied=${step.evalGuardApplied}",
                 "${prefix}recoveryKind=${step.recoveryKind.orEmpty().cleanValue()}",
             )
@@ -914,6 +967,14 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
 
     private fun String.cleanValue(): String =
         DeviceControlEvalResultFormatter.cleanValue(this)
+
+    private fun List<ModelDrivenAppSearchEvalStep>.latestMeaningful(
+        selector: (ModelDrivenAppSearchEvalStep) -> String?,
+    ): String =
+        asReversed()
+            .mapNotNull { step -> selector(step)?.takeIf { value -> value.isNotBlank() && value != "unknown" } }
+            .firstOrNull()
+            .orEmpty()
 
     private fun String.resultFileName(): String =
         DeviceControlEvalResultFormatter.resultFileName(this)
@@ -1017,6 +1078,9 @@ private data class ModelDrivenAppSearchEvalStep(
     val verifySearchQuery: String? = null,
     val expectedPackageName: String? = null,
     val expectedAppName: String? = null,
+    val uiActionOutcome: String? = null,
+    val uiActionOutcomeReason: String? = null,
+    val appSearchProgressStage: String? = null,
     val evalGuardApplied: Boolean = false,
     val recoveryKind: String? = null,
 )

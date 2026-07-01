@@ -540,6 +540,9 @@ run_model_driven_case() {
   assert_file_contains "$model_file" "resultType=model_driven_app_search"
   assert_file_contains "$model_file" "status=Succeeded"
   assert_file_contains "$model_file" "searchVerificationStatus=verified"
+  assert_file_contains "$model_file" "uiActionOutcome=verified"
+  assert_file_contains "$model_file" "uiActionOutcomeReason=search_verified"
+  assert_file_contains "$model_file" "appSearchProgressStage=verified"
   assert_file_contains "$model_file" "open_app_by_name"
   assert_file_contains "$model_file" "ui_"
   assert_property_number_at_least "$model_file" "modelPlannedStepCount" 1

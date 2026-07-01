@@ -29,6 +29,7 @@ import com.bytedance.zgx.solin.device.RecentFileProvider
 import com.bytedance.zgx.solin.device.RecentFileReadResult
 import com.bytedance.zgx.solin.device.RecentImageTextProvider
 import com.bytedance.zgx.solin.device.RecentImageTextReadResult
+import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.AppSearchResultVerifier
 import com.bytedance.zgx.solin.device.SearchResultVerification
 import com.bytedance.zgx.solin.device.ScreenBounds
@@ -1456,7 +1457,8 @@ class DeviceControlToolExecutor(
             code = ToolErrorCode.ExecutionFailed,
             summary = "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。",
             retryable = false,
-            data = request.deviceControlBaseData() +
+            data = (
+                request.deviceControlBaseData() +
                 mapOf(
                     "actionType" to actionType,
                     "status" to UiActionStatus.Failed.schemaValue(),
@@ -1469,7 +1471,8 @@ class DeviceControlToolExecutor(
                     "screenObservationDiffSummary" to "blocked_before_execution;reason=dangerous_action_control",
                 ) +
                 target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
-                snapshot.toBeforeObservationData(),
+                snapshot.toBeforeObservationData()
+            ).withAppSearchProgressEvidence(),
         )
     }
 
@@ -1511,7 +1514,8 @@ class DeviceControlToolExecutor(
             is UiActionReadResult.Available -> {
                 val execution = result.result
                 val after = execution.after
-                val data = request.deviceControlBaseData() +
+                val data = (
+                    request.deviceControlBaseData() +
                     mapOf(
                         "actionType" to actionType,
                         "status" to execution.status.schemaValue(),
@@ -1530,6 +1534,7 @@ class DeviceControlToolExecutor(
                     execution.before?.toBeforeObservationData().orEmpty() +
                     after?.toAfterObservationData().orEmpty() +
                     extraData
+                    ).withAppSearchProgressEvidence()
                 if (execution.status == UiActionStatus.Succeeded) {
                     request.succeeded(
                         summary = execution.summary,
@@ -1557,13 +1562,15 @@ class DeviceControlToolExecutor(
                     },
                     summary = result.reason,
                     retryable = result.retryable,
-                    data = request.deviceControlBaseData() + mapOf(
-                        "actionType" to actionType,
-                        "status" to UiActionStatus.Failed.schemaValue(),
-                        "retryable" to result.retryable.toString(),
-                        "summary" to result.reason,
-                        "failureKind" to result.failureKind.schemaValue,
-                    ) + target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty(),
+                    data = (
+                        request.deviceControlBaseData() + mapOf(
+                            "actionType" to actionType,
+                            "status" to UiActionStatus.Failed.schemaValue(),
+                            "retryable" to result.retryable.toString(),
+                            "summary" to result.reason,
+                            "failureKind" to result.failureKind.schemaValue,
+                        ) + target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty()
+                    ).withAppSearchProgressEvidence(),
                 )
         }
 
@@ -1589,7 +1596,8 @@ class DeviceControlToolExecutor(
             code = ToolErrorCode.ExecutionFailed,
             summary = summary,
             retryable = false,
-            data = deviceControlBaseData() +
+            data = (
+                deviceControlBaseData() +
                 mapOf(
                     "actionType" to actionType,
                     "status" to UiActionStatus.Failed.schemaValue(),
@@ -1605,7 +1613,8 @@ class DeviceControlToolExecutor(
                 ) +
                 target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
                 snapshot?.toBeforeObservationData().orEmpty() +
-                snapshot?.toAfterObservationData().orEmpty(),
+                snapshot?.toAfterObservationData().orEmpty()
+            ).withAppSearchProgressEvidence(),
         )
 
     private fun UiActionReadResult.withExpectedForegroundPackageVerification(
@@ -1674,11 +1683,13 @@ class DeviceControlToolExecutor(
             code = ToolErrorCode.PermissionDenied,
             summary = reason.ifBlank { "需要开启Solin无障碍服务才能控制当前屏幕" },
             retryable = true,
-            data = deviceControlBaseData() + mapOf(
-                "specialAccess" to SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
-                "settingsAction" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
-                "failureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
-            ),
+            data = (
+                deviceControlBaseData() + mapOf(
+                    "specialAccess" to SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
+                    "settingsAction" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
+                    "failureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
+                )
+            ).withAppSearchProgressEvidence(),
         )
 
     private fun ToolRequest.deviceControlBaseData(): Map<String, String> =
@@ -1686,6 +1697,9 @@ class DeviceControlToolExecutor(
             "source" to DEVICE_CONTROL_SOURCE_ACCESSIBILITY,
             "metadataPolicy" to DEVICE_CONTROL_METADATA_POLICY,
         )
+
+    private fun Map<String, String>.withAppSearchProgressEvidence(): Map<String, String> =
+        this + AppSearchProgressEvidence.fromData(this).toData()
 
     private fun ScreenStateSnapshot.toObservationData(
         requestedMaxTextChars: Int,

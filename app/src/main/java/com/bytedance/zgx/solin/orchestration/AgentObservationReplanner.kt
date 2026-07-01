@@ -9,6 +9,7 @@ import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.extractUiTargetArgumentValue
 import com.bytedance.zgx.solin.audit.ToolAuditSummaryRedactor
+import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.ScreenBounds
 import com.bytedance.zgx.solin.device.ScreenObservation
 import com.bytedance.zgx.solin.device.UiTargetEvidenceCandidate
@@ -117,6 +118,9 @@ private val localObservationDiagnosticKeys = listOf(
     "failureKind",
     "searchVerificationStatus",
     "searchVerificationEvidence",
+    "uiActionOutcome",
+    "uiActionOutcomeReason",
+    "appSearchProgressStage",
     "verificationSummary",
     "beforeObservationId",
     "afterObservationId",
@@ -973,6 +977,7 @@ internal fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: 
     val localObservationEvidence = observedResult.localObservationEvidencePrompt(intentPreview)
     val localOnlyAllowedTools = observedResult.localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val priorRequestDetails = priorRequests.priorRequestDetailsPrompt()
+    val appSearchProgress = AppSearchProgressEvidence.fromData(observedResult.data).toPromptText()
     return """
         This is user-authorized local device UI automation; LocalOnly screen evidence stays on-device, so do not refuse when a listed UI action clearly advances the request.
         Output exactly one call such as call:ui_tap{"target":"..."} or call:ui_type_text{"target":"...","text":"..."} when clear; otherwise output ordinary text with no call.
@@ -996,6 +1001,7 @@ internal fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: 
         Prior request details: $priorRequestDetails
         Previous tool: ${previousRequest.toolName}
         Observation status: ${observedResult.status}
+        App search progress: $appSearchProgress
         Observation summary: $observationSummary
         Observation diagnostics: $observationDiagnostics
         LocalOnly observation evidence: $localObservationEvidence
@@ -1070,10 +1076,12 @@ private fun AgentObservationReplanContext.minimalObservationModelPrompt(toolRegi
     val targetShortlists = localEvidence.targetShortlistSummariesForPrompt()
     val targetEvidence = localEvidence.targetEvidenceSummariesForPrompt()
     val targetAnchors = targetShortlists.targetShortlistTargetSummary().orEmpty()
+    val appSearchProgress = AppSearchProgressEvidence.fromData(observedResult.data).toPromptText()
     return """
         本机已获得用户授权执行手机 UI 自动化。只输出一个 call，不解释，不拒绝。
         允许工具: $localOnlyAllowedTools
         用户请求: $intentPreview
+        当前进度: $appSearchProgress
         当前屏幕可用目标: $targetShortlists $targetEvidence $targetAnchors
         上一步工具: ${previousRequest.toolName}
         如果是应用内搜索，严格按 tap -> type -> submit：当前只有 tap= 搜索入口、还没有 type= 输入框时先 ui_tap；type= 输入框出现后再 ui_type_text；已输入且有提交证据后 ui_submit_search{}。
@@ -1115,6 +1123,9 @@ private val diagnosticProtectedPromptPatterns = listOf(
     Regex("""resultRetryable=[^;|]+"""),
     Regex("""failureKind=[^;|]+"""),
     Regex("""actionType=[^;|]+"""),
+    Regex("""uiActionOutcome=[^;|]+"""),
+    Regex("""uiActionOutcomeReason=[^;|]+"""),
+    Regex("""appSearchProgressStage=[^;|]+"""),
     Regex("""target=[^;|]+"""),
     Regex("""errorCode=[^;|]+"""),
 )
@@ -1259,6 +1270,7 @@ private fun List<String>.prioritizedForObservationPrompt(): List<String> {
         "Prior request details:",
         "Previous tool:",
         "Observation status:",
+        "App search progress:",
         "Observation diagnostics:",
         "LocalOnly observation evidence:",
     )
@@ -1322,6 +1334,7 @@ private fun List<String>.prioritizedBaseObservationLines(): List<String> {
         "User intent preview:",
         "Previous tool:",
         "Observation status:",
+        "App search progress:",
         "Prior request details:",
         "Use only target values",
         "For an app search request",

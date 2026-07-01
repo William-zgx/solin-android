@@ -9476,6 +9476,7 @@ class AgentLoopRuntimeTest {
         assertEquals(nextPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
         val replannerPrompt = actionRuntime.plannedInputs[1]
         assertTrue(replannerPrompt.contains("Observation status: Failed"))
+        assertTrue(replannerPrompt.contains("App search progress: stage=unknown outcome=advanced reason=screen_changed"))
         assertTrue(replannerPrompt.contains("screenObservationDiffSummary=changed=true"))
         assertTrue(replannerPrompt.contains("addedText=搜索输入框|搜索"))
         assertFalse(replannerPrompt.contains("[redacted]"))

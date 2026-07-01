@@ -1132,6 +1132,21 @@ run_model_driven_case() {
     write_case_result "$model_case_name" "failed" "model_driven_result_not_verified" "model_driven_app_search" "$model_file"
     return 1
   }
+  assert_file_contains "$model_file" "uiActionOutcome=verified" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_outcome_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "uiActionOutcomeReason=search_verified" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_outcome_reason_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
+  assert_file_contains "$model_file" "appSearchProgressStage=verified" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$model_case_name" "failed" "model_driven_progress_stage_missing" "model_driven_app_search" "$model_file"
+    return 1
+  }
   assert_file_contains "$model_file" "open_app_by_name" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$model_case_name" "failed" "model_driven_open_app_missing" "model_driven_app_search" "$model_file"

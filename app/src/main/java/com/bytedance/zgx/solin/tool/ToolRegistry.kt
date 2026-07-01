@@ -413,6 +413,9 @@ private val privateNonSucceededAllowedDiagnosticKeys = setOf(
     "failureKind",
     "searchVerificationStatus",
     "searchVerificationEvidence",
+    "uiActionOutcome",
+    "uiActionOutcomeReason",
+    "appSearchProgressStage",
 )
 
 private val privateNonSucceededDeviceControlObservationKeys = setOf(
@@ -1700,6 +1703,39 @@ private val uiActionOutputSchemaJson = """
         },
         "searchVerificationStatus": {"type": "string", "enum": ["verified", "not_verified"]},
         "searchVerificationEvidence": {"type": "string", "maxLength": 80},
+        "uiActionOutcome": {
+          "type": "string",
+          "enum": ["advanced", "no_change", "wrong_surface", "blocked", "verified", "unknown"]
+        },
+        "uiActionOutcomeReason": {
+          "type": "string",
+          "enum": [
+            "screen_changed",
+            "changed_false",
+            "app_not_foreground",
+            "permission_missing",
+            "dangerous_action",
+            "search_verified",
+            "type_text_succeeded",
+            "submit_search_succeeded",
+            "status_succeeded",
+            "unknown"
+          ]
+        },
+        "appSearchProgressStage": {
+          "type": "string",
+          "enum": [
+            "opened",
+            "observed_entry",
+            "entry_tapped",
+            "input_ready",
+            "query_typed",
+            "submitted",
+            "verified",
+            "blocked",
+            "unknown"
+          ]
+        },
         "beforePackageName": {"type": "string"},
         "beforeCapturedAtMillis": {"type": "integer", "minimum": 0},
         "beforeNodeCount": {"type": "integer", "minimum": 0},
@@ -1768,6 +1804,9 @@ private val uiActionPrivateOutputKeys = setOf(
     "screenObservationDiffSummary",
     "searchVerificationStatus",
     "searchVerificationEvidence",
+    "uiActionOutcome",
+    "uiActionOutcomeReason",
+    "appSearchProgressStage",
     "beforePackageName",
     "beforeCapturedAtMillis",
     "beforeNodeCount",

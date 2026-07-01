@@ -78,6 +78,7 @@ class AgentObservationReplannerTest {
         assertNotNull(replan)
         assertEquals(MobileActionFunctions.UI_TAP, replan?.request?.toolName)
         val prompt = runtime.lastInput.orEmpty()
+        assertTrue(prompt.contains("App search progress: stage=unknown outcome=unknown reason=unknown"))
         assertTrue(prompt.contains("LocalOnly observation evidence"))
         assertTrue(prompt, prompt.contains("output only these local device-control tools"))
         assertTrue(prompt.contains("Do not output web_search"))
