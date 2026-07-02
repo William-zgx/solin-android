@@ -18,13 +18,6 @@ object LocalStorageSchemaVersions {
     const val CURRENT = 1
 }
 
-@RequiresOptIn(
-    message = "Fake local storage is for contract tests and experiments; do not wire it as production storage.",
-    level = RequiresOptIn.Level.WARNING,
-)
-@Retention(AnnotationRetention.BINARY)
-annotation class ExperimentalLocalStorageFake
-
 enum class LocalStorageReadScope {
     LocalContext,
     RemoteSend,

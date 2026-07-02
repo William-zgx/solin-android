@@ -62,26 +62,11 @@ data class AgentBehaviorEvalCase(
         require(id.isNotBlank()) { "Agent behavior eval id must not be blank" }
         require(input.isNotBlank()) { "Agent behavior eval input must not be blank" }
         require(expectedTools.all { it.isNotBlank() }) { "Agent behavior eval tool names must not be blank" }
-        require(allowedFailureModes.all { it.isNotBlank() }) { "Agent behavior eval failure modes must not be blank" }
-        require(allowedFailureModes.all { mode -> AgentEvalFailureModePattern.matches(mode) }) {
-            "Agent behavior eval failure modes must use stable slug syntax"
-        }
-        require(expectedRoutingToolName == null || expectedRoutingToolName.isNotBlank()) {
-            "Expected routing tool name must not be blank"
-        }
-        require(expectedRoutingSkillId == null || expectedRoutingSkillId.isNotBlank()) {
-            "Expected routing skill id must not be blank"
-        }
-        require(expectedRoutingRejectionReason == null || expectedRoutingRejectionReason.isNotBlank()) {
-            "Expected routing rejection reason must not be blank"
-        }
-        if (localOnly) {
-            require(privacy == MessagePrivacy.LocalOnly) { "LocalOnly eval cases must use LocalOnly privacy" }
-            require(!remoteEligible) { "LocalOnly eval cases cannot be remote eligible" }
-        }
-        if (remoteEligible) {
-            require(privacy == MessagePrivacy.RemoteEligible) { "Remote-eligible eval cases must use RemoteEligible privacy" }
-        }
+        requireStableFailureModes(allowedFailureModes, label = "Agent behavior eval")
+        requireOptionalRoutingField(expectedRoutingToolName, "Expected routing tool name")
+        requireOptionalRoutingField(expectedRoutingSkillId, "Expected routing skill id")
+        requireOptionalRoutingField(expectedRoutingRejectionReason, "Expected routing rejection reason")
+        requirePrivacyBoundary(privacy, localOnly, remoteEligible, label = "eval cases")
         if (expectedConfirmation == AgentEvalConfirmationExpectation.FailClosed) {
             require(allowedFailureModes.isNotEmpty()) { "Fail-closed eval cases must declare allowed failure modes" }
         }
@@ -107,22 +92,44 @@ data class AgentBehaviorActualTrace(
         require(caseId.isNotBlank()) { "Agent behavior trace case id must not be blank" }
         require(input.isNotBlank()) { "Agent behavior trace input must not be blank" }
         require(actualTools.all { it.isNotBlank() }) { "Agent behavior trace tool names must not be blank" }
-        require(failureMode == null || failureMode.isNotBlank()) { "Agent behavior trace failure mode must not be blank" }
-        require(failureMode == null || AgentEvalFailureModePattern.matches(failureMode)) {
-            "Agent behavior trace failure mode must use stable slug syntax"
-        }
-        require(routingToolName == null || routingToolName.isNotBlank()) { "Routing tool name must not be blank" }
-        require(routingSkillId == null || routingSkillId.isNotBlank()) { "Routing skill id must not be blank" }
-        require(routingRejectionReason == null || routingRejectionReason.isNotBlank()) {
-            "Routing rejection reason must not be blank"
-        }
-        if (localOnly) {
-            require(privacy == MessagePrivacy.LocalOnly) { "LocalOnly traces must use LocalOnly privacy" }
-            require(!remoteEligible) { "LocalOnly traces cannot be remote eligible" }
-        }
-        if (remoteEligible) {
-            require(privacy == MessagePrivacy.RemoteEligible) { "Remote-eligible traces must use RemoteEligible privacy" }
-        }
+        requireStableFailureMode(failureMode, label = "Agent behavior trace")
+        requireOptionalRoutingField(routingToolName, "Routing tool name")
+        requireOptionalRoutingField(routingSkillId, "Routing skill id")
+        requireOptionalRoutingField(routingRejectionReason, "Routing rejection reason")
+        requirePrivacyBoundary(privacy, localOnly, remoteEligible, label = "traces")
+    }
+}
+
+private fun requireStableFailureModes(modes: List<String>, label: String) {
+    require(modes.all { it.isNotBlank() }) { "$label failure modes must not be blank" }
+    require(modes.all { mode -> AgentEvalFailureModePattern.matches(mode) }) {
+        "$label failure modes must use stable slug syntax"
+    }
+}
+
+private fun requireStableFailureMode(mode: String?, label: String) {
+    require(mode == null || mode.isNotBlank()) { "$label failure mode must not be blank" }
+    require(mode == null || AgentEvalFailureModePattern.matches(mode)) {
+        "$label failure mode must use stable slug syntax"
+    }
+}
+
+private fun requireOptionalRoutingField(value: String?, label: String) {
+    require(value == null || value.isNotBlank()) { "$label must not be blank" }
+}
+
+private fun requirePrivacyBoundary(
+    privacy: MessagePrivacy,
+    localOnly: Boolean,
+    remoteEligible: Boolean,
+    label: String,
+) {
+    if (localOnly) {
+        require(privacy == MessagePrivacy.LocalOnly) { "LocalOnly $label must use LocalOnly privacy" }
+        require(!remoteEligible) { "LocalOnly $label cannot be remote eligible" }
+    }
+    if (remoteEligible) {
+        require(privacy == MessagePrivacy.RemoteEligible) { "Remote-eligible $label must use RemoteEligible privacy" }
     }
 }
 

@@ -89,24 +89,4 @@ class ToolAuditEventTest {
         assertTrue(sanitized.contains("key: [redacted]"))
     }
 
-    @Test
-    fun inMemorySinkStoresRedactedAuditCopy() {
-        val secret = "sk-" + "c".repeat(32)
-        val sink = InMemoryToolAuditSink()
-
-        sink.record(
-            ToolAuditEvent(
-                runId = "run-1",
-                requestId = "request-1",
-                toolName = "read_clipboard",
-                skillId = null,
-                eventType = ToolAuditEventType.ToolObserved,
-                summary = "clipboard result accidentally included token $secret",
-            ),
-        )
-
-        assertEquals(1, sink.events.size)
-        assertFalse(sink.events.single().summary.contains(secret))
-        assertTrue(sink.events.single().summary.contains("sk-[redacted]"))
-    }
 }

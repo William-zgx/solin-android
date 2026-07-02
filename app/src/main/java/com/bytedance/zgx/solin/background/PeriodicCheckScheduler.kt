@@ -11,14 +11,10 @@ import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.util.concurrent.TimeUnit
 
-interface PeriodicCheckWorkClient {
-    fun enqueue(request: PeriodicCheckScheduleRequest): Result<Unit>
-    fun cancel(): Result<Unit>
-}
-
 class PeriodicCheckScheduler(
     private val repository: ScheduledTaskRepository,
-    private val workClient: PeriodicCheckWorkClient,
+    private val enqueuePeriodicWork: (PeriodicCheckScheduleRequest) -> Result<Unit>,
+    private val cancelPeriodicWorkRequest: () -> Result<Unit>,
     private val backgroundSkillSpec: BackgroundSkillSpec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol,
     private val toolSpecs: Map<String, ToolSpec> = ToolRegistry().specs().associateBy { spec -> spec.name },
 ) {
@@ -36,7 +32,7 @@ class PeriodicCheckScheduler(
             repository.recoverStaleRunningPeriodicCheck()
             val policy = repository.periodicCheckPolicy()
             if (policy.request.enabled && policy.taskStatus == ScheduledTaskStatus.Scheduled) {
-                workClient.enqueue(policy.request)
+                enqueuePeriodicWork(policy.request)
                     .onFailure {
                         repository.markScheduledFailed(PeriodicCheckScheduleRequest.TASK_ID)
                     }
@@ -59,7 +55,7 @@ class PeriodicCheckScheduler(
             }
 
             val task = repository.createOrUpdatePeriodicCheck(normalized)
-            workClient.enqueue(normalized)
+            enqueuePeriodicWork(normalized)
                 .onFailure {
                     repository.markScheduledFailed(PeriodicCheckScheduleRequest.TASK_ID)
                 }
@@ -74,7 +70,7 @@ class PeriodicCheckScheduler(
         }
 
     fun cancelPeriodicWork(): Result<Unit> =
-        workClient.cancel()
+        cancelPeriodicWorkRequest()
 
     private fun validateRegisteredBackgroundSpec(): Result<Unit> {
         val validation = backgroundSkillSpec.validate(toolSpecs)
@@ -94,8 +90,8 @@ class PeriodicCheckScheduler(
 class WorkManagerPeriodicCheckClient(
     context: Context,
     private val workManager: WorkManager = WorkManager.getInstance(context.applicationContext),
-) : PeriodicCheckWorkClient {
-    override fun enqueue(request: PeriodicCheckScheduleRequest): Result<Unit> =
+) {
+    fun enqueue(request: PeriodicCheckScheduleRequest): Result<Unit> =
         runCatching {
             val normalized = request.normalized()
             val workRequest = PeriodicWorkRequestBuilder<PeriodicCheckWorker>(
@@ -114,7 +110,7 @@ class WorkManagerPeriodicCheckClient(
             Unit
         }
 
-    override fun cancel(): Result<Unit> =
+    fun cancel(): Result<Unit> =
         runCatching {
             workManager.cancelUniqueWork(PeriodicCheckScheduleRequest.UNIQUE_WORK_NAME).result.get()
             Unit

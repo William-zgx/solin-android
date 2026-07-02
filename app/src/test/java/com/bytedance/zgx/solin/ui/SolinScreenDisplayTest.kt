@@ -29,93 +29,72 @@ import org.junit.Test
 class SolinScreenDisplayTest {
     @Test
     fun remoteAttachmentProtectionNoticeNamesVisionImagePath() {
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("远程模式"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("图片发送前会确认"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("非图片附件"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("分享文本"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("OCR"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不会自动发送"))
+        assertContainsAll(
+            REMOTE_ATTACHMENT_PROTECTION_NOTICE,
+            "远程模式",
+            "图片发送前会确认",
+            "非图片附件",
+            "分享文本",
+            "OCR",
+            "不会自动发送",
+        )
     }
 
     @Test
     fun trustBoundaryCopyNamesLocalRemotePermissionAndDeletionControls() {
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("隐私优先的随身 AI 助手"))
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("本地模型"))
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("下载或导入"))
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("远程多模态可选"))
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("必须确认执行"))
-        assertTrue(PRODUCT_POSITIONING_TEXT.contains("能力与信任中心"))
-        assertTrue(PRODUCT_POSITIONING_SHORT_TEXT.contains("隐私优先的随身 AI 助手"))
-        assertTrue(PRODUCT_HOME_TITLE_TEXT.contains("隐私优先的随身 AI 助手"))
-        assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("本地模型"))
-        assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("下载或导入"))
-        assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("远程多模态可选"))
-        assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("必须确认执行"))
-        assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("不读取本地数据"))
-        assertTrue(PRODUCT_HOME_DESCRIPTION_TEXT.contains("不会自动发送远程请求"))
+        assertContainsAll(
+            PRODUCT_POSITIONING_TEXT,
+            "隐私优先的随身 AI 助手",
+            "本地模型",
+            "下载或导入",
+            "远程多模态可选",
+            "必须确认执行",
+            "能力与信任中心",
+        )
+        assertContainsAll(PRODUCT_POSITIONING_SHORT_TEXT, "隐私优先的随身 AI 助手")
+        assertContainsAll(PRODUCT_HOME_TITLE_TEXT, "隐私优先的随身 AI 助手")
+        assertContainsAll(
+            PRODUCT_HOME_DESCRIPTION_TEXT,
+            "本地模型",
+            "下载或导入",
+            "远程多模态可选",
+            "必须确认执行",
+            "不读取本地数据",
+            "不会自动发送远程请求",
+        )
         val homeValueText = HOME_VALUE_PROPOSITIONS.joinToString("\n") { "${it.title}\n${it.body}" }
         assertEquals(3, HOME_VALUE_PROPOSITIONS.size)
-        assertTrue(homeValueText.contains("本地可用"))
-        assertTrue(homeValueText.contains("显式记忆"))
-        assertTrue(homeValueText.contains("远程多模态可选"))
-        assertTrue(homeValueText.contains("切换时提醒一次"))
-        assertTrue(homeValueText.contains("动作确认执行"))
-        assertTrue(homeValueText.contains("权限与风险"))
-        assertTrue(MODEL_STARTUP_BANNER_TITLE.contains("模型未就绪"))
-        assertTrue(MODEL_STARTUP_BANNER_DESCRIPTION.contains("配置远程模型"))
-        assertTrue(MODEL_STARTUP_BANNER_DESCRIPTION.contains("离线问答"))
-        assertTrue(MODEL_STARTUP_BANNER_DESCRIPTION.contains("设备动作"))
-        assertTrue(MODEL_STARTUP_BANNER_DESCRIPTION.contains("确认"))
-        assertTrue(HOME_CAPABILITY_PILLS.contains("离线问答"))
-        assertTrue(HOME_CAPABILITY_PILLS.contains("显式记忆"))
-        assertTrue(HOME_CAPABILITY_PILLS.contains("图片/文件"))
-        assertTrue(HOME_CAPABILITY_PILLS.contains("确认动作"))
-        assertTrue(LOCAL_SETUP_PANEL_TITLE.contains("离线基础问答"))
-        assertTrue(LOCAL_SETUP_PANEL_DESCRIPTION.contains("留在本机"))
-        assertTrue(LOCAL_SETUP_PANEL_DESCRIPTION.contains("配置远程模型"))
-        assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("下载或导入本地模型"))
-        assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("离线使用"))
-        assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("远程多模态可选"))
-        assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("切换远程会提醒"))
+        assertContainsAll(
+            homeValueText,
+            "本地可用",
+            "显式记忆",
+            "远程多模态可选",
+            "切换时提醒一次",
+            "动作确认执行",
+            "权限与风险",
+        )
+        assertContainsAll(MODEL_STARTUP_BANNER_TITLE, "模型未就绪")
+        assertContainsAll(MODEL_STARTUP_BANNER_DESCRIPTION, "配置远程模型", "离线问答", "设备动作", "确认")
+        assertContainsAll(HOME_CAPABILITY_PILLS.joinToString("\n"), "离线问答", "显式记忆", "图片/文件", "确认动作")
+        assertContainsAll(LOCAL_SETUP_PANEL_TITLE, "离线基础问答")
+        assertContainsAll(LOCAL_SETUP_PANEL_DESCRIPTION, "留在本机", "配置远程模型")
+        assertContainsAll(MODEL_MANAGER_POSITIONING_TEXT, "下载或导入本地模型", "离线使用", "远程多模态可选", "切换远程会提醒")
         assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("留在本机") })
         assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("切换远程模型") })
-        assertTrue(PRODUCT_LOCAL_VALUE_TEXT.contains("基础问答"))
-        assertTrue(PRODUCT_LOCAL_VALUE_TEXT.contains("主动选择的图片"))
-        assertTrue(PRODUCT_REMOTE_VALUE_TEXT.contains("图片"))
-        assertTrue(PRODUCT_ACTION_VALUE_TEXT.contains("确认或取消"))
-        assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("留在本机"))
-        assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("发送到远程"))
-        assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("确认后才执行"))
-        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("OpenAI 兼容"))
-        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("API Key 加密保存在本机"))
-        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("逐次确认"))
-        assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("离线可用"))
-        assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("2.4 GB"))
-        assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("远程模型"))
-        assertTrue(VOICE_INPUT_PRIVACY_DESCRIPTION.contains("系统语音转写"))
-        assertTrue(VOICE_INPUT_PRIVACY_DESCRIPTION.contains("只进入输入框"))
-        assertTrue(VOICE_INPUT_PRIVACY_DESCRIPTION.contains("不自动发送"))
-        assertTrue(VOICE_INPUT_PRIVACY_DESCRIPTION.contains("不读取本地音频文件"))
-        assertTrue(VOICE_INPUT_PRIVACY_DESCRIPTION.contains("开启前会先确认"))
-        assertTrue(VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE.contains("语音输入"))
-        assertTrue(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY.contains("Android 系统语音识别"))
-        assertTrue(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY.contains("不保存音频文件"))
-        assertTrue(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY.contains("确认后才会请求麦克风权限"))
-        assertTrue(TRUST_LOCAL_BOUNDARY_TEXT.contains("留在本机"))
-        assertTrue(TRUST_LOCAL_BOUNDARY_TEXT.contains("仅本机"))
-        assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("对话上下文"))
-        assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("逐次确认后随请求发送"))
-        assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("OCR 摘录"))
-        assertTrue(TRUST_PERMISSION_BOUNDARY_TEXT.contains("Accessibility 文本"))
-        assertTrue(TRUST_PERMISSION_BOUNDARY_TEXT.contains("前台一次性确认"))
-        assertTrue(trustDeletionBoundaryText(ChatUiState()).contains("清空长期记忆"))
-        assertTrue(trustDeletionBoundaryText(ChatUiState()).contains("删除当前会话"))
-        assertTrue(trustDeletionBoundaryText(ChatUiState()).contains("清除远程服务地址"))
-        assertTrue(trustDeletionBoundaryText(ChatUiState()).contains("API Key"))
-        assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("麦克风"))
-        assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("Usage Stats"))
-        assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("设备动作"))
-        assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("取消、撤销或清除路径"))
+        assertContainsAll(PRODUCT_LOCAL_VALUE_TEXT, "基础问答", "主动选择的图片")
+        assertContainsAll(PRODUCT_REMOTE_VALUE_TEXT, "图片")
+        assertContainsAll(PRODUCT_ACTION_VALUE_TEXT, "确认或取消")
+        assertContainsAll(PRIVACY_POLICY_ENTRY_TEXT, "留在本机", "发送到远程", "确认后才执行")
+        assertContainsAll(REMOTE_MODE_DISCLOSURE_TEXT, "OpenAI 兼容", "API Key 加密保存在本机", "逐次确认")
+        assertContainsAll(MODEL_DOWNLOAD_RATIONALE_TEXT, "离线可用", "2.4 GB", "远程模型")
+        assertContainsAll(VOICE_INPUT_PRIVACY_DESCRIPTION, "系统语音转写", "只进入输入框", "不自动发送", "不读取本地音频文件", "开启前会先确认")
+        assertContainsAll(VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE, "语音输入")
+        assertContainsAll(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY, "Android 系统语音识别", "不保存音频文件", "确认后才会请求麦克风权限")
+        assertContainsAll(TRUST_LOCAL_BOUNDARY_TEXT, "留在本机", "仅本机")
+        assertContainsAll(TRUST_REMOTE_BOUNDARY_TEXT, "对话上下文", "逐次确认后随请求发送", "OCR 摘录")
+        assertContainsAll(TRUST_PERMISSION_BOUNDARY_TEXT, "Accessibility 文本", "前台一次性确认")
+        assertContainsAll(trustDeletionBoundaryText(ChatUiState()), "清空长期记忆", "删除当前会话", "清除远程服务地址", "API Key")
+        assertContainsAll(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT, "麦克风", "Usage Stats", "设备动作", "取消、撤销或清除路径")
         CapabilityMatrix.nextStageMvpScenarioTitles.values.forEach { title ->
             assertTrue("missing trust center summary title: $title", TRUST_CENTER_CAPABILITY_TEXT.contains(title))
         }
@@ -155,10 +134,7 @@ class SolinScreenDisplayTest {
         ).forEach { requiredCopy ->
             assertTrue("missing trust center copy: $requiredCopy", allText.contains(requiredCopy))
         }
-        assertTrue(!allText.contains("sk-"))
-        assertTrue(!allText.contains("Bearer "))
-        assertTrue(!allText.contains("chat_input_and_remember_forget_commands"))
-        assertTrue(!allText.contains("model_manager_privacy_tab"))
+        assertContainsNone(allText, "sk-", "Bearer ", "chat_input_and_remember_forget_commands", "model_manager_privacy_tab")
     }
 
     @Test
@@ -205,8 +181,7 @@ class SolinScreenDisplayTest {
             assertTrue("${row.title} missing remote boundary", row.body.contains("远程："))
             assertTrue("${row.title} missing revoke/clear boundary", row.body.contains("撤销/清除："))
         }
-        assertTrue(!allText.contains("清理本地审计"))
-        assertTrue(!allText.contains("删除审计"))
+        assertContainsNone(allText, "清理本地审计", "删除审计")
     }
 
     @Test
@@ -215,16 +190,19 @@ class SolinScreenDisplayTest {
             "${it.label}: ${it.body}"
         }
 
-        assertTrue(text.contains("本地"))
-        assertTrue(text.contains("离线问答"))
-        assertTrue(text.contains("重新下载"))
-        assertTrue(text.contains("空间不足"))
-        assertTrue(text.contains("远程"))
-        assertTrue(text.contains("切换到远程模型时会提醒一次"))
-        assertTrue(text.contains("主动附加"))
-        assertTrue(text.contains("轻量"))
-        assertTrue(text.contains("没有更小的官方推荐聊天模型"))
-        assertTrue(text.contains(".litertlm"))
+        assertContainsAll(
+            text,
+            "本地",
+            "离线问答",
+            "重新下载",
+            "空间不足",
+            "远程",
+            "切换到远程模型时会提醒一次",
+            "主动附加",
+            "轻量",
+            "没有更小的官方推荐聊天模型",
+            ".litertlm",
+        )
     }
 
     @Test
@@ -252,17 +230,13 @@ class SolinScreenDisplayTest {
     @Test
     fun actionDataBoundaryNamesExternalLocalAndBackgroundDestinations() {
         val externalRows = actionDataBoundaryDisplayRows(MobileActionFunctions.SHARE_TEXT)
-        assertTrue(externalRows.joinToString().contains("外部 App"))
-        assertTrue(externalRows.joinToString().contains("未确认结果前宣称已完成"))
+        assertContainsAll(externalRows.joinToString(), "外部 App", "未确认结果前宣称已完成")
 
         val localRows = actionDataBoundaryDisplayRows(MobileActionFunctions.READ_CLIPBOARD)
-        assertTrue(localRows.joinToString().contains("本机内容"))
-        assertTrue(localRows.joinToString().contains("仅留在本机"))
-        assertTrue(localRows.joinToString().contains("不会自动发送给远程模型"))
+        assertContainsAll(localRows.joinToString(), "本机内容", "仅留在本机", "不会自动发送给远程模型")
 
         val reminderRows = actionDataBoundaryDisplayRows(MobileActionFunctions.SCHEDULE_REMINDER)
-        assertTrue(reminderRows.joinToString().contains("后台任务"))
-        assertTrue(reminderRows.joinToString().contains("默认留在本机"))
+        assertContainsAll(reminderRows.joinToString(), "后台任务", "默认留在本机")
     }
 
     @Test
@@ -297,8 +271,7 @@ class SolinScreenDisplayTest {
             ),
         )
 
-        assertTrue(status.contains("GPU"))
-        assertTrue(status.contains("Token 8k"))
+        assertContainsAll(status, "GPU", "Token 8k")
         assertTrue(status.endsWith("待加载"))
     }
 
@@ -312,9 +285,8 @@ class SolinScreenDisplayTest {
             ),
         )
 
-        assertTrue(status.contains("remote-test-model"))
-        assertTrue(status.contains("远程"))
-        assertTrue(!status.contains("上下文"))
+        assertContainsAll(status, "remote-test-model", "远程")
+        assertContainsNone(status, "上下文")
     }
 
     @Test
@@ -336,13 +308,16 @@ class SolinScreenDisplayTest {
             ),
         )
 
-        assertTrue(text.contains("去向：远端"))
-        assertTrue(text.contains("远端历史：3"))
-        assertTrue(text.contains("隐私：可远程发送"))
-        assertTrue(text.contains("过滤仅本机历史：2"))
-        assertTrue(text.contains("保护：本地记忆、设备上下文、仅本机历史"))
-        assertTrue(text.contains("可删除：对话消息、Agent 轨迹、显式记忆"))
-        assertTrue(text.contains("原文持久化：否"))
+        assertContainsAll(
+            text,
+            "去向：远端",
+            "远端历史：3",
+            "隐私：可远程发送",
+            "过滤仅本机历史：2",
+            "保护：本地记忆、设备上下文、仅本机历史",
+            "可删除：对话消息、Agent 轨迹、显式记忆",
+            "原文持久化：否",
+        )
     }
 
     @Test
@@ -358,18 +333,21 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(text.contains("api.example.com"))
-        assertTrue(text.contains("model-a"))
-        assertTrue(text.contains("可远程发送的对话上下文"))
-        assertTrue(text.contains("当前输入"))
-        assertTrue(text.contains("主动选择的图片"))
-        assertTrue(text.contains("预览确认"))
-        assertTrue(text.contains("仅本机历史"))
-        assertTrue(text.contains("本地记忆"))
-        assertTrue(text.contains("设备上下文"))
-        assertTrue(text.contains("非图片附件正文或 OCR 摘录"))
-        assertTrue(text.contains("已配置 API Key"))
-        assertTrue(text.contains("连接状态：可达"))
+        assertContainsAll(
+            text,
+            "api.example.com",
+            "model-a",
+            "可远程发送的对话上下文",
+            "当前输入",
+            "主动选择的图片",
+            "预览确认",
+            "仅本机历史",
+            "本地记忆",
+            "设备上下文",
+            "非图片附件正文或 OCR 摘录",
+            "已配置 API Key",
+            "连接状态：可达",
+        )
     }
 
     @Test
@@ -389,19 +367,20 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(text.contains("api.example.com"))
-        assertTrue(text.contains("model-a"))
-        assertTrue(text.contains("可远程发送历史 2 条"))
-        assertTrue(text.contains("图片 1 张"))
-        assertTrue(text.contains("图片字节会发往该远程地址"))
-        assertTrue(text.contains("仅本机历史 3 条"))
-        assertTrue(text.contains("本地记忆"))
-        assertTrue(text.contains("设备上下文"))
-        assertTrue(text.contains("记录或保留请求"))
-        assertTrue(text.contains("图片和响应"))
-        assertTrue(!text.contains("API Key"))
-        assertTrue(!text.contains("连接状态"))
-        assertTrue(!text.contains("不要展示密钥"))
+        assertContainsAll(
+            text,
+            "api.example.com",
+            "model-a",
+            "可远程发送历史 2 条",
+            "图片 1 张",
+            "图片字节会发往该远程地址",
+            "仅本机历史 3 条",
+            "本地记忆",
+            "设备上下文",
+            "记录或保留请求",
+            "图片和响应",
+        )
+        assertContainsNone(text, "API Key", "连接状态", "不要展示密钥")
     }
 
     @Test
@@ -462,12 +441,8 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(text.contains("工具结果续写提示"))
-        assertTrue(!text.contains("当前输入"))
-        assertTrue(text.contains("记录或保留请求"))
-        assertTrue(text.contains("本次没有图片字节发送"))
-        assertTrue(!text.contains("图片字节会发往该远程地址"))
-        assertTrue(!text.contains("图片和响应"))
+        assertContainsAll(text, "工具结果续写提示", "记录或保留请求", "本次没有图片字节发送")
+        assertContainsNone(text, "当前输入", "图片字节会发往该远程地址", "图片和响应")
     }
 
     @Test
@@ -487,13 +462,8 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(text.contains("当前输入"))
-        assertTrue(text.contains("本次没有图片字节发送"))
-        assertTrue(!text.contains("图片 0 张"))
-        assertTrue(!text.contains("图片字节会发往该远程地址"))
-        assertTrue(text.contains("记录或保留请求和响应"))
-        assertTrue(!text.contains("图片和响应"))
-        assertTrue(!text.contains("API Key"))
+        assertContainsAll(text, "当前输入", "本次没有图片字节发送", "记录或保留请求和响应")
+        assertContainsNone(text, "图片 0 张", "图片字节会发往该远程地址", "图片和响应", "API Key")
     }
 
     @Test
@@ -514,8 +484,8 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(text.contains("将发送内容预览：帮我总结这段会议纪要"))
-        assertTrue(!text.contains("检测到疑似敏感内容"))
+        assertContainsAll(text, "将发送内容预览：帮我总结这段会议纪要")
+        assertContainsNone(text, "检测到疑似敏感内容")
     }
 
     @Test
@@ -539,10 +509,7 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(text.contains("检测到疑似敏感内容"))
-        assertTrue(text.contains("疑似手机号/电话"))
-        assertTrue(text.contains("疑似个人身份信息"))
-        assertTrue(text.contains("命中片段：13800001111"))
+        assertContainsAll(text, "检测到疑似敏感内容", "疑似手机号/电话", "疑似个人身份信息", "命中片段：13800001111")
     }
 
     @Test
@@ -567,16 +534,9 @@ class SolinScreenDisplayTest {
             ),
         )
 
-        assertTrue(timelineText.contains("执行工具"))
-        assertTrue(timelineText.contains("打开设置"))
-        assertTrue(timelineText.contains("仅本机"))
-        assertTrue(timelineText.contains("需要确认"))
-        assertTrue(memoryText.contains("偏好"))
-        assertTrue(memoryText.contains("语义召回"))
-        assertTrue(memoryText.contains("高相关"))
-        assertTrue(memoryText.contains("[redacted]"))
-        assertFalse(memoryText.contains("alice@example.com"))
-        assertFalse(memoryText.contains("secret"))
+        assertContainsAll(timelineText, "执行工具", "打开设置", "仅本机", "需要确认")
+        assertContainsAll(memoryText, "偏好", "语义召回", "高相关", "[redacted]")
+        assertContainsNone(memoryText, "alice@example.com", "secret")
     }
 
     @Test
@@ -604,14 +564,8 @@ class SolinScreenDisplayTest {
 
         val text = rows.joinToString("\n") { row -> publicWebSourceDisplayText(row) }
 
-        assertTrue(text.contains("Solin search quality update"))
-        assertTrue(text.contains("example.com"))
-        assertTrue(text.contains("2026-07-02T10:00:00Z"))
-        assertTrue(text.contains("High"))
-        assertTrue(text.contains("Search now shows source cards"))
-        assertFalse(text.contains("alice@example.com"))
-        assertFalse(text.contains("password"))
-        assertFalse(text.contains("secret"))
+        assertContainsAll(text, "Solin search quality update", "example.com", "2026-07-02T10:00:00Z", "High", "Search now shows source cards")
+        assertContainsNone(text, "alice@example.com", "password", "secret")
     }
 
     @Test
@@ -639,12 +593,8 @@ class SolinScreenDisplayTest {
 
         val text = rows.joinToString("\n") { row -> publicWebSourceDisplayText(row) }
 
-        assertTrue(text.contains("News Example"))
-        assertTrue(text.contains("[redacted]"))
-        assertFalse(text.contains("resultsJson"))
-        assertFalse(text.contains("private query"))
-        assertFalse(text.contains("token=secret"))
-        assertFalse(text.contains("""{"query""""))
+        assertContainsAll(text, "News Example", "[redacted]")
+        assertContainsNone(text, "resultsJson", "private query", "token=secret", """{"query"""")
     }
 
     @Test
@@ -664,8 +614,7 @@ class SolinScreenDisplayTest {
             ),
         ).joinToString("\n")
 
-        assertTrue(!text.contains("将发送内容预览"))
-        assertTrue(!text.contains("检测到疑似敏感内容"))
+        assertContainsNone(text, "将发送内容预览", "检测到疑似敏感内容")
     }
 
     @Test
@@ -687,14 +636,17 @@ class SolinScreenDisplayTest {
             ),
         )
 
-        assertTrue(text.contains("健康：Fallback"))
-        assertTrue(text.contains("backend=CPU"))
-        assertTrue(text.contains("fallback=CPU"))
-        assertTrue(text.contains("load=1234ms"))
-        assertTrue(text.contains("first=456ms"))
-        assertTrue(text.contains("tokens=42"))
-        assertTrue(text.contains("speed=7.3 tok/s"))
-        assertTrue(text.contains("reason=GPU 初始化失败"))
+        assertContainsAll(
+            text,
+            "健康：Fallback",
+            "backend=CPU",
+            "fallback=CPU",
+            "load=1234ms",
+            "first=456ms",
+            "tokens=42",
+            "speed=7.3 tok/s",
+            "reason=GPU 初始化失败",
+        )
     }
 
 }

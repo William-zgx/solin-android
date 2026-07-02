@@ -14,26 +14,8 @@ EXPECTED_RELEASE_MAPPING_SHA256="${EXPECTED_RELEASE_MAPPING_SHA256:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 REPORT_FILE=""
 ORIGINAL_ARGS=("$@")
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-shell_command() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/verify_release_operations_record.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
+SOLIN_SCRIPT_COMMAND="scripts/verify_release_operations_record.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 failed_target_for_reason() {
   local first="${1%%,*}"
@@ -83,7 +65,7 @@ write_report() {
       printf 'artifactSchema=ReleaseOperationsVerification/v1\n'
       printf 'owner=release-engineering\n'
       printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'command=%s\n' "$(shell_command)"
+      printf 'command=%s\n' "$(command_line)"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
       printf 'reason=%s\n' "$reason"

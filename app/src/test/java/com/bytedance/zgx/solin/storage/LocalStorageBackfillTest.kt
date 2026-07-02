@@ -4,23 +4,20 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-@OptIn(ExperimentalLocalStorageFake::class)
 class LocalStorageBackfillTest {
     @Test
     fun roomMemoryBackfillResumesFromLastDomainAndLastIdWithoutDuplicateWrites() {
         val stateStore = LocalStorageMigrationStateStore(FakeLocalKeyValueStore())
         val vectors = RecordingVectorIndex()
-        val source = InMemoryRoomMemoryBackfillSource(
-            listOf(
-                backfillRecord(domain = "memory", id = "001"),
-                backfillRecord(domain = "memory", id = "002"),
-                backfillRecord(domain = "memory", id = "003"),
-                backfillRecord(domain = "memory", id = "004"),
-            ),
+        val records = listOf(
+            backfillRecord(domain = "memory", id = "001"),
+            backfillRecord(domain = "memory", id = "002"),
+            backfillRecord(domain = "memory", id = "003"),
+            backfillRecord(domain = "memory", id = "004"),
         )
 
         LocalStorageRoomMemoryBackfill(
-            source = source,
+            records = records,
             vectors = vectors,
             stateStore = stateStore,
             clockMillis = tickingClock(10L, 20L, 30L),
@@ -38,7 +35,7 @@ class LocalStorageBackfillTest {
         )
 
         LocalStorageRoomMemoryBackfill(
-            source = source,
+            records = records,
             vectors = vectors,
             stateStore = stateStore,
             clockMillis = tickingClock(40L, 50L, 60L),
@@ -59,7 +56,7 @@ class LocalStorageBackfillTest {
         )
 
         LocalStorageRoomMemoryBackfill(
-            source = source,
+            records = records,
             vectors = vectors,
             stateStore = stateStore,
         ).runBatch(limit = 10)

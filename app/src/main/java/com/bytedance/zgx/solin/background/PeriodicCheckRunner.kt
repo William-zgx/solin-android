@@ -1,23 +1,8 @@
 package com.bytedance.zgx.solin.background
 
-interface LocalPeriodicCheckNotifier {
-    fun post(notification: PeriodicCheckNotification): Boolean
-}
-
-class AndroidLocalPeriodicCheckNotifier(
-    private val notificationHelper: ReminderNotificationHelper,
-) : LocalPeriodicCheckNotifier {
-    override fun post(notification: PeriodicCheckNotification): Boolean =
-        notificationHelper.postReminder(
-            taskId = PeriodicCheckScheduleRequest.TASK_ID,
-            title = notification.title,
-            body = notification.body,
-        )
-}
-
 class PeriodicCheckRunner(
     private val repository: ScheduledTaskRepository,
-    private val notifier: LocalPeriodicCheckNotifier,
+    private val postNotification: (PeriodicCheckNotification) -> Boolean,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val maxReminderScanCount: Int = DEFAULT_MAX_REMINDER_SCAN_COUNT,
 ) {
@@ -64,7 +49,7 @@ class PeriodicCheckRunner(
                 overdueReminderCount = overdueReminderCount,
             )
 
-            val posted = notifier.post(notification)
+            val posted = postNotification(notification)
             repository.finishPeriodicCheckRunIfRunning(
                 nextAllowedRunAtMillis = nextAllowedRunAtMillis,
                 summary = "lastRun=${if (posted) "notified" else "notificationBlocked"};" +

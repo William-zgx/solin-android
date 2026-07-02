@@ -919,129 +919,56 @@ class ActionExecutor(
 
     private fun ToolRequest.externalActivityMetadata(intent: Intent?): ExternalActivityMetadata {
         val action = intent?.action.orEmpty().ifBlank { defaultIntentActionFor(toolName) }
-        return when (toolName) {
-            MobileActionFunctions.OPEN_WIFI_SETTINGS -> ExternalActivityMetadata(
-                targetKind = "SystemSettings",
-                intentAction = action,
-                safeData = mapOf("settingsAction" to action),
-            )
-
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityMetadata(
-                targetKind = "SystemSettings",
-                intentAction = action,
-                safeData = mapOf(
-                    "settingsAction" to action,
-                    "specialAccess" to "usage_stats",
-                ),
-            )
-
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> {
-                val target = arguments["target"].orEmpty()
-                ExternalActivityMetadata(
-                    targetKind = "SystemSettings",
-                    intentAction = action,
-                    safeData = mapOf(
-                        "settingsAction" to action,
-                        "targetId" to target,
-                    ),
-                )
-            }
-
-            MobileActionFunctions.SEARCH_MAPS -> ExternalActivityMetadata(
-                targetKind = "MapSearch",
-                intentAction = action,
-                safeData = intent.safeUriMetadata(),
-            )
-
-            MobileActionFunctions.COMPOSE_EMAIL -> ExternalActivityMetadata(
-                targetKind = "EmailDraft",
-                intentAction = action,
-                safeData = intent.safeUriMetadata(),
-            )
-
-            MobileActionFunctions.CREATE_CALENDAR_EVENT -> ExternalActivityMetadata(
-                targetKind = "CalendarEventDraft",
-                intentAction = action,
-                safeData = intent.safeUriMetadata(),
-            )
-
-            MobileActionFunctions.CREATE_CONTACT_DRAFT -> ExternalActivityMetadata(
-                targetKind = "ContactDraft",
-                intentAction = action,
-                safeData = intent.safeMimeTypeMetadata(),
-            )
-
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ExternalActivityMetadata(
-                targetKind = "SystemSettings",
-                intentAction = action,
-                safeData = mapOf("settingsAction" to action),
-            )
-
-            MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
-                targetKind = "ShareSheet",
-                intentAction = action,
-                safeData = mapOf("payloadMimeType" to "text/plain"),
-            )
-
-            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityMetadata(
-                targetKind = "HttpsUri",
-                intentAction = action,
-                safeData = intent.safeUriMetadata(),
-            )
-
-            MobileActionFunctions.OPEN_CAMERA -> ExternalActivityMetadata(
-                targetKind = "Camera",
-                intentAction = action,
-            )
-
-            MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityMetadata(
-                targetKind = "SystemAlarm",
-                intentAction = action,
-            )
-
-            MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityMetadata(
-                targetKind = "SystemTimer",
-                intentAction = action,
-            )
-
-            MobileActionFunctions.OPEN_APP_BY_NAME -> ExternalActivityMetadata(
-                targetKind = "AndroidPackage",
-                intentAction = action,
-                safeData = mapOf("targetPackage" to intent?.`package`.orEmpty()),
-            )
-
-            MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
-                targetKind = "AndroidPackage",
-                intentAction = action,
-                safeData = mapOf("targetPackage" to arguments["packageName"].orEmpty()),
-            )
-
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> {
-                val target = appDeepTargetFor(this)
-                ExternalActivityMetadata(
-                    targetKind = target.targetKind,
-                    intentAction = action,
-                    safeData = mapOf(
-                        "targetId" to target.id,
-                        "targetPackage" to arguments[AppDeepTargets.PACKAGE_NAME_ARGUMENT].orEmpty(),
-                    ),
-                )
-            }
-
-            else -> ExternalActivityMetadata(
-                targetKind = "ExternalActivity",
-                intentAction = action,
-            )
+        val deepTarget = if (toolName == MobileActionFunctions.OPEN_APP_DEEP_TARGET) {
+            appDeepTargetFor(this)
+        } else {
+            null
         }
+        return externalActivityMetadataFor(
+            toolName = toolName,
+            action = action,
+            uriData = intent.safeUriMetadata(),
+            mimeTypeData = intent.safeMimeTypeMetadata(),
+            targetId = arguments["target"].orEmpty().ifBlank { deepTarget?.id.orEmpty() },
+            targetPackage = when (toolName) {
+                MobileActionFunctions.OPEN_APP_BY_NAME -> intent?.`package`.orEmpty()
+                MobileActionFunctions.OPEN_APP_INTENT -> arguments["packageName"].orEmpty()
+                MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+                    arguments[AppDeepTargets.PACKAGE_NAME_ARGUMENT].orEmpty()
+                else -> ""
+            },
+            deepTargetKind = deepTarget?.targetKind,
+        )
     }
 
     private fun ExternalActivityLaunch.externalActivityMetadata(): ExternalActivityMetadata {
         val action = action.ifBlank { defaultIntentActionFor(toolName) }
-        return when (toolName) {
-            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityMetadata(
-                targetKind = "HttpsUri",
+        val deepTarget = AppDeepTargets.targetOrNull(targetId.orEmpty())
+        return externalActivityMetadataFor(
+            toolName = toolName,
+            action = action,
+            uriData = uri.safeUriMetadata(),
+            targetId = targetId.orEmpty(),
+            targetPackage = packageName.orEmpty(),
+            deepTargetKind = deepTarget?.targetKind,
+        )
+    }
+
+    private fun externalActivityMetadataFor(
+        toolName: String,
+        action: String,
+        uriData: Map<String, String> = emptyMap(),
+        mimeTypeData: Map<String, String> = emptyMap(),
+        targetId: String = "",
+        targetPackage: String = "",
+        deepTargetKind: String? = null,
+    ): ExternalActivityMetadata =
+        when (toolName) {
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ExternalActivityMetadata(
+                targetKind = "SystemSettings",
                 intentAction = action,
-                safeData = uri.safeUriMetadata(),
+                safeData = mapOf("settingsAction" to action),
             )
 
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityMetadata(
@@ -1058,8 +985,44 @@ class ActionExecutor(
                 intentAction = action,
                 safeData = mapOf(
                     "settingsAction" to action,
-                    "targetId" to targetId.orEmpty(),
+                    "targetId" to targetId,
                 ),
+            )
+
+            MobileActionFunctions.SEARCH_MAPS -> ExternalActivityMetadata(
+                targetKind = "MapSearch",
+                intentAction = action,
+                safeData = uriData,
+            )
+
+            MobileActionFunctions.COMPOSE_EMAIL -> ExternalActivityMetadata(
+                targetKind = "EmailDraft",
+                intentAction = action,
+                safeData = uriData,
+            )
+
+            MobileActionFunctions.CREATE_CALENDAR_EVENT -> ExternalActivityMetadata(
+                targetKind = "CalendarEventDraft",
+                intentAction = action,
+                safeData = uriData,
+            )
+
+            MobileActionFunctions.CREATE_CONTACT_DRAFT -> ExternalActivityMetadata(
+                targetKind = "ContactDraft",
+                intentAction = action,
+                safeData = mimeTypeData,
+            )
+
+            MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
+                targetKind = "ShareSheet",
+                intentAction = action,
+                safeData = mapOf("payloadMimeType" to "text/plain"),
+            )
+
+            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityMetadata(
+                targetKind = "HttpsUri",
+                intentAction = action,
+                safeData = uriData,
             )
 
             MobileActionFunctions.OPEN_CAMERA -> ExternalActivityMetadata(
@@ -1077,31 +1040,20 @@ class ActionExecutor(
                 intentAction = action,
             )
 
-            MobileActionFunctions.OPEN_APP_BY_NAME -> ExternalActivityMetadata(
-                targetKind = "AndroidPackage",
-                intentAction = action,
-                safeData = mapOf("targetPackage" to packageName.orEmpty()),
-            )
-
+            MobileActionFunctions.OPEN_APP_BY_NAME,
             MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
                 targetKind = "AndroidPackage",
                 intentAction = action,
-                safeData = mapOf("targetPackage" to packageName.orEmpty()),
+                safeData = mapOf("targetPackage" to targetPackage),
             )
 
             MobileActionFunctions.OPEN_APP_DEEP_TARGET -> ExternalActivityMetadata(
-                targetKind = AppDeepTargets.targetOrNull(targetId.orEmpty())?.targetKind ?: "AppDeepTarget",
+                targetKind = deepTargetKind ?: "AppDeepTarget",
                 intentAction = action,
                 safeData = mapOf(
-                    "targetId" to targetId.orEmpty(),
-                    "targetPackage" to packageName.orEmpty(),
+                    "targetId" to targetId,
+                    "targetPackage" to targetPackage,
                 ),
-            )
-
-            MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
-                targetKind = "ShareSheet",
-                intentAction = action,
-                safeData = mapOf("payloadMimeType" to "text/plain"),
             )
 
             else -> ExternalActivityMetadata(
@@ -1109,7 +1061,6 @@ class ActionExecutor(
                 intentAction = action,
             )
         }
-    }
 
     private fun Intent?.safeUriMetadata(): Map<String, String> =
         this?.data?.let { uri ->
@@ -1177,8 +1128,23 @@ class ActionExecutor(
         starter: (ExternalActivityLaunch) -> Boolean,
         launch: ExternalActivityLaunch,
     ): ExternalActivityStartResult =
+        startExternalActivity { starter(launch) }
+
+    private fun startActivity(intent: Intent): ExternalActivityStartResult {
+        activityStarter?.let { starter ->
+            val launchIntent = runCatching { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrDefault(intent)
+            return startExternalActivity { starter(launchIntent) }
+        }
+        val appContext = context ?: return ExternalActivityStartResult.ActivityNotFound
+        return startExternalActivity {
+            appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        }
+    }
+
+    private fun startExternalActivity(start: () -> Boolean): ExternalActivityStartResult =
         try {
-            if (starter(launch)) {
+            if (start()) {
                 ExternalActivityStartResult.Started
             } else {
                 ExternalActivityStartResult.ActivityNotFound
@@ -1188,32 +1154,6 @@ class ActionExecutor(
         } catch (throwable: Throwable) {
             ExternalActivityStartResult.Failed(throwable)
         }
-
-    private fun startActivity(intent: Intent): ExternalActivityStartResult {
-        activityStarter?.let { starter ->
-            val launchIntent = runCatching { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrDefault(intent)
-            return try {
-                if (starter(launchIntent)) {
-                    ExternalActivityStartResult.Started
-                } else {
-                    ExternalActivityStartResult.ActivityNotFound
-                }
-            } catch (_: ActivityNotFoundException) {
-                ExternalActivityStartResult.ActivityNotFound
-            } catch (throwable: Throwable) {
-                ExternalActivityStartResult.Failed(throwable)
-            }
-        }
-        val appContext = context ?: return ExternalActivityStartResult.ActivityNotFound
-        return try {
-            appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            ExternalActivityStartResult.Started
-        } catch (_: ActivityNotFoundException) {
-            ExternalActivityStartResult.ActivityNotFound
-        } catch (throwable: Throwable) {
-            ExternalActivityStartResult.Failed(throwable)
-        }
-    }
 
     private fun readClipboardText(): String? {
         val appContext = context ?: return null

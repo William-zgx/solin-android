@@ -60,12 +60,4 @@ class BundledModelInstallerTest {
         }
     }
 
-    private fun withTempModelDir(block: (File) -> Unit) {
-        val dir = Files.createTempDirectory("solin-bundled-model").toFile()
-        try {
-            block(dir)
-        } finally {
-            dir.deleteRecursively()
-        }
-    }
 }

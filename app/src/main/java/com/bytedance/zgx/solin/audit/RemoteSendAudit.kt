@@ -65,41 +65,6 @@ interface RemoteSendAuditLog {
     fun recentRemoteSends(limit: Int = 50): List<RemoteSendAuditEvent>
 }
 
-object NoOpRemoteSendAuditSink : RemoteSendAuditSink {
-    override fun record(event: RemoteSendAuditEvent) = Unit
-}
-
-/**
- * Bounded in-memory implementation of both sides. Keeps at most [capacity] most-recent events
- * (older ones are evicted) and always stores the redacted form. Thread-safe for the simple
- * single-writer/single-reader ViewModel usage.
- */
-class InMemoryRemoteSendAuditStore(
-    private val capacity: Int = DEFAULT_CAPACITY,
-) : RemoteSendAuditSink, RemoteSendAuditLog {
-    private val lock = Any()
-    private val events = ArrayDeque<RemoteSendAuditEvent>()
-
-    override fun record(event: RemoteSendAuditEvent) {
-        val redacted = event.redactedForAudit()
-        synchronized(lock) {
-            events.addFirst(redacted)
-            while (events.size > capacity) {
-                events.removeLast()
-            }
-        }
-    }
-
-    override fun recentRemoteSends(limit: Int): List<RemoteSendAuditEvent> =
-        synchronized(lock) {
-            if (limit <= 0) emptyList() else events.take(limit)
-        }
-
-    private companion object {
-        const val DEFAULT_CAPACITY = 100
-    }
-}
-
 class RemoteSendAuditRepository(
     private val dao: RemoteSendAuditDao,
     private val maxStoredEvents: Int = DEFAULT_MAX_STORED_EVENTS,
@@ -147,40 +112,5 @@ class RemoteSendAuditRepository(
 
     private companion object {
         const val DEFAULT_MAX_STORED_EVENTS = 100
-    }
-}
-
-/**
- * Pure builder that turns a remote-send decision into a structured audit event. Kept free of any
- * Android / ViewModel dependency so it is trivially unit-testable. The human-readable summary is
- * deterministic and composed from the structured fields; the [RemoteSendAuditEvent] constructor
- * still redacts it defensively.
- */
-object RemoteSendAuditFactory {
-    fun build(
-        decision: RemoteSendDecision,
-        modelName: String?,
-        sensitiveCategories: List<SafetyCategory> = emptyList(),
-        imageCount: Int = 0,
-        remoteHistoryCount: Int = 0,
-        nowMillis: Long = System.currentTimeMillis(),
-    ): RemoteSendAuditEvent {
-        val parts = buildList {
-            add(decision.label)
-            if (imageCount > 0) add("图片 ${imageCount} 张")
-            if (remoteHistoryCount > 0) add("历史 ${remoteHistoryCount} 条")
-            if (sensitiveCategories.isNotEmpty()) {
-                add("敏感类别：" + sensitiveCategories.joinToString("、") { it.label })
-            }
-        }
-        return RemoteSendAuditEvent(
-            decision = decision,
-            modelName = modelName?.takeIf { it.isNotBlank() },
-            sensitiveCategories = sensitiveCategories,
-            imageCount = imageCount,
-            remoteHistoryCount = remoteHistoryCount,
-            summary = parts.joinToString("；"),
-            createdAtMillis = nowMillis,
-        )
     }
 }

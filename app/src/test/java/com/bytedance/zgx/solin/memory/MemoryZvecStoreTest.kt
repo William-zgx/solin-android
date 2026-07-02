@@ -1,7 +1,6 @@
 package com.bytedance.zgx.solin.memory
 
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.storage.ExperimentalLocalStorageFake
 import com.bytedance.zgx.solin.storage.FakeLocalDocumentStore
 import com.bytedance.zgx.solin.storage.FakeLocalVectorIndex
 import com.bytedance.zgx.solin.storage.LocalStorageReadScope
@@ -14,7 +13,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-@OptIn(ExperimentalLocalStorageFake::class)
 class MemoryZvecStoreTest {
     @Test
     fun zvecMemoryRecordStoreRoundTripsLongTermRecordThroughLocalDocuments() {

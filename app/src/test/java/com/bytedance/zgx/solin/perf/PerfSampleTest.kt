@@ -32,7 +32,7 @@ class PerfSampleTest {
             PerfSample(key = PerfSampleKey.OcrMs, source = PerfSampleSource.PHYSICAL_ARM64, durationMs = 210),
         ).map { sample -> sample.validate() }
 
-        assertTrue(results.all { result -> result.isValid })
+        assertTrue(results.all { errors -> errors.isEmpty() })
     }
 
     @Test
@@ -43,7 +43,7 @@ class PerfSampleTest {
             durationMs = -1,
         ).validate()
 
-        assertEquals(listOf("durationMs must be non-negative"), result.errors)
+        assertEquals(listOf("durationMs must be non-negative"), result)
     }
 
     @Test
@@ -54,7 +54,7 @@ class PerfSampleTest {
             durationMs = 1,
         ).validate()
 
-        assertEquals(listOf("source must be one of localJvm, emulator, physicalArm64"), result.errors)
+        assertEquals(listOf("source must be one of localJvm, emulator, physicalArm64"), result)
     }
 
     @Test
@@ -70,8 +70,8 @@ class PerfSampleTest {
             throughput = Double.NaN,
         ).validate()
 
-        assertEquals(listOf("throughput must be positive"), zero.errors)
-        assertEquals(listOf("throughput must be positive"), nan.errors)
+        assertEquals(listOf("throughput must be positive"), zero)
+        assertEquals(listOf("throughput must be positive"), nan)
     }
 
     @Test
@@ -95,15 +95,15 @@ class PerfSampleTest {
 
         assertEquals(
             listOf("durationMs is required for ocrMs", "throughput must be absent for ocrMs"),
-            durationWithThroughput.errors,
+            durationWithThroughput,
         )
         assertEquals(
             listOf("throughput is required for tokensPerSecond", "durationMs must be absent for tokensPerSecond"),
-            throughputWithDuration.errors,
+            throughputWithDuration,
         )
         assertEquals(
             listOf("throughput must be absent for modelLoadMs"),
-            durationWithBoth.errors,
+            durationWithBoth,
         )
     }
 
@@ -121,14 +121,14 @@ class PerfSampleTest {
 
         val results = physicalOnlyKeys.flatMap { key ->
             listOf(
-                sampleFor(key, PerfSampleSource.EMULATOR).validate(),
-                sampleFor(key, PerfSampleSource.LOCAL_JVM).validate(),
+                key to sampleFor(key, PerfSampleSource.EMULATOR).validate(),
+                key to sampleFor(key, PerfSampleSource.LOCAL_JVM).validate(),
             )
         }
 
         assertTrue(
-            results.all { result ->
-                result.errors == listOf("source must be physicalArm64 for ${result.sample.key.id}")
+            results.all { (key, errors) ->
+                errors == listOf("source must be physicalArm64 for ${key.id}")
             },
         )
     }

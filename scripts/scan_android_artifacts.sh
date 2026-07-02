@@ -1,28 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT_FILE=""
 REQUIRE_SIGNED=0
 ALLOW_DEBUG_CERTIFICATE=0
 EXPECTED_CERTIFICATE_SHA256=""
 ARTIFACTS=()
 ORIGINAL_ARGS=("$@")
+SOLIN_SCRIPT_COMMAND="scripts/scan_android_artifacts.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 normalize_sha256() {
   tr '[:upper:]' '[:lower:]' <<<"$1" | tr -d ':'
-}
-
-shell_command() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/scan_android_artifacts.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
 }
 
 failed_target_for_reason() {
@@ -49,7 +39,7 @@ write_parse_report() {
       printf 'artifactSchema=AndroidArtifactScanReport/v1\n'
       printf 'owner=release-engineering\n'
       printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'command=%s\n' "$(shell_command)"
+      printf 'command=%s\n' "$(command_line)"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'failedTarget=argument-parser\n'
       printf 'reason=%s\n' "$reason"
@@ -65,8 +55,8 @@ write_parse_report() {
           index=$((index + 1))
           printf 'artifact%sPath=%s\n' "$index" "$artifact"
           if [[ -f "$artifact" ]]; then
-            printf 'artifact%sSha256=%s\n' "$index" "$(shasum -a 256 "$artifact" | awk '{print $1}')"
-            printf 'artifact%sSizeBytes=%s\n' "$index" "$(wc -c < "$artifact" | tr -d ' ')"
+            printf 'artifact%sSha256=%s\n' "$index" "$(sha256_or_empty "$artifact")"
+            printf 'artifact%sSizeBytes=%s\n' "$index" "$(file_size_or_empty "$artifact")"
             printf 'artifact%sType=%s\n' "$index" "${artifact##*.}"
           fi
         done
@@ -136,7 +126,7 @@ write_report() {
       printf 'artifactSchema=AndroidArtifactScanReport/v1\n'
       printf 'owner=release-engineering\n'
       printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'command=%s\n' "$(shell_command)"
+      printf 'command=%s\n' "$(command_line)"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
       printf 'reason=%s\n' "$reason"
@@ -151,8 +141,8 @@ write_report() {
           index=$((index + 1))
           printf 'artifact%sPath=%s\n' "$index" "$artifact"
           if [[ -f "$artifact" ]]; then
-            printf 'artifact%sSha256=%s\n' "$index" "$(shasum -a 256 "$artifact" | awk '{print $1}')"
-            printf 'artifact%sSizeBytes=%s\n' "$index" "$(wc -c < "$artifact" | tr -d ' ')"
+            printf 'artifact%sSha256=%s\n' "$index" "$(sha256_or_empty "$artifact")"
+            printf 'artifact%sSizeBytes=%s\n' "$index" "$(file_size_or_empty "$artifact")"
             printf 'artifact%sType=%s\n' "$index" "${artifact##*.}"
             printf 'artifact%sSigningStatus=%s\n' "$index" "$(artifact_signing_status "$artifact")"
             printf 'artifact%sCertificateSha256=%s\n' "$index" "$(artifact_certificate_sha256 "$artifact")"

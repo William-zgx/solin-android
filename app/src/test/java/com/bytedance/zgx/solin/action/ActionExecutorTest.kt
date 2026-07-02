@@ -480,7 +480,7 @@ class ActionExecutorTest {
 
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(MobileActionFunctions.OPEN_CAMERA, result.data["toolName"])
-        assertExternalActivityOpened(result.data, MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+        assertExternalActivityOpened(result.data, "Camera", MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
         val launch = launches.single()
         assertEquals(MobileActionFunctions.OPEN_CAMERA, launch.toolName)
         assertEquals(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA, launch.action)
@@ -987,19 +987,6 @@ class ActionExecutorTest {
         assertEquals("Unknown", data["externalOutcome"])
         assertEquals("Unknown", data["externalOutcomeSource"])
         assertEquals(targetKind, data["targetKind"])
-        assertEquals(intentAction, data["intentAction"])
-        assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
-        assertEquals("false", data["rawPayloadIncluded"])
-    }
-
-    private fun assertExternalActivityOpened(
-        data: Map<String, String>,
-        intentAction: String,
-    ) {
-        assertEquals("ExternalActivityOpened", data["completionState"])
-        assertEquals("false", data["completionVerified"])
-        assertEquals("Unknown", data["externalOutcome"])
-        assertEquals("Unknown", data["externalOutcomeSource"])
         assertEquals(intentAction, data["intentAction"])
         assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
         assertEquals("false", data["rawPayloadIncluded"])

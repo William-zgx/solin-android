@@ -67,7 +67,9 @@ class AgentObservationReplannerTest {
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
                         "ocrText" to "继续",
-                        "ocrBlocksJson" to """[{"text":"继续","bounds":{"left":10,"top":20,"right":110,"bottom":70},"lines":[]}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("继续", left = 10, top = 20, right = 110, bottom = 70, includeEmptyLines = true),
+                        ),
                         "screenObservationJson" to screenObservationJson(),
                     ),
                 ),
@@ -426,7 +428,9 @@ class AgentObservationReplannerTest {
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
                         "ocrText" to "继续",
-                        "ocrBlocksJson" to """[{"text":"继续","bounds":{"left":12,"top":22,"right":112,"bottom":72},"lines":[]}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("继续", left = 12, top = 22, right = 112, bottom = 72, includeEmptyLines = true),
+                        ),
                         "screenObservationIncluded" to "true",
                         "screenObservationJson" to accessibilityOnlyObservationJson(),
                     ),
@@ -490,7 +494,9 @@ class AgentObservationReplannerTest {
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
                         "ocrText" to "继续",
-                        "ocrBlocksJson" to """[{"text":"继续","bounds":{"left":12,"top":22,"right":112,"bottom":72},"lines":[]}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("继续", left = 12, top = 22, right = 112, bottom = 72, includeEmptyLines = true),
+                        ),
                         "screenObservationIncluded" to "false",
                         "screenObservationFailureKind" to "page_changed",
                     ),
@@ -1420,8 +1426,9 @@ class AgentObservationReplannerTest {
                     data = mapOf(
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
-                        "ocrBlocksJson" to
-                            """[{"text":"搜索商品","bounds":{"left":20,"top":520,"right":720,"bottom":588}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("搜索商品", left = 20, top = 520, right = 720, bottom = 588),
+                        ),
                         "screenObservationJson" to ocrOnlyObservationJson(
                             observationId = "screen-ocr-search-entry",
                             texts = listOf("搜索商品"),
@@ -1471,8 +1478,9 @@ class AgentObservationReplannerTest {
                     data = mapOf(
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
-                        "ocrBlocksJson" to
-                            """[{"text":"搜索","bounds":{"left":820,"top":520,"right":980,"bottom":588}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("搜索", left = 820, top = 520, right = 980, bottom = 588),
+                        ),
                         "screenObservationJson" to ocrOnlyObservationJson(
                             observationId = "screen-ocr-search-button",
                             texts = listOf("搜索"),
@@ -1697,7 +1705,9 @@ class AgentObservationReplannerTest {
                     data = mapOf(
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
-                        "ocrBlocksJson" to """[{"text":"确定","bounds":{"left":780,"top":520,"right":980,"bottom":588}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("确定", left = 780, top = 520, right = 980, bottom = 588),
+                        ),
                         "screenObservationJson" to ocrOnlyObservationJson(
                             observationId = "screen-confirm-ocr",
                             texts = listOf("确定"),
@@ -1742,7 +1752,9 @@ class AgentObservationReplannerTest {
                     data = mapOf(
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
-                        "ocrBlocksJson" to """[{"text":"搜索","bounds":{"left":780,"top":520,"right":980,"bottom":588}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("搜索", left = 780, top = 520, right = 980, bottom = 588),
+                        ),
                         "screenObservationJson" to ocrOnlyObservationJson(
                             observationId = "screen-search-button-ocr",
                             texts = listOf("搜索"),
@@ -1787,9 +1799,10 @@ class AgentObservationReplannerTest {
                     data = mapOf(
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
-                        "ocrBlocksJson" to
-                            """[{"text":"搜索商品","bounds":{"left":20,"top":520,"right":720,"bottom":588}},""" +
-                            """{"text":"确定","bounds":{"left":780,"top":520,"right":980,"bottom":588}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("搜索商品", left = 20, top = 520, right = 720, bottom = 588),
+                            ocrBlock("确定", left = 780, top = 520, right = 980, bottom = 588),
+                        ),
                         "screenObservationIncluded" to "true",
                         "screenObservationJson" to ocrOnlyObservationJson(
                             observationId = "screen-search-ocr-submit",
@@ -2453,8 +2466,9 @@ class AgentObservationReplannerTest {
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
                         "ocrText" to "确认支付",
-                        "ocrBlocksJson" to
-                            """[{"text":"确认支付","bounds":{"left":10,"top":20,"right":150,"bottom":70}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("确认支付", left = 10, top = 20, right = 150, bottom = 70),
+                        ),
                     ),
                 ),
                 priorRequests = listOf(previousRequest),
@@ -2545,8 +2559,9 @@ class AgentObservationReplannerTest {
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
                         "ocrText" to "支付说明",
-                        "ocrBlocksJson" to
-                            """[{"text":"支付说明","bounds":{"left":10,"top":20,"right":150,"bottom":70}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("支付说明", left = 10, top = 20, right = 150, bottom = 70),
+                        ),
                         "screenObservationJson" to staticPaymentOcrCopyObservationJson(),
                     ),
                 ),
@@ -2592,8 +2607,9 @@ class AgentObservationReplannerTest {
                     data = mapOf(
                         "toolName" to previousRequest.toolName,
                         "privacy" to "LocalOnly",
-                        "ocrBlocksJson" to
-                            """[{"text":"删除","bounds":{"left":10,"top":20,"right":150,"bottom":70}}]""",
+                        "ocrBlocksJson" to ocrBlocksJson(
+                            ocrBlock("删除", left = 10, top = 20, right = 150, bottom = 70),
+                        ),
                     ),
                 ),
                 priorRequests = listOf(previousRequest),
@@ -2782,44 +2798,23 @@ class AgentObservationReplannerTest {
     }
 
     private fun screenObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-1",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility", "ocr"],
-          "elementCount": 14,
-          "sourceCounts": {"accessibility": 13, "ocr": 1},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "continue-button",
-              "source": "accessibility",
-              "bounds": {"left": 10, "top": 20, "right": 110, "bottom": 70},
-              "text": "继续",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            ${accessibilityFillerElementsJson()},
-            {
-              "id": "ocr:block:0",
-              "source": "ocr",
-              "bounds": {"left": 10, "top": 20, "right": 110, "bottom": 70},
-              "text": "继续",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-1",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "continue-button",
+                    text = "继续",
+                    role = "button",
+                    left = 10,
+                    top = 20,
+                    right = 110,
+                    bottom = 70,
+                    clickable = true,
+                ),
+                *accessibilityFillerElements().toTypedArray(),
+                ocrElement("ocr:block:0", "继续", left = 10, top = 20, right = 110, bottom = 70),
+            ),
+        )
 
     private fun String.shortlistDebugText(): String {
         val index = indexOf("screenObservationJson(")
@@ -2830,527 +2825,524 @@ class AgentObservationReplannerTest {
         }
     }
 
-    private fun accessibilityFillerElementsJson(): String =
-        (1..12).joinToString(separator = ",\n") { index ->
-            """
-            {
-              "id": "label-$index",
-              "source": "accessibility",
-              "bounds": {"left": 0, "top": ${100 + index}, "right": 10, "bottom": ${120 + index}},
-              "text": "列表项 $index",
-              "role": "text",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
+    private data class ScreenBoundsFixture(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+    )
+
+    private data class ScreenElementFixture(
+        val id: String,
+        val source: String,
+        val text: String,
+        val role: String,
+        val bounds: ScreenBoundsFixture?,
+        val clickable: Boolean,
+        val editable: Boolean,
+        val scrollable: Boolean,
+        val enabled: Boolean,
+        val confidence: Double,
+    )
+
+    private fun accessibilityElement(
+        id: String,
+        text: String,
+        role: String,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        clickable: Boolean = false,
+        editable: Boolean = false,
+        scrollable: Boolean = false,
+        enabled: Boolean = true,
+        confidence: Double = 1.0,
+    ): ScreenElementFixture =
+        ScreenElementFixture(
+            id = id,
+            source = "accessibility",
+            text = text,
+            role = role,
+            bounds = ScreenBoundsFixture(left, top, right, bottom),
+            clickable = clickable,
+            editable = editable,
+            scrollable = scrollable,
+            enabled = enabled,
+            confidence = confidence,
+        )
+
+    private fun ocrElement(
+        id: String,
+        text: String,
+        left: Int? = null,
+        top: Int? = null,
+        right: Int? = null,
+        bottom: Int? = null,
+        role: String = "ocr_block",
+        confidence: Double = 0.72,
+    ): ScreenElementFixture =
+        ScreenElementFixture(
+            id = id,
+            source = "ocr",
+            text = text,
+            role = role,
+            bounds = if (left == null || top == null || right == null || bottom == null) {
+                null
+            } else {
+                ScreenBoundsFixture(left, top, right, bottom)
+            },
+            clickable = false,
+            editable = false,
+            scrollable = false,
+            enabled = true,
+            confidence = confidence,
+        )
+
+    private fun screenObservationFixtureJson(
+        observationId: String,
+        elements: Array<out ScreenElementFixture> = emptyArray(),
+        capturedAtMillis: Long = 1L,
+        packageName: String = "com.example.app",
+        sources: List<String> = elements.map { element -> element.source }.distinct().ifEmpty { listOf("accessibility") },
+        truncated: Boolean = false,
+    ): String {
+        val sourceCounts = sources
+            .mapNotNull { source ->
+                val count = elements.count { element -> element.source == source }
+                if (count == 0) null else """"${source.asJsonString()}": $count"""
             }
+            .joinToString(prefix = "{", postfix = "}")
+        val elementsJson = if (elements.isEmpty()) {
+            "[]"
+        } else {
+            elements.joinToString(prefix = "[\n", separator = ",\n", postfix = "\n]") { element ->
+                element.toJson()
+            }
+        }
+        return """
+        {
+          "schemaVersion": 1,
+          "observationId": "${observationId.asJsonString()}",
+          "capturedAtMillis": $capturedAtMillis,
+          "packageName": "${packageName.asJsonString()}",
+          "privacyLevel": "LocalOnly",
+          "sources": ${sources.joinToString(prefix = "[", postfix = "]") { source -> """"${source.asJsonString()}"""" }},
+          "elementCount": ${elements.size},
+          "sourceCounts": $sourceCounts,
+          "truncated": $truncated,
+          "elements": $elementsJson
+        }
+        """.trimIndent()
+    }
+
+    private fun ScreenElementFixture.toJson(): String {
+        val boundsJson = bounds?.let { bounds ->
+            """
+              "bounds": {"left": ${bounds.left}, "top": ${bounds.top}, "right": ${bounds.right}, "bottom": ${bounds.bottom}},
             """.trimIndent()
+        }
+        return """
+        {
+          "id": "${id.asJsonString()}",
+          "source": "${source.asJsonString()}",
+          ${boundsJson.orEmpty()}
+          "text": "${text.asJsonString()}",
+          "role": "${role.asJsonString()}",
+          "clickability": {"clickable": $clickable, "editable": $editable, "scrollable": $scrollable, "enabled": $enabled},
+          "confidence": $confidence,
+          "sensitiveFlags": [],
+          "privacyLevel": "LocalOnly"
+        }
+        """.trimIndent()
+    }
+
+    private fun accessibilityFillerElementsJson(): String =
+        accessibilityFillerElements().joinToString(separator = ",\n") { element -> element.toJson() }
+
+    private fun accessibilityFillerElements(): List<ScreenElementFixture> =
+        (1..12).map { index ->
+            accessibilityElement(
+                id = "label-$index",
+                text = "列表项 $index",
+                role = "text",
+                left = 0,
+                top = 100 + index,
+                right = 10,
+                bottom = 120 + index,
+            )
         }
 
     private fun ocrLabeledBlankAccessibilityObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-ocr-labeled-icon",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility", "ocr"],
-          "elementCount": 14,
-          "sourceCounts": {"accessibility": 13, "ocr": 1},
-          "truncated": false,
-          "elements": [
-            ${actionableFillerElementsJson(count = 12)},
-            {
-              "id": "icon-search-entry",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 420, "bottom": 96},
-              "text": "",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "ocr:block:0",
-              "source": "ocr",
-              "bounds": {"left": 48, "top": 44, "right": 220, "bottom": 84},
-              "text": "搜索入口",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-ocr-labeled-icon",
+            elements = arrayOf(
+                *actionableFillerElements(count = 12).toTypedArray(),
+                accessibilityElement(
+                    id = "icon-search-entry",
+                    text = "",
+                    role = "button",
+                    left = 20,
+                    top = 32,
+                    right = 420,
+                    bottom = 96,
+                    clickable = true,
+                ),
+                ocrElement("ocr:block:0", "搜索入口", left = 48, top = 44, right = 220, bottom = 84),
+            ),
+        )
 
     private fun sparseOcrLabeledBlankAccessibilityObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-sparse-ocr-labeled-icon",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility", "ocr"],
-          "elementCount": 14,
-          "sourceCounts": {"accessibility": 13, "ocr": 1},
-          "truncated": false,
-          "elements": [
-            ${actionableFillerElementsJson(count = 12)},
-            {
-              "id": "icon-search-entry",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 420, "bottom": 96},
-              "text": "",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "ocr:block:0",
-              "source": "ocr",
-              "bounds": {"left": 398, "top": 44, "right": 760, "bottom": 84},
-              "text": "搜索入口",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-sparse-ocr-labeled-icon",
+            elements = arrayOf(
+                *actionableFillerElements(count = 12).toTypedArray(),
+                accessibilityElement(
+                    id = "icon-search-entry",
+                    text = "",
+                    role = "button",
+                    left = 20,
+                    top = 32,
+                    right = 420,
+                    bottom = 96,
+                    clickable = true,
+                ),
+                ocrElement("ocr:block:0", "搜索入口", left = 398, top = 44, right = 760, bottom = 84),
+            ),
+        )
 
     private fun resolverRankedSearchEntryObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-search-noise",
-          "capturedAtMillis": 1,
-          "packageName": "com.taobao.taobao",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 4,
-          "sourceCounts": {"accessibility": 4},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "camera-search",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 220, "bottom": 96},
-              "text": "拍照搜索",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "home-feed",
-              "source": "accessibility",
-              "bounds": {"left": 0, "top": 220, "right": 1080, "bottom": 1800},
-              "text": "综合 销量 筛选 商品列表 旗舰店 ￥29 已售1000 评价",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": true, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "promo-search",
-              "source": "accessibility",
-              "bounds": {"left": 240, "top": 32, "right": 420, "bottom": 96},
-              "text": "搜索好物 推荐 商品图片",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "real-search-entry",
-              "source": "accessibility",
-              "bounds": {"left": 36, "top": 84, "right": 1044, "bottom": 168},
-              "text": "搜索商品",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-search-noise",
+            packageName = "com.taobao.taobao",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "camera-search",
+                    text = "拍照搜索",
+                    role = "button",
+                    left = 20,
+                    top = 32,
+                    right = 220,
+                    bottom = 96,
+                    clickable = true,
+                ),
+                accessibilityElement(
+                    id = "home-feed",
+                    text = "综合 销量 筛选 商品列表 旗舰店 ￥29 已售1000 评价",
+                    role = "button",
+                    left = 0,
+                    top = 220,
+                    right = 1080,
+                    bottom = 1800,
+                    clickable = true,
+                    scrollable = true,
+                ),
+                accessibilityElement(
+                    id = "promo-search",
+                    text = "搜索好物 推荐 商品图片",
+                    role = "button",
+                    left = 240,
+                    top = 32,
+                    right = 420,
+                    bottom = 96,
+                    clickable = true,
+                ),
+                accessibilityElement(
+                    id = "real-search-entry",
+                    text = "搜索商品",
+                    role = "button",
+                    left = 36,
+                    top = 84,
+                    right = 1044,
+                    bottom = 168,
+                    clickable = true,
+                ),
+            ),
+        )
 
     private fun intentRankedFilterObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-filter-intent",
-          "capturedAtMillis": 1,
-          "packageName": "com.taobao.taobao",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 3,
-          "sourceCounts": {"accessibility": 3},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "search-entry",
-              "source": "accessibility",
-              "bounds": {"left": 36, "top": 84, "right": 760, "bottom": 168},
-              "text": "搜索商品",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "result-list",
-              "source": "accessibility",
-              "bounds": {"left": 0, "top": 220, "right": 1080, "bottom": 1800},
-              "text": "综合 销量 筛选 商品列表 旗舰店 ￥29 已售1000 评价",
-              "role": "scrollable",
-              "clickability": {"clickable": true, "editable": false, "scrollable": true, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "filter-button",
-              "source": "accessibility",
-              "bounds": {"left": 860, "top": 84, "right": 1044, "bottom": 168},
-              "text": "筛选",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-filter-intent",
+            packageName = "com.taobao.taobao",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "search-entry",
+                    text = "搜索商品",
+                    role = "button",
+                    left = 36,
+                    top = 84,
+                    right = 760,
+                    bottom = 168,
+                    clickable = true,
+                ),
+                accessibilityElement(
+                    id = "result-list",
+                    text = "综合 销量 筛选 商品列表 旗舰店 ￥29 已售1000 评价",
+                    role = "scrollable",
+                    left = 0,
+                    top = 220,
+                    right = 1080,
+                    bottom = 1800,
+                    clickable = true,
+                    scrollable = true,
+                ),
+                accessibilityElement(
+                    id = "filter-button",
+                    text = "筛选",
+                    role = "button",
+                    left = 860,
+                    top = 84,
+                    right = 1044,
+                    bottom = 168,
+                    clickable = true,
+                ),
+            ),
+        )
 
     private fun delayedActionableObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-actionable-late",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility", "ocr"],
-          "elementCount": 15,
-          "sourceCounts": {"accessibility": 14, "ocr": 1},
-          "truncated": false,
-          "elements": [
-            ${accessibilityFillerElementsJson()},
-            {
-              "id": "late-search-input",
-              "source": "accessibility",
-              "bounds": {"left": 24, "top": 520, "right": 820, "bottom": 588},
-              "text": "搜索输入框",
-              "role": "input",
-              "clickability": {"clickable": true, "editable": true, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "late-submit",
-              "source": "accessibility",
-              "bounds": {"left": 860, "top": 520, "right": 1040, "bottom": 588},
-              "text": "搜索",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "ocr:submit",
-              "source": "ocr",
-              "bounds": {"left": 860, "top": 520, "right": 1040, "bottom": 588},
-              "text": "搜索",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.68,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-actionable-late",
+            elements = arrayOf(
+                *accessibilityFillerElements().toTypedArray(),
+                accessibilityElement(
+                    id = "late-search-input",
+                    text = "搜索输入框",
+                    role = "input",
+                    left = 24,
+                    top = 520,
+                    right = 820,
+                    bottom = 588,
+                    clickable = true,
+                    editable = true,
+                ),
+                accessibilityElement(
+                    id = "late-submit",
+                    text = "搜索",
+                    role = "button",
+                    left = 860,
+                    top = 520,
+                    right = 1040,
+                    bottom = 588,
+                    clickable = true,
+                ),
+                ocrElement(
+                    id = "ocr:submit",
+                    text = "搜索",
+                    left = 860,
+                    top = 520,
+                    right = 1040,
+                    bottom = 588,
+                    confidence = 0.68,
+                ),
+            ),
+        )
 
     private fun searchEntryObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-search-entry",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 2,
-          "sourceCounts": {"accessibility": 2},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "search-entry",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 420, "bottom": 96},
-              "text": "搜索入口",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "home-title",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 120, "right": 220, "bottom": 160},
-              "text": "首页",
-              "role": "text",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-search-entry",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "search-entry",
+                    text = "搜索入口",
+                    role = "button",
+                    left = 20,
+                    top = 32,
+                    right = 420,
+                    bottom = 96,
+                    clickable = true,
+                ),
+                accessibilityElement(
+                    id = "home-title",
+                    text = "首页",
+                    role = "text",
+                    left = 20,
+                    top = 120,
+                    right = 220,
+                    bottom = 160,
+                ),
+            ),
+        )
 
     private fun searchInputObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-search-input",
-          "capturedAtMillis": 2,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 3,
-          "sourceCounts": {"accessibility": 3},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "search-input",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 820, "bottom": 96},
-              "text": "搜索输入框",
-              "role": "input",
-              "clickability": {"clickable": true, "editable": true, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "search-submit",
-              "source": "accessibility",
-              "bounds": {"left": 900, "top": 32, "right": 1040, "bottom": 96},
-              "text": "搜索",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "cancel",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 120, "right": 120, "bottom": 160},
-              "text": "取消",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-search-input",
+            capturedAtMillis = 2L,
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "search-input",
+                    text = "搜索输入框",
+                    role = "input",
+                    left = 20,
+                    top = 32,
+                    right = 820,
+                    bottom = 96,
+                    clickable = true,
+                    editable = true,
+                ),
+                accessibilityElement(
+                    id = "search-submit",
+                    text = "搜索",
+                    role = "button",
+                    left = 900,
+                    top = 32,
+                    right = 1040,
+                    bottom = 96,
+                    clickable = true,
+                ),
+                accessibilityElement(
+                    id = "cancel",
+                    text = "取消",
+                    role = "button",
+                    left = 20,
+                    top = 120,
+                    right = 120,
+                    bottom = 160,
+                    clickable = true,
+                ),
+            ),
+        )
 
     private fun searchInputWithDangerousSiblingObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-search-input-dangerous-sibling",
-          "capturedAtMillis": 2,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 3,
-          "sourceCounts": {"accessibility": 3},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "search-input",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 820, "bottom": 96},
-              "text": "搜索输入框",
-              "role": "input",
-              "clickability": {"clickable": true, "editable": true, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "delete-recent",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 120, "right": 180, "bottom": 160},
-              "text": "删除",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "search-submit",
-              "source": "accessibility",
-              "bounds": {"left": 900, "top": 32, "right": 1040, "bottom": 96},
-              "text": "搜索",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-search-input-dangerous-sibling",
+            capturedAtMillis = 2L,
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "search-input",
+                    text = "搜索输入框",
+                    role = "input",
+                    left = 20,
+                    top = 32,
+                    right = 820,
+                    bottom = 96,
+                    clickable = true,
+                    editable = true,
+                ),
+                accessibilityElement(
+                    id = "delete-recent",
+                    text = "删除",
+                    role = "button",
+                    left = 20,
+                    top = 120,
+                    right = 180,
+                    bottom = 160,
+                    clickable = true,
+                ),
+                accessibilityElement(
+                    id = "search-submit",
+                    text = "搜索",
+                    role = "button",
+                    left = 900,
+                    top = 32,
+                    right = 1040,
+                    bottom = 96,
+                    clickable = true,
+                ),
+            ),
+        )
 
     private fun accessibilityOnlyObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-accessibility-only",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 1,
-          "sourceCounts": {"accessibility": 1},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "accessibility-button",
-              "source": "accessibility",
-              "bounds": {"left": 1, "top": 2, "right": 101, "bottom": 52},
-              "text": "继续",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
+        screenObservationFixtureJson(
+            observationId = "screen-accessibility-only",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "accessibility-button",
+                    text = "继续",
+                    role = "button",
+                    left = 1,
+                    top = 2,
+                    right = 101,
+                    bottom = 52,
+                    clickable = true,
+                ),
+            ),
+        )
+
+    private data class OcrBlockFixture(
+        val text: String,
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+        val includeEmptyLines: Boolean = false,
+    )
+
+    private fun ocrBlock(
+        text: String,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        includeEmptyLines: Boolean = false,
+    ): OcrBlockFixture =
+        OcrBlockFixture(text, left, top, right, bottom, includeEmptyLines)
+
+    private fun ocrBlocksJson(vararg blocks: OcrBlockFixture): String =
+        blocks.joinToString(prefix = "[", postfix = "]") { block ->
+            val linesJson = if (block.includeEmptyLines) ""","lines":[]""" else ""
+            """{"text":"${block.text.asJsonString()}","bounds":{"left":${block.left},"top":${block.top},"right":${block.right},"bottom":${block.bottom}}$linesJson}"""
         }
-        """.trimIndent()
+
+    private fun String.asJsonString(): String =
+        replace("\\", "\\\\").replace("\"", "\\\"")
 
     private fun repeatedContinueOcrBlocksJson(): String =
-        """
-        [
-          {"text":"继续","bounds":{"left":12,"top":22,"right":112,"bottom":72},"lines":[]},
-          {"text":"继续","bounds":{"left":12,"top":220,"right":112,"bottom":270},"lines":[]}
-        ]
-        """.trimIndent()
+        ocrBlocksJson(
+            ocrBlock("继续", left = 12, top = 22, right = 112, bottom = 72, includeEmptyLines = true),
+            ocrBlock("继续", left = 12, top = 220, right = 112, bottom = 270, includeEmptyLines = true),
+        )
 
     private fun nestedOcrScreenObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-nested-ocr",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["ocr"],
-          "elementCount": 4,
-          "sourceCounts": {"ocr": 4},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "ocr:block:0",
-              "source": "ocr",
-              "bounds": {"left": 20, "top": 20, "right": 230, "bottom": 70},
-              "text": "底部操作 取消 继续",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "ocr:block:0:line:0",
-              "source": "ocr",
-              "bounds": {"left": 20, "top": 20, "right": 230, "bottom": 70},
-              "text": "取消 继续",
-              "role": "ocr_line",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "ocr:block:0:line:0:element:0",
-              "source": "ocr",
-              "bounds": {"left": 20, "top": 20, "right": 120, "bottom": 70},
-              "text": "取消",
-              "role": "ocr_element",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "ocr:block:0:line:0:element:1",
-              "source": "ocr",
-              "bounds": {"left": 130, "top": 20, "right": 230, "bottom": 70},
-              "text": "继续",
-              "role": "ocr_element",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-nested-ocr",
+            sources = listOf("ocr"),
+            elements = arrayOf(
+                ocrElement(
+                    id = "ocr:block:0",
+                    text = "底部操作 取消 继续",
+                    left = 20,
+                    top = 20,
+                    right = 230,
+                    bottom = 70,
+                ),
+                ocrElement(
+                    id = "ocr:block:0:line:0",
+                    text = "取消 继续",
+                    left = 20,
+                    top = 20,
+                    right = 230,
+                    bottom = 70,
+                    role = "ocr_line",
+                ),
+                ocrElement(
+                    id = "ocr:block:0:line:0:element:0",
+                    text = "取消",
+                    left = 20,
+                    top = 20,
+                    right = 120,
+                    bottom = 70,
+                    role = "ocr_element",
+                ),
+                ocrElement(
+                    id = "ocr:block:0:line:0:element:1",
+                    text = "继续",
+                    left = 130,
+                    top = 20,
+                    right = 230,
+                    bottom = 70,
+                    role = "ocr_element",
+                ),
+            ),
+        )
 
     private fun boundlessOcrScreenObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-boundless-ocr",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["ocr"],
-          "elementCount": 1,
-          "sourceCounts": {"ocr": 1},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "ocr:block:0",
-              "source": "ocr",
-              "text": "继续",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.72,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-boundless-ocr",
+            sources = listOf("ocr"),
+            elements = arrayOf(
+                ocrElement("ocr:block:0", "继续"),
+            ),
+        )
 
     private fun multiTokenOcrBlocksJson(): String =
         """
@@ -3446,194 +3438,126 @@ class AgentObservationReplannerTest {
         """.trimIndent()
 
     private fun actionableFillerElementsJson(count: Int = 6): String =
-        (0 until count).joinToString(separator = ",\n") { index ->
+        actionableFillerElements(count).joinToString(separator = ",\n") { element -> element.toJson() }
+
+    private fun actionableFillerElements(count: Int = 6): List<ScreenElementFixture> =
+        (0 until count).map { index ->
             val top = 20 + (index * 20)
-            """
-            {
-              "id": "action-$index",
-              "source": "accessibility",
-              "bounds": {"left": 0, "top": $top, "right": 10, "bottom": ${top + 16}},
-              "text": "操作 $index",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-            """.trimIndent()
+            accessibilityElement(
+                id = "action-$index",
+                text = "操作 $index",
+                role = "button",
+                left = 0,
+                top = top,
+                right = 10,
+                bottom = top + 16,
+                clickable = true,
+            )
         }
 
     private fun scrollableObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-scrollable-list",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 2,
-          "sourceCounts": {"accessibility": 2},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "results-list",
-              "source": "accessibility",
-              "bounds": {"left": 0, "top": 180, "right": 1080, "bottom": 1880},
-              "text": "搜索结果",
-              "role": "list",
-              "clickability": {"clickable": false, "editable": false, "scrollable": true, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "result-title",
-              "source": "accessibility",
-              "bounds": {"left": 24, "top": 220, "right": 620, "bottom": 280},
-              "text": "结果标题",
-              "role": "text",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-scrollable-list",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "results-list",
+                    text = "搜索结果",
+                    role = "list",
+                    left = 0,
+                    top = 180,
+                    right = 1080,
+                    bottom = 1880,
+                    scrollable = true,
+                ),
+                accessibilityElement(
+                    id = "result-title",
+                    text = "结果标题",
+                    role = "text",
+                    left = 24,
+                    top = 220,
+                    right = 620,
+                    bottom = 280,
+                ),
+            ),
+        )
 
     private fun staticPaymentCopyObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-static-payment-copy",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 2,
-          "sourceCounts": {"accessibility": 2},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "payment-description",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 32, "right": 620, "bottom": 96},
-              "text": "支付说明",
-              "role": "text",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "continue-button",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 120, "right": 220, "bottom": 180},
-              "text": "继续",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-static-payment-copy",
+            elements = arrayOf(
+                accessibilityElement(
+                    id = "payment-description",
+                    text = "支付说明",
+                    role = "text",
+                    left = 20,
+                    top = 32,
+                    right = 620,
+                    bottom = 96,
+                ),
+                accessibilityElement(
+                    id = "continue-button",
+                    text = "继续",
+                    role = "button",
+                    left = 20,
+                    top = 120,
+                    right = 220,
+                    bottom = 180,
+                    clickable = true,
+                ),
+            ),
+        )
 
     private fun emptyObservationJson(observationId: String): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "$observationId",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility"],
-          "elementCount": 0,
-          "sourceCounts": {},
-          "truncated": false,
-          "elements": []
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(observationId = observationId)
 
     private fun ocrOnlyObservationJson(
         observationId: String,
         texts: List<String>,
-    ): String {
-        val elements = texts.mapIndexed { index, text ->
-            val top = 520 + (index * 80)
-            val bottom = top + 68
-            """
-            {
-              "id": "ocr:submit:$index",
-              "source": "ocr",
-              "bounds": {"left": 20, "top": $top, "right": 220, "bottom": $bottom},
-              "text": "$text",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.80,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-            """.trimIndent()
-        }
-        return """
-        {
-          "schemaVersion": 1,
-          "observationId": "$observationId",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["ocr"],
-          "elementCount": ${texts.size},
-          "sourceCounts": {"ocr": ${texts.size}},
-          "truncated": false,
-          "elements": [
-            ${elements.joinToString(separator = ",\n")}
-          ]
-        }
-        """.trimIndent()
-    }
+    ): String =
+        screenObservationFixtureJson(
+            observationId = observationId,
+            sources = listOf("ocr"),
+            elements = texts.mapIndexed { index, text ->
+                val top = 520 + (index * 80)
+                val bottom = top + 68
+                ocrElement(
+                    id = "ocr:submit:$index",
+                    text = text,
+                    left = 20,
+                    top = top,
+                    right = 220,
+                    bottom = bottom,
+                    confidence = 0.80,
+                )
+            }.toTypedArray(),
+        )
 
     private fun staticPaymentOcrCopyObservationJson(): String =
-        """
-        {
-          "schemaVersion": 1,
-          "observationId": "screen-static-payment-ocr-copy",
-          "capturedAtMillis": 1,
-          "packageName": "com.example.app",
-          "privacyLevel": "LocalOnly",
-          "sources": ["accessibility", "ocr"],
-          "elementCount": 2,
-          "sourceCounts": {"accessibility": 1, "ocr": 1},
-          "truncated": false,
-          "elements": [
-            {
-              "id": "ocr:payment-description",
-              "source": "ocr",
-              "bounds": {"left": 20, "top": 32, "right": 620, "bottom": 96},
-              "text": "支付说明",
-              "role": "ocr_block",
-              "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 0.82,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            },
-            {
-              "id": "continue-button",
-              "source": "accessibility",
-              "bounds": {"left": 20, "top": 120, "right": 220, "bottom": 180},
-              "text": "继续",
-              "role": "button",
-              "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
-              "confidence": 1.0,
-              "sensitiveFlags": [],
-              "privacyLevel": "LocalOnly"
-            }
-          ]
-        }
-        """.trimIndent()
+        screenObservationFixtureJson(
+            observationId = "screen-static-payment-ocr-copy",
+            sources = listOf("accessibility", "ocr"),
+            elements = arrayOf(
+                ocrElement(
+                    id = "ocr:payment-description",
+                    text = "支付说明",
+                    left = 20,
+                    top = 32,
+                    right = 620,
+                    bottom = 96,
+                    confidence = 0.82,
+                ),
+                accessibilityElement(
+                    id = "continue-button",
+                    text = "继续",
+                    role = "button",
+                    left = 20,
+                    top = 120,
+                    right = 220,
+                    bottom = 180,
+                    clickable = true,
+                ),
+            ),
+        )
 
     private companion object {
         private const val LOCAL_EVIDENCE_TOOL = "test_local_evidence_tool"

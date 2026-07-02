@@ -157,26 +157,32 @@ fun buildRcPerfResult(
  */
 object RcPerfResultFormatter {
     const val SCHEMA = "RcPerfResult/v1"
-    const val MAX_VALUE_CHARS = 8_000
+    private const val MAX_VALUE_CHARS = 8_000
+    private const val RESULT_SUCCESS = "success"
+    private const val RESULT_FAILED = "failed"
+    private const val KEY_SCHEMA = "rcPerfSchema"
+    private const val KEY_RESULT_TYPE = "resultType"
+    private const val KEY_REASON = "reason"
 
-    const val KEY_SCHEMA = "rcPerfSchema"
-    const val KEY_RESULT_TYPE = "resultType"
-    const val KEY_REASON = "reason"
-    const val KEY_MODEL_ID = "modelId"
-    const val KEY_BACKEND = "backend"
-    const val KEY_MODEL_LOAD_MS = "modelLoadMs"
-    const val KEY_FIRST_TOKEN_MS = "firstTokenMs"
-    const val KEY_TOKEN_COUNT = "tokenCount"
-    const val KEY_TOKENS_PER_SECOND = "tokensPerSecond"
-    const val KEY_STOP_RECOVERY_MS = "stopGenerationRecoveryMs"
-    const val KEY_GPU_FALLBACK_STATUS = "gpuFallbackStatus"
-    const val KEY_VISION_INPUT_MS = "visionInputMs"
-    const val KEY_MEMORY_SEARCH_5K_MS = "memorySearch5kMs"
-    const val KEY_ZVEC_MEMORY_INDEX_50K_MS = "zvecMemoryIndex50kMs"
-    const val KEY_ZVEC_MEMORY_SEARCH_50K_MS = "zvecMemorySearch50kMs"
+    private data class MetricField(
+        val key: String,
+        val value: (RcPerfMetrics) -> String,
+    )
 
-    const val RESULT_SUCCESS = "success"
-    const val RESULT_FAILED = "failed"
+    private val successFields = listOf(
+        MetricField("modelId") { metrics -> metrics.modelId },
+        MetricField("backend") { metrics -> metrics.backend.name },
+        MetricField("modelLoadMs") { metrics -> metrics.modelLoadMs.toString() },
+        MetricField("firstTokenMs") { metrics -> metrics.firstTokenMs.toString() },
+        MetricField("tokenCount") { metrics -> metrics.tokenCount.toString() },
+        MetricField("tokensPerSecond") { metrics -> metrics.tokensPerSecond.toString() },
+        MetricField("stopGenerationRecoveryMs") { metrics -> metrics.stopGenerationRecoveryMs.toString() },
+        MetricField("gpuFallbackStatus") { metrics -> metrics.gpuFallbackStatus.wireValue },
+        MetricField("visionInputMs") { metrics -> metrics.visionInputMs.toString() },
+        MetricField("memorySearch5kMs") { metrics -> metrics.memorySearch5kMs.toString() },
+        MetricField("zvecMemoryIndex50kMs") { metrics -> metrics.zvecMemoryIndex50kMs.toString() },
+        MetricField("zvecMemorySearch50kMs") { metrics -> metrics.zvecMemorySearch50kMs.toString() },
+    )
 
     fun cleanValue(value: String): String =
         value.replace('\r', ' ')
@@ -194,19 +200,7 @@ object RcPerfResultFormatter {
         val lines = listOf(
             line(KEY_SCHEMA, SCHEMA),
             line(KEY_RESULT_TYPE, RESULT_SUCCESS),
-            line(KEY_MODEL_ID, metrics.modelId),
-            line(KEY_BACKEND, metrics.backend.name),
-            line(KEY_MODEL_LOAD_MS, metrics.modelLoadMs.toString()),
-            line(KEY_FIRST_TOKEN_MS, metrics.firstTokenMs.toString()),
-            line(KEY_TOKEN_COUNT, metrics.tokenCount.toString()),
-            line(KEY_TOKENS_PER_SECOND, metrics.tokensPerSecond.toString()),
-            line(KEY_STOP_RECOVERY_MS, metrics.stopGenerationRecoveryMs.toString()),
-            line(KEY_GPU_FALLBACK_STATUS, metrics.gpuFallbackStatus.wireValue),
-            line(KEY_VISION_INPUT_MS, metrics.visionInputMs.toString()),
-            line(KEY_MEMORY_SEARCH_5K_MS, metrics.memorySearch5kMs.toString()),
-            line(KEY_ZVEC_MEMORY_INDEX_50K_MS, metrics.zvecMemoryIndex50kMs.toString()),
-            line(KEY_ZVEC_MEMORY_SEARCH_50K_MS, metrics.zvecMemorySearch50kMs.toString()),
-        )
+        ) + successFields.map { field -> line(field.key, field.value(metrics)) }
         return lines.joinToString(separator = "\n", postfix = "\n")
     }
 
@@ -242,19 +236,19 @@ object RcPerfResultFormatter {
     private fun parseSuccess(fields: Map<String, String>): RcPerfResult {
         return runCatching {
             RcPerfMetrics(
-                modelId = fields.getValue(KEY_MODEL_ID),
-                backend = BackendChoice.valueOf(fields.getValue(KEY_BACKEND)),
-                modelLoadMs = fields.getValue(KEY_MODEL_LOAD_MS).toLong(),
-                firstTokenMs = fields.getValue(KEY_FIRST_TOKEN_MS).toLong(),
-                tokenCount = fields.getValue(KEY_TOKEN_COUNT).toInt(),
-                tokensPerSecond = fields.getValue(KEY_TOKENS_PER_SECOND).toDouble(),
-                stopGenerationRecoveryMs = fields.getValue(KEY_STOP_RECOVERY_MS).toLong(),
-                gpuFallbackStatus = GpuFallbackStatus.fromWireValue(fields.getValue(KEY_GPU_FALLBACK_STATUS))
+                modelId = fields.getValue("modelId"),
+                backend = BackendChoice.valueOf(fields.getValue("backend")),
+                modelLoadMs = fields.getValue("modelLoadMs").toLong(),
+                firstTokenMs = fields.getValue("firstTokenMs").toLong(),
+                tokenCount = fields.getValue("tokenCount").toInt(),
+                tokensPerSecond = fields.getValue("tokensPerSecond").toDouble(),
+                stopGenerationRecoveryMs = fields.getValue("stopGenerationRecoveryMs").toLong(),
+                gpuFallbackStatus = GpuFallbackStatus.fromWireValue(fields.getValue("gpuFallbackStatus"))
                     ?: error("unknown gpuFallbackStatus"),
-                visionInputMs = fields.getValue(KEY_VISION_INPUT_MS).toLong(),
-                memorySearch5kMs = fields.getValue(KEY_MEMORY_SEARCH_5K_MS).toLong(),
-                zvecMemoryIndex50kMs = fields.getValue(KEY_ZVEC_MEMORY_INDEX_50K_MS).toLong(),
-                zvecMemorySearch50kMs = fields.getValue(KEY_ZVEC_MEMORY_SEARCH_50K_MS).toLong(),
+                visionInputMs = fields.getValue("visionInputMs").toLong(),
+                memorySearch5kMs = fields.getValue("memorySearch5kMs").toLong(),
+                zvecMemoryIndex50kMs = fields.getValue("zvecMemoryIndex50kMs").toLong(),
+                zvecMemorySearch50kMs = fields.getValue("zvecMemorySearch50kMs").toLong(),
             )
         }.fold(
             onSuccess = { RcPerfResult.Success(it) },

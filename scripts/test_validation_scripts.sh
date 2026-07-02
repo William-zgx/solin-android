@@ -881,11 +881,31 @@ assert_report_contains() {
 }
 
 assert_report_contains_text() {
+  assert_file_contains_text "$@"
+}
+
+assert_file_contains_text() {
   local file="$1"
   local expected="$2"
-  [[ -f "$file" ]] || fail "Expected verification report at $file"
-  grep -qF "$expected" "$file" ||
+  [[ -f "$file" ]] || fail "Expected file at $file"
+  grep -qF -- "$expected" "$file" ||
     fail "Expected $file to contain text: $expected"
+}
+
+assert_file_matches() {
+  local file="$1"
+  local expected_pattern="$2"
+  [[ -f "$file" ]] || fail "Expected file at $file"
+  grep -Eq -- "$expected_pattern" "$file" ||
+    fail "Expected $file to match pattern: $expected_pattern"
+}
+
+assert_text_contains() {
+  local label="$1"
+  local text="$2"
+  local expected="$3"
+  grep -qF -- "$expected" <<<"$text" ||
+    fail "Expected $label to contain text: $expected"
 }
 
 assert_real_app_case_diagnostics() {
@@ -1386,129 +1406,109 @@ grep -q 'RELEASE_AAB="app/build/outputs/bundle/release/app-release.aab"' scripts
   fail "verify_local.sh must verify the release AAB artifact"
 grep -q -- '--aab "$RELEASE_AAB"' scripts/verify_local.sh ||
   fail "verify_local.sh must scan the release AAB artifact"
-grep -q 'scripts/regression_emulator.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include regression_emulator.sh in shell syntax checks"
-grep -q 'scripts/check_emulator_api_matrix.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include check_emulator_api_matrix.sh in shell syntax checks"
-grep -q 'scripts/prepare_emulator_api_matrix.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include prepare_emulator_api_matrix.sh in shell syntax checks"
-grep -q 'scripts/prepare_x86_emulator.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include prepare_x86_emulator.sh in shell syntax checks"
-grep -q 'scripts/check_x86_emulator_host.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include check_x86_emulator_host.sh in shell syntax checks"
-grep -q 'scripts/capture_x86_release_screenshots.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include capture_x86_release_screenshots.sh in shell syntax checks"
-grep -q 'scripts/regression_emulator_api_matrix.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include regression_emulator_api_matrix.sh in shell syntax checks"
-grep -q 'scripts/install_review_device.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include install_review_device.sh in shell syntax checks"
-grep -q 'scripts/verify_fresh_start_main_shell_emulator.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_fresh_start_main_shell_emulator.sh in shell syntax checks"
-grep -q 'scripts/live_remote_emulator.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include live_remote_emulator.sh in shell syntax checks"
-grep -q 'scripts/run_mock_target_app_search_eval.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include run_mock_target_app_search_eval.sh in shell syntax checks"
-MOCK_MODEL_DRIVEN_CASE_BLOCK="$(sed -n '/^run_model_driven_case()/,/^}/p' scripts/run_mock_target_app_search_eval.sh)"
-grep -qF -- '--es verifySearchQuery "$query"' <<<"$MOCK_MODEL_DRIVEN_CASE_BLOCK" ||
-  fail "mock model-driven app search eval must pass verifySearchQuery"
-grep -qF -- '--es expectedPackageName "$package_name"' <<<"$MOCK_MODEL_DRIVEN_CASE_BLOCK" ||
-  fail "mock model-driven app search eval must pass expectedPackageName"
-grep -qF -- '--es expectedAppName "$app_name"' <<<"$MOCK_MODEL_DRIVEN_CASE_BLOCK" ||
-  fail "mock model-driven app search eval must pass expectedAppName"
-assert_report_contains_text scripts/run_mock_target_app_search_eval.sh \
-  'run_model_driven_case taobao com.taobao.taobao "淘宝" "海河牛奶"'
-grep -q 'scripts/capture_release_screenshots.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include capture_release_screenshots.sh in shell syntax checks"
-grep -q 'scripts/collect_release_flow_matrix_evidence.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include collect_release_flow_matrix_evidence.sh in shell syntax checks"
-grep -q 'scripts/collect_crash_anr_smoke_evidence.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include collect_crash_anr_smoke_evidence.sh in shell syntax checks"
-grep -q 'scripts/record_manual_acceptance_evidence.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include record_manual_acceptance_evidence.sh in shell syntax checks"
-grep -q 'scripts/record_release_flow_evidence.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include record_release_flow_evidence.sh in shell syntax checks"
-grep -q 'scripts/verify_upgrade_install_emulator.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_upgrade_install_emulator.sh in shell syntax checks"
-grep -q 'releaseFlowPassed=false' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must not claim release flow approval"
-grep -q 'versionCodeIncreased=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose versionCodeIncreased"
-grep -q 'UPGRADE_BASE_APK' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator verifier must accept an explicit base APK"
-grep -q 'UPGRADE_CURRENT_APK' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator verifier must accept an explicit current APK"
-grep -q 'baseSignerSha256=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose base signer SHA-256"
-grep -q 'currentSignerSha256=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose current signer SHA-256"
-grep -q 'signerSha256Matches=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose signer SHA-256 match status"
-grep -q 'baseInstallOutputFile=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must preserve base install output"
-grep -q 'currentInstallOutputFile=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must preserve current install output"
-grep -q 'testInstallOutputFile=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must preserve AndroidTest install output"
-grep -q 'baseApkMode=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose base APK mode"
-grep -q 'currentApkMode=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose current APK mode"
-grep -q 'currentSourceApk=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose current APK source"
-grep -q 'currentAndroidTestSourceApk=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must expose current AndroidTest APK source"
-grep -q 'baseVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must preserve raw base versionCode"
-grep -q 'currentVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
-  fail "upgrade install emulator report must preserve raw current versionCode"
-for eval_script in scripts/run_device_control_debug_eval.sh scripts/run_real_app_search_eval.sh; do
-  grep -q 'artifact_schema=' "$eval_script" ||
-    fail "$eval_script report must expose an artifact schema"
-  grep -q 'artifact_id=' "$eval_script" ||
-    fail "$eval_script report must expose an artifact id"
-  grep -q 'failedTarget=' "$eval_script" ||
-    fail "$eval_script report must expose failedTarget"
-  grep -q 'api_level=' "$eval_script" ||
-    fail "$eval_script report must expose API level"
-  grep -q 'abi=' "$eval_script" ||
-    fail "$eval_script report must expose ABI"
-  grep -q 'logcat_sha256=' "$eval_script" ||
-    fail "$eval_script report must bind logcat SHA-256"
+
+verify_local_shellcheck_scripts=(
+  scripts/regression_emulator.sh
+  scripts/check_emulator_api_matrix.sh
+  scripts/prepare_emulator_api_matrix.sh
+  scripts/prepare_x86_emulator.sh
+  scripts/check_x86_emulator_host.sh
+  scripts/capture_x86_release_screenshots.sh
+  scripts/regression_emulator_api_matrix.sh
+  scripts/install_review_device.sh
+  scripts/verify_fresh_start_main_shell_emulator.sh
+  scripts/live_remote_emulator.sh
+  scripts/run_mock_target_app_search_eval.sh
+  scripts/capture_release_screenshots.sh
+  scripts/collect_release_flow_matrix_evidence.sh
+  scripts/collect_crash_anr_smoke_evidence.sh
+  scripts/record_manual_acceptance_evidence.sh
+  scripts/record_release_flow_evidence.sh
+  scripts/verify_upgrade_install_emulator.sh
+  scripts/verify_ai_behavior_eval.sh
+  scripts/collect_ai_behavior_actual_trace.sh
+)
+for script_path in "${verify_local_shellcheck_scripts[@]}"; do
+  assert_file_contains_text scripts/verify_local.sh "$script_path"
 done
-grep -q 'scripts/verify_ai_behavior_eval.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_ai_behavior_eval.sh in shell syntax checks"
-grep -q 'scripts/collect_ai_behavior_actual_trace.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include collect_ai_behavior_actual_trace.sh in shell syntax checks"
-grep -q -- '--trace-diff "$ARTIFACT_DIR/ai-behavior-planning-trace-diff.jsonl"' scripts/verify_release_gate.sh ||
-  fail "release gate must write AI behavior planning trace diff"
-grep -q 'REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1' scripts/verify_release_gate.sh ||
-  fail "public release gate must require AI behavior actual trace"
-grep -q 'REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
-  fail "public release gate must require AI behavior runtime trace source"
-grep -q 'REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
-  fail "public release gate must require agent_loop_runtime actual trace provenance"
-grep -q 'REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1' scripts/verify_release_gate.sh ||
-  fail "public release gate must reject AI behavior allowed failures"
-grep -q 'VERIFY_AI_BEHAVIOR_EVAL=1' scripts/verify_release_gate.sh ||
-  fail "public release gate must force AI behavior eval"
-grep -q -- '--require-boundary-map' scripts/verify_release_gate.sh ||
-  fail "release gate must require AI behavior eval boundary mapping"
-grep -q -- '--require-agent-loop-runtime-trace-source' scripts/collect_ai_behavior_actual_trace.sh ||
-  fail "AI behavior actual trace collector must require agent_loop_runtime source provenance"
-grep -qx 'artifactSchema=PerfBaseline/v1' docs/perf_baseline_template.properties ||
-  fail "perf baseline template must declare PerfBaseline/v1 schema"
-grep -qx 'target=perf-baseline-record' docs/perf_baseline_template.properties ||
-  fail "perf baseline template must declare perf-baseline-record target"
-grep -qE '^owner=.+$' docs/perf_baseline_template.properties ||
-  fail "perf baseline template must include non-empty owner placeholder"
-grep -qE '^collectionCommand=.*scripts/collect_rc_perf_from_device\.sh' docs/perf_baseline_template.properties ||
-  fail "perf baseline template must include collection command provenance"
-grep -qE '^reproduciblePath=/.+' docs/perf_baseline_template.properties ||
-  fail "perf baseline template must include absolute reproduciblePath placeholder"
-grep -q 'docs/capability_matrix.json' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must read MVP scenarios from capability matrix JSON"
-grep -q 'nextStageMvpScenarios' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must use nextStageMvpScenarios as the MVP scenario source"
+
+MOCK_MODEL_DRIVEN_CASE_BLOCK="$(sed -n '/^run_model_driven_case()/,/^}/p' scripts/run_mock_target_app_search_eval.sh)"
+for expected in \
+  '--es verifySearchQuery "$query"' \
+  '--es expectedPackageName "$package_name"' \
+  '--es expectedAppName "$app_name"'; do
+  assert_text_contains run_model_driven_case "$MOCK_MODEL_DRIVEN_CASE_BLOCK" "$expected"
+done
+assert_file_contains_text scripts/run_mock_target_app_search_eval.sh \
+  'run_model_driven_case taobao com.taobao.taobao "淘宝" "海河牛奶"'
+
+upgrade_install_contract=(
+  releaseFlowPassed=false
+  versionCodeIncreased=
+  UPGRADE_BASE_APK
+  UPGRADE_CURRENT_APK
+  baseSignerSha256=
+  currentSignerSha256=
+  signerSha256Matches=
+  baseInstallOutputFile=
+  currentInstallOutputFile=
+  testInstallOutputFile=
+  baseApkMode=
+  currentApkMode=
+  currentSourceApk=
+  currentAndroidTestSourceApk=
+  baseVersionCodeRaw=
+  currentVersionCodeRaw=
+)
+for expected in "${upgrade_install_contract[@]}"; do
+  assert_file_contains_text scripts/verify_upgrade_install_emulator.sh "$expected"
+done
+
+eval_report_contract=(
+  artifact_schema=
+  artifact_id=
+  failedTarget=
+  api_level=
+  abi=
+  logcat_sha256=
+)
+for eval_script in scripts/run_device_control_debug_eval.sh scripts/run_real_app_search_eval.sh; do
+  for expected in "${eval_report_contract[@]}"; do
+    assert_file_contains_text "$eval_script" "$expected"
+  done
+done
+
+release_gate_ai_contract=(
+  '--trace-diff "$ARTIFACT_DIR/ai-behavior-planning-trace-diff.jsonl"'
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1
+  REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1
+  REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1
+  VERIFY_AI_BEHAVIOR_EVAL=1
+  --require-boundary-map
+)
+for expected in "${release_gate_ai_contract[@]}"; do
+  assert_file_contains_text scripts/verify_release_gate.sh "$expected"
+done
+assert_file_contains_text \
+  scripts/collect_ai_behavior_actual_trace.sh \
+  --require-agent-loop-runtime-trace-source
+
+assert_report_contains docs/perf_baseline_template.properties "artifactSchema=PerfBaseline/v1"
+assert_report_contains docs/perf_baseline_template.properties "target=perf-baseline-record"
+assert_file_matches docs/perf_baseline_template.properties '^owner=.+$'
+assert_file_matches \
+  docs/perf_baseline_template.properties \
+  '^collectionCommand=.*scripts/collect_rc_perf_from_device\.sh'
+assert_file_matches docs/perf_baseline_template.properties '^reproduciblePath=/.+'
+
+ai_behavior_eval_contract=(
+  docs/capability_matrix.json
+  nextStageMvpScenarios
+)
+for expected in "${ai_behavior_eval_contract[@]}"; do
+  assert_file_contains_text scripts/verify_ai_behavior_eval.sh "$expected"
+done
 if grep -q 'REQUIRED_MVP_SCENARIOS=' scripts/verify_ai_behavior_eval.sh; then
   fail "AI behavior eval gate must not keep a hard-coded MVP scenario array"
 fi
@@ -1542,64 +1542,45 @@ if len(set(json_ids)) != len(json_ids) or any(not title.strip() for title in jso
     print("docs/capability_matrix.json nextStageMvpScenarios must have unique IDs and non-blank titles", file=sys.stderr)
     sys.exit(1)
 PY
-grep -q 'requiredBehaviorEvalBoundaries' docs/capability_matrix.json ||
-  fail "Capability matrix must declare required behavior eval boundaries"
-grep -q 'requiredBehaviorEvalBoundaries' app/src/main/java/com/bytedance/zgx/solin/capability/CapabilityMatrix.kt ||
-  fail "CapabilityMatrix must own required behavior eval boundary declarations"
-grep -q -- '--capability-matrix' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must accept an explicit capability matrix input"
-grep -q 'underCoveredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose under-covered MVP scenarios"
-grep -q 'missingRequiredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose missing MVP scenarios"
-grep -q 'expectedTools' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must validate expected tool fixtures"
-grep -q 'expectedConfirmation' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must validate confirmation fixtures"
-grep -q 'expectedRiskLevel' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must validate risk level fixtures"
-grep -q 'privacy-mismatch' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must reject inconsistent privacy fixtures"
-grep -q 'val supported: Set<String>' app/src/main/java/com/bytedance/zgx/solin/action/ActionModels.kt ||
-  fail "MobileActionFunctions must expose supported tool names for eval validation"
-grep -q 'supported_tool_names' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must validate expected tools against supported tool names"
-grep -q 'unknown-tool' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must reject unknown expected tools"
-grep -q 'casesWithExpectedTools=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose expected tool coverage"
-grep -q 'confirmationBreakdown=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose confirmation breakdown"
-grep -q 'riskLevelBreakdown=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose risk level breakdown"
-grep -q 'privacyBreakdown=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose privacy breakdown"
-grep -q 'missing-confirmation-coverage' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must require confirmation coverage"
-grep -q 'remote_send_confirmation' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must require remote send confirmation coverage"
-grep -q 'missing-risk-coverage' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must require risk coverage"
-grep -q 'traceDiffMissingActualCount=' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval report must expose planning trace diff missing-actual count"
-grep -q 'actualTools' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval trace diff must include actual tools"
-grep -q 'routingPath' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval trace diff must validate routing path evidence"
-grep -q 'actualRoutingPath' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval trace diff must emit routing path evidence"
-grep -q 'actualTraceSource' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval trace diff must emit per-case trace source evidence"
-grep -q 'actualTraceRecordedAt' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval trace diff must emit per-case trace timestamp evidence"
-grep -q 'AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must expose an actual trace max-age override"
-grep -q 'actual-trace-recordedAt-stale' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must reject stale actual trace timestamps"
-grep -q 'actual-trace-unknown-case-id' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must reject unknown actual trace case IDs"
-grep -q 'trace-diff-missing-required-failure-mode' scripts/verify_ai_behavior_eval.sh ||
-  fail "AI behavior eval gate must require fail-closed actual failure modes"
+assert_file_contains_text docs/capability_matrix.json requiredBehaviorEvalBoundaries
+assert_file_contains_text \
+  app/src/main/java/com/bytedance/zgx/solin/capability/CapabilityMatrix.kt \
+  requiredBehaviorEvalBoundaries
+assert_file_contains_text \
+  app/src/main/java/com/bytedance/zgx/solin/action/ActionModels.kt \
+  'val supported: Set<String>'
+
+ai_behavior_eval_contract=(
+  --capability-matrix
+  underCoveredMvpScenarios=
+  missingRequiredMvpScenarios=
+  expectedTools
+  expectedConfirmation
+  expectedRiskLevel
+  privacy-mismatch
+  supported_tool_names
+  unknown-tool
+  casesWithExpectedTools=
+  confirmationBreakdown=
+  riskLevelBreakdown=
+  privacyBreakdown=
+  missing-confirmation-coverage
+  remote_send_confirmation
+  missing-risk-coverage
+  traceDiffMissingActualCount=
+  actualTools
+  routingPath
+  actualRoutingPath
+  actualTraceSource
+  actualTraceRecordedAt
+  AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS
+  actual-trace-recordedAt-stale
+  actual-trace-unknown-case-id
+  trace-diff-missing-required-failure-mode
+)
+for expected in "${ai_behavior_eval_contract[@]}"; do
+  assert_file_contains_text scripts/verify_ai_behavior_eval.sh "$expected"
+done
 AI_BEHAVIOR_FIXTURE_DIR_SHA="$(fixture_dir_sha256 app/src/test/resources/ai_behavior_eval)"
 AI_BEHAVIOR_ACTION_MODELS_FILE="app/src/main/java/com/bytedance/zgx/solin/action/ActionModels.kt"
 AI_BEHAVIOR_ACTION_MODELS_SHA="$(shasum -a 256 "$AI_BEHAVIOR_ACTION_MODELS_FILE" | awk '{print $1}')"
@@ -2822,46 +2803,33 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "status=failed"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "reason=actual-trace-unknown-case-id:"
-grep -q 'scripts/privacy_scan.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include privacy_scan.sh in shell syntax checks"
-grep -q 'scripts/scan_android_artifacts.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include scan_android_artifacts.sh in shell syntax checks"
-grep -q 'scripts/verify_perf_baseline.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_perf_baseline.sh in shell syntax checks"
-grep -q 'scripts/verify_privacy_review.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_privacy_review.sh in shell syntax checks"
-grep -q 'scripts/verify_release_record.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_release_record.sh in shell syntax checks"
-grep -q 'scripts/verify_store_policy_record.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_store_policy_record.sh in shell syntax checks"
-grep -q 'scripts/verify_release_operations_record.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_release_operations_record.sh in shell syntax checks"
-grep -q 'scripts/verify_release_validation_record.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_release_validation_record.sh in shell syntax checks"
-grep -q 'scripts/verify_model_license_review.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_model_license_review.sh in shell syntax checks"
-grep -q 'scripts/verify_model_capability_profiles.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_model_capability_profiles.sh in shell syntax checks"
-grep -q 'scripts/verify_real_app_search_report.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_real_app_search_report.sh in shell syntax checks"
-grep -q 'scripts/verify_capability_matrix.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_capability_matrix.sh in shell syntax checks"
-grep -q 'scripts/release_preflight_fields.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include release_preflight_fields.sh in shell syntax checks"
-grep -q 'scripts/verify_model_memory_multimodal_local_gates.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_model_memory_multimodal_local_gates.sh in shell syntax checks"
-grep -q 'scripts/verify_release_mapping.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_release_mapping.sh in shell syntax checks"
-grep -q 'scripts/verify_release_gate.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include verify_release_gate.sh in shell syntax checks"
-grep -q 'scripts/collect_perf_baseline.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include collect_perf_baseline.sh in shell syntax checks"
-grep -q 'scripts/collect_rc_perf_from_device.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include collect_rc_perf_from_device.sh in shell syntax checks"
-grep -q 'scripts/collect_model_license_metadata.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include collect_model_license_metadata.sh in shell syntax checks"
-grep -q 'scripts/sign_release_artifacts.sh' scripts/verify_local.sh ||
-  fail "verify_local.sh must include sign_release_artifacts.sh in shell syntax checks"
+
+verify_local_release_scripts=(
+  scripts/privacy_scan.sh
+  scripts/scan_android_artifacts.sh
+  scripts/verify_perf_baseline.sh
+  scripts/verify_privacy_review.sh
+  scripts/verify_release_record.sh
+  scripts/verify_store_policy_record.sh
+  scripts/verify_release_operations_record.sh
+  scripts/verify_release_validation_record.sh
+  scripts/verify_model_license_review.sh
+  scripts/verify_model_capability_profiles.sh
+  scripts/verify_real_app_search_report.sh
+  scripts/verify_capability_matrix.sh
+  scripts/release_preflight_fields.sh
+  scripts/verify_model_memory_multimodal_local_gates.sh
+  scripts/verify_release_mapping.sh
+  scripts/verify_release_gate.sh
+  scripts/collect_perf_baseline.sh
+  scripts/collect_rc_perf_from_device.sh
+  scripts/collect_model_license_metadata.sh
+  scripts/sign_release_artifacts.sh
+)
+for script_path in "${verify_local_release_scripts[@]}"; do
+  assert_file_contains_text scripts/verify_local.sh "$script_path"
+done
+
 for signing_script in scripts/sign_release_artifacts.sh scripts/package_bundled_models.sh; do
   if grep -q -- '--ks-pass "pass:' "$signing_script" ||
     grep -q -- '--key-pass "pass:' "$signing_script" ||
@@ -2869,24 +2837,29 @@ for signing_script in scripts/sign_release_artifacts.sh scripts/package_bundled_
     grep -q -- '-keypass "$RELEASE_KEY_PASSWORD"' "$signing_script"; then
     fail "$signing_script must not pass signing passwords through argv"
   fi
-  grep -q -- '--ks-pass "file:' "$signing_script" ||
-    fail "$signing_script must pass apksigner keystore password through a file source"
-  grep -q -- '--key-pass "file:' "$signing_script" ||
-    fail "$signing_script must pass apksigner key password through a file source"
+  for expected in '--ks-pass "file:' '--key-pass "file:'; do
+    assert_file_contains_text "$signing_script" "$expected"
+  done
 done
 
-grep -q 'android:name=".rcperf.RcPerfHarnessService"' app/src/rcPerfRelease/AndroidManifest.xml ||
-  fail "rcPerfRelease must declare the rc perf harness service"
-grep -q 'android:permission="android.permission.DUMP"' app/src/rcPerfRelease/AndroidManifest.xml ||
-  fail "rcPerfRelease service must require a shell-held signature permission"
-grep -q 'android:foregroundServiceType="specialUse"' app/src/rcPerfRelease/AndroidManifest.xml ||
-  fail "rcPerfRelease service must run as a foreground special-use service"
-grep -q 'com.bytedance.zgx.solin.rcperf.RUN' app/src/rcPerfRelease/AndroidManifest.xml ||
-  fail "rcPerfRelease service must expose only the app-specific rc perf action"
-grep -q 'RC_PERF_ACTION="${PACKAGE_NAME}.rcperf.RUN"' scripts/collect_rc_perf_from_device.sh ||
-  fail "rc perf collector must use the app-specific rc perf action"
-grep -q 'am start-foreground-service -a "$RC_PERF_ACTION"' scripts/collect_rc_perf_from_device.sh ||
-  fail "rc perf collector must run the long harness through a foreground service"
+rc_perf_manifest_contract=(
+  'android:name=".rcperf.RcPerfHarnessService"'
+  'android:permission="android.permission.DUMP"'
+  'android:foregroundServiceType="specialUse"'
+  com.bytedance.zgx.solin.rcperf.RUN
+)
+for expected in "${rc_perf_manifest_contract[@]}"; do
+  assert_file_contains_text app/src/rcPerfRelease/AndroidManifest.xml "$expected"
+done
+
+rc_perf_collector_contract=(
+  'RC_PERF_ACTION="${PACKAGE_NAME}.rcperf.RUN"'
+  'am start-foreground-service -a "$RC_PERF_ACTION"'
+)
+for expected in "${rc_perf_collector_contract[@]}"; do
+  assert_file_contains_text scripts/collect_rc_perf_from_device.sh "$expected"
+done
+
 if grep -q 'android.intent.action.RUN' app/src/rcPerfRelease/AndroidManifest.xml scripts/collect_rc_perf_from_device.sh; then
   fail "rc perf collector/manifest must not use android.intent.action.RUN"
 fi
@@ -2903,18 +2876,15 @@ for RELEASE_PREFLIGHT_VERIFIER in \
   scripts/verify_model_license_review.sh \
   scripts/verify_release_validation_record.sh \
   scripts/verify_release_operations_record.sh; do
-  grep -q 'release_preflight_fields.sh' "$RELEASE_PREFLIGHT_VERIFIER" ||
-    fail "$RELEASE_PREFLIGHT_VERIFIER must source release_preflight_fields.sh"
-  grep -q 'missingOwnerFields=' "$RELEASE_PREFLIGHT_VERIFIER" ||
-    fail "$RELEASE_PREFLIGHT_VERIFIER must report missingOwnerFields"
-  grep -q 'missingApprovalRoles=' "$RELEASE_PREFLIGHT_VERIFIER" ||
-    fail "$RELEASE_PREFLIGHT_VERIFIER must report missingApprovalRoles"
-  grep -q 'missingEvidenceFiles=' "$RELEASE_PREFLIGHT_VERIFIER" ||
-    fail "$RELEASE_PREFLIGHT_VERIFIER must report missingEvidenceFiles"
-  grep -q 'deferredDeviceEvidence=' "$RELEASE_PREFLIGHT_VERIFIER" ||
-    fail "$RELEASE_PREFLIGHT_VERIFIER must report deferredDeviceEvidence"
-  grep -q 'requiresHumanApproval=' "$RELEASE_PREFLIGHT_VERIFIER" ||
-    fail "$RELEASE_PREFLIGHT_VERIFIER must report requiresHumanApproval"
+  for expected in \
+    release_preflight_fields.sh \
+    missingOwnerFields= \
+    missingApprovalRoles= \
+    missingEvidenceFiles= \
+    deferredDeviceEvidence= \
+    requiresHumanApproval=; do
+    assert_file_contains_text "$RELEASE_PREFLIGHT_VERIFIER" "$expected"
+  done
 done
 
 CAPABILITY_MATRIX_SHA="$(shasum -a 256 docs/capability_matrix.json | awk '{print $1}')"

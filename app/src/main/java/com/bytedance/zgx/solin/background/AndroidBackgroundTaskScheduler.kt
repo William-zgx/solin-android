@@ -18,17 +18,11 @@ class AndroidBackgroundTaskScheduler(
         get() = context.getSystemService(AlarmManager::class.java)
 
     private val periodicCheckScheduler: PeriodicCheckScheduler by lazy {
+        val workClient = WorkManagerPeriodicCheckClient(context)
         PeriodicCheckScheduler(
             repository = repository,
-            workClient = WorkManagerPeriodicCheckClient(context),
-        )
-    }
-
-    private val removalCoordinator: ScheduledTaskRemovalCoordinator by lazy {
-        ScheduledTaskRemovalCoordinator(
-            repository = repository,
-            cancelReminderAlarm = ::cancelReminderAlarm,
-            cancelPeriodicWork = { periodicCheckScheduler.cancelPeriodicWork() },
+            enqueuePeriodicWork = workClient::enqueue,
+            cancelPeriodicWorkRequest = workClient::cancel,
         )
     }
 
@@ -65,10 +59,10 @@ class AndroidBackgroundTaskScheduler(
         cancelScheduledTask(taskId)
 
     override fun cancelScheduledTask(taskId: String): Result<Unit> =
-        removalCoordinator.cancelScheduled(taskId)
+        removeScheduled(taskId, repository::cancelScheduled)
 
     override fun deleteScheduledTask(taskId: String): Result<Unit> =
-        removalCoordinator.deleteScheduled(taskId)
+        removeScheduled(taskId, repository::deleteScheduled)
 
     override fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
         periodicCheckScheduler.periodicCheckPolicy()
@@ -97,6 +91,28 @@ class AndroidBackgroundTaskScheduler(
 
     fun disablePeriodicCheck(): Result<Unit> =
         periodicCheckScheduler.disablePeriodicCheck()
+
+    private fun removeScheduled(
+        taskId: String,
+        markRemoved: (String) -> Boolean,
+    ): Result<Unit> =
+        runCatching {
+            val task = repository.task(taskId)
+                ?: throw IllegalArgumentException("Scheduled task not found: $taskId")
+            if (task.status != ScheduledTaskStatus.Scheduled) {
+                throw IllegalArgumentException("Scheduled task is not cancellable: $taskId (${task.status.name})")
+            }
+            if (!markRemoved(taskId)) {
+                throw IllegalArgumentException("Scheduled task was not updated: $taskId")
+            }
+            cancelPlatformSchedule(task).getOrThrow()
+        }
+
+    private fun cancelPlatformSchedule(task: ScheduledTask): Result<Unit> =
+        when (task.type) {
+            ScheduledTaskType.Reminder -> cancelReminderAlarm(task)
+            ScheduledTaskType.PeriodicCheck -> periodicCheckScheduler.cancelPeriodicWork()
+        }
 
     private fun scheduleAlarm(task: ScheduledTask, triggerAtMillis: Long): Result<Unit> =
         runCatching {

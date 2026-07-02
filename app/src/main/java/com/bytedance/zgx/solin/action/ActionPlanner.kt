@@ -6,18 +6,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-interface ActionPlanner {
-    fun isLikelyAction(input: String): Boolean
-    fun classifyIntent(input: String): IntentCandidate
-    fun plan(input: String): ActionPlan
-}
-
 class MobileActionPlanner(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val zoneId: ZoneId = ZoneId.systemDefault(),
     private val toolRegistry: ToolRegistry = ToolRegistry(),
-) : ActionPlanner {
-    override fun classifyIntent(input: String): IntentCandidate {
+) {
+    fun classifyIntent(input: String): IntentCandidate {
         parseModelOutput(input)?.let { draft ->
             return IntentCandidate(
                 toolName = draft.functionName,
@@ -48,11 +42,11 @@ class MobileActionPlanner(
         }
     }
 
-    override fun isLikelyAction(input: String): Boolean {
+    fun isLikelyAction(input: String): Boolean {
         return classifyIntent(input).isAction
     }
 
-    override fun plan(input: String): ActionPlan =
+    fun plan(input: String): ActionPlan =
         parseModelOutput(input)?.let { ActionPlan(ActionPlanKind.Draft, it) }
             ?: inferDraft(input)?.let { ActionPlan(ActionPlanKind.Draft, it) }
             ?: ActionPlan(ActionPlanKind.NoAction)
@@ -132,7 +126,7 @@ class MobileActionPlanner(
             AppNavigationActionParser.matches(input) ->
                 AppNavigationActionParser.draft(input)
 
-            isReminderRequest(input) ->
+            ReminderActionParser.matches(input) ->
                 ReminderActionParser.draft(input)
 
             AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) ->
@@ -345,13 +339,6 @@ class MobileActionPlanner(
             else -> "将打开系统页面完成这个动作。"
         }
 
-    private fun cleanedObject(input: String): String =
-        input.trim()
-            .removePrefix("请")
-            .removePrefix("帮我")
-            .trim()
-            .ifBlank { input.trim() }
-
     private fun recentFilesSummary(kind: String, maxCount: String?): String {
         val label = recentFileKindLabel(kind)
         val base = if (maxCount.isNullOrBlank()) {
@@ -390,12 +377,6 @@ class MobileActionPlanner(
             "others" -> "其他"
             else -> kind
         }
-
-    private fun isReminderRequest(input: String): Boolean =
-        ReminderActionParser.matches(input)
-
-    private fun isCancelReminderRequest(input: String): Boolean =
-        CancelReminderActionParser.matches(input)
 
     private fun parseJsonLikeObject(raw: String): Map<String, String> {
         val content = raw.trim().removePrefix("{").removeSuffix("}")

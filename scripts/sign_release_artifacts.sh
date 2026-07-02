@@ -27,26 +27,8 @@ ORIGINAL_ARGS=("$@")
 TMP_SECRET_DIR=""
 KEYSTORE_PASSWORD_FILE_RESOLVED=""
 KEY_PASSWORD_FILE_RESOLVED=""
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-shell_command() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/sign_release_artifacts.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
+SOLIN_SCRIPT_COMMAND="scripts/sign_release_artifacts.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 signing_mode() {
   if [[ "$ALLOW_DEBUG_KEYSTORE" == "1" ]]; then
@@ -54,13 +36,6 @@ signing_mode() {
   else
     echo "production"
   fi
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  [[ -f "$file" ]] || return 0
-  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
 }
 
 read_secret_file() {
@@ -119,7 +94,7 @@ write_report() {
     printf 'artifactSchema=ReleaseSigningReport/v1\n'
     printf 'owner=release-engineering\n'
     printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf 'command=%s\n' "$(shell_command)"
+    printf 'command=%s\n' "$(command_line)"
     printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'failedTarget=%s\n' "${FAILED_TARGET:-}"
     printf 'reason=%s\n' "${FAILURE_REASON:-}"

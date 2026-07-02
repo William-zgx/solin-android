@@ -93,14 +93,3 @@ interface ToolAuditLog {
 object NoOpToolAuditSink : ToolAuditSink {
     override fun record(event: ToolAuditEvent) = Unit
 }
-
-class InMemoryToolAuditSink : ToolAuditSink {
-    private val mutableEvents = mutableListOf<ToolAuditEvent>()
-
-    val events: List<ToolAuditEvent>
-        get() = mutableEvents.toList()
-
-    override fun record(event: ToolAuditEvent) {
-        mutableEvents += event.redactedForAudit()
-    }
-}

@@ -467,17 +467,6 @@ class ModelRepositoryTest {
         }
     }
 
-    private fun withTempModelDir(block: (File) -> Unit) {
-        val dir = File.createTempFile("solin-model-dir", "")
-        dir.delete()
-        dir.mkdirs()
-        try {
-            block(dir)
-        } finally {
-            dir.deleteRecursively()
-        }
-    }
-
     private fun assertNoTemporaryModels(modelDir: File) {
         val tempFiles = modelDir.listFiles { file ->
             file.isFile && file.extension == "tmp"

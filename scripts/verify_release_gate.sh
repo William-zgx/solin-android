@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 ORIGINAL_ARGS=("$@")
+SOLIN_SCRIPT_COMMAND="scripts/verify_release_gate.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/release-gate}"
 RELEASE_GATE_OWNER="${RELEASE_GATE_OWNER:-release-engineering}"
 PERF_BASELINE_FILE="${PERF_BASELINE_FILE:-}"
@@ -52,13 +54,7 @@ GRADLE_FILE="${GRADLE_FILE:-app/build.gradle.kts}"
 
 mkdir -p "$ARTIFACT_DIR"
 RELEASE_GATE_REPORT="$ARTIFACT_DIR/release-gate.properties"
-printf -v release_gate_command '%q' "scripts/verify_release_gate.sh"
-if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-  for release_gate_arg in "${ORIGINAL_ARGS[@]}"; do
-    printf -v quoted_release_gate_arg '%q' "$release_gate_arg"
-    release_gate_command+=" $quoted_release_gate_arg"
-  done
-fi
+release_gate_command="$(command_line)"
 head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 release_artifact_path=""
 release_artifact_type=""
@@ -90,36 +86,13 @@ if [[ "$REQUIRE_AAB" == "1" && "$REQUIRE_SIGNED_ARTIFACT" == "1" && "$RELEASE_AA
   RELEASE_AAB="$DEFAULT_SIGNED_RELEASE_AAB"
 fi
 
-report_value_for() {
-  local report_file="$1"
-  local key="$2"
-  if [[ -f "$report_file" ]]; then
-    awk -F= -v key="$key" '$1 == key {print $2; exit}' "$report_file"
-  fi
-}
-
-report_status_for() {
-  report_value_for "$1" "status"
-}
-
-report_reason_for() {
-  report_value_for "$1" "reason"
-}
-
-report_sha_for() {
-  local report_file="$1"
-  if [[ -f "$report_file" ]]; then
-    shasum -a 256 "$report_file" | awk '{print $1}'
-  fi
-}
-
 write_child_report_binding() {
   local child_key="$1"
   local report_file="$2"
   printf '%sReportPath=%s\n' "$child_key" "$report_file"
   if [[ -f "$report_file" ]]; then
-    printf '%sReportStatus=%s\n' "$child_key" "$(report_status_for "$report_file")"
-    printf '%sReportSha256=%s\n' "$child_key" "$(report_sha_for "$report_file")"
+    printf '%sReportStatus=%s\n' "$child_key" "$(report_value "$report_file" status)"
+    printf '%sReportSha256=%s\n' "$child_key" "$(sha256_or_empty "$report_file")"
   else
     printf '%sReportStatus=not-produced\n' "$child_key"
     printf '%sReportSha256=\n' "$child_key"
@@ -233,7 +206,7 @@ fail_gate() {
   local report_file="${2:-}"
   local failed_reason="${3:-}"
   if [[ -z "$failed_reason" && -n "$report_file" ]]; then
-    failed_reason="$(report_reason_for "$report_file")"
+    failed_reason="$(report_value "$report_file" reason)"
   fi
   write_gate_report failed "$failed_target" "$failed_reason"
   exit 1
@@ -364,15 +337,15 @@ fi
 if [[ -f "$RELEASE_AAB" ]]; then
   release_artifact_path="$RELEASE_AAB"
   release_artifact_type="aab"
-  release_artifact_sha256="$(shasum -a 256 "$RELEASE_AAB" | awk '{print $1}')"
+  release_artifact_sha256="$(sha256_or_empty "$RELEASE_AAB")"
 elif [[ -f "$RELEASE_APK" ]]; then
   release_artifact_path="$RELEASE_APK"
   release_artifact_type="apk"
-  release_artifact_sha256="$(shasum -a 256 "$RELEASE_APK" | awk '{print $1}')"
+  release_artifact_sha256="$(sha256_or_empty "$RELEASE_APK")"
 fi
 release_mapping_sha256=""
 if [[ -f "$RELEASE_MAPPING_FILE" ]]; then
-  release_mapping_sha256="$(shasum -a 256 "$RELEASE_MAPPING_FILE" | awk '{print $1}')"
+  release_mapping_sha256="$(sha256_or_empty "$RELEASE_MAPPING_FILE")"
 fi
 
 if [[ "$VERIFY_PERF_BASELINE" != "1" ]]; then
@@ -392,9 +365,9 @@ elif [[ -n "$PERF_BASELINE_FILE" ]]; then
     perf_args+=(--app-version "$expected_app_version")
   fi
   if [[ -f "$RELEASE_AAB" ]]; then
-    perf_args+=(--artifact-sha256 "$(shasum -a 256 "$RELEASE_AAB" | awk '{print $1}')")
+    perf_args+=(--artifact-sha256 "$(sha256_or_empty "$RELEASE_AAB")")
   elif [[ -f "$RELEASE_APK" ]]; then
-    perf_args+=(--artifact-sha256 "$(shasum -a 256 "$RELEASE_APK" | awk '{print $1}')")
+    perf_args+=(--artifact-sha256 "$(sha256_or_empty "$RELEASE_APK")")
   fi
   if ! REQUIRE_RC_PERF_PROVENANCE=1 scripts/verify_perf_baseline.sh "${perf_args[@]}"; then
     fail_gate perf-baseline "$ARTIFACT_DIR/perf-baseline-verification.properties"

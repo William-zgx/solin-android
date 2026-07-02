@@ -22,34 +22,8 @@ JVM_TEST_TARGETS=(
   "com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest"
   "com.bytedance.zgx.solin.tool.DeviceContextToolExecutorTest"
 )
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/verify_model_memory_multimodal_local_gates.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  if [[ -f "$file" ]]; then
-    awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found = 1; exit} END {if (!found) exit 1}' "$file" || true
-  fi
-}
+SOLIN_SCRIPT_COMMAND="scripts/verify_model_memory_multimodal_local_gates.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 write_report() {
   local status="$1"

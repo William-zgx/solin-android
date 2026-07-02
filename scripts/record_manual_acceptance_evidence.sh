@@ -16,6 +16,8 @@ RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
 SOURCE_EVIDENCE_FILES="${SOURCE_EVIDENCE_FILES:-}"
 RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 ORIGINAL_ARGS=("$@")
+SOLIN_SCRIPT_COMMAND="$0"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 SOURCE_EVIDENCE_PATHS=()
 
 REQUIRED_MANUAL_KEYS=(
@@ -95,19 +97,6 @@ write_source_evidence_bindings() {
     printf 'sourceEvidenceFile%sPath=%s\n' "$index" "$source_path"
     printf 'sourceEvidenceFile%sSha256=%s\n' "$index" "$(sha256_file "$source_path")"
   done
-}
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "$0")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
 }
 
 write_report() {

@@ -14,6 +14,11 @@ import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.audit.ToolAuditRecord
+import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
+import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
+import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
+import com.bytedance.zgx.solin.data.BundledModelInstallResult
+import com.bytedance.zgx.solin.data.BundledModelInstaller
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
@@ -39,9 +44,9 @@ import com.bytedance.zgx.solin.device.DeviceContextToolReadinessState
 import com.bytedance.zgx.solin.download.DownloadInfo
 import com.bytedance.zgx.solin.download.ModelDownloadClient
 import com.bytedance.zgx.solin.memory.EmbeddingRuntime
+import com.bytedance.zgx.solin.memory.FakeMemoryDeletionEventStore
+import com.bytedance.zgx.solin.memory.FakeMemoryRecordStore
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
-import com.bytedance.zgx.solin.memory.MemoryDeletionEvent
-import com.bytedance.zgx.solin.memory.MemoryDeletionEventStore
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.MemoryRecallMode
@@ -129,6 +134,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+private const val TEST_IMAGE_DATA_URL = "data:image/png;base64,AA=="
+private const val TEST_LOCAL_MODEL_PATH = "/tmp/model.litertlm"
+private const val TEST_MEMORY_EMBEDDING_MODEL_PATH = "/verified/memory.litertlm"
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class SolinViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
@@ -150,10 +159,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -174,10 +180,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -196,10 +199,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             remoteSendPendingStore = pendingStore,
             requireRemoteSendDisclosure = true,
         )
@@ -235,10 +235,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             modelRepository = FakeModelRepository(initialInstalledModels = listOf(installed)),
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             remoteSendPendingStore = pendingStore,
             requireRemoteSendDisclosure = true,
         )
@@ -264,10 +261,7 @@ class SolinViewModelTest {
     @Test
     fun startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak() = runTest(dispatcher) {
         val pendingStore = FakeRemoteSendPendingStore(
-            pending = PendingRemoteSendMarker(
-                kind = RemoteSendDisclosureKind.CurrentInput,
-                remoteModelName = "model-a",
-                remoteHistoryCount = 1,
+            pending = pendingRemoteSendMarker(
                 localOnlyHistoryFilteredCount = 2,
                 imageAttachmentCount = 1,
                 protectedSourceCount = 2,
@@ -288,10 +282,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             remoteSendPendingStore = pendingStore,
         )
 
@@ -312,13 +303,8 @@ class SolinViewModelTest {
     @Test
     fun startupConsumesToolContinuationMarkerAndFailsModelRun() = runTest(dispatcher) {
         val pendingStore = FakeRemoteSendPendingStore(
-            pending = PendingRemoteSendMarker(
+            pending = pendingRemoteSendMarker(
                 kind = RemoteSendDisclosureKind.ToolResultContinuation,
-                remoteModelName = "model-a",
-                remoteHistoryCount = 1,
-                localOnlyHistoryFilteredCount = 0,
-                imageAttachmentCount = 0,
-                protectedSourceCount = 0,
                 runId = "run-pending-continuation",
             ),
         )
@@ -328,10 +314,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             remoteSendPendingStore = pendingStore,
         )
@@ -397,10 +380,7 @@ class SolinViewModelTest {
             val remoteRuntime = RecordingRemoteChatRuntime()
             val viewModel = createViewModel(
                 remoteRuntime = remoteRuntime,
-                remoteStore = FakeRemoteModelStore(
-                    mode = InferenceMode.Remote,
-                    config = configuredRemoteModel(),
-                ),
+                remoteStore = configuredRemoteStore(),
                 requireRemoteSendDisclosure = true,
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -430,23 +410,7 @@ class SolinViewModelTest {
 
             // Image sends still cross the local/remote byte boundary, so session suppression
             // for ordinary text must not silence their per-send preview confirmation.
-            viewModel.stageSharedInput(
-                SharedInput(
-                    text = "",
-                    attachments = listOf(
-                        SharedAttachment(
-                            kind = SharedAttachmentKind.Image,
-                            mimeType = "image/png",
-                            displayName = "screen.png",
-                            sizeBytes = 12L,
-                            imageAttachment = ChatImageAttachment(
-                                mimeType = "image/png",
-                                dataUrl = "data:image/png;base64,AA==",
-                            ),
-                        ),
-                    ),
-                ),
-            )
+            viewModel.stageSharedInput(sharedImageInput())
             advanceUntilIdle()
             viewModel.sendPendingSharedInput("描述这张图")
             advanceUntilIdle()
@@ -469,10 +433,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -508,10 +469,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -540,10 +498,7 @@ class SolinViewModelTest {
             val remoteRuntime = RecordingRemoteChatRuntime()
             val viewModel = createViewModel(
                 remoteRuntime = remoteRuntime,
-                remoteStore = FakeRemoteModelStore(
-                    mode = InferenceMode.Remote,
-                    config = configuredRemoteModel(),
-                ),
+                remoteStore = configuredRemoteStore(),
                 requireRemoteSendDisclosure = true,
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -560,23 +515,7 @@ class SolinViewModelTest {
             assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
 
             // Image bytes require a per-send preview even when ordinary text is silent.
-            viewModel.stageSharedInput(
-                SharedInput(
-                    text = "",
-                    attachments = listOf(
-                        SharedAttachment(
-                            kind = SharedAttachmentKind.Image,
-                            mimeType = "image/png",
-                            displayName = "screen.png",
-                            sizeBytes = 12L,
-                            imageAttachment = ChatImageAttachment(
-                                mimeType = "image/png",
-                                dataUrl = "data:image/png;base64,AA==",
-                            ),
-                        ),
-                    ),
-                ),
-            )
+            viewModel.stageSharedInput(sharedImageInput())
             advanceUntilIdle()
             viewModel.sendPendingSharedInput("描述这张图")
             advanceUntilIdle()
@@ -599,10 +538,7 @@ class SolinViewModelTest {
         val probe = FakeRemoteModelConnectivityProbe(RemoteModelConnectivityStatus.AuthenticationFailed)
         val viewModel = createViewModel(
             remoteConnectivityProbe = probe,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -620,8 +556,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
+            remoteStore = configuredRemoteStore(
                 config = configuredRemoteModel().copy(
                     connectivityStatus = RemoteModelConnectivityStatus.AuthenticationFailed,
                 ),
@@ -646,10 +581,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -670,10 +602,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -705,10 +634,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = orchestrator,
             requireRemoteSendDisclosure = true,
         )
@@ -742,10 +668,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -779,10 +702,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             memoryRepository = memoryRepository,
             assistantRouter = assistantRouter,
         )
@@ -814,32 +734,13 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "screen.png",
-                        sizeBytes = 12L,
-                        imageAttachment = ChatImageAttachment(
-                            mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
-                ),
-            ),
-        )
+        viewModel.stageSharedInput(sharedImageInput())
         advanceUntilIdle()
 
         viewModel.sendPendingSharedInput("描述这张图")
@@ -848,7 +749,7 @@ class SolinViewModelTest {
         val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
         assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
         assertEquals(1, disclosure.imageAttachmentCount)
-        assertEquals("data:image/png;base64,AA==", disclosure.imageAttachments.single().dataUrl)
+        assertEquals(TEST_IMAGE_DATA_URL, disclosure.imageAttachments.single().dataUrl)
         assertNotNull(viewModel.uiState.value.pendingSharedInputDraft)
         assertTrue(remoteRuntime.calls.isEmpty())
 
@@ -859,7 +760,7 @@ class SolinViewModelTest {
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         val call = remoteRuntime.calls.single()
         assertTrue(call.prompt.contains("描述这张图"))
-        assertEquals("data:image/png;base64,AA==", call.imageAttachments.single().dataUrl)
+        assertEquals(TEST_IMAGE_DATA_URL, call.imageAttachments.single().dataUrl)
     }
 
     @Test
@@ -869,31 +770,12 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "screen.png",
-                        sizeBytes = 12L,
-                        imageAttachment = ChatImageAttachment(
-                            mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
-                ),
-            ),
-        )
+        viewModel.stageSharedInput(sharedImageInput())
         advanceUntilIdle()
 
         viewModel.sendPendingSharedInput("描述这张图")
@@ -910,7 +792,7 @@ class SolinViewModelTest {
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         val restoredDraft = requireNotNull(viewModel.uiState.value.pendingSharedInputDraft)
         assertEquals("screen.png · 图片", restoredDraft.summary)
-        assertEquals("data:image/png;base64,AA==", restoredDraft.imageAttachments.single().dataUrl)
+        assertEquals(TEST_IMAGE_DATA_URL, restoredDraft.imageAttachments.single().dataUrl)
         assertEquals("描述这张图", viewModel.uiState.value.voiceInputDraft?.text)
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals("已取消远程发送", viewModel.uiState.value.statusText)
@@ -965,10 +847,7 @@ class SolinViewModelTest {
     fun startupDoesNotReopenSetupWhenRemoteModelIsConfigured() = runTest(dispatcher) {
         val viewModel = createViewModel(
             modelRepository = FakeModelRepository(activeModelPath = null),
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             firstRunStore = FakeFirstRunSetupStore(setupDismissed = false),
         )
 
@@ -1613,10 +1492,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -1655,10 +1531,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1689,10 +1562,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1717,10 +1587,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1750,10 +1617,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1819,10 +1683,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -1913,10 +1774,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1931,243 +1789,143 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun remoteModeRejectsDirectSharedTextBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
+    fun remoteModeProtectsSharedInputBeforeBuildingPrompt() = runTest(dispatcher) {
+        data class ProtectedShareCase(
+            val sharedInput: SharedInput,
+            val forbiddenText: List<String>,
+            val verifyNextRemoteSend: Boolean = false,
+        )
+
+        val cases = listOf(
+            ProtectedShareCase(
+                sharedInput = SharedInput(text = "私密分享正文", attachments = emptyList()),
+                forbiddenText = listOf("私密分享正文"),
+                verifyNextRemoteSend = true,
             ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "私密分享正文",
-                attachments = emptyList(),
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("私密分享正文"),
-        )
-
-        viewModel.sendMessage("普通远程问题")
-        advanceUntilIdle()
-
-        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
-        assertTrue(remoteRuntime.calls.single().history.isEmpty())
-    }
-
-    @Test
-    fun remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/pdf",
-                        displayName = "private-report.pdf",
-                        sizeBytes = 12_000L,
-                    ),
-                ),
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf(
-                "private-report.pdf",
-                "application/pdf",
-                "12000",
-                "已分享附件",
-            ),
-        )
-    }
-
-    @Test
-    fun remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = emptyList(),
-                protectedSourceCount = 2,
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("已收到受保护分享", "2"),
-        )
-    }
-
-    @Test
-    fun remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "text/plain",
-                        displayName = "private.txt",
-                        sizeBytes = 12L,
-                        textPreview = SharedTextPreview(
-                            text = "private excerpt",
-                            truncated = false,
+            ProtectedShareCase(
+                sharedInput = SharedInput(
+                    text = "",
+                    attachments = listOf(
+                        SharedAttachment(
+                            kind = SharedAttachmentKind.Document,
+                            mimeType = "application/pdf",
+                            displayName = "private-report.pdf",
+                            sizeBytes = 12_000L,
                         ),
                     ),
                 ),
+                forbiddenText = listOf("private-report.pdf", "application/pdf", "12000", "已分享附件"),
             ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("private excerpt", "private.txt", "text/plain", "12"),
-        )
-    }
-
-    @Test
-    fun remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
+            ProtectedShareCase(
+                sharedInput = SharedInput(text = "", attachments = emptyList(), protectedSourceCount = 2),
+                forbiddenText = listOf("已收到受保护分享", "2"),
             ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/json",
-                        displayName = "private-data.json",
-                        sizeBytes = 34L,
-                        textPreview = SharedTextPreview(
-                            text = "private json excerpt",
-                            truncated = false,
-                            source = SharedTextPreviewSource.TextFile,
-                        ),
-                    ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    mimeType = "text/plain",
+                    displayName = "private.txt",
+                    sizeBytes = 12L,
+                    text = "private excerpt",
+                ),
+                forbiddenText = listOf("private excerpt", "private.txt", "text/plain", "12"),
+            ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    mimeType = "application/json",
+                    displayName = "private-data.json",
+                    sizeBytes = 34L,
+                    text = "private json excerpt",
+                    source = SharedTextPreviewSource.TextFile,
+                ),
+                forbiddenText = listOf("private json excerpt", "private-data.json", "application/json", "34"),
+            ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "private-screen.png",
+                    sizeBytes = 12L,
+                    text = "private screenshot text",
+                    source = SharedTextPreviewSource.ImageOcr,
+                ),
+                forbiddenText = listOf("private screenshot text", "private-screen.png", "image/png", "12"),
+            ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    displayName = "private-plan.docx",
+                    sizeBytes = 12L,
+                    text = "private office document excerpt",
+                    source = SharedTextPreviewSource.OfficeDocument,
+                ),
+                forbiddenText = listOf(
+                    "private office document excerpt",
+                    "private-plan.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "12",
                 ),
             ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("private json excerpt", "private-data.json", "application/json", "34"),
-        )
-    }
-
-    @Test
-    fun remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "private-screen.png",
-                        sizeBytes = 12L,
-                        textPreview = SharedTextPreview(
-                            text = "private screenshot text",
-                            truncated = false,
-                            source = SharedTextPreviewSource.ImageOcr,
-                        ),
-                    ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    mimeType = "application/rtf",
+                    displayName = "private-notes.rtf",
+                    sizeBytes = 12L,
+                    text = "private rich text excerpt",
+                    source = SharedTextPreviewSource.RichTextDocument,
                 ),
+                forbiddenText = listOf("private rich text excerpt", "private-notes.rtf", "application/rtf", "12"),
+            ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    mimeType = "application/pdf",
+                    displayName = "private-plan.pdf",
+                    sizeBytes = 12L,
+                    text = "private pdf text layer excerpt",
+                    source = SharedTextPreviewSource.PdfTextLayer,
+                ),
+                forbiddenText = listOf("private pdf text layer excerpt", "private-plan.pdf", "application/pdf", "12"),
+            ),
+            ProtectedShareCase(
+                sharedInput = sharedTextPreviewInput(
+                    mimeType = "application/pdf",
+                    displayName = "private-scan.pdf",
+                    sizeBytes = 12L,
+                    text = "private pdf scanned page OCR",
+                    source = SharedTextPreviewSource.PdfImageOcr,
+                ),
+                forbiddenText = listOf("private pdf scanned page OCR", "private-scan.pdf", "application/pdf", "12"),
             ),
         )
-        advanceUntilIdle()
 
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("private screenshot text", "private-screen.png", "image/png", "12"),
-        )
+        cases.forEach { case ->
+            val remoteRuntime = RecordingRemoteChatRuntime()
+            val sessionStore = FakeSessionStore()
+            val viewModel = createViewModel(
+                sessionStore = sessionStore,
+                remoteRuntime = remoteRuntime,
+                remoteStore = configuredRemoteStore(),
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            viewModel.ingestSharedInput(case.sharedInput)
+            advanceUntilIdle()
+
+            assertRemoteProtectedSharedInput(
+                remoteRuntime = remoteRuntime,
+                sessionStore = sessionStore,
+                statusText = viewModel.uiState.value.statusText,
+                forbiddenText = case.forbiddenText,
+            )
+
+            if (case.verifyNextRemoteSend) {
+                viewModel.sendMessage("普通远程问题")
+                advanceUntilIdle()
+
+                assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+                assertTrue(remoteRuntime.calls.single().history.isEmpty())
+            }
+        }
     }
 
     @Test
@@ -2177,37 +1935,18 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "screen.png",
-                        sizeBytes = 12L,
-                        imageAttachment = ChatImageAttachment(
-                            mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
-                ),
-            ),
-        )
+        viewModel.stageSharedInput(sharedImageInput())
         advanceUntilIdle()
 
         val draft = requireNotNull(viewModel.uiState.value.pendingSharedInputDraft)
         assertEquals("screen.png · 图片", draft.summary)
         assertEquals(MessagePrivacy.RemoteEligible, draft.privacy)
-        assertEquals("data:image/png;base64,AA==", draft.imageAttachments.single().dataUrl)
+        assertEquals(TEST_IMAGE_DATA_URL, draft.imageAttachments.single().dataUrl)
 
         viewModel.sendPendingSharedInput("描述这张图")
         advanceUntilIdle()
@@ -2229,7 +1968,7 @@ class SolinViewModelTest {
         assertFalse(call.prompt.contains("screen.png"))
         assertFalse(call.prompt.contains("image/png"))
         assertFalse(call.prompt.contains("12"))
-        assertEquals("data:image/png;base64,AA==", call.imageAttachments.single().dataUrl)
+        assertEquals(TEST_IMAGE_DATA_URL, call.imageAttachments.single().dataUrl)
         assertFalse(sessionStore.messages.first().text.contains("screen.png"))
         assertFalse(sessionStore.messages.first().text.contains("image/png"))
         assertFalse(sessionStore.messages.first().text.contains("12"))
@@ -2246,31 +1985,12 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "screen.png",
-                        sizeBytes = 12L,
-                        imageAttachment = ChatImageAttachment(
-                            mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
-                ),
-            ),
-        )
+        viewModel.stageSharedInput(sharedImageInput())
         advanceUntilIdle()
 
         assertEquals(MessagePrivacy.RemoteEligible, viewModel.uiState.value.pendingSharedInputDraft?.privacy)
@@ -2312,31 +2032,12 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             runtime = runtime,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "private-screen.png",
-                        sizeBytes = 12L,
-                        imageAttachment = ChatImageAttachment(
-                            mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
-                ),
-            ),
-        )
+        viewModel.stageSharedInput(sharedImageInput(displayName = "private-screen.png"))
         advanceUntilIdle()
 
         assertEquals(MessagePrivacy.RemoteEligible, viewModel.uiState.value.pendingSharedInputDraft?.privacy)
@@ -2370,31 +2071,14 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
+            remoteStore = configuredRemoteStore(
                 config = configuredRemoteModel().copy(supportsVisionInput = false),
             ),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "screen.png",
-                        sizeBytes = 12L,
-                        imageAttachment = ChatImageAttachment(
-                            mimeType = "image/png",
-                            dataUrl = "data:image/png;base64,AA==",
-                        ),
-                    ),
-                ),
-            ),
-        )
+        viewModel.stageSharedInput(sharedImageInput())
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
@@ -2417,8 +2101,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
+            remoteStore = configuredRemoteStore(
                 config = configuredRemoteModel().copy(supportsVisionInput = false),
             ),
         )
@@ -2448,183 +2131,6 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        displayName = "private-plan.docx",
-                        sizeBytes = 12L,
-                        textPreview = SharedTextPreview(
-                            text = "private office document excerpt",
-                            truncated = false,
-                            source = SharedTextPreviewSource.OfficeDocument,
-                        ),
-                    ),
-                ),
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf(
-                "private office document excerpt",
-                "private-plan.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "12",
-            ),
-        )
-    }
-
-    @Test
-    fun remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/rtf",
-                        displayName = "private-notes.rtf",
-                        sizeBytes = 12L,
-                        textPreview = SharedTextPreview(
-                            text = "private rich text excerpt",
-                            truncated = false,
-                            source = SharedTextPreviewSource.RichTextDocument,
-                        ),
-                    ),
-                ),
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("private rich text excerpt", "private-notes.rtf", "application/rtf", "12"),
-        )
-    }
-
-    @Test
-    fun remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/pdf",
-                        displayName = "private-plan.pdf",
-                        sizeBytes = 12L,
-                        textPreview = SharedTextPreview(
-                            text = "private pdf text layer excerpt",
-                            truncated = false,
-                            source = SharedTextPreviewSource.PdfTextLayer,
-                        ),
-                    ),
-                ),
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("private pdf text layer excerpt", "private-plan.pdf", "application/pdf", "12"),
-        )
-    }
-
-    @Test
-    fun remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
-        val remoteRuntime = RecordingRemoteChatRuntime()
-        val sessionStore = FakeSessionStore()
-        val viewModel = createViewModel(
-            sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
-        )
-        viewModel.restoreStartupState(skipModelRuntimeWork = true)
-        advanceUntilIdle()
-
-        viewModel.ingestSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/pdf",
-                        displayName = "private-scan.pdf",
-                        sizeBytes = 12L,
-                        textPreview = SharedTextPreview(
-                            text = "private pdf scanned page OCR",
-                            truncated = false,
-                            source = SharedTextPreviewSource.PdfImageOcr,
-                        ),
-                    ),
-                ),
-            ),
-        )
-        advanceUntilIdle()
-
-        assertRemoteProtectedSharedInput(
-            remoteRuntime = remoteRuntime,
-            sessionStore = sessionStore,
-            statusText = viewModel.uiState.value.statusText,
-            forbiddenText = listOf("private pdf scanned page OCR", "private-scan.pdf", "application/pdf", "12"),
-        )
-    }
-
-    @Test
     fun localSharedInputDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -2635,7 +2141,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -2683,7 +2189,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -2715,27 +2221,19 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = runtime,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
 
         viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "receipt.png",
-                        sizeBytes = 128L,
-                        textPreview = SharedTextPreview(
-                            text = "private receipt text",
-                            truncated = false,
-                            source = SharedTextPreviewSource.ImageOcr,
-                        ),
-                    ),
-                ),
+            sharedTextPreviewInput(
+                kind = SharedAttachmentKind.Image,
+                mimeType = "image/png",
+                displayName = "receipt.png",
+                sizeBytes = 128L,
+                text = "private receipt text",
+                source = SharedTextPreviewSource.ImageOcr,
             ),
         )
         advanceUntilIdle()
@@ -2770,28 +2268,20 @@ class SolinViewModelTest {
         )
         val viewModel = createViewModel(
             runtime = FakeLiteRtRuntime(localResponse = "本地回复：PDF 摘要"),
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             assistantRouter = assistantRouter,
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
 
         viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Document,
-                        mimeType = "application/pdf",
-                        displayName = "scan.pdf",
-                        sizeBytes = 512L,
-                        textPreview = SharedTextPreview(
-                            text = "private scanned pdf OCR excerpt",
-                            truncated = true,
-                            source = SharedTextPreviewSource.PdfImageOcr,
-                        ),
-                    ),
-                ),
+            sharedTextPreviewInput(
+                mimeType = "application/pdf",
+                displayName = "scan.pdf",
+                sizeBytes = 512L,
+                text = "private scanned pdf OCR excerpt",
+                truncated = true,
+                source = SharedTextPreviewSource.PdfImageOcr,
             ),
         )
         advanceUntilIdle()
@@ -2815,24 +2305,13 @@ class SolinViewModelTest {
         val runtime = FakeLiteRtRuntime(localResponse = "本地回复：我无法看到图片视觉内容")
         val viewModel = createViewModel(
             runtime = runtime,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
 
         viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/jpeg",
-                        displayName = "photo.jpg",
-                        sizeBytes = 256L,
-                        textPreview = null,
-                    ),
-                ),
-            ),
+            localSharedImageInput(displayName = "photo.jpg", mimeType = "image/jpeg", sizeBytes = 256L),
         )
         advanceUntilIdle()
 
@@ -2874,22 +2353,7 @@ class SolinViewModelTest {
         advanceUntilIdle()
 
         viewModel.stageSharedInput(
-            SharedInput(
-                text = "",
-                attachments = listOf(
-                    SharedAttachment(
-                        kind = SharedAttachmentKind.Image,
-                        mimeType = "image/png",
-                        displayName = "receipt.png",
-                        sizeBytes = 4L,
-                        localImageAttachment = LocalImageAttachment(
-                            mimeType = "image/png",
-                            bytes = byteArrayOf(1, 2, 3, 4),
-                            sizeBytes = 4L,
-                        ),
-                    ),
-                ),
-            ),
+            localSharedImageInput(displayName = "receipt.png", bytes = byteArrayOf(1, 2, 3, 4)),
         )
         advanceUntilIdle()
 
@@ -3200,7 +2664,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3276,7 +2740,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3307,7 +2771,7 @@ class SolinViewModelTest {
         val localRuntime = FakeLiteRtRuntime(failure = IllegalStateException("local model crashed"))
         val viewModel = createViewModel(
             runtime = localRuntime,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3346,7 +2810,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = localRuntime,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3366,7 +2830,7 @@ class SolinViewModelTest {
             loadFailures = mapOf(BackendChoice.GPU to IllegalStateException("gpu unavailable")),
         )
         val viewModel = createViewModel(
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             generationStore = generationStore,
             runtime = runtime,
         )
@@ -3396,7 +2860,7 @@ class SolinViewModelTest {
             ),
         )
         val viewModel = createViewModel(
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             generationStore = generationStore,
             runtime = runtime,
         )
@@ -3514,7 +2978,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3622,13 +3086,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -3726,13 +3187,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -3831,13 +3289,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -3933,13 +3388,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4038,13 +3490,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4126,13 +3575,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4210,10 +3656,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = object : ToolExecutor {
                 override fun execute(request: ToolRequest): ToolResult =
@@ -4224,7 +3667,7 @@ class SolinViewModelTest {
                         data = mapOf("privacy" to "UnknownFutureValue"),
                     )
             },
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4255,7 +3698,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             assistantRouter = orchestrator,
             runtime = FakeLiteRtRuntime(localResponse = "完成"),
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4290,7 +3733,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4329,7 +3772,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4381,7 +3824,7 @@ class SolinViewModelTest {
         val assistantRouter = FakeAssistantRouter()
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4456,7 +3899,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4527,7 +3970,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4574,7 +4017,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4620,7 +4063,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4682,7 +4125,7 @@ class SolinViewModelTest {
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4730,7 +4173,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4756,10 +4199,7 @@ class SolinViewModelTest {
     @Test
     fun remoteModeLocalActionDraftMessagesAreLocalOnlyAndExcludedFromLaterRemoteHistory() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore()
-        val remoteStore = FakeRemoteModelStore(
-            mode = InferenceMode.Remote,
-            config = configuredRemoteModel(),
-        )
+        val remoteStore = configuredRemoteStore()
         val actionRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
                 runId = "run-local-action",
@@ -4779,7 +4219,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             remoteStore = remoteStore,
             assistantRouter = actionRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         actionViewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4823,7 +4263,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             runtime = localRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4859,12 +4299,9 @@ class SolinViewModelTest {
         )
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4932,13 +4369,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4974,12 +4408,9 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5021,12 +4452,9 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5058,12 +4486,9 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5082,37 +4507,7 @@ class SolinViewModelTest {
 
     @Test
     fun remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel() = runTest(dispatcher) {
-        val requests = listOf(
-            ToolRequest(
-                id = "call-beijing",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "北京 今天 天气"),
-                reason = "remote tool call",
-            ),
-            ToolRequest(
-                id = "call-shanghai",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "上海 今天 天气"),
-                reason = "remote tool call",
-            ),
-        )
-        val plans = requests.map { request ->
-            AgentPlan.UseTool(
-                request = request,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.WEB_SEARCH,
-                    title = "Web 搜索",
-                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
-                    parameters = request.arguments,
-                ),
-                plannedByModel = true,
-                fallbackReason = "remote tool batch",
-                safetyDecision = SafetyDecision(
-                    outcome = SafetyOutcome.Allow,
-                    reason = "Read-only web search can execute without confirmation.",
-                ),
-            )
-        }
+        val requests = publicWeatherBatchRequests()
         val publicEvidencePack = PublicWebEvidencePack(
             query = "北京 上海 天气",
             retrievedAt = "2026-07-02T10:00:00Z",
@@ -5135,35 +4530,9 @@ class SolinViewModelTest {
                 promptForModel = "北京和上海今天温差多少？",
                 memoryHits = emptyList(),
             ),
-            modelToolBatchObservation = AgentModelObservationResult(
-                run = AgentRun("run-remote-tool-batch", "北京和上海今天温差多少？", AgentRunState.ExecutingTool, 1L, 2L),
-                decision = AgentObservationDecision.PlanToolBatch(
-                    plans = plans,
-                    reason = "Remote model requested 2 parallel public evidence tool calls.",
-                ),
-                steps = emptyList(),
-            ),
-            toolBatchObservation = AgentObservationResult(
-                run = AgentRun("run-remote-tool-batch", "北京和上海今天温差多少？", AgentRunState.GeneratingAnswer, 1L, 3L),
-                result = ToolResult(
-                    requestId = "public-evidence-batch",
-                    status = ToolStatus.Succeeded,
-                    summary = "工具执行结果：已完成 2 个公开只读工具调用。",
-                    data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
-                ),
-                assistantMessage = "工具执行结果：已完成 2 个公开只读工具调用。",
-                decision = AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = false,
-                    reason = "Parallel public evidence tools completed.",
-                ),
-                continuationPromptForModel = "请综合北京和上海的天气结果计算温差。",
-                steps = emptyList(),
-            ),
-            modelObservation = AgentModelObservationResult(
-                run = AgentRun("run-remote-tool-batch", "北京和上海今天温差多少？", AgentRunState.Completed, 1L, 4L),
-                decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
-            ),
+            modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch", requests),
+            toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch"),
+            modelObservation = publicEvidenceBatchCompletedObservation("run-remote-tool-batch"),
             publicWebEvidenceByRunId = mapOf("run-remote-tool-batch" to listOf(publicEvidencePack)),
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
@@ -5177,13 +4546,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -5222,79 +4588,15 @@ class SolinViewModelTest {
 
     @Test
     fun remoteContinuationDisclosureCancelFailsRunWithoutSecondRemoteCall() = runTest(dispatcher) {
-        val requests = listOf(
-            ToolRequest(
-                id = "call-beijing",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "北京 今天 天气"),
-                reason = "remote tool call",
-            ),
-            ToolRequest(
-                id = "call-shanghai",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "上海 今天 天气"),
-                reason = "remote tool call",
-            ),
-        )
-        val plans = requests.map { request ->
-            AgentPlan.UseTool(
-                request = request,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.WEB_SEARCH,
-                    title = "Web 搜索",
-                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
-                    parameters = request.arguments,
-                ),
-                plannedByModel = true,
-                fallbackReason = "remote tool batch",
-                safetyDecision = SafetyDecision(
-                    outcome = SafetyOutcome.Allow,
-                    reason = "Read-only web search can execute without confirmation.",
-                ),
-            )
-        }
+        val requests = publicWeatherBatchRequests()
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch-cancel",
                 promptForModel = "北京和上海今天温差多少？",
                 memoryHits = emptyList(),
             ),
-            modelToolBatchObservation = AgentModelObservationResult(
-                run = AgentRun(
-                    "run-remote-tool-batch-cancel",
-                    "北京和上海今天温差多少？",
-                    AgentRunState.ExecutingTool,
-                    1L,
-                    2L,
-                ),
-                decision = AgentObservationDecision.PlanToolBatch(
-                    plans = plans,
-                    reason = "Remote model requested 2 parallel public evidence tool calls.",
-                ),
-                steps = emptyList(),
-            ),
-            toolBatchObservation = AgentObservationResult(
-                run = AgentRun(
-                    "run-remote-tool-batch-cancel",
-                    "北京和上海今天温差多少？",
-                    AgentRunState.GeneratingAnswer,
-                    1L,
-                    3L,
-                ),
-                result = ToolResult(
-                    requestId = "public-evidence-batch",
-                    status = ToolStatus.Succeeded,
-                    summary = "工具执行结果：已完成 2 个公开只读工具调用。",
-                    data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
-                ),
-                assistantMessage = "工具执行结果：已完成 2 个公开只读工具调用。",
-                decision = AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = false,
-                    reason = "Parallel public evidence tools completed.",
-                ),
-                continuationPromptForModel = "请综合北京和上海的天气结果计算温差。",
-                steps = emptyList(),
-            ),
+            modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch-cancel", requests),
+            toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch-cancel"),
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
@@ -5307,13 +4609,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -5349,72 +4648,16 @@ class SolinViewModelTest {
 
     @Test
     fun remotePublicEvidenceToolCallBatchRetriesOnlyRetryableFailures() = runTest(dispatcher) {
-        val requests = listOf(
-            ToolRequest(
-                id = "call-beijing",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "北京 今天 天气"),
-                reason = "remote tool call",
-            ),
-            ToolRequest(
-                id = "call-shanghai",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "上海 今天 天气"),
-                reason = "remote tool call",
-            ),
-        )
-        val plans = requests.map { request ->
-            AgentPlan.UseTool(
-                request = request,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.WEB_SEARCH,
-                    title = "Web 搜索",
-                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
-                    parameters = request.arguments,
-                ),
-                plannedByModel = true,
-                fallbackReason = "remote tool batch",
-                safetyDecision = SafetyDecision(
-                    outcome = SafetyOutcome.Allow,
-                    reason = "Read-only web search can execute without confirmation.",
-                ),
-            )
-        }
+        val requests = publicWeatherBatchRequests()
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch-retry",
                 promptForModel = "北京和上海今天温差多少？",
                 memoryHits = emptyList(),
             ),
-            modelToolBatchObservation = AgentModelObservationResult(
-                run = AgentRun("run-remote-tool-batch-retry", "北京和上海今天温差多少？", AgentRunState.ExecutingTool, 1L, 2L),
-                decision = AgentObservationDecision.PlanToolBatch(
-                    plans = plans,
-                    reason = "Remote model requested 2 parallel public evidence tool calls.",
-                ),
-                steps = emptyList(),
-            ),
-            toolBatchObservation = AgentObservationResult(
-                run = AgentRun("run-remote-tool-batch-retry", "北京和上海今天温差多少？", AgentRunState.GeneratingAnswer, 1L, 3L),
-                result = ToolResult(
-                    requestId = "public-evidence-batch",
-                    status = ToolStatus.Succeeded,
-                    summary = "工具执行结果：已完成 2 个公开只读工具调用。",
-                    data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
-                ),
-                assistantMessage = "工具执行结果：已完成 2 个公开只读工具调用。",
-                decision = AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = false,
-                    reason = "Parallel public evidence tools completed.",
-                ),
-                continuationPromptForModel = "请综合北京和上海的天气结果计算温差。",
-                steps = emptyList(),
-            ),
-            modelObservation = AgentModelObservationResult(
-                run = AgentRun("run-remote-tool-batch-retry", "北京和上海今天温差多少？", AgentRunState.Completed, 1L, 4L),
-                decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
-            ),
+            modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch-retry", requests),
+            toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch-retry"),
+            modelObservation = publicEvidenceBatchCompletedObservation("run-remote-tool-batch-retry"),
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
@@ -5427,13 +4670,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5454,37 +4694,7 @@ class SolinViewModelTest {
 
     @Test
     fun remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure() = runTest(dispatcher) {
-        val requests = listOf(
-            ToolRequest(
-                id = "call-beijing",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "北京 今天 天气"),
-                reason = "remote tool call",
-            ),
-            ToolRequest(
-                id = "call-shanghai",
-                toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "上海 今天 天气"),
-                reason = "remote tool call",
-            ),
-        )
-        val plans = requests.map { request ->
-            AgentPlan.UseTool(
-                request = request,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.WEB_SEARCH,
-                    title = "Web 搜索",
-                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
-                    parameters = request.arguments,
-                ),
-                plannedByModel = true,
-                fallbackReason = "remote tool batch",
-                safetyDecision = SafetyDecision(
-                    outcome = SafetyOutcome.Allow,
-                    reason = "Read-only web search can execute without confirmation.",
-                ),
-            )
-        }
+        val requests = publicWeatherBatchRequests()
         val assistantMessage = "工具批量执行失败：Tool execution failed before completion: network unavailable"
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
@@ -5492,27 +4702,14 @@ class SolinViewModelTest {
                 promptForModel = "北京和上海今天温差多少？",
                 memoryHits = emptyList(),
             ),
-            modelToolBatchObservation = AgentModelObservationResult(
-                run = AgentRun("run-remote-tool-batch-failed", "北京和上海今天温差多少？", AgentRunState.ExecutingTool, 1L, 2L),
-                decision = AgentObservationDecision.PlanToolBatch(
-                    plans = plans,
-                    reason = "Remote model requested 2 parallel public evidence tool calls.",
-                ),
-                steps = emptyList(),
-            ),
-            toolBatchObservation = AgentObservationResult(
-                run = AgentRun("run-remote-tool-batch-failed", "北京和上海今天温差多少？", AgentRunState.Failed, 1L, 3L),
-                result = ToolResult(
-                    requestId = "public-evidence-batch",
-                    status = ToolStatus.Failed,
-                    summary = assistantMessage,
-                    data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
-                    retryable = false,
-                ),
-                assistantMessage = assistantMessage,
+            modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch-failed", requests),
+            toolBatchObservation = publicEvidenceBatchToolObservation(
+                runId = "run-remote-tool-batch-failed",
+                state = AgentRunState.Failed,
+                resultStatus = ToolStatus.Failed,
+                summary = assistantMessage,
                 decision = AgentObservationDecision.Fail(assistantMessage),
-                continuationPromptForModel = null,
-                steps = emptyList(),
+                continuationPrompt = null,
             ),
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
@@ -5522,13 +4719,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = ThrowingToolExecutor(IllegalStateException("network unavailable")),
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5589,13 +4783,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5634,13 +4825,10 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -5695,7 +4883,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             runtime = runtime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             memoryIndex = memoryRepository,
             longTermMemoryControls = memoryRepository,
         )
@@ -5744,10 +4932,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             memoryIndex = memoryRepository,
             longTermMemoryControls = memoryRepository,
@@ -5789,10 +4974,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             requireRemoteSendDisclosure = true,
         )
@@ -5910,10 +5092,7 @@ class SolinViewModelTest {
     @Test
     fun remoteModeRejectedLocalActionMessagesAreLocalOnlyAndExcludedFromLaterRemoteHistory() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore()
-        val remoteStore = FakeRemoteModelStore(
-            mode = InferenceMode.Remote,
-            config = configuredRemoteModel(),
-        )
+        val remoteStore = configuredRemoteStore()
         val rejectedRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.ToolRejected(
                 summary = "Unknown tool: open_wifi_settings",
@@ -5923,7 +5102,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             remoteStore = remoteStore,
             assistantRouter = rejectedRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         rejectedViewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5994,7 +5173,7 @@ class SolinViewModelTest {
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6035,7 +5214,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6095,7 +5274,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6202,7 +5381,7 @@ class SolinViewModelTest {
                 override fun execute(request: ToolRequest): ToolResult =
                     result.copy(requestId = request.id)
             },
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6306,7 +5485,7 @@ class SolinViewModelTest {
                 override fun execute(request: ToolRequest): ToolResult =
                     result.copy(requestId = request.id)
             },
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6453,7 +5632,7 @@ class SolinViewModelTest {
                         }
                     }
                 },
-                modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+                modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             )
             viewModel.restoreStartupState()
             advanceUntilIdle()
@@ -6528,7 +5707,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -6582,7 +5761,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -6670,7 +5849,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -6745,7 +5924,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -6824,7 +6003,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -6891,14 +6070,14 @@ class SolinViewModelTest {
         val memoryRepository = MemoryRepository(
             recordStore = store,
             semanticRuntimeFactory = { path ->
-                check(path == "/verified/memory.litertlm")
+                check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
             },
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
         )
 
         assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
@@ -6910,7 +6089,7 @@ class SolinViewModelTest {
         assertTrue(memoryRepository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.Active, memoryRepository.semanticMemoryRuntimeStatus)
         assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
-        assertEquals("/verified/memory.litertlm", memoryRepository.activeMemoryModelPath)
+        assertEquals(TEST_MEMORY_EMBEDDING_MODEL_PATH, memoryRepository.activeMemoryModelPath)
         val hits = memoryRepository.search("compressed responses")
         assertEquals(listOf("pref-1"), hits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
@@ -6930,7 +6109,7 @@ class SolinViewModelTest {
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
             skipStartupModelRuntimeWork = true,
         )
 
@@ -6953,7 +6132,7 @@ class SolinViewModelTest {
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
         )
 
         assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
@@ -6985,7 +6164,7 @@ class SolinViewModelTest {
         val memoryRepository = MemoryRepository(
             recordStore = store,
             semanticRuntimeFactory = { path ->
-                check(path == "/verified/memory.litertlm")
+                check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
             },
         )
@@ -7001,8 +6180,8 @@ class SolinViewModelTest {
                 RecordingActionRuntime(likelyAction = false),
             ),
             modelRepository = FakeModelRepository(
-                activeModelPath = "/tmp/model.litertlm",
-                memoryEmbeddingModelPath = "/verified/memory.litertlm",
+                activeModelPath = TEST_LOCAL_MODEL_PATH,
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
             ),
         )
 
@@ -7034,7 +6213,7 @@ class SolinViewModelTest {
         val memoryRepository = MemoryRepository(
             recordStore = store,
             semanticRuntimeFactory = { path ->
-                check(path == "/verified/memory.litertlm")
+                check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
             },
         )
@@ -7054,8 +6233,8 @@ class SolinViewModelTest {
                 RecordingActionRuntime(likelyAction = false),
             ),
             modelRepository = FakeModelRepository(
-                activeModelPath = "/tmp/model.litertlm",
-                memoryEmbeddingModelPath = "/verified/memory.litertlm",
+                activeModelPath = TEST_LOCAL_MODEL_PATH,
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
             ),
         )
 
@@ -7088,7 +6267,7 @@ class SolinViewModelTest {
         val memoryRepository = MemoryRepository(
             recordStore = store,
             semanticRuntimeFactory = { path ->
-                check(path == "/verified/memory.litertlm")
+                check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
             },
         )
@@ -7096,16 +6275,13 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             memoryRepository = memoryRepository,
             assistantRouter = AssistantOrchestrator(
                 memoryRepository,
                 RecordingActionRuntime(likelyAction = false),
             ),
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7212,10 +6388,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7318,10 +6491,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7365,10 +6535,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -7478,10 +6645,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -7524,10 +6688,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7548,10 +6709,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7585,10 +6743,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7615,10 +6770,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7642,10 +6794,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7673,10 +6822,7 @@ class SolinViewModelTest {
             firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7708,10 +6854,7 @@ class SolinViewModelTest {
             firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7732,10 +6875,7 @@ class SolinViewModelTest {
         val memoryRepository = MemoryRepository(recordStore = store)
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7764,10 +6904,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
         )
 
@@ -7795,10 +6932,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7831,10 +6965,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
         )
 
@@ -7876,10 +7007,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
         )
 
@@ -7919,10 +7047,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
         )
 
@@ -7954,10 +7079,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7991,10 +7113,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8103,10 +7222,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Remote,
-                config = configuredRemoteModel(),
-            ),
+            remoteStore = configuredRemoteStore(),
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8535,7 +7651,9 @@ class SolinViewModelTest {
         requireRemoteSendDisclosure: Boolean = false,
         remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
         huggingFaceAuthStore: HuggingFaceAuthStore = FakeHuggingFaceAuthStore(),
+        remoteSendAuditStore: FakeRemoteSendAuditStore = FakeRemoteSendAuditStore(),
         remoteSendPendingStore: RemoteSendPendingStore = FakeRemoteSendPendingStore(),
+        bundledModelInstaller: BundledModelInstaller = FakeBundledModelInstaller(),
         skipStartupModelRuntimeWork: Boolean = false,
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
@@ -8566,7 +7684,10 @@ class SolinViewModelTest {
             ioDispatcher = ioDispatcher,
             requireRemoteSendDisclosure = requireRemoteSendDisclosure,
             remoteConnectivityProbe = remoteConnectivityProbe,
+            remoteSendAuditSink = remoteSendAuditStore,
+            remoteSendAuditLog = remoteSendAuditStore,
             remoteSendPendingStore = remoteSendPendingStore,
+            bundledModelInstaller = bundledModelInstaller,
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
 
@@ -8584,6 +7705,191 @@ class SolinViewModelTest {
             fileBytes = 1L,
             recommendedModelId = recommendedModelId,
             verificationStatus = verificationStatus,
+        )
+
+    private fun pendingRemoteSendMarker(
+        kind: RemoteSendDisclosureKind = RemoteSendDisclosureKind.CurrentInput,
+        remoteModelName: String = "model-a",
+        remoteHistoryCount: Int = 1,
+        localOnlyHistoryFilteredCount: Int = 0,
+        imageAttachmentCount: Int = 0,
+        protectedSourceCount: Int = 0,
+        runId: String? = null,
+    ): PendingRemoteSendMarker =
+        PendingRemoteSendMarker(
+            kind = kind,
+            remoteModelName = remoteModelName,
+            remoteHistoryCount = remoteHistoryCount,
+            localOnlyHistoryFilteredCount = localOnlyHistoryFilteredCount,
+            imageAttachmentCount = imageAttachmentCount,
+            protectedSourceCount = protectedSourceCount,
+            runId = runId,
+        )
+
+    private fun sharedTextPreviewInput(
+        kind: SharedAttachmentKind = SharedAttachmentKind.Document,
+        mimeType: String,
+        displayName: String,
+        sizeBytes: Long,
+        text: String,
+        truncated: Boolean = false,
+        source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
+    ): SharedInput =
+        SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = kind,
+                    mimeType = mimeType,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes,
+                    textPreview = SharedTextPreview(
+                        text = text,
+                        truncated = truncated,
+                        source = source,
+                    ),
+                ),
+            ),
+        )
+
+    private fun sharedImageInput(
+        displayName: String = "screen.png",
+        dataUrl: String = TEST_IMAGE_DATA_URL,
+        sizeBytes: Long = 12L,
+        mimeType: String = "image/png",
+    ): SharedInput =
+        SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = mimeType,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes,
+                    imageAttachment = ChatImageAttachment(
+                        mimeType = mimeType,
+                        dataUrl = dataUrl,
+                    ),
+                ),
+            ),
+        )
+
+    private fun localSharedImageInput(
+        displayName: String,
+        mimeType: String = "image/png",
+        sizeBytes: Long = 4L,
+        bytes: ByteArray? = null,
+    ): SharedInput =
+        SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = mimeType,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes,
+                    localImageAttachment = bytes?.let {
+                        LocalImageAttachment(
+                            mimeType = mimeType,
+                            bytes = it,
+                            sizeBytes = sizeBytes,
+                        )
+                    },
+                ),
+            ),
+        )
+
+    private fun publicWeatherBatchRequests(): List<ToolRequest> =
+        listOf(
+            publicWeatherRequest(id = "call-beijing", query = "北京 今天 天气"),
+            publicWeatherRequest(id = "call-shanghai", query = "上海 今天 天气"),
+        )
+
+    private fun publicWeatherRequest(id: String, query: String): ToolRequest =
+        ToolRequest(
+            id = id,
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to query),
+            reason = "remote tool call",
+        )
+
+    private fun publicEvidenceBatchPlans(requests: List<ToolRequest>): List<AgentPlan.UseTool> =
+        requests.map { request ->
+            AgentPlan.UseTool(
+                request = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.WEB_SEARCH,
+                    title = "Web 搜索",
+                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = true,
+                fallbackReason = "remote tool batch",
+                safetyDecision = SafetyDecision(
+                    outcome = SafetyOutcome.Allow,
+                    reason = "Read-only web search can execute without confirmation.",
+                ),
+            )
+        }
+
+    private fun publicEvidenceBatchModelObservation(
+        runId: String,
+        requests: List<ToolRequest>,
+    ): AgentModelObservationResult =
+        AgentModelObservationResult(
+            run = publicEvidenceBatchRun(runId, AgentRunState.ExecutingTool, 2L),
+            decision = AgentObservationDecision.PlanToolBatch(
+                plans = publicEvidenceBatchPlans(requests),
+                reason = "Remote model requested 2 parallel public evidence tool calls.",
+            ),
+            steps = emptyList(),
+        )
+
+    private fun publicEvidenceBatchToolObservation(
+        runId: String,
+        state: AgentRunState = AgentRunState.GeneratingAnswer,
+        resultStatus: ToolStatus = ToolStatus.Succeeded,
+        summary: String = "工具执行结果：已完成 2 个公开只读工具调用。",
+        decision: AgentObservationDecision = AgentObservationDecision.ContinueWithModel(
+            requiresLocalModel = false,
+            reason = "Parallel public evidence tools completed.",
+        ),
+        continuationPrompt: String? = "请综合北京和上海的天气结果计算温差。",
+        retryable: Boolean = false,
+    ): AgentObservationResult =
+        AgentObservationResult(
+            run = publicEvidenceBatchRun(runId, state, 3L),
+            result = ToolResult(
+                requestId = "public-evidence-batch",
+                status = resultStatus,
+                summary = summary,
+                data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
+                retryable = retryable,
+            ),
+            assistantMessage = summary,
+            decision = decision,
+            continuationPromptForModel = continuationPrompt,
+            steps = emptyList(),
+        )
+
+    private fun publicEvidenceBatchCompletedObservation(runId: String): AgentModelObservationResult =
+        AgentModelObservationResult(
+            run = publicEvidenceBatchRun(runId, AgentRunState.Completed, 4L),
+            decision = AgentObservationDecision.Complete,
+            steps = emptyList(),
+        )
+
+    private fun publicEvidenceBatchRun(
+        runId: String,
+        state: AgentRunState,
+        updatedAtMillis: Long,
+    ): AgentRun =
+        AgentRun(
+            id = runId,
+            input = "北京和上海今天温差多少？",
+            state = state,
+            createdAtMillis = 1L,
+            updatedAtMillis = updatedAtMillis,
         )
 
     private fun assertRemoteProtectedSharedInput(
@@ -8613,6 +7919,14 @@ class SolinViewModelTest {
             // Vision-capable test model: supportsVisionInput now defaults to false (fail-closed),
             // so image-sending tests must opt in explicitly.
             supportsVisionInput = true,
+        )
+
+    private fun configuredRemoteStore(
+        config: RemoteModelConfig = configuredRemoteModel(),
+    ): FakeRemoteModelStore =
+        FakeRemoteModelStore(
+            mode = InferenceMode.Remote,
+            config = config,
         )
 
     private data class RemoteCall(
@@ -9341,43 +8655,6 @@ class SolinViewModelTest {
         override fun clear() = Unit
     }
 
-    private class FakeMemoryRecordStore(
-        private val failure: Throwable? = null,
-    ) : MemoryRecordStore {
-        private val records = linkedMapOf<String, PersistedMemoryRecord>()
-
-        override fun records(): List<PersistedMemoryRecord> {
-            failure?.let { throw it }
-            return records.values.toList()
-        }
-
-        override fun upsert(record: PersistedMemoryRecord) {
-            failure?.let { throw it }
-            records[record.id] = record
-        }
-
-        override fun delete(id: String): Boolean {
-            failure?.let { throw it }
-            return records.remove(id) != null
-        }
-
-        override fun clear() {
-            failure?.let { throw it }
-            records.clear()
-        }
-    }
-
-    private class FakeMemoryDeletionEventStore : MemoryDeletionEventStore {
-        private val events = mutableListOf<MemoryDeletionEvent>()
-
-        override fun events(): List<MemoryDeletionEvent> =
-            events.toList()
-
-        override fun append(event: MemoryDeletionEvent) {
-            events += event
-        }
-    }
-
     private class ConciseSemanticRuntime : EmbeddingRuntime {
         override val modelId: String = "concise-test"
         override val dimension: Int = 2
@@ -9739,6 +9016,29 @@ class SolinViewModelTest {
 
         override fun clearPendingRemoteSend() {
             pending = null
+        }
+    }
+
+    private class FakeRemoteSendAuditStore : RemoteSendAuditSink, RemoteSendAuditLog {
+        private val events = mutableListOf<RemoteSendAuditEvent>()
+
+        override fun record(event: RemoteSendAuditEvent) {
+            events.add(0, event.redactedForAudit())
+        }
+
+        override fun recentRemoteSends(limit: Int): List<RemoteSendAuditEvent> =
+            if (limit <= 0) emptyList() else events.take(limit)
+    }
+
+    private class FakeBundledModelInstaller(
+        override val isEnabled: Boolean = false,
+        private val result: BundledModelInstallResult = BundledModelInstallResult(available = false),
+    ) : BundledModelInstaller {
+        var installCount = 0
+
+        override fun install(): BundledModelInstallResult {
+            installCount += 1
+            return result
         }
     }
 

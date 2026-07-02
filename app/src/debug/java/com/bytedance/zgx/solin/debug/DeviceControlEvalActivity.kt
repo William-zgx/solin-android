@@ -17,7 +17,6 @@ class DeviceControlEvalActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var searchInput: EditText
     private lateinit var searchResultView: TextView
-    private lateinit var filterButton: Button
     private lateinit var profile: EvalSearchProfile
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,13 +91,12 @@ class DeviceControlEvalActivity : Activity() {
             setOnClickListener { submitEvalSearch() }
         })
         root.addView(searchResultView)
-        filterButton = Button(this).apply {
+        root.addView(Button(this).apply {
             text = "筛选"
             contentDescription = "筛选 FilterEntry"
             isEnabled = profile.supportsFilter
             setOnClickListener { statusView.text = "Filter applied" }
-        }
-        root.addView(filterButton)
+        })
         root.addView(Button(this).apply {
             text = "Open Eval Panel"
             contentDescription = "OpenEvalPanel"
@@ -164,7 +162,6 @@ class DeviceControlEvalActivity : Activity() {
     }
 
     private data class EvalSearchProfile(
-        val key: String,
         val title: String,
         val searchHint: String,
         val inputDescription: String,
@@ -189,7 +186,6 @@ class DeviceControlEvalActivity : Activity() {
             fun fromIntentValue(value: String?): EvalSearchProfile =
                 when (value?.trim()?.lowercase()) {
                     "taobao", "淘宝" -> EvalSearchProfile(
-                        key = "taobao",
                         title = "淘宝",
                         searchHint = "搜索商品",
                         inputDescription = "淘宝搜索商品 EvalSearchInput",
@@ -200,7 +196,6 @@ class DeviceControlEvalActivity : Activity() {
                     )
 
                     "pdd", "pinduoduo", "拼多多" -> EvalSearchProfile(
-                        key = "pdd",
                         title = "拼多多",
                         searchHint = "多多搜索 搜索商品",
                         inputDescription = "拼多多搜索商品 EvalSearchInput",
@@ -211,7 +206,6 @@ class DeviceControlEvalActivity : Activity() {
                     )
 
                     "gaode", "amap", "高德", "高德地图" -> EvalSearchProfile(
-                        key = "gaode",
                         title = "高德地图",
                         searchHint = "搜索地点 目的地",
                         inputDescription = "高德地图搜索地点 EvalSearchInput",
@@ -222,7 +216,6 @@ class DeviceControlEvalActivity : Activity() {
                     )
 
                     "browser", "chrome", "浏览器" -> EvalSearchProfile(
-                        key = "browser",
                         title = "浏览器",
                         searchHint = "搜索或输入网址 地址栏",
                         inputDescription = "浏览器地址栏 EvalSearchInput",
@@ -233,7 +226,6 @@ class DeviceControlEvalActivity : Activity() {
                     )
 
                     else -> EvalSearchProfile(
-                        key = "generic",
                         title = "通用",
                         searchHint = "搜索商品",
                         inputDescription = "EvalSearchInput",

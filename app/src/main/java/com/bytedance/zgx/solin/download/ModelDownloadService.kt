@@ -44,7 +44,7 @@ class ModelDownloadService(
                 shouldCancel = { preflightCancelled },
             ).getOrThrow()
             if (preflightCancelled) throw CancellationException("下载已取消")
-            if (modelDownloadNetworkPolicyFor(preparedDownloadUrl.url) == ModelDownloadNetworkPolicy.LocalDebug) {
+            if (isLocalDebugModelDownloadUrl(preparedDownloadUrl.url)) {
                 return@runCatching downloadLocalDebugUrl(preparedDownloadUrl, targetFile)
             }
             val request = DownloadManager.Request(Uri.parse(preparedDownloadUrl.url))
@@ -169,17 +169,8 @@ class ModelDownloadService(
     }
 }
 
-internal enum class ModelDownloadNetworkPolicy {
-    LocalDebug,
-    WifiOnly,
-}
-
-internal fun modelDownloadNetworkPolicyFor(downloadUrl: String): ModelDownloadNetworkPolicy =
-    if (runCatching { URI(downloadUrl).host.isLocalDebugHost() }.getOrDefault(false)) {
-        ModelDownloadNetworkPolicy.LocalDebug
-    } else {
-        ModelDownloadNetworkPolicy.WifiOnly
-    }
+internal fun isLocalDebugModelDownloadUrl(downloadUrl: String): Boolean =
+    runCatching { URI(downloadUrl).host.isLocalDebugHost() }.getOrDefault(false)
 
 data class DownloadInfo(
     val status: Int,

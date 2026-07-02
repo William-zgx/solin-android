@@ -21,7 +21,9 @@ import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
 import com.bytedance.zgx.solin.audit.InMemoryToolAuditSink
+import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
+import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
@@ -64,7 +66,7 @@ class AgentLoopRuntimeTest {
         memoryRepository.index("preference", "用户喜欢端侧离线聊天")
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
-        val runtime = AgentLoopRuntime(
+        val runtime = agentLoopRuntime(
             memoryIndex = memoryRepository,
             actionPlanningRuntime = actionRuntime,
             traceStore = traceStore,
@@ -99,10 +101,9 @@ class AgentLoopRuntimeTest {
             id = "long-memory",
             text = "端侧上下文" + "很长".repeat(LocalModelTokenLimits.MAX_INPUT_TOKENS) + "TAIL_SHOULD_NOT_APPEAR",
         )
-        val runtime = AgentLoopRuntime(
+        val runtime = agentLoopRuntime(
             memoryIndex = memoryRepository,
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
 
         val result = runtime.runOnce(
@@ -122,10 +123,8 @@ class AgentLoopRuntimeTest {
             likelyAction = true,
             planningResult = wifiPlanningResult(),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
 
         val result = runtime.runOnce(
@@ -146,10 +145,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun remoteModelCannotRequestToolBeforeToolSnapshotIsRecorded() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -182,8 +179,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun remoteToolSnapshotFiltersToolsNotEligibleForScope() {
         val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = traceStore,
         )
@@ -235,10 +231,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun remoteModelCannotRequestScopeEligibleToolMissingFromExposedSnapshot() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -276,10 +270,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun remoteMixedBatchRejectionRecordsAttemptedToolNames() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -326,10 +318,8 @@ class AgentLoopRuntimeTest {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
 
         val result = runtime.runOnce(
@@ -354,10 +344,8 @@ class AgentLoopRuntimeTest {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
 
         val result = runtime.runOnce(
@@ -383,10 +371,8 @@ class AgentLoopRuntimeTest {
             likelyAction = true,
             planningResult = wifiPlanningResult(),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
 
         val result = runtime.runOnce(
@@ -408,10 +394,8 @@ class AgentLoopRuntimeTest {
                 """call:web_search{"query":"Kotlin coroutines"}""",
             ),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "帮我查 Kotlin 协程资料",
@@ -444,10 +428,8 @@ class AgentLoopRuntimeTest {
             likelyAction = false,
             modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}"""),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "准备分享一段文字",
@@ -480,10 +462,8 @@ class AgentLoopRuntimeTest {
                 """call:share_text{"text":"should not become a tool"}""",
             ),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -515,10 +495,8 @@ class AgentLoopRuntimeTest {
                 """call:web_search{"query":"北京和上海的天气"}""",
             ),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "北京和上海的温差是多少？",
@@ -534,17 +512,14 @@ class AgentLoopRuntimeTest {
 
         val observed = runtime.observeToolResult(
             runId = result.run.id,
-            result = ToolResult(
+            result = successfulWebSearchResult(
                 requestId = planned.decision.plan.request.id,
-                status = ToolStatus.Succeeded,
                 summary = "已读取北京、上海当前天气。",
-                data = webSearchResultData(
-                    query = "北京和上海的天气",
-                    summaryText = "已读取北京、上海当前天气。",
-                    resultsJson = """
+                query = "北京和上海的天气",
+                summaryText = "已读取北京、上海当前天气。",
+                resultsJson = """
                         {"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}},{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}
                     """.trimIndent(),
-                ),
             ),
         )
 
@@ -566,10 +541,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun publicEvidenceContinuationPromptUsesNumberedSourceBlocksAndRetriesMissingCitationOnce() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "Kotlin 目前最新发布是什么？",
@@ -641,10 +614,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun publicEvidenceContinuationRejectsActionToolRequestNotExposedInScope() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -673,14 +644,11 @@ class AgentLoopRuntimeTest {
         require(planned.decision is AgentObservationDecision.PlanNextTool)
         val observed = runtime.observeToolResult(
             runId = result.run.id,
-            result = ToolResult(
+            result = successfulWebSearchResult(
                 requestId = planned.decision.plan.request.id,
-                status = ToolStatus.Succeeded,
                 summary = "已读取北京天气。",
-                data = webSearchResultData(
-                    query = "北京天气",
-                    summaryText = "北京 12 摄氏度。",
-                ),
+                query = "北京天气",
+                summaryText = "北京 12 摄氏度。",
             ),
         )
         requireNotNull(observed)
@@ -710,10 +678,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun remoteModelSensitiveWebSearchRequiresConfirmationBeforeNetworkAccess() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "帮我检查手机号有没有泄露",
@@ -752,10 +718,8 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun remoteModelMultiplePublicEvidenceToolCallsPlanBatchWithoutConfirmation() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
@@ -1170,15 +1134,12 @@ class AgentLoopRuntimeTest {
         require(firstPlan.decision is AgentObservationDecision.PlanNextTool)
         val firstObserved = runtime.observeToolResult(
             runId = result.run.id,
-            result = ToolResult(
+            result = successfulWebSearchResult(
                 requestId = "call-beijing",
-                status = ToolStatus.Succeeded,
                 summary = "已读取北京当前天气。",
-                data = webSearchResultData(
-                    query = "北京天气",
-                    summaryText = "北京 12 摄氏度。",
-                    resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}""",
-                ),
+                query = "北京天气",
+                summaryText = "北京 12 摄氏度。",
+                resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}""",
             ),
         )
         requireNotNull(firstObserved)
@@ -1203,15 +1164,12 @@ class AgentLoopRuntimeTest {
 
         val secondObserved = runtime.observeToolResult(
             runId = result.run.id,
-            result = ToolResult(
+            result = successfulWebSearchResult(
                 requestId = "call-shanghai",
-                status = ToolStatus.Succeeded,
                 summary = "已读取上海当前天气。",
-                data = webSearchResultData(
-                    query = "上海天气",
-                    summaryText = "上海 18 摄氏度。",
-                    resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}""",
-                ),
+                query = "上海天气",
+                summaryText = "上海 18 摄氏度。",
+                resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}""",
             ),
         )
 
@@ -1401,17 +1359,15 @@ class AgentLoopRuntimeTest {
     @Test
     fun localModelToolCallAuditSummariesDoNotPersistArguments() {
         val secretPayload = "SECRET_SHARE_TEXT"
-        val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
             modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"$secretPayload"}"""),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val audited = auditedAgentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
+        val runtime = audited.runtime
+        val auditSink = audited.auditSink
         val result = runtime.runOnce(
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
@@ -1440,10 +1396,8 @@ class AgentLoopRuntimeTest {
             likelyAction = false,
             modelOutputResult = ModelToolOutputParseResult.None,
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val runtime = agentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val result = runtime.runOnce(
             input = "解释一下 web_search 工具",
@@ -1775,85 +1729,57 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun reduceDeviceActionConfirmationsExecutesLowRiskDeviceNavigationWithoutConfirmation() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = wifiPlanningResult(),
-        )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
-
-        val result = runtime.runOnce(
-            input = "打开 Wi-Fi 设置",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
-        )
-
-        assertEquals(AgentRunState.ExecutingTool, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.plan.request.toolName)
-        assertEquals(SafetyOutcome.Allow, result.plan.safetyDecision.outcome)
-        assertFalse(result.plan.draft.requiresConfirmation)
-        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
-    }
-
-    @Test
-    fun reduceDeviceActionConfirmationsExecutesLowRiskUiTapWithoutConfirmation() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = uiTapPlanningResult("搜索"),
-        )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
-
-        val result = runtime.runOnce(
-            input = "点击搜索",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
-        )
-
-        assertEquals(AgentRunState.ExecutingTool, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.UI_TAP, result.plan.request.toolName)
-        assertEquals(SafetyOutcome.Allow, result.plan.safetyDecision.outcome)
-        assertFalse(result.plan.draft.requiresConfirmation)
-    }
-
-    @Test
-    fun reduceDeviceActionConfirmationsKeepsHighRiskUiTapConfirmed() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = uiTapPlanningResult("确认支付"),
-        )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
-
-        val result = runtime.runOnce(
-            input = "点击确认支付",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.UI_TAP, result.plan.request.toolName)
-        assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
-        assertTrue(result.steps.any { it is AgentStep.UserConfirmationRequested })
+    fun reduceDeviceActionConfirmationsOnlyBypassesLowRiskInitialPlans() {
+        listOf(
+            ReducedConfirmationInitialCase(
+                name = "low-risk Wi-Fi navigation",
+                input = "打开 Wi-Fi 设置",
+                planningResult = wifiPlanningResult(),
+                expectedRunState = AgentRunState.ExecutingTool,
+                expectedToolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                expectedSafety = SafetyOutcome.Allow,
+                requiresConfirmation = false,
+            ),
+            ReducedConfirmationInitialCase(
+                name = "low-risk UI tap",
+                input = "点击搜索",
+                planningResult = uiTapPlanningResult("搜索"),
+                expectedRunState = AgentRunState.ExecutingTool,
+                expectedToolName = MobileActionFunctions.UI_TAP,
+                expectedSafety = SafetyOutcome.Allow,
+                requiresConfirmation = false,
+            ),
+            ReducedConfirmationInitialCase(
+                name = "high-risk UI tap",
+                input = "点击确认支付",
+                planningResult = uiTapPlanningResult("确认支付"),
+                expectedRunState = AgentRunState.AwaitingUserConfirmation,
+                expectedToolName = MobileActionFunctions.UI_TAP,
+                expectedSafety = SafetyOutcome.RequireConfirmation,
+                requiresConfirmation = true,
+            ),
+            ReducedConfirmationInitialCase(
+                name = "external text draft",
+                input = "帮我写邮件：明天聊",
+                planningResult = composeEmailPlanningResult(),
+                expectedRunState = AgentRunState.AwaitingUserConfirmation,
+                expectedToolName = MobileActionFunctions.COMPOSE_EMAIL,
+                expectedSafety = SafetyOutcome.RequireConfirmation,
+                requiresConfirmation = true,
+            ),
+            ReducedConfirmationInitialCase(
+                name = "accessibility settings",
+                input = "打开无障碍设置",
+                planningResult = openAccessibilitySettingsPlanningResult(),
+                expectedRunState = AgentRunState.AwaitingUserConfirmation,
+                expectedToolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                expectedSafety = SafetyOutcome.RequireConfirmation,
+                requiresConfirmation = true,
+                expectedArguments = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
+            ),
+        ).forEach { case ->
+            assertReducedConfirmationInitialPlan(case)
+        }
     }
 
     @Test
@@ -1938,86 +1864,6 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun reduceDeviceActionConfirmationsKeepsExternalTextDraftsConfirmed() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = ActionPlanningResult(
-                plan = ActionPlan(
-                    kind = ActionPlanKind.Draft,
-                    draft = ActionDraft(
-                        functionName = MobileActionFunctions.COMPOSE_EMAIL,
-                        title = "邮件草稿",
-                        summary = "将打开邮件 App 并填入草稿内容。",
-                        parameters = mapOf("body" to "明天聊"),
-                        requiresConfirmation = true,
-                    ),
-                ),
-                usedModel = false,
-                fallbackReason = "test fallback",
-            ),
-        )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
-
-        val result = runtime.runOnce(
-            input = "帮我写邮件：明天聊",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.COMPOSE_EMAIL, result.plan.request.toolName)
-        assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
-        assertTrue(result.steps.any { it is AgentStep.UserConfirmationRequested })
-    }
-
-    @Test
-    fun reduceDeviceActionConfirmationsKeepsAccessibilitySettingsConfirmed() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = ActionPlanningResult(
-                plan = ActionPlan(
-                    kind = ActionPlanKind.Draft,
-                    draft = ActionDraft(
-                        functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-                        title = "打开无障碍设置",
-                        summary = "将打开无障碍设置，由你手动完成后续操作。",
-                        parameters = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
-                        requiresConfirmation = true,
-                    ),
-                ),
-                usedModel = false,
-                fallbackReason = "test fallback",
-            ),
-        )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
-
-        val result = runtime.runOnce(
-            input = "打开无障碍设置",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, result.plan.request.toolName)
-        assertEquals(SystemSettingsTargets.ACCESSIBILITY, result.plan.request.arguments["target"])
-        assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
-    }
-
-    @Test
     fun reminderActionInputUsesReminderSkillAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
@@ -2061,38 +1907,22 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstReminderBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("提醒我 15 分钟后喝水")
+        val result = run.result
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "提醒我 15 分钟后喝水",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, result.plan.request.toolName)
-        assertEquals("15", result.plan.request.arguments["delayMinutes"])
-        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.request.toolName)
+        assertEquals("15", plan.request.arguments["delayMinutes"])
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.skillRequest?.skillId)
         assertTrue(result.steps.any { step ->
             step is AgentStep.SkillPlanned &&
                 step.plan?.request?.skillId == BuiltInSkillRuntime.REMINDER_SKILL
         })
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.SCHEDULE_REMINDER &&
                 event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
                 ToolPermission.SchedulesBackgroundWork in event.permissions &&
@@ -2103,61 +1933,28 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val plan = runSkillFirstUseTool("remind me in 1 hour to check build status").plan
 
-        val result = runtime.runOnce(
-            input = "remind me in 1 hour to check build status",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, result.plan.request.toolName)
-        assertEquals("60", result.plan.request.arguments["delayMinutes"])
-        assertEquals("check build status", result.plan.request.arguments["title"])
-        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.request.toolName)
+        assertEquals("60", plan.request.arguments["delayMinutes"])
+        assertEquals("check build status", plan.request.arguments["title"])
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.skillRequest?.skillId)
     }
 
     @Test
     fun skillFirstCancelReminderBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("取消提醒 task-123")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "取消提醒 task-123",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.CANCEL_REMINDER, result.plan.request.toolName)
-        assertEquals("task-123", result.plan.request.arguments["taskId"])
-        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, plan.request.toolName)
+        assertEquals("task-123", plan.request.arguments["taskId"])
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
                 event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
                 ToolPermission.SchedulesBackgroundWork in event.permissions
@@ -2166,36 +1963,19 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("开启周期检查，每 2 小时")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "开启周期检查，每 2 小时",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, result.plan.request.toolName)
-        assertEquals("true", result.plan.request.arguments["enabled"])
-        assertEquals("120", result.plan.request.arguments["intervalMinutes"])
-        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, plan.request.toolName)
+        assertEquals("true", plan.request.arguments["enabled"])
+        assertEquals("120", plan.request.arguments["intervalMinutes"])
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.CONFIGURE_PERIODIC_CHECK &&
                 event.skillId == BuiltInSkillRuntime.PERIODIC_CHECK_SKILL &&
                 ToolPermission.SchedulesBackgroundWork in event.permissions &&
@@ -2206,35 +1986,18 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstBackgroundTasksQueryBypassesActionPlannerAndRequestsReadOnlyConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("周期检查状态")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "周期检查状态",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, result.plan.request.toolName)
-        assertEquals("policy", result.plan.request.arguments["scope"])
-        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, plan.request.toolName)
+        assertEquals("policy", plan.request.arguments["scope"])
+        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.QUERY_BACKGROUND_TASKS &&
                 event.skillId == BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL &&
                 event.permissions == setOf(ToolPermission.ReadsDeviceContext)
@@ -2244,7 +2007,6 @@ class AgentLoopRuntimeTest {
     @Test
     fun reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation() {
         val input = "提醒我一下，“15 分钟后”是什么意思"
-        val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
             likelyAction = MobileActionPlanner().isLikelyAction(input),
             planningResult = ActionPlanningResult(
@@ -2265,12 +2027,11 @@ class AgentLoopRuntimeTest {
                 fallbackReason = null,
             ),
         )
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
+        val audited = auditedAgentLoopRuntime(
             actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
+        val runtime = audited.runtime
+        val auditSink = audited.auditSink
 
         val result = runtime.runOnce(
             input = input,
@@ -2296,7 +2057,6 @@ class AgentLoopRuntimeTest {
         )
 
         cases.forEach { input ->
-            val auditSink = InMemoryToolAuditSink()
             val actionRuntime = RecordingActionRuntime(
                 likelyAction = MobileActionPlanner().isLikelyAction(input),
                 planningResult = ActionPlanningResult(
@@ -2313,12 +2073,11 @@ class AgentLoopRuntimeTest {
                     fallbackReason = null,
                 ),
             )
-            val runtime = AgentLoopRuntime(
-                memoryIndex = MemoryRepository(),
+            val audited = auditedAgentLoopRuntime(
                 actionPlanningRuntime = actionRuntime,
-                auditSink = auditSink,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             )
+            val runtime = audited.runtime
+            val auditSink = audited.auditSink
 
             val result = runtime.runOnce(
                 input = input,
@@ -2417,30 +2176,17 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("总结剪贴板并分享")
+        val result = run.result
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "总结剪贴板并分享",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
-        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals(3, result.plan.skillPlan?.steps?.size)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
-        val pending = runtime.latestPendingConfirmation()
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, plan.skillRequest?.skillId)
+        assertEquals(3, plan.skillPlan?.steps?.size)
+        val pending = run.runtime.latestPendingConfirmation()
         requireNotNull(pending)
         assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, pending.skillId)
-        assertEquals(result.plan.skillPlan, pending.skillPlan)
+        assertEquals(plan.skillPlan, pending.skillPlan)
         assertTrue(result.steps.any { step ->
             step is AgentStep.SkillPlanned &&
                 step.plan?.request?.skillId == BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
@@ -2449,54 +2195,22 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val plan = runSkillFirstUseTool("读取剪贴板").plan
 
-        val result = runtime.runOnce(
-            input = "读取剪贴板",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
-        assertEquals(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL, plan.skillRequest?.skillId)
     }
 
     @Test
     fun skillFirstShareTextBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
         val shareText = "明天十点开会"
+        val run = runSkillFirstUseTool("分享这段文字：$shareText")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "分享这段文字：$shareText",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.SHARE_TEXT, result.plan.request.toolName)
-        assertEquals(shareText, result.plan.request.arguments["text"])
-        assertEquals(BuiltInSkillRuntime.SHARE_TEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertTrue(auditSink.events.none { event -> event.summary.contains(shareText) })
+        assertEquals(MobileActionFunctions.SHARE_TEXT, plan.request.toolName)
+        assertEquals(shareText, plan.request.arguments["text"])
+        assertEquals(BuiltInSkillRuntime.SHARE_TEXT_SKILL, plan.skillRequest?.skillId)
+        assertTrue(run.auditSink.events.none { event -> event.summary.contains(shareText) })
     }
 
     @Test
@@ -2508,29 +2222,14 @@ class AgentLoopRuntimeTest {
         )
 
         cases.forEach { (input, toolName) ->
-            val actionRuntime = RecordingActionRuntime(likelyAction = false)
-            val runtime = AgentLoopRuntime(
-                memoryIndex = MemoryRepository(),
-                actionPlanningRuntime = actionRuntime,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            )
+            val run = runSkillFirstUseTool(input)
+            val plan = run.plan
 
-            val result = runtime.runOnce(
-                input = input,
-                installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
-            )
-
-            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-            require(result.plan is AgentPlan.UseTool)
-            assertEquals(toolName, result.plan.request.toolName)
-            assertTrue(result.plan.request.arguments.isEmpty())
-            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, result.plan.skillRequest?.skillId)
-            assertEquals("skill-first", result.plan.fallbackReason)
-            assertEquals(0, actionRuntime.isLikelyActionCallCount)
-            assertEquals(0, actionRuntime.planCallCount)
-            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, runtime.latestPendingConfirmation()?.skillId)
-            assertTrue(result.steps.any { step ->
+            assertEquals(toolName, plan.request.toolName)
+            assertTrue(plan.request.arguments.isEmpty())
+            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, plan.skillRequest?.skillId)
+            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
+            assertTrue(run.result.steps.any { step ->
                 step is AgentStep.SkillPlanned &&
                     step.request.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
             })
@@ -2569,28 +2268,14 @@ class AgentLoopRuntimeTest {
         )
 
         cases.forEach { (input, query) ->
-            val actionRuntime = RecordingActionRuntime(likelyAction = false)
-            val runtime = AgentLoopRuntime(
-                memoryIndex = MemoryRepository(),
-                actionPlanningRuntime = actionRuntime,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            )
+            val run = runSkillFirstUseTool(input, expectedState = AgentRunState.ExecutingTool)
+            val result = run.result
+            val plan = run.plan
 
-            val result = runtime.runOnce(
-                input = input,
-                installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
-            )
-
-            assertEquals(AgentRunState.ExecutingTool, result.run.state)
-            require(result.plan is AgentPlan.UseTool)
-            assertEquals(MobileActionFunctions.WEB_SEARCH, result.plan.request.toolName)
-            assertEquals(query, result.plan.request.arguments["query"])
-            assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, result.plan.skillRequest?.skillId)
-            assertEquals("skill-first", result.plan.fallbackReason)
-            assertEquals(0, actionRuntime.isLikelyActionCallCount)
-            assertEquals(0, actionRuntime.planCallCount)
-            assertEquals(null, runtime.latestPendingConfirmation())
+            assertEquals(MobileActionFunctions.WEB_SEARCH, plan.request.toolName)
+            assertEquals(query, plan.request.arguments["query"])
+            assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, plan.skillRequest?.skillId)
+            assertEquals(null, run.runtime.latestPendingConfirmation())
             assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
         }
     }
@@ -2603,67 +2288,35 @@ class AgentLoopRuntimeTest {
         )
 
         cases.forEach { (input, kind, maxCount) ->
-            val actionRuntime = RecordingActionRuntime(likelyAction = false)
-            val runtime = AgentLoopRuntime(
-                memoryIndex = MemoryRepository(),
-                actionPlanningRuntime = actionRuntime,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            )
+            val run = runSkillFirstUseTool(input)
+            val plan = run.plan
 
-            val result = runtime.runOnce(
-                input = input,
-                installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
-            )
-
-            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-            require(result.plan is AgentPlan.UseTool)
-            assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, result.plan.request.toolName)
-            assertEquals(kind, result.plan.request.arguments["kind"])
+            assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.request.toolName)
+            assertEquals(kind, plan.request.arguments["kind"])
             if (maxCount == null) {
-                assertNull(result.plan.request.arguments["maxCount"])
+                assertNull(plan.request.arguments["maxCount"])
             } else {
-                assertEquals(maxCount, result.plan.request.arguments["maxCount"])
+                assertEquals(maxCount, plan.request.arguments["maxCount"])
             }
-            assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-            assertEquals("skill-first", result.plan.fallbackReason)
-            assertEquals(0, actionRuntime.isLikelyActionCallCount)
-            assertEquals(0, actionRuntime.planCallCount)
-            assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+            assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, plan.skillRequest?.skillId)
+            assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         }
     }
 
     @Test
     fun skillFirstRecentScreenshotOcrBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("识别最近截图文字")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "识别最近截图文字",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, result.plan.request.toolName)
-        assertEquals("1", result.plan.request.arguments["maxCount"])
-        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, plan.request.toolName)
+        assertEquals("1", plan.request.arguments["maxCount"])
+        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR &&
                 event.skillId == BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL &&
                 ToolPermission.ReadsFiles in event.permissions &&
@@ -2673,35 +2326,18 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstRecentImageOcrBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("识别最近2张照片文字")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "识别最近2张照片文字",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, result.plan.request.toolName)
-        assertEquals("2", result.plan.request.arguments["maxCount"])
-        assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, plan.request.toolName)
+        assertEquals("2", plan.request.arguments["maxCount"])
+        assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.READ_RECENT_IMAGE_OCR &&
                 event.skillId == BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL &&
                 ToolPermission.ReadsFiles in event.permissions &&
@@ -2711,28 +2347,13 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("打开链接 https://example.com/path?q=agent")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "打开链接 https://example.com/path?q=agent",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, result.plan.request.toolName)
-        assertEquals("https://example.com/path?q=agent", result.plan.request.arguments["uri"])
-        assertEquals(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, plan.request.toolName)
+        assertEquals("https://example.com/path?q=agent", plan.request.arguments["uri"])
+        assertEquals(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
     }
 
     @Test
@@ -2745,225 +2366,84 @@ class AgentLoopRuntimeTest {
         )
 
         cases.forEach { (input, toolName) ->
-            val actionRuntime = RecordingActionRuntime(likelyAction = false)
-            val runtime = AgentLoopRuntime(
-                memoryIndex = MemoryRepository(),
-                actionPlanningRuntime = actionRuntime,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            )
+            val run = runSkillFirstUseTool(input)
+            val plan = run.plan
 
-            val result = runtime.runOnce(
-                input = input,
-                installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
-            )
-
-            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-            require(result.plan is AgentPlan.UseTool)
-            assertEquals(toolName, result.plan.request.toolName)
+            assertEquals(toolName, plan.request.toolName)
             if (toolName == MobileActionFunctions.OPEN_APP_BY_NAME) {
                 val expectedAppName = when (input) {
                     "打开高德地图" -> "高德地图"
                     "打开信息" -> "信息"
                     else -> "微信"
                 }
-                assertEquals(expectedAppName, result.plan.request.arguments["appName"])
+                assertEquals(expectedAppName, plan.request.arguments["appName"])
             } else {
-                assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, result.plan.request.arguments["targetId"])
-                assertEquals("com.tencent.mm", result.plan.request.arguments["packageName"])
+                assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, plan.request.arguments["targetId"])
+                assertEquals("com.tencent.mm", plan.request.arguments["packageName"])
             }
-            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, result.plan.skillRequest?.skillId)
-            assertEquals("skill-first", result.plan.fallbackReason)
-            assertEquals(0, actionRuntime.isLikelyActionCallCount)
-            assertEquals(0, actionRuntime.planCallCount)
-            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, runtime.latestPendingConfirmation()?.skillId)
+            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, plan.skillRequest?.skillId)
+            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         }
     }
 
     @Test
     fun skillFirstOpenAppSearchRequestsConfirmationForFirstStep() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("打开淘宝搜索海河牛奶")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "打开淘宝搜索海河牛奶",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, result.plan.request.toolName)
-        assertEquals("淘宝", result.plan.request.arguments["appName"])
-        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, plan.request.toolName)
+        assertEquals("淘宝", plan.request.arguments["appName"])
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
     }
 
     @Test
     fun openAppUiSearchUnverifiedOpenAppByNameContinuesCurrentSkillToWait() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
         var replanCallCount = 0
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        val run = startOpenAppUiSearch(
+            input = "打开淘宝搜索海河牛奶",
             observationReplanner = AgentObservationReplanner {
                 replanCallCount += 1
                 null
             },
         )
-        val planned = runtime.runOnce(
-            input = "打开淘宝搜索海河牛奶",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-        require(planned.plan is AgentPlan.UseTool)
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
 
-        val observed = runtime.observeToolResult(
-            runId = planned.run.id,
-            result = ToolResult(
-                requestId = planned.plan.request.id,
-                status = ToolStatus.Succeeded,
-                summary = "已打开淘宝",
-                data = externalActivityResultData(
-                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                    completionVerified = false,
-                    externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
-        )
-
-        requireNotNull(observed)
-        assertEquals(AgentRunState.ExecutingTool, observed.run.state)
-        require(observed.decision is AgentObservationDecision.PlanNextTool)
-        assertEquals(MobileActionFunctions.UI_WAIT, observed.decision.plan.request.toolName)
-        assertTrue(observed.decision.plan.request.reason.contains("等待淘宝前台界面稳定"))
-        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, observed.decision.plan.skillRequest?.skillId)
-        assertFalse(observed.decision.plan.draft.requiresConfirmation)
-        assertEquals(SafetyOutcome.Allow, observed.decision.plan.safetyDecision.outcome)
+        assertTrue(run.nextPlan.request.reason.contains("等待淘宝前台界面稳定"))
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, run.nextPlan.skillRequest?.skillId)
         assertEquals(0, replanCallCount)
-        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(null, run.runtime.latestPendingConfirmation())
     }
 
     @Test
     fun openAppUiSearchLocalOnlyUiResultsContinueSkillBeforeModelContinuation() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        val run = startOpenAppUiSearch(
+            input = "打开淘宝搜索海河牛奶",
             observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false)),
         )
-        val planned = runtime.runOnce(
-            input = "打开淘宝搜索海河牛奶",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-        require(planned.plan is AgentPlan.UseTool)
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val opened = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = ToolResult(
-                    requestId = planned.plan.request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已打开淘宝",
-                    data = externalActivityResultData(
-                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                        completionVerified = false,
-                        externalOutcome = "Unknown",
-                        externalOutcomeSource = "Unknown",
-                    ),
-                ),
-            ),
-        )
-        val waitPlan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
 
         val observedAfterWait = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = uiActionResult(waitPlan.request, actionType = "wait"),
-            ),
+            run.observeToolResult(uiActionResult(run.nextPlan.request, actionType = "wait")),
         )
 
         assertEquals(AgentRunState.ExecutingTool, observedAfterWait.run.state)
         val observePlan = observedAfterWait.requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
         assertFalse(observePlan.draft.requiresConfirmation)
         assertEquals(SafetyOutcome.Allow, observePlan.safetyDecision.outcome)
-        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(null, run.runtime.latestPendingConfirmation())
     }
 
     @Test
     fun openAppUiSearchProgressesThroughLowRiskUiStepsUntilVerification() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        val run = startOpenAppUiSearch(
+            input = "打开淘宝搜索海河牛奶",
             observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false)),
         )
-        val planned = runtime.runOnce(
-            input = "打开淘宝搜索海河牛奶",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-        require(planned.plan is AgentPlan.UseTool)
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val opened = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = ToolResult(
-                    requestId = planned.plan.request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已打开淘宝",
-                    data = externalActivityResultData(
-                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                        completionVerified = false,
-                        externalOutcome = "Unknown",
-                        externalOutcomeSource = "Unknown",
-                    ),
-                ),
-            ),
-        )
-
-        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
-            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
-        plan = runtime.observeToolResult(planned.run.id, observeScreenResult(plan.request))
-            .requireNextTool(MobileActionFunctions.UI_TAP)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
-            .requireNextTool(MobileActionFunctions.UI_WAIT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
-            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
-            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "submit_search"))
-            .requireNextTool(MobileActionFunctions.UI_WAIT)
-
-        val verified = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = uiActionResult(
-                    request = plan.request,
-                    actionType = "wait",
-                    extraData = mapOf(
-                        "searchVerificationStatus" to "verified",
-                        "searchVerificationEvidence" to "query_visible_after_change",
-                    ),
-                ),
-            ),
-        )
+        val plan = run.advanceOpenAppUiSearchToVerificationWait(query = "海河牛奶")
+        val verified = run.verifyOpenAppUiSearch(plan)
 
         assertEquals(AgentRunState.Completed, verified.run.state)
         assertEquals(AgentObservationDecision.Complete, verified.decision)
-        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(null, run.runtime.latestPendingConfirmation())
     }
 
     @Test
@@ -3094,67 +2574,13 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun openAppUiSearchThenBackRequestsCheckpointBeforePressingBack() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
-        )
-        val planned = runtime.runOnce(
+        val run = startOpenAppUiSearch(
             input = "打开淘宝搜索耳机，然后返回",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
         )
-        require(planned.plan is AgentPlan.UseTool)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
-        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
-        assertEquals("淘宝", planned.plan.request.arguments["appName"])
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val opened = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = ToolResult(
-                    requestId = planned.plan.request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已打开淘宝",
-                    data = externalActivityResultData(
-                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                        completionVerified = false,
-                        externalOutcome = "Unknown",
-                        externalOutcomeSource = "Unknown",
-                    ),
-                ),
-            ),
-        )
-
-        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
-            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
-        plan = runtime.observeToolResult(planned.run.id, observeScreenResult(plan.request))
-            .requireNextTool(MobileActionFunctions.UI_TAP)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
-            .requireNextTool(MobileActionFunctions.UI_WAIT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
-            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
-        assertEquals("耳机", plan.request.arguments["text"])
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
-            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "submit_search"))
-            .requireNextTool(MobileActionFunctions.UI_WAIT)
-        assertEquals("耳机", plan.request.arguments["verifySearchQuery"])
+        val plan = run.advanceOpenAppUiSearchToVerificationWait(query = "耳机")
 
         val backCheckpoint = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = uiActionResult(
-                    request = plan.request,
-                    actionType = "wait",
-                    extraData = mapOf(
-                        "searchVerificationStatus" to "verified",
-                        "searchVerificationEvidence" to "query_visible_after_change",
-                    ),
-                ),
-            ),
+            run.observeToolResult(verifiedOpenAppSearchResult(plan.request)),
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, backCheckpoint.run.state)
@@ -3163,84 +2589,31 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.UI_PRESS_BACK, backPlan.request.toolName)
         assertTrue(backPlan.draft.requiresConfirmation)
         assertEquals(SafetyOutcome.RequireConfirmation, backPlan.safetyDecision.outcome)
-        assertEquals(backPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        assertEquals(backPlan.request.id, run.runtime.latestPendingConfirmation()?.request?.id)
     }
 
     @Test
     fun openAppUiSearchThenBackPressesBackAfterUserConfirmsCheckpoint() {
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
-        )
-        val planned = runtime.runOnce(
+        val run = startOpenAppUiSearch(
             input = "打开淘宝搜索耳机，然后返回",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
         )
-        require(planned.plan is AgentPlan.UseTool)
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val opened = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = ToolResult(
-                    requestId = planned.plan.request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已打开淘宝",
-                    data = externalActivityResultData(
-                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                        completionVerified = false,
-                        externalOutcome = "Unknown",
-                        externalOutcomeSource = "Unknown",
-                    ),
-                ),
-            ),
-        )
-
-        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
-            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
-        plan = runtime.observeToolResult(planned.run.id, observeScreenResult(plan.request))
-            .requireNextTool(MobileActionFunctions.UI_TAP)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
-            .requireNextTool(MobileActionFunctions.UI_WAIT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
-            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
-            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
-        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "submit_search"))
-            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        val plan = run.advanceOpenAppUiSearchToVerificationWait(query = "耳机")
         val backCheckpoint = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = uiActionResult(
-                    request = plan.request,
-                    actionType = "wait",
-                    extraData = mapOf(
-                        "searchVerificationStatus" to "verified",
-                        "searchVerificationEvidence" to "query_visible_after_change",
-                    ),
-                ),
-            ),
+            run.observeToolResult(verifiedOpenAppSearchResult(plan.request)),
         )
         require(backCheckpoint.decision is AgentObservationDecision.PlanNextTool)
         val backPlan = backCheckpoint.decision.plan
-        runtime.confirmToolRequest(planned.run.id, backPlan.request.id)
+        run.runtime.confirmToolRequest(run.planned.run.id, backPlan.request.id)
 
-        val waitAfterBack = runtime.observeToolResult(
-            runId = planned.run.id,
-            result = uiActionResult(
+        val waitAfterBack = run.observeToolResult(
+            uiActionResult(
                 request = backPlan.request,
                 actionType = "press_back",
             ),
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
 
         val completed = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = uiActionResult(waitAfterBack.request, actionType = "wait"),
-            ),
+            run.observeToolResult(uiActionResult(waitAfterBack.request, actionType = "wait")),
         )
         assertEquals(AgentRunState.GeneratingAnswer, completed.run.state)
         require(completed.decision is AgentObservationDecision.ContinueWithModel)
@@ -3444,28 +2817,13 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("当前应用是什么")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "当前应用是什么",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, result.plan.request.toolName)
-        assertTrue(result.plan.request.arguments.isEmpty())
-        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, plan.request.toolName)
+        assertTrue(plan.request.arguments.isEmpty())
+        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
     }
 
     @Test
@@ -3513,62 +2871,30 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("最近 3 条通知")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "最近 3 条通知",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, result.plan.request.toolName)
-        assertEquals("3", result.plan.request.arguments["maxCount"])
-        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, plan.request.toolName)
+        assertEquals("3", plan.request.arguments["maxCount"])
+        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
     }
 
     @Test
     fun skillFirstCurrentScreenTextBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("总结当前屏幕文字，最多1200字")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "总结当前屏幕文字，最多1200字",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, result.plan.request.toolName)
-        assertEquals("1200", result.plan.request.arguments["maxChars"])
-        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
-        assertTrue(result.plan.draft.summary.contains("可访问文本快照"))
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, plan.request.toolName)
+        assertEquals("1200", plan.request.arguments["maxChars"])
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
+        assertTrue(plan.draft.summary.contains("可访问文本快照"))
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.READ_CURRENT_SCREEN_TEXT &&
                 event.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL &&
                 ToolPermission.ReadsAccessibilityText in event.permissions
@@ -3577,61 +2903,29 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation() {
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("查联系人 Alice")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "查联系人 Alice",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.QUERY_CONTACTS, result.plan.request.toolName)
-        assertEquals("Alice", result.plan.request.arguments["query"])
-        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, plan.request.toolName)
+        assertEquals("Alice", plan.request.arguments["query"])
+        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
     }
 
     @Test
     fun skillFirstContactDraftBypassesActionPlannerAndRequestsConfirmation() {
-        val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool("新建联系人 Alice")
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = "新建联系人 Alice",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, result.plan.request.toolName)
-        assertEquals("Alice", result.plan.request.arguments["name"])
-        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, plan.request.toolName)
+        assertEquals("Alice", plan.request.arguments["name"])
+        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType },
         )
-        assertTrue(auditSink.events.all { event ->
+        assertTrue(run.auditSink.events.all { event ->
             event.toolName == MobileActionFunctions.CREATE_CONTACT_DRAFT &&
                 event.skillId == BuiltInSkillRuntime.CONTACT_DRAFT_SKILL &&
                 ToolPermission.SendsTextToExternalApp in event.permissions &&
@@ -3643,29 +2937,14 @@ class AgentLoopRuntimeTest {
     @Test
     fun skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation() {
         val input = "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"
-        val actionRuntime = RecordingActionRuntime(likelyAction = false)
-        val runtime = AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-        )
+        val run = runSkillFirstUseTool(input)
+        val plan = run.plan
 
-        val result = runtime.runOnce(
-            input = input,
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
-        )
-
-        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
-        require(result.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, result.plan.request.toolName)
-        assertEquals("2026-06-01T09:00:00Z", result.plan.request.arguments["start"])
-        assertEquals("2026-06-01T10:00:00Z", result.plan.request.arguments["end"])
-        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, result.plan.skillRequest?.skillId)
-        assertEquals("skill-first", result.plan.fallbackReason)
-        assertEquals(0, actionRuntime.isLikelyActionCallCount)
-        assertEquals(0, actionRuntime.planCallCount)
-        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, plan.request.toolName)
+        assertEquals("2026-06-01T09:00:00Z", plan.request.arguments["start"])
+        assertEquals("2026-06-01T10:00:00Z", plan.request.arguments["end"])
+        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, plan.skillRequest?.skillId)
+        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
     }
 
     @Test
@@ -9625,47 +8904,148 @@ class AgentLoopRuntimeTest {
         return plan
     }
 
-    private fun assertOpenAppUiSearchRuntimeFlow(searchCase: OpenAppUiSearchRuntimeCase) {
+    private data class ReducedConfirmationInitialCase(
+        val name: String,
+        val input: String,
+        val planningResult: ActionPlanningResult,
+        val expectedRunState: AgentRunState,
+        val expectedToolName: String,
+        val expectedSafety: SafetyOutcome,
+        val requiresConfirmation: Boolean,
+        val expectedArguments: Map<String, String> = emptyMap(),
+    )
+
+    private fun assertReducedConfirmationInitialPlan(case: ReducedConfirmationInitialCase) {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = case.planningResult,
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = case.input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(case.name, case.expectedRunState, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(case.name, case.expectedToolName, result.plan.request.toolName)
+        case.expectedArguments.forEach { (name, value) ->
+            assertEquals(case.name, value, result.plan.request.arguments[name])
+        }
+        assertEquals(case.name, case.expectedSafety, result.plan.safetyDecision.outcome)
+        assertEquals(case.name, case.requiresConfirmation, result.plan.draft.requiresConfirmation)
+        val confirmationRequested = result.steps.any { it is AgentStep.UserConfirmationRequested }
+        assertEquals(case.name, case.requiresConfirmation, confirmationRequested)
+    }
+
+    private data class StartedOpenAppUiSearchRun(
+        val runtime: AgentLoopRuntime,
+        val planned: AgentLoopResult,
+        val nextPlan: AgentPlan.UseTool,
+    )
+
+    private fun startOpenAppUiSearch(
+        input: String,
+        appName: String = "淘宝",
+        observationReplanner: AgentObservationReplanner =
+            AgentObservationReplanner { error("skill progression should not replan") },
+    ): StartedOpenAppUiSearchRun {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+            observationReplanner = observationReplanner,
         )
         val planned = runtime.runOnce(
-            input = searchCase.input,
+            input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
         assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
-        assertEquals(searchCase.appName, planned.plan.request.arguments["appName"])
+        assertEquals(appName, planned.plan.request.arguments["appName"])
         assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, planned.plan.skillRequest?.skillId)
 
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val opened = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = ToolResult(
-                    requestId = planned.plan.request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已打开${searchCase.appName}",
-                    data = externalActivityResultData(
-                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                        completionVerified = false,
-                        externalOutcome = "Unknown",
-                        externalOutcomeSource = "Unknown",
-                    ),
+        val opened = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开$appName",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
                 ),
             ),
         )
+        return StartedOpenAppUiSearchRun(
+            runtime = runtime,
+            planned = planned,
+            nextPlan = opened.requireNextTool(MobileActionFunctions.UI_WAIT),
+        )
+    }
 
-        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
+    private fun StartedOpenAppUiSearchRun.observeToolResult(result: ToolResult): AgentObservationResult? =
+        runtime.observeToolResult(planned.run.id, result)
+
+    private fun StartedOpenAppUiSearchRun.advanceOpenAppUiSearchToVerificationWait(
+        query: String,
+    ): AgentPlan.UseTool {
+        var plan = nextPlan
+        plan = observeToolResult(uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        plan = observeToolResult(observeScreenResult(plan.request))
+            .requireNextTool(MobileActionFunctions.UI_TAP)
+        plan = observeToolResult(uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = observeToolResult(uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
+        assertEquals(query, plan.request.arguments["text"])
+        plan = observeToolResult(uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
+            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        plan = observeToolResult(uiActionResult(plan.request, actionType = "submit_search"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        assertEquals(query, plan.request.arguments["verifySearchQuery"])
+        return plan
+    }
+
+    private fun StartedOpenAppUiSearchRun.verifyOpenAppUiSearch(
+        plan: AgentPlan.UseTool,
+    ): AgentObservationResult =
+        requireNotNull(observeToolResult(verifiedOpenAppSearchResult(plan.request)))
+
+    private fun verifiedOpenAppSearchResult(request: ToolRequest): ToolResult =
+        uiActionResult(
+            request = request,
+            actionType = "wait",
+            extraData = mapOf(
+                "searchVerificationStatus" to "verified",
+                "searchVerificationEvidence" to "query_visible_after_change",
+            ),
+        )
+
+    private fun assertOpenAppUiSearchRuntimeFlow(searchCase: OpenAppUiSearchRuntimeCase) {
+        val run = startOpenAppUiSearch(
+            input = searchCase.input,
+            appName = searchCase.appName,
+        )
+
+        var plan = run.nextPlan
         assertTrue(plan.request.reason.contains("等待${searchCase.appName}前台界面稳定"))
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
-        plan = runtime.observeToolResult(
-            planned.run.id,
+        plan = run.observeToolResult(
             uiActionResult(
                 request = plan.request,
                 actionType = "wait",
@@ -9673,8 +9053,7 @@ class AgentLoopRuntimeTest {
                 textSummary = searchCase.appName,
             ),
         ).requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
-        plan = runtime.observeToolResult(
-            planned.run.id,
+        plan = run.observeToolResult(
             observeScreenResult(
                 request = plan.request,
                 packageName = searchCase.expectedPackageName,
@@ -9683,8 +9062,7 @@ class AgentLoopRuntimeTest {
         ).requireNextTool(MobileActionFunctions.UI_TAP)
         assertEquals("搜索入口", plan.request.arguments["target"])
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
-        plan = runtime.observeToolResult(
-            planned.run.id,
+        plan = run.observeToolResult(
             uiActionResult(
                 request = plan.request,
                 actionType = "tap",
@@ -9694,8 +9072,7 @@ class AgentLoopRuntimeTest {
             ),
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
-        plan = runtime.observeToolResult(
-            planned.run.id,
+        plan = run.observeToolResult(
             uiActionResult(
                 request = plan.request,
                 actionType = "wait",
@@ -9706,8 +9083,7 @@ class AgentLoopRuntimeTest {
         assertEquals(searchCase.query, plan.request.arguments["text"])
         assertEquals("搜索输入框", plan.request.arguments["target"])
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
-        plan = runtime.observeToolResult(
-            planned.run.id,
+        plan = run.observeToolResult(
             uiActionResult(
                 request = plan.request,
                 actionType = "type_text",
@@ -9717,8 +9093,7 @@ class AgentLoopRuntimeTest {
             ),
         ).requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
-        plan = runtime.observeToolResult(
-            planned.run.id,
+        plan = run.observeToolResult(
             uiActionResult(
                 request = plan.request,
                 actionType = "submit_search",
@@ -9731,9 +9106,8 @@ class AgentLoopRuntimeTest {
         assertEquals(searchCase.appName, plan.request.arguments["expectedAppName"])
 
         val verified = requireNotNull(
-            runtime.observeToolResult(
-                runId = planned.run.id,
-                result = uiActionResult(
+            run.observeToolResult(
+                uiActionResult(
                     request = plan.request,
                     actionType = "wait",
                     packageName = searchCase.expectedPackageName,
@@ -9748,7 +9122,7 @@ class AgentLoopRuntimeTest {
 
         assertEquals(AgentRunState.Completed, verified.run.state)
         assertEquals(AgentObservationDecision.Complete, verified.decision)
-        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(null, run.runtime.latestPendingConfirmation())
     }
 
     private data class OpenAppUiSearchRuntimeCase(
@@ -9853,6 +9227,24 @@ class AgentLoopRuntimeTest {
             "maxResults" to "3",
             "summaryText" to summaryText,
             "resultsJson" to resultsJson,
+        )
+
+    private fun successfulWebSearchResult(
+        requestId: String,
+        summary: String,
+        query: String,
+        summaryText: String,
+        resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
+    ): ToolResult =
+        ToolResult(
+            requestId = requestId,
+            status = ToolStatus.Succeeded,
+            summary = summary,
+            data = webSearchResultData(
+                query = query,
+                summaryText = summaryText,
+                resultsJson = resultsJson,
+            ),
         )
 
     private fun clipboardResultData(text: String): Map<String, String> =
@@ -10470,10 +9862,99 @@ class AgentLoopRuntimeTest {
     private fun modelToolOutputPlanningResult(output: String): ModelToolOutputParseResult =
         MobileActionPlanner().parseModelToolOutput(output)
 
+    private data class AuditedRuntime(
+        val runtime: AgentLoopRuntime,
+        val auditSink: InMemoryToolAuditSink,
+    )
+
+    private fun agentLoopRuntime(
+        memoryIndex: MemoryIndex = MemoryRepository(),
+        actionPlanningRuntime: ActionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+        auditSink: ToolAuditSink = NoOpToolAuditSink,
+        traceStore: AgentTraceStore = defaultTraceStore(),
+        observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
+        maxToolRetryAttempts: Int = 1,
+        maxRunToolSteps: Int = 10,
+        maxObservationDecisions: Int = 16,
+        deviceControlSessionFinisher: () -> Unit = {},
+    ): AgentLoopRuntime =
+        AgentLoopRuntime(
+            memoryIndex = memoryIndex,
+            actionPlanningRuntime = actionPlanningRuntime,
+            auditSink = auditSink,
+            traceStore = traceStore,
+            observationReplanner = observationReplanner,
+            maxToolRetryAttempts = maxToolRetryAttempts,
+            maxRunToolSteps = maxRunToolSteps,
+            maxObservationDecisions = maxObservationDecisions,
+            deviceControlSessionFinisher = deviceControlSessionFinisher,
+        )
+
+    private fun auditedAgentLoopRuntime(
+        memoryIndex: MemoryIndex = MemoryRepository(),
+        actionPlanningRuntime: ActionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+        traceStore: AgentTraceStore = defaultTraceStore(),
+        observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
+        maxToolRetryAttempts: Int = 1,
+    ): AuditedRuntime {
+        val auditSink = InMemoryToolAuditSink()
+        return AuditedRuntime(
+            runtime = agentLoopRuntime(
+                memoryIndex = memoryIndex,
+                actionPlanningRuntime = actionPlanningRuntime,
+                auditSink = auditSink,
+                traceStore = traceStore,
+                observationReplanner = observationReplanner,
+                maxToolRetryAttempts = maxToolRetryAttempts,
+            ),
+            auditSink = auditSink,
+        )
+    }
+
+    private fun defaultTraceStore(): AgentTraceStore =
+        InMemoryAgentTraceStore(clockMillis = { 1_000L })
+
     private fun assertCameraUseToolPlan(input: String, plan: AgentPlan.UseTool) {
         assertEquals("$input should use the system camera tool", MobileActionFunctions.OPEN_CAMERA, plan.request.toolName)
         assertTrue("$input should not pass camera arguments", plan.request.arguments.isEmpty())
         assertEquals(MobileActionFunctions.OPEN_CAMERA, plan.draft.functionName)
+    }
+
+    private data class SkillFirstUseToolRun(
+        val runtime: AgentLoopRuntime,
+        val auditSink: InMemoryToolAuditSink,
+        val result: AgentLoopResult,
+        val plan: AgentPlan.UseTool,
+    )
+
+    private fun runSkillFirstUseTool(
+        input: String,
+        expectedState: AgentRunState = AgentRunState.AwaitingUserConfirmation,
+    ): SkillFirstUseToolRun {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val audited = auditedAgentLoopRuntime(
+            actionPlanningRuntime = actionRuntime,
+        )
+        val runtime = audited.runtime
+
+        val result = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(expectedState, result.run.state)
+        val plan = result.plan
+        require(plan is AgentPlan.UseTool)
+        assertEquals("skill-first", plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        return SkillFirstUseToolRun(
+            runtime = runtime,
+            auditSink = audited.auditSink,
+            result = result,
+            plan = plan,
+        )
     }
 
     private fun wifiPlanningResult(): ActionPlanningResult =
@@ -10507,6 +9988,38 @@ class AgentLoopRuntimeTest {
                     title = "点击当前屏幕元素",
                     summary = "将点击当前屏幕上的 $target。",
                     parameters = mapOf("target" to target),
+                    requiresConfirmation = true,
+                ),
+            ),
+            usedModel = false,
+            fallbackReason = "test fallback",
+        )
+
+    private fun composeEmailPlanningResult(): ActionPlanningResult =
+        ActionPlanningResult(
+            plan = ActionPlan(
+                kind = ActionPlanKind.Draft,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.COMPOSE_EMAIL,
+                    title = "邮件草稿",
+                    summary = "将打开邮件 App 并填入草稿内容。",
+                    parameters = mapOf("body" to "明天聊"),
+                    requiresConfirmation = true,
+                ),
+            ),
+            usedModel = false,
+            fallbackReason = "test fallback",
+        )
+
+    private fun openAccessibilitySettingsPlanningResult(): ActionPlanningResult =
+        ActionPlanningResult(
+            plan = ActionPlan(
+                kind = ActionPlanKind.Draft,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                    title = "打开无障碍设置",
+                    summary = "将打开无障碍设置，由你手动完成后续操作。",
+                    parameters = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
                     requiresConfirmation = true,
                 ),
             ),

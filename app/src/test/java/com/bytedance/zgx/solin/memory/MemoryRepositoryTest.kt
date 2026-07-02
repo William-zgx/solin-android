@@ -1248,24 +1248,6 @@ class MemoryRepositoryTest {
                 }
     }
 
-    private class FakeMemoryRecordStore : MemoryRecordStore {
-        private val records = linkedMapOf<String, PersistedMemoryRecord>()
-
-        override fun records(): List<PersistedMemoryRecord> =
-            records.values.toList()
-
-        override fun upsert(record: PersistedMemoryRecord) {
-            records[record.id] = record
-        }
-
-        override fun delete(id: String): Boolean =
-            records.remove(id) != null
-
-        override fun clear() {
-            records.clear()
-        }
-    }
-
     private class FakeMemoryEmbeddingStore : MemoryEmbeddingStore {
         val entries = linkedMapOf<Pair<String, String>, PersistedMemoryEmbedding>()
         var upsertCount: Int = 0
@@ -1288,17 +1270,6 @@ class MemoryRepositoryTest {
 
         override fun clear() {
             entries.clear()
-        }
-    }
-
-    private class FakeMemoryDeletionEventStore : MemoryDeletionEventStore {
-        val events = mutableListOf<MemoryDeletionEvent>()
-
-        override fun events(): List<MemoryDeletionEvent> =
-            events.toList()
-
-        override fun append(event: MemoryDeletionEvent) {
-            events += event
         }
     }
 

@@ -12,11 +12,7 @@ import org.junit.Test
 class LiteRtRuntimeConfigTest {
     @Test
     fun engineConfigUsesExplicitLocalContextWindow() {
-        val config = defaultEngineConfigSpec(
-            modelPath = "/tmp/model.litertlm",
-            backend = BackendChoice.GPU,
-            cacheDir = File("/tmp/cache"),
-        )
+        val config = engineConfigSpecFixture(backend = BackendChoice.GPU)
 
         assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, config.maxNumTokens)
         assertEquals("/tmp/model.litertlm", config.modelPath)
@@ -27,10 +23,8 @@ class LiteRtRuntimeConfigTest {
 
     @Test
     fun engineConfigUsesCapabilityProfileContextWindow() {
-        val config = defaultEngineConfigSpec(
-            modelPath = "/tmp/model.litertlm",
+        val config = engineConfigSpecFixture(
             backend = BackendChoice.CPU,
-            cacheDir = File("/tmp/cache"),
             capabilities = LocalModelRuntimeCapabilities(
                 supportsVisionInput = false,
                 contextWindowTokens = 4096,
@@ -45,10 +39,8 @@ class LiteRtRuntimeConfigTest {
 
     @Test
     fun engineConfigEnablesVisionBackendOnlyForVisionCapableLocalModel() {
-        val config = defaultEngineConfigSpec(
-            modelPath = "/tmp/model.litertlm",
+        val config = engineConfigSpecFixture(
             backend = BackendChoice.GPU,
-            cacheDir = File("/tmp/cache"),
             capabilities = LocalModelRuntimeCapabilities(
                 supportsVisionInput = true,
                 contextWindowTokens = 4096,
@@ -68,11 +60,7 @@ class LiteRtRuntimeConfigTest {
                 LocalModelTokenLimits.OUTPUT_TOKEN_RESERVE -
                 LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
                 LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE
-        val longHistory = listOf(
-            ChatMessage(MessageRole.User, "旧".repeat(LocalModelTokenLimits.MAX_TOTAL_TOKENS)),
-            ChatMessage(MessageRole.Assistant, "最近的回答"),
-            ChatMessage(MessageRole.User, "最近的问题"),
-        )
+        val longHistory = longHistoryFixture()
 
         val budgeted = budgetLocalRuntimeHistory(longHistory, currentPrompt = "你好")
 
@@ -90,11 +78,7 @@ class LiteRtRuntimeConfigTest {
             adaptiveInputBudget -
                 LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
                 LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE
-        val longHistory = listOf(
-            ChatMessage(MessageRole.User, "旧".repeat(LocalModelTokenLimits.MAX_TOTAL_TOKENS)),
-            ChatMessage(MessageRole.Assistant, "最近的回答"),
-            ChatMessage(MessageRole.User, "最近的问题"),
-        )
+        val longHistory = longHistoryFixture()
 
         val budgeted = budgetLocalRuntimeHistory(
             messages = longHistory,
@@ -115,4 +99,20 @@ class LiteRtRuntimeConfigTest {
         assertEquals("输入预算 6k tokens", LocalModelTokenLimits.inputDisplayText())
         assertEquals("输出预留 2k tokens", LocalModelTokenLimits.outputDisplayText())
     }
+
+    private fun engineConfigSpecFixture(
+        backend: BackendChoice,
+        capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities(),
+    ) = defaultEngineConfigSpec(
+        modelPath = "/tmp/model.litertlm",
+        backend = backend,
+        cacheDir = File("/tmp/cache"),
+        capabilities = capabilities,
+    )
+
+    private fun longHistoryFixture() = listOf(
+        ChatMessage(MessageRole.User, "旧".repeat(LocalModelTokenLimits.MAX_TOTAL_TOKENS)),
+        ChatMessage(MessageRole.Assistant, "最近的回答"),
+        ChatMessage(MessageRole.User, "最近的问题"),
+    )
 }

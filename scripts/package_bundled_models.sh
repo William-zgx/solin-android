@@ -22,12 +22,11 @@ INSTALL_OUTPUT_FILE="${INSTALL_OUTPUT_FILE:-${REPORT_FILE%.properties}.install.t
 PM_PATH_OUTPUT_FILE="${PM_PATH_OUTPUT_FILE:-${REPORT_FILE%.properties}.pm-path.txt}"
 START_OUTPUT_FILE="${START_OUTPUT_FILE:-${REPORT_FILE%.properties}.start.txt}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-ORIGINAL_COMMAND="$(printf '%q' "scripts/package_bundled_models.sh")"
+ORIGINAL_ARGS=("$@")
+SOLIN_SCRIPT_COMMAND="scripts/package_bundled_models.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 MODEL_LICENSE_REVIEW_FILE="docs/model_license_review.json"
 MODEL_LICENSE_GATE_COMMAND="VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh"
-for original_arg in "$@"; do
-  ORIGINAL_COMMAND+=" $(printf '%q' "$original_arg")"
-done
 
 RAW_APKS=(
   "app/build/outputs/apk/bundledModels/app-bundledModels-unsigned.apk"
@@ -52,10 +51,6 @@ TMP_SECRET_DIR=""
 KEYSTORE_PASSWORD_FILE_RESOLVED=""
 KEY_PASSWORD_FILE_RESOLVED=""
 
-shell_command() {
-  printf '%s' "$ORIGINAL_COMMAND"
-}
-
 print_compliance_notice() {
   cat >&2 <<EOF
 package_bundled_models: compliance note:
@@ -65,20 +60,6 @@ package_bundled_models: compliance note:
   Keep artifacts internal until ${MODEL_LICENSE_REVIEW_FILE} is approved and
   '${MODEL_LICENSE_GATE_COMMAND}' passes.
 EOF
-}
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-size_or_empty() {
-  local path="$1"
-  if [[ -f "$path" ]]; then
-    wc -c < "$path" | tr -d ' '
-  fi
 }
 
 write_report() {
@@ -94,7 +75,7 @@ write_report() {
     printf 'owner=release-engineering\n'
     printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'startedAt=%s\n' "$STARTED_AT_UTC"
-    printf 'command=%s\n' "$(shell_command)"
+    printf 'command=%s\n' "$(command_line)"
     printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'failedTarget=%s\n' "${FAILED_TARGET:-}"
     printf 'reason=%s\n' "${FAILURE_REASON:-}"
@@ -117,7 +98,7 @@ write_report() {
       index=$((index + 1))
       printf 'rawApk%sPath=%s\n' "$index" "$apk"
       printf 'rawApk%sSha256=%s\n' "$index" "$(sha256_or_empty "$apk")"
-      printf 'rawApk%sSizeBytes=%s\n' "$index" "$(size_or_empty "$apk")"
+      printf 'rawApk%sSizeBytes=%s\n' "$index" "$(file_size_or_empty "$apk")"
     done
     index=0
     if [[ "$SIGNED_APK_COUNT" -gt 0 ]]; then
@@ -125,7 +106,7 @@ write_report() {
         index=$((index + 1))
         printf 'signedApk%sPath=%s\n' "$index" "$apk"
         printf 'signedApk%sSha256=%s\n' "$index" "$(sha256_or_empty "$apk")"
-        printf 'signedApk%sSizeBytes=%s\n' "$index" "$(size_or_empty "$apk")"
+        printf 'signedApk%sSizeBytes=%s\n' "$index" "$(file_size_or_empty "$apk")"
       done
     fi
   } > "$REPORT_FILE"

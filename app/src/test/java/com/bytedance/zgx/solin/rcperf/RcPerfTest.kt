@@ -25,8 +25,7 @@ class RcPerfTest {
 
     @Test
     fun buildRcPerfResultUsesRawBenchmarkThroughput() {
-        val result = buildRcPerfResult(
-            modelId = "chat-e2b",
+        val result = buildRcPerfResultFixture(
             requestedBackend = BackendChoice.GPU,
             loadedBackend = BackendChoice.GPU,
             timing = RuntimeTimingSnapshot(
@@ -34,11 +33,6 @@ class RcPerfTest {
                 firstTokenMs = 340L,
                 benchmark = RuntimeBenchmarkResult.Available(tokenCount = 128, tokensPerSecond = 17.5),
             ),
-            stopGenerationRecoveryMs = 80L,
-            visionInputMs = 410L,
-            memorySearch5kMs = 12L,
-            zvecMemoryIndex50kMs = 120L,
-            zvecMemorySearch50kMs = 24L,
         )
 
         val success = result as RcPerfResult.Success
@@ -49,8 +43,7 @@ class RcPerfTest {
 
     @Test
     fun buildRcPerfResultFailsWhenBenchmarkUnavailableNeverFabricatesThroughput() {
-        val result = buildRcPerfResult(
-            modelId = "chat-e2b",
+        val result = buildRcPerfResultFixture(
             requestedBackend = BackendChoice.GPU,
             loadedBackend = BackendChoice.GPU,
             timing = RuntimeTimingSnapshot(
@@ -58,11 +51,6 @@ class RcPerfTest {
                 firstTokenMs = 340L,
                 benchmark = RuntimeBenchmarkResult.Unavailable("benchmark not reported"),
             ),
-            stopGenerationRecoveryMs = 80L,
-            visionInputMs = 410L,
-            memorySearch5kMs = 12L,
-            zvecMemoryIndex50kMs = 120L,
-            zvecMemorySearch50kMs = 24L,
         )
 
         val failure = result as RcPerfResult.Failure
@@ -72,8 +60,7 @@ class RcPerfTest {
 
     @Test
     fun buildRcPerfResultFailsWhenLoadOrFirstTokenMissing() {
-        val missingLoad = buildRcPerfResult(
-            modelId = "chat-e2b",
+        val missingLoad = buildRcPerfResultFixture(
             requestedBackend = BackendChoice.CPU,
             loadedBackend = BackendChoice.CPU,
             timing = RuntimeTimingSnapshot(
@@ -81,16 +68,10 @@ class RcPerfTest {
                 firstTokenMs = 340L,
                 benchmark = RuntimeBenchmarkResult.Available(tokenCount = 10, tokensPerSecond = 5.0),
             ),
-            stopGenerationRecoveryMs = 80L,
-            visionInputMs = 410L,
-            memorySearch5kMs = 12L,
-            zvecMemoryIndex50kMs = 120L,
-            zvecMemorySearch50kMs = 24L,
         )
         assertTrue((missingLoad as RcPerfResult.Failure).reason.contains("modelLoadMs unavailable"))
 
-        val missingFirstToken = buildRcPerfResult(
-            modelId = "chat-e2b",
+        val missingFirstToken = buildRcPerfResultFixture(
             requestedBackend = BackendChoice.CPU,
             loadedBackend = BackendChoice.CPU,
             timing = RuntimeTimingSnapshot(
@@ -98,11 +79,6 @@ class RcPerfTest {
                 firstTokenMs = null,
                 benchmark = RuntimeBenchmarkResult.Available(tokenCount = 10, tokensPerSecond = 5.0),
             ),
-            stopGenerationRecoveryMs = 80L,
-            visionInputMs = 410L,
-            memorySearch5kMs = 12L,
-            zvecMemoryIndex50kMs = 120L,
-            zvecMemorySearch50kMs = 24L,
         )
         assertTrue((missingFirstToken as RcPerfResult.Failure).reason.contains("firstTokenMs unavailable"))
     }
@@ -202,4 +178,21 @@ class RcPerfTest {
         assertEquals(7L, measurement.searchMs)
         assertTrue(measurement.hitCount > 0)
     }
+
+    private fun buildRcPerfResultFixture(
+        requestedBackend: BackendChoice,
+        loadedBackend: BackendChoice,
+        timing: RuntimeTimingSnapshot,
+    ): RcPerfResult =
+        buildRcPerfResult(
+            modelId = "chat-e2b",
+            requestedBackend = requestedBackend,
+            loadedBackend = loadedBackend,
+            timing = timing,
+            stopGenerationRecoveryMs = 80L,
+            visionInputMs = 410L,
+            memorySearch5kMs = 12L,
+            zvecMemoryIndex50kMs = 120L,
+            zvecMemorySearch50kMs = 24L,
+        )
 }

@@ -116,8 +116,9 @@ class PhaseOneContractModelsTest {
             remoteEligible = false,
             failureMode = "mixed_batch_rejected_before_execution",
         )
+        val diff = evalCase.diffAgainst(actualTrace)
 
-        assertEquals(AgentBehaviorTraceDiffStatus.AllowedFailure, evalCase.diffAgainst(actualTrace).status)
+        assertEquals(AgentBehaviorTraceDiffStatus.AllowedFailure, diff.status)
         assertEquals(AgentBehaviorTraceDiffStatus.MissingActual, evalCase.diffAgainst(null).status)
     }
 

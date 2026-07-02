@@ -18,7 +18,7 @@ class ToolRegistryTest {
 
     @Test
     fun canBuildRegistryFromToolProviders() {
-        val webSearchSpec = requireNotNull(registry.specFor(MobileActionFunctions.WEB_SEARCH))
+        val webSearchSpec = registry.builtInSpec(MobileActionFunctions.WEB_SEARCH)
         val providerRegistry = ToolRegistry(
             ToolProvider { listOf(webSearchSpec) },
         )
@@ -38,7 +38,7 @@ class ToolRegistryTest {
 
     @Test
     fun providerAggregationRejectsDuplicateToolNames() {
-        val webSearchSpec = requireNotNull(registry.specFor(MobileActionFunctions.WEB_SEARCH))
+        val webSearchSpec = registry.builtInSpec(MobileActionFunctions.WEB_SEARCH)
         val failure = runCatching {
             ToolRegistry(
                 ToolProvider { listOf(webSearchSpec) },
@@ -334,17 +334,13 @@ class ToolRegistryTest {
 
         assertTrue(specNames.containsAll(MobileActionFunctions.supported))
 
-        val wifiSpec = registry.specFor(MobileActionFunctions.OPEN_WIFI_SETTINGS)
-        assertNotNull(wifiSpec)
-        requireNotNull(wifiSpec)
+        val wifiSpec = registry.builtInSpec(MobileActionFunctions.OPEN_WIFI_SETTINGS)
         assertEquals(ToolCapability.DeviceSettings, wifiSpec.capability)
         assertTrue(ToolPermission.StartsExternalActivity in wifiSpec.permissions)
         assertEquals(RiskLevel.MediumDraftOrNavigation, wifiSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, wifiSpec.confirmationPolicy)
 
-        val usageAccessSpec = registry.specFor(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS)
-        assertNotNull(usageAccessSpec)
-        requireNotNull(usageAccessSpec)
+        val usageAccessSpec = registry.builtInSpec(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS)
         assertEquals(ToolCapability.DeviceSettings, usageAccessSpec.capability)
         assertTrue(ToolPermission.StartsExternalActivity in usageAccessSpec.permissions)
         assertTrue(ToolPermission.ReadsDeviceContext !in usageAccessSpec.permissions)
@@ -352,27 +348,21 @@ class ToolRegistryTest {
         assertEquals(RiskLevel.MediumDraftOrNavigation, usageAccessSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, usageAccessSpec.confirmationPolicy)
 
-        val systemSettingsSpec = registry.specFor(MobileActionFunctions.OPEN_SYSTEM_SETTINGS)
-        assertNotNull(systemSettingsSpec)
-        requireNotNull(systemSettingsSpec)
+        val systemSettingsSpec = registry.builtInSpec(MobileActionFunctions.OPEN_SYSTEM_SETTINGS)
         assertEquals(ToolCapability.DeviceSettings, systemSettingsSpec.capability)
         assertTrue(ToolPermission.StartsExternalActivity in systemSettingsSpec.permissions)
         assertEquals(RiskLevel.MediumDraftOrNavigation, systemSettingsSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, systemSettingsSpec.confirmationPolicy)
         assertEquals(setOf("target"), systemSettingsSpec.pendingArgumentAllowlist)
 
-        val openCameraSpec = registry.specFor(MobileActionFunctions.OPEN_CAMERA)
-        assertNotNull(openCameraSpec)
-        requireNotNull(openCameraSpec)
+        val openCameraSpec = registry.builtInSpec(MobileActionFunctions.OPEN_CAMERA)
         assertEquals(ToolCapability.ExternalNavigation, openCameraSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, openCameraSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, openCameraSpec.confirmationPolicy)
         assertTrue(ToolPermission.StartsExternalActivity in openCameraSpec.permissions)
         assertFalse(ToolPermission.ReadsDeviceContext in openCameraSpec.permissions)
 
-        val webSearchSpec = registry.specFor(MobileActionFunctions.WEB_SEARCH)
-        assertNotNull(webSearchSpec)
-        requireNotNull(webSearchSpec)
+        val webSearchSpec = registry.builtInSpec(MobileActionFunctions.WEB_SEARCH)
         assertEquals(ToolCapability.WebSearch, webSearchSpec.capability)
         assertFalse(ToolPermission.StartsExternalActivity in webSearchSpec.permissions)
         assertEquals(RiskLevel.LowReadOnly, webSearchSpec.riskLevel)
@@ -388,17 +378,13 @@ class ToolRegistryTest {
         assertTrue(webSearchSpec.outputSchemaJson.contains("summaryText"))
         assertTrue(webSearchSpec.outputSchemaJson.contains("resultsJson"))
 
-        val reminderSpec = registry.specFor(MobileActionFunctions.SCHEDULE_REMINDER)
-        assertNotNull(reminderSpec)
-        requireNotNull(reminderSpec)
+        val reminderSpec = registry.builtInSpec(MobileActionFunctions.SCHEDULE_REMINDER)
         assertEquals(ToolCapability.BackgroundTask, reminderSpec.capability)
         assertTrue(ToolPermission.SchedulesBackgroundWork in reminderSpec.permissions)
         assertTrue(ToolPermission.PostsNotification in reminderSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in reminderSpec.permissions)
 
-        val systemAlarmSpec = registry.specFor(MobileActionFunctions.SET_SYSTEM_ALARM)
-        assertNotNull(systemAlarmSpec)
-        requireNotNull(systemAlarmSpec)
+        val systemAlarmSpec = registry.builtInSpec(MobileActionFunctions.SET_SYSTEM_ALARM)
         assertEquals(ToolCapability.ExternalDraft, systemAlarmSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, systemAlarmSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, systemAlarmSpec.confirmationPolicy)
@@ -406,9 +392,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in systemAlarmSpec.permissions)
         assertEquals(setOf("hour", "minutes", "message", "recurrence"), systemAlarmSpec.pendingArgumentAllowlist)
 
-        val systemTimerSpec = registry.specFor(MobileActionFunctions.SET_SYSTEM_TIMER)
-        assertNotNull(systemTimerSpec)
-        requireNotNull(systemTimerSpec)
+        val systemTimerSpec = registry.builtInSpec(MobileActionFunctions.SET_SYSTEM_TIMER)
         assertEquals(ToolCapability.ExternalDraft, systemTimerSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, systemTimerSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, systemTimerSpec.confirmationPolicy)
@@ -416,9 +400,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in systemTimerSpec.permissions)
         assertEquals(setOf("lengthSeconds", "message"), systemTimerSpec.pendingArgumentAllowlist)
 
-        val periodicCheckSpec = registry.specFor(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK)
-        assertNotNull(periodicCheckSpec)
-        requireNotNull(periodicCheckSpec)
+        val periodicCheckSpec = registry.builtInSpec(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK)
         assertEquals(ToolCapability.BackgroundTask, periodicCheckSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, periodicCheckSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, periodicCheckSpec.confirmationPolicy)
@@ -429,9 +411,7 @@ class ToolRegistryTest {
         assertTrue(periodicCheckSpec.inputSchemaJson.contains("\"intervalMinutes\""))
         assertTrue(periodicCheckSpec.description.contains("不执行后台聊天"))
 
-        val backgroundTasksSpec = registry.specFor(MobileActionFunctions.QUERY_BACKGROUND_TASKS)
-        assertNotNull(backgroundTasksSpec)
-        requireNotNull(backgroundTasksSpec)
+        val backgroundTasksSpec = registry.builtInSpec(MobileActionFunctions.QUERY_BACKGROUND_TASKS)
         assertEquals(ToolCapability.BackgroundTask, backgroundTasksSpec.capability)
         assertEquals(RiskLevel.LowReadOnly, backgroundTasksSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, backgroundTasksSpec.confirmationPolicy)
@@ -445,34 +425,26 @@ class ToolRegistryTest {
         assertTrue(backgroundTasksSpec.outputSchemaJson.contains("background_tasks_local_only_no_reminder_body"))
         assertTrue(backgroundTasksSpec.description.contains("不会返回提醒正文"))
 
-        val cancelReminderSpec = registry.specFor(MobileActionFunctions.CANCEL_REMINDER)
-        assertNotNull(cancelReminderSpec)
-        requireNotNull(cancelReminderSpec)
+        val cancelReminderSpec = registry.builtInSpec(MobileActionFunctions.CANCEL_REMINDER)
         assertEquals(ToolCapability.BackgroundTask, cancelReminderSpec.capability)
         assertEquals(ConfirmationPolicy.Required, cancelReminderSpec.confirmationPolicy)
         assertTrue(ToolPermission.SchedulesBackgroundWork in cancelReminderSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in cancelReminderSpec.permissions)
         assertTrue(cancelReminderSpec.inputSchemaJson.contains("taskId"))
 
-        val clipboardSpec = registry.specFor(MobileActionFunctions.READ_CLIPBOARD)
-        assertNotNull(clipboardSpec)
-        requireNotNull(clipboardSpec)
+        val clipboardSpec = registry.builtInSpec(MobileActionFunctions.READ_CLIPBOARD)
         assertEquals(ToolCapability.DeviceContext, clipboardSpec.capability)
         assertTrue(ToolPermission.ReadsDeviceContext in clipboardSpec.permissions)
         assertTrue(ToolPermission.ReadsClipboard in clipboardSpec.permissions)
 
-        val shareSpec = registry.specFor(MobileActionFunctions.SHARE_TEXT)
-        assertNotNull(shareSpec)
-        requireNotNull(shareSpec)
+        val shareSpec = registry.builtInSpec(MobileActionFunctions.SHARE_TEXT)
         assertEquals(ToolCapability.ExternalShare, shareSpec.capability)
         assertTrue(ToolPermission.StartsExternalActivity in shareSpec.permissions)
         assertTrue(ToolPermission.SendsTextToExternalApp in shareSpec.permissions)
         assertTrue(shareSpec.inputSchemaJson.contains("\"maxLength\": $MAX_SHARE_TEXT_CHARS"))
         assertTrue(shareSpec.inputSchemaJson.contains("\"maxLength\": $MAX_SHARE_TITLE_CHARS"))
 
-        val calendarAvailabilitySpec = registry.specFor(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY)
-        assertNotNull(calendarAvailabilitySpec)
-        requireNotNull(calendarAvailabilitySpec)
+        val calendarAvailabilitySpec = registry.builtInSpec(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY)
         assertEquals(ToolCapability.DeviceContext, calendarAvailabilitySpec.capability)
         assertEquals(RiskLevel.LowReadOnly, calendarAvailabilitySpec.riskLevel)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, calendarAvailabilitySpec.resultContinuationPolicy)
@@ -483,9 +455,7 @@ class ToolRegistryTest {
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("\"end\""))
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("31 days"))
 
-        val contactsSpec = registry.specFor(MobileActionFunctions.QUERY_CONTACTS)
-        assertNotNull(contactsSpec)
-        requireNotNull(contactsSpec)
+        val contactsSpec = registry.builtInSpec(MobileActionFunctions.QUERY_CONTACTS)
         assertEquals(ToolCapability.DeviceContext, contactsSpec.capability)
         assertEquals(RiskLevel.LowReadOnly, contactsSpec.riskLevel)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, contactsSpec.resultContinuationPolicy)
@@ -494,9 +464,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in contactsSpec.permissions)
         assertTrue(contactsSpec.inputSchemaJson.contains("\"maximum\": 20"))
 
-        val contactDraftSpec = registry.specFor(MobileActionFunctions.CREATE_CONTACT_DRAFT)
-        assertNotNull(contactDraftSpec)
-        requireNotNull(contactDraftSpec)
+        val contactDraftSpec = registry.builtInSpec(MobileActionFunctions.CREATE_CONTACT_DRAFT)
         assertEquals(ToolCapability.ExternalDraft, contactDraftSpec.capability)
         assertTrue(ToolPermission.StartsExternalActivity in contactDraftSpec.permissions)
         assertTrue(ToolPermission.SendsTextToExternalApp in contactDraftSpec.permissions)
@@ -504,9 +472,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.ReadsDeviceContext !in contactDraftSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in contactDraftSpec.permissions)
 
-        val recentFilesSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_FILES)
-        assertNotNull(recentFilesSpec)
-        requireNotNull(recentFilesSpec)
+        val recentFilesSpec = registry.builtInSpec(MobileActionFunctions.QUERY_RECENT_FILES)
         assertEquals(ToolCapability.DeviceContext, recentFilesSpec.capability)
         assertEquals(RiskLevel.LowReadOnly, recentFilesSpec.riskLevel)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, recentFilesSpec.resultContinuationPolicy)
@@ -532,9 +498,7 @@ class ToolRegistryTest {
                 .containsString("user_selected_visual_media"),
         )
 
-        val screenshotOcrSpec = registry.specFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
-        assertNotNull(screenshotOcrSpec)
-        requireNotNull(screenshotOcrSpec)
+        val screenshotOcrSpec = registry.builtInSpec(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
         assertEquals(ToolCapability.DeviceContext, screenshotOcrSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, screenshotOcrSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, screenshotOcrSpec.confirmationPolicy)
@@ -544,9 +508,7 @@ class ToolRegistryTest {
         assertTrue(screenshotOcrSpec.inputSchemaJson.contains("\"maximum\": 1"))
         assertTrue(screenshotOcrSpec.description.contains("不保存 URI"))
 
-        val imageOcrSpec = registry.specFor(MobileActionFunctions.READ_RECENT_IMAGE_OCR)
-        assertNotNull(imageOcrSpec)
-        requireNotNull(imageOcrSpec)
+        val imageOcrSpec = registry.builtInSpec(MobileActionFunctions.READ_RECENT_IMAGE_OCR)
         assertEquals(ToolCapability.DeviceContext, imageOcrSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, imageOcrSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, imageOcrSpec.confirmationPolicy)
@@ -556,9 +518,7 @@ class ToolRegistryTest {
         assertTrue(imageOcrSpec.inputSchemaJson.contains("\"maximum\": 3"))
         assertTrue(imageOcrSpec.description.contains("不保存 URI"))
 
-        val currentScreenTextSpec = registry.specFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
-        assertNotNull(currentScreenTextSpec)
-        requireNotNull(currentScreenTextSpec)
+        val currentScreenTextSpec = registry.builtInSpec(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
         assertEquals(ToolCapability.DeviceContext, currentScreenTextSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, currentScreenTextSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, currentScreenTextSpec.confirmationPolicy)
@@ -569,9 +529,7 @@ class ToolRegistryTest {
         assertTrue(currentScreenTextSpec.description.contains("Accessibility"))
         assertTrue(currentScreenTextSpec.description.contains("不是截图"))
 
-        val observeScreenSpec = registry.specFor(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
-        assertNotNull(observeScreenSpec)
-        requireNotNull(observeScreenSpec)
+        val observeScreenSpec = registry.builtInSpec(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
         assertEquals(ToolCapability.DeviceControl, observeScreenSpec.capability)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, observeScreenSpec.resultContinuationPolicy)
         assertEquals(ConfirmationPolicy.Required, observeScreenSpec.confirmationPolicy)
@@ -585,9 +543,7 @@ class ToolRegistryTest {
         assertTrue(observeScreenSpec.description.contains("短期节点 id"))
         assertFalse(observeScreenSpec.isRemoteModelPlanningEligible())
 
-        val uiTapSpec = registry.specFor(MobileActionFunctions.UI_TAP)
-        assertNotNull(uiTapSpec)
-        requireNotNull(uiTapSpec)
+        val uiTapSpec = registry.builtInSpec(MobileActionFunctions.UI_TAP)
         assertEquals(ToolCapability.DeviceControl, uiTapSpec.capability)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, uiTapSpec.resultContinuationPolicy)
         assertEquals(ConfirmationPolicy.Required, uiTapSpec.confirmationPolicy)
@@ -611,18 +567,14 @@ class ToolRegistryTest {
         assertTrue("expectedPackageName" in uiTapSpec.pendingArgumentAllowlist)
         assertFalse(uiTapSpec.isRemoteModelPlanningEligible())
 
-        val uiTypeTextSpec = registry.specFor(MobileActionFunctions.UI_TYPE_TEXT)
-        assertNotNull(uiTypeTextSpec)
-        requireNotNull(uiTypeTextSpec)
+        val uiTypeTextSpec = registry.builtInSpec(MobileActionFunctions.UI_TYPE_TEXT)
         assertTrue(uiTypeTextSpec.inputSchemaJson.contains("\"allowClipboardPasteFallback\""))
         assertTrue(uiTypeTextSpec.inputSchemaJson.contains("\"expectedPackageName\""))
         assertTrue(uiTypeTextSpec.inputSchemaJson.contains("\"targetPackageName\""))
         assertTrue("allowClipboardPasteFallback" in uiTypeTextSpec.pendingArgumentAllowlist)
         assertTrue("expectedPackageName" in uiTypeTextSpec.pendingArgumentAllowlist)
 
-        val uiSubmitSearchSpec = registry.specFor(MobileActionFunctions.UI_SUBMIT_SEARCH)
-        assertNotNull(uiSubmitSearchSpec)
-        requireNotNull(uiSubmitSearchSpec)
+        val uiSubmitSearchSpec = registry.builtInSpec(MobileActionFunctions.UI_SUBMIT_SEARCH)
         assertEquals(ToolCapability.DeviceControl, uiSubmitSearchSpec.capability)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, uiSubmitSearchSpec.resultContinuationPolicy)
         assertEquals(ConfirmationPolicy.Required, uiSubmitSearchSpec.confirmationPolicy)
@@ -637,16 +589,12 @@ class ToolRegistryTest {
         assertFalse(uiSubmitSearchSpec.isRemoteModelPlanningEligible())
         assertFalse(uiSubmitSearchSpec.isPublicEvidenceBatchEligible())
 
-        val uiScrollSpec = registry.specFor(MobileActionFunctions.UI_SCROLL)
-        assertNotNull(uiScrollSpec)
-        requireNotNull(uiScrollSpec)
+        val uiScrollSpec = registry.builtInSpec(MobileActionFunctions.UI_SCROLL)
         assertTrue(uiScrollSpec.inputSchemaJson.contains("\"expectedPackageName\""))
         assertTrue(uiScrollSpec.inputSchemaJson.contains("\"targetPackageName\""))
         assertTrue("expectedPackageName" in uiScrollSpec.pendingArgumentAllowlist)
 
-        val uiWaitSpec = registry.specFor(MobileActionFunctions.UI_WAIT)
-        assertNotNull(uiWaitSpec)
-        requireNotNull(uiWaitSpec)
+        val uiWaitSpec = registry.builtInSpec(MobileActionFunctions.UI_WAIT)
         assertTrue(uiWaitSpec.inputSchemaJson.contains("\"verifySearchQuery\""))
         assertTrue(uiWaitSpec.inputSchemaJson.contains("\"expectedPackageName\""))
         assertTrue(uiWaitSpec.inputSchemaJson.contains("\"targetPackageName\""))
@@ -654,9 +602,7 @@ class ToolRegistryTest {
         assertTrue(uiWaitSpec.outputSchemaJson.contains("\"searchVerificationStatus\""))
         assertFalse(uiWaitSpec.isRemoteModelPlanningEligible())
 
-        val currentScreenshotOcrSpec = registry.specFor(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR)
-        assertNotNull(currentScreenshotOcrSpec)
-        requireNotNull(currentScreenshotOcrSpec)
+        val currentScreenshotOcrSpec = registry.builtInSpec(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR)
         assertEquals(ToolCapability.DeviceContext, currentScreenshotOcrSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, currentScreenshotOcrSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, currentScreenshotOcrSpec.confirmationPolicy)
@@ -675,9 +621,7 @@ class ToolRegistryTest {
         assertTrue(currentScreenshotOcrSpec.description.contains("Accessibility"))
         assertTrue(currentScreenshotOcrSpec.description.contains("不保存图片"))
 
-        val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
-        assertNotNull(recentNotificationSpec)
-        requireNotNull(recentNotificationSpec)
+        val recentNotificationSpec = registry.builtInSpec(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
         assertEquals(ToolCapability.DeviceContext, recentNotificationSpec.capability)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, recentNotificationSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in recentNotificationSpec.permissions)
@@ -685,9 +629,7 @@ class ToolRegistryTest {
         assertTrue(recentNotificationSpec.description.contains("当前应用"))
         assertTrue(recentNotificationSpec.inputSchemaJson.contains("\"maximum\": 20"))
 
-        val foregroundAppSpec = registry.specFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
-        assertNotNull(foregroundAppSpec)
-        requireNotNull(foregroundAppSpec)
+        val foregroundAppSpec = registry.builtInSpec(MobileActionFunctions.QUERY_FOREGROUND_APP)
         assertEquals(ToolCapability.DeviceContext, foregroundAppSpec.capability)
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, foregroundAppSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in foregroundAppSpec.permissions)
@@ -696,17 +638,13 @@ class ToolRegistryTest {
         assertTrue(foregroundAppSpec.description.contains("估计"))
         assertTrue(foregroundAppSpec.outputSchemaJson.contains("usage_stats_estimate"))
 
-        val deepLinkSpec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)
-        assertNotNull(deepLinkSpec)
-        requireNotNull(deepLinkSpec)
+        val deepLinkSpec = registry.builtInSpec(MobileActionFunctions.OPEN_DEEP_LINK)
         assertEquals(ToolCapability.ExternalNavigation, deepLinkSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, deepLinkSpec.riskLevel)
         assertTrue(ToolPermission.StartsExternalActivity in deepLinkSpec.permissions)
         assertTrue(deepLinkSpec.inputSchemaJson.contains("\"uri\""))
 
-        val appByNameSpec = registry.specFor(MobileActionFunctions.OPEN_APP_BY_NAME)
-        assertNotNull(appByNameSpec)
-        requireNotNull(appByNameSpec)
+        val appByNameSpec = registry.builtInSpec(MobileActionFunctions.OPEN_APP_BY_NAME)
         assertEquals(ToolCapability.ExternalNavigation, appByNameSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, appByNameSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, appByNameSpec.confirmationPolicy)
@@ -715,9 +653,7 @@ class ToolRegistryTest {
         assertTrue(appByNameSpec.inputSchemaJson.contains("\"appName\""))
         assertTrue(!appByNameSpec.inputSchemaJson.contains("\"activityClass\""))
 
-        val appIntentSpec = registry.specFor(MobileActionFunctions.OPEN_APP_INTENT)
-        assertNotNull(appIntentSpec)
-        requireNotNull(appIntentSpec)
+        val appIntentSpec = registry.builtInSpec(MobileActionFunctions.OPEN_APP_INTENT)
         assertEquals(ToolCapability.ExternalNavigation, appIntentSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, appIntentSpec.riskLevel)
         assertTrue(ToolPermission.StartsExternalActivity in appIntentSpec.permissions)
@@ -728,9 +664,7 @@ class ToolRegistryTest {
         assertTrue(!appIntentSpec.inputSchemaJson.contains("\"targetId\""))
         assertTrue(!appIntentSpec.inputSchemaJson.contains("\"activityClass\""))
 
-        val appDeepTargetSpec = registry.specFor(MobileActionFunctions.OPEN_APP_DEEP_TARGET)
-        assertNotNull(appDeepTargetSpec)
-        requireNotNull(appDeepTargetSpec)
+        val appDeepTargetSpec = registry.builtInSpec(MobileActionFunctions.OPEN_APP_DEEP_TARGET)
         assertEquals(ToolCapability.ExternalNavigation, appDeepTargetSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, appDeepTargetSpec.riskLevel)
         assertTrue(ToolPermission.StartsExternalActivity in appDeepTargetSpec.permissions)
@@ -742,9 +676,7 @@ class ToolRegistryTest {
 
     @Test
     fun publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools() {
-        val eligibleWebSearch = registry.specFor(MobileActionFunctions.WEB_SEARCH)
-        assertNotNull(eligibleWebSearch)
-        requireNotNull(eligibleWebSearch)
+        val eligibleWebSearch = registry.builtInSpec(MobileActionFunctions.WEB_SEARCH)
 
         assertTrue(eligibleWebSearch.isPublicEvidenceBatchEligible())
 
@@ -773,9 +705,7 @@ class ToolRegistryTest {
         )
 
         blockedTools.forEach { toolName ->
-            val spec = registry.specFor(toolName)
-            assertNotNull(spec)
-            requireNotNull(spec)
+            val spec = registry.builtInSpec(toolName)
             assertFalse("$toolName must not be eligible for public evidence batch", spec.isPublicEvidenceBatchEligible())
         }
     }
@@ -843,9 +773,7 @@ class ToolRegistryTest {
         }
 
         // Spot-check the highest-risk external egress tool explicitly.
-        val shareSpec = registry.specFor(MobileActionFunctions.SHARE_TEXT)
-        assertNotNull(shareSpec)
-        requireNotNull(shareSpec)
+        val shareSpec = registry.builtInSpec(MobileActionFunctions.SHARE_TEXT)
         assertEquals(ToolCapability.ExternalShare, shareSpec.capability)
         assertTrue(shareSpec.isRemoteModelPlanningEligible())
         assertEquals(ConfirmationPolicy.Required, shareSpec.confirmationPolicy)
@@ -1055,18 +983,14 @@ class ToolRegistryTest {
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
-            val spec = registry.specFor(toolName)
-            assertNotNull(spec)
-            requireNotNull(spec)
+            val spec = registry.builtInSpec(toolName)
             assertEquals(privateKeys, spec.privateOutputKeys)
             assertEquals(privateKeys, registry.privateOutputKeysFor(toolName))
             assertNotNull(spec.redactedResultSummary)
             assertEquals(ConfirmationPolicy.Required, spec.confirmationPolicy)
         }
 
-        val shareSpec = registry.specFor(MobileActionFunctions.SHARE_TEXT)
-        assertNotNull(shareSpec)
-        requireNotNull(shareSpec)
+        val shareSpec = registry.builtInSpec(MobileActionFunctions.SHARE_TEXT)
         assertTrue(shareSpec.privateOutputKeys.isEmpty())
         assertNull(registry.redactedResultSummaryFor(MobileActionFunctions.SHARE_TEXT))
     }
@@ -1081,9 +1005,7 @@ class ToolRegistryTest {
         )
 
         localEvidenceTools.forEach { toolName ->
-            val spec = registry.specFor(toolName)
-            assertNotNull(spec)
-            requireNotNull(spec)
+            val spec = registry.builtInSpec(toolName)
 
             assertEquals(
                 "$toolName must keep local-only evidence inside local continuation",
@@ -1174,9 +1096,7 @@ class ToolRegistryTest {
         )
 
         localOnlyDeviceTools.forEach { toolName ->
-            val spec = registry.specFor(toolName)
-            assertNotNull(spec)
-            requireNotNull(spec)
+            val spec = registry.builtInSpec(toolName)
 
             val schema = JSONObject(spec.outputSchemaJson)
             val required = schema.optJSONArray("required")
@@ -1215,9 +1135,7 @@ class ToolRegistryTest {
 
     @Test
     fun currentScreenTextSchemaLocksAccessibilitySourceAndMetadataPolicy() {
-        val spec = registry.specFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
-        assertNotNull(spec)
-        requireNotNull(spec)
+        val spec = registry.builtInSpec(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
 
         assertEquals("读取当前屏幕 Accessibility 可访问文本快照", spec.title)
         assertTrue(spec.description.contains("Accessibility 可访问文本快照"))
@@ -1308,9 +1226,7 @@ class ToolRegistryTest {
             MobileActionFunctions.QUERY_BACKGROUND_TASKS,
             MobileActionFunctions.CANCEL_REMINDER,
         ).forEach { toolName ->
-            val spec = registry.specFor(toolName)
-            assertNotNull(spec)
-            requireNotNull(spec)
+            val spec = registry.builtInSpec(toolName)
             val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
 
             forbiddenKeys.forEach { key ->
@@ -1341,9 +1257,7 @@ class ToolRegistryTest {
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
-            val spec = registry.specFor(toolName)
-            assertNotNull(spec)
-            requireNotNull(spec)
+            val spec = registry.builtInSpec(toolName)
 
             val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
             privateKeys.forEach { privateKey ->
@@ -1356,9 +1270,7 @@ class ToolRegistryTest {
 
     @Test
     fun externalActivityOutputRequiresClosedOutcomeMetadata() {
-        val spec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)
-        assertNotNull(spec)
-        requireNotNull(spec)
+        val spec = registry.builtInSpec(MobileActionFunctions.OPEN_DEEP_LINK)
         val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
         assertTrue(properties.getJSONObject("externalOutcome").getJSONArray("enum").containsString("Unknown"))
         assertTrue(properties.getJSONObject("externalOutcome").getJSONArray("enum").containsString("Completed"))

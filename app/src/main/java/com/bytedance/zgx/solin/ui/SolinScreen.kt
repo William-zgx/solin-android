@@ -2728,13 +2728,10 @@ private fun ModelPathGuidance(
     }
 }
 
-internal class ModelPathGuidanceRow(
-    label: String,
-    body: String,
-) {
-    val label: String = label
-    val body: String = body
-}
+internal data class ModelPathGuidanceRow(
+    val label: String,
+    val body: String,
+)
 
 internal fun modelPathGuidanceRows(selectedModel: RecommendedModel): List<ModelPathGuidanceRow> =
     listOf(
@@ -3199,9 +3196,17 @@ private fun TrustBoundaryPanel(
                     text = "发布前仍需人工完成",
                     subtitle = "这些不是 App 代码能自动替代的事项。",
                 )
-                ProductReadinessBullet("使用生产签名或 Play App Signing，不使用本地 debug keystore 发布。")
-                ProductReadinessBullet("准备公开隐私政策 URL，并与 Play Console Data safety 表单保持一致。")
-                ProductReadinessBullet("接入 crash/ANR 监控，并完成真机矩阵、无障碍和大字体验收。")
+                listOf(
+                    "使用生产签名或 Play App Signing，不使用本地 debug keystore 发布。",
+                    "准备公开隐私政策 URL，并与 Play Console Data safety 表单保持一致。",
+                    "接入 crash/ANR 监控，并完成真机矩阵、无障碍和大字体验收。",
+                ).forEach { item ->
+                    Text(
+                        text = "• $item",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -3252,9 +3257,10 @@ private fun RemoteSendAuditList(events: List<RemoteSendAuditSummary>) {
             )
             return@Column
         }
-        events.take(12).forEachIndexed { index, event ->
+        val visibleEvents = events.take(12)
+        visibleEvents.forEachIndexed { index, event ->
             RemoteSendAuditRow(event)
-            if (index < events.take(12).lastIndex) {
+            if (index < visibleEvents.lastIndex) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
         }
@@ -3352,15 +3358,6 @@ private fun TrustBoundaryRow(
             )
         }
     }
-}
-
-@Composable
-private fun ProductReadinessBullet(text: String) {
-    Text(
-        text = "• $text",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 internal fun trustDeletionBoundaryText(state: ChatUiState): String =

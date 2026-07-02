@@ -29,6 +29,7 @@ import com.bytedance.zgx.solin.action.SystemAlarmActionParser
 import com.bytedance.zgx.solin.action.SystemSettingsActionParser
 import com.bytedance.zgx.solin.action.SystemTimerActionParser
 import com.bytedance.zgx.solin.action.WebSearchActionParser
+import com.bytedance.zgx.solin.action.looksLikeSequentialAction
 import com.bytedance.zgx.solin.action.startsWithActionNegation
 import com.bytedance.zgx.solin.device.AppInteractionProfiles
 import com.bytedance.zgx.solin.tool.RiskLevel
@@ -52,92 +53,93 @@ class BuiltInSkillRuntime(
 
     override fun manifests(): List<SkillManifest> = catalog.manifests()
 
-    override fun plan(input: String): SkillPlan? =
-        when {
+    override fun plan(input: String): SkillPlan? {
+        val isSingleActionRequest = !input.looksLikeSequentialAction()
+        return when {
             input.looksLikeCurrentScreenTextSummaryShareNonAction(input.lowercase()) -> null
-            !input.looksLikeSequentialAction() && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
-            !input.looksLikeSequentialAction() && input.requestsCurrentScreenTextSummaryShare() ->
+            isSingleActionRequest && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            isSingleActionRequest && input.requestsCurrentScreenTextSummaryShare() ->
                 planCurrentScreenTextSummaryShare(input)
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentSettingsUiControl() ->
+            isSingleActionRequest && input.requestsCurrentSettingsUiControl() ->
                 planCurrentSettingsUiControl(input)
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentBrowserUiSearch() ->
+            isSingleActionRequest && input.requestsCurrentBrowserUiSearch() ->
                 planCurrentBrowserUiSearch(input)
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentMapsUiRoute() ->
+            isSingleActionRequest && input.requestsCurrentMapsUiRoute() ->
                 planCurrentMapsUiRoute(input)
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentDraftFormUiFill() ->
+            isSingleActionRequest && input.requestsCurrentDraftFormUiFill() ->
                 planCurrentDraftFormUiFill(input)
 
-            !input.looksLikeSequentialAction() && input.requestsOpenAppThenUiSearch() ->
+            isSingleActionRequest && input.requestsOpenAppThenUiSearch() ->
                 planOpenAppThenUiSearch(input)
 
-            !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
+            isSingleActionRequest && MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && EmailDraftActionParser.matches(input) ->
+            isSingleActionRequest && EmailDraftActionParser.matches(input) ->
                 plan(input, EmailDraftActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && CalendarDraftActionParser.matches(input) ->
+            isSingleActionRequest && CalendarDraftActionParser.matches(input) ->
                 plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && CalendarAvailabilityActionParser.matches(input) ->
+            isSingleActionRequest && CalendarAvailabilityActionParser.matches(input) ->
                 plan(input, CalendarAvailabilityActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && DeviceSettingsActionParser.matches(input) ->
+            isSingleActionRequest && DeviceSettingsActionParser.matches(input) ->
                 plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && SystemSettingsActionParser.matches(input) ->
+            isSingleActionRequest && SystemSettingsActionParser.matches(input) ->
                 plan(input, SystemSettingsActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && ContactQueryActionParser.matches(input) ->
+            isSingleActionRequest && ContactQueryActionParser.matches(input) ->
                 plan(input, ContactQueryActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && ContactDraftActionParser.matches(input) ->
+            isSingleActionRequest && ContactDraftActionParser.matches(input) ->
                 plan(input, ContactDraftActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && WebSearchActionParser.matches(input) ->
+            isSingleActionRequest && WebSearchActionParser.matches(input) ->
                 plan(input, WebSearchActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && RecentScreenshotOcrActionParser.matches(input) ->
+            isSingleActionRequest && RecentScreenshotOcrActionParser.matches(input) ->
                 plan(input, RecentScreenshotOcrActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && RecentImageOcrActionParser.matches(input) ->
+            isSingleActionRequest && RecentImageOcrActionParser.matches(input) ->
                 plan(input, RecentImageOcrActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && CurrentScreenshotOcrActionParser.matches(input) ->
+            isSingleActionRequest && CurrentScreenshotOcrActionParser.matches(input) ->
                 plan(input, CurrentScreenshotOcrActionParser.draft().toRequestPair())
 
-            !input.looksLikeSequentialAction() && RecentFilesActionParser.matches(input) ->
+            isSingleActionRequest && RecentFilesActionParser.matches(input) ->
                 plan(input, RecentFilesActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && DeepLinkActionParser.matches(input) ->
+            isSingleActionRequest && DeepLinkActionParser.matches(input) ->
                 plan(input, DeepLinkActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && CameraActionParser.matches(input) ->
+            isSingleActionRequest && CameraActionParser.matches(input) ->
                 plan(input, CameraActionParser.draft().toRequestPair())
 
-            !input.looksLikeSequentialAction() && SystemAlarmActionParser.matches(input) ->
+            isSingleActionRequest && SystemAlarmActionParser.matches(input) ->
                 plan(input, requireNotNull(SystemAlarmActionParser.draft(input)).toRequestPair())
 
-            !input.looksLikeSequentialAction() && SystemTimerActionParser.matches(input) ->
+            isSingleActionRequest && SystemTimerActionParser.matches(input) ->
                 plan(input, requireNotNull(SystemTimerActionParser.draft(input)).toRequestPair())
 
-            !input.looksLikeSequentialAction() && AppNavigationActionParser.matches(input) ->
+            isSingleActionRequest && AppNavigationActionParser.matches(input) ->
                 plan(input, AppNavigationActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentAppUiSearch() ->
+            isSingleActionRequest && input.requestsCurrentAppUiSearch() ->
                 planCurrentAppUiSearch(input)
 
-            !input.looksLikeSequentialAction() && ForegroundAppActionParser.matches(input) ->
+            isSingleActionRequest && ForegroundAppActionParser.matches(input) ->
                 plan(input, ForegroundAppActionParser.draft().toRequestPair())
 
-            !input.looksLikeSequentialAction() && RecentNotificationsActionParser.matches(input) ->
+            isSingleActionRequest && RecentNotificationsActionParser.matches(input) ->
                 plan(input, RecentNotificationsActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentScreenObservation() -> {
+            isSingleActionRequest && input.requestsCurrentScreenObservation() -> {
                 val draft = ActionDraft(
                     functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     title = "观察当前屏幕",
@@ -147,19 +149,19 @@ class BuiltInSkillRuntime(
                 plan(input, draft.toRequestPair())
             }
 
-            !input.looksLikeSequentialAction() && CurrentScreenTextActionParser.matches(input) ->
+            isSingleActionRequest && CurrentScreenTextActionParser.matches(input) ->
                 plan(input, CurrentScreenTextActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && CancelReminderActionParser.matches(input) ->
+            isSingleActionRequest && CancelReminderActionParser.matches(input) ->
                 plan(input, CancelReminderActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && PeriodicCheckActionParser.matches(input) ->
+            isSingleActionRequest && PeriodicCheckActionParser.matches(input) ->
                 plan(input, PeriodicCheckActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && BackgroundTasksQueryActionParser.matches(input) ->
+            isSingleActionRequest && BackgroundTasksQueryActionParser.matches(input) ->
                 plan(input, BackgroundTasksQueryActionParser.draft(input).toRequestPair())
 
-            !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
+            isSingleActionRequest && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
                 val request = ToolRequest(
                     toolName = draft.functionName,
@@ -169,7 +171,7 @@ class BuiltInSkillRuntime(
                 plan(input, draft, request)
             }
 
-            !input.looksLikeSequentialAction() && AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) -> {
+            isSingleActionRequest && AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) -> {
                 val draft = requireNotNull(AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId))
                 val request = ToolRequest(
                     toolName = draft.functionName,
@@ -179,7 +181,7 @@ class BuiltInSkillRuntime(
                 plan(input, draft, request)
             }
 
-            !input.looksLikeSequentialAction() && ReminderActionParser.matches(input) -> {
+            isSingleActionRequest && ReminderActionParser.matches(input) -> {
                 val draft = ReminderActionParser.draft(input)
                 val request = ToolRequest(
                     toolName = draft.functionName,
@@ -189,7 +191,7 @@ class BuiltInSkillRuntime(
                 plan(input, draft, request)
             }
 
-            !input.looksLikeSequentialAction() && input.requestsClipboardContext() -> {
+            isSingleActionRequest && input.requestsClipboardContext() -> {
                 val draft = ActionDraft(
                     functionName = MobileActionFunctions.READ_CLIPBOARD,
                     title = "读取剪贴板",
@@ -203,19 +205,21 @@ class BuiltInSkillRuntime(
                 plan(input, draft, request)
             }
 
-            !input.looksLikeSequentialAction() && input.requestsCurrentPageSimpleInteraction() ->
+            isSingleActionRequest && input.requestsCurrentPageSimpleInteraction() ->
                 planCurrentPageSimpleInteraction(input)
 
             else -> null
         }
+    }
 
     private fun plan(input: String, pair: DraftRequestPair): SkillPlan? =
         plan(input, pair.draft, pair.request)
 
     override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? {
+        val isSingleActionRequest = !input.looksLikeSequentialAction()
         if (
             request.toolName == MobileActionFunctions.READ_CLIPBOARD &&
-            !input.looksLikeSequentialAction() &&
+            isSingleActionRequest &&
             input.requestsClipboardSummaryShare()
         ) {
             return planClipboardSummaryShare(
@@ -250,10 +254,6 @@ class BuiltInSkillRuntime(
         readRequest: ToolRequest? = null,
         readDraft: ActionDraft? = null,
     ): SkillPlan {
-        val manifest = manifestsById.getValue(CLIPBOARD_SUMMARY_SHARE_SKILL)
-        val readStepId = "read_clipboard"
-        val summarizeStepId = "summarize_clipboard"
-
         val resolvedReadDraft = readDraft ?: ActionDraft(
             functionName = MobileActionFunctions.READ_CLIPBOARD,
             title = "读取剪贴板",
@@ -264,48 +264,19 @@ class BuiltInSkillRuntime(
             toolName = MobileActionFunctions.READ_CLIPBOARD,
             reason = resolvedReadDraft.summary,
         )
-        val shareDraft = ActionDraft(
-            functionName = MobileActionFunctions.SHARE_TEXT,
-            title = "分享摘要",
-            summary = "将打开系统分享面板并填入上一步生成的摘要。",
-            parameters = emptyMap(),
-        )
-        val shareRequest = ToolRequest(
-            toolName = MobileActionFunctions.SHARE_TEXT,
-            reason = shareDraft.summary,
-        )
-
-        return SkillPlan(
-            request = SkillRequest(
-                id = UUID.randomUUID().toString(),
-                skillId = CLIPBOARD_SUMMARY_SHARE_SKILL,
-                arguments = mapOf("input" to input),
-                reason = input,
-            ),
-            manifest = manifest,
-            steps = listOf(
-                SkillStep.ToolStep(
-                    id = readStepId,
-                    request = resolvedReadRequest,
-                    draft = resolvedReadDraft,
-                ),
-                SkillStep.ModelStep(
-                    id = summarizeStepId,
-                    dependsOn = listOf(readStepId),
-                    title = "摘要剪贴板内容",
-                    instruction = "把用户确认读取的剪贴板文本整理成适合分享的简短摘要，语言尽量跟随用户请求。",
-                    inputBindings = mapOf("clipboardText" to "$readStepId.text"),
-                    outputKey = "shareText",
-                    keepsSensitiveInputLocal = true,
-                ),
-                SkillStep.ToolStep(
-                    id = "share_summary",
-                    dependsOn = listOf(summarizeStepId),
-                    request = shareRequest,
-                    draft = shareDraft,
-                    argumentBindings = mapOf("text" to "$summarizeStepId.shareText"),
-                ),
-            ),
+        return localSummarySharePlan(
+            input = input,
+            skillId = CLIPBOARD_SUMMARY_SHARE_SKILL,
+            readStepId = "read_clipboard",
+            readRequest = resolvedReadRequest,
+            readDraft = resolvedReadDraft,
+            summarizeStepId = "summarize_clipboard",
+            summarizeTitle = "摘要剪贴板内容",
+            summarizeInstruction = "把用户确认读取的剪贴板文本整理成适合分享的简短摘要，语言尽量跟随用户请求。",
+            summarizeInputBindings = mapOf("clipboardText" to "read_clipboard.text"),
+            shareStepId = "share_summary",
+            shareTitle = "分享摘要",
+            shareSummary = "将打开系统分享面板并填入上一步生成的摘要。",
         )
     }
 
@@ -314,10 +285,6 @@ class BuiltInSkillRuntime(
         readRequest: ToolRequest? = null,
         readDraft: ActionDraft? = null,
     ): SkillPlan {
-        val manifest = manifestsById.getValue(CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL)
-        val readStepId = "read_current_screen_text"
-        val summarizeStepId = "summarize_current_screen_text"
-
         val resolvedReadDraft = readDraft ?: CurrentScreenTextActionParser.draft(input).copy(
             summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
         )
@@ -326,10 +293,41 @@ class BuiltInSkillRuntime(
             arguments = resolvedReadDraft.parameters,
             reason = resolvedReadDraft.summary,
         )
+        return localSummarySharePlan(
+            input = input,
+            skillId = CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+            readStepId = "read_current_screen_text",
+            readRequest = resolvedReadRequest,
+            readDraft = resolvedReadDraft,
+            summarizeStepId = "summarize_current_screen_text",
+            summarizeTitle = "摘要当前屏幕文本",
+            summarizeInstruction = "把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。",
+            summarizeInputBindings = mapOf("screenText" to "read_current_screen_text.screenText"),
+            shareStepId = "share_screen_summary",
+            shareTitle = "分享屏幕摘要",
+            shareSummary = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
+        )
+    }
+
+    private fun localSummarySharePlan(
+        input: String,
+        skillId: String,
+        readStepId: String,
+        readRequest: ToolRequest,
+        readDraft: ActionDraft,
+        summarizeStepId: String,
+        summarizeTitle: String,
+        summarizeInstruction: String,
+        summarizeInputBindings: Map<String, String>,
+        shareStepId: String,
+        shareTitle: String,
+        shareSummary: String,
+    ): SkillPlan {
+        val manifest = manifestsById.getValue(skillId)
         val shareDraft = ActionDraft(
             functionName = MobileActionFunctions.SHARE_TEXT,
-            title = "分享屏幕摘要",
-            summary = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
+            title = shareTitle,
+            summary = shareSummary,
             parameters = emptyMap(),
         )
         val shareRequest = ToolRequest(
@@ -340,7 +338,7 @@ class BuiltInSkillRuntime(
         return SkillPlan(
             request = SkillRequest(
                 id = UUID.randomUUID().toString(),
-                skillId = CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+                skillId = skillId,
                 arguments = mapOf("input" to input),
                 reason = input,
             ),
@@ -348,20 +346,20 @@ class BuiltInSkillRuntime(
             steps = listOf(
                 SkillStep.ToolStep(
                     id = readStepId,
-                    request = resolvedReadRequest,
-                    draft = resolvedReadDraft,
+                    request = readRequest,
+                    draft = readDraft,
                 ),
                 SkillStep.ModelStep(
                     id = summarizeStepId,
                     dependsOn = listOf(readStepId),
-                    title = "摘要当前屏幕文本",
-                    instruction = "把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。",
-                    inputBindings = mapOf("screenText" to "$readStepId.screenText"),
+                    title = summarizeTitle,
+                    instruction = summarizeInstruction,
+                    inputBindings = summarizeInputBindings,
                     outputKey = "shareText",
                     keepsSensitiveInputLocal = true,
                 ),
                 SkillStep.ToolStep(
-                    id = "share_screen_summary",
+                    id = shareStepId,
                     dependsOn = listOf(summarizeStepId),
                     request = shareRequest,
                     draft = shareDraft,
@@ -1428,14 +1426,6 @@ private fun String.looksLikeClipboardContextNonAction(normalized: String): Boole
         ).any { it in this } ||
         normalized.contains(Regex("""\b(?:clipboard)\s+(?:permissions?|api|implementation|docs?|documentation|schema|tests?)\b""")) ||
         normalized.contains(Regex("""\b(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\bclipboard\b"""))
-
-private fun String.looksLikeSequentialAction(): Boolean {
-    val normalized = lowercase()
-    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒|返回|后退).*""")
-        .containsMatchIn(this) ||
-        Regex("""\b(?:and\s+then|then|after\s+that)\b.*\b(?:go\s+back|back|open|launch|search|share|send|create|read|summarize)\b""")
-            .containsMatchIn(normalized)
-}
 
 private data class DraftRequestPair(
     val draft: ActionDraft,

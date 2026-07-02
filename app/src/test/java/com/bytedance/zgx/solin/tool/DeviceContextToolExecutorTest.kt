@@ -16,7 +16,6 @@ import com.bytedance.zgx.solin.device.CurrentScreenTextProvider
 import com.bytedance.zgx.solin.device.CurrentScreenTextReadResult
 import com.bytedance.zgx.solin.device.CurrentScreenTextSnapshot
 import com.bytedance.zgx.solin.device.ForegroundAppInfo
-import com.bytedance.zgx.solin.device.ForegroundAppProvider
 import com.bytedance.zgx.solin.device.ForegroundAppReadResult
 import com.bytedance.zgx.solin.device.NotificationSummaryItem
 import com.bytedance.zgx.solin.device.NotificationSummaryProvider
@@ -37,7 +36,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun foregroundAppSuccessReturnsLocalOnlyMinimalFields() {
         val executor = ForegroundAppToolExecutor(
-            StaticForegroundAppProvider(
+            foregroundAppProvider(
                 ForegroundAppReadResult.Available(
                     ForegroundAppInfo(
                         packageName = "com.example.mail",
@@ -74,9 +73,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun foregroundAppPermissionDeniedAndFailureAreRetryableLocalFailures() {
         val executor = ForegroundAppToolExecutor(
-            StaticForegroundAppProvider(
-                ForegroundAppReadResult.PermissionDenied("usage access missing"),
-            ),
+            foregroundAppProvider(ForegroundAppReadResult.PermissionDenied("usage access missing")),
         )
 
         val result = executor.execute(
@@ -97,9 +94,7 @@ class DeviceContextToolExecutorTest {
         assertFalse(result.data.containsKey("packageName"))
 
         val failed = ForegroundAppToolExecutor(
-            StaticForegroundAppProvider(
-                ForegroundAppReadResult.Failed("usage stats unavailable"),
-            ),
+            foregroundAppProvider(ForegroundAppReadResult.Failed("usage stats unavailable")),
         ).execute(
             ToolRequest(
                 id = "foreground",
@@ -178,7 +173,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun notificationSummaryPermissionDeniedAndFailureAreStructured() {
         val denied = NotificationSummaryToolExecutor(
-            StaticNotificationSummaryProvider(
+            notificationSummaryProvider(
                 NotificationSummaryReadResult.PermissionDenied("notifications disabled"),
             ),
         ).execute(
@@ -195,9 +190,7 @@ class DeviceContextToolExecutorTest {
         assertFalse(denied.data.containsKey("notificationsJson"))
 
         val failed = NotificationSummaryToolExecutor(
-            StaticNotificationSummaryProvider(
-                NotificationSummaryReadResult.Failed("provider unavailable"),
-            ),
+            notificationSummaryProvider(NotificationSummaryReadResult.Failed("provider unavailable")),
         ).execute(
             ToolRequest(
                 id = "notifications",
@@ -362,9 +355,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun recentFilesExecutionFailureIsRetryableAndLocalOnly() {
         val executor = RecentFilesToolExecutor(
-            StaticRecentFileProvider(
-                RecentFileReadResult.Failed("media store unavailable"),
-            ),
+            recentFileProvider(RecentFileReadResult.Failed("media store unavailable")),
         )
 
         val result = executor.execute(
@@ -386,7 +377,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun recentFilesPermissionDeniedPreservesProviderReason() {
         val executor = RecentFilesToolExecutor(
-            StaticRecentFileProvider(
+            recentFileProvider(
                 RecentFileReadResult.PermissionDenied(
                     reason = "当前 Android 版本需要通过系统文件选择器授权非媒体文件",
                     retryable = false,
@@ -638,9 +629,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun recentScreenshotOcrNoTextIsSuccessfulLocalOnlyMetadata() {
         val executor = RecentScreenshotOcrToolExecutor(
-            StaticRecentImageTextProvider(
-                RecentImageTextReadResult.Available(item = null, scannedCount = 1),
-            ),
+            recentImageTextProvider(RecentImageTextReadResult.Available(item = null, scannedCount = 1)),
         )
 
         val result = executor.execute(
@@ -660,9 +649,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun recentScreenshotOcrPermissionDeniedAndFailureAreStructured() {
         val denied = RecentScreenshotOcrToolExecutor(
-            StaticRecentImageTextProvider(
-                RecentImageTextReadResult.PermissionDenied("images permission missing"),
-            ),
+            recentImageTextProvider(RecentImageTextReadResult.PermissionDenied("images permission missing")),
         ).execute(
             ToolRequest(
                 id = "screenshot-ocr",
@@ -677,7 +664,7 @@ class DeviceContextToolExecutorTest {
         assertFalse(denied.data.containsKey("ocrText"))
 
         val failed = RecentScreenshotOcrToolExecutor(
-            StaticRecentImageTextProvider(
+            recentImageTextProvider(
                 RecentImageTextReadResult.Failed(
                     "content://media/external/images/media/1 /sdcard/DCIM/Screenshots/private.png",
                 ),
@@ -753,7 +740,7 @@ class DeviceContextToolExecutorTest {
     @Test
     fun currentScreenTextNoTextPermissionDeniedAndFailureAreStructured() {
         val empty = CurrentScreenTextToolExecutor(
-            StaticCurrentScreenTextProvider(
+            currentScreenTextProvider(
                 CurrentScreenTextReadResult.Available(
                     CurrentScreenTextSnapshot(
                         text = "",
@@ -778,9 +765,7 @@ class DeviceContextToolExecutorTest {
         assertFalse(empty.data.containsKey("screenText"))
 
         val denied = CurrentScreenTextToolExecutor(
-            StaticCurrentScreenTextProvider(
-                CurrentScreenTextReadResult.PermissionDenied("accessibility disabled"),
-            ),
+            currentScreenTextProvider(CurrentScreenTextReadResult.PermissionDenied("accessibility disabled")),
         ).execute(
             ToolRequest(
                 id = "screen-denied",
@@ -797,9 +782,7 @@ class DeviceContextToolExecutorTest {
         assertFalse(denied.data.containsKey("screenText"))
 
         val failed = CurrentScreenTextToolExecutor(
-            StaticCurrentScreenTextProvider(
-                CurrentScreenTextReadResult.Failed("node dump private text"),
-            ),
+            currentScreenTextProvider(CurrentScreenTextReadResult.Failed("node dump private text")),
         ).execute(
             ToolRequest(
                 id = "screen-failed",
@@ -825,14 +808,10 @@ class DeviceContextToolExecutorTest {
 
         val results = listOf(
             ForegroundAppToolExecutor(
-                StaticForegroundAppProvider(
-                    ForegroundAppReadResult.Failed("not used"),
-                ),
+                foregroundAppProvider(ForegroundAppReadResult.Failed("not used")),
             ).execute(request),
             NotificationSummaryToolExecutor(
-                StaticNotificationSummaryProvider(
-                    NotificationSummaryReadResult.Failed("not used"),
-                ),
+                notificationSummaryProvider(NotificationSummaryReadResult.Failed("not used")),
             ).execute(request),
             ContactSummaryToolExecutor(
                 RecordingContactSummaryProvider(
@@ -840,22 +819,16 @@ class DeviceContextToolExecutorTest {
                 ),
             ).execute(request),
             RecentFilesToolExecutor(
-                StaticRecentFileProvider(
-                    RecentFileReadResult.Failed("not used"),
-                ),
+                recentFileProvider(RecentFileReadResult.Failed("not used")),
             ).execute(request),
             BackgroundTasksToolExecutor(
                 RecordingBackgroundTaskScheduler(),
             ).execute(request),
             RecentScreenshotOcrToolExecutor(
-                StaticRecentImageTextProvider(
-                    RecentImageTextReadResult.Failed("not used"),
-                ),
+                recentImageTextProvider(RecentImageTextReadResult.Failed("not used")),
             ).execute(request),
             CurrentScreenTextToolExecutor(
-                StaticCurrentScreenTextProvider(
-                    CurrentScreenTextReadResult.Failed("not used"),
-                ),
+                currentScreenTextProvider(CurrentScreenTextReadResult.Failed("not used")),
             ).execute(request),
         )
 
@@ -864,18 +837,6 @@ class DeviceContextToolExecutorTest {
             assertEquals(ToolErrorCode.UnknownTool, result.error?.code)
             assertFalse(result.retryable)
         }
-    }
-
-    private class StaticForegroundAppProvider(
-        private val result: ForegroundAppReadResult,
-    ) : ForegroundAppProvider {
-        override fun currentForegroundApp(): ForegroundAppReadResult = result
-    }
-
-    private class StaticNotificationSummaryProvider(
-        private val result: NotificationSummaryReadResult,
-    ) : NotificationSummaryProvider {
-        override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult = result
     }
 
     private class RecordingNotificationSummaryProvider(
@@ -903,12 +864,6 @@ class DeviceContextToolExecutorTest {
             lastMaxCount = maxCount
             return result
         }
-    }
-
-    private class StaticRecentFileProvider(
-        private val result: RecentFileReadResult,
-    ) : RecentFileProvider {
-        override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = result
     }
 
     private class RecordingRecentFileProvider(
@@ -975,12 +930,6 @@ class DeviceContextToolExecutorTest {
         }
     }
 
-    private class StaticRecentImageTextProvider(
-        private val result: RecentImageTextReadResult,
-    ) : RecentImageTextProvider {
-        override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult = result
-    }
-
     private class RecordingRecentImageTextProvider(
         private val result: RecentImageTextReadResult,
     ) : RecentImageTextProvider {
@@ -996,12 +945,6 @@ class DeviceContextToolExecutorTest {
         }
     }
 
-    private class StaticCurrentScreenTextProvider(
-        private val result: CurrentScreenTextReadResult,
-    ) : CurrentScreenTextProvider {
-        override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult = result
-    }
-
     private class RecordingCurrentScreenTextProvider(
         private val result: CurrentScreenTextReadResult,
     ) : CurrentScreenTextProvider {
@@ -1013,13 +956,4 @@ class DeviceContextToolExecutorTest {
             return result
         }
     }
-}
-
-private fun org.json.JSONObject.keysSet(): Set<String> {
-    val result = linkedSetOf<String>()
-    val iterator = keys()
-    while (iterator.hasNext()) {
-        result += iterator.next()
-    }
-    return result
 }

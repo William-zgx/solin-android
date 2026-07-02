@@ -18,26 +18,8 @@ EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 VERIFICATION_REPORT_MAX_AGE_DAYS="${RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS:-30}"
 REPORT_FILE=""
 ORIGINAL_ARGS=("$@")
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "$0")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
+SOLIN_SCRIPT_COMMAND="$0"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 failed_target_for_reason() {
   local reason="$1"

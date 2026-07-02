@@ -5,23 +5,25 @@ plugins {
     alias(libs.plugins.ksp) apply false
 }
 
-val bundledModelsPackageApks = listOf(
-    "app/build/outputs/apk/bundledModels/app-bundledModels-unsigned.apk",
-    "modelpackE2b/build/outputs/apk/bundledModels/modelpackE2b-bundledModels.apk",
-    "modelpackE2bExtra/build/outputs/apk/bundledModels/modelpackE2bExtra-bundledModels.apk",
-    "modelpackE4b/build/outputs/apk/bundledModels/modelpackE4b-bundledModels.apk",
-    "modelpackE4bExtra/build/outputs/apk/bundledModels/modelpackE4bExtra-bundledModels.apk",
+val bundledModelPackModules = listOf(
+    "modelpackE2b",
+    "modelpackE2bExtra",
+    "modelpackE4b",
+    "modelpackE4bExtra",
 )
+
+val bundledModelsPackageApks =
+    listOf("app/build/outputs/apk/bundledModels/app-bundledModels-unsigned.apk") +
+        bundledModelPackModules.map { module ->
+            "$module/build/outputs/apk/bundledModels/$module-bundledModels.apk"
+        }
 
 tasks.register("assembleBundledModelsPackage") {
     group = "distribution"
     description = "Builds the internal bundledModels quick-experience split APK set."
     dependsOn(
-        ":app:assembleBundledModels",
-        ":modelpackE2b:assembleBundledModels",
-        ":modelpackE2bExtra:assembleBundledModels",
-        ":modelpackE4b:assembleBundledModels",
-        ":modelpackE4bExtra:assembleBundledModels",
+        listOf(":app:assembleBundledModels") +
+            bundledModelPackModules.map { module -> ":$module:assembleBundledModels" },
     )
 }
 

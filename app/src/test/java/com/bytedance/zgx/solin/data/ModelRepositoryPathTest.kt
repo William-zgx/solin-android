@@ -8,7 +8,6 @@ import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RecommendedModel
 import java.io.File
-import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -386,12 +385,4 @@ class ModelRepositoryPathTest {
         }
     }
 
-    private fun withTempModelDir(block: (File) -> Unit) {
-        val dir = Files.createTempDirectory("solin-model-root").toFile()
-        try {
-            block(dir)
-        } finally {
-            dir.deleteRecursively()
-        }
-    }
 }

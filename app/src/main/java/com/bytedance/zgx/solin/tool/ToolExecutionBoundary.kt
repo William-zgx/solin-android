@@ -14,15 +14,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 const val DEFAULT_TOOL_EXECUTION_TIMEOUT_MILLIS = 20_000L
 const val DEFAULT_PUBLIC_EVIDENCE_BATCH_RETRY_ATTEMPTS = 1
 
-interface ToolExecutionBoundary {
-    suspend fun execute(request: ToolRequest): ToolResult
-
-    suspend fun executePublicEvidenceBatch(
-        requests: List<ToolRequest>,
-        onRetry: suspend () -> Unit = {},
-    ): List<ToolResult>
-}
-
 class TimeoutToolExecutionBoundary(
     private val executor: ToolExecutor,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -30,8 +21,8 @@ class TimeoutToolExecutionBoundary(
     private val publicEvidenceBatchRetryAttempts: Int =
         DEFAULT_PUBLIC_EVIDENCE_BATCH_RETRY_ATTEMPTS,
     private val publicEvidenceBatchRequestValidator: (ToolRequest) -> ToolResult? = { null },
-) : ToolExecutionBoundary {
-    override suspend fun execute(request: ToolRequest): ToolResult =
+) {
+    suspend fun execute(request: ToolRequest): ToolResult =
         withTimeoutOrNull(timeoutMillis) {
             withContext(dispatcher) {
                 runCatching {
@@ -53,9 +44,9 @@ class TimeoutToolExecutionBoundary(
             data = request.toolExecutionContext(),
         )
 
-    override suspend fun executePublicEvidenceBatch(
+    suspend fun executePublicEvidenceBatch(
         requests: List<ToolRequest>,
-        onRetry: suspend () -> Unit,
+        onRetry: suspend () -> Unit = {},
     ): List<ToolResult> {
         val rejectedByRequestId = requests.mapNotNull { request ->
             publicEvidenceBatchRequestValidator(request)?.let { rejection -> request.id to rejection }

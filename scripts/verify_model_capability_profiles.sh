@@ -8,34 +8,8 @@ PROFILE_FILE="${MODEL_CAPABILITY_PROFILES_FILE:-docs/model_capability_profiles.j
 REPORT_FILE=""
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-model-capability}}"
 ORIGINAL_ARGS=("$@")
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/verify_model_capability_profiles.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  if [[ -f "$file" ]]; then
-    awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found = 1; exit} END {if (!found) exit 1}' "$file" || true
-  fi
-}
+SOLIN_SCRIPT_COMMAND="scripts/verify_model_capability_profiles.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 failed_target_for_reason() {
   local reason="$1"

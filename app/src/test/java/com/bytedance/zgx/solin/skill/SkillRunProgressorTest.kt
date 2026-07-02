@@ -64,13 +64,15 @@ class SkillRunProgressorTest {
             draft = cancelDraft,
             argumentBindings = mapOf("taskId" to "schedule.taskId"),
         )
-        val plan = twoToolPlan(
+        val plan = testSkillPlan(
             skillId = "schedule_then_cancel_skill",
             requiredTools = listOf(
                 MobileActionFunctions.SCHEDULE_REMINDER,
                 MobileActionFunctions.CANCEL_REMINDER,
             ),
             steps = listOf(scheduleStep, cancelStep),
+            arguments = mapOf("input" to "schedule_then_cancel_skill"),
+            riskLevel = RiskLevel.HighExternalSend,
         )
 
         val progression = progressor.nextToolAfterToolResult(
@@ -132,13 +134,15 @@ class SkillRunProgressorTest {
             draft = shareDraft,
             argumentBindings = mapOf("text" to "contacts.contactsJson"),
         )
-        val plan = twoToolPlan(
+        val plan = testSkillPlan(
             skillId = "unsafe_contacts_share_skill",
             requiredTools = listOf(
                 MobileActionFunctions.QUERY_CONTACTS,
                 MobileActionFunctions.SHARE_TEXT,
             ),
             steps = listOf(contactsStep, shareStep),
+            arguments = mapOf("input" to "unsafe_contacts_share_skill"),
+            riskLevel = RiskLevel.HighExternalSend,
         )
 
         val progression = progressor.nextToolAfterToolResult(
@@ -196,13 +200,15 @@ class SkillRunProgressorTest {
             ),
             argumentBindings = mapOf("text" to "contacts.contactsJson"),
         )
-        val plan = twoToolPlan(
+        val plan = testSkillPlan(
             skillId = "untrusted_requested_ids_skill",
             requiredTools = listOf(
                 MobileActionFunctions.QUERY_CONTACTS,
                 MobileActionFunctions.SHARE_TEXT,
             ),
             steps = listOf(contactsStep, shareStep),
+            arguments = mapOf("input" to "untrusted_requested_ids_skill"),
+            riskLevel = RiskLevel.HighExternalSend,
         )
 
         val progression = progressor.nextToolAfterToolResult(
@@ -263,13 +269,15 @@ class SkillRunProgressorTest {
             ),
             argumentBindings = mapOf("taskId" to "schedule.taskId"),
         )
-        val plan = twoToolPlan(
+        val plan = testSkillPlan(
             skillId = "tool_result_unmet_dependency_skill",
             requiredTools = listOf(
                 MobileActionFunctions.SCHEDULE_REMINDER,
                 MobileActionFunctions.CANCEL_REMINDER,
             ),
             steps = listOf(scheduleStep, modelStep, cancelStep),
+            arguments = mapOf("input" to "tool_result_unmet_dependency_skill"),
+            riskLevel = RiskLevel.HighExternalSend,
         )
 
         val progression = progressor.nextToolAfterToolResult(
@@ -343,7 +351,7 @@ class SkillRunProgressorTest {
             ),
             argumentBindings = mapOf("text" to "model.shareText"),
         )
-        val plan = twoToolPlan(
+        val plan = testSkillPlan(
             skillId = "value_free_frontier_skill",
             requiredTools = listOf(
                 MobileActionFunctions.READ_CLIPBOARD,
@@ -351,6 +359,8 @@ class SkillRunProgressorTest {
                 MobileActionFunctions.SHARE_TEXT,
             ),
             steps = listOf(readStep, modelStep, wifiStep, shareStep),
+            arguments = mapOf("input" to "value_free_frontier_skill"),
+            riskLevel = RiskLevel.HighExternalSend,
         )
 
         val progression = progressor.nextToolAfterToolResult(
@@ -913,40 +923,4 @@ class SkillRunProgressorTest {
         assertTrue(progression.reason.contains("check_foreground"))
     }
 
-    private fun twoToolPlan(
-        skillId: String,
-        requiredTools: List<String>,
-        steps: List<SkillStep>,
-    ): SkillPlan =
-        SkillPlan(
-            request = SkillRequest(
-                id = "$skillId-request",
-                skillId = skillId,
-                arguments = mapOf("input" to skillId),
-                reason = skillId,
-            ),
-            manifest = SkillManifest(
-                id = skillId,
-                version = 1,
-                title = skillId,
-                description = "Test skill",
-                triggerExamples = listOf(skillId),
-                requiredTools = requiredTools,
-                inputSchemaJson = """
-                    {
-                      "type": "object",
-                      "required": ["input"],
-                      "properties": {
-                        "input": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                """.trimIndent(),
-                riskLevel = RiskLevel.HighExternalSend,
-            ),
-            steps = steps,
-        )
 }

@@ -32,7 +32,7 @@ class ToolSchemaContractTest {
             assertNull(
                 "${spec.name} minimal arguments derived from schema should validate",
                 registry.validate(
-                    ToolRequest(
+                    toolRequest(
                         id = "valid-${spec.name}",
                         toolName = spec.name,
                         arguments = minimalValidArguments,
@@ -42,7 +42,7 @@ class ToolSchemaContractTest {
             )
 
             val extraArgumentRejection = registry.validate(
-                ToolRequest(
+                toolRequest(
                     id = "extra-${spec.name}",
                     toolName = spec.name,
                     arguments = minimalValidArguments + ("__unexpected" to "value"),
@@ -53,7 +53,7 @@ class ToolSchemaContractTest {
 
             requiredProperties.forEach { propertyName ->
                 val missingRejection = registry.validate(
-                    ToolRequest(
+                    toolRequest(
                         id = "missing-${spec.name}-$propertyName",
                         toolName = spec.name,
                         arguments = minimalValidArguments - propertyName,
@@ -63,7 +63,7 @@ class ToolSchemaContractTest {
                 assertNotNull("${spec.name} should reject missing required $propertyName", missingRejection)
 
                 val blankRejection = registry.validate(
-                    ToolRequest(
+                    toolRequest(
                         id = "blank-${spec.name}-$propertyName",
                         toolName = spec.name,
                         arguments = minimalValidArguments + (propertyName to " "),
@@ -86,7 +86,7 @@ class ToolSchemaContractTest {
             val outputPropertyNames = outputProperties.keysSet()
             val requiredOutputs = outputSchema.optStringSet("required")
             val minimalValidData = minimalValidOutputDataFor(spec, requiredOutputs, outputProperties)
-            val request = ToolRequest(
+            val request = toolRequest(
                 id = "output-${spec.name}",
                 toolName = spec.name,
                 arguments = minimalValidArguments,
@@ -151,7 +151,7 @@ class ToolSchemaContractTest {
             .forEach { spec ->
                 val inputSchema = JSONObject(spec.inputSchemaJson)
                 val inputProperties = inputSchema.optJSONObject("properties") ?: JSONObject()
-            val minimalValidArguments = minimalValidInputArgumentsFor(spec, inputSchema, inputProperties)
+                val minimalValidArguments = minimalValidInputArgumentsFor(spec, inputSchema, inputProperties)
                 val outputSchema = JSONObject(spec.outputSchemaJson)
                 val outputProperties = outputSchema.optJSONObject("properties") ?: JSONObject()
                 val minimalValidData = minimalValidOutputDataFor(
@@ -159,7 +159,7 @@ class ToolSchemaContractTest {
                     requiredOutputs = outputSchema.optStringSet("required"),
                     outputProperties = outputProperties,
                 )
-                val request = ToolRequest(
+                val request = toolRequest(
                     id = "private-local-model-${spec.name}",
                     toolName = spec.name,
                     arguments = minimalValidArguments,
@@ -250,7 +250,7 @@ class ToolSchemaContractTest {
 
     @Test
     fun recentScreenshotOcrOutputRejectsMultiScreenshotCount() {
-        val spec = requireNotNull(registry.specFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR))
+        val spec = registry.builtInSpec(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
         val inputMaxCount = JSONObject(spec.inputSchemaJson)
             .getJSONObject("properties")
             .getJSONObject("maxCount")
@@ -723,15 +723,6 @@ class ToolSchemaContractTest {
         outputSchemaJson = outputSchemaJson,
         capability = ToolCapability.DeviceContext,
     )
-
-    private fun JSONObject.keysSet(): Set<String> {
-        val result = linkedSetOf<String>()
-        val iterator = keys()
-        while (iterator.hasNext()) {
-            result += iterator.next()
-        }
-        return result
-    }
 
     private fun JSONObject.optStringSet(name: String): Set<String> {
         val array = optJSONArray(name) ?: return emptySet()

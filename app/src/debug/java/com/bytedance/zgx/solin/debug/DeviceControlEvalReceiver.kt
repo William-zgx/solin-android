@@ -185,7 +185,10 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 }
                 val resultText = (listOf("requestId=${requestId.cleanValue()}") + commandLines)
                     .joinToString(separator = "\n", postfix = "\n")
-                File(appContext.filesDir, requestId.resultFileName()).writeText(resultText)
+                File(
+                    appContext.filesDir,
+                    DeviceControlEvalResultFormatter.resultFileName(requestId),
+                ).writeText(resultText)
                 // Keep a latest-result file for existing manual probes; eval scripts use request files.
                 File(appContext.filesDir, LEGACY_RESULT_FILE_NAME).writeText(resultText)
             } finally {
@@ -975,9 +978,6 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             .mapNotNull { step -> selector(step)?.takeIf { value -> value.isNotBlank() && value != "unknown" } }
             .firstOrNull()
             .orEmpty()
-
-    private fun String.resultFileName(): String =
-        DeviceControlEvalResultFormatter.resultFileName(this)
 
     private fun Intent.nonBlankStringExtra(name: String): String? =
         getStringExtra(name)?.trim()?.takeIf { it.isNotBlank() }

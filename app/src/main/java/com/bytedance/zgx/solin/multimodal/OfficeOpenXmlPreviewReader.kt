@@ -2,9 +2,7 @@ package com.bytedance.zgx.solin.multimodal
 
 import java.io.BufferedInputStream
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.util.Locale
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Node
@@ -23,11 +21,15 @@ object OfficeOpenXmlPreviewReader {
                 entryCount += 1
                 if (!entry.isDirectory && entryPolicy.includes(entry.name)) {
                     val remainingBytes = MAX_XML_BYTES - consumedXmlBytes
-                    val (bytes, entryTruncated) = zip.readCurrentEntryLimited(
-                        limit = minOf(MAX_XML_ENTRY_BYTES, remainingBytes),
-                    )
+                    val entryLimit = minOf(MAX_XML_ENTRY_BYTES, remainingBytes)
+                    val (entryBytes, entryOverLimit) = if (entryLimit <= 0) {
+                        ByteArray(0) to true
+                    } else {
+                        zip.readLimitedBytes(entryLimit + 1)
+                    }
+                    val bytes = if (entryBytes.size > entryLimit) entryBytes.copyOf(entryLimit) else entryBytes
                     consumedXmlBytes += bytes.size
-                    truncated = truncated || entryTruncated
+                    truncated = truncated || entryOverLimit || entryBytes.size > entryLimit
                     parts += visibleTextPartsFromXml(bytes)
                     if (parts.joinToString(separator = "\n").length >= MAX_PREVIEW_CHARS) {
                         truncated = true
@@ -46,11 +48,9 @@ object OfficeOpenXmlPreviewReader {
             .joinToString(separator = "\n")
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
-        if (normalized.isBlank()) return null
-        val previewText = normalized.take(MAX_PREVIEW_CHARS).trim()
-        if (previewText.isBlank()) return null
-        return SharedTextPreview(
-            text = previewText,
+        return sharedTextPreviewFrom(
+            normalizedText = normalized,
+            maxChars = MAX_PREVIEW_CHARS,
             truncated = truncated || normalized.length > MAX_PREVIEW_CHARS,
             source = SharedTextPreviewSource.OfficeDocument,
         )
@@ -99,26 +99,6 @@ object OfficeOpenXmlPreviewReader {
             .replace(Regex("""[ \t\n]+"""), " ")
             .trim()
 
-    private fun ZipInputStream.readCurrentEntryLimited(limit: Int): Pair<ByteArray, Boolean> {
-        if (limit <= 0) return ByteArray(0) to true
-        val output = ByteArrayOutputStream()
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var totalBytes = 0
-        while (totalBytes <= limit) {
-            val bytesToRead = minOf(buffer.size, limit + 1 - totalBytes)
-            val read = read(buffer, 0, bytesToRead)
-            if (read == -1) break
-            output.write(buffer, 0, read)
-            totalBytes += read
-        }
-        val bytes = output.toByteArray()
-        return if (bytes.size > limit) {
-            bytes.copyOf(limit) to true
-        } else {
-            bytes to false
-        }
-    }
-
     private enum class EntryPolicy {
         WordDocument,
         Spreadsheet,
@@ -141,7 +121,7 @@ object OfficeOpenXmlPreviewReader {
 
         companion object {
             fun forMimeType(mimeType: String?): EntryPolicy? =
-                when (mimeType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT)) {
+                when (mimeType.normalizedMediaType()) {
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> WordDocument
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> Spreadsheet
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> Presentation

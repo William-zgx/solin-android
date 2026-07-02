@@ -26,7 +26,6 @@ import okio.Timeout
 import kotlin.reflect.KClass
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -48,10 +47,13 @@ class RemoteChatRuntimeTest {
         val messages = body.getJSONArray("messages")
         assertEquals(22, messages.length())
         assertEquals("system", messages.getJSONObject(0).getString("role"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("Solin"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("用户当前输入一致的语言"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("优先调用合适工具获取证据"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("多个独立工具调用"))
+        assertContainsAll(
+            messages.getJSONObject(0).getString("content"),
+            "Solin",
+            "用户当前输入一致的语言",
+            "优先调用合适工具获取证据",
+            "多个独立工具调用",
+        )
         assertEquals("history-5", messages.getJSONObject(1).getString("content"))
         assertEquals("你好", messages.getJSONObject(21).getString("content"))
     }
@@ -71,9 +73,8 @@ class RemoteChatRuntimeTest {
 
         val encoded = body.toString()
 
-        assertTrue(encoded.contains("普通历史"))
-        assertFalse(encoded.contains("分享来的本地内容"))
-        assertFalse(encoded.contains("本地工具摘要"))
+        assertContainsAll(encoded, "普通历史")
+        assertContainsNone(encoded, "分享来的本地内容", "本地工具摘要")
     }
 
     @Test
@@ -92,13 +93,11 @@ class RemoteChatRuntimeTest {
         assertEquals("function", tool.getString("type"))
         assertEquals(MobileActionFunctions.WEB_SEARCH, function.getString("name"))
         assertTrue(function.getString("description").isNotBlank())
-        assertTrue(function.getString("description").contains("多主体比较"))
-        assertTrue(function.getString("description").contains("独立 web_search 工具调用"))
+        assertContainsAll(function.getString("description"), "多主体比较", "独立 web_search 工具调用")
         val parameters = function.getJSONObject("parameters")
         assertEquals("object", parameters.getString("type"))
         val querySchema = parameters.getJSONObject("properties").getJSONObject("query")
-        assertTrue(querySchema.getString("description").contains("模型理解后的搜索关键词"))
-        assertTrue(querySchema.getString("description").contains("不要直接复制用户原文"))
+        assertContainsAll(querySchema.getString("description"), "模型理解后的搜索关键词", "不要直接复制用户原文")
         assertEquals("auto", body.getString("tool_choice"))
     }
 
@@ -429,9 +428,8 @@ class RemoteChatRuntimeTest {
             val request = server.takeRequest()
             assertEquals("/v1/chat/completions", request.target)
             val requestBody = request.body!!.utf8()
-            assertTrue(requestBody.contains(""""stream":true"""))
-            assertTrue(requestBody.contains("可发送历史"))
-            assertFalse(requestBody.contains("仅本地历史"))
+            assertContainsAll(requestBody, """"stream":true""", "可发送历史")
+            assertContainsNone(requestBody, "仅本地历史")
         }
     }
 
@@ -550,8 +548,7 @@ class RemoteChatRuntimeTest {
             assertEquals(MobileActionFunctions.WEB_SEARCH, toolCall.request.toolName)
             assertEquals(mapOf("query" to "Kotlin"), toolCall.request.arguments)
             val requestBody = server.takeRequest().body!!.utf8()
-            assertTrue(requestBody.contains(""""tools""""))
-            assertTrue(requestBody.contains(MobileActionFunctions.WEB_SEARCH))
+            assertContainsAll(requestBody, """"tools"""", MobileActionFunctions.WEB_SEARCH)
         }
     }
 
@@ -616,8 +613,8 @@ class RemoteChatRuntimeTest {
             }.exceptionOrNull()
 
             val message = requireNotNull(failure).message.orEmpty()
-            assertTrue(message.contains("401"))
-            assertFalse(message.contains("secret-key"))
+            assertContainsAll(message, "401")
+            assertContainsNone(message, "secret-key")
         }
     }
 
@@ -653,9 +650,8 @@ class RemoteChatRuntimeTest {
             }.exceptionOrNull()
 
             val message = requireNotNull(failure).message.orEmpty()
-            assertTrue(message.contains("不支持图片输入"))
-            assertTrue(message.contains("400"))
-            assertFalse(message.contains("secret-image-body"))
+            assertContainsAll(message, "不支持图片输入", "400")
+            assertContainsNone(message, "secret-image-body")
         }
     }
 

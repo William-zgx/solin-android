@@ -27,7 +27,7 @@ interface ActiveSessionStore {
     fun saveActiveSessionId(sessionId: String)
 }
 
-interface ModelStore {
+interface ModelRepositoryFacade {
     fun currentState(): ModelSelectionState
     fun selectedRecommendedModel(): com.bytedance.zgx.solin.RecommendedModel
     fun selectRecommendedModel(modelId: String): ModelSelectionResult
@@ -40,11 +40,12 @@ interface ModelStore {
         verifiedSha256: String? = null,
         verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
     ): com.bytedance.zgx.solin.InstalledModelSummary
-}
-
-interface ModelRepositoryFacade : ModelStore, DownloadStore {
     fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource?
     fun downloadedModelFile(fileName: String): File?
+    fun pendingDownloadId(): Long
+    fun savePendingDownload(downloadId: Long, source: ModelDownloadSource)
+    fun clearPendingDownload()
+    fun loadPendingDownloadSource(): ModelDownloadSource?
     fun resolveModelStorageBytes(): Long
     fun verifiedActionModelPath(): String?
     fun verifiedObservationActionModelPath(): String?
@@ -85,12 +86,6 @@ interface RemoteSendPendingStore {
     fun clearPendingRemoteSend()
 }
 
-object NoOpRemoteSendPendingStore : RemoteSendPendingStore {
-    override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) = Unit
-    override fun consumePendingRemoteSend(): PendingRemoteSendMarker? = null
-    override fun clearPendingRemoteSend() = Unit
-}
-
 interface SettingsStore {
     fun isSetupDismissed(): Boolean
     fun markSetupDismissed()
@@ -111,13 +106,6 @@ interface SettingsStore {
 interface SecretStore {
     fun loadString(name: String): Result<String>
     fun saveString(name: String, value: String): Result<Unit>
-}
-
-interface DownloadStore {
-    fun pendingDownloadId(): Long
-    fun savePendingDownload(downloadId: Long, source: ModelDownloadSource)
-    fun clearPendingDownload()
-    fun loadPendingDownloadSource(): ModelDownloadSource?
 }
 
 enum class ModelVerificationStatus {

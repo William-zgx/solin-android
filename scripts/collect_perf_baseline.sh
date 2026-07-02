@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_FILE="${OUT_FILE:-build/verification/rc/perf-baseline.properties}"
 RELEASE_ARTIFACT="${RELEASE_ARTIFACT:-}"
 ANDROID_SERIAL="${ANDROID_SERIAL:-}"
@@ -19,30 +20,7 @@ device_model="${DEVICE_MODEL:-}"
 android_api="${ANDROID_API:-}"
 abi="${ABI:-}"
 ORIGINAL_ARGS=("$@")
-
-command_line() {
-  if [[ -n "${COLLECTION_COMMAND_OVERRIDE:-}" ]]; then
-    printf '%s' "$COLLECTION_COMMAND_OVERRIDE"
-    return
-  fi
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "$0")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  [[ -f "$file" ]] || return 0
-  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
-}
+source "$SCRIPT_DIR/lib/report_helpers.sh"
 
 write_failure_report() {
   local exit_code="$1"

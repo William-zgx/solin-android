@@ -6,7 +6,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-@OptIn(ExperimentalLocalStorageFake::class)
 class ZvecLocalStorageParityTest {
     @Test
     fun documentStoreMatchesFakeContract() {
@@ -212,7 +211,10 @@ class ZvecLocalStorageParityTest {
     }
 
     private fun zvecKernel(clockMillis: () -> Long = tickingClock(1L)): LocalStorageKernel =
-        fakeZvecLocalStorageKernel(clockMillis = clockMillis)
+        ZvecLocalStorageKernel(
+            adapter = FakeZvecNativeAdapter(),
+            clockMillis = clockMillis,
+        )
 
     private fun localDocument(
         id: String,

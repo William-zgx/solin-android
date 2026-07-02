@@ -41,14 +41,7 @@ UNIT_TEST_ARGS=(
 )
 
 mkdir -p "$ARTIFACT_DIR"
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  if [[ -f "$file" ]]; then
-    awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
-  fi
-}
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 write_report() {
   local status="$1"

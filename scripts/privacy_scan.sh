@@ -5,26 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT_FILE=""
 SCAN_TARGETS=()
 ORIGINAL_ARGS=("$@")
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-shell_command() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/privacy_scan.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
+SOLIN_SCRIPT_COMMAND="scripts/privacy_scan.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 failed_target_for_reason() {
   case "$1" in
@@ -52,7 +34,7 @@ write_report() {
       printf 'artifactSchema=PrivacyScanReport/v1\n'
       printf 'owner=privacy-security\n'
       printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'command=%s\n' "$(shell_command)"
+      printf 'command=%s\n' "$(command_line)"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
       printf 'reason=%s\n' "$reason"

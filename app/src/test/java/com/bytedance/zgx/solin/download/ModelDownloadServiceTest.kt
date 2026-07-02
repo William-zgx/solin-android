@@ -12,7 +12,7 @@ class ModelDownloadServiceTest {
             "http://[::1]:8123/model.litertlm",
             "http://10.0.2.2:8123/model.litertlm",
         ).forEach { url ->
-            assertEquals(ModelDownloadNetworkPolicy.LocalDebug, modelDownloadNetworkPolicyFor(url))
+            assertEquals(true, isLocalDebugModelDownloadUrl(url))
         }
     }
 
@@ -23,7 +23,7 @@ class ModelDownloadServiceTest {
             "http://api.example.com/model.litertlm",
             "not a url",
         ).forEach { url ->
-            assertEquals(ModelDownloadNetworkPolicy.WifiOnly, modelDownloadNetworkPolicyFor(url))
+            assertEquals(false, isLocalDebugModelDownloadUrl(url))
         }
     }
 }

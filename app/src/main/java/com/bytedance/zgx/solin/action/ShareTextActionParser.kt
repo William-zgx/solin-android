@@ -46,13 +46,6 @@ internal object ShareTextActionParser {
         return cleaned.ifBlank { cleanedObject(input) }
     }
 
-    private fun cleanedObject(input: String): String =
-        input.trim()
-            .removePrefix("请")
-            .removePrefix("帮我")
-            .trim()
-            .ifBlank { input.trim() }
-
     private fun String.commandHead(): String {
         val delimiterIndex = indexOfAny(charArrayOf(':', '：'))
         return if (delimiterIndex >= 0) substring(0, delimiterIndex) else this

@@ -66,14 +66,6 @@ class OkHttpRemoteChatRuntime(
     @Volatile
     private var activeCall: Call? = null
 
-    fun send(
-        prompt: String,
-        history: List<ChatMessage>,
-        parameters: GenerationParameters,
-        config: RemoteModelConfig,
-    ): Flow<String> =
-        send(prompt, history, parameters, config, emptyList())
-
     override fun send(
         prompt: String,
         history: List<ChatMessage>,
@@ -144,15 +136,6 @@ class OkHttpRemoteChatRuntime(
             }
         }
     }
-
-    fun sendWithTools(
-        prompt: String,
-        history: List<ChatMessage>,
-        parameters: GenerationParameters,
-        config: RemoteModelConfig,
-        tools: List<ToolSpec>,
-    ): Flow<RemoteChatEvent> =
-        sendWithTools(prompt, history, parameters, config, tools, emptyList())
 
     override fun sendWithTools(
         prompt: String,

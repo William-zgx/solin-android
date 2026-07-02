@@ -41,6 +41,7 @@ FAILED_APIS=()
 SKIPPED_APIS=()
 API_STATUS_LINES=()
 READINESS_REPORT_SHA256=""
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 usage() {
   cat >&2 <<'EOF'
@@ -139,13 +140,6 @@ join_array_csv() {
     return 0
   fi
   eval "local IFS=,; printf '%s' \"\${${array_name}[*]}\""
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  [[ -f "$file" ]] || return 0
-  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
 }
 
 sha256_for() {

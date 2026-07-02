@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.storage
 import java.util.Locale
 import kotlin.math.sqrt
 
-@ExperimentalLocalStorageFake
 class FakeLocalStorageKernel(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val documents: LocalDocumentStore = FakeLocalDocumentStore(),
@@ -39,7 +38,6 @@ class FakeLocalStorageKernel(
     }
 }
 
-@ExperimentalLocalStorageFake
 class FakeLocalDocumentStore : LocalDocumentStore {
     private val documents = linkedMapOf<String, LocalDocument>()
 
@@ -58,7 +56,6 @@ class FakeLocalDocumentStore : LocalDocumentStore {
         documents.remove(id) != null
 }
 
-@ExperimentalLocalStorageFake
 class FakeLocalKeyValueStore : LocalKeyValueStore {
     private val entries = linkedMapOf<Key, LocalKeyValueEntry>()
 
@@ -79,7 +76,6 @@ class FakeLocalKeyValueStore : LocalKeyValueStore {
     private data class Key(val namespace: String, val key: String)
 }
 
-@ExperimentalLocalStorageFake
 class FakeLocalVectorIndex : LocalVectorIndex {
     private val records = linkedMapOf<String, LocalVectorRecord>()
 

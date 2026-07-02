@@ -37,7 +37,7 @@ internal fun resetMainActivityFreshInstallState(context: Context) {
     settingsStore.saveInferenceMode(InferenceMode.Local)
     settingsStore.saveRemoteConfig(RemoteModelConfig())
     settingsStore.saveActiveSessionId("")
-    settingsStore.setSetupDismissedForTesting(false)
+    settingsStore.clearSetupDismissed()
     FirstRunSetupRepository(settingsStore).setMemoryEnabled(true)
     resetTransientDatabaseState(context)
 }

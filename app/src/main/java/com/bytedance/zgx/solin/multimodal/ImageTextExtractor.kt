@@ -18,11 +18,6 @@ interface ImageTextExtractor {
     fun extract(bitmap: Bitmap): SharedTextPreview? = null
 }
 
-object NoOpImageTextExtractor : ImageTextExtractor {
-    override fun extract(uri: Uri): SharedTextPreview? = null
-    override fun extract(bitmap: Bitmap): SharedTextPreview? = null
-}
-
 class MlKitImageTextExtractor(
     private val context: Context,
 ) : ImageTextExtractor {

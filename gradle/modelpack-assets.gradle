@@ -1,0 +1,282 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.OutputDirectory
+import java.net.URI
+import java.security.MessageDigest
+
+abstract class PrepareModelPackAssetsTask extends DefaultTask {
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+}
+
+def modelPackNamespace = ext.modelPackNamespace
+def modelPackLayout = ext.modelPackLayout
+def modelPackDescription = ext.modelPackDescription
+def modelPackSourceCatalog = [
+    e2b: [
+        fileName: "gemma-4-E2B-it.litertlm",
+        byteSize: 2_588_147_712L,
+        sha256Hex: "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+        downloadUrl: "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/a4a831c060880f3733135ad22f10e0e9f758f45d/gemma-4-E2B-it.litertlm?download=true",
+    ],
+    e4b: [
+        fileName: "gemma-4-E4B-it.litertlm",
+        byteSize: 3_659_530_240L,
+        sha256Hex: "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+        downloadUrl: "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/65ce5ba80d8790d66ef11d82d7d079a06f3fef97/gemma-4-E4B-it.litertlm?download=true",
+    ],
+    embeddingGemma: [
+        fileName: "embeddinggemma-300M_seq256_mixed-precision.tflite",
+        byteSize: 179_131_736L,
+        sha256Hex: "37115ef7bff76cd37dd86abe503ff511b1032bf85fc624a85c49c84899e92bc5",
+        downloadUrl: "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/embeddinggemma-300M_seq256_mixed-precision.tflite?download=true",
+        requiresHuggingFaceAuthorization: true,
+    ],
+    embeddingSentencepiece: [
+        fileName: "sentencepiece.model",
+        byteSize: 4_683_319L,
+        sha256Hex: "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7",
+        downloadUrl: "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/sentencepiece.model?download=true",
+        requiresHuggingFaceAuthorization: true,
+    ],
+    mobileActions: [
+        fileName: "mobile-actions_q8_ekv1024.litertlm",
+        byteSize: 284_426_240L,
+        sha256Hex: "92109695f911d1872fa8ae07c1e3ff0ed70f2c3d1690d410ec6db8587c2ab409",
+        downloadUrl: "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/82d0f654a6270c518d16c600edce3136221b3347/mobile-actions_q8_ekv1024.litertlm?download=true",
+    ],
+]
+def modelPackSourceKeys = [ext.modelPackBaseSourceKey] + (ext.has("modelPackExtraSourceKeys") ? ext.modelPackExtraSourceKeys : [])
+def modelPackSources = modelPackSourceKeys.collect { key ->
+    def source = modelPackSourceCatalog[key]
+    if (source == null) {
+        throw new GradleException("Unknown model pack source key: $key")
+    }
+    source
+}
+def modelPackBaseSource = modelPackSources[0]
+def modelPackChunks = ext.modelPackChunks.collect { chunk ->
+    chunk.sourceFileName ? chunk : chunk + [sourceFileName: modelPackBaseSource.fileName]
+}
+
+def bundledModelsSourceDir = providers
+    .gradleProperty("solin.bundledModelsDir")
+    .orElse(providers.environmentVariable("SOLIN_BUNDLED_MODELS_DIR"))
+def bundledModelsHuggingFaceToken = providers
+    .gradleProperty("solin.huggingFaceToken")
+    .orElse(providers.environmentVariable("SOLIN_HF_TOKEN"))
+def bundledModelsAssetRoot = layout.buildDirectory.dir("generated/bundledModels/assets")
+def bundledModelsCacheRoot = rootProject.layout.projectDirectory.dir("app/build/bundled-model-cache")
+
+def downloadToFile
+downloadToFile = { String url, File outputFile, String authorizationHeader = null ->
+    Exception lastFailure = null
+    for (int attempt = 0; attempt < 3; attempt++) {
+        try {
+            def connection = new URI(url).toURL().openConnection()
+            if (authorizationHeader) {
+                connection.setRequestProperty("Authorization", authorizationHeader)
+            }
+            connection.connectTimeout = 30_000
+            connection.readTimeout = 180_000
+            outputFile.withOutputStream { output ->
+                connection.inputStream.withCloseable { input -> output << input }
+            }
+            return
+        } catch (Exception error) {
+            lastFailure = error
+            if (attempt < 2) {
+                Thread.sleep(2_000L * (attempt + 1))
+            }
+        }
+    }
+    throw new GradleException("Failed to download $url", lastFailure)
+}
+
+def sha256
+sha256 = { File file ->
+    def digest = MessageDigest.getInstance("SHA-256")
+    file.withInputStream { input ->
+        byte[] buffer = new byte[8192]
+        while (true) {
+            int read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    digest.digest().collect { String.format("%02x", it & 0xff) }.join()
+}
+
+def isExpectedSource
+isExpectedSource = { File file, Map spec ->
+    file?.isFile() &&
+        file.length() == spec.byteSize &&
+        sha256(file).equalsIgnoreCase(spec.sha256Hex as String)
+}
+
+def copyChunk
+copyChunk = { File sourceFile, File target, Map chunk ->
+    target.parentFile.mkdirs()
+    def temp = new File(target.parentFile, "${target.name}.tmp")
+    temp.delete()
+    sourceFile.withInputStream { input ->
+        long skipped = 0L
+        while (skipped < chunk.offset) {
+            long delta = input.skip((chunk.offset as Long) - skipped)
+            if (delta <= 0L) {
+                throw new GradleException("Unable to seek ${chunk.assetFileName}")
+            }
+            skipped += delta
+        }
+        temp.withOutputStream { output ->
+            byte[] buffer = new byte[8192]
+            long remaining = chunk.byteSize as Long
+            while (remaining > 0L) {
+                int read = input.read(buffer, 0, Math.min(buffer.length as long, remaining) as int)
+                if (read <= 0) {
+                    throw new GradleException("Unexpected EOF while writing ${chunk.assetFileName}")
+                }
+                output.write(buffer, 0, read)
+                remaining -= read
+            }
+        }
+    }
+    if (temp.length() != chunk.byteSize) {
+        throw new GradleException(
+            "Unexpected chunk size for ${chunk.assetFileName}: ${temp.length()} (expected ${chunk.byteSize})"
+        )
+    }
+    target.delete()
+    if (!temp.renameTo(target)) {
+        throw new GradleException("Unable to publish chunk ${chunk.assetFileName}")
+    }
+}
+
+android {
+    namespace = modelPackNamespace
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 28
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+        }
+        create("rcPerfRelease") {
+            initWith getByName("release")
+            matchingFallbacks += ["release"]
+        }
+        create("bundledModels") {
+            initWith getByName("release")
+            matchingFallbacks += ["release"]
+        }
+    }
+
+    androidResources {
+        noCompress += ["litertlm", "tflite", "model"]
+    }
+}
+
+def prepareBundledModelsAssets = tasks.register(
+    "prepareBundledModelsAssets",
+    PrepareModelPackAssetsTask,
+) {
+    description = modelPackDescription
+    outputDir.set(bundledModelsAssetRoot)
+    inputs.property("sources", modelPackSources.collect { "${it.fileName}:${it.byteSize}:${it.sha256Hex}" }.join("|"))
+    inputs.property("chunks", modelPackChunks.collect { "${it.assetFileName}:${it.offset}:${it.byteSize}" }.join("|"))
+    inputs.property("bundledModelLayout", modelPackLayout)
+    inputs.property("bundledModelsSourceDir", bundledModelsSourceDir.orNull ?: "")
+
+    doLast {
+        def assetDir = new File(outputDir.get().asFile, "solin-bundled-models")
+        def cacheDir = bundledModelsCacheRoot.asFile
+        def sourceDirValue = bundledModelsSourceDir.orNull
+        def sourceDir = sourceDirValue?.trim() ? file(sourceDirValue) : null
+        def token = bundledModelsHuggingFaceToken.orNull?.trim()
+        def huggingFaceAuthorizationHeader = token ? "Bearer $token" : null
+        assetDir.deleteDir()
+        assetDir.mkdirs()
+        cacheDir.mkdirs()
+
+        def sourceFor
+        sourceFor = { Map spec ->
+            def sourceCandidate = sourceDir == null ? null : new File(sourceDir, spec.fileName as String)
+            if (isExpectedSource(sourceCandidate, spec)) {
+                return sourceCandidate
+            }
+
+            def cached = new File(cacheDir, spec.fileName as String)
+            if (isExpectedSource(cached, spec)) {
+                return cached
+            }
+
+            if (spec.requiresHuggingFaceAuthorization && !huggingFaceAuthorizationHeader) {
+                throw new GradleException("Bundled model ${spec.fileName} requires Hugging Face authorization.")
+            }
+
+            def tempDownload = new File(cacheDir, "${spec.fileName}.download")
+            tempDownload.delete()
+            println("Downloading bundled model asset: ${spec.fileName}")
+            downloadToFile(spec.downloadUrl as String, tempDownload, huggingFaceAuthorizationHeader)
+            if (!isExpectedSource(tempDownload, spec)) {
+                throw new GradleException("Bundled model source failed verification: ${spec.fileName}")
+            }
+            cached.delete()
+            if (!tempDownload.renameTo(cached)) {
+                throw new GradleException("Unable to publish bundled model source: ${spec.fileName}")
+            }
+            tempDownload.delete()
+            cached
+        }
+
+        def sourcesByName = modelPackSources.collectEntries { [(it.fileName): it] }
+        def chunkedSourceNames = modelPackChunks.collect { it.sourceFileName } as Set
+
+        modelPackChunks.each { chunk ->
+            def sourceSpec = sourcesByName[chunk.sourceFileName]
+            if (sourceSpec == null) {
+                throw new GradleException("Missing source for chunk ${chunk.assetFileName}: ${chunk.sourceFileName}")
+            }
+            def source = sourceFor(sourceSpec)
+            def target = new File(assetDir, chunk.assetFileName as String)
+            if (!target.isFile() || target.length() != chunk.byteSize) {
+                copyChunk(source, target, chunk)
+            }
+            println("Bundled model chunk ready: ${chunk.assetFileName}")
+        }
+
+        modelPackSources.findAll { !(it.fileName in chunkedSourceNames) }.each { spec ->
+            def source = sourceFor(spec)
+            def target = new File(assetDir, spec.fileName as String)
+            if (!target.isFile() || target.length() != spec.byteSize) {
+                target.parentFile.mkdirs()
+                def temp = new File(target.parentFile, "${target.name}.tmp")
+                temp.delete()
+                temp.withOutputStream { output ->
+                    source.withInputStream { input -> output << input }
+                }
+                if (!isExpectedSource(temp, spec)) {
+                    throw new GradleException("Bundled model asset failed verification: ${spec.fileName}")
+                }
+                target.delete()
+                if (!temp.renameTo(target)) {
+                    throw new GradleException("Unable to publish bundled model asset: ${spec.fileName}")
+                }
+            }
+            println("Bundled model asset ready: ${spec.fileName}")
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("bundledModels")) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(prepareBundledModelsAssets) { it.outputDir }
+    }
+}
+
+dependencies {
+    implementation project(":app")
+}

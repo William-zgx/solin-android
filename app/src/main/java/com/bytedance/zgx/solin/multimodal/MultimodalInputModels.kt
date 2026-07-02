@@ -9,7 +9,6 @@ import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
 import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.evidence.toEvidenceReceiptSummary
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -663,27 +662,11 @@ object TextAttachmentPreviewReader {
             .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
-        if (normalized.isBlank()) return null
-        val text = normalized.take(MAX_TEXT_PREVIEW_CHARS).trim()
-        if (text.isBlank()) return null
-        return SharedTextPreview(
-            text = text,
+        return sharedTextPreviewFrom(
+            normalizedText = normalized,
+            maxChars = MAX_TEXT_PREVIEW_CHARS,
             truncated = truncatedByBytes || normalized.length > MAX_TEXT_PREVIEW_CHARS,
         )
-    }
-
-    private fun InputStream.readLimitedBytes(limit: Int): Pair<ByteArray, Boolean> {
-        val output = ByteArrayOutputStream()
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var totalBytes = 0
-        while (totalBytes < limit) {
-            val bytesToRead = minOf(buffer.size, limit - totalBytes)
-            val read = read(buffer, 0, bytesToRead)
-            if (read == -1) break
-            output.write(buffer, 0, read)
-            totalBytes += read
-        }
-        return output.toByteArray() to (totalBytes >= limit)
     }
 
     private const val MAX_TEXT_PREVIEW_BYTES = 16 * 1024
@@ -714,19 +697,35 @@ object ImageTextPreviewReader {
             .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
-        if (normalized.isBlank()) return null
-        val previewText = normalized.take(MAX_IMAGE_TEXT_PREVIEW_CHARS).trim()
-        if (previewText.isBlank()) return null
-        val truncated = normalized.length > MAX_IMAGE_TEXT_PREVIEW_CHARS
-        return SharedTextPreview(
-            text = previewText,
-            truncated = truncated,
+        return sharedTextPreviewFrom(
+            normalizedText = normalized,
+            maxChars = MAX_IMAGE_TEXT_PREVIEW_CHARS,
+            truncated = normalized.length > MAX_IMAGE_TEXT_PREVIEW_CHARS,
             source = SharedTextPreviewSource.ImageOcr,
-            ocrBlocks = if (truncated) emptyList() else ocrBlocks,
+            ocrBlocks = ocrBlocks,
         )
     }
 
     private const val MAX_IMAGE_TEXT_PREVIEW_CHARS = 4_000
+}
+
+internal fun sharedTextPreviewFrom(
+    normalizedText: String,
+    maxChars: Int,
+    truncated: Boolean,
+    source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
+    ocrBlocks: List<OcrTextBlock> = emptyList(),
+): SharedTextPreview? {
+    if (normalizedText.isBlank()) return null
+    val previewText = normalizedText.take(maxChars).trim()
+    if (previewText.isBlank()) return null
+    val isTruncated = truncated || normalizedText.length > maxChars
+    return SharedTextPreview(
+        text = previewText,
+        truncated = isTruncated,
+        source = source,
+        ocrBlocks = if (isTruncated) emptyList() else ocrBlocks,
+    )
 }
 
 private val documentMimeTypes = setOf(

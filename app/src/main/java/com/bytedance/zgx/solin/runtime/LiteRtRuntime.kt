@@ -79,14 +79,8 @@ interface LocalChatRuntime {
     val isLoaded: Boolean
 
     fun configureModelCapabilities(
-        supportsVisionInput: Boolean,
-    ) = Unit
-
-    fun configureModelCapabilities(
         capabilities: LocalModelRuntimeCapabilities,
-    ) {
-        configureModelCapabilities(supportsVisionInput = capabilities.supportsVisionInput)
-    }
+    ) = Unit
 
     fun load(
         modelPath: String,
@@ -140,15 +134,12 @@ interface LocalChatRuntime {
 
     fun stop()
 
-    fun stopWithResult(): Result<Unit> =
-        runCatching { stop() }
-
     fun close()
 }
 
-interface LiteRtRuntime : LocalChatRuntime
+typealias LiteRtRuntime = LocalChatRuntime
 
-object DisabledLiteRtRuntime : LiteRtRuntime {
+object DisabledLiteRtRuntime : LocalChatRuntime {
     private fun unavailable(): Nothing =
         throw UnsupportedOperationException("Local LiteRT runtime is disabled for this debug launch")
 
@@ -179,7 +170,7 @@ object DisabledLiteRtRuntime : LiteRtRuntime {
 
 class RealLiteRtRuntime(
     private val cacheDir: File,
-) : LiteRtRuntime {
+) : LocalChatRuntime {
     private var engine: Engine? = null
     private var conversation: Conversation? = null
     private var currentBackend: BackendChoice? = null
@@ -312,11 +303,8 @@ class RealLiteRtRuntime(
     }
 
     override fun stop() {
-        stopWithResult()
-    }
-
-    override fun stopWithResult(): Result<Unit> =
         runCatching { conversation?.cancelProcess() }
+    }
 
     override fun close() {
         conversation?.close()

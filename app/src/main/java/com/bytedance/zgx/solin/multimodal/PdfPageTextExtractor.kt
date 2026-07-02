@@ -9,19 +9,11 @@ import android.net.Uri
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-interface PdfPageTextExtractor {
-    fun extract(uri: Uri): SharedTextPreview?
-}
-
-object NoOpPdfPageTextExtractor : PdfPageTextExtractor {
-    override fun extract(uri: Uri): SharedTextPreview? = null
-}
-
 class AndroidPdfPageTextExtractor(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor,
-) : PdfPageTextExtractor {
-    override fun extract(uri: Uri): SharedTextPreview? =
+) {
+    fun extract(uri: Uri): SharedTextPreview? =
         runCatching {
             context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                 val renderer = PdfRenderer(descriptor)
@@ -66,11 +58,9 @@ class AndroidPdfPageTextExtractor(
             .joinToString(separator = "\n\n")
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
-        if (normalized.isBlank()) return null
-        val text = normalized.take(MAX_PDF_OCR_PREVIEW_CHARS).trim()
-        if (text.isBlank()) return null
-        return SharedTextPreview(
-            text = text,
+        return sharedTextPreviewFrom(
+            normalizedText = normalized,
+            maxChars = MAX_PDF_OCR_PREVIEW_CHARS,
             truncated = truncated || normalized.length > MAX_PDF_OCR_PREVIEW_CHARS,
             source = SharedTextPreviewSource.PdfImageOcr,
         )

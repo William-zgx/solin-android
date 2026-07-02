@@ -15,8 +15,10 @@ class ForegroundAppProviderTest {
             ),
         )
         val provider = AndroidForegroundAppProvider(
-            usageStatsSource = source,
-            appLabelResolver = StaticForegroundAppLabelResolver(),
+            isUsageStatsSupported = { source.isSupported },
+            hasUsageStatsPermission = source::hasUsageStatsPermission,
+            queryUsageStats = source::queryUsageStats,
+            resolveAppLabel = { null },
             clockMillis = { 1_000L },
         )
 
@@ -29,11 +31,13 @@ class ForegroundAppProviderTest {
     @Test
     fun securityExceptionWhileQueryingUsageStatsReturnsPermissionDenied() {
         val provider = AndroidForegroundAppProvider(
-            usageStatsSource = RecordingForegroundUsageStatsSource(
+            isUsageStatsSupported = { true },
+            hasUsageStatsPermission = { true },
+            queryUsageStats = RecordingForegroundUsageStatsSource(
                 hasPermission = true,
                 securityExceptionOnQuery = true,
-            ),
-            appLabelResolver = StaticForegroundAppLabelResolver(),
+            )::queryUsageStats,
+            resolveAppLabel = { null },
             clockMillis = { 1_000L },
         )
 
@@ -52,10 +56,10 @@ class ForegroundAppProviderTest {
             ),
         )
         val provider = AndroidForegroundAppProvider(
-            usageStatsSource = source,
-            appLabelResolver = StaticForegroundAppLabelResolver(
-                labels = mapOf("com.example.mail" to "Mail"),
-            ),
+            isUsageStatsSupported = { source.isSupported },
+            hasUsageStatsPermission = source::hasUsageStatsPermission,
+            queryUsageStats = source::queryUsageStats,
+            resolveAppLabel = mapOf("com.example.mail" to "Mail")::get,
             clockMillis = { 1_000_000L },
         )
 
@@ -72,11 +76,11 @@ class ForegroundAppProviderTest {
     }
 
     private class RecordingForegroundUsageStatsSource(
-        override val isSupported: Boolean = true,
+        val isSupported: Boolean = true,
         private val hasPermission: Boolean = true,
         private val snapshots: List<ForegroundUsageSnapshot> = emptyList(),
         private val securityExceptionOnQuery: Boolean = false,
-    ) : ForegroundUsageStatsSource {
+    ) {
         var queryCalled = false
             private set
         var lastStartTimeMillis: Long? = null
@@ -84,9 +88,9 @@ class ForegroundAppProviderTest {
         var lastEndTimeMillis: Long? = null
             private set
 
-        override fun hasUsageStatsPermission(): Boolean = hasPermission
+        fun hasUsageStatsPermission(): Boolean = hasPermission
 
-        override fun queryUsageStats(
+        fun queryUsageStats(
             startTimeMillis: Long,
             endTimeMillis: Long,
         ): List<ForegroundUsageSnapshot> {
@@ -96,11 +100,5 @@ class ForegroundAppProviderTest {
             if (securityExceptionOnQuery) throw SecurityException("usage access revoked")
             return snapshots
         }
-    }
-
-    private class StaticForegroundAppLabelResolver(
-        private val labels: Map<String, String> = emptyMap(),
-    ) : ForegroundAppLabelResolver {
-        override fun labelFor(packageName: String): String? = labels[packageName]
     }
 }

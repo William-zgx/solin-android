@@ -35,16 +35,8 @@ data class PerfSample(
     val throughput: Double? = null,
 )
 
-data class PerfSampleValidationResult(
-    val sample: PerfSample,
-    val errors: List<String>,
-) {
-    val isValid: Boolean
-        get() = errors.isEmpty()
-}
-
-fun PerfSample.validate(): PerfSampleValidationResult {
-    val errors = buildList {
+fun PerfSample.validate(): List<String> =
+    buildList {
         if (source !in PerfSampleSource.allowed) {
             add("source must be one of localJvm, emulator, physicalArm64")
         }
@@ -77,5 +69,3 @@ fun PerfSample.validate(): PerfSampleValidationResult {
             add("source must be physicalArm64 for ${key.id}")
         }
     }
-    return PerfSampleValidationResult(sample = this, errors = errors)
-}

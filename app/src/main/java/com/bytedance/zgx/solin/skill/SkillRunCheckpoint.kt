@@ -197,28 +197,6 @@ fun SkillPlan.valueFreeCheckpointForPendingTool(
     )
 }
 
-fun skillRunCheckpointFromJson(json: String): SkillRunCheckpoint {
-    val checkpointJson = JSONObject(json)
-    checkpointJson.requireOnlyKeys(CHECKPOINT_JSON_KEYS, "skill checkpoint")
-    return SkillRunCheckpoint(
-        schemaVersion = checkpointJson.getInt("schemaVersion"),
-        runId = checkpointJson.getString("runId"),
-        skillId = checkpointJson.getString("skillId"),
-        skillRequestId = checkpointJson.getString("skillRequestId"),
-        manifestId = checkpointJson.getString("manifestId"),
-        manifestVersion = checkpointJson.getInt("manifestVersion"),
-        manifestHash = checkpointJson.getString("manifestHash"),
-        phase = SkillRunCheckpointPhase.valueOf(checkpointJson.getString("phase")),
-        pendingStepIndex = checkpointJson.getInt("pendingStepIndex"),
-        pendingStepId = checkpointJson.getString("pendingStepId"),
-        pendingRequestId = checkpointJson.getString("pendingRequestId"),
-        pendingToolName = checkpointJson.getString("pendingToolName"),
-        completedStepIds = checkpointJson.getJSONArray("completedStepIds").toStringList(),
-        outputKeysByStep = checkpointJson.getJSONObject("outputKeysByStep").toStringListMap(),
-        privateOutputRefs = checkpointJson.getJSONArray("privateOutputRefs").toStringList().toSet(),
-    )
-}
-
 fun SkillManifest.checkpointHash(): String {
     val identity = buildString {
         appendLengthPrefixed(id)
@@ -274,49 +252,7 @@ private fun Map<String, List<String>>.toStringListMapJsonObject(): JSONObject =
 private fun List<String>.toJsonArray(): JSONArray =
     JSONArray().also { array -> forEach { value -> array.put(value) } }
 
-private fun JSONObject.toStringListMap(): Map<String, List<String>> =
-    buildMap {
-        val keys = keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            put(key, getJSONArray(key).toStringList())
-        }
-    }.toSortedMap()
-
-private fun JSONArray.toStringList(): List<String> =
-    buildList {
-        for (index in 0 until length()) {
-            add(getString(index))
-        }
-    }
-
-private fun JSONObject.requireOnlyKeys(allowed: Set<String>, owner: String) {
-    val keys = keys()
-    while (keys.hasNext()) {
-        val key = keys.next()
-        require(key in allowed) { "$owner has unsupported key: $key" }
-    }
-}
-
 private fun String.isNotSafeCheckpointToken(): Boolean =
     !SAFE_CHECKPOINT_TOKEN.matches(this)
-
-private val CHECKPOINT_JSON_KEYS = setOf(
-    "schemaVersion",
-    "runId",
-    "skillId",
-    "skillRequestId",
-    "manifestId",
-    "manifestVersion",
-    "manifestHash",
-    "phase",
-    "pendingStepIndex",
-    "pendingStepId",
-    "pendingRequestId",
-    "pendingToolName",
-    "completedStepIds",
-    "outputKeysByStep",
-    "privateOutputRefs",
-)
 
 private val SAFE_CHECKPOINT_TOKEN = Regex("""[A-Za-z0-9_.:-]{1,160}""")

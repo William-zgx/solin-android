@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.multimodal
 
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.zip.InflaterInputStream
 
@@ -36,11 +35,9 @@ object PdfTextPreviewReader {
             .replace(Regex("""[ \t]+\n"""), "\n")
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
-        if (normalized.isBlank()) return null
-        val text = normalized.take(MAX_PREVIEW_CHARS).trim()
-        if (text.isBlank()) return null
-        return SharedTextPreview(
-            text = text,
+        return sharedTextPreviewFrom(
+            normalizedText = normalized,
+            maxChars = MAX_PREVIEW_CHARS,
             truncated = truncated || normalized.length > MAX_PREVIEW_CHARS,
             source = SharedTextPreviewSource.PdfTextLayer,
         )
@@ -279,20 +276,6 @@ object PdfTextPreviewReader {
                 if (bytes.size > limit) bytes.copyOf(limit) to true else bytes to truncated
             }
         }.getOrNull()
-
-    private fun InputStream.readLimitedBytes(limit: Int): Pair<ByteArray, Boolean> {
-        val output = ByteArrayOutputStream()
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var totalBytes = 0
-        while (totalBytes < limit) {
-            val bytesToRead = minOf(buffer.size, limit - totalBytes)
-            val read = read(buffer, 0, bytesToRead)
-            if (read == -1) break
-            output.write(buffer, 0, read)
-            totalBytes += read
-        }
-        return output.toByteArray() to (totalBytes >= limit)
-    }
 
     private fun decodePdfStringBytes(bytes: ByteArray): String =
         when {

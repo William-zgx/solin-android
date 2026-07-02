@@ -15,17 +15,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SharedInputTest {
+    private companion object {
+        const val MIME_PNG = "image/png"
+        const val MIME_PDF = "application/pdf"
+        const val MIME_TEXT = "text/plain"
+        const val MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        const val IMAGE_DATA_URL = "data:image/png;base64,AA=="
+    }
+
     @Test
     fun promptIncludesTextAndAttachmentMetadataWithoutContent() {
         val input = SharedInput(
             text = "请总结这张图",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
-                    displayName = "screen.png",
-                    sizeBytes = 42_000L,
-                ),
+                imageAttachment(sizeBytes = 42_000L),
             ),
         )
 
@@ -60,15 +63,10 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请总结文档",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "text/plain",
+                documentAttachment(
+                    mimeType = MIME_TEXT,
                     displayName = "notes.txt",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
-                        text = "第一行\n第二行",
-                        truncated = true,
-                    ),
+                    textPreview = preview("第一行\n第二行", truncated = true),
                 ),
             ),
         )
@@ -85,15 +83,10 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请看摘录",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "text/plain",
+                documentAttachment(
+                    mimeType = MIME_TEXT,
                     displayName = "noisy.txt",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
-                        text = "???",
-                        truncated = false,
-                    ),
+                    textPreview = preview("???"),
                 ),
             ),
         )
@@ -111,12 +104,8 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请总结图片",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
-                    displayName = "screen.png",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                imageAttachment(
+                    textPreview = preview(
                         text = "标题\n正文",
                         truncated = true,
                         source = SharedTextPreviewSource.ImageOcr,
@@ -137,16 +126,7 @@ class SharedInputTest {
         val input = SharedInput(
             text = "",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
-                    displayName = "screen.png",
-                    sizeBytes = 120L,
-                    imageAttachment = ChatImageAttachment(
-                        mimeType = "image/png",
-                        dataUrl = "data:image/png;base64,AA==",
-                    ),
-                ),
+                imageAttachment(remoteImageAttachment = remotePngAttachment()),
             ),
         )
 
@@ -165,20 +145,12 @@ class SharedInputTest {
         val input = SharedInput(
             text = "",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
-                    displayName = "screen.png",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                imageAttachment(
+                    textPreview = preview(
                         text = "private OCR text must not reach remote prompt or receipt",
-                        truncated = false,
                         source = SharedTextPreviewSource.ImageOcr,
                     ),
-                    imageAttachment = ChatImageAttachment(
-                        mimeType = "image/png",
-                        dataUrl = "data:image/png;base64,AA==",
-                    ),
+                    remoteImageAttachment = remotePngAttachment(),
                 ),
             ),
         )
@@ -199,16 +171,9 @@ class SharedInputTest {
         val input = SharedInput(
             text = "用户附带说明",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
+                imageAttachment(
                     displayName = "private-screen.png",
-                    sizeBytes = 120L,
-                    localImageAttachment = LocalImageAttachment(
-                        mimeType = "image/png",
-                        bytes = byteArrayOf(1, 2, 3),
-                        sizeBytes = 3L,
-                    ),
+                    localImageAttachment = localPngAttachment(),
                 ),
             ),
         )
@@ -232,21 +197,13 @@ class SharedInputTest {
         val input = SharedInput(
             text = "",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
+                imageAttachment(
                     displayName = "private-screen.png",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "private OCR text must not reach local vision prompt or receipt",
-                        truncated = false,
                         source = SharedTextPreviewSource.ImageOcr,
                     ),
-                    localImageAttachment = LocalImageAttachment(
-                        mimeType = "image/png",
-                        bytes = byteArrayOf(1, 2, 3),
-                        sizeBytes = 3L,
-                    ),
+                    localImageAttachment = localPngAttachment(),
                 ),
             ),
         )
@@ -268,20 +225,13 @@ class SharedInputTest {
             text = "",
             protectedSourceCount = 2,
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = "image/png",
+                imageAttachment(
                     displayName = "private-screen.png",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "private OCR text",
-                        truncated = false,
                         source = SharedTextPreviewSource.ImageOcr,
                     ),
-                    imageAttachment = ChatImageAttachment(
-                        mimeType = "image/png",
-                        dataUrl = "data:image/png;base64,AA==",
-                    ),
+                    remoteImageAttachment = remotePngAttachment(),
                 ),
             ),
         )
@@ -302,12 +252,10 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请总结文档",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                documentAttachment(
+                    mimeType = MIME_DOCX,
                     displayName = "brief.docx",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "第一段\n第二段",
                         truncated = true,
                         source = SharedTextPreviewSource.OfficeDocument,
@@ -329,12 +277,10 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请总结 PDF",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "application/pdf",
+                documentAttachment(
+                    mimeType = MIME_PDF,
                     displayName = "brief.pdf",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "PDF 第一段\nPDF 第二段",
                         truncated = true,
                         source = SharedTextPreviewSource.PdfTextLayer,
@@ -356,12 +302,10 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请总结扫描 PDF",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "application/pdf",
+                documentAttachment(
+                    mimeType = MIME_PDF,
                     displayName = "scan.pdf",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "第 1 页:\n扫描页文字",
                         truncated = true,
                         source = SharedTextPreviewSource.PdfImageOcr,
@@ -382,12 +326,11 @@ class SharedInputTest {
         val summary = SharedInput(
             text = "",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "application/pdf",
+                documentAttachment(
+                    mimeType = MIME_PDF,
                     displayName = "scan.pdf",
                     sizeBytes = 512L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "private scanned pdf OCR excerpt",
                         truncated = true,
                         source = SharedTextPreviewSource.PdfImageOcr,
@@ -407,12 +350,10 @@ class SharedInputTest {
         val input = SharedInput(
             text = "请总结 RTF",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
+                documentAttachment(
                     mimeType = "application/rtf",
                     displayName = "notes.rtf",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "标题\n正文",
                         truncated = true,
                         source = SharedTextPreviewSource.RichTextDocument,
@@ -434,25 +375,20 @@ class SharedInputTest {
         val input = SharedInput(
             text = "",
             attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Document,
-                    mimeType = "text/plain",
+                documentAttachment(
+                    mimeType = MIME_TEXT,
                     displayName = "notes.txt",
-                    sizeBytes = 120L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "plain text source mismatch secret",
-                        truncated = false,
                         source = SharedTextPreviewSource.RichTextDocument,
                     ),
                 ),
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
+                imageAttachment(
                     mimeType = "application/rtf",
                     displayName = "image.rtf",
                     sizeBytes = 121L,
-                    textPreview = SharedTextPreview(
+                    textPreview = preview(
                         text = "non document kind secret",
-                        truncated = false,
                         source = SharedTextPreviewSource.RichTextDocument,
                     ),
                 ),
@@ -1482,6 +1418,62 @@ class SharedInputTest {
         assertEquals(4_000, preview!!.text.length)
         assertTrue(preview.truncated)
     }
+
+    private fun documentAttachment(
+        mimeType: String? = MIME_PDF,
+        displayName: String? = "report.pdf",
+        sizeBytes: Long? = 120L,
+        textPreview: SharedTextPreview? = null,
+    ): SharedAttachment =
+        SharedAttachment(
+            kind = SharedAttachmentKind.Document,
+            mimeType = mimeType,
+            displayName = displayName,
+            sizeBytes = sizeBytes,
+            textPreview = textPreview,
+        )
+
+    private fun imageAttachment(
+        mimeType: String? = MIME_PNG,
+        displayName: String? = "screen.png",
+        sizeBytes: Long? = 120L,
+        textPreview: SharedTextPreview? = null,
+        remoteImageAttachment: ChatImageAttachment? = null,
+        localImageAttachment: LocalImageAttachment? = null,
+    ): SharedAttachment =
+        SharedAttachment(
+            kind = SharedAttachmentKind.Image,
+            mimeType = mimeType,
+            displayName = displayName,
+            sizeBytes = sizeBytes,
+            textPreview = textPreview,
+            imageAttachment = remoteImageAttachment,
+            localImageAttachment = localImageAttachment,
+        )
+
+    private fun preview(
+        text: String,
+        truncated: Boolean = false,
+        source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
+    ): SharedTextPreview =
+        SharedTextPreview(
+            text = text,
+            truncated = truncated,
+            source = source,
+        )
+
+    private fun remotePngAttachment(): ChatImageAttachment =
+        ChatImageAttachment(
+            mimeType = MIME_PNG,
+            dataUrl = IMAGE_DATA_URL,
+        )
+
+    private fun localPngAttachment(bytes: ByteArray = byteArrayOf(1, 2, 3)): LocalImageAttachment =
+        LocalImageAttachment(
+            mimeType = MIME_PNG,
+            bytes = bytes,
+            sizeBytes = bytes.size.toLong(),
+        )
 
     private fun officeZip(vararg entries: Pair<String, String>): ByteArray {
         val output = ByteArrayOutputStream()

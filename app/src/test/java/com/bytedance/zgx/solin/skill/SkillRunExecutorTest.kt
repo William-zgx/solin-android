@@ -1,11 +1,7 @@
 package com.bytedance.zgx.solin.skill
 
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
-import com.bytedance.zgx.solin.tool.RiskLevel
-import com.bytedance.zgx.solin.tool.ToolExecutor
-import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import org.junit.Assert.assertEquals
@@ -38,11 +34,11 @@ class SkillRunExecutorTest {
             Result.success("明天 10 点评审首页改版")
                 .also { assertEquals(rawClipboardText, inputs["clipboardText"]) }
         }
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val executor = SkillRunExecutor(
             toolExecutor = toolExecutor,
             modelExecutor = modelExecutor,
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
         )
 
         val result = executor.execute(plan)
@@ -86,11 +82,11 @@ class SkillRunExecutorTest {
             assertEquals(rawScreenText, inputs["screenText"])
             Result.success("屏幕摘要：验证码用于本地确认")
         }
-        val plan = BuiltInSkillRuntime().planCurrentScreenTextSummaryShare("总结当前屏幕文字并分享")
+        val plan = currentScreenTextSummarySharePlan()
         val executor = SkillRunExecutor(
             toolExecutor = toolExecutor,
             modelExecutor = modelExecutor,
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
         )
 
         val result = executor.execute(plan)
@@ -116,7 +112,7 @@ class SkillRunExecutorTest {
     @Test
     fun defaultGateStopsBeforeExecutingToolsThatNeedConfirmation() {
         val toolExecutor = RecordingToolExecutor(emptyList())
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val executor = SkillRunExecutor(
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
@@ -143,7 +139,7 @@ class SkillRunExecutorTest {
                 Result.success(summaryText)
             },
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
 
         val awaitingRead = executor.execute(plan)
         val afterRead = executor.resume(
@@ -176,7 +172,7 @@ class SkillRunExecutorTest {
             toolExecutor = RecordingToolExecutor(emptyList()),
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(summaryText) },
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val awaitingRead = executor.execute(plan)
         val awaitingShare = executor.resume(
             plan = plan,
@@ -226,7 +222,7 @@ class SkillRunExecutorTest {
 
     @Test
     fun valueFreeCheckpointRejectsChangedOutputKeysForCompletedStep() {
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val shareStep = plan.steps[2] as SkillStep.ToolStep
         val checkpoint = requireNotNull(
             plan.valueFreeCheckpointForPendingTool(
@@ -248,7 +244,7 @@ class SkillRunExecutorTest {
 
     @Test
     fun valueFreeCheckpointRejectsPrivateRefsWhenCompletedStepIdContainsDot() {
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val readStep = plan.steps[0] as SkillStep.ToolStep
         val summarizeStep = plan.steps[1] as SkillStep.ModelStep
         val shareStep = plan.steps[2] as SkillStep.ToolStep
@@ -293,54 +289,28 @@ class SkillRunExecutorTest {
         val executor = SkillRunExecutor(
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
         )
         val sharedRequestId = "duplicate-tool-request"
-        val wifiStep = SkillStep.ToolStep(
+        val wifiStep = testToolStep(
             id = "wifi_settings",
-            request = ToolRequest(
-                id = sharedRequestId,
-                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            ),
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                title = "打开 Wi-Fi 设置",
-                summary = "打开 Wi-Fi 设置。",
-                parameters = emptyMap(),
-            ),
+            requestId = sharedRequestId,
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "打开 Wi-Fi 设置。",
         )
-        val flashlightStep = SkillStep.ToolStep(
+        val flashlightStep = testToolStep(
             id = "flashlight_settings",
-            request = ToolRequest(
-                id = sharedRequestId,
-                toolName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            ),
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-                title = "打开手电筒设置",
-                summary = "打开手电筒设置。",
-                parameters = emptyMap(),
-            ),
+            requestId = sharedRequestId,
+            toolName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            title = "打开手电筒设置",
+            summary = "打开手电筒设置。",
         )
-        val plan = SkillPlan(
-            request = SkillRequest(
-                id = "duplicate-request-skill",
-                skillId = "duplicate_request_skill",
-                arguments = emptyMap(),
-                reason = "test",
-            ),
-            manifest = SkillManifest(
-                id = "duplicate_request_skill",
-                version = 1,
-                title = "Duplicate request skill",
-                description = "test",
-                triggerExamples = emptyList(),
-                requiredTools = listOf(
-                    MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                    MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-                ),
-                inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
-                riskLevel = RiskLevel.MediumDraftOrNavigation,
+        val plan = testSkillPlan(
+            skillId = "duplicate_request_skill",
+            requiredTools = listOf(
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
             ),
             steps = listOf(wifiStep, flashlightStep),
         )
@@ -361,7 +331,7 @@ class SkillRunExecutorTest {
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("会议摘要") },
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val awaitingRead = executor.execute(plan)
         val awaitingShare = executor.resume(
             plan = plan,
@@ -404,7 +374,7 @@ class SkillRunExecutorTest {
                 Result.success("unused")
             },
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val awaitingRead = executor.execute(plan)
 
         val result = executor.resume(
@@ -442,9 +412,9 @@ class SkillRunExecutorTest {
                 modelCallCount += 1
                 Result.success("unused")
             },
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
 
         val result = executor.execute(plan)
 
@@ -468,7 +438,7 @@ class SkillRunExecutorTest {
                 Result.success("unused")
             },
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val awaitingRead = executor.execute(plan)
 
         val result = executor.resume(
@@ -506,7 +476,7 @@ class SkillRunExecutorTest {
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(modelSummary) },
         )
-        val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val validPlan = clipboardSummarySharePlan()
         val readStep = validPlan.steps[0]
         val modelStep = validPlan.steps[1]
         val shareStep = validPlan.steps[2] as SkillStep.ToolStep
@@ -541,7 +511,7 @@ class SkillRunExecutorTest {
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(modelSummary) },
         )
-        val validPlan = BuiltInSkillRuntime().planCurrentScreenTextSummaryShare("总结当前屏幕文字并分享")
+        val validPlan = currentScreenTextSummarySharePlan()
         val readStep = validPlan.steps[0]
         val modelStep = validPlan.steps[1]
         val shareStep = validPlan.steps[2] as SkillStep.ToolStep
@@ -576,54 +546,28 @@ class SkillRunExecutorTest {
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
         )
-        val readStep = SkillStep.ToolStep(
+        val readStep = testToolStep(
             id = "read_screenshot",
-            request = ToolRequest(
-                id = "read-screenshot",
-                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-                arguments = mapOf("maxCount" to "1"),
-            ),
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-                title = "读取最近截图 OCR",
-                summary = "读取最近截图文字",
-                parameters = mapOf("maxCount" to "1"),
-            ),
+            requestId = "read-screenshot",
+            toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            arguments = mapOf("maxCount" to "1"),
+            title = "读取最近截图 OCR",
+            summary = "读取最近截图文字",
         )
-        val shareStep = SkillStep.ToolStep(
+        val shareStep = testToolStep(
             id = "share_ocr",
             dependsOn = listOf(readStep.id),
-            request = ToolRequest(
-                id = "share-ocr",
-                toolName = MobileActionFunctions.SHARE_TEXT,
-            ),
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.SHARE_TEXT,
-                title = "分享 OCR",
-                summary = "分享 OCR 文本",
-                parameters = emptyMap(),
-            ),
+            requestId = "share-ocr",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享 OCR",
+            summary = "分享 OCR 文本",
             argumentBindings = mapOf("text" to "${readStep.id}.ocrText"),
         )
-        val plan = SkillPlan(
-            request = SkillRequest(
-                id = "skill-ocr",
-                skillId = "test.screenshot_ocr_share",
-                arguments = emptyMap(),
-                reason = "test",
-            ),
-            manifest = SkillManifest(
-                id = "test.screenshot_ocr_share",
-                version = 1,
-                title = "OCR share",
-                description = "test",
-                triggerExamples = emptyList(),
-                requiredTools = listOf(
-                    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-                    MobileActionFunctions.SHARE_TEXT,
-                ),
-                inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
-                riskLevel = RiskLevel.MediumDraftOrNavigation,
+        val plan = testSkillPlan(
+            skillId = "test.screenshot_ocr_share",
+            requiredTools = listOf(
+                MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                MobileActionFunctions.SHARE_TEXT,
             ),
             steps = listOf(readStep, shareStep),
         )
@@ -647,7 +591,7 @@ class SkillRunExecutorTest {
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(summaryText) },
         )
-        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val plan = clipboardSummarySharePlan()
         val awaitingRead = executor.execute(plan)
         val awaitingShare = executor.resume(
             plan = plan,
@@ -681,12 +625,12 @@ class SkillRunExecutorTest {
 
     @Test
     fun failsBeforeExecutingWhenPlanStructureIsInvalid() {
-        val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val validPlan = clipboardSummarySharePlan()
         val invalidPlan = validPlan.copy(steps = listOf(validPlan.steps[2], validPlan.steps[0]))
         val executor = SkillRunExecutor(
             toolExecutor = RecordingToolExecutor(emptyList()),
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
         )
 
         val result = executor.execute(invalidPlan)
@@ -697,7 +641,7 @@ class SkillRunExecutorTest {
 
     @Test
     fun failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema() {
-        val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val validPlan = clipboardSummarySharePlan()
         val invalidPlan = validPlan.copy(
             request = validPlan.request.copy(arguments = mapOf("toolName" to "read_clipboard")),
         )
@@ -705,7 +649,7 @@ class SkillRunExecutorTest {
         val executor = SkillRunExecutor(
             toolExecutor = toolExecutor,
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
         )
 
         val result = executor.execute(invalidPlan)
@@ -718,11 +662,11 @@ class SkillRunExecutorTest {
 
     @Test
     fun failsWhenStepLimitWouldBeExceeded() {
-        val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val validPlan = clipboardSummarySharePlan()
         val executor = SkillRunExecutor(
             toolExecutor = RecordingToolExecutor(emptyList()),
             modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
-            toolGate = SkillToolGate.allowAllForTests(),
+            toolGate = allowAllSkillToolGate(),
             maxSteps = 2,
         )
 
@@ -732,124 +676,37 @@ class SkillRunExecutorTest {
         assertEquals("skill step limit exceeded", result.error)
     }
 
+    private fun clipboardSummarySharePlan(): SkillPlan =
+        BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+
+    private fun currentScreenTextSummarySharePlan(): SkillPlan =
+        BuiltInSkillRuntime().planCurrentScreenTextSummaryShare("总结当前屏幕文字并分享")
+
     private fun reminderCancelSkillPlan(): SkillPlan {
-        val scheduleStep = SkillStep.ToolStep(
+        val scheduleStep = testToolStep(
             id = "schedule_reminder",
-            request = ToolRequest(
-                id = "request-schedule-reminder",
-                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
-                arguments = mapOf("title" to "喝水", "delayMinutes" to "15"),
-            ),
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.SCHEDULE_REMINDER,
-                title = "创建提醒",
-                summary = "15 分钟后提醒喝水。",
-                parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
-            ),
+            requestId = "request-schedule-reminder",
+            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            arguments = mapOf("title" to "喝水", "delayMinutes" to "15"),
+            title = "创建提醒",
+            summary = "15 分钟后提醒喝水。",
         )
-        val cancelStep = SkillStep.ToolStep(
+        val cancelStep = testToolStep(
             id = "cancel_reminder",
             dependsOn = listOf(scheduleStep.id),
-            request = ToolRequest(
-                id = "request-cancel-reminder",
-                toolName = MobileActionFunctions.CANCEL_REMINDER,
-            ),
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.CANCEL_REMINDER,
-                title = "取消提醒",
-                summary = "取消刚创建的提醒。",
-                parameters = emptyMap(),
-            ),
+            requestId = "request-cancel-reminder",
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "取消提醒",
+            summary = "取消刚创建的提醒。",
             argumentBindings = mapOf("taskId" to "${scheduleStep.id}.taskId"),
         )
-        return SkillPlan(
-            request = SkillRequest(
-                id = "request-reminder-cancel-skill",
-                skillId = "test.reminder_cancel",
-                arguments = emptyMap(),
-                reason = "test",
-            ),
-            manifest = SkillManifest(
-                id = "test.reminder_cancel",
-                version = 1,
-                title = "Reminder cancel",
-                description = "test",
-                triggerExamples = emptyList(),
-                requiredTools = listOf(
-                    MobileActionFunctions.SCHEDULE_REMINDER,
-                    MobileActionFunctions.CANCEL_REMINDER,
-                ),
-                inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
-                riskLevel = RiskLevel.MediumDraftOrNavigation,
+        return testSkillPlan(
+            skillId = "test.reminder_cancel",
+            requiredTools = listOf(
+                MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.CANCEL_REMINDER,
             ),
             steps = listOf(scheduleStep, cancelStep),
         )
-    }
-
-    private fun clipboardSuccess(text: String): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-            "privacy" to MessagePrivacy.LocalOnly.name,
-            "requiresLocalModel" to "true",
-            "text" to text,
-            "truncated" to "false",
-        )
-
-    private fun currentScreenTextSuccess(text: String): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            "privacy" to "LocalOnly",
-            "requiresLocalModel" to "true",
-            "source" to "accessibility_active_window",
-            "maxChars" to "1200",
-            "capturedAtMillis" to "1000",
-            "nodeCount" to "1",
-            "screenText" to text,
-            "truncated" to "false",
-            "screenTextIncluded" to "true",
-            "structureSummaryIncluded" to "false",
-            "rawTreeIncluded" to "false",
-            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
-        )
-
-    private fun recentScreenshotOcrSuccess(text: String): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-            "privacy" to "LocalOnly",
-            "requiresLocalModel" to "true",
-            "source" to "recent_screenshot",
-            "maxCount" to "1",
-            "scannedCount" to "1",
-            "ocrText" to text,
-            "truncated" to "false",
-            "ocrTextIncluded" to "true",
-            "rawPayloadIncluded" to "false",
-            "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
-        )
-
-    private fun externalActivitySuccess(toolName: String): Map<String, String> =
-        mapOf(
-            "toolName" to toolName,
-            "completionState" to "ExternalActivityOpened",
-            "completionVerified" to "false",
-            "externalOutcome" to "Unknown",
-            "externalOutcomeSource" to "Unknown",
-            "targetKind" to "android_chooser",
-            "intentAction" to "android.intent.action.SEND",
-            "metadataPolicy" to "AllowlistedCompletionMetadata",
-            "rawPayloadIncluded" to "false",
-        )
-
-    private class RecordingToolExecutor(
-        results: List<ToolResult>,
-    ) : ToolExecutor {
-        private val remainingResults = ArrayDeque(results)
-        val requests = mutableListOf<ToolRequest>()
-
-        override fun execute(request: ToolRequest): ToolResult {
-            requests += request
-            val result = remainingResults.removeFirst()
-            return result.copy(requestId = request.id)
-        }
     }
 }

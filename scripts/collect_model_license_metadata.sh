@@ -13,26 +13,8 @@ EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-model-license-review}}"
 FAILED_TARGET=""
 FAILURE_REASON=""
 ORIGINAL_ARGS=("$@")
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/collect_model_license_metadata.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
+SOLIN_SCRIPT_COMMAND="scripts/collect_model_license_metadata.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 write_report() {
   local status="$1"

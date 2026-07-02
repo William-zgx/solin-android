@@ -7,10 +7,8 @@ import com.bytedance.zgx.solin.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.solin.device.CalendarAvailabilityReadResult
 import com.bytedance.zgx.solin.device.CalendarAvailabilityWindow
 import com.bytedance.zgx.solin.device.CalendarBusyInterval
-import com.bytedance.zgx.solin.device.ContactSummaryProvider
 import com.bytedance.zgx.solin.device.ContactSummaryReadResult
 import com.bytedance.zgx.solin.device.RecentFileItem
-import com.bytedance.zgx.solin.device.RecentFileProvider
 import com.bytedance.zgx.solin.device.RecentFileReadResult
 import java.time.Instant
 import org.json.JSONArray
@@ -129,10 +127,9 @@ class CalendarAvailabilityToolExecutorTest {
         val executor = CalendarAvailabilityToolExecutor(provider)
 
         val result = executor.execute(
-            ToolRequest(
+            toolRequest(
                 id = "wrong",
                 toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                reason = "test",
             ),
         )
 
@@ -145,7 +142,7 @@ class CalendarAvailabilityToolExecutorTest {
     @Test
     fun recentFilesReturnsLocalOnlyMinimalFileMetadata() {
         val executor = RecentFilesToolExecutor(
-            FakeRecentFileProvider(
+            recentFileProvider(
                 RecentFileReadResult.Available(
                     listOf(
                         RecentFileItem(
@@ -162,14 +159,13 @@ class CalendarAvailabilityToolExecutorTest {
         )
 
         val result = executor.execute(
-            ToolRequest(
+            toolRequest(
                 id = "request-files",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf(
                     "kind" to "documents",
                     "maxCount" to "3",
                 ),
-                reason = "test",
             ),
         )
 
@@ -187,16 +183,13 @@ class CalendarAvailabilityToolExecutorTest {
     @Test
     fun recentFilesReportsPermissionDeniedAsRetryableLocalFailure() {
         val executor = RecentFilesToolExecutor(
-            FakeRecentFileProvider(
-                RecentFileReadResult.PermissionDenied("未授权“读取文件”权限"),
-            ),
+            recentFileProvider(RecentFileReadResult.PermissionDenied("未授权“读取文件”权限")),
         )
 
         val result = executor.execute(
-            ToolRequest(
+            toolRequest(
                 id = "request-files",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
-                reason = "test",
             ),
         )
 
@@ -209,17 +202,14 @@ class CalendarAvailabilityToolExecutorTest {
     @Test
     fun contactSummaryReportsPermissionDeniedAsRetryableLocalFailure() {
         val executor = ContactSummaryToolExecutor(
-            FakeContactSummaryProvider(
-                ContactSummaryReadResult.PermissionDenied("未授权“读取联系人”权限"),
-            ),
+            contactSummaryProvider(ContactSummaryReadResult.PermissionDenied("未授权“读取联系人”权限")),
         )
 
         val result = executor.execute(
-            ToolRequest(
+            toolRequest(
                 id = "request-contacts",
                 toolName = MobileActionFunctions.QUERY_CONTACTS,
                 arguments = mapOf("query" to "Alice"),
-                reason = "test",
             ),
         )
 
@@ -233,14 +223,13 @@ class CalendarAvailabilityToolExecutorTest {
         start: String = "2026-06-01T09:00:00Z",
         end: String = "2026-06-01T13:00:00Z",
     ): ToolRequest =
-        ToolRequest(
+        toolRequest(
             id = "request-calendar",
             toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
             arguments = mapOf(
                 "start" to start,
                 "end" to end,
             ),
-            reason = "test",
         )
 
     private class FakeCalendarAvailabilityProvider(
@@ -258,24 +247,4 @@ class CalendarAvailabilityToolExecutorTest {
         }
     }
 
-    private class FakeRecentFileProvider(
-        private val result: RecentFileReadResult,
-    ) : RecentFileProvider {
-        override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = result
-    }
-
-    private class FakeContactSummaryProvider(
-        private val result: ContactSummaryReadResult,
-    ) : ContactSummaryProvider {
-        override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult = result
-    }
-
-    private fun org.json.JSONObject.keysSet(): Set<String> {
-        val result = linkedSetOf<String>()
-        val iterator = keys()
-        while (iterator.hasNext()) {
-            result += iterator.next()
-        }
-        return result
-    }
 }

@@ -66,7 +66,7 @@ sealed class CalendarAvailabilityReadResult {
     ) : CalendarAvailabilityReadResult()
 }
 
-interface CalendarAvailabilityProvider {
+fun interface CalendarAvailabilityProvider {
     fun queryAvailability(window: CalendarAvailabilityWindow): CalendarAvailabilityReadResult
 }
 

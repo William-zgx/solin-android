@@ -125,11 +125,6 @@ data class AgentRun(
     val sessionId: String? = null,
 )
 
-data class AgentContext(
-    val memoryHits: List<MemoryHit>,
-    val deviceContext: DeviceContextSnapshot? = null,
-)
-
 sealed class AgentPlan {
     data class Answer(
         val promptForModel: String,

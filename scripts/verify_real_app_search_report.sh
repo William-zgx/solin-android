@@ -8,19 +8,8 @@ SOURCE_REPORT="${REAL_APP_SEARCH_REPORT_FILE:-build/verification/real-app-search
 REPORT_FILE="${REAL_APP_SEARCH_EVIDENCE_REPORT_FILE:-}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-real-app-control}}"
 ORIGINAL_ARGS=("$@")
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "scripts/verify_real_app_search_report.sh")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
+SOLIN_SCRIPT_COMMAND="scripts/verify_real_app_search_report.sh"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in

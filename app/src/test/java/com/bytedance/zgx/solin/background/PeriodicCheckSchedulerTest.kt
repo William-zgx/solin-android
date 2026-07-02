@@ -28,7 +28,7 @@ class PeriodicCheckSchedulerTest {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 10_000L })
         val workClient = FakePeriodicCheckWorkClient()
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
 
         val first = scheduler.setPeriodicCheck(
             PeriodicCheckScheduleRequest(intervalMinutes = 1L),
@@ -61,7 +61,7 @@ class PeriodicCheckSchedulerTest {
         val workClient = FakePeriodicCheckWorkClient(
             enqueueResult = Result.failure(IllegalStateException("work unavailable")),
         )
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
 
         val result = scheduler.setPeriodicCheck(PeriodicCheckScheduleRequest())
 
@@ -75,7 +75,8 @@ class PeriodicCheckSchedulerTest {
         val workClient = FakePeriodicCheckWorkClient()
         val scheduler = PeriodicCheckScheduler(
             repository = repository,
-            workClient = workClient,
+            enqueuePeriodicWork = workClient::enqueue,
+            cancelPeriodicWorkRequest = workClient::cancel,
             backgroundSkillSpec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol.copy(
                 userConfigured = false,
             ),
@@ -95,7 +96,8 @@ class PeriodicCheckSchedulerTest {
         val workClient = FakePeriodicCheckWorkClient()
         val scheduler = PeriodicCheckScheduler(
             repository = repository,
-            workClient = workClient,
+            enqueuePeriodicWork = workClient::enqueue,
+            cancelPeriodicWorkRequest = workClient::cancel,
             backgroundSkillSpec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol.copy(
                 localOnly = false,
             ),
@@ -112,7 +114,7 @@ class PeriodicCheckSchedulerTest {
     fun reconcileStartupReenqueuesEnabledScheduledPolicy() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
         val workClient = FakePeriodicCheckWorkClient()
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
         repository.createOrUpdatePeriodicCheck(
             PeriodicCheckScheduleRequest(
                 intervalMinutes = 120L,
@@ -134,7 +136,7 @@ class PeriodicCheckSchedulerTest {
         val workClient = FakePeriodicCheckWorkClient(
             enqueueResult = Result.failure(IllegalStateException("work unavailable")),
         )
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
         repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
 
         val policy = scheduler.reconcilePeriodicCheckOnStartup().getOrThrow()
@@ -149,7 +151,7 @@ class PeriodicCheckSchedulerTest {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
         val workClient = FakePeriodicCheckWorkClient()
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
         repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
         repository.disablePeriodicCheck()
 
@@ -186,7 +188,7 @@ class PeriodicCheckSchedulerTest {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
         val workClient = FakePeriodicCheckWorkClient()
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
         dao.upsert(
             entity(
                 id = PeriodicCheckScheduleRequest.TASK_ID,
@@ -213,7 +215,7 @@ class PeriodicCheckSchedulerTest {
         val workClient = FakePeriodicCheckWorkClient(
             cancelResult = Result.failure(IllegalStateException("cancel unavailable")),
         )
-        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        val scheduler = PeriodicCheckScheduler(repository, workClient::enqueue, workClient::cancel)
         scheduler.setPeriodicCheck(PeriodicCheckScheduleRequest()).getOrThrow()
 
         val result = scheduler.disablePeriodicCheck()
@@ -231,7 +233,7 @@ class PeriodicCheckSchedulerTest {
         val notifier = FakeLocalPeriodicCheckNotifier()
         val runner = PeriodicCheckRunner(
             repository = repository,
-            notifier = notifier,
+            postNotification = notifier::post,
             clockMillis = { 10_000L },
         )
         repository.createOrUpdatePeriodicCheck(
@@ -292,7 +294,7 @@ class PeriodicCheckSchedulerTest {
         )
         val runner = PeriodicCheckRunner(
             repository = repository,
-            notifier = notifier,
+            postNotification = notifier::post,
             clockMillis = { 10_000L },
         )
         repository.createOrUpdatePeriodicCheck(
@@ -336,7 +338,7 @@ class PeriodicCheckSchedulerTest {
         val repository = ScheduledTaskRepository(dao, clockMillis = { 10_000L })
         val runner = PeriodicCheckRunner(
             repository = repository,
-            notifier = FakeLocalPeriodicCheckNotifier(failure = IllegalStateException("notify unavailable")),
+            postNotification = FakeLocalPeriodicCheckNotifier(failure = IllegalStateException("notify unavailable"))::post,
             clockMillis = { 10_000L },
         )
         repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest(overdueGraceMinutes = 5L))
@@ -371,7 +373,7 @@ class PeriodicCheckSchedulerTest {
         val notifier = FakeLocalPeriodicCheckNotifier()
         val runner = PeriodicCheckRunner(
             repository = repository,
-            notifier = notifier,
+            postNotification = notifier::post,
             clockMillis = { 10_000L },
         )
         repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
@@ -408,7 +410,7 @@ class PeriodicCheckSchedulerTest {
         val notifier = FakeLocalPeriodicCheckNotifier()
         val runner = PeriodicCheckRunner(
             repository = repository,
-            notifier = notifier,
+            postNotification = notifier::post,
             clockMillis = { 1_000_000L },
         )
 
@@ -447,7 +449,7 @@ class PeriodicCheckSchedulerTest {
         )
         val runner = PeriodicCheckRunner(
             repository = repository,
-            notifier = FakeLocalPeriodicCheckNotifier(),
+            postNotification = FakeLocalPeriodicCheckNotifier()::post,
             clockMillis = { 1_000_000L },
         )
 
@@ -464,16 +466,16 @@ class PeriodicCheckSchedulerTest {
     private class FakePeriodicCheckWorkClient(
         private val enqueueResult: Result<Unit> = Result.success(Unit),
         private val cancelResult: Result<Unit> = Result.success(Unit),
-    ) : PeriodicCheckWorkClient {
+    ) {
         val enqueuedRequests = mutableListOf<PeriodicCheckScheduleRequest>()
         var cancelCount = 0
 
-        override fun enqueue(request: PeriodicCheckScheduleRequest): Result<Unit> {
+        fun enqueue(request: PeriodicCheckScheduleRequest): Result<Unit> {
             enqueuedRequests += request
             return enqueueResult
         }
 
-        override fun cancel(): Result<Unit> {
+        fun cancel(): Result<Unit> {
             cancelCount += 1
             return cancelResult
         }
@@ -482,10 +484,10 @@ class PeriodicCheckSchedulerTest {
     private class FakeLocalPeriodicCheckNotifier(
         private val failure: RuntimeException? = null,
         private val onPost: () -> Unit = {},
-    ) : LocalPeriodicCheckNotifier {
+    ) {
         val notifications = mutableListOf<PeriodicCheckNotification>()
 
-        override fun post(notification: PeriodicCheckNotification): Boolean {
+        fun post(notification: PeriodicCheckNotification): Boolean {
             failure?.let { throw it }
             onPost()
             notifications += notification

@@ -28,12 +28,6 @@ interface BundledModelInstaller {
     fun install(): BundledModelInstallResult
 }
 
-object NoOpBundledModelInstaller : BundledModelInstaller {
-    override val isEnabled: Boolean = false
-    override fun install(): BundledModelInstallResult =
-        BundledModelInstallResult(available = false)
-}
-
 class AssetBundledModelInstaller(
     context: Context,
     private val modelRepository: ModelRepositoryFacade,

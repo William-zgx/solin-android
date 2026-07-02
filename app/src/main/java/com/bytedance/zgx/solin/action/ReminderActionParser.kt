@@ -74,13 +74,6 @@ internal object ReminderActionParser {
             .ifBlank { cleanedObject(input) }
     }
 
-    private fun cleanedObject(input: String): String =
-        input.trim()
-            .removePrefix("请")
-            .removePrefix("帮我")
-            .trim()
-            .ifBlank { input.trim() }
-
     private fun hasReminderCommand(input: String): Boolean =
         chineseReminderCommandPattern.containsMatchIn(input) || englishReminderCommandPattern.containsMatchIn(input)
 

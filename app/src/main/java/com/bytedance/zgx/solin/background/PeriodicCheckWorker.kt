@@ -19,7 +19,13 @@ class PeriodicCheckWorker(
             )
             PeriodicCheckRunner(
                 repository = repository,
-                notifier = AndroidLocalPeriodicCheckNotifier(ReminderNotificationHelper(applicationContext)),
+                postNotification = { notification ->
+                    ReminderNotificationHelper(applicationContext).postReminder(
+                        taskId = PeriodicCheckScheduleRequest.TASK_ID,
+                        title = notification.title,
+                        body = notification.body,
+                    )
+                },
             ).runOnce(request)
             ListenableWorker.Result.success()
         } catch (cancellation: CancellationException) {

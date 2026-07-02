@@ -29,6 +29,7 @@ ABI_LIST=""
 AVD_LABEL=""
 FAILED_TARGET=""
 FAILURE_REASON=""
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 available_avd_summary() {
   if [[ ! -x "$EMULATOR_BIN" ]]; then
@@ -55,14 +56,6 @@ fail() {
     "$ADB_BIN" devices -l >&2 || true
   fi
   exit 1
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  if [[ -f "$file" ]]; then
-    awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
-  fi
 }
 
 write_emulator_report() {

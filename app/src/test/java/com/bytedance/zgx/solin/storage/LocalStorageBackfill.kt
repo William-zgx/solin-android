@@ -148,36 +148,19 @@ data class LocalStorageBackfillRecord(
         )
 }
 
-interface LocalStorageRoomMemoryBackfillSource {
-    fun recordsAfter(cursor: LocalStorageBackfillCursor?, limit: Int): List<LocalStorageBackfillRecord>
-}
-
-class InMemoryRoomMemoryBackfillSource(
-    records: List<LocalStorageBackfillRecord>,
-) : LocalStorageRoomMemoryBackfillSource {
-    private val sortedRecords = records.sortedBy { it.cursor }
-
-    override fun recordsAfter(cursor: LocalStorageBackfillCursor?, limit: Int): List<LocalStorageBackfillRecord> {
-        require(limit > 0) { "Backfill limit must be positive" }
-        return sortedRecords
-            .asSequence()
-            .filter { record -> cursor == null || record.cursor > cursor }
-            .take(limit)
-            .toList()
-    }
-}
-
 data class LocalStorageBackfillResult(
     val processed: Int,
     val state: LocalStorageBackfillState,
 )
 
 class LocalStorageRoomMemoryBackfill(
-    private val source: LocalStorageRoomMemoryBackfillSource,
+    records: List<LocalStorageBackfillRecord>,
     private val vectors: LocalVectorIndex,
     private val stateStore: LocalStorageMigrationStateStore,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) {
+    private val sortedRecords = records.sortedBy { it.cursor }
+
     fun runBatch(limit: Int): LocalStorageBackfillResult {
         require(limit > 0) { "Backfill limit must be positive" }
         val loadedState = stateStore.load()
@@ -187,7 +170,7 @@ class LocalStorageRoomMemoryBackfill(
 
         var state = loadedState
         val cursor = loadedState.cursor
-        val records = source.recordsAfter(cursor, limit)
+        val records = sortedRecords
             .asSequence()
             .filter { record -> cursor == null || record.cursor > cursor }
             .take(limit)

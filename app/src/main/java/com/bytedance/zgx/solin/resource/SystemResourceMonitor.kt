@@ -40,13 +40,24 @@ data class SystemResourceSnapshot(
     val thermalPressure: ThermalPressure,
 ) {
     val pressurePercent: Int
-        get() = calculatePressurePercent(
-            appPssBytes = appPssBytes,
-            availableRamBytes = availableRamBytes,
-            lowMemory = lowMemory,
-            appCpuPercent = appCpuPercent,
-            thermalPressure = thermalPressure,
-        )
+        get() {
+            val memoryPressure = when {
+                lowMemory -> 90
+                availableRamBytes in 1 until 256L * BYTES_PER_MIB -> 90
+                availableRamBytes in 1 until 512L * BYTES_PER_MIB -> 70
+                appPssBytes >= 1_200L * BYTES_PER_MIB -> 80
+                appPssBytes >= 768L * BYTES_PER_MIB -> 60
+                else -> 20
+            }
+            val thermalPercent = when (thermalPressure) {
+                ThermalPressure.Hot -> 90
+                ThermalPressure.Warm -> 70
+                ThermalPressure.Normal,
+                ThermalPressure.Unknown,
+                -> 0
+            }
+            return maxOf(memoryPressure, appCpuPercent ?: 0, thermalPercent).coerceIn(0, 100)
+        }
 
     val pressure: ResourcePressure
         get() = when {
@@ -146,31 +157,6 @@ internal fun calculateAppCpuPercent(
     val cpuMillis = tickDelta * 1_000.0 / ticksPerSecond
     val availableMillis = millisDelta * processors.coerceAtLeast(1)
     return ((cpuMillis / availableMillis) * 100.0).roundToInt().coerceIn(0, 100)
-}
-
-private fun calculatePressurePercent(
-    appPssBytes: Long,
-    availableRamBytes: Long,
-    lowMemory: Boolean,
-    appCpuPercent: Int?,
-    thermalPressure: ThermalPressure,
-): Int {
-    val memoryPressure = when {
-        lowMemory -> 90
-        availableRamBytes in 1 until 256L * BYTES_PER_MIB -> 90
-        availableRamBytes in 1 until 512L * BYTES_PER_MIB -> 70
-        appPssBytes >= 1_200L * BYTES_PER_MIB -> 80
-        appPssBytes >= 768L * BYTES_PER_MIB -> 60
-        else -> 20
-    }
-    val thermalPercent = when (thermalPressure) {
-        ThermalPressure.Hot -> 90
-        ThermalPressure.Warm -> 70
-        ThermalPressure.Normal,
-        ThermalPressure.Unknown,
-        -> 0
-    }
-    return maxOf(memoryPressure, appCpuPercent ?: 0, thermalPercent).coerceIn(0, 100)
 }
 
 private fun readClockTicksPerSecond(): Long =

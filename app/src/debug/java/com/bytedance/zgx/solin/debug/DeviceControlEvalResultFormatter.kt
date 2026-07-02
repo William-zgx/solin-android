@@ -19,7 +19,7 @@ internal object DeviceControlEvalResultFormatter {
             .replace('\u0000', ' ')
             .take(MAX_RESULT_VALUE_CHARS)
 
-    fun fileToken(value: String): String =
+    private fun fileToken(value: String): String =
         value.map { char ->
             if (
                 char in 'a'..'z' ||

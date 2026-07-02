@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.data
 
-import android.content.Context
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.GenerationParameters
 import kotlin.math.roundToInt
@@ -8,8 +7,6 @@ import kotlin.math.roundToInt
 class GenerationParametersRepository(
     private val settingsStore: SettingsStore,
 ) : GenerationParametersStore {
-    constructor(context: Context) : this(PreferenceSettingsStore(context))
-
     override fun load(): GenerationParameters =
         settingsStore.loadGenerationParameters()
 

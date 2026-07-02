@@ -1918,7 +1918,7 @@ private fun String.looksLikeDeviceSettingsNonAction(): Boolean {
         normalized.contains(Regex("""\b(how\s+to|implement|design|api|code|compose)\b"""))
 }
 
-private fun cleanedObject(input: String): String =
+internal fun cleanedObject(input: String): String =
     input.trim()
         .removePrefix("请")
         .removePrefix("帮我")

@@ -1,12 +1,8 @@
 package com.bytedance.zgx.solin.data
 
-import android.content.Context
-
 class FirstRunSetupRepository(
     private val settingsStore: SettingsStore,
 ) : FirstRunSetupStore {
-    constructor(context: Context) : this(PreferenceSettingsStore(context))
-
     override fun isSetupDismissed(): Boolean =
         settingsStore.isSetupDismissed()
 

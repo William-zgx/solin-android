@@ -13,36 +13,10 @@ GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 PUBLIC_RELEASE_CONTEXT="${PUBLIC_RELEASE_CONTEXT:-${PUBLIC_RELEASE:-0}}"
 REJECT_ALLOWED_FAILURES="${AI_BEHAVIOR_REJECT_ALLOWED_FAILURES:-$PUBLIC_RELEASE_CONTEXT}"
 ORIGINAL_ARGS=("$@")
-
-command_line() {
-  local quoted=()
-  local arg
-  quoted+=("$(printf '%q' "$0")")
-  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
-    for arg in "${ORIGINAL_ARGS[@]}"; do
-      quoted+=("$(printf '%q' "$arg")")
-    done
-  fi
-  local IFS=' '
-  printf '%s' "${quoted[*]}"
-}
+SOLIN_SCRIPT_COMMAND="$0"
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 mkdir -p "$ARTIFACT_DIR" "$(dirname "$ACTUAL_TRACE_FILE")" "$(dirname "$TRACE_DIFF_FILE")" "$(dirname "$EVAL_REPORT_FILE")"
-
-sha256_or_empty() {
-  local path="$1"
-  if [[ -n "$path" && -f "$path" ]]; then
-    shasum -a 256 "$path" | awk '{print $1}'
-  fi
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  if [[ -f "$file" ]]; then
-    awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found = 1; exit} END {if (!found) exit 1}' "$file" || true
-  fi
-}
 
 write_report() {
   local status="$1"

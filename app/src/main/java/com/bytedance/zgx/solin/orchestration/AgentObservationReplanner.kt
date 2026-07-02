@@ -464,24 +464,16 @@ private fun ToolResult.hasDangerousTargetEvidence(normalizedTarget: String, tool
         data["ocrBlocksJson"].ocrBlocksHaveDangerousTargetEvidence(normalizedTarget)
 
 private fun String?.observationHasDangerousActionEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            (0 until elements.length()).any { index ->
-                elements.optJSONObject(index)?.isDangerousActionEvidence() == true
-            }
-        }.getOrDefault(false)
-    } ?: false
+    withObservationElements { elements ->
+        elements.objects().any { element -> element.isDangerousActionEvidence() }
+    }
 
 private fun String?.observationHasDangerousTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            (0 until elements.length()).any { index ->
-                elements.optJSONObject(index)?.isDangerousTargetEvidence(normalizedTarget, toolName) == true
-            }
-        }.getOrDefault(false)
-    } ?: false
+    withObservationElements { elements ->
+        elements.objects().any { element ->
+            element.isDangerousTargetEvidence(normalizedTarget, toolName)
+        }
+    }
 
 private fun JSONObject.isDangerousActionEvidence(): Boolean {
     val text = optString("text")
@@ -504,28 +496,20 @@ private fun JSONObject.isDangerousTargetEvidence(normalizedTarget: String, toolN
 }
 
 private fun String?.ocrBlocksHaveDangerousActionEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val blocks = JSONArray(rawJson)
-            (0 until blocks.length()).any { index ->
-                blocks.optJSONObject(index)
-                    ?.optString("text")
-                    .hasOcrDangerousActionText()
-            }
-        }.getOrDefault(false)
-    } ?: false
+    withOcrBlocks { blocks ->
+        blocks.objects().any { block ->
+            block.optString("text").hasOcrDangerousActionText()
+        }
+    }
 
 private fun String?.ocrBlocksHaveDangerousTargetEvidence(normalizedTarget: String): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val blocks = JSONArray(rawJson)
-            (0 until blocks.length()).any { index ->
-                val text = blocks.optJSONObject(index)?.optString("text")
-                text.normalizedLookupKey() == normalizedTarget &&
-                    text.hasOcrDangerousActionText()
-            }
-        }.getOrDefault(false)
-    } ?: false
+    withOcrBlocks { blocks ->
+        blocks.objects().any { block ->
+            val text = block.optString("text")
+            text.normalizedLookupKey() == normalizedTarget &&
+                text.hasOcrDangerousActionText()
+        }
+    }
 
 private fun AgentObservationReplanContext.shouldRejectUnsupportedRepeatTarget(draft: ActionDraft): Boolean {
     if (observedResult.status != ToolStatus.Failed) return false
@@ -665,104 +649,72 @@ private fun String.diffSummaryEvidenceLabels(): List<String> =
         .distinct()
 
 private fun String?.observationHasTargetEvidence(normalizedTarget: String): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            elements.hasTargetEvidence(normalizedTarget)
-        }.getOrDefault(false)
-    } ?: false
+    withObservationElements { elements ->
+        elements.hasTargetEvidence(normalizedTarget)
+    }
 
 private fun String?.observationHasTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            elements.hasTargetEvidence(normalizedTarget, toolName)
-        }.getOrDefault(false)
-    } ?: false
+    withObservationElements { elements ->
+        elements.hasTargetEvidence(normalizedTarget, toolName)
+    }
 
 private fun String?.observationHasSearchTapTargetEvidence(normalizedTarget: String): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            elements.hasSearchTapTargetEvidence(normalizedTarget)
-        }.getOrDefault(false)
-    } ?: false
+    withObservationElements { elements ->
+        elements.hasSearchTapTargetEvidence(normalizedTarget)
+    }
 
 private fun String?.observationHasScrollableEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            (0 until elements.length()).any { index ->
-                elements.optJSONObject(index)?.hasScrollableModeForPrompt() == true
-            }
-        }.getOrDefault(false)
-    } ?: false
+    withObservationElements { elements ->
+        elements.objects().any { element -> element.hasScrollableModeForPrompt() }
+    }
 
 private fun String?.observationHasSearchSubmitEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            val ocrTexts = mutableListOf<String>()
-            val hasStructuredSearchSubmitEvidence = (0 until elements.length()).any { index ->
-                val element = elements.optJSONObject(index) ?: return@any false
-                if (element.optString("source") == "ocr") {
-                    ocrTexts += element.optString("text")
-                    false
-                } else {
-                    element.isSearchSubmitEvidence()
-                }
+    withObservationElements { elements ->
+        val ocrTexts = mutableListOf<String>()
+        val hasStructuredSearchSubmitEvidence = elements.objects().any { element ->
+            if (element.optString("source") == "ocr") {
+                ocrTexts += element.optString("text")
+                false
+            } else {
+                element.isSearchSubmitEvidence()
             }
-            hasStructuredSearchSubmitEvidence || ocrTexts.hasOcrSearchSubmitEvidence()
-        }.getOrDefault(false)
-    } ?: false
+        }
+        hasStructuredSearchSubmitEvidence || ocrTexts.hasOcrSearchSubmitEvidence()
+    }
 
 private fun String?.observationHasTargetlessTypingEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val elements = JSONObject(rawJson).optJSONArray("elements") ?: JSONArray()
-            val ocrTexts = mutableListOf<String>()
-            val hasStructuredTypingEvidence = (0 until elements.length()).any { index ->
-                val element = elements.optJSONObject(index) ?: return@any false
-                if (element.optString("source") == "ocr") {
-                    ocrTexts += element.optString("text")
-                    false
-                } else {
-                    element.isSearchTypingEvidence()
-                }
+    withObservationElements { elements ->
+        val ocrTexts = mutableListOf<String>()
+        val hasStructuredTypingEvidence = elements.objects().any { element ->
+            if (element.optString("source") == "ocr") {
+                ocrTexts += element.optString("text")
+                false
+            } else {
+                element.isSearchTypingEvidence()
             }
-            hasStructuredTypingEvidence || ocrTexts.any { text -> text.hasStrongSearchContextText() }
-        }.getOrDefault(false)
-    } ?: false
+        }
+        hasStructuredTypingEvidence || ocrTexts.any { text -> text.hasStrongSearchContextText() }
+    }
 
 private fun String?.ocrBlocksHaveSearchSubmitEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val blocks = JSONArray(rawJson)
-            val texts = (0 until blocks.length()).mapNotNull { index ->
-                blocks.optJSONObject(index)?.optString("text")
-            }
-            texts.hasOcrSearchSubmitEvidence()
-        }.getOrDefault(false)
-    } ?: false
+    withOcrBlocks { blocks ->
+        val texts = blocks.objects().map { block -> block.optString("text") }
+        texts.hasOcrSearchSubmitEvidence()
+    }
 
 private fun String?.ocrBlocksHaveTargetlessTypingEvidence(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val blocks = JSONArray(rawJson)
-            (0 until blocks.length()).any { index ->
-                blocks.optJSONObject(index)
-                    ?.optString("text")
-                    .hasStrongSearchContextText()
-            }
-        }.getOrDefault(false)
-    } ?: false
+    withOcrBlocks { blocks ->
+        blocks.objects().any { block ->
+            block.optString("text").hasStrongSearchContextText()
+        }
+    }
 
 private fun List<String>.hasOcrSearchSubmitEvidence(): Boolean =
     any { text -> text.hasStrongSearchContextText() } &&
         any { text -> text.hasStandaloneSearchSubmitText() }
 
 private fun JSONArray.hasTargetEvidence(normalizedTarget: String): Boolean {
-    val elements = (0 until length()).mapNotNull(::optJSONObject)
+    val elements = objects()
     if (elements.any { element -> element.isTargetIdEvidence(normalizedTarget) }) return true
     if (elements.any { element -> element.isAccessibilityTextTargetEvidence(normalizedTarget) }) return true
     return elements
@@ -771,7 +723,7 @@ private fun JSONArray.hasTargetEvidence(normalizedTarget: String): Boolean {
 }
 
 private fun JSONArray.hasTargetEvidence(normalizedTarget: String, toolName: String): Boolean {
-    val elements = (0 until length()).mapNotNull(::optJSONObject)
+    val elements = objects()
     if (elements.any { element -> element.isTargetIdEvidence(normalizedTarget, toolName) }) return true
     if (elements.any { element -> element.isAccessibilityTextTargetEvidence(normalizedTarget, toolName) }) return true
     return elements
@@ -780,7 +732,7 @@ private fun JSONArray.hasTargetEvidence(normalizedTarget: String, toolName: Stri
 }
 
 private fun JSONArray.hasSearchTapTargetEvidence(normalizedTarget: String): Boolean {
-    val elements = (0 until length()).mapNotNull(::optJSONObject)
+    val elements = objects()
     val ocrElements = elements.filter { element -> element.optString("source") == "ocr" }
     return elements.any { element ->
         element.isTargetEvidenceMatch(normalizedTarget) &&
@@ -805,29 +757,20 @@ private fun JSONObject.isTargetEvidenceMatch(normalizedTarget: String): Boolean 
                 optString("text").normalizedLookupKey() == normalizedTarget
             )
 
-private fun JSONObject.isTargetIdEvidence(normalizedTarget: String): Boolean {
+private fun JSONObject.isTargetIdEvidence(normalizedTarget: String, toolName: String? = null): Boolean {
     val source = optString("source")
     val idMatches = optString("id").normalizedLookupKey() == normalizedTarget
     if (!idMatches) return false
-    return source == "ocr" || hasActionableModeForPrompt()
+    return source == "ocr" || toolName?.let(::supportsToolTargetMode) ?: hasActionableModeForPrompt()
 }
 
-private fun JSONObject.isTargetIdEvidence(normalizedTarget: String, toolName: String): Boolean {
-    val source = optString("source")
-    val idMatches = optString("id").normalizedLookupKey() == normalizedTarget
-    if (!idMatches) return false
-    return source == "ocr" || supportsToolTargetMode(toolName)
-}
-
-private fun JSONObject.isAccessibilityTextTargetEvidence(normalizedTarget: String): Boolean =
+private fun JSONObject.isAccessibilityTextTargetEvidence(
+    normalizedTarget: String,
+    toolName: String? = null,
+): Boolean =
     optString("source") != "ocr" &&
         optString("text").normalizedLookupKey() == normalizedTarget &&
-        hasActionableModeForPrompt()
-
-private fun JSONObject.isAccessibilityTextTargetEvidence(normalizedTarget: String, toolName: String): Boolean =
-    optString("source") != "ocr" &&
-        optString("text").normalizedLookupKey() == normalizedTarget &&
-        supportsToolTargetMode(toolName)
+        (toolName?.let(::supportsToolTargetMode) ?: hasActionableModeForPrompt())
 
 private fun JSONObject.supportsToolTargetMode(toolName: String): Boolean {
     val clickability = optJSONObject("clickability") ?: return false
@@ -882,16 +825,13 @@ private fun String?.hasStandaloneSearchSubmitText(): Boolean {
 }
 
 private fun String?.ocrBlocksHaveTargetEvidence(normalizedTarget: String): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val blocks = JSONArray(rawJson)
-            val evidences = (0 until blocks.length()).flatMap { index ->
-                blocks.optJSONObject(index)?.toOcrTargetEvidencePrompts(index).orEmpty()
-            }
-            evidences.any { evidence -> evidence.id.normalizedLookupKey() == normalizedTarget } ||
-                evidences.count { evidence -> evidence.text.matchesOcrTargetText(normalizedTarget) } == 1
-        }.getOrDefault(false)
-    } ?: false
+    withOcrBlocks { blocks ->
+        val evidences = blocks.indexedObjects().flatMap { (index, block) ->
+            block.toOcrTargetEvidencePrompts(index)
+        }
+        evidences.any { evidence -> evidence.id.normalizedLookupKey() == normalizedTarget } ||
+            evidences.count { evidence -> evidence.text.matchesOcrTargetText(normalizedTarget) } == 1
+    }
 
 private fun String.matchesOcrTargetText(normalizedTarget: String): Boolean {
     val normalizedText = normalizedLookupKey()
@@ -1525,8 +1465,7 @@ private fun String.toScreenObservationPromptSection(
     }.getOrNull()
 
 private fun JSONArray.selectedObservationElementsForPrompt(): List<JSONObject> {
-    val indexed = (0 until length())
-        .mapNotNull { index -> optJSONObject(index)?.let { element -> index to element } }
+    val indexed = indexedObjects()
     val selectedIndices = linkedSetOf<Int>()
 
     fun includeMatching(limit: Int, predicate: (JSONObject) -> Boolean) {
@@ -1639,17 +1578,10 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         if (source == "ocr") add("ocrFallback")
     }
     if (modeTags.isEmpty()) return null
-    val targetValue = if (source == "ocr") {
-        optString("id")
-            .takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 72)
-            ?: text
-    } else {
-        optString("id")
-            .takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 72)
-            ?: text
-    }
+    val targetValue = optString("id")
+        .takeIf { value -> value.isNotBlank() }
+        ?.safeObservationPromptText(maxLength = 72)
+        ?: text
     val bounds = optJSONObject("bounds")?.boundsPromptText()
     val promptText = buildString {
         append(text)
@@ -1679,7 +1611,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
 }
 
 private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(): List<LocalTargetCandidatePrompt> {
-    val allElements = (0 until length()).mapNotNull(::optJSONObject)
+    val allElements = objects()
     val ocrElements = allElements
         .filter { element ->
             element.optString("source") == "ocr" &&
@@ -1887,11 +1819,12 @@ private fun UiTargetEvidenceCandidate.toResolverTargetRanks(
 private fun String.toOcrBlocksPromptSection(includeExecutableTargets: Boolean): String? =
     runCatching {
         val blocks = JSONArray(this)
-        val summaries = (0 until minOf(blocks.length(), MAX_LOCAL_OCR_BLOCKS))
-            .mapNotNull { index -> blocks.optJSONObject(index)?.toOcrBlockPromptText(index) }
+        val selectedBlocks = blocks.indexedObjects(limit = MAX_LOCAL_OCR_BLOCKS)
+        val summaries = selectedBlocks
+            .mapNotNull { (index, block) -> block.toOcrBlockPromptText(index) }
         val targetCandidates = if (includeExecutableTargets) {
-            (0 until minOf(blocks.length(), MAX_LOCAL_OCR_BLOCKS))
-                .flatMap { index -> blocks.optJSONObject(index)?.toOcrTargetCandidatePrompts(index).orEmpty() }
+            selectedBlocks
+                .flatMap { (index, block) -> block.toOcrTargetCandidatePrompts(index) }
                 .distinctBy { candidate -> candidate.promptText }
                 .take(MAX_LOCAL_TARGET_CANDIDATES)
         } else {
@@ -1942,12 +1875,32 @@ private fun JSONObject.toOcrTargetEvidencePrompts(blockIndex: Int): List<OcrTarg
     return nestedTargets + listOfNotNull(toOcrTargetEvidencePrompt(id = "ocr:block:$blockIndex", role = "ocr_block"))
 }
 
+private inline fun String?.withObservationElements(predicate: (JSONArray) -> Boolean): Boolean =
+    withJsonArray({ rawJson -> JSONObject(rawJson).optJSONArray("elements") ?: JSONArray() }, predicate)
+
+private inline fun String?.withOcrBlocks(predicate: (JSONArray) -> Boolean): Boolean =
+    withJsonArray(::JSONArray, predicate)
+
+private inline fun String?.withJsonArray(
+    crossinline arrayFor: (String) -> JSONArray,
+    predicate: (JSONArray) -> Boolean,
+): Boolean =
+    this?.let { rawJson ->
+        runCatching {
+            predicate(arrayFor(rawJson))
+        }.getOrDefault(false)
+    } ?: false
+
+private fun JSONArray.objects(): List<JSONObject> =
+    (0 until length()).mapNotNull(::optJSONObject)
+
+private fun JSONArray.indexedObjects(limit: Int = length()): List<Pair<Int, JSONObject>> =
+    (0 until minOf(length(), limit)).mapNotNull { index ->
+        optJSONObject(index)?.let { element -> index to element }
+    }
+
 private fun JSONArray?.orEmptyJsonObjects(): List<Pair<Int, JSONObject>> =
-    this?.let { array ->
-        (0 until array.length()).mapNotNull { index ->
-            array.optJSONObject(index)?.let { element -> index to element }
-        }
-    }.orEmpty()
+    this?.indexedObjects().orEmpty()
 
 private fun JSONObject.toOcrTargetEvidencePrompt(
     id: String,

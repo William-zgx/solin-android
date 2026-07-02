@@ -28,17 +28,11 @@ DEVICE_LOGCAT_SHA256=""
 FAILED_TARGET=""
 FAILURE_REASON=""
 REPORT_STATUS_OVERRIDE=""
+source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 count_android_tests() {
   find "$ANDROID_TEST_SOURCE_DIR" \( -name '*.kt' -o -name '*.java' \) -print0 |
     xargs -0 awk '/^[[:space:]]*@(org[.]junit[.])?Test([[:space:](]|$)/ {count += 1} END {print count + 0}'
-}
-
-report_value() {
-  local file="$1"
-  local key="$2"
-  [[ -f "$file" ]] || return 0
-  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
 }
 
 fail() {

@@ -305,11 +305,6 @@ fun interface SkillModelStepExecutor {
 
 fun interface SkillToolGate {
     fun evaluate(step: SkillStep.ToolStep, request: ToolRequest): SkillToolGateDecision
-
-    companion object {
-        fun allowAllForTests(): SkillToolGate =
-            SkillToolGate { _, _ -> SkillToolGateDecision.Allow }
-    }
 }
 
 class RegistrySkillToolGate(

@@ -38,9 +38,6 @@ import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
 import com.bytedance.zgx.solin.download.ModelDownloadService
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
-import com.bytedance.zgx.solin.memory.MemoryDeletionEventStore
-import com.bytedance.zgx.solin.memory.MemoryEmbeddingStore
-import com.bytedance.zgx.solin.memory.MemoryRecordStore
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.memory.RoomMemoryDeletionEventStore
 import com.bytedance.zgx.solin.memory.RoomMemoryEmbeddingStore
@@ -94,9 +91,9 @@ class SolinAppContainer(
     private val toolAuditRepository: ToolAuditRepository
     private val remoteSendAuditRepository: RemoteSendAuditRepository
     private val scheduledTaskRepository: ScheduledTaskRepository
-    private val backgroundTaskSchedulerInternal: AndroidBackgroundTaskScheduler
+    private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
     private val reminderNotificationHelper: ReminderNotificationHelper
-    private val currentScreenshotOcrProviderInternal: AndroidCurrentScreenshotOcrProvider
+    val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider
     private val actionPlanningRuntime: HybridActionPlanningRuntime
     private val actionExecutor: ToolExecutor
     private val assistantOrchestrator: AssistantOrchestrator
@@ -129,21 +126,64 @@ class SolinAppContainer(
         remoteRuntime = OkHttpRemoteChatRuntime()
         val roomMemoryRecordStore = RoomMemoryRecordStore(database.memoryRecordDao())
         val roomMemoryEmbeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao())
-        val memoryStores = createMemoryStores(roomMemoryRecordStore, roomMemoryEmbeddingStore)
+        val migrationDao = database.localStorageMigrationStateDao()
+        val (
+            memoryRecordStore,
+            memoryEmbeddingStore,
+            memoryDeletionEventStore,
+        ) = runCatching {
+            val documents = SharedPreferencesLocalDocumentStore(appContext)
+            val recordStore = ZvecMemoryRecordStore(
+                documents = documents,
+                mirrorStore = roomMemoryRecordStore,
+            )
+            val vectors = ZvecNativeLocalVectorIndex(
+                rootDir = appContext.noBackupFilesDir
+                    .resolve("solin-zvec")
+                    .resolve("v1")
+                    .resolve("pm_vectors_v1"),
+            )
+            backfillRoomMemoryRecords(
+                source = roomMemoryRecordStore,
+                target = recordStore,
+                migrationDao = migrationDao,
+            )
+            Triple(
+                recordStore,
+                ZvecMemoryEmbeddingStore(
+                    documents = documents,
+                    vectors = vectors,
+                    mirrorStore = roomMemoryEmbeddingStore,
+                ),
+                RoomMemoryDeletionEventStore(
+                    dao = database.memoryDeletionEventDao(),
+                ),
+            )
+        }.getOrElse { error ->
+            recordMemoryMigrationFailure(migrationDao, error)
+            Triple(
+                roomMemoryRecordStore,
+                roomMemoryEmbeddingStore,
+                RoomMemoryDeletionEventStore(
+                    dao = database.memoryDeletionEventDao(),
+                    transactionDao = database.memoryDeletionTransactionDao(),
+                ),
+            )
+        }
         memoryRepository = MemoryRepository(
             semanticRuntimeFactory = { modelPath ->
                 TfliteTextEmbeddingRuntimeFactory.create(appContext, modelPath)
             },
-            recordStore = memoryStores.recordStore,
-            embeddingStore = memoryStores.embeddingStore,
-            deletionEventStore = memoryStores.deletionEventStore,
+            recordStore = memoryRecordStore,
+            embeddingStore = memoryEmbeddingStore,
+            deletionEventStore = memoryDeletionEventStore,
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
         remoteSendAuditRepository = RemoteSendAuditRepository(database.remoteSendAuditDao())
         scheduledTaskRepository = ScheduledTaskRepository(database.scheduledTaskDao())
-        backgroundTaskSchedulerInternal = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
+        backgroundTaskScheduler = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
-        currentScreenshotOcrProviderInternal = AndroidCurrentScreenshotOcrProvider(appContext)
+        currentScreenshotOcrProvider = AndroidCurrentScreenshotOcrProvider(appContext)
         val toolRegistry = ToolRegistry()
         actionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
@@ -166,14 +206,14 @@ class SolinAppContainer(
                 webSearchProvider = OkHttpWebSearchProvider(),
                 delegate = ActionExecutor(
                     context = appContext,
-                    backgroundTaskScheduler = backgroundTaskSchedulerInternal,
+                    backgroundTaskScheduler = backgroundTaskScheduler,
                     canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
                     toolRegistry = toolRegistry,
                 ),
-                backgroundTaskScheduler = backgroundTaskSchedulerInternal,
+                backgroundTaskScheduler = backgroundTaskScheduler,
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
-                currentScreenshotOcrProvider = currentScreenshotOcrProviderInternal,
+                currentScreenshotOcrProvider = currentScreenshotOcrProvider,
                 currentScreenControlProvider = AndroidCurrentScreenControlProvider(),
                 toolRegistry = toolRegistry,
             ),
@@ -226,7 +266,7 @@ class SolinAppContainer(
             remoteRuntime = remoteRuntime,
             memoryRepository = memoryRepository,
             longTermMemoryControls = memoryRepository,
-            backgroundTaskScheduler = backgroundTaskSchedulerInternal,
+            backgroundTaskScheduler = backgroundTaskScheduler,
             toolAuditLog = toolAuditRepository,
             remoteSendAuditRepository = remoteSendAuditRepository,
             remoteSendPendingStore = settingsStore,
@@ -237,58 +277,6 @@ class SolinAppContainer(
             },
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
-
-    val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
-        get() = backgroundTaskSchedulerInternal
-
-    val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider
-        get() = currentScreenshotOcrProviderInternal
-
-    private fun createMemoryStores(
-        roomMemoryRecordStore: RoomMemoryRecordStore,
-        roomMemoryEmbeddingStore: RoomMemoryEmbeddingStore,
-    ): MemoryStores {
-        val migrationDao = database.localStorageMigrationStateDao()
-        return runCatching {
-            val documents = SharedPreferencesLocalDocumentStore(appContext)
-            val recordStore = ZvecMemoryRecordStore(
-                documents = documents,
-                mirrorStore = roomMemoryRecordStore,
-            )
-            val vectors = ZvecNativeLocalVectorIndex(
-                rootDir = appContext.noBackupFilesDir
-                    .resolve("solin-zvec")
-                    .resolve("v1")
-                    .resolve("pm_vectors_v1"),
-            )
-            backfillRoomMemoryRecords(
-                source = roomMemoryRecordStore,
-                target = recordStore,
-                migrationDao = migrationDao,
-            )
-            MemoryStores(
-                recordStore = recordStore,
-                embeddingStore = ZvecMemoryEmbeddingStore(
-                    documents = documents,
-                    vectors = vectors,
-                    mirrorStore = roomMemoryEmbeddingStore,
-                ),
-                deletionEventStore = RoomMemoryDeletionEventStore(
-                    dao = database.memoryDeletionEventDao(),
-                ),
-            )
-        }.getOrElse { error ->
-            recordMemoryMigrationFailure(migrationDao, error)
-            MemoryStores(
-                recordStore = roomMemoryRecordStore,
-                embeddingStore = roomMemoryEmbeddingStore,
-                deletionEventStore = RoomMemoryDeletionEventStore(
-                    dao = database.memoryDeletionEventDao(),
-                    transactionDao = database.memoryDeletionTransactionDao(),
-                ),
-            )
-        }
-    }
 
     private fun backfillRoomMemoryRecords(
         source: RoomMemoryRecordStore,
@@ -371,12 +359,6 @@ class SolinAppContainer(
         )
     }
 }
-
-private data class MemoryStores(
-    val recordStore: MemoryRecordStore,
-    val embeddingStore: MemoryEmbeddingStore,
-    val deletionEventStore: MemoryDeletionEventStore,
-)
 
 private class SolinViewModelFactory(
     private val modelRepository: ModelRepository,

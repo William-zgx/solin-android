@@ -38,19 +38,8 @@ enum class SkillBackgroundWork {
     ExecuteExternalAction,
 }
 
-data class ParsedSkillDraft(
-    val draft: ActionDraft,
-    val request: ToolRequest,
-)
-
-fun interface SkillPlanAdapter {
-    fun parse(input: String): ParsedSkillDraft?
-}
-
 data class SkillDefinition(
     val manifest: SkillManifest,
-    val planAdapter: SkillPlanAdapter? = null,
-    val planPriority: Int = Int.MAX_VALUE,
     val directToolNames: List<String> = manifest.requiredTools,
     val triggerExamples: List<String> = manifest.triggerExamples,
 ) {
@@ -87,9 +76,6 @@ class SkillCatalog(
             definition.directToolNames.map { toolName -> toolName to definition.manifest.id }
         }
         .toMap()
-    val plannableDefinitions: List<SkillDefinition> = definitions
-        .filter { definition -> definition.planAdapter != null }
-        .sortedBy { definition -> definition.planPriority }
 
     fun manifests(): List<SkillManifest> =
         definitions.map { definition -> definition.manifest }

@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
         syncDeviceContextAuthorizationSnapshot()
         viewModel.reportSpecialAccessResult(
             requirement = requirement,
-            granted = hasSpecialAccess(requirement),
+            granted = hasSpecialAccess(requirement.id),
         )
     }
     private val voiceAudioPermissionLauncher = registerForActivityResult(
@@ -135,20 +135,6 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
-        }
-    }
-
-    override fun attachBaseContext(newBase: Context) {
-        val debugFontScale = runCatching {
-            intent.getFloatExtra(EXTRA_DEBUG_UI_FONT_SCALE, 0f)
-        }.getOrDefault(0f)
-        if (debugFontScale > 0f && isRunningUnderAndroidTest()) {
-            val configuration = Configuration(newBase.resources.configuration).apply {
-                fontScale = debugFontScale
-            }
-            super.attachBaseContext(newBase.createConfigurationContext(configuration))
-        } else {
-            super.attachBaseContext(newBase)
         }
     }
 
@@ -309,7 +295,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent: Intent) {
-        if (!isDebuggableBuild()) return
+        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
         val baseUrl = intent.getStringExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL) ?: return
         val modelName = intent.getStringExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_MODEL_NAME) ?: return
         val supportsVisionInput =
@@ -320,9 +306,6 @@ class MainActivity : ComponentActivity() {
             supportsVisionInput = supportsVisionInput,
         )
     }
-
-    private fun isDebuggableBuild(): Boolean =
-        applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     private fun shouldSkipStartupModelRuntimeWork(): Boolean =
         intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
@@ -475,7 +458,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         val missingSpecialAccess = confirmation.specialAccessRequirementsFor()
-            .filterNot(::hasSpecialAccess)
+            .filterNot { requirement -> hasSpecialAccess(requirement.id) }
         if (missingSpecialAccess.isNotEmpty()) {
             openSpecialAccessSettings(missingSpecialAccess.first())
             return
@@ -511,9 +494,6 @@ class MainActivity : ComponentActivity() {
         }
         return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
     }
-
-    private fun hasSpecialAccess(requirement: SpecialAccessRequirement): Boolean =
-        hasSpecialAccess(requirement.id)
 
     private fun hasSpecialAccess(id: String): Boolean =
         when (id) {
@@ -632,8 +612,6 @@ class MainActivity : ComponentActivity() {
             "com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
         const val EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT =
             "com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT"
-        const val EXTRA_DEBUG_UI_FONT_SCALE =
-            "com.bytedance.zgx.solin.extra.DEBUG_UI_FONT_SCALE"
         private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
             "com.bytedance.zgx.solin.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
         private const val KEY_CONSUMED_SHARE_INTENT =

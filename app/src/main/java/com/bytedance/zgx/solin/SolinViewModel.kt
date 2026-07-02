@@ -9,11 +9,10 @@ import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionExecutor
 import com.bytedance.zgx.solin.action.MobileActionFunctions
-import com.bytedance.zgx.solin.audit.RemoteSendAuditFactory
+import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
-import com.bytedance.zgx.solin.audit.InMemoryRemoteSendAuditStore
 import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.BackgroundTaskUseCases
@@ -32,9 +31,6 @@ import com.bytedance.zgx.solin.data.ModelRepository
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
-import com.bytedance.zgx.solin.data.NoOpBundledModelInstaller
-import com.bytedance.zgx.solin.data.NoOpHuggingFaceAuthStore
-import com.bytedance.zgx.solin.data.NoOpRemoteSendPendingStore
 import com.bytedance.zgx.solin.data.RemoteModelRepository
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.RemoteSendPendingStore
@@ -175,7 +171,7 @@ class SolinViewModel(
     private val sessionRepository: SessionStore,
     private val generationParametersRepository: GenerationParametersStore,
     private val remoteModelRepository: RemoteModelStore,
-    private val huggingFaceAuthStore: HuggingFaceAuthStore = NoOpHuggingFaceAuthStore,
+    private val huggingFaceAuthStore: HuggingFaceAuthStore,
     private val firstRunSetupRepository: FirstRunSetupStore,
     private val downloadService: ModelDownloadClient,
     private val runtime: LiteRtRuntime,
@@ -194,11 +190,10 @@ class SolinViewModel(
     private val remoteConnectivityProbe: RemoteModelConnectivityProbe =
         OkHttpRemoteModelConnectivityProbe(ioDispatcher = ioDispatcher),
     private val outputQualityGuard: ModelOutputQualityGuard = ModelOutputQualityGuard(),
-    remoteSendAuditStore: InMemoryRemoteSendAuditStore = InMemoryRemoteSendAuditStore(),
-    private val remoteSendAuditSink: RemoteSendAuditSink = remoteSendAuditStore,
-    private val remoteSendAuditLog: RemoteSendAuditLog = remoteSendAuditStore,
-    private val remoteSendPendingStore: RemoteSendPendingStore = NoOpRemoteSendPendingStore,
-    private val bundledModelInstaller: BundledModelInstaller = NoOpBundledModelInstaller,
+    private val remoteSendAuditSink: RemoteSendAuditSink,
+    private val remoteSendAuditLog: RemoteSendAuditLog,
+    private val remoteSendPendingStore: RemoteSendPendingStore,
+    private val bundledModelInstaller: BundledModelInstaller,
     private val skipStartupModelRuntimeWork: Boolean = false,
 ) : ViewModel() {
     private val runtimeLock = Mutex()
@@ -2466,13 +2461,24 @@ class SolinViewModel(
         imageCount: Int,
         remoteHistoryCount: Int,
     ) {
+        val sensitiveCategories = outboundSafetyPolicy.detectSensitiveCategories(prompt)
+        val summaryParts = buildList {
+            add(decision.label)
+            if (imageCount > 0) add("图片 ${imageCount} 张")
+            if (remoteHistoryCount > 0) add("历史 ${remoteHistoryCount} 条")
+            if (sensitiveCategories.isNotEmpty()) {
+                add("敏感类别：" + sensitiveCategories.joinToString("、") { it.label })
+            }
+        }
         remoteSendAuditSink.record(
-            RemoteSendAuditFactory.build(
+            RemoteSendAuditEvent(
                 decision = decision,
-                modelName = modelName,
-                sensitiveCategories = outboundSafetyPolicy.detectSensitiveCategories(prompt),
+                modelName = modelName?.takeIf { it.isNotBlank() },
+                sensitiveCategories = sensitiveCategories,
                 imageCount = imageCount,
                 remoteHistoryCount = remoteHistoryCount,
+                summary = summaryParts.joinToString("；"),
+                createdAtMillis = System.currentTimeMillis(),
             ),
         )
         _uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
@@ -3547,117 +3553,83 @@ class SolinViewModel(
         }
     }
 
-    private fun com.bytedance.zgx.solin.tool.ToolResult.statusSummaryForUi(): String =
+    private fun ToolResult.statusSummaryForUi(): String =
         if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
 
     fun rejectAgentConfirmationForRuntimePermissionDenial(
         confirmation: PendingAgentConfirmation,
         deniedPermissions: List<String>,
     ) {
-        val pendingConfirmation = _uiState.value.pendingConfirmation
-        if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
-            _uiState.update {
-                it.copy(statusText = "工具确认已处理")
-            }
-            return
-        }
-        val request = pendingConfirmation.toolRequest ?: ToolRequest(
-            toolName = pendingConfirmation.draft.functionName,
-            arguments = pendingConfirmation.draft.parameters,
-            reason = pendingConfirmation.draft.summary,
-        )
         val deniedSummary = runtimePermissionDenialSummary(deniedPermissions)
         val deniedPermissionNames = deniedPermissions.distinct().joinToString()
-        val result = request.failed(
-            code = ToolErrorCode.PermissionDenied,
-            summary = "用户拒绝了所需权限，工具未执行：$deniedSummary",
-            retryable = false,
-            data = mapOf(
-                "toolName" to request.toolName,
-                "deniedPermissions" to deniedPermissionNames,
-                "deniedPermissionLabels" to deniedSummary,
-            ),
+        rejectAgentConfirmationWithFailure(
+            confirmation = confirmation,
+            statusText = "权限被拒，工具未执行",
+            resultFor = { request ->
+                request.failed(
+                    code = ToolErrorCode.PermissionDenied,
+                    summary = "用户拒绝了所需权限，工具未执行：$deniedSummary",
+                    retryable = false,
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "deniedPermissions" to deniedPermissionNames,
+                        "deniedPermissionLabels" to deniedSummary,
+                    ),
+                )
+            },
         )
-        val observation = confirmation.runId?.let { runId ->
-            assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
-        }
-        replaceActiveSessionMessages(
-            _uiState.value.messages + ChatMessage(
-                role = MessageRole.Assistant,
-                text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
-                privacy = MessagePrivacy.LocalOnly,
-            ),
-            persistNow = true,
-        )
-        rebuildMemoryIndex()
-        _uiState.update {
-            it.copy(
-                pendingConfirmation = null,
-                isBusy = false,
-                isGenerating = false,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
-                statusText = "权限被拒，工具未执行",
-            )
-        }
     }
 
     fun rejectAgentConfirmationForSpecialAccessDenial(
         confirmation: PendingAgentConfirmation,
         deniedRequirements: List<SpecialAccessRequirement>,
     ) {
-        val pendingConfirmation = _uiState.value.pendingConfirmation
-        if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
-            _uiState.update {
-                it.copy(statusText = "工具确认已处理")
-            }
-            return
-        }
-        val request = pendingConfirmation.toolRequest ?: ToolRequest(
-            toolName = pendingConfirmation.draft.functionName,
-            arguments = pendingConfirmation.draft.parameters,
-            reason = pendingConfirmation.draft.summary,
-        )
         val deniedSummary = specialAccessDenialSummary(deniedRequirements)
-        val result = request.failed(
-            code = ToolErrorCode.PermissionDenied,
-            summary = "未开启所需系统特殊权限，工具未执行：$deniedSummary",
-            retryable = false,
-            data = mapOf(
-                "toolName" to request.toolName,
-                "specialAccess" to deniedRequirements.joinToString { it.id },
-                "specialAccessLabels" to deniedSummary,
-                "settingsAction" to deniedRequirements.joinToString { it.settingsAction },
-            ),
+        rejectAgentConfirmationWithFailure(
+            confirmation = confirmation,
+            statusText = "特殊权限未开启，工具未执行",
+            resultFor = { request ->
+                request.failed(
+                    code = ToolErrorCode.PermissionDenied,
+                    summary = "未开启所需系统特殊权限，工具未执行：$deniedSummary",
+                    retryable = false,
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "specialAccess" to deniedRequirements.joinToString { it.id },
+                        "specialAccessLabels" to deniedSummary,
+                        "settingsAction" to deniedRequirements.joinToString { it.settingsAction },
+                    ),
+                )
+            },
         )
-        val observation = confirmation.runId?.let { runId ->
-            assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
-        }
-        replaceActiveSessionMessages(
-            _uiState.value.messages + ChatMessage(
-                role = MessageRole.Assistant,
-                text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
-                privacy = MessagePrivacy.LocalOnly,
-            ),
-            persistNow = true,
-        )
-        rebuildMemoryIndex()
-        _uiState.update {
-            it.copy(
-                pendingConfirmation = null,
-                isBusy = false,
-                isGenerating = false,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
-                statusText = "特殊权限未开启，工具未执行",
-            )
-        }
     }
 
     fun rejectAgentConfirmationForMediaProjectionDenial(
         confirmation: PendingAgentConfirmation,
+    ) {
+        rejectAgentConfirmationWithFailure(
+            confirmation = confirmation,
+            statusText = "屏幕截图同意已取消，工具未执行",
+            resultFor = { request ->
+                request.failed(
+                    code = ToolErrorCode.PermissionDenied,
+                    summary = "用户取消了当前屏幕截图 OCR 的 Android MediaProjection 前台同意，工具未执行。",
+                    retryable = false,
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to true.toString(),
+                        "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON,
+                    ),
+                )
+            },
+        )
+    }
+
+    private fun rejectAgentConfirmationWithFailure(
+        confirmation: PendingAgentConfirmation,
+        statusText: String,
+        resultFor: (ToolRequest) -> ToolResult,
     ) {
         val pendingConfirmation = _uiState.value.pendingConfirmation
         if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
@@ -3671,17 +3643,7 @@ class SolinViewModel(
             arguments = pendingConfirmation.draft.parameters,
             reason = pendingConfirmation.draft.summary,
         )
-        val result = request.failed(
-            code = ToolErrorCode.PermissionDenied,
-            summary = "用户取消了当前屏幕截图 OCR 的 Android MediaProjection 前台同意，工具未执行。",
-            retryable = false,
-            data = mapOf(
-                "toolName" to request.toolName,
-                "privacy" to MessagePrivacy.LocalOnly.name,
-                "requiresLocalModel" to true.toString(),
-                "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON,
-            ),
-        )
+        val result = resultFor(request)
         val observation = confirmation.runId?.let { runId ->
             assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
         }
@@ -3702,7 +3664,7 @@ class SolinViewModel(
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
                 activeRunTimeline = activeRunTimelineFor(confirmation.runId),
-                statusText = "屏幕截图同意已取消，工具未执行",
+                statusText = statusText,
             )
         }
     }
@@ -5259,11 +5221,33 @@ class SolinViewModel(
             }
         }.getOrDefault(emptyList())
 
-    private fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean {
+    private fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean =
+        persistExplicitMemory(
+            message = message,
+            parse = ::explicitUserPreferenceFrom,
+            persist = { preference ->
+                longTermMemoryControls.indexPreference(explicitUserPreferenceRecordId(preference), preference)
+            },
+        )
+
+    private fun persistExplicitUserFactMemory(message: ChatMessage): Boolean =
+        persistExplicitMemory(
+            message = message,
+            parse = ::explicitUserFactFrom,
+            persist = { fact ->
+                longTermMemoryControls.indexUserFact(explicitUserFactRecordId(fact), fact)
+            },
+        )
+
+    private fun persistExplicitMemory(
+        message: ChatMessage,
+        parse: (String) -> String?,
+        persist: (String) -> Unit,
+    ): Boolean {
         if (message.role != MessageRole.User) return false
-        val preference = explicitUserPreferenceFrom(message.text) ?: return false
+        val text = parse(message.text) ?: return false
         return runCatching {
-            longTermMemoryControls.indexPreference(explicitUserPreferenceRecordId(preference), preference)
+            persist(text)
             loadLongTermMemories()
         }.onSuccess { records ->
             _uiState.update { state ->
@@ -5279,27 +5263,31 @@ class SolinViewModel(
         }.isSuccess
     }
 
-    private fun persistExplicitUserFactMemory(message: ChatMessage): Boolean {
-        if (message.role != MessageRole.User) return false
-        val fact = explicitUserFactFrom(message.text) ?: return false
-        return runCatching {
-            longTermMemoryControls.indexUserFact(explicitUserFactRecordId(fact), fact)
-            loadLongTermMemories()
-        }.onSuccess { records ->
-            _uiState.update { state ->
-                state.copy(longTermMemories = records)
-            }
-        }.onFailure {
-            _uiState.update { state ->
-                state.copy(
-                    longTermMemories = emptyList(),
-                    statusText = "本地记忆暂不可用",
-                )
-            }
-        }.isSuccess
-    }
+    private fun handleExplicitPreferenceCommand(trimmed: String) =
+        handleExplicitMemoryCommand(
+            trimmed = trimmed,
+            persist = ::persistExplicitPreferenceMemory,
+            savedText = "已记住这条本地偏好。你可以在长期记忆中查看或删除。",
+            disabledText = "本地记忆已关闭，未保存这条偏好。",
+            failedText = "本地记忆暂不可用，未保存这条偏好。",
+        )
 
-    private fun handleExplicitPreferenceCommand(trimmed: String) {
+    private fun handleExplicitUserFactCommand(trimmed: String) =
+        handleExplicitMemoryCommand(
+            trimmed = trimmed,
+            persist = ::persistExplicitUserFactMemory,
+            savedText = "已记住这条本地事实。你可以在长期记忆中查看或删除。",
+            disabledText = "本地记忆已关闭，未保存这条事实。",
+            failedText = "本地记忆暂不可用，未保存这条事实。",
+        )
+
+    private fun handleExplicitMemoryCommand(
+        trimmed: String,
+        persist: (ChatMessage) -> Boolean,
+        savedText: String,
+        disabledText: String,
+        failedText: String,
+    ) {
         val memoryEnabled = _uiState.value.memoryEnabled
         if (memoryEnabled) syncTaskStateMemories()
         val userMessage = ChatMessage(
@@ -5311,51 +5299,11 @@ class SolinViewModel(
             _uiState.value.messages + userMessage,
             persistNow = true,
         )
-        val persisted = memoryEnabled && persistExplicitPreferenceMemory(userMessage)
+        val persisted = memoryEnabled && persist(userMessage)
         val assistantText = when {
-            persisted -> "已记住这条本地偏好。你可以在长期记忆中查看或删除。"
-            !memoryEnabled -> "本地记忆已关闭，未保存这条偏好。"
-            else -> "本地记忆暂不可用，未保存这条偏好。"
-        }
-        replaceActiveSessionMessages(
-            _uiState.value.messages + ChatMessage(
-                role = MessageRole.Assistant,
-                text = assistantText,
-                privacy = MessagePrivacy.LocalOnly,
-            ),
-            persistNow = true,
-        )
-        rebuildMemoryIndex()
-        _uiState.update { state ->
-            state.copy(
-                memoryHits = emptyList(),
-                longTermMemories = loadLongTermMemories(),
-                statusText = when {
-                    persisted -> "长期记忆已更新"
-                    !memoryEnabled -> "本地记忆已关闭"
-                    else -> "本地记忆暂不可用"
-                },
-            )
-        }
-    }
-
-    private fun handleExplicitUserFactCommand(trimmed: String) {
-        val memoryEnabled = _uiState.value.memoryEnabled
-        if (memoryEnabled) syncTaskStateMemories()
-        val userMessage = ChatMessage(
-            role = MessageRole.User,
-            text = trimmed,
-            privacy = MessagePrivacy.LocalOnly,
-        )
-        replaceActiveSessionMessages(
-            _uiState.value.messages + userMessage,
-            persistNow = true,
-        )
-        val persisted = memoryEnabled && persistExplicitUserFactMemory(userMessage)
-        val assistantText = when {
-            persisted -> "已记住这条本地事实。你可以在长期记忆中查看或删除。"
-            !memoryEnabled -> "本地记忆已关闭，未保存这条事实。"
-            else -> "本地记忆暂不可用，未保存这条事实。"
+            persisted -> savedText
+            !memoryEnabled -> disabledText
+            else -> failedText
         }
         replaceActiveSessionMessages(
             _uiState.value.messages + ChatMessage(

@@ -7,14 +7,13 @@ import android.os.Build
 import android.provider.OpenableColumns
 import com.bytedance.zgx.solin.ChatImageAttachment
 import com.bytedance.zgx.solin.LocalImageAttachment
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.Base64
 
 class ShareIntentReader(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
-    private val pdfPageTextExtractor: PdfPageTextExtractor =
+    private val pdfPageTextExtractor: AndroidPdfPageTextExtractor =
         AndroidPdfPageTextExtractor(context, imageTextExtractor),
 ) {
     fun read(
@@ -222,16 +221,13 @@ class ShareIntentReader(
     }
 
     private fun Uri.toRemoteImageAttachment(mimeType: String?, sizeBytes: Long?): ChatImageAttachment? {
-        val normalizedMimeType = mimeType
-            ?.substringBefore(';')
-            ?.trim()
-            ?.lowercase()
+        val normalizedMimeType = mimeType.normalizedMediaType()
             ?.takeIf { mediaType -> mediaType.startsWith("image/") }
             ?: return null
         if (sizeBytes != null && sizeBytes > MAX_REMOTE_IMAGE_BYTES) return null
         val bytes = runCatching {
             context.contentResolver.openInputStream(this)?.use { input ->
-                input.readRemoteImageBytes(maxBytes = MAX_REMOTE_IMAGE_BYTES)
+                input.readBoundedImageBytes(maxBytes = MAX_REMOTE_IMAGE_BYTES)
             }
         }.getOrNull() ?: return null
         if (bytes.isEmpty()) return null
@@ -244,10 +240,7 @@ class ShareIntentReader(
     }
 
     private fun Uri.toLocalImageAttachment(mimeType: String?, sizeBytes: Long?): LocalImageAttachment? {
-        val normalizedMimeType = mimeType
-            ?.substringBefore(';')
-            ?.trim()
-            ?.lowercase()
+        val normalizedMimeType = mimeType.normalizedMediaType()
             ?.takeIf { mediaType -> mediaType.startsWith("image/") }
             ?: return null
         if (sizeBytes != null && sizeBytes > MAX_LOCAL_IMAGE_BYTES) return null
@@ -361,21 +354,9 @@ internal fun isProtectedRemoteImageSource(
     return sharedAttachmentKindFor(resolvedMimeType) == SharedAttachmentKind.Image
 }
 
-private fun InputStream.readRemoteImageBytes(maxBytes: Int): ByteArray? =
-    readBoundedImageBytes(maxBytes)
-
 private fun InputStream.readBoundedImageBytes(maxBytes: Int): ByteArray? {
-    val output = ByteArrayOutputStream()
-    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-    var total = 0
-    while (true) {
-        val read = read(buffer)
-        if (read < 0) break
-        total += read
-        if (total > maxBytes) return null
-        output.write(buffer, 0, read)
-    }
-    return output.toByteArray()
+    val (bytes, _) = readLimitedBytes(maxBytes + 1)
+    return bytes.takeIf { it.size <= maxBytes }
 }
 
 private fun readSharedAttachmentTextPreviewFromStream(

@@ -42,15 +42,6 @@ class HuggingFaceAuthRepository(
     }
 }
 
-object NoOpHuggingFaceAuthStore : HuggingFaceAuthStore {
-    override fun hasAccessToken(): Boolean = false
-    override fun authorizationHeader(): String? = null
-    override fun saveAccessToken(token: String): Result<Unit> =
-        Result.failure(IllegalStateException("Hugging Face 授权不可用"))
-
-    override fun clearAccessToken(): Result<Unit> = Result.success(Unit)
-}
-
 private fun String.normalizedHuggingFaceToken(): String =
     trim()
         .removePrefix("Bearer ")
