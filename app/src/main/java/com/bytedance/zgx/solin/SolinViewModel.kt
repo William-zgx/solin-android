@@ -2174,7 +2174,7 @@ class SolinViewModel(
                                 if (observedForContinuation?.decision is AgentObservationDecision.ContinueWithModel &&
                                     continuationPrompt != null
                                 ) {
-                                    _uiState.updateLastAssistantLocalOnly("正在根据公开来源补充引用…")
+                                    _uiState.updateLastAssistant("正在根据公开来源补充引用…")
                                     persistActiveSessionFromUi()
                                     continueAfterToolObservation(
                                         runId = observedForContinuation.run.id,
@@ -4071,7 +4071,7 @@ class SolinViewModel(
                 if (observedForContinuation?.decision is AgentObservationDecision.ContinueWithModel &&
                     continuationPrompt != null
                 ) {
-                    _uiState.updateLastAssistantLocalOnly("正在根据公开来源补充引用…")
+                    _uiState.updateLastAssistant("正在根据公开来源补充引用…")
                     persistActiveSessionFromUi()
                     continueAfterToolObservation(
                         runId = observedForContinuation.run.id,

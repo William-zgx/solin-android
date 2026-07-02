@@ -4587,6 +4587,56 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun publicEvidenceCitationRetryKeepsFinalAnswerRemoteEligible() = runTest(dispatcher) {
+        val runId = "run-public-citation-retry"
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = runId,
+                promptForModel = "北京今天气温是多少？",
+                memoryHits = emptyList(),
+            ),
+            modelObservations = listOf(
+                AgentModelObservationResult(
+                    run = publicEvidenceBatchRun(runId, AgentRunState.GeneratingAnswer, 2L),
+                    decision = AgentObservationDecision.ContinueWithModel(
+                        requiresLocalModel = false,
+                        reason = "public_evidence_citation_retry",
+                    ),
+                    continuationPromptForModel = "请补充公开来源引用。",
+                    continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
+                    steps = emptyList(),
+                ),
+                publicEvidenceBatchCompletedObservation(runId),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            eventBatches = listOf(
+                listOf(RemoteChatEvent.TextDelta("北京今天气温 26 度。")),
+                listOf(RemoteChatEvent.TextDelta("北京今天气温 26 度。[S1]")),
+            ),
+        )
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("北京今天气温是多少？")
+        advanceUntilIdle()
+
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals("请补充公开来源引用。", remoteRuntime.calls.last().prompt)
+        assertEquals("北京今天气温 26 度。[S1]", sessionStore.messages.last().text)
+        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
+        assertEquals("就绪 · 远程", viewModel.uiState.value.statusText)
+    }
+
+    @Test
     fun remoteContinuationDisclosureCancelFailsRunWithoutSecondRemoteCall() = runTest(dispatcher) {
         val requests = publicWeatherBatchRequests()
         val assistantRouter = FakeAssistantRouter(
@@ -8184,6 +8234,7 @@ class SolinViewModelTest {
         private val toolBatchObservation: AgentObservationResult? = null,
         private val toolObservationsByRunId: Map<String, AgentObservationResult> = emptyMap(),
         private val modelObservation: AgentModelObservationResult? = null,
+        private val modelObservations: List<AgentModelObservationResult> = emptyList(),
         private val modelToolObservation: AgentModelObservationResult? = null,
         private val modelToolBatchObservation: AgentModelObservationResult? = null,
         private val externalOutcomeResult: AgentExternalOutcomeResult? = null,
@@ -8445,7 +8496,10 @@ class SolinViewModelTest {
         ): AgentModelObservationResult? {
             observeModelResultCallCount += 1
             lastObserveModelResultAllowInlineToolCalls = allowInlineToolCalls
-            return modelObservation.also { observation -> recordRun(observation?.run) }
+            return (
+                modelObservations.getOrNull(observeModelResultCallCount - 1)
+                    ?: modelObservation
+                ).also { observation -> recordRun(observation?.run) }
         }
 
         override fun recordRemoteToolsExposed(

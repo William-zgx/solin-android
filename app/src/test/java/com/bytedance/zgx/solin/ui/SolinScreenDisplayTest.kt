@@ -569,6 +569,57 @@ class SolinScreenDisplayTest {
     }
 
     @Test
+    fun publicWebEvidenceDisplayRowsRenumberSourcesAcrossPacksAfterDeduplication() {
+        val rows = publicWebEvidenceDisplayRows(
+            listOf(
+                PublicWebEvidencePack(
+                    query = "first query",
+                    retrievedAt = "2026-07-02T10:00:00Z",
+                    freshness = "current",
+                    quality = "High",
+                    items = listOf(
+                        PublicWebEvidenceItem(
+                            sourceId = "S1",
+                            title = "First source",
+                            url = "https://first.example.com/story",
+                            snippet = "First snippet.",
+                            sourceName = "First Example",
+                            qualityLabel = "High",
+                        ),
+                    ),
+                ),
+                PublicWebEvidencePack(
+                    query = "second query",
+                    retrievedAt = "2026-07-02T10:01:00Z",
+                    freshness = "current",
+                    quality = "High",
+                    items = listOf(
+                        PublicWebEvidenceItem(
+                            sourceId = "S1",
+                            title = "Second source",
+                            url = "https://second.example.com/story",
+                            snippet = "Second snippet.",
+                            sourceName = "Second Example",
+                            qualityLabel = "High",
+                        ),
+                        PublicWebEvidenceItem(
+                            sourceId = "S7",
+                            title = "First source",
+                            url = "https://first.example.com/duplicate",
+                            snippet = "Duplicate snippet.",
+                            sourceName = "First Example",
+                            qualityLabel = "High",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("S1", "S2"), rows.map { row -> row.sourceId })
+        assertEquals(listOf("First source", "Second source"), rows.map { row -> row.title })
+    }
+
+    @Test
     fun publicWebEvidenceDisplayRowsRedactRawJsonLookingFields() {
         val rows = publicWebEvidenceDisplayRows(
             listOf(

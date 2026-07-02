@@ -5451,7 +5451,7 @@ internal fun publicWebEvidenceDisplayRows(packs: List<PublicWebEvidencePack>): L
             pack.items.map { item ->
                 val url = item.url
                 PublicWebSourceDisplayRow(
-                    sourceId = item.sourceId.safeStripDisplayText(),
+                    sourceId = "",
                     title = item.title.safeStripDisplayText().ifBlank { "公开来源" },
                     source = item.sourceName.safeStripDisplayText()
                         .ifBlank { actionLinkDomain(url).orEmpty() }
@@ -5467,6 +5467,7 @@ internal fun publicWebEvidenceDisplayRows(packs: List<PublicWebEvidencePack>): L
         }
         .distinctBy { row -> row.source to row.title }
         .take(8)
+        .mapIndexed { index, row -> row.copy(sourceId = "S${index + 1}") }
 
 internal fun publicWebSourceDisplayText(row: PublicWebSourceDisplayRow): String =
     listOf(row.title, publicWebSourceMetaText(row), row.snippet)
