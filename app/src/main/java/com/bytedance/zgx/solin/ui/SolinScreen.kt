@@ -123,6 +123,7 @@ import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
+import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
@@ -324,6 +325,16 @@ fun SolinScreen(
                             }
                         }
                     }
+                }
+
+                val publicSourceRows = publicWebEvidenceDisplayRows(state.activePublicWebEvidence)
+                if (publicSourceRows.isNotEmpty()) {
+                    SourcesStrip(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("public_sources_strip"),
+                        rows = publicSourceRows,
+                    )
                 }
 
                 if (state.activeRunTimeline.isNotEmpty()) {
@@ -5301,6 +5312,77 @@ private fun MemoryContextStrip(
 }
 
 @Composable
+private fun SourcesStrip(
+    modifier: Modifier = Modifier,
+    rows: List<PublicWebSourceDisplayRow>,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SolinGlyph(
+                modifier = Modifier.size(16.dp),
+                kind = SolinGlyphKind.Spark,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "公开来源 ${rows.size} 条",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        rows.take(4).forEach { row ->
+            SourceCard(row = row)
+        }
+    }
+}
+
+@Composable
+private fun SourceCard(row: PublicWebSourceDisplayRow) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = row.title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = publicWebSourceMetaText(row),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (row.snippet.isNotBlank()) {
+                Text(
+                    text = row.snippet,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun RunTimelineStrip(
     modifier: Modifier = Modifier,
     items: List<RunTimelineItemUiSummary>,
@@ -5355,6 +5437,50 @@ internal fun memoryEvidenceDisplayText(item: MemoryEvidenceUiSummary): String =
         .filter { value -> value.isNotBlank() }
         .joinToString(" · ")
 
+internal data class PublicWebSourceDisplayRow(
+    val sourceId: String,
+    val title: String,
+    val source: String,
+    val retrievedAt: String,
+    val qualityLabel: String,
+    val snippet: String,
+)
+
+internal fun publicWebEvidenceDisplayRows(packs: List<PublicWebEvidencePack>): List<PublicWebSourceDisplayRow> =
+    packs
+        .flatMap { pack ->
+            val retrievedAt = pack.retrievedAt
+            val packQuality = pack.quality
+            pack.items.map { item ->
+                val url = item.url
+                PublicWebSourceDisplayRow(
+                    sourceId = item.sourceId.safeStripDisplayText(),
+                    title = item.title.safeStripDisplayText().ifBlank { "公开来源" },
+                    source = item.sourceName.safeStripDisplayText()
+                        .ifBlank { actionLinkDomain(url).orEmpty() }
+                        .safeStripDisplayText()
+                        .ifBlank { "公开网页" },
+                    retrievedAt = retrievedAt.safeStripDisplayText(),
+                    qualityLabel = item.qualityLabel
+                        .ifBlank { packQuality }
+                        .safeStripDisplayText(),
+                    snippet = item.snippet.safeStripDisplayText(),
+                )
+            }
+        }
+        .distinctBy { row -> row.source to row.title }
+        .take(8)
+
+internal fun publicWebSourceDisplayText(row: PublicWebSourceDisplayRow): String =
+    listOf(row.title, publicWebSourceMetaText(row), row.snippet)
+        .filter { value -> value.isNotBlank() }
+        .joinToString("\n")
+
+private fun publicWebSourceMetaText(row: PublicWebSourceDisplayRow): String =
+    listOf(row.source, row.retrievedAt, row.qualityLabel)
+        .filter { value -> value.isNotBlank() }
+        .joinToString(" · ")
+
 private fun String.safeStripDisplayText(): String {
     val normalized = trim().replace(Regex("\\s+"), " ")
     return if (PRIVATE_STRIP_TEXT_PATTERNS.any { pattern -> pattern.containsMatchIn(normalized) }) {
@@ -5367,6 +5493,8 @@ private fun String.safeStripDisplayText(): String {
 private val PRIVATE_STRIP_TEXT_PATTERNS = listOf(
     Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"),
     Regex("(?i)\\b(password|passwd|secret|token|api[_ -]?key|credential|private)\\b\\s*[:=]?\\s*\\S*"),
+    Regex("(?i)\\bresultsJson\\b"),
+    Regex("^\\s*[\\[{].*[\\]}]\\s*$"),
 )
 
 @Composable

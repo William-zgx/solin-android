@@ -11,6 +11,8 @@ import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
+import com.bytedance.zgx.solin.PublicWebEvidenceItem
+import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
@@ -578,6 +580,74 @@ class SolinScreenDisplayTest {
     }
 
     @Test
+    fun publicWebEvidenceDisplayRowsShowSourcesWithoutRawQuery() {
+        val rows = publicWebEvidenceDisplayRows(
+            listOf(
+                PublicWebEvidencePack(
+                    query = "alice@example.com password=secret",
+                    retrievedAt = "2026-07-02T10:00:00Z",
+                    freshness = "current",
+                    quality = "High",
+                    items = listOf(
+                        PublicWebEvidenceItem(
+                            sourceId = "S1",
+                            title = "Solin search quality update",
+                            url = "https://example.com/private/path?email=alice@example.com",
+                            snippet = "Search now shows source cards with citations.",
+                            sourceName = "",
+                            qualityLabel = "High",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val text = rows.joinToString("\n") { row -> publicWebSourceDisplayText(row) }
+
+        assertTrue(text.contains("Solin search quality update"))
+        assertTrue(text.contains("example.com"))
+        assertTrue(text.contains("2026-07-02T10:00:00Z"))
+        assertTrue(text.contains("High"))
+        assertTrue(text.contains("Search now shows source cards"))
+        assertFalse(text.contains("alice@example.com"))
+        assertFalse(text.contains("password"))
+        assertFalse(text.contains("secret"))
+    }
+
+    @Test
+    fun publicWebEvidenceDisplayRowsRedactRawJsonLookingFields() {
+        val rows = publicWebEvidenceDisplayRows(
+            listOf(
+                PublicWebEvidencePack(
+                    query = "private query token=secret",
+                    retrievedAt = "2026-07-02T10:00:00Z",
+                    freshness = "current",
+                    quality = "Low",
+                    items = listOf(
+                        PublicWebEvidenceItem(
+                            sourceId = "S1",
+                            title = """{"resultsJson":"should-not-render"}""",
+                            url = "https://news.example.com/story",
+                            snippet = """{"query":"private query token=secret"}""",
+                            sourceName = "News Example",
+                            qualityLabel = "Low",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val text = rows.joinToString("\n") { row -> publicWebSourceDisplayText(row) }
+
+        assertTrue(text.contains("News Example"))
+        assertTrue(text.contains("[redacted]"))
+        assertFalse(text.contains("resultsJson"))
+        assertFalse(text.contains("private query"))
+        assertFalse(text.contains("token=secret"))
+        assertFalse(text.contains("""{"query""""))
+    }
+
+    @Test
     fun remoteSendDisclosureRowsOmitPreviewAndSensitiveRowsWhenAbsent() {
         val text = remoteSendDisclosureDisplayRows(
             PendingRemoteSendDisclosure(
@@ -626,4 +696,5 @@ class SolinScreenDisplayTest {
         assertTrue(text.contains("speed=7.3 tok/s"))
         assertTrue(text.contains("reason=GPU 初始化失败"))
     }
+
 }

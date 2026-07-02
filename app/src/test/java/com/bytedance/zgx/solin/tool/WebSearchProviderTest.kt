@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.publicWebEvidencePackFromToolResultData
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
@@ -12,6 +13,82 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 class WebSearchProviderTest {
+    @Test
+    fun resultsJsonParsesToPublicWebEvidencePackWithSourceIds() {
+        val resultsJson = """
+            {
+              "schemaVersion":1,
+              "kind":"web_search_evidence",
+              "query":"Kotlin latest",
+              "retrievedAt":"2026-07-02T10:00:00Z",
+              "freshness":"current",
+              "sources":[{"id":"duckduckgo_html","name":"DuckDuckGo HTML Search","url":"https://html.duckduckgo.com/html/"}],
+              "results":[
+                {"sourceId":"duckduckgo_html","title":"Kotlin update","snippet":"Current Kotlin release notes.","url":"https://example.com/kotlin"}
+              ]
+            }
+        """.trimIndent()
+
+        val pack = publicWebEvidencePackFromToolResultData(
+            mapOf(
+                "resultsJson" to resultsJson,
+                "summaryText" to "Kotlin update",
+            ),
+        )
+
+        requireNotNull(pack)
+        assertEquals("Kotlin latest", pack.query)
+        assertEquals("2026-07-02T10:00:00Z", pack.retrievedAt)
+        assertEquals("current", pack.freshness)
+        assertEquals("High", pack.quality)
+        assertEquals("S1", pack.items.single().sourceId)
+        assertEquals("DuckDuckGo HTML Search", pack.items.single().sourceName)
+    }
+
+    @Test
+    fun resultsJsonDeduplicatesDuplicateUrlAndTitle() {
+        val resultsJson = """
+            {
+              "kind":"web_search_evidence",
+              "query":"duplicate",
+              "retrievedAt":"2026-07-02T10:00:00Z",
+              "freshness":"any_time",
+              "sources":[{"id":"duckduckgo","name":"DuckDuckGo","url":"https://api.duckduckgo.com/"}],
+              "results":[
+                {"sourceId":"duckduckgo","title":"Same","snippet":"One","url":"https://example.com/page"},
+                {"sourceId":"duckduckgo","title":"Same","snippet":"Two","url":"https://example.com/page/"}
+              ]
+            }
+        """.trimIndent()
+
+        val pack = publicWebEvidencePackFromToolResultData(mapOf("resultsJson" to resultsJson))
+
+        requireNotNull(pack)
+        assertEquals(1, pack.items.size)
+    }
+
+    @Test
+    fun fanOutForCurrentComparisonAndWeatherIsDeterministic() {
+        val comparison = fanOutWebSearchRequests(
+            WebSearchRequest(query = "OpenAI vs Anthropic latest models"),
+            currentYear = 2026,
+        )
+
+        assertEquals(WebSearchFreshness.Current, comparison.first().freshness)
+        assertEquals(listOf("OpenAI", "Anthropic latest models", "OpenAI Anthropic latest models 对比 差异"), comparison.map { it.query })
+
+        val weather = fanOutWebSearchRequests(
+            WebSearchRequest(
+                query = "北京和上海的天气",
+                searchMode = WebSearchMode.WeatherCurrent,
+            ),
+            currentYear = 2026,
+        )
+
+        assertEquals(listOf("北京", "上海"), weather.map { it.query })
+        assertTrue(weather.all { request -> request.freshness == WebSearchFreshness.Current })
+    }
+
     @Test
     fun freshnessInferenceRecognizesCurrentLanguageHints() {
         listOf(

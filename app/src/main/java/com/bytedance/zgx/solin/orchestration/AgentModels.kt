@@ -391,6 +391,9 @@ data class AgentModelObservationResult(
     val run: AgentRun,
     val decision: AgentObservationDecision,
     val steps: List<AgentStep>,
+    val continuationPromptForModel: String? = null,
+    val continuationRequiresLocalModel: Boolean = false,
+    val continuationRemoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
 )
 
 data class AgentRecoveryAction(

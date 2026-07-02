@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
+import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
@@ -112,6 +113,8 @@ interface AssistantRouter : AutoCloseable {
     fun recentTraceRuns(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary> = emptyList()
 
     fun runEvents(runId: String): List<AgentRunEvent> = emptyList()
+
+    fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> = emptyList()
 
     fun deleteRunsForSession(sessionId: String): Int = 0
 
@@ -269,6 +272,9 @@ class AssistantOrchestrator(
 
     override fun runEvents(runId: String): List<AgentRunEvent> =
         agentLoopRuntime.runEvents(runId)
+
+    override fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> =
+        agentLoopRuntime.publicWebEvidence(runId)
 
     override fun deleteRunsForSession(sessionId: String): Int =
         traceStore.deleteRunsForSession(sessionId)

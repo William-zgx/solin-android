@@ -1649,6 +1649,7 @@ class SolinViewModel(
                 pendingExternalOutcome = null,
                 activeRunTimeline = emptyList(),
                 activeMemoryEvidence = emptyList(),
+                activePublicWebEvidence = emptyList(),
                 statusText = "处理中",
             )
         }
@@ -2173,6 +2174,21 @@ class SolinViewModel(
                                     }
                                     return@launch
                                 }
+                                val observedForContinuation = modelObservation
+                                val continuationPrompt = observedForContinuation?.continuationPromptForModel
+                                if (observedForContinuation?.decision is AgentObservationDecision.ContinueWithModel &&
+                                    continuationPrompt != null
+                                ) {
+                                    _uiState.updateLastAssistantLocalOnly("正在根据公开来源补充引用…")
+                                    persistActiveSessionFromUi()
+                                    continueAfterToolObservation(
+                                        runId = observedForContinuation.run.id,
+                                        promptForModel = continuationPrompt,
+                                        responsePrivacy = MessagePrivacy.RemoteEligible,
+                                        remoteToolScope = observedForContinuation.continuationRemoteToolScope,
+                                    )
+                                    return@launch
+                                }
                             }
                         }
                         persistActiveSessionFromUi()
@@ -2183,6 +2199,7 @@ class SolinViewModel(
                                 isGenerating = false,
                                 isReady = true,
                                 activeRunTimeline = activeRunTimelineFor(route.runId),
+                                activePublicWebEvidence = activePublicWebEvidenceFor(route.runId),
                                 activeMemoryEvidence = activeMemoryEvidenceFor(
                                     memoryHits = route.memoryHits,
                                     includePrivateLocalContext = includePrivateLocalContext,
@@ -3140,6 +3157,7 @@ class SolinViewModel(
             )
             retryRequest = observation?.retryRequest
         }
+        val publicWebEvidence = activePublicWebEvidenceFor(confirmation.runId)
         val nextToolPlan = (observation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
         if (nextToolPlan != null) {
             handleNextToolPlan(
@@ -3175,6 +3193,7 @@ class SolinViewModel(
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
                         activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                        activePublicWebEvidence = publicWebEvidence,
                         statusText = "已保护${protectedContentName}",
                     )
                 }
@@ -3196,6 +3215,7 @@ class SolinViewModel(
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
                     activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                    activePublicWebEvidence = publicWebEvidence,
                     statusText = "生成中",
                 )
             }
@@ -3221,6 +3241,7 @@ class SolinViewModel(
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
                 activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                activePublicWebEvidence = publicWebEvidence,
                 latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
                 isBusy = false,
                 isGenerating = false,
@@ -3284,6 +3305,7 @@ class SolinViewModel(
             return
         }
         val observationPrivacy = observation.privacyForObservation(fallbackToolName = PUBLIC_EVIDENCE_BATCH_TOOL_NAME)
+        val publicWebEvidence = activePublicWebEvidenceFor(runId)
         val messagesWithObservation = _uiState.value.messages + ChatMessage(
             role = MessageRole.Assistant,
             text = observation.assistantMessage,
@@ -3327,6 +3349,7 @@ class SolinViewModel(
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
                         activeRunTimeline = activeRunTimelineFor(runId),
+                        activePublicWebEvidence = publicWebEvidence,
                         statusText = "已保护批量工具结果",
                     )
                 }
@@ -3348,6 +3371,7 @@ class SolinViewModel(
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
                     activeRunTimeline = activeRunTimelineFor(runId),
+                    activePublicWebEvidence = publicWebEvidence,
                     statusText = "生成中",
                 )
             }
@@ -3371,6 +3395,7 @@ class SolinViewModel(
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
                 activeRunTimeline = activeRunTimelineFor(runId),
+                activePublicWebEvidence = publicWebEvidence,
                 latestRecoveryAction = observation.recoveryAction,
                 isBusy = false,
                 isGenerating = false,
@@ -4079,6 +4104,21 @@ class SolinViewModel(
                     )
                     return@launch
                 }
+                val observedForContinuation = modelObservation
+                val continuationPrompt = observedForContinuation?.continuationPromptForModel
+                if (observedForContinuation?.decision is AgentObservationDecision.ContinueWithModel &&
+                    continuationPrompt != null
+                ) {
+                    _uiState.updateLastAssistantLocalOnly("正在根据公开来源补充引用…")
+                    persistActiveSessionFromUi()
+                    continueAfterToolObservation(
+                        runId = observedForContinuation.run.id,
+                        promptForModel = continuationPrompt,
+                        responsePrivacy = responsePrivacy,
+                        remoteToolScope = observedForContinuation.continuationRemoteToolScope,
+                    )
+                    return@launch
+                }
                 _uiState.update {
                     it.copy(
                         isBusy = false,
@@ -4087,6 +4127,7 @@ class SolinViewModel(
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
                         activeRunTimeline = activeRunTimelineFor(runId),
+                        activePublicWebEvidence = activePublicWebEvidenceFor(runId),
                         statusText = when (modelObservation?.decision) {
                             is AgentObservationDecision.Fail -> "后续动作不可执行"
                             else -> if (useRemoteModel) {
@@ -5422,6 +5463,11 @@ class SolinViewModel(
         runId
             ?.let { id -> runCatching { assistantOrchestrator.runEvents(id) }.getOrDefault(emptyList()) }
             ?.let(::runTimelineSummariesFor)
+            .orEmpty()
+
+    private fun activePublicWebEvidenceFor(runId: String?): List<PublicWebEvidencePack> =
+        runId
+            ?.let { id -> runCatching { assistantOrchestrator.publicWebEvidence(id) }.getOrDefault(emptyList()) }
             .orEmpty()
 
     private fun activeMemoryEvidenceFor(

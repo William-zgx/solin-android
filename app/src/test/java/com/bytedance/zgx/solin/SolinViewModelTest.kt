@@ -5113,6 +5113,22 @@ class SolinViewModelTest {
                 ),
             )
         }
+        val publicEvidencePack = PublicWebEvidencePack(
+            query = "北京 上海 天气",
+            retrievedAt = "2026-07-02T10:00:00Z",
+            freshness = "current",
+            quality = "High",
+            items = listOf(
+                PublicWebEvidenceItem(
+                    sourceId = "S1",
+                    title = "北京上海天气",
+                    url = "https://weather.example.com/beijing-shanghai",
+                    snippet = "北京和上海当前天气。",
+                    sourceName = "Weather Example",
+                    qualityLabel = "High",
+                ),
+            ),
+        )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch",
@@ -5148,6 +5164,7 @@ class SolinViewModelTest {
                 decision = AgentObservationDecision.Complete,
                 steps = emptyList(),
             ),
+            publicWebEvidenceByRunId = mapOf("run-remote-tool-batch" to listOf(publicEvidencePack)),
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
@@ -5199,6 +5216,7 @@ class SolinViewModelTest {
         assertTrue(sessionStore.messages.any { message -> message.text.contains("已完成 2 个公开只读工具调用") })
         assertEquals("北京和上海今天温差约 3 度。", sessionStore.messages.last().text)
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
+        assertEquals(listOf(publicEvidencePack), viewModel.uiState.value.activePublicWebEvidence)
         assertEquals("就绪 · 远程", viewModel.uiState.value.statusText)
     }
 
@@ -8860,6 +8878,7 @@ class SolinViewModelTest {
         private val recoveryRoute: AssistantRoute? = null,
         private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
         private val runEventsById: Map<String, List<AgentRunEvent>> = emptyMap(),
+        private val publicWebEvidenceByRunId: Map<String, List<PublicWebEvidencePack>> = emptyMap(),
     ) : AssistantRouter {
         var routeCallCount: Int = 0
             private set
@@ -9172,6 +9191,9 @@ class SolinViewModelTest {
 
         override fun runEvents(runId: String): List<AgentRunEvent> =
             runEventsById[runId].orEmpty()
+
+        override fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> =
+            publicWebEvidenceByRunId[runId].orEmpty()
 
         override fun deleteRunsForSession(sessionId: String): Int {
             deletedTraceSessionIds += sessionId

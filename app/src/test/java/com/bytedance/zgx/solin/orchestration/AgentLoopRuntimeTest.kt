@@ -558,10 +558,85 @@ class AgentLoopRuntimeTest {
         assertTrue(prompt.contains("已读取北京、上海当前天气"))
         assertTrue(prompt.contains("temperature_2m"))
         assertTrue(prompt.contains("可以继续调用公开只读工具补充证据"))
-        assertTrue(prompt.contains("以每条证据的 retrievedAt"))
+        assertTrue(prompt.contains("以每条编号来源的 retrievedAt"))
         assertTrue(prompt.contains("必须优先使用最新 retrievedAt 的工具证据"))
         assertTrue(prompt.contains("不得用模型训练知识、旧知识或未给出的网页内容补全空白"))
-        assertTrue(prompt.contains("最终答案必须列出使用的来源/链接"))
+        assertTrue(prompt.contains("关键事实必须带来源编号"))
+    }
+
+    @Test
+    fun publicEvidenceContinuationPromptUsesNumberedSourceBlocksAndRetriesMissingCitationOnce() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "Kotlin 目前最新发布是什么？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        runtime.recordRemoteToolsExposed(
+            runId = result.run.id,
+            scope = RemoteToolScope.PublicEvidenceOnly,
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+        )
+        val planned = runtime.observeModelToolRequest(
+            runId = result.run.id,
+            request = ToolRequest(
+                id = "call-kotlin",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "Kotlin latest release"),
+                reason = "remote public evidence",
+            ),
+        )
+        requireNotNull(planned)
+        require(planned.decision is AgentObservationDecision.PlanNextTool)
+
+        val observed = runtime.observeToolResult(
+            runId = result.run.id,
+            result = ToolResult(
+                requestId = planned.decision.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取 Kotlin 发布信息。",
+                data = webSearchResultData(
+                    query = "Kotlin latest release",
+                    summaryText = "Kotlin releases page.",
+                    resultsJson = """
+                        {
+                          "kind": "web_search_evidence",
+                          "query": "Kotlin latest release",
+                          "retrievedAt": "2026-07-02T10:00:00Z",
+                          "freshness": "current",
+                          "sources": [{"id":"duckduckgo_html","name":"DuckDuckGo HTML","url":"https://html.duckduckgo.com/html/"}],
+                          "results": [{"kind":"web_result","sourceId":"duckduckgo_html","title":"Kotlin releases","snippet":"Kotlin current release notes.","url":"https://kotlinlang.org/docs/releases.html"}]
+                        }
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        val prompt = observed.continuationPromptForModel.orEmpty()
+        assertTrue(prompt.contains("[S1] Kotlin releases"))
+        assertTrue(prompt.contains("quality: High"))
+        assertTrue(prompt.contains("关键事实必须带来源编号"))
+        assertFalse(prompt.contains("resultsJson"))
+
+        val retry = runtime.observeModelResult(result.run.id, "Kotlin 最新版本已经发布。")
+
+        requireNotNull(retry)
+        assertEquals(AgentRunState.GeneratingAnswer, retry.run.state)
+        require(retry.decision is AgentObservationDecision.ContinueWithModel)
+        assertEquals("public_evidence_citation_retry", retry.decision.reason)
+        assertTrue(retry.continuationPromptForModel.orEmpty().contains("missing_citation"))
+        assertTrue(retry.continuationPromptForModel.orEmpty().contains("[S1] Kotlin releases"))
+
+        val completed = runtime.observeModelResult(result.run.id, "Kotlin 最新版本已经发布。[S1]")
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
     }
 
     @Test

@@ -4,6 +4,12 @@ import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.AnswerCitationCheckStatus
+import com.bytedance.zgx.solin.PublicWebEvidenceItem
+import com.bytedance.zgx.solin.PublicWebEvidencePack
+import com.bytedance.zgx.solin.checkPublicWebAnswerCitations
+import com.bytedance.zgx.solin.publicWebEvidencePackFromToolResultData
+import com.bytedance.zgx.solin.publicWebEvidencePacksFromToolResults
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.ActionPlanKind
@@ -77,6 +83,7 @@ private val ANSWER_CONTEXT_TOKEN_BUDGET =
         LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE
 private const val ANSWER_PROMPT_SCAFFOLD_TOKEN_RESERVE = 256
 private const val MIN_TRUNCATED_EVIDENCE_TOKENS = 96
+private const val PUBLIC_EVIDENCE_CITATION_RETRY_REASON = "public_evidence_citation_retry"
 
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
@@ -215,6 +222,12 @@ class AgentLoopRuntime(
         val run = traceStore.run(runId) ?: return emptyList()
         return AgentStepRunEventAdapter.adapt(run, traceStore.steps(runId))
     }
+
+    fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> =
+        publicWebEvidencePacksFromToolResults(
+            traceStore.steps(runId)
+                .mapNotNull { step -> (step as? AgentStep.ToolObserved)?.result },
+        )
 
     fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
@@ -538,14 +551,25 @@ class AgentLoopRuntime(
             )
             else -> NextObservationPlan.None
         }
-        val decision = when (nextToolPlan) {
-            NextObservationPlan.None -> AgentObservationDecision.Complete
-            is NextObservationPlan.Planned -> AgentObservationDecision.PlanNextTool(
+        val citationRetryPrompt = if (nextToolPlan == NextObservationPlan.None && text.isNotBlank()) {
+            publicEvidenceCitationRetryPromptOrNull(run, text.trim())
+        } else {
+            null
+        }
+        val decision = when {
+            citationRetryPrompt != null -> AgentObservationDecision.ContinueWithModel(
+                requiresLocalModel = false,
+                reason = PUBLIC_EVIDENCE_CITATION_RETRY_REASON,
+            )
+
+            nextToolPlan == NextObservationPlan.None -> AgentObservationDecision.Complete
+            nextToolPlan is NextObservationPlan.Planned -> AgentObservationDecision.PlanNextTool(
                 plan = nextToolPlan.plan,
                 reason = "Model output satisfied the next skill step.",
             )
 
-            is NextObservationPlan.Rejected -> AgentObservationDecision.Fail(nextToolPlan.reason)
+            nextToolPlan is NextObservationPlan.Rejected -> AgentObservationDecision.Fail(nextToolPlan.reason)
+            else -> AgentObservationDecision.Complete
         }
         if (decision is AgentObservationDecision.PlanNextTool) {
             appendToolPlanSteps(
@@ -574,6 +598,9 @@ class AgentLoopRuntime(
             run = updatedRun,
             decision = decision,
             steps = traceStore.steps(runId),
+            continuationPromptForModel = citationRetryPrompt,
+            continuationRequiresLocalModel = false,
+            continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
         )
     }
 
@@ -2667,9 +2694,10 @@ class AgentLoopRuntime(
         }
         return """
             请根据以下公开只读工具结果回答用户原始问题。不要只回答最后一次工具结果；如果用户要求比较、计算、总结或判断，请综合所有可用证据完成对应推理。
-            只以工具公开证据为依据，并以每条证据的 retrievedAt 或 resultsJson.retrievedAt 判断时效；同一事实存在多条证据时，以 retrievedAt 最新且最相关的证据为准。
+            只以工具公开证据为依据，并以每条编号来源的 retrievedAt 判断时效；同一事实存在多条证据时，以 retrievedAt 最新且最相关的证据为准。
             涉及“最新”“目前”“当前”“今天”等时效性问题时，必须优先使用最新 retrievedAt 的工具证据；不得用模型训练知识、旧知识或未给出的网页内容补全空白。
-            最终答案必须列出使用的来源/链接（来自 sources、results.url 或 source 字段）；如果来源或证据不足，请明确说明证据不足。
+            关键事实必须带来源编号，例如 [S1] [S2]；只能引用下方存在的来源编号，不能编造来源编号或链接。
+            如果来源不足、冲突、质量为 Low，或缺少可核验 URL，请明确说明证据不足，不要给过度确定结论。
             如果存在失败缺口，请先基于成功证据部分回答；无法完成的部分明确说明缺少什么信息，不要编造。
             如果工具结果仍不足以完成用户请求，可以继续调用公开只读工具补充证据；仍不足时请明确说明缺少什么信息，不要编造。
 
@@ -2709,13 +2737,16 @@ class AgentLoopRuntime(
         data["privacy"] == MessagePrivacy.RemoteEligible.name &&
             data["requiresLocalModel"]?.toBooleanStrictOrNull() == false
 
-    private fun ToolRequest.publicEvidencePromptBlock(result: ToolResult): PublicEvidencePromptBlock =
-        PublicEvidencePromptBlock(
+    private fun ToolRequest.publicEvidencePromptBlock(result: ToolResult): PublicEvidencePromptBlock {
+        val evidencePack = publicWebEvidencePackFromToolResultData(result.data)
+        return PublicEvidencePromptBlock(
             toolName = toolName,
             argumentBlock = argumentsPromptBlock(),
             summary = result.summary,
-            dataBlock = result.promptDataBlock(),
+            dataBlock = if (evidencePack == null) result.promptDataBlock() else "",
+            evidencePack = evidencePack,
         )
+    }
 
     private fun ToolRequest.publicEvidenceGapBlock(result: ToolResult): PublicEvidenceGapBlock =
         PublicEvidenceGapBlock(
@@ -2836,7 +2867,28 @@ class AgentLoopRuntime(
         if (isEmpty()) {
             "无"
         } else {
+            var sourceIndex = 1
             mapIndexed { index, block ->
+                val evidencePack = block.evidencePack
+                val numberedItems = evidencePack?.items?.map { item ->
+                    NumberedPublicWebEvidenceItem(
+                        sourceId = "S${sourceIndex++}",
+                        pack = evidencePack,
+                        item = item,
+                    )
+                }.orEmpty()
+                if (numberedItems.isNotEmpty()) {
+                    """
+                        工具 ${index + 1}
+                        工具名称：${block.toolName}
+                        工具参数：
+                        ${block.argumentBlock}
+                        工具观察：${block.summary.boundedPromptValue()}
+                        证据包：retrievedAt=${evidencePack?.retrievedAt.orEmpty()} freshness=${evidencePack?.freshness.orEmpty()} quality=${evidencePack?.quality.orEmpty()}
+                        编号来源：
+                        ${numberedItems.joinToString(separator = "\n\n") { item -> item.renderPublicWebEvidencePromptItem() }}
+                    """.trimIndent()
+                } else {
                 """
                     工具 ${index + 1}
                     工具名称：${block.toolName}
@@ -2846,7 +2898,112 @@ class AgentLoopRuntime(
                     工具公开数据：
                     ${block.dataBlock}
                 """.trimIndent()
+                }
             }.joinToString(separator = "\n\n")
+        }
+
+    private fun NumberedPublicWebEvidenceItem.renderPublicWebEvidencePromptItem(): String =
+        """
+            [$sourceId] ${item.title.boundedPromptValue()}
+            source: ${item.sourceName.ifBlank { "unknown" }.boundedPromptValue()}
+            url: ${item.url.ifBlank { "无可核验 URL" }.boundedPromptValue()}
+            retrievedAt: ${pack.retrievedAt.ifBlank { "unknown" }}
+            freshness: ${pack.freshness.ifBlank { "unknown" }}
+            quality: ${item.qualityLabel.ifBlank { pack.quality }.ifBlank { "unknown" }}
+            snippet: ${item.snippet.ifBlank { "无摘要" }.boundedPromptValue()}
+        """.trimIndent()
+
+    private fun publicEvidenceCitationRetryPromptOrNull(
+        run: AgentRun,
+        answer: String,
+    ): String? {
+        if (publicEvidenceCitationRetryAlreadyAttempted(run.id)) return null
+        val numberedItems = numberedPublicEvidenceItemsForRun(run.id)
+        if (numberedItems.isEmpty()) return null
+        val check = checkPublicWebAnswerCitations(
+            answer = answer,
+            sourceIds = numberedItems.mapTo(linkedSetOf()) { item -> item.sourceId },
+            hasLowQualityEvidence = numberedItems.any { item ->
+                item.item.qualityLabel == "Low" || item.pack.quality == "Low"
+            },
+            hasVerifiableUrl = numberedItems.any { item -> item.item.url.isNotBlank() },
+        )
+        if (check.status == AnswerCitationCheckStatus.Warning) {
+            recordPublicEvidenceCitationWarningIfNeeded(run.id, check.reason, answer.length)
+        }
+        if (!check.shouldRetry) return null
+        return """
+            上一版回答未通过公开来源引用检查：${check.reason}。
+            请重写一次最终答案：关键事实必须引用下方已有编号来源；不能引用不存在的来源编号；证据不足、冲突、低质量或无可核验 URL 时必须明说。不要输出工具 JSON。
+
+            上一版回答：
+            ${answer.boundedPromptValue()}
+
+            ${publicEvidenceContinuationPrompt(
+            run = run,
+            evidenceBlocks = priorPublicEvidencePromptBlocks(
+                runId = run.id,
+                excludedRequestIds = emptySet(),
+            ),
+            gapBlocks = emptyList(),
+        )}
+        """.trimIndent()
+    }
+
+    private fun numberedPublicEvidenceItemsForRun(runId: String): List<NumberedPublicWebEvidenceItem> =
+        buildList {
+            var sourceIndex = 1
+            priorPublicEvidencePromptBlocks(
+                runId = runId,
+                excludedRequestIds = emptySet(),
+            ).forEach { block ->
+                val pack = block.evidencePack ?: return@forEach
+                pack.items.forEach { item ->
+                    add(
+                        NumberedPublicWebEvidenceItem(
+                            sourceId = "S${sourceIndex++}",
+                            pack = pack,
+                            item = item,
+                        ),
+                    )
+                }
+            }
+        }
+
+    private fun recordPublicEvidenceCitationWarningIfNeeded(
+        runId: String,
+        reason: String,
+        rawOutputLength: Int,
+    ) {
+        val alreadyRecorded = traceStore.steps(runId).any { step ->
+            val trace = (step as? AgentStep.ModelOutputQualityGuardTriggered)?.trace
+            trace?.triggeredRule == "public_web_answer_citation_check" &&
+                trace.issue == reason
+        }
+        if (alreadyRecorded) return
+        traceStore.appendStep(
+            runId,
+            AgentStep.ModelOutputQualityGuardTriggered(
+                ModelOutputQualityTrace(
+                    issue = reason,
+                    severity = "warning",
+                    triggeredRule = "public_web_answer_citation_check",
+                    action = "record",
+                    rawOutputLength = rawOutputLength,
+                    keptPrefix = true,
+                    modelId = null,
+                    backend = null,
+                    runtimeKind = "unknown",
+                ),
+            ),
+        )
+    }
+
+    private fun publicEvidenceCitationRetryAlreadyAttempted(runId: String): Boolean =
+        traceStore.steps(runId).any { step ->
+            val decision = (step as? AgentStep.ObservationDecided)?.decision
+            decision is AgentObservationDecision.ContinueWithModel &&
+                decision.reason == PUBLIC_EVIDENCE_CITATION_RETRY_REASON
         }
 
     private fun List<PublicEvidenceGapBlock>.renderPublicEvidenceGapBlocks(): String =
@@ -3172,6 +3329,13 @@ class AgentLoopRuntime(
         val argumentBlock: String,
         val summary: String,
         val dataBlock: String,
+        val evidencePack: PublicWebEvidencePack? = null,
+    )
+
+    private data class NumberedPublicWebEvidenceItem(
+        val sourceId: String,
+        val pack: PublicWebEvidencePack,
+        val item: PublicWebEvidenceItem,
     )
 
     private data class PublicEvidenceGapBlock(
