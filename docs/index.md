@@ -39,6 +39,7 @@ flowchart TD
 | --- | --- | --- |
 | `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, how to build, where to go next |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
+| `ai_friendly_architecture_multi_agent_plan.md` | Architecture refactor plan | Multi-agent waves, target boundaries, verification gates |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_driven_app_control_multi_agent_plan.md` | Model-driven app control plan | Multi-agent development split, runtime observe-act contract, acceptance |
 | `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
