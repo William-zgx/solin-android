@@ -1097,6 +1097,23 @@
         "AgentLoopRuntimeTest"
       ],
       "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_ask_user",
+      "entrypoint": "tool_registry",
+      "toolName": "ask_user",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
     }
   ],
   "toolMatrixSourceFields": [

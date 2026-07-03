@@ -6,9 +6,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.bytedance.zgx.solin.action.ActionExecutor
 import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
+import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditRepository
+import com.bytedance.zgx.solin.audit.RemoteSendDecision
+import com.bytedance.zgx.solin.audit.ToolAuditEvent
+import com.bytedance.zgx.solin.audit.ToolAuditEventType
 import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.audit.ToolAuditRepository
+import com.bytedance.zgx.solin.safety.SafetyCategory
+import com.bytedance.zgx.solin.tool.RiskLevel
+import com.bytedance.zgx.solin.tool.ToolPermission
+import com.bytedance.zgx.solin.tool.ToolStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import com.bytedance.zgx.solin.background.AndroidBackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.ReminderNotificationHelper
 import com.bytedance.zgx.solin.background.ScheduledTaskRepository
@@ -37,6 +50,9 @@ import com.bytedance.zgx.solin.device.AndroidRecentFileProvider
 import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
 import com.bytedance.zgx.solin.download.ModelDownloadService
+import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
+import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
+import com.bytedance.zgx.solin.evidence.OnDeviceEvidenceBlobStore
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.memory.RoomMemoryDeletionEventStore
@@ -46,36 +62,80 @@ import com.bytedance.zgx.solin.memory.ZvecMemoryEmbeddingStore
 import com.bytedance.zgx.solin.memory.ZvecMemoryRecordStore
 import com.bytedance.zgx.solin.multimodal.AndroidCurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
+import com.bytedance.zgx.solin.orchestration.AgentHooks
 import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.CompositeAgentObservationReplanner
+import com.bytedance.zgx.solin.orchestration.DefaultContextCompactor
+import com.bytedance.zgx.solin.orchestration.DefaultSolinEventBus
+import com.bytedance.zgx.solin.orchestration.DefaultToolProgressPublisher
+import com.bytedance.zgx.solin.orchestration.InMemoryTelemetrySink
 import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
+import com.bytedance.zgx.solin.orchestration.NoOpAgentHooks
 import com.bytedance.zgx.solin.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.SequentialActionObservationReplanner
+import com.bytedance.zgx.solin.orchestration.SolinEvent
+import com.bytedance.zgx.solin.orchestration.SolinEventBus
+import com.bytedance.zgx.solin.orchestration.ToolProgressPublisher
+import com.bytedance.zgx.solin.orchestration.SystemContextContributor
+import com.bytedance.zgx.solin.orchestration.SystemPromptBuilder
+import com.bytedance.zgx.solin.orchestration.TelemetrySink
+import com.bytedance.zgx.solin.orchestration.attachTo
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.TfliteTextEmbeddingRuntimeFactory
+import com.bytedance.zgx.solin.mcp.McpClient
+import com.bytedance.zgx.solin.mcp.McpModule
+import com.bytedance.zgx.solin.mcp.McpServerRegistry
 import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
+import com.bytedance.zgx.solin.module.SolinModule
+import com.bytedance.zgx.solin.module.SolinModuleRegistryImpl
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
 import com.bytedance.zgx.solin.storage.ZvecNativeLocalVectorIndex
 import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
 import com.bytedance.zgx.solin.tool.RoutingToolExecutor
+import com.bytedance.zgx.solin.tool.BuiltInToolsModule
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.OkHttpWebSearchProvider
+import com.bytedance.zgx.solin.plan.PlanToolHandler
+import com.bytedance.zgx.solin.plan.PlanToolsModule
+import com.bytedance.zgx.solin.plan.SessionPlanStore
 import org.json.JSONObject
 
 class SolinAppContainer(
     context: Context,
     private val skipLocalModelRuntime: Boolean = false,
+    private val enableMcp: Boolean = false,
 ) {
     private val appContext = context.applicationContext
     private val database = SolinDatabase.get(appContext)
     private val settingsStore = PreferenceSettingsStore(appContext)
     private val secretStore = EncryptedSecretStore(appContext)
+    val sessionPlanStore: SessionPlanStore = SessionPlanStore()
+    private val moduleRegistry: SolinModuleRegistryImpl = run {
+        val reg = SolinModuleRegistryImpl()
+        val mcpClient = if (enableMcp) McpClient(McpServerRegistry(appContext)) else null
+        val mcpModule = mcpClient?.let { McpModule(it) }
+        val planToolHandler = PlanToolHandler(sessionPlanStore)
+        val modules: List<SolinModule> = buildList {
+            add(BuiltInToolsModule())
+            add(BuiltInSkillsModule())
+            add(PlanToolsModule(planToolHandler))
+            if (mcpModule != null) add(mcpModule)
+        }
+        modules.forEach { it.register(reg) }
+        android.util.Log.d(
+            "SolinAppContainer",
+            "Loaded ${modules.size} SolinModules: ${modules.map { it.moduleId }}",
+        )
+        reg
+    }
+    val evidenceBlobStore: EvidenceBlobStore = OnDeviceEvidenceBlobStore(appContext)
 
     private val modelRepository: ModelRepository
     private val bundledModelInstaller: BundledModelInstaller
@@ -97,6 +157,12 @@ class SolinAppContainer(
     private val actionPlanningRuntime: HybridActionPlanningRuntime
     private val actionExecutor: ToolExecutor
     private val assistantOrchestrator: AssistantOrchestrator
+    private val eventBus: SolinEventBus
+    private val telemetrySink: TelemetrySink
+    private val agentHooks: AgentHooks
+    private val systemContextContributors: List<SystemContextContributor>
+    private val systemPromptBuilder: SystemPromptBuilder
+    private val toolProgressPublisher: ToolProgressPublisher
 
     init {
         LegacyPrefsMigrator(appContext, database, settingsStore, secretStore).migrateIfNeeded()
@@ -121,7 +187,10 @@ class SolinAppContainer(
             DisabledLiteRtRuntime
         } else {
             RealLiteRtRuntime.configureNativeLogging()
-            RealLiteRtRuntime(appContext.cacheDir)
+            RealLiteRtRuntime(
+                cacheDir = appContext.cacheDir,
+                contextCompactor = DefaultContextCompactor(),
+            )
         }
         remoteRuntime = OkHttpRemoteChatRuntime()
         val roomMemoryRecordStore = RoomMemoryRecordStore(database.memoryRecordDao())
@@ -184,7 +253,32 @@ class SolinAppContainer(
         backgroundTaskScheduler = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
         currentScreenshotOcrProvider = AndroidCurrentScreenshotOcrProvider(appContext)
-        val toolRegistry = ToolRegistry()
+        // Seams: event bus, telemetry, hooks, and system-context contributors.
+        eventBus = DefaultSolinEventBus()
+        telemetrySink = InMemoryTelemetrySink()
+        agentHooks = NoOpAgentHooks
+        systemContextContributors = emptyList()
+        systemPromptBuilder = SystemPromptBuilder(contributors = systemContextContributors)
+        toolProgressPublisher = DefaultToolProgressPublisher(eventBus = eventBus)
+        // App-wide coroutine scope for long-lived subscribers (telemetry fan-out, audit sinks).
+        // Tied to the container's lifecycle; cancellation happens via close().
+        val appScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        telemetrySink.attachTo(eventBus, appScope)
+        // Wire audit repositories as event-bus subscribers. These are ADDITIVE to the direct
+        // record() calls still performed in AgentLoopRuntime (dual-write, Wave 4): once the bus
+        // path is verified the direct calls will be removed in a later cleanup wave.
+        val auditScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        auditScope.launch {
+            eventBus.subscribe(SolinEvent.Audit.ToolAudited::class).collect { event ->
+                toolAuditRepository.record(event.toToolAuditEvent())
+            }
+        }
+        auditScope.launch {
+            eventBus.subscribe(SolinEvent.Audit.RemoteSendAudited::class).collect { event ->
+                event.toRemoteSendAuditEvent()?.let(remoteSendAuditRepository::record)
+            }
+        }
+        val toolRegistry = ToolRegistry(moduleRegistry.toolProviders)
         actionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
             toolRegistry = toolRegistry,
@@ -216,8 +310,11 @@ class SolinAppContainer(
                 currentScreenshotOcrProvider = currentScreenshotOcrProvider,
                 currentScreenControlProvider = AndroidCurrentScreenControlProvider(),
                 toolRegistry = toolRegistry,
+                toolHandlers = moduleRegistry.toolHandlers,
+                evidenceBlobStore = evidenceBlobStore,
             ),
             registry = toolRegistry,
+            progressPublisher = toolProgressPublisher,
         )
         assistantOrchestrator = AssistantOrchestrator(
             memoryIndex = memoryRepository,
@@ -249,6 +346,14 @@ class SolinAppContainer(
             deviceControlSessionFinisher = {
                 DeviceControlSessionService.stop(appContext)
             },
+            eventBus = eventBus,
+            hooks = agentHooks,
+            telemetrySink = telemetrySink,
+            systemContextContributors = systemContextContributors,
+            systemPromptBuilder = systemPromptBuilder,
+            evidenceBlobStore = evidenceBlobStore,
+            sessionPlanStore = sessionPlanStore,
+            contextCompactor = DefaultContextCompactor(),
         )
     }
 
@@ -356,6 +461,55 @@ class SolinAppContainer(
                     .toString(),
                 schemaVersion = 1,
             ),
+        )
+    }
+
+    private fun SolinEvent.Audit.ToolAudited.toToolAuditEvent(): ToolAuditEvent =
+        ToolAuditEvent(
+            id = eventId,
+            runId = runId,
+            requestId = requestId,
+            toolName = toolName,
+            skillId = skillId,
+            eventType = runCatching { ToolAuditEventType.valueOf(eventType) }
+                .getOrDefault(ToolAuditEventType.ToolObserved),
+            status = status?.let { name ->
+                runCatching { ToolStatus.valueOf(name) }.getOrNull()
+            },
+            riskLevel = riskLevel?.let { name ->
+                runCatching { RiskLevel.valueOf(name) }.getOrNull()
+            },
+            permissions = permissionsCsv
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .mapNotNull { name ->
+                    runCatching { ToolPermission.valueOf(name) }.getOrNull()
+                }
+                .toSet(),
+            summary = summary,
+            createdAtMillis = occurredAtMillis,
+        )
+
+    private fun SolinEvent.Audit.RemoteSendAudited.toRemoteSendAuditEvent(): RemoteSendAuditEvent? {
+        val resolvedDecision = runCatching { RemoteSendDecision.valueOf(decision) }
+            .getOrElse { return null }
+        val categories = sensitiveCategoriesCsv
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .mapNotNull { name ->
+                runCatching { SafetyCategory.valueOf(name) }.getOrNull()
+            }
+        return RemoteSendAuditEvent(
+            id = eventId,
+            decision = resolvedDecision,
+            modelName = modelName,
+            sensitiveCategories = categories,
+            imageCount = imageCount,
+            remoteHistoryCount = remoteHistoryCount,
+            summary = summary,
+            createdAtMillis = occurredAtMillis,
         )
     }
 }

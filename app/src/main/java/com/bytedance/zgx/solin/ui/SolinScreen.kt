@@ -4510,6 +4510,7 @@ private fun AgentRunState.label(): String =
         AgentRunState.LoadingContext -> "加载上下文"
         AgentRunState.Planning -> "规划中"
         AgentRunState.AwaitingUserConfirmation -> "待确认"
+        AgentRunState.AwaitingUserAnswer -> "待用户回答"
         AgentRunState.ExecutingTool -> "执行工具"
         AgentRunState.RetryingTool -> "重试工具"
         AgentRunState.Observing -> "观察结果"

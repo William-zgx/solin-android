@@ -22,6 +22,27 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+         Signature permission that MCP server apps must hold to be bound by
+         Solin. Only apps signed with the same (Solin platform) certificate can
+         acquire this permission, which prevents arbitrary apps from pretending
+         to be MCP tool providers. If we later partner with first-party apps
+         signed with a different but known key, switch protectionLevel to
+         "signature|knownSigner" and enumerate partner certs via
+         <known-signers>. Do NOT weaken to "dangerous" or "normal".
+    -->
+    <permission
+        android:name="com.bytedance.zgx.solin.permission.MCP_SERVER"
+        android:protectionLevel="signature" />
+
+    <!--
+         No <queries> entries for MCP server packages yet: Wave 6 has no
+         shipping servers, and future servers are bound via explicit
+         setComponent() from a user-managed list. When a management UI lands,
+         add <package> entries for any server packages the user enables so
+         package-visibility rules on API 30+ do not block bindService().
+    -->
+
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />

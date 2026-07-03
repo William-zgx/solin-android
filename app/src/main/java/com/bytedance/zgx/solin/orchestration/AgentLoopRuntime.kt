@@ -1,8 +1,8 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.ModelCapability
+import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ModelCapabilityProfile
-import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.AnswerCitationCheckStatus
 import com.bytedance.zgx.solin.PublicWebEvidenceItem
@@ -23,13 +23,16 @@ import com.bytedance.zgx.solin.audit.ToolAuditEvent
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
 import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
+import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.EvidenceCard
-import com.bytedance.zgx.solin.evidence.EvidenceQuality
-import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
-import com.bytedance.zgx.solin.evidence.EvidenceSourceType
+import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
+import com.bytedance.zgx.solin.plan.PlanItemStatus
+import com.bytedance.zgx.solin.plan.PlanSnapshot
+import com.bytedance.zgx.solin.plan.SessionPlanStore
+import com.bytedance.zgx.solin.undo.UndoEntry
+import com.bytedance.zgx.solin.undo.UndoPlan
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
-import com.bytedance.zgx.solin.memory.isAvailableForLocalContext
 import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyDecision
@@ -47,6 +50,7 @@ import com.bytedance.zgx.solin.skill.authorizationContractHash
 import com.bytedance.zgx.solin.skill.validateStructure
 import com.bytedance.zgx.solin.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.orchestration.ToolErrorCode as OrchestrationToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRegistry
@@ -57,16 +61,27 @@ import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.cancelled
 import com.bytedance.zgx.solin.tool.failed
-import com.bytedance.zgx.solin.tool.isPublicEvidenceBatchEligible
+import com.bytedance.zgx.solin.tool.isEligibleForParallelBatch
 import com.bytedance.zgx.solin.tool.isRemoteModelPlanningEligible
 import com.bytedance.zgx.solin.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.isUserConfirmedCompletedExternalOutcome
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.solin.tool.rejected
+import com.bytedance.zgx.solin.tool.succeeded
 import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.unverifiedExternalLaunchSummary
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
 private const val RUN_CANCELLED_REASON = "Agent run was cancelled by the user."
@@ -77,13 +92,36 @@ private const val DEVICE_CONTROL_FAILURE_RECOVERY_REASON = "Device control failu
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
 private const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
 private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
-private val ANSWER_CONTEXT_TOKEN_BUDGET =
-    LocalModelTokenLimits.MAX_INPUT_TOKENS -
-        LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
-        LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE
-private const val ANSWER_PROMPT_SCAFFOLD_TOKEN_RESERVE = 256
-private const val MIN_TRUNCATED_EVIDENCE_TOKENS = 96
+private const val TAG = "AgentLoopRuntime"
 private const val PUBLIC_EVIDENCE_CITATION_RETRY_REASON = "public_evidence_citation_retry"
+
+/**
+ * Envelope for messages pushed onto the steer/queued in-memory channels. Carries the target [runId]
+ * alongside the ChatMessage batch so a single pair of per-runtime Channels can route messages to
+ * the correct run even when multiple runs are tracked concurrently (e.g. subagent runs).
+ *
+ * v1 contract: channels are strictly in-memory; if the process dies, undelivered batches are lost
+ * (acceptable for steer/queued user input because the UI layer retains the visible chat history).
+ */
+private data class PendingMessageBatch(
+    val runId: String,
+    val messages: List<ChatMessage>,
+)
+
+/**
+ * Result of a drain-point pull on the steer/queued channels for a single run. [steer] contains
+ * high-priority steer batches first (FIFO within class, user interruptions + hook messages),
+ * [queued] contains normal-priority queued user messages. Callers should typically concatenate
+ * steer + queued and APPEND to outgoing ChatMessage history as the most recent user turns.
+ */
+data class PendingMessagesDrain(
+    val steer: List<ChatMessage>,
+    val queued: List<ChatMessage>,
+) {
+    fun isEmpty(): Boolean = steer.isEmpty() && queued.isEmpty()
+
+    val all: List<ChatMessage> get() = steer + queued
+}
 
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
@@ -94,17 +132,106 @@ class AgentLoopRuntime(
     private val auditSink: ToolAuditSink = NoOpToolAuditSink,
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
+    private val eventBus: SolinEventBus = NoOpSolinEventBus,
+    private val hooks: AgentHooks = NoOpAgentHooks,
+    private val telemetrySink: TelemetrySink = NoOpTelemetrySink,
     private val maxToolRetryAttempts: Int = 1,
     private val maxRunToolSteps: Int = 10,
     private val maxObservationDecisions: Int = 16,
     private val deviceControlSessionFinisher: () -> Unit = {},
+    private val systemPromptBuilder: SystemPromptBuilder? = null,
+    private val evidenceBlobStore: EvidenceBlobStore = NoOpEvidenceBlobStore,
+    private val sessionPlanStore: SessionPlanStore? = null,
+    private val contextCompactor: ContextCompactor = NoOpContextCompactor,
+    private val contextAssembler: ContextAssembler? = null,
 ) {
+    private val resolvedContextAssembler: ContextAssembler =
+        contextAssembler ?: ContextAssembler(
+            systemPromptBuilder = systemPromptBuilder,
+            memoryIndex = memoryIndex,
+        )
+    private val runtimeJob: Job = SupervisorJob()
+    private val runtimeScope: CoroutineScope = CoroutineScope(Dispatchers.Default + runtimeJob)
+    private val planSubscriptionJob: Job? = sessionPlanStore?.let { store ->
+        runtimeScope.launch {
+            store.updates
+                .onEach { snapshot ->
+                    runCatching {
+                        eventBus.publish(
+                            SolinEvent.Agent.PlanUpdated(
+                                runId = snapshot.runId,
+                                itemCount = snapshot.items.size,
+                                pendingCount = snapshot.pendingCount(),
+                                doneCount = snapshot.doneCount(),
+                                updatedAtMillis = snapshot.updatedAtMillis,
+                            ),
+                        )
+                    }.onFailure { throwable ->
+                        Log.e(TAG, "Plan update subscription failed", throwable)
+                    }
+                }
+                .collect {}
+        }
+    }
+
+    private val undoStack = java.util.ArrayDeque<UndoEntry>()
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
     private val valueFreeCompletedStepFrontiersByRunId = mutableMapOf<String, Set<String>>()
     private val remoteToolScopesByRunId = mutableMapOf<String, RemoteToolScope>()
     private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
     private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
     private val installedCapabilityProfilesByRunId = mutableMapOf<String, List<ModelCapabilityProfile>>()
+    private val profilesByRunId = mutableMapOf<String, AgentProfile>()
+
+    // Wave 2 SolinEvent lifecycle bookkeeping. Tracks per-run wall-clock start time and turn index
+    // so TurnStarted/TurnEnded/RunEnded events carry monotonic counters without disturbing the
+    // existing traceStore contract.
+    private val runStartedAtMillis = mutableMapOf<String, Long>()
+    private val runTurnIndex = mutableMapOf<String, Int>()
+
+    // Wave 3 mid-run steering: ChatMessages injected via steerRun()/steer() are queued here and
+    // drained (prepended to the model message list) on the next model call.
+    //
+    // Wave 8 (real steer / high-priority queue): two in-memory Channels replace the prior
+    // ConcurrentHashMap-of-CopyOnWriteArrayList pendingSteeringMessages store. steerMessages gets
+    // first-class priority at every drain point (drain all steer batches before queued batches) and
+    // steer() additionally cooperatively cancels the registered in-flight model-call Job when the
+    // run is mid-model-stream so the next turn begins immediately against the new direction.
+    // Tool execution is NEVER cancelled by steer (safety-critical device actions must run to
+    // completion); steer batches that arrive during ExecutingTool/RetryingTool are held on the
+    // channel and injected after the current tool's result is observed, before the next model turn.
+    private val steerMessages = Channel<PendingMessageBatch>(capacity = Channel.UNLIMITED)
+    private val queuedMessages = Channel<PendingMessageBatch>(capacity = Channel.UNLIMITED)
+
+    // Per-run tracker for the currently in-flight model streaming Job. Registered by the caller
+    // (typically SolinViewModel) via [registerModelCallJob] right before it begins collecting
+    // streaming tokens from the local/remote model runtime, and cleared on completion via
+    // [unregisterModelCallJob] (which is a safe no-op if a different Job is registered, to handle
+    // the race-free case where a steer cancelled one Job and a new one has already started).
+    //
+    // Tool execution jobs are intentionally NOT tracked here: tool calls are not cancellable
+    // mid-flight in v1 for safety, so steer() never interrupts a tool Job. The phase check against
+    // AgentRunState.GeneratingAnswer (vs ExecutingTool/RetryingTool) is the guard that keeps tool
+    // execution safe from steer-driven cancellation.
+    private val activeModelCallJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
+    // Pending ask_user parking state. Maps runId -> (questionId -> originating ToolRequest) so that
+    // answerUserQuestion/cancelUserQuestion can correlate a reply back to the originating tool call
+    // and synthesize a ToolResult with the correct requestId. Only valid while the run is in
+    // AwaitingUserAnswer; cleared on answer/cancel/cancelRun/terminal state.
+    private data class PendingUserQuestionState(
+        val questionId: String,
+        val request: ToolRequest,
+    )
+    private val pendingUserQuestionsByRunId = mutableMapOf<String, PendingUserQuestionState>()
+
+    // Wave 4 telemetry bookkeeping: wall-clock time a ToolRequested step was appended, keyed by
+    // requestId, so ToolCompleted telemetry can record latencyMs. Entries are cleared when the
+    // corresponding tool result is observed so the map stays bounded by in-flight tool count.
+    private val toolDispatchStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // Wave 4 telemetry: stepType -> last started-at epoch millis, so StepLatency samples can
+    // record deltas when the next step boundary arrives.
+    private val stepStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     fun runOnce(
         input: String,
@@ -116,11 +243,69 @@ class AgentLoopRuntime(
         options: AgentRunOptions = AgentRunOptions(),
         installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AgentLoopResult {
+        val profile = options.profile
         val createdRun = traceStore.createRun(input, sessionId)
+        val startedAt = System.currentTimeMillis()
+        // Only register an explicit (non-default) profile so the constructor's
+        // maxRunToolSteps remains the effective cap for callers that don't opt in
+        // to per-profile budgets (preserves backward-compat for tests/clients).
+        if (profile != AgentProfile.DEFAULT) {
+            profilesByRunId[createdRun.id] = profile
+        }
+        runStartedAtMillis[createdRun.id] = startedAt
+        runTurnIndex[createdRun.id] = 0
         remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
         lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = options.reduceDeviceActionConfirmations
         installedCapabilityProfilesByRunId[createdRun.id] = installedCapabilityProfiles.toList()
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
+        // Wave 2 lifecycle: dual-write RunStarted + initial TurnStarted alongside trace steps.
+        eventBus.publish(
+            SolinEvent.Agent.RunStarted(
+                runId = createdRun.id,
+                modelLabel = actionModelPath ?: "local",
+                inputText = input,
+                profileId = profile.profileId,
+                parentRunId = (profile as? AgentProfile.Subagent)?.parentRunId,
+                depth = (profile as? AgentProfile.Subagent)?.depth ?: 0,
+            ),
+        )
+        eventBus.publish(
+            SolinEvent.Agent.TurnStarted(
+                runId = createdRun.id,
+                turnIndex = 0,
+                occurredAtMillis = startedAt,
+            ),
+        )
+        // Subagent depth validation: reject nested runs exceeding the hard cap immediately
+        // after lifecycle bookkeeping so subscribers see a paired RunStarted/RunFailed.
+        if (profile is AgentProfile.Subagent && profile.depth > AgentProfile.MAX_SUBAGENT_DEPTH) {
+            val message = "Subagent depth ${profile.depth} exceeds maximum ${AgentProfile.MAX_SUBAGENT_DEPTH}."
+            val syntheticRequest = ToolRequest(
+                id = "subagent-depth-guard",
+                toolName = "subagent",
+                reason = "subagent depth validation",
+            )
+            val rejectedResult = syntheticRequest.rejected(message)
+            val rejectedPlan = AgentPlan.RejectedTool(rejectedResult)
+            traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(rejectedPlan))
+            traceStore.appendStep(createdRun.id, AgentStep.ToolRejected(rejectedResult))
+            auditRejectedTool(createdRun.id, rejectedResult)
+            traceStore.appendStep(createdRun.id, AgentStep.Failed(message))
+            val failedRun = traceStore.updateState(createdRun.id, AgentRunState.Failed)
+            eventBus.publish(
+                SolinEvent.Agent.RunFailed(
+                    runId = createdRun.id,
+                    code = AgentErrorCode.Validation,
+                    message = message,
+                ),
+            )
+            clearEphemeralRunState(createdRun.id)
+            return AgentLoopResult(
+                run = failedRun,
+                plan = rejectedPlan,
+                steps = traceStore.steps(createdRun.id),
+            )
+        }
 
         val memoryHits = if (memoryEnabled) {
             runCatching { memoryIndex.search(input, topK = 3) }.getOrDefault(emptyList())
@@ -148,6 +333,13 @@ class AgentLoopRuntime(
                 traceStore.appendStep(createdRun.id, AgentStep.ToolRejected(initialToolPlan.result))
                 auditRejectedTool(createdRun.id, initialToolPlan.result)
                 val failedRun = traceStore.updateState(createdRun.id, AgentRunState.Failed)
+                eventBus.publish(
+                    SolinEvent.Agent.RunFailed(
+                        runId = createdRun.id,
+                        code = AgentErrorCode.Validation,
+                        message = initialToolPlan.result.summary,
+                    ),
+                )
                 clearEphemeralRunState(createdRun.id)
                 return AgentLoopResult(
                     run = failedRun,
@@ -181,12 +373,13 @@ class AgentLoopRuntime(
             ),
         )
         val answerPlan = AgentPlan.Answer(
-            promptForModel = promptWithContextIfUseful(input, memoryHits, deviceContext),
+            promptForModel = resolvedContextAssembler.assembleAnswerPrompt(input, memoryHits, deviceContext, createdRun),
             memoryHits = memoryHits,
             deviceContext = deviceContext,
         )
         traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(answerPlan))
         val generatingRun = traceStore.updateState(createdRun.id, AgentRunState.GeneratingAnswer)
+        markStepStart("model_generation")
         return AgentLoopResult(
             run = generatingRun,
             plan = answerPlan,
@@ -237,6 +430,7 @@ class AgentLoopRuntime(
         traceStore.appendStep(runId, AgentStep.Failed(failureReason))
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        publishRunFailed(runId, AgentErrorCode.ModelTimeout, failureReason)
         clearEphemeralRunState(runId)
         return AgentModelObservationResult(
             run = updatedRun,
@@ -248,9 +442,26 @@ class AgentLoopRuntime(
     fun cancelRun(runId: String, reason: String = RUN_CANCELLED_REASON): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state in terminalRunStates) return null
+        // Drop any queued steer/queued messages for a run that is being torn down. We cannot
+        // selectively purge from an UNLIMITED Channel, so drain into a discard sink by runId.
+        // Residual batches will naturally be ignored by any later drain call because the run is
+        // terminal (drain methods check state before using messages), but clearing the tracker map
+        // below ensures no model-call-Job remains cancellable after cancellation.
+        cancelAndClearModelCallJob(runId)
         if (run.state == AgentRunState.AwaitingUserConfirmation) {
             latestPendingToolRequest(runId)?.let { request ->
                 val cancelled = cancelToolRequest(runId, request.id) ?: return null
+                return AgentModelObservationResult(
+                    run = cancelled.run,
+                    decision = cancelled.decision,
+                    steps = cancelled.steps,
+                )
+            }
+            traceStore.clearPendingConfirmationsForRun(runId)
+        } else if (run.state == AgentRunState.AwaitingUserAnswer) {
+            val pending = pendingUserQuestionsByRunId.remove(runId)
+            if (pending != null) {
+                val cancelled = cancelUserQuestion(runId, pending.questionId) ?: return null
                 return AgentModelObservationResult(
                     run = cancelled.run,
                     decision = cancelled.decision,
@@ -264,6 +475,13 @@ class AgentLoopRuntime(
         val decision = AgentObservationDecision.Cancel
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val updatedRun = traceStore.updateState(runId, AgentRunState.Cancelled)
+        eventBus.publish(
+            SolinEvent.Agent.RunCancelled(
+                runId = runId,
+                reason = reason,
+                byUser = true,
+            ),
+        )
         clearEphemeralRunState(runId)
         return AgentModelObservationResult(
             run = updatedRun,
@@ -272,15 +490,259 @@ class AgentLoopRuntime(
         )
     }
 
+    /**
+     * High-priority steer: enqueue [messages] to be injected at the next drain point (top of the
+     * next model-call iteration) and, when the run is currently mid-model-stream, cooperatively
+     * cancel the in-flight model call Job so the streaming loop aborts promptly and the next turn
+     * starts against the new direction. Returns true if the run is active (so messages will be
+     * delivered); false if the run is unknown or terminal (messages are dropped).
+     *
+     * Safety: when the run is currently executing/retries a tool (ExecutingTool / RetryingTool),
+     * the in-flight tool Job is NOT cancelled — safety-critical device actions must run to
+     * completion. The steer batch is still enqueued and will be injected after the tool's result
+     * is observed, before the next model turn.
+     *
+     * Thread-safe: may be invoked from any thread (typically the UI main thread). Cancellation is
+     * wrapped in runCatching so a misbehaving Job that throws on cancel does not crash the caller.
+     */
+    fun steer(messages: List<ChatMessage>, runId: String? = activeRunIdForSteer()): Boolean {
+        if (messages.isEmpty()) return false
+        val id = runId ?: return false
+        val run = traceStore.run(id) ?: return false
+        if (run.state in terminalRunStates) return false
+        val enqueued = steerMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
+        if (!enqueued) return false
+        // Only cancel a model-streaming job; never interrupt tool execution. The state check is
+        // racy (a tool could start between this line and .cancel()) so additionally rely on the
+        // register/unregister pairing in the model-stream call sites: tool-execution Jobs are
+        // never registered with this runtime so cancel() below cannot reach them.
+        if (run.state == AgentRunState.GeneratingAnswer) {
+            runCatching {
+                activeModelCallJobs[id]?.cancel(
+                    kotlinx.coroutines.CancellationException(
+                        "run $id steered by user; aborting in-flight model generation",
+                    ),
+                )
+            }
+        }
+        return true
+    }
+
+    /**
+     * Normal-priority queue: enqueue [messages] to be picked up at the next drain point AFTER all
+     * steer batches have been consumed. Never cancels anything. Returns true on successful
+     * enqueue to an active run; false otherwise.
+     */
+    fun queue(messages: List<ChatMessage>, runId: String? = activeRunIdForSteer()): Boolean {
+        if (messages.isEmpty()) return false
+        val id = runId ?: return false
+        val run = traceStore.run(id) ?: return false
+        if (run.state in terminalRunStates) return false
+        return queuedMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
+    }
+
+    /**
+     * Register a [Job] representing the current in-flight model streaming call for [runId].
+     * [steer] will [Job.cancel] this Job (with a CancellationException) when a high-priority
+     * steer arrives while the run is in [AgentRunState.GeneratingAnswer]. Callers MUST pair this
+     * with [unregisterModelCallJob] in a `try/finally` around the streaming collect to avoid
+     * leaking a stale reference.
+     *
+     * Tool-execution Jobs must NOT be registered (tool execution is non-cancellable in v1 for
+     * safety). Only model streaming Jobs (the `.collect { chunk -> ... }` over the local LiteRt
+     * or remote chat runtime Flow) should be registered.
+     */
+    fun registerModelCallJob(runId: String, job: Job) {
+        activeModelCallJobs[runId] = job
+    }
+
+    /**
+     * Remove the registered model-call Job for [runId]. If [expected] is non-null, only remove if
+     * the registered Job is the same instance (defends against the race where a steer cancelled
+     * the old Job and a new one has already been registered).
+     */
+    fun unregisterModelCallJob(runId: String, expected: Job? = null) {
+        if (expected == null) {
+            activeModelCallJobs.remove(runId)
+            return
+        }
+        activeModelCallJobs.remove(runId, expected)
+    }
+
+    private fun cancelAndClearModelCallJob(runId: String) {
+        val job = activeModelCallJobs.remove(runId) ?: return
+        runCatching {
+            job.cancel(
+                kotlinx.coroutines.CancellationException(
+                    "run $runId cancelled; aborting in-flight model generation",
+                ),
+            )
+        }
+    }
+
+    /**
+     * Heuristic for the runId-less overloads of [steer] / [queue]: return the single currently
+     * in-flight (non-terminal) run id, or null if there are zero or more than one (in which case
+     * the caller must pass an explicit runId). This keeps steer()/queue() usable from simple UI
+     * paths that track a single active run without introducing ambiguity in subagent fan-out.
+     */
+    private fun activeRunIdForSteer(): String? {
+        var found: String? = null
+        for (runId in runStartedAtMillis.keys) {
+            val run = traceStore.run(runId) ?: continue
+            if (run.state in terminalRunStates) continue
+            if (found != null) return null // >1 active; ambiguous
+            found = runId
+        }
+        return found
+    }
+
+    /**
+     * Wave 8: drain point for the steer/queued channels for [runId]. Drains ALL pending steer
+     * batches first (high priority), then ALL pending normal-queued batches. The returned lists
+     * are ordered by arrival (FIFO) within each priority class. Hook-supplied steering messages
+     * ([AgentHooks.getSteeringMessages]) are NOT appended here because this method is non-suspend;
+     * prefer [drainPendingMessagesSuspend] when a coroutine scope is available so hook messages
+     * flow through the same prepend path.
+     *
+     * Publishes [SolinEvent.Agent.RunSteered] once when the combined injected count is non-empty.
+     *
+     * Callers (typically the ViewModel immediately before building the ChatMessage list for the
+     * model) should concatenate `steer + queued` messages and APPEND them to the outgoing history
+     * as fresh user messages — the design specifies they are added to history so the model sees
+     * them as the most recent user turns, rather than being prepended before existing history.
+     */
+    fun drainPendingMessages(runId: String): PendingMessagesDrain {
+        val steer = mutableListOf<ChatMessage>()
+        val queued = mutableListOf<ChatMessage>()
+        // Two-phase pump for each channel: pull everything available off the channel with
+        // tryReceive, keep batches addressed to [runId], and put off-target batches back onto
+        // the same channel (UNLIMITED channels never reject trySend so this is safe). Off-target
+        // re-enqueue may reorder relative to concurrent producers, but steer/queue delivery is
+        // already best-effort-FIFO at this layer (the UI layer orders by user action time).
+        pumpChannel(runId = runId, channel = steerMessages, priority = Priority.Steer, steerAccum = steer, queuedAccum = queued)
+        pumpChannel(runId = runId, channel = queuedMessages, priority = Priority.Queue, steerAccum = steer, queuedAccum = queued)
+        val totalInjected = steer.size + queued.size
+        if (totalInjected > 0) {
+            eventBus.publish(
+                SolinEvent.Agent.RunSteered(
+                    runId = runId,
+                    injectedMessageCount = totalInjected,
+                    reason = if (steer.isNotEmpty()) "steer" else "queue",
+                ),
+            )
+        }
+        return PendingMessagesDrain(steer = steer.toList(), queued = queued.toList())
+    }
+
+    private enum class Priority { Steer, Queue }
+
+    /**
+     * Drain all currently-available batches from [channel]: those matching [runId] are appended to
+     * [steerAccum] or [queuedAccum] per [priority], and off-target batches are immediately
+     * re-enqueued to the same channel so other runs' pending messages survive.
+     */
+    private fun pumpChannel(
+        runId: String,
+        channel: Channel<PendingMessageBatch>,
+        priority: Priority,
+        steerAccum: MutableList<ChatMessage>,
+        queuedAccum: MutableList<ChatMessage>,
+    ) {
+        // We bound the pump defensively: in the worst case a concurrent producer could keep
+        // trySend-ing while we loop, but that would require another thread to call steer/queue
+        // repeatedly which cannot happen faster than we drain (tryReceive is lock-free and
+        // O(1)). The cap guards against any pathological bug from causing an infinite loop here.
+        var pumped = 0
+        val maxPump = 1024
+        val requeue = mutableListOf<PendingMessageBatch>()
+        while (pumped < maxPump) {
+            val result = channel.tryReceive()
+            val batch = result.getOrNull() ?: break
+            pumped++
+            if (batch.runId == runId) {
+                when (priority) {
+                    Priority.Steer -> steerAccum.addAll(batch.messages)
+                    Priority.Queue -> queuedAccum.addAll(batch.messages)
+                }
+            } else {
+                requeue.add(batch)
+            }
+        }
+        for (b in requeue) {
+            channel.trySend(b)
+        }
+    }
+
+    /**
+     * Suspend-aware drain: behaves like [drainPendingMessages] but also appends any hook-supplied
+     * messages from [AgentHooks.getSteeringMessages] (treated as steer-priority). Upper layers
+     * that hold a coroutine scope (e.g. ViewModel) should prefer this overload so hook-injected
+     * messages flow through the same injection path.
+     */
+    suspend fun drainPendingMessagesSuspend(runId: String): PendingMessagesDrain {
+        val base = drainPendingMessages(runId)
+        val hookMessages = safeHookCall(
+            label = "getSteeringMessages",
+            default = emptyList<ChatMessage>(),
+        ) { hooks.getSteeringMessages() }
+        return if (hookMessages.isEmpty()) {
+            base
+        } else {
+            base.copy(steer = base.steer + hookMessages)
+        }
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // Back-compat shims: preserve Wave 3 steerRun / drainSteeringMessages / drainSteeringMessagesSuspend
+    // API surface so existing callers (ViewModel, tests) keep compiling without modification.
+    // steerRun is the high-priority entry (equivalent to steer()); drainSteeringMessages returns
+    // the concatenated steer+queued lists (matching the prior "all pending steering" contract).
+    // -------------------------------------------------------------------------------------------
+
+    /**
+     * Wave 3 mid-run steering (back-compat): enqueue [messages] at high priority. Now a thin
+     * wrapper over [steer] which cooperatively cancels the in-flight model call when the run is
+     * mid-model-stream. Returns true if the run is active; false otherwise.
+     */
+    fun steerRun(runId: String, messages: List<ChatMessage>): Boolean {
+        if (messages.isEmpty()) return false
+        val run = traceStore.run(runId) ?: return false
+        if (run.state in terminalRunStates) return false
+        return steer(messages = messages, runId = runId)
+    }
+
+    /**
+     * Back-compat non-suspend drain: returns ALL pending (steer + queued + prior-API steer)
+     * messages for [runId] in arrival order. Hook-supplied messages are NOT included (same as
+     * prior behavior — hooks are suspend). Replaces the old pendingSteeringMessages map drain.
+     */
+    fun drainSteeringMessages(runId: String): List<ChatMessage> {
+        val drain = drainPendingMessages(runId)
+        return drain.steer + drain.queued
+    }
+
+    /**
+     * Wave 3 / Wave 4 back-compat: returns steer+queued+hook messages combined. Hook messages
+     * are appended after the high-priority steer batches (consistent with how the suspend
+     * overload of the Wave 3 drain behaved).
+     */
+    suspend fun drainSteeringMessagesSuspend(runId: String): List<ChatMessage> {
+        val drain = drainPendingMessagesSuspend(runId)
+        return drain.steer + drain.queued
+    }
+
     private fun failRunBudget(
         runId: String,
         reason: String,
     ): AgentModelObservationResult {
         traceStore.clearPendingConfirmationsForRun(runId)
-        traceStore.appendStep(runId, AgentStep.Failed(reason))
-        val decision = AgentObservationDecision.Fail(reason)
+        val augmentedReason = augmentReasonWithStepBudgetHint(runId, reason)
+        traceStore.appendStep(runId, AgentStep.Failed(augmentedReason))
+        val decision = AgentObservationDecision.Fail(augmentedReason)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        publishRunFailed(runId, AgentErrorCode.Unknown("budget_exceeded"), augmentedReason)
         clearEphemeralRunState(runId)
         return AgentModelObservationResult(
             run = updatedRun,
@@ -300,6 +762,7 @@ class AgentLoopRuntime(
         val decision = AgentObservationDecision.Fail(reason)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        publishRunFailed(runId, AgentErrorCode.Unknown("budget_exceeded"), reason)
         clearEphemeralRunState(runId)
         return AgentObservationResult(
             run = updatedRun,
@@ -319,7 +782,8 @@ class AgentLoopRuntime(
         run: AgentRun,
         request: ToolRequest,
     ): AgentLoopResult {
-        val rejectedPlan = AgentPlan.RejectedTool(request.rejected(TOOL_STEP_BUDGET_EXCEEDED_REASON))
+        val hintReason = augmentReasonWithStepBudgetHint(run.id, TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        val rejectedPlan = AgentPlan.RejectedTool(request.rejected(hintReason))
         traceStore.appendStep(run.id, AgentStep.ModelPlanned(rejectedPlan))
         traceStore.appendStep(run.id, AgentStep.ToolRejected(rejectedPlan.result))
         auditRejectedTool(run.id, rejectedPlan.result)
@@ -337,7 +801,8 @@ class AgentLoopRuntime(
         runId: String,
         request: ToolRequest,
     ): NextObservationPlan {
-        val rejected = request.rejected(TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        val hintReason = augmentReasonWithStepBudgetHint(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        val rejected = request.rejected(hintReason)
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
         auditRejectedTool(runId, rejected)
@@ -345,11 +810,63 @@ class AgentLoopRuntime(
         return NextObservationPlan.Rejected(rejected.summary)
     }
 
+    private fun effectiveMaxToolSteps(runId: String): Int =
+        profilesByRunId[runId]?.effectiveMaxToolSteps() ?: maxRunToolSteps
+
     private fun toolStepBudgetExceeded(runId: String): Boolean =
-        toolRequestsFor(runId).size >= maxRunToolSteps
+        toolRequestsFor(runId).size >= effectiveMaxToolSteps(runId)
 
     private fun observationDecisionBudgetExceeded(runId: String): Boolean =
         traceStore.steps(runId).count { step -> step is AgentStep.ObservationDecided } >= maxObservationDecisions
+
+    /**
+     * Wave 7 step-budget hint: when the tool step budget is exhausted, look up the current
+     * session plan (if present) and append up to 5 still-pending/in-progress items as a
+     * numbered hint so the assistant-facing failure message carries context about outstanding
+     * work. The base [reason] is returned unchanged when there is no plan or no pending items.
+     *
+     * Implementation uses concatenation with explicit \n characters (no Kotlin string templates
+     * at this call site for plan lines) per Wave 6 directive to avoid template pitfalls.
+     */
+    private fun augmentReasonWithStepBudgetHint(runId: String, reason: String): String {
+        if (reason != TOOL_STEP_BUDGET_EXCEEDED_REASON) return reason
+        return runCatching {
+            val store = sessionPlanStore ?: return@runCatching reason
+            val snap = store.get(runId) ?: return@runCatching reason
+            val pending = snap.items.filter { item ->
+                item.status == PlanItemStatus.PENDING || item.status == PlanItemStatus.IN_PROGRESS
+            }.take(5)
+            if (pending.isEmpty()) return@runCatching reason
+            val sb = StringBuilder(reason)
+            sb.append('\n')
+            sb.append('\n')
+            sb.append("Remaining plan (up to 5 pending steps):")
+            sb.append('\n')
+            pending.forEachIndexed { index, item ->
+                val marker = when (item.status) {
+                    PlanItemStatus.PENDING -> "[P]"
+                    PlanItemStatus.IN_PROGRESS -> "[>]"
+                    PlanItemStatus.DONE -> "[D]"
+                    PlanItemStatus.BLOCKED -> "[B]"
+                    PlanItemStatus.SKIPPED -> "[S]"
+                }
+                val lineNumber = index + 1
+                val note = item.note
+                sb.append(lineNumber).append(". ")
+                sb.append(marker).append(' ')
+                sb.append(item.title)
+                if (!note.isNullOrBlank()) {
+                    sb.append(" - ").append(note)
+                }
+                sb.append('\n')
+            }
+            sb.append("Use plan_write to mark completed items before continuing.")
+            sb.toString()
+        }.getOrElse { throwable ->
+            Log.e(TAG, "Failed to build step-budget plan hint", throwable)
+            reason
+        }
+    }
 
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
@@ -384,6 +901,14 @@ class AgentLoopRuntime(
         }
         traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
         traceStore.appendStep(runId, AgentStep.UserConfirmed(requestId))
+        eventBus.publish(
+            SolinEvent.Agent.UserConfirmed(
+                runId = runId,
+                requestId = requestId,
+                toolCallId = request.id,
+                actionLabel = request.toolName,
+            ),
+        )
         auditToolRequest(
             runId = runId,
             request = request,
@@ -392,6 +917,7 @@ class AgentLoopRuntime(
             summary = safetyDecision.reason,
         )
         val executingRun = traceStore.updateState(runId, AgentRunState.ExecutingTool)
+        markStepStart("tool_execution")
         traceStore.clearPendingConfirmation(runId, requestId)
         return executingRun
     }
@@ -402,6 +928,14 @@ class AgentLoopRuntime(
         val request = pendingToolRequest(runId, requestId)
             ?: return null
         traceStore.appendStep(runId, AgentStep.UserRejected(requestId))
+        eventBus.publish(
+            SolinEvent.Agent.UserRejected(
+                runId = runId,
+                requestId = requestId,
+                toolCallId = request.id,
+                actionLabel = request.toolName,
+            ),
+        )
         auditToolRequest(
             runId = runId,
             request = request,
@@ -443,6 +977,99 @@ class AgentLoopRuntime(
             allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
         )
         traceStore.clearPendingConfirmation(runId, requestId)
+        return observed
+    }
+
+    /**
+     * Resume an `ask_user` parking point by supplying the user's [answer]. Mirrors
+     * [confirmToolRequest] in shape but, like [cancelToolRequest], produces a synthetic
+     * [ToolResult] and feeds it through [observeToolResultInternal] so the agent replans with
+     * the answer in context.
+     *
+     * Returns `null` if the run is not in [AgentRunState.AwaitingUserAnswer] or [questionId]
+     * does not match the currently pending question.
+     */
+    fun answerUserQuestion(
+        runId: String,
+        questionId: String,
+        answer: String,
+    ): AgentObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.AwaitingUserAnswer) return null
+        val pending = pendingUserQuestionsByRunId[runId] ?: return null
+        if (pending.questionId != questionId) return null
+        val trimmedAnswer = answer.trim()
+        if (trimmedAnswer.isEmpty()) return null
+        traceStore.appendStep(
+            runId,
+            AgentStep.UserQuestionAnswered(
+                questionId = questionId,
+                answer = trimmedAnswer,
+            ),
+        )
+        eventBus.publish(
+            SolinEvent.Agent.UserQuestionAnswered(
+                runId = runId,
+                questionId = questionId,
+                answer = trimmedAnswer,
+            ),
+        )
+        val syntheticResult = pending.request.succeeded(
+            summary = "用户已回答澄清问题",
+            data = mapOf(
+                "toolName" to MobileActionFunctions.ASK_USER,
+                "questionId" to questionId,
+                "answer" to trimmedAnswer,
+                // ask_user answers are user-typed, potentially sensitive, and must stay on device.
+                // Mark as LocalOnly so policyContinuationAfterToolObservation routes the
+                // continuation through the local-model-only path (matching read_clipboard /
+                // query_contacts / other LocalEvidence tools).
+                "privacy" to MessagePrivacy.LocalOnly.name,
+                "requiresLocalModel" to "true",
+            ),
+        )
+        val observed = observeToolResultInternal(
+            runId = runId,
+            result = syntheticResult,
+            allowedStates = setOf(AgentRunState.AwaitingUserAnswer),
+        )
+        pendingUserQuestionsByRunId.remove(runId)
+        return observed
+    }
+
+    /**
+     * Cancel an outstanding `ask_user` parking point (e.g. user dismissed the prompt). Mirrors
+     * [cancelToolRequest]: synthesizes a Cancelled [ToolResult] so the agent sees an explicit
+     * cancellation and can replan (typically by falling back to a direct answer or terminating).
+     */
+    fun cancelUserQuestion(
+        runId: String,
+        questionId: String,
+    ): AgentObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.AwaitingUserAnswer) return null
+        val pending = pendingUserQuestionsByRunId[runId] ?: return null
+        if (pending.questionId != questionId) return null
+        auditToolRequest(
+            runId = runId,
+            request = pending.request,
+            eventType = ToolAuditEventType.UserCancelled,
+            status = ToolStatus.Cancelled,
+            summary = "User cancelled clarifying question before answering.",
+        )
+        val syntheticResult = pending.request.cancelled(
+            summary = "用户取消了澄清问题",
+            data = mapOf(
+                "toolName" to MobileActionFunctions.ASK_USER,
+                "questionId" to questionId,
+            ),
+        )
+        val observed = observeToolResultInternal(
+            runId = runId,
+            result = syntheticResult,
+            allowedStates = setOf(AgentRunState.AwaitingUserAnswer),
+        )
+        pendingUserQuestionsByRunId.remove(runId)
         return observed
     }
 
@@ -540,6 +1167,9 @@ class AgentLoopRuntime(
         if (observationDecisionBudgetExceeded(runId)) {
             return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
         }
+        // Wave 4 telemetry: record step latency for model_generation (delta since
+        // step boundary was marked by the caller, with 0L fallback).
+        recordStepLatency("model_generation", runId)
         val nextToolPlan = when {
             text.isNotBlank() -> planNextToolAfterModelResult(
                 run = run,
@@ -578,6 +1208,23 @@ class AgentLoopRuntime(
             )
         }
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        // Wave 4 telemetry: GenerationComplete recorded with placeholder zeros for token/ttft stats.
+        // TODO(Wave 5+): populate ttftMs/inputTokens/outputTokens/thinkingTokens/tps from streaming
+        //   runtime callbacks once those metrics are surfaced to the orchestration layer.
+        safeRecordTelemetry(
+            MetricSample.GenerationComplete(
+                ttftMs = 0L,
+                totalMs = 0L,
+                inputTokens = 0,
+                outputTokens = 0,
+                thinkingTokens = 0,
+                tps = 0.0,
+                backend = ServingBackend.LocalLiteRt,
+                modelId = "",
+                runId = runId,
+            ),
+            "GenerationComplete",
+        )
         val finalState = when (decision) {
             AgentObservationDecision.Complete -> AgentRunState.Completed
             is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
@@ -586,6 +1233,41 @@ class AgentLoopRuntime(
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
+        }
+        // Wave 2: publish terminal events after observeModelResult.
+        when (finalState) {
+            AgentRunState.Completed -> {
+                val turnIdx = runTurnIndex[runId] ?: 0
+                eventBus.publish(
+                    SolinEvent.Agent.TurnEnded(
+                        runId = runId,
+                        turnIndex = turnIdx,
+                        tokensIn = 0,
+                        tokensOut = 0,
+                        ttftMs = 0L,
+                        durationMs = 0L,
+                    ),
+                )
+                publishRunEnded(runId)
+            }
+            AgentRunState.Failed -> {
+                val msg = (decision as? AgentObservationDecision.Fail)?.reason
+                    ?: "observation failed"
+                publishRunFailed(runId, AgentErrorCode.Unknown("model_observation"), msg)
+            }
+            AgentRunState.Cancelled ->
+                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
+            AgentRunState.GeneratingAnswer -> {
+                val nextTurn = (runTurnIndex[runId] ?: 0) + 1
+                runTurnIndex[runId] = nextTurn
+                eventBus.publish(
+                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
+                )
+                markStepStart("model_generation")
+            }
+            AgentRunState.RetryingTool -> markStepStart("tool_execution")
+            AgentRunState.ExecutingTool -> markStepStart("tool_execution")
+            else -> Unit
         }
         val updatedRun = traceStore.updateState(runId, finalState)
         if (finalState in terminalRunStates) {
@@ -637,6 +1319,212 @@ class AgentLoopRuntime(
         val run = traceStore.run(runId) ?: return
         if (run.state in terminalRunStates) return
         traceStore.appendStep(runId, AgentStep.ModelOutputQualityGuardTriggered(trace))
+    }
+
+    /**
+     * Record a [MetricSample.CompactionTriggered] telemetry sample and bump the
+     * [TelemetryCounter.CompactionTriggered] counter. Called by the context compactor
+     * (wired upstream of this runtime) whenever it truncates or summarizes history.
+     */
+    fun recordCompactionTriggered(
+        runId: String?,
+        reason: String,
+        contextBefore: Int,
+        contextAfter: Int,
+    ) {
+        safeRecordTelemetry(
+            MetricSample.CompactionTriggered(
+                reason = reason,
+                contextBefore = contextBefore,
+                contextAfter = contextAfter,
+                runId = runId,
+            ),
+            "CompactionTriggered",
+        )
+        safeRecordTelemetry(
+            MetricSample.CounterInc(
+                name = TelemetryCounter.CompactionTriggered,
+                runId = runId,
+            ),
+            "CompactionTriggered counter",
+        )
+    }
+
+    /**
+     * Run the configured [ContextCompactor] against [messages] targeting [tokenBudget]. Failures
+     * in the compactor are isolated (logged, original list returned) so a broken compactor can
+     * never lose history; callers should still be prepared to see overflow errors from the model
+     * on the returned list. When [force] is true we request aggressive compaction by passing a
+     * zero budget — this is the retry path after a context-overflow model error.
+     *
+     * @param estimatedTokens Model-specific token estimator (chars/4 for remote, LiteRT heuristic
+     *   for local). Compactor uses it to measure before/after sizes; defaults to a chars/4
+     *   approximation which is good enough for a preflight.
+     */
+    suspend fun compactHistory(
+        messages: List<ChatMessage>,
+        tokenBudget: Int,
+        runId: String? = null,
+        force: Boolean = false,
+        estimatedTokens: (List<ChatMessage>) -> Int = ::estimateTokensApproximate,
+    ): List<ChatMessage> {
+        if (messages.isEmpty()) return messages
+        if (contextCompactor is NoOpContextCompactor) return messages
+        return runCatching {
+            // When forced (overflow-retry), pass budget = 0 so compactor treats it as OverBudget
+            // and runs aggressive truncation regardless of current estimate.
+            val effectiveBudget = if (force) 0 else tokenBudget.coerceAtLeast(0)
+            val result = contextCompactor.compact(messages, effectiveBudget, estimatedTokens)
+            if (result.triggerReason != CompactionTrigger.None && result.compactionCount > 0) {
+                recordCompactionTriggered(
+                    runId = runId,
+                    reason = if (force) {
+                        "forced_${result.triggerReason.name}"
+                    } else {
+                        result.triggerReason.name
+                    },
+                    contextBefore = result.tokensBefore,
+                    contextAfter = result.tokensAfter,
+                )
+            }
+            result.messages
+        }.onFailure { throwable ->
+            Log.e(TAG, "Context compactor failed; falling back to original history", throwable)
+        }.getOrDefault(messages)
+    }
+
+    /**
+     * Mark a step boundary so the next [recordStepLatency] with the same [stepType] can compute a
+     * delta. Callers that drive the outer loop (ViewModel/orchestrator) can use this to bracket
+     * long-running phases (e.g. mark "model_generation" before sending a prompt, recordStepLatency
+     * after observeModelResult).
+     */
+    fun markStepStart(stepType: String) {
+        stepStartedAtMillis[stepType] = System.currentTimeMillis()
+    }
+
+    // -----------------------------------------------------------------------
+    // Wave 4: public suspend hook entry points. Each is wrapped in runCatching
+    // so a throwing hook cannot crash the agent loop; failures are logged and
+    // safe defaults are returned. These are the canonical integration points
+    // upper layers (ViewModel / Orchestrator) should call at lifecycle points
+    // that occur OUTSIDE this runtime (executor.execute, message-list assembly,
+    // turn continuation).
+    // -----------------------------------------------------------------------
+
+    /**
+     * Invoke [AgentHooks.beforeToolCall] for the given tool [request]. Returns the hook's result
+     * (Proceed/Blocked), defaulting to Proceed if the hook throws or returns unexpectedly.
+     * Callers should treat Blocked as "do NOT call executor.execute" and surface [Blocked.reason]
+     * to the user / trace.
+     */
+    suspend fun beforeToolCall(
+        runId: String,
+        request: ToolRequest,
+    ): BeforeToolCallResult = safeHookCall(
+        label = "beforeToolCall",
+        default = BeforeToolCallResult.Proceed,
+    ) {
+        hooks.beforeToolCall(
+            BeforeToolCallContext(
+                runId = runId,
+                toolCallId = request.id,
+                toolName = request.toolName,
+                args = request.arguments,
+            ),
+        )
+    }
+
+    /**
+     * Invoke [AgentHooks.afterToolCall] for the given [result] and record a ToolCompleted
+     * telemetry sample with the supplied [durationMs]. Returns the hook's disposition (Keep /
+     * ReplaceContent / Terminate); Keep is returned on any hook failure so execution continues.
+     */
+    suspend fun afterToolCall(
+        runId: String,
+        request: ToolRequest,
+        result: ToolResult,
+        durationMs: Long,
+    ): AfterToolCallResult = safeHookCall(
+        label = "afterToolCall",
+        default = AfterToolCallResult.Keep,
+    ) {
+        // Record telemetry at the same lifecycle point as the hook so dashboards see the tool
+        // completion regardless of whether the hook decides to replace/terminate.
+        safeRecordTelemetry(
+            MetricSample.ToolCompleted(
+                toolName = request.toolName,
+                latencyMs = durationMs,
+                succeeded = result.status == ToolStatus.Succeeded,
+                requestId = request.id,
+                runId = runId,
+            ),
+            "ToolCompleted (external)",
+        )
+        hooks.afterToolCall(
+            AfterToolCallContext(
+                runId = runId,
+                toolCallId = request.id,
+                toolName = request.toolName,
+                result = result,
+                durationMs = durationMs,
+            ),
+        )
+    }
+
+    /**
+     * Invoke [AgentHooks.transformContext] on the assembled [messages]. Returns the transformed
+     * list; on hook failure the original list is returned unchanged so the model call proceeds.
+     */
+    suspend fun transformContext(messages: List<ChatMessage>): List<ChatMessage> = safeHookCall(
+        label = "transformContext",
+        default = messages,
+    ) { hooks.transformContext(messages) }
+
+    /**
+     * Invoke [AgentHooks.prepareNextTurn] at the start of each continuation turn. Returns the
+     * hook's [TurnUpdate] (prependMessages/stopAfterTurn) or null on failure / no-op.
+     */
+    suspend fun prepareNextTurn(
+        runId: String,
+        turnIndex: Int,
+        messageCount: Int,
+        pendingToolCalls: Int,
+    ): TurnUpdate? = safeHookCall(
+        label = "prepareNextTurn",
+        default = null,
+    ) {
+        hooks.prepareNextTurn(
+            TurnContext(
+                runId = runId,
+                turnIndex = turnIndex,
+                messageCount = messageCount,
+                pendingToolCalls = pendingToolCalls,
+            ),
+        )
+    }
+
+    /**
+     * Invoke [AgentHooks.shouldStopAfterTurn] after a model turn completes. Returns false on any
+     * hook failure so the default stop logic (Complete / PlanNextTool / etc.) governs.
+     */
+    suspend fun shouldStopAfterTurn(
+        runId: String,
+        turnIndex: Int,
+        messageCount: Int,
+        pendingToolCalls: Int,
+    ): Boolean = safeHookCall(
+        label = "shouldStopAfterTurn",
+        default = false,
+    ) {
+        hooks.shouldStopAfterTurn(
+            TurnContext(
+                runId = runId,
+                turnIndex = turnIndex,
+                messageCount = messageCount,
+                pendingToolCalls = pendingToolCalls,
+            ),
+        )
     }
 
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
@@ -702,13 +1590,16 @@ class AgentLoopRuntime(
             is AgentPlan.UseTool -> {
                 val effectivePlan = plan.withConfirmationBypassForRun(runId)
                 appendToolPlanSteps(runId, effectivePlan)
+                // ask_user interception: park in AwaitingUserAnswer before ExecutingTool.
+                val parkedForAskUser = parkForAskUserIfNeeded(runId, effectivePlan)
                 val decision = AgentObservationDecision.PlanNextTool(
                     plan = effectivePlan,
                     reason = "Remote model requested a tool call.",
                 )
                 traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-                val updatedRun = traceStore.updateState(runId, effectivePlan.nextExecutionState())
-                if (effectivePlan.requiresUserConfirmation()) {
+                val nextState = effectivePlan.nextExecutionState()
+                val updatedRun = traceStore.updateState(runId, nextState)
+                if (!parkedForAskUser && effectivePlan.requiresUserConfirmation()) {
                     traceStore.savePendingConfirmation(effectivePlan.toPendingSnapshot(updatedRun))
                 }
                 AgentModelObservationResult(
@@ -760,7 +1651,7 @@ class AgentLoopRuntime(
                 ).rejected("Remote model returned an empty tool batch."),
             )
         }
-        if (toolRequestsFor(runId).size + requests.size > maxRunToolSteps) {
+        if (toolRequestsFor(runId).size + requests.size > effectiveMaxToolSteps(runId)) {
             return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         requests.groupingBy { request -> request.id }
@@ -796,7 +1687,7 @@ class AgentLoopRuntime(
                 runId = runId,
                 result = request.rejected("Unknown tool: ${request.toolName}").withAttemptedToolNames(requests),
             )
-            if (!spec.isPublicEvidenceBatchEligible()) {
+            if (!spec.isEligibleForParallelBatch()) {
                 return rejectModelToolBatch(
                     runId = runId,
                     result = request.rejected(
@@ -830,6 +1721,7 @@ class AgentLoopRuntime(
         )
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val updatedRun = traceStore.updateState(runId, AgentRunState.ExecutingTool)
+        markStepStart("tool_execution")
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
@@ -846,7 +1738,7 @@ class AgentLoopRuntime(
         val resultIds = results.mapTo(linkedSetOf()) { result -> result.requestId }
         if (results.size != resultIds.size || plannedIds != resultIds) return null
         if (plans.any { plan ->
-                toolRegistry.specFor(plan.request.toolName)?.isPublicEvidenceBatchEligible() != true
+                toolRegistry.specFor(plan.request.toolName)?.isEligibleForParallelBatch() != true
             }
         ) {
             return null
@@ -870,6 +1762,24 @@ class AgentLoopRuntime(
                     status = traceResult.status,
                     riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel,
                     permissions = toolRegistry.specFor(plan.request.toolName)?.permissions.orEmpty(),
+                    summary = traceResult.auditSummaryForObservation(plan.request),
+                ),
+            )
+            // Proof-of-wiring: also publish onto SolinEventBus for the new seam.
+            eventBus.publish(
+                SolinEvent.Audit.ToolAudited(
+                    runId = runId,
+                    requestId = traceResult.requestId,
+                    toolName = plan.request.toolName,
+                    skillId = skillIdForRequest(runId, plan.request.id),
+                    eventType = ToolAuditEventType.ToolObserved.name,
+                    status = traceResult.status.name,
+                    riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel?.name,
+                    permissionsCsv = toolRegistry.specFor(plan.request.toolName)?.permissions
+                        ?.map { it.name }
+                        ?.sorted()
+                        ?.joinToString(separator = ",")
+                        .orEmpty(),
                     summary = traceResult.auditSummaryForObservation(plan.request),
                 ),
             )
@@ -960,6 +1870,7 @@ class AgentLoopRuntime(
         )
         if (decision is AgentObservationDecision.ContinueWithModel) {
             remoteToolScopesByRunId[runId] = RemoteToolScope.PublicEvidenceOnly
+            markStepStart("model_generation")
         }
         if (updatedRun.state in terminalRunStates) {
             clearEphemeralRunState(runId)
@@ -1057,18 +1968,167 @@ class AgentLoopRuntime(
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
         traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
+        // Wave 2 lifecycle: dual-write ToolSucceeded / ToolFailed based on observed status.
+        // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
+        // (ValidatingToolExecutor), so these are the terminal counterpart events.
+        when (observedResult.status) {
+            ToolStatus.Succeeded ->
+                eventBus.publish(
+                    SolinEvent.Agent.ToolSucceeded(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        summary = observedResult.summary,
+                    ),
+                )
+            ToolStatus.Failed ->
+                eventBus.publish(
+                    SolinEvent.Agent.ToolFailed(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        code = observedResult.error?.code.toOrchestrationErrorCode(),
+                        message = observedResult.error?.message ?: observedResult.summary,
+                        retryable = retryAttempt > 0,
+                    ),
+                )
+            ToolStatus.Rejected -> {
+                eventBus.publish(
+                    SolinEvent.Agent.ToolFailed(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        code = OrchestrationToolErrorCode.SafetyRejected,
+                        message = observedResult.error?.message ?: observedResult.summary,
+                        retryable = false,
+                    ),
+                )
+                // Wave 4 telemetry: count safety-policy rejections distinct from user-cancel / exec failures.
+                safeRecordTelemetry(
+                    MetricSample.CounterInc(
+                        name = TelemetryCounter.SafetyBlocks,
+                        runId = runId,
+                    ),
+                    "SafetyBlocks counter",
+                )
+            }
+            ToolStatus.Cancelled ->
+                eventBus.publish(
+                    SolinEvent.Agent.ToolFailed(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        code = OrchestrationToolErrorCode.Cancelled,
+                        message = observedResult.error?.message ?: observedResult.summary,
+                        retryable = false,
+                    ),
+                )
+        }
+        // Wave 7 undo bookkeeping: on Succeeded, consult the tool's UndoPolicy and push a
+        // compensating plan onto the undo stack. Non-succeeded terminal statuses clear the stack
+        // because the most recent action did not complete deterministically. Wrapped in runCatching
+        // per Wave 6 safety directive — undo bookkeeping must never crash the agent loop.
+        runCatching {
+            when (observedResult.status) {
+                ToolStatus.Succeeded -> {
+                    val policy = toolRegistry.undoPolicyFor(request.toolName)
+                    val undoPlan = policy?.planUndoAfter(request, safeResult)
+                    when (undoPlan) {
+                        is UndoPlan.CompensatingTool -> {
+                            synchronized(undoStack) {
+                                undoStack.clear()
+                                val now = System.currentTimeMillis()
+                                undoStack.push(
+                                    UndoEntry(
+                                        sourceRunId = runId,
+                                        sourceRequestId = request.id,
+                                        toolName = request.toolName,
+                                        plan = undoPlan,
+                                        availableUntilMillis = now + undoPlan.ttlMillis,
+                                        createdAtMillis = now,
+                                    ),
+                                )
+                            }
+                            eventBus.publish(
+                                SolinEvent.Agent.UndoPushed(
+                                    runId = runId,
+                                    sourceRequestId = request.id,
+                                    toolName = request.toolName,
+                                    summary = undoPlan.summary,
+                                    availableUntilMillis = System.currentTimeMillis() + undoPlan.ttlMillis,
+                                ),
+                            )
+                        }
+                        is UndoPlan.NotApplicable,
+                        is UndoPlan.ExternalHandoff,
+                        is UndoPlan.NotUndoable,
+                        null -> {
+                            // No compensating tool action — reset the stack since the prior
+                            // undo target is stale relative to the just-completed tool.
+                            synchronized(undoStack) { undoStack.clear() }
+                        }
+                    }
+                }
+                ToolStatus.Failed,
+                ToolStatus.Rejected,
+                ToolStatus.Cancelled -> {
+                    synchronized(undoStack) { undoStack.clear() }
+                }
+            }
+        }.onFailure { throwable ->
+            Log.e(TAG, "Undo bookkeeping failed; clearing stack safely", throwable)
+            runCatching { synchronized(undoStack) { undoStack.clear() } }
+        }
+        // Wave 4 telemetry: record ToolCompleted sample with wall-clock latency since
+        // ToolRequested was appended (0L fallback if no start marker exists, e.g. restored runs).
+        val toolStartMs = toolDispatchStartedAtMillis.remove(request.id)
+        val toolLatencyMs = toolStartMs?.let { System.currentTimeMillis() - it } ?: 0L
+        safeRecordTelemetry(
+            MetricSample.ToolCompleted(
+                toolName = request.toolName,
+                latencyMs = toolLatencyMs,
+                succeeded = observedResult.status == ToolStatus.Succeeded,
+                retryCount = retryAttempt,
+                requestId = request.id,
+                runId = runId,
+            ),
+            "ToolCompleted",
+        )
+        // Wave 4 telemetry: record step latency for tool_execution boundary.
+        recordStepLatency("tool_execution", runId)
         recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
+        val spec = toolRegistry.specFor(request.toolName)
+        val riskLevel = spec?.riskLevel
+        val permissions = spec?.permissions.orEmpty()
+        val resolvedSkillId = skillIdForRequest(runId, observedResult.requestId)
+        val observationSummary = observedResult.auditSummaryForObservation(request)
         auditSink.record(
             ToolAuditEvent(
                 runId = runId,
                 requestId = observedResult.requestId,
                 toolName = request.toolName,
-                skillId = skillIdForRequest(runId, observedResult.requestId),
+                skillId = resolvedSkillId,
                 eventType = ToolAuditEventType.ToolObserved,
                 status = observedResult.status,
-                riskLevel = toolRegistry.specFor(request.toolName)?.riskLevel,
-                permissions = toolRegistry.specFor(request.toolName)?.permissions.orEmpty(),
-                summary = observedResult.auditSummaryForObservation(request),
+                riskLevel = riskLevel,
+                permissions = permissions,
+                summary = observationSummary,
+            ),
+        )
+        eventBus.publish(
+            SolinEvent.Audit.ToolAudited(
+                runId = runId,
+                requestId = observedResult.requestId,
+                toolName = request.toolName,
+                skillId = resolvedSkillId,
+                eventType = ToolAuditEventType.ToolObserved.name,
+                status = observedResult.status.name,
+                riskLevel = riskLevel?.name,
+                permissionsCsv = permissions
+                    .map { it.name }
+                    .sorted()
+                    .joinToString(separator = ","),
+                summary = observationSummary,
             ),
         )
         val recoveryAction = recoveryActionForObservation(request, observedResult)
@@ -1178,6 +2238,42 @@ class AgentLoopRuntime(
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
+        // ask_user interception for PlanNextTool decisions originating from observation
+        // (i.e. not the initial runOnce plan). Append UserQuestionAsked step + publish event
+        // + remember pending state BEFORE updating run state so subscribers see the step
+        // before the AwaitingUserAnswer state transition.
+        var parkedForAskUser = false
+        if (decision is AgentObservationDecision.PlanNextTool &&
+            decision.plan.nextExecutionState() == AgentRunState.AwaitingUserAnswer
+        ) {
+            parkedForAskUser = parkForAskUserIfNeeded(runId, decision.plan)
+        }
+        // Wave 2 lifecycle: publish terminal / transition events alongside trace. Note that
+        // TurnEnded requires tokensIn/tokensOut/ttft/duration which are known only when a model
+        // generation completes; that is published from observeModelResult (and via run budget
+        // fail paths here using zeros where unknown).
+        when (finalState) {
+            AgentRunState.Completed -> publishRunEnded(runId, finalText = assistantMessage)
+            AgentRunState.Failed -> {
+                val failureMessage = (decision as? AgentObservationDecision.Fail)?.reason
+                    ?: observedResult.summary
+                publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), failureMessage)
+            }
+            AgentRunState.Cancelled ->
+                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
+            AgentRunState.GeneratingAnswer -> {
+                // Starting a new model turn — bump the turn counter and publish TurnStarted.
+                val nextTurn = (runTurnIndex[runId] ?: 0) + 1
+                runTurnIndex[runId] = nextTurn
+                eventBus.publish(
+                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
+                )
+                markStepStart("model_generation")
+            }
+            AgentRunState.RetryingTool -> markStepStart("tool_execution")
+            AgentRunState.ExecutingTool -> markStepStart("tool_execution")
+            else -> Unit
+        }
         val updatedRun = traceStore.updateState(runId, finalState)
         if (finalState in terminalRunStates) {
             clearEphemeralRunState(runId)
@@ -1185,8 +2281,11 @@ class AgentLoopRuntime(
         if (decision is AgentObservationDecision.ContinueWithModel) {
             remoteToolScopesByRunId[runId] = continuationRemoteToolScope
         }
-        if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
-            traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+        if (decision is AgentObservationDecision.PlanNextTool) {
+            val parkedForAskUser = decision.plan.nextExecutionState() == AgentRunState.AwaitingUserAnswer
+            if (!parkedForAskUser && decision.plan.requiresUserConfirmation()) {
+                traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+            }
         }
         return AgentObservationResult(
             run = updatedRun,
@@ -1681,6 +2780,8 @@ class AgentLoopRuntime(
         fallbackReason: String?,
         skillPlan: SkillPlan?,
     ): NextObservationPlan {
+        val currentToolRequests = toolRequestsFor(runId)
+        val maxSteps = effectiveMaxToolSteps(runId)
         if (toolStepBudgetExceeded(runId)) {
             return failNextPlanBudget(runId, request)
         }
@@ -1752,6 +2853,30 @@ class AgentLoopRuntime(
         }
         traceStore.appendStep(runId, AgentStep.SafetyChecked(plan.safetyDecision))
         traceStore.appendStep(runId, AgentStep.ToolRequested(plan.request, plan.draft))
+        // Wave 4 telemetry: record tool dispatch start for latency measurement, and
+        // bump the ToolCalls monotonic counter. ToolStarted events are still published by
+        // ToolProgressPublisher at actual executor entry; this counter is orchestration-side.
+        toolDispatchStartedAtMillis[plan.request.id] = System.currentTimeMillis()
+        safeRecordTelemetry(
+            MetricSample.CounterInc(
+                name = TelemetryCounter.ToolCalls,
+                runId = runId,
+            ),
+            "ToolCalls counter",
+        )
+        // Wave 2 lifecycle: dual-write ToolPlanned. ToolStarted is published by the
+        // ToolProgressPublisher wired into ValidatingToolExecutor once the tool handler
+        // actually begins executing; this event represents the planning decision only.
+        eventBus.publish(
+            SolinEvent.Agent.ToolPlanned(
+                runId = runId,
+                toolCallId = plan.request.id,
+                toolName = plan.request.toolName,
+                title = plan.draft.title,
+                reason = plan.request.reason,
+                requiresConfirmation = plan.requiresUserConfirmation(),
+            ),
+        )
         auditToolEvent(runId, plan, ToolAuditEventType.ToolPlanned, null, plan.request.reason)
         if (plan.requiresUserConfirmation()) {
             traceStore.appendStep(runId, AgentStep.UserConfirmationRequested(plan.request, plan.draft))
@@ -1774,12 +2899,14 @@ class AgentLoopRuntime(
             return failInitialPlanBudget(run, effectivePlan.request)
         }
         appendToolPlanSteps(run.id, effectivePlan)
-        val nextState = if (effectivePlan.requiresUserConfirmation()) {
-            AgentRunState.AwaitingUserConfirmation
-        } else {
-            AgentRunState.ExecutingTool
-        }
-        val waitingRun = traceStore.updateState(run.id, nextState)
+        // ask_user interception: append UserQuestionAsked step + event + remember pending
+        // state so answerUserQuestion can correlate a reply. Safety has already been evaluated
+        // via buildInitialToolPlan and appended via appendToolPlanSteps above, satisfying the
+        // "after safety, before execution" requirement. nextExecutionState() returns
+        // AwaitingUserAnswer for ask_user so the state transition below parks the run without
+        // ever entering ExecutingTool (and thus without ever invoking the executor).
+        parkForAskUserIfNeeded(run.id, effectivePlan)
+        val waitingRun = traceStore.updateState(run.id, effectivePlan.nextExecutionState())
         if (effectivePlan.requiresUserConfirmation()) {
             traceStore.savePendingConfirmation(effectivePlan.toPendingSnapshot(waitingRun))
         }
@@ -2095,7 +3222,7 @@ class AgentLoopRuntime(
         installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
 
     private fun ToolRequest.requiresMobileActionProfileForInlineToolCall(): Boolean =
-        toolRegistry.specFor(toolName)?.isPublicEvidenceBatchEligible() == false
+        toolRegistry.specFor(toolName)?.isEligibleForParallelBatch() == false
 
     private fun String.initialSequentialActionInput(): String? =
         explicitSequentialActionTextAt(0)
@@ -2195,117 +3322,6 @@ class AgentLoopRuntime(
             return "Skill manifest changed: ${skillPlan.manifest.id}"
         }
         return null
-    }
-
-    private fun promptWithContextIfUseful(
-        input: String,
-        memoryHits: List<MemoryHit>,
-        deviceContext: DeviceContextSnapshot?,
-    ): String {
-        val localMemoryHits = memoryHits.filter { hit -> hit.isAvailableForLocalContext() }
-        if (localMemoryHits.isEmpty() && deviceContext == null) return input
-        val evidenceCards = budgetEvidenceCards(
-            cards = evidenceCardsForAnswerContext(localMemoryHits, deviceContext),
-            input = input,
-        )
-        val memoryBlock = evidenceCards
-            .filter { card -> card.sourceType == EvidenceSourceType.Memory }
-            .joinToString(separator = "\n") { card -> card.toPromptLine() }
-            .ifBlank {
-                runCatching { memoryIndex.buildContext(localMemoryHits) }.getOrDefault("")
-            }
-        val safeMemoryBlock = if (memoryBlock.isBlank()) {
-            "无"
-        } else {
-            memoryBlock
-        }
-        val deviceBlock = evidenceCards
-            .firstOrNull { card -> card.sourceType == EvidenceSourceType.DeviceContext }
-            ?.toPromptLine(prefix = "")
-            ?: "无"
-        return """
-            请根据用户当前输入的语言回答。只有在以下本地记忆或设备上下文与当前问题明显相关时才使用；如果无关，请忽略，不要复述无关隐私内容。
-            以下上下文已按相关性、隐私边界和端侧 token 预算裁剪；被标记为截断的内容只能作为弱证据。
-            本地记忆：
-            $safeMemoryBlock
-
-            设备上下文：
-            $deviceBlock
-
-            用户问题：$input
-        """.trimIndent()
-    }
-
-    private fun evidenceCardsForAnswerContext(
-        memoryHits: List<MemoryHit>,
-        deviceContext: DeviceContextSnapshot?,
-    ): List<EvidenceCard> =
-        buildList {
-            memoryHits
-                .filter { hit -> hit.isAvailableForLocalContext() }
-                .forEach { hit ->
-                    add(
-                        EvidenceCard(
-                            id = "memory:${hit.id}",
-                            sourceType = EvidenceSourceType.Memory,
-                            privacy = MessagePrivacy.LocalOnly,
-                            requiresLocalModel = true,
-                            text = hit.text,
-                            quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
-                            tokenEstimate = estimateLocalRuntimeTokens(hit.text),
-                        ),
-                    )
-                }
-            val deviceText = deviceContext?.toPromptContext()?.takeIf { it.isNotBlank() }
-            if (deviceText != null) {
-                add(
-                    EvidenceCard(
-                        id = "device-context",
-                        sourceType = EvidenceSourceType.DeviceContext,
-                        privacy = MessagePrivacy.LocalOnly,
-                        requiresLocalModel = true,
-                        text = deviceText,
-                        quality = EvidenceQuality(EvidenceQualityLevel.Medium),
-                        tokenEstimate = estimateLocalRuntimeTokens(deviceText),
-                    ),
-                )
-            }
-        }
-
-    private fun budgetEvidenceCards(
-        cards: List<EvidenceCard>,
-        input: String,
-    ): List<EvidenceCard> {
-        if (cards.isEmpty()) return emptyList()
-        var remainingTokens = (
-            ANSWER_CONTEXT_TOKEN_BUDGET -
-                estimateLocalRuntimeTokens(input) -
-                ANSWER_PROMPT_SCAFFOLD_TOKEN_RESERVE
-            ).coerceAtLeast(0)
-        if (remainingTokens <= 0) return emptyList()
-        val selected = mutableListOf<EvidenceCard>()
-        cards.sortedWith(evidencePriorityComparator).forEach { card ->
-            val cost = card.tokenEstimate.coerceAtLeast(estimateLocalRuntimeTokens(card.text))
-            when {
-                cost <= remainingTokens -> {
-                    selected += card
-                    remainingTokens -= cost
-                }
-                remainingTokens >= MIN_TRUNCATED_EVIDENCE_TOKENS -> {
-                    val truncatedText = card.text.takeFirstEstimatedTokens(remainingTokens)
-                    if (truncatedText.isNotBlank()) {
-                        selected += card.copy(
-                            text = truncatedText,
-                            truncated = true,
-                            tokenEstimate = estimateLocalRuntimeTokens(truncatedText),
-                        )
-                        remainingTokens = 0
-                    }
-                }
-            }
-            if (remainingTokens <= 0) return@forEach
-        }
-        return selected.sortedWith(evidenceRenderComparator)
     }
 
     private fun messageForObservation(
@@ -2518,7 +3534,7 @@ class AgentLoopRuntime(
 
     private fun ToolRequest.allowsAutomaticRetry(): Boolean {
         val spec = toolRegistry.specFor(toolName) ?: return false
-        return spec.isPublicEvidenceBatchEligible()
+        return spec.isEligibleForParallelBatch()
     }
 
     private fun continuationForToolObservation(
@@ -3166,7 +4182,7 @@ class AgentLoopRuntime(
 
     private fun ToolSpec.isExposableInRemoteToolScope(scope: RemoteToolScope): Boolean =
         when (scope) {
-            RemoteToolScope.PublicEvidenceOnly -> isPublicEvidenceBatchEligible()
+            RemoteToolScope.PublicEvidenceOnly -> isEligibleForParallelBatch()
             RemoteToolScope.ModelPlanning -> isRemoteModelPlanningEligible()
         }
 
@@ -3299,7 +4315,50 @@ class AgentLoopRuntime(
         remoteExposedToolNamesByRunId.remove(runId)
         lowRiskDeviceActionConfirmationBypassByRunId.remove(runId)
         installedCapabilityProfilesByRunId.remove(runId)
+        profilesByRunId.remove(runId)
+        // Best-effort drain of queued steer/queued batches for the terminating run so the
+        // channels don't accumulate messages for dead runs. Off-target batches are re-enqueued
+        // by pumpChannel; this is safe to call after the run has gone terminal.
+        drainPendingMessages(runId)
+        cancelAndClearModelCallJob(runId)
+        pendingUserQuestionsByRunId.remove(runId)
+        // Wave 7: expire undo entries whose source run is terminating. Any surviving entries
+        // with a later TTL than the run lifetime are invalidated by the run end.
+        runCatching {
+            synchronized(undoStack) {
+                val iter = undoStack.iterator()
+                while (iter.hasNext()) {
+                    if (iter.next().sourceRunId == runId) iter.remove()
+                }
+            }
+        }
+        // Wave 2 lifecycle metadata: keep briefly for post-terminal subscribers; clear on next
+        // run or close. Left intentionally out of the strict clear to allow late subscribers to
+        // still read start-time; bounded by process memory.
     }
+
+    /**
+     * Wave 7: return the currently-live undo entry (compensating tool) if one exists and its
+     * TTL has not elapsed, or null otherwise. Clears an expired entry as a side effect.
+     */
+    fun latestUndo(): UndoEntry? {
+        synchronized(undoStack) {
+            val top = undoStack.peek() ?: return null
+            val now = System.currentTimeMillis()
+            if (top.availableUntilMillis <= now) {
+                undoStack.clear()
+                return null
+            }
+            return top
+        }
+    }
+
+    /**
+     * Wave 7: return the [UndoPlan] of the currently-live undo entry, or null if none is
+     * available / the entry is expired. Useful for UI affordances that want to show the
+     * compensating-tool summary without exposing the full entry struct.
+     */
+    fun peekUndoPlan(): UndoPlan? = latestUndo()?.plan
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =
         toolRequestsFor(runId).any { request ->
@@ -3356,6 +4415,54 @@ class AgentLoopRuntime(
         AgentRunState.AwaitingExternalOutcome,
         AgentRunState.Completed,
     )
+
+    // -----------------------------------------------------------------------
+    // Wave 2 SolinEvent lifecycle helpers — dual-write alongside traceStore.
+    // -----------------------------------------------------------------------
+
+    private fun publishRunFailed(
+        runId: String,
+        code: AgentErrorCode,
+        message: String,
+        terminalTurnIndex: Int? = runTurnIndex[runId],
+    ) {
+        eventBus.publish(
+            SolinEvent.Agent.RunFailed(
+                runId = runId,
+                code = code,
+                message = message,
+                terminalTurnIndex = terminalTurnIndex,
+            ),
+        )
+    }
+
+    private fun publishRunEnded(
+        runId: String,
+        finalText: String? = null,
+    ) {
+        val start = runStartedAtMillis[runId]
+        val durationMs = start?.let { System.currentTimeMillis() - it }
+        val turns = runTurnIndex[runId] ?: 0
+        eventBus.publish(
+            SolinEvent.Agent.RunEnded(
+                runId = runId,
+                totalTurns = turns,
+                finalText = finalText,
+                durationMs = durationMs,
+            ),
+        )
+    }
+
+    private fun ToolErrorCode?.toOrchestrationErrorCode(): OrchestrationToolErrorCode = when (this) {
+        null -> OrchestrationToolErrorCode.Unknown("unknown")
+        ToolErrorCode.PermissionDenied -> OrchestrationToolErrorCode.Unknown("permission_denied")
+        ToolErrorCode.UnknownTool -> OrchestrationToolErrorCode.ToolNotFound
+        ToolErrorCode.InvalidRequest, ToolErrorCode.InvalidResult, ToolErrorCode.MissingArgument ->
+            OrchestrationToolErrorCode.InvalidArgs
+        ToolErrorCode.NoActivityFound -> OrchestrationToolErrorCode.Unknown("no_activity_found")
+        ToolErrorCode.ExecutionFailed -> OrchestrationToolErrorCode.ExecutionFailed
+        ToolErrorCode.UserCancelled -> OrchestrationToolErrorCode.Cancelled
+    }
 
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
         data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
@@ -3419,6 +4526,8 @@ class AgentLoopRuntime(
         summary: String,
     ) {
         val spec = toolRegistry.specFor(request.toolName)
+        val riskLevel = spec?.riskLevel
+        val permissions = spec?.permissions.orEmpty()
         auditSink.record(
             ToolAuditEvent(
                 runId = runId,
@@ -3427,8 +4536,27 @@ class AgentLoopRuntime(
                 skillId = skillId,
                 eventType = eventType,
                 status = status,
-                riskLevel = spec?.riskLevel,
-                permissions = spec?.permissions.orEmpty(),
+                riskLevel = riskLevel,
+                permissions = permissions,
+                summary = summary,
+            ),
+        )
+        // Wave 4 dual-write: publish the same event onto SolinEventBus so the
+        // ToolAuditRepository subscriber can record it through the new seam. The
+        // direct record() call above stays in place until the bus path is verified.
+        eventBus.publish(
+            SolinEvent.Audit.ToolAudited(
+                runId = runId,
+                requestId = request.id,
+                toolName = request.toolName,
+                skillId = skillId,
+                eventType = eventType.name,
+                status = status?.name,
+                riskLevel = riskLevel?.name,
+                permissionsCsv = permissions
+                    .map { it.name }
+                    .sorted()
+                    .joinToString(separator = ","),
                 summary = summary,
             ),
         )
@@ -3437,18 +4565,36 @@ class AgentLoopRuntime(
     private fun auditRejectedTool(runId: String, result: ToolResult) {
         val toolName = result.data["toolName"]
         val spec = toolName?.let(toolRegistry::specFor)
+        val resolvedSkillId = result.requestId.takeIf { it.isNotBlank() }?.let { requestId ->
+            skillIdForRequest(runId, requestId)
+        }
+        val permissions = spec?.permissions.orEmpty()
         auditSink.record(
             ToolAuditEvent(
                 runId = runId,
                 requestId = result.requestId,
                 toolName = toolName,
-                skillId = result.requestId.takeIf { it.isNotBlank() }?.let { requestId ->
-                    skillIdForRequest(runId, requestId)
-                },
+                skillId = resolvedSkillId,
                 eventType = ToolAuditEventType.ToolRejected,
                 status = result.status,
                 riskLevel = spec?.riskLevel,
-                permissions = spec?.permissions.orEmpty(),
+                permissions = permissions,
+                summary = result.summary,
+            ),
+        )
+        eventBus.publish(
+            SolinEvent.Audit.ToolAudited(
+                runId = runId,
+                requestId = result.requestId,
+                toolName = toolName,
+                skillId = resolvedSkillId,
+                eventType = ToolAuditEventType.ToolRejected.name,
+                status = result.status.name,
+                riskLevel = spec?.riskLevel?.name,
+                permissionsCsv = permissions
+                    .map { it.name }
+                    .sorted()
+                    .joinToString(separator = ","),
                 summary = result.summary,
             ),
         )
@@ -3775,6 +4921,111 @@ class AgentLoopRuntime(
             AgentExternalOutcome.NotCompleted -> "目标应用中的操作未完成"
             AgentExternalOutcome.OpenedOnly -> "只确认外部界面已打开"
         }
+
+    /**
+     * After safety checks pass and the plan has been appended to the trace, if the plan is an
+     * `ask_user` tool call, append the [AgentStep.UserQuestionAsked] step, publish the
+     * [SolinEvent.Agent.UserQuestionAsked] event, and remember the pending question state so
+     * [answerUserQuestion] / [cancelUserQuestion] can correlate a reply back to the originating
+     * ToolRequest. Returns `true` if interception occurred (i.e. the plan was ask_user).
+     *
+     * NOTE: ask_user is NEVER executed by the tool executor — intercepting here (after safety,
+     * before transitioning to ExecutingTool) prevents the ViewModel from ever seeing an
+     * ExecutingTool state that would trigger executor.execute. The "tool result" is synthesized
+     * by answerUserQuestion/cancelUserQuestion and fed back through [observeToolResultInternal].
+     * Callers are responsible for transitioning run state to [AgentRunState.AwaitingUserAnswer]
+     * themselves (typically via [AgentPlan.UseTool.nextExecutionState]).
+     */
+    private fun parkForAskUserIfNeeded(
+        runId: String,
+        plan: AgentPlan.UseTool,
+    ): Boolean {
+        if (plan.request.toolName != MobileActionFunctions.ASK_USER) return false
+        val prompt = plan.request.arguments["prompt"]?.takeIf { it.isNotBlank() }
+            ?: return false // malformed call; let normal execution reject it
+        val choices = parseAskUserChoices(plan.request.arguments)
+        val questionId = java.util.UUID.randomUUID().toString()
+        traceStore.appendStep(
+            runId,
+            AgentStep.UserQuestionAsked(
+                questionId = questionId,
+                prompt = prompt,
+                choices = choices,
+            ),
+        )
+        eventBus.publish(
+            SolinEvent.Agent.UserQuestionAsked(
+                runId = runId,
+                questionId = questionId,
+                prompt = prompt,
+                choices = choices,
+            ),
+        )
+        pendingUserQuestionsByRunId[runId] = PendingUserQuestionState(
+            questionId = questionId,
+            request = plan.request,
+        )
+        // Wave 4 telemetry: count ask_user interception (question parked in AwaitingUserAnswer).
+        safeRecordTelemetry(
+            MetricSample.CounterInc(
+                name = TelemetryCounter.AskUserQuestions,
+                runId = runId,
+            ),
+            "AskUserQuestions counter",
+        )
+        return true
+    }
+
+    // -----------------------------------------------------------------------
+    // Wave 4 telemetry + hook safety helpers.
+    //
+    // All hook invocations and telemetry recordings MUST go through these
+    // wrappers so a throwing hook implementation or sink cannot crash the
+    // agent run; failures are logged with Log.e and safe defaults are used.
+    // -----------------------------------------------------------------------
+
+    private inline fun <T> safeHookCall(
+        label: String,
+        default: T,
+        block: () -> T,
+    ): T = runCatching(block).getOrElse { throwable ->
+        Log.e(TAG, "Agent hook '$label' failed; using safe default", throwable)
+        default
+    }
+
+    private fun safeRecordTelemetry(
+        sample: MetricSample,
+        label: String,
+    ) {
+        runCatching { telemetrySink.record(sample) }.onFailure { throwable ->
+            Log.e(TAG, "Telemetry sink failed to record '$label'", throwable)
+        }
+    }
+
+    private fun recordStepLatency(stepType: String, runId: String?) {
+        val start = stepStartedAtMillis.remove(stepType) ?: return
+        val latency = System.currentTimeMillis() - start
+        safeRecordTelemetry(
+            MetricSample.StepLatency(
+                stepType = stepType,
+                latencyMs = latency,
+                runId = runId,
+            ),
+            "StepLatency:$stepType",
+        )
+    }
+
+    private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
+        com.bytedance.zgx.solin.evidence.EvidenceBounds.headTail(
+            text = this,
+            maxChars = maxLength,
+            sourceType = com.bytedance.zgx.solin.evidence.EvidenceSourceType.ToolResult,
+            privacy = com.bytedance.zgx.solin.MessagePrivacy.LocalOnly,
+            store = evidenceBlobStore,
+        ).text
+
+    private fun String.compactAuditValue(maxLength: Int): String =
+        trim().replace(auditWhitespaceRegex, " ").boundedPromptValue(maxLength)
 }
 
 fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
@@ -3877,82 +5128,38 @@ private fun ActionDraft.withSafetyDecision(safetyDecision: SafetyDecision): Acti
     }
 
 private fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
-    if (requiresUserConfirmation()) {
-        AgentRunState.AwaitingUserConfirmation
-    } else {
-        AgentRunState.ExecutingTool
+    when {
+        request.toolName == MobileActionFunctions.ASK_USER -> AgentRunState.AwaitingUserAnswer
+        requiresUserConfirmation() -> AgentRunState.AwaitingUserConfirmation
+        else -> AgentRunState.ExecutingTool
     }
 
-private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
-    if (length <= maxLength) this else take(maxLength).trimEnd() + "..."
+/**
+ * Parse the `choices` argument from a ToolRequest whose arguments map is `Map<String, String>`.
+ * Accepts either a JSON-array string (the typical shape produced by model tool calls that
+ * serialize structured args as JSON strings) or a single non-empty string treated as a single
+ * choice. Returns an empty list when the argument is absent or unparseable.
+ */
+private fun parseAskUserChoices(arguments: Map<String, String>): List<String> {
+    val raw = arguments["choices"]?.takeIf { it.isNotBlank() } ?: return emptyList()
+    return runCatching {
+        val arr = JSONArray(raw)
+        (0 until arr.length()).mapNotNull { idx ->
+            arr.optString(idx).takeIf { !it.isNullOrBlank() }
+        }
+    }.getOrElse {
+        // Fall back to treating a single non-JSON string as a singleton choice.
+        listOf(raw)
+    }
+}
 
 private val auditWhitespaceRegex = Regex("\\s+")
 
-private fun String.compactAuditValue(maxLength: Int): String =
-    trim().replace(auditWhitespaceRegex, " ").boundedPromptValue(maxLength)
-
-private val evidencePriorityComparator: Comparator<EvidenceCard> =
-    compareBy<EvidenceCard> { it.sourceType.priorityForPromptBudget() }
-        .thenByDescending { it.quality.level.priorityForPromptBudget() }
-
-private val evidenceRenderComparator: Comparator<EvidenceCard> =
-    compareBy { it.sourceType.priorityForPromptRender() }
-
-private fun EvidenceSourceType.priorityForPromptBudget(): Int =
-    when (this) {
-        EvidenceSourceType.Memory -> 0
-        EvidenceSourceType.DeviceContext -> 1
-        EvidenceSourceType.UserPrompt -> 2
-        EvidenceSourceType.ToolResult,
-        EvidenceSourceType.OcrText,
-        EvidenceSourceType.FilePreview,
-        EvidenceSourceType.ImageAttachment,
-        EvidenceSourceType.PublicWeb,
-        EvidenceSourceType.ProtectedSource -> 3
-    }
-
-private fun EvidenceSourceType.priorityForPromptRender(): Int =
-    when (this) {
-        EvidenceSourceType.Memory -> 0
-        EvidenceSourceType.DeviceContext -> 1
-        else -> 2
-    }
-
-private fun EvidenceQualityLevel.priorityForPromptBudget(): Int =
-    when (this) {
-        EvidenceQualityLevel.High -> 3
-        EvidenceQualityLevel.Medium -> 2
-        EvidenceQualityLevel.Unknown -> 1
-        EvidenceQualityLevel.Low -> 0
-    }
-
-private fun MemoryHit.memoryEvidenceQualityLevel(): EvidenceQualityLevel =
-    when {
-        finalScore >= 0.70f -> EvidenceQualityLevel.High
-        finalScore >= 0.25f -> EvidenceQualityLevel.Medium
-        else -> EvidenceQualityLevel.Low
-    }
-
-private fun EvidenceCard.toPromptLine(prefix: String = "- "): String {
-    val quality = when (this.quality.level) {
-        EvidenceQualityLevel.High -> "高"
-        EvidenceQualityLevel.Medium -> "中"
-        EvidenceQualityLevel.Low -> "低"
-        EvidenceQualityLevel.Unknown -> "未知"
-    }
-    val truncatedLabel = if (truncated) "，已截断" else ""
-    return "$prefix[证据=${sourceType.name}，质量=$quality$truncatedLabel] $text"
-}
-
-private fun String.takeFirstEstimatedTokens(maxTokens: Int): String {
-    if (maxTokens <= 0) return ""
-    var usedTokens = 0
-    val builder = StringBuilder()
-    for (char in this) {
-        val cost = 1
-        if (usedTokens + cost > maxTokens) break
-        builder.append(char)
-        usedTokens += cost
-    }
-    return builder.toString().trimEnd()
-}
+/**
+ * Rough token estimator used by compaction call sites that don't supply a model-specific one.
+ * Reuses the LiteRt chars/4 heuristic (already imported) — accurate enough for preflight
+ * compaction gating even against remote models (both over- and under-estimates are safe: the
+ * compactor is conservative, and the post-send retry path catches actual overflows).
+ */
+internal fun estimateTokensApproximate(messages: List<ChatMessage>): Int =
+    messages.sumOf { estimateLocalRuntimeTokens(it.text) } + messages.size * 4

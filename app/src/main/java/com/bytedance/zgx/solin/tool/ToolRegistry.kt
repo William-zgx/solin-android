@@ -5,13 +5,19 @@ import com.bytedance.zgx.solin.action.AppDeepTargets
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
+import com.bytedance.zgx.solin.undo.UndoPlan
+import com.bytedance.zgx.solin.undo.UndoPolicy
 import org.json.JSONObject
 
 class ToolRegistry private constructor(
     definitions: List<ToolDefinition>,
+    @Suppress("UNUSED_PARAMETER") internalTag: InternalTag,
 ) {
+    private enum class InternalTag { Definitions }
+
     private val definitionsByName: Map<String, ToolDefinition> = definitions.associateBy { it.spec.name }
     private val orderedSpecs: List<ToolSpec> = definitions.map { it.spec }
+    private val undoPolicies: MutableMap<String, UndoPolicy> = mutableMapOf()
 
     init {
         require(definitionsByName.size == definitions.size) { "Tool names must be unique." }
@@ -19,11 +25,14 @@ class ToolRegistry private constructor(
             definition.argumentValidator
             validateRuntimePermissionDescriptorContract(definition.spec)
         }
+        registerDefaultUndoPolicies()
     }
 
     constructor() : this(BuiltInToolProvider)
 
-    constructor(vararg providers: ToolProvider) : this(definitionsFor(providers.toList()))
+    constructor(providers: List<ToolProvider>) : this(*providers.toTypedArray())
+
+    constructor(vararg providers: ToolProvider) : this(definitionsFor(providers.toList()), InternalTag.Definitions)
 
     fun specs(): List<ToolSpec> = orderedSpecs
 
@@ -40,6 +49,72 @@ class ToolRegistry private constructor(
 
     fun redactedResultSummaryFor(toolName: String): String? =
         specFor(toolName)?.redactedResultSummary
+
+    fun undoPolicyFor(toolName: String): UndoPolicy? = undoPolicies[toolName]
+
+    fun registerUndoPolicy(toolName: String, policy: UndoPolicy) {
+        undoPolicies[toolName] = policy
+    }
+
+    private fun registerDefaultUndoPolicies() {
+        val externalHandoff = UndoPolicy { _, _ ->
+            UndoPlan.ExternalHandoff("performed externally; handoff to user")
+        }
+        val notApplicable = UndoPolicy { _, _ -> UndoPlan.NotApplicable }
+        val notUndoableUi = UndoPolicy { _, _ -> UndoPlan.NotUndoable("irreversible UI action") }
+
+        // External handoff tools (user completes action outside Solin)
+        listOf(
+            MobileActionFunctions.SHARE_TEXT,
+            MobileActionFunctions.COMPOSE_EMAIL,
+            MobileActionFunctions.CREATE_CALENDAR_EVENT,
+            MobileActionFunctions.CREATE_CONTACT_DRAFT,
+            MobileActionFunctions.SET_SYSTEM_ALARM,
+            MobileActionFunctions.SET_SYSTEM_TIMER,
+            MobileActionFunctions.OPEN_CAMERA,
+            MobileActionFunctions.OPEN_DEEP_LINK,
+            MobileActionFunctions.OPEN_APP_BY_NAME,
+            MobileActionFunctions.OPEN_APP_INTENT,
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            MobileActionFunctions.SEARCH_MAPS,
+            MobileActionFunctions.WEB_SEARCH,
+            MobileActionFunctions.SCHEDULE_REMINDER,
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+            MobileActionFunctions.CANCEL_REMINDER,
+        ).forEach { registerUndoPolicy(it, externalHandoff) }
+
+        // Read-only / observation tools — undo not applicable
+        listOf(
+            MobileActionFunctions.QUERY_CONTACTS,
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+            MobileActionFunctions.QUERY_FOREGROUND_APP,
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+            MobileActionFunctions.QUERY_RECENT_FILES,
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            MobileActionFunctions.READ_CLIPBOARD,
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            // plan_read is not a MobileActionFunctions constant; registered by literal
+            "plan_read",
+        ).forEach { registerUndoPolicy(it, notApplicable) }
+
+        // Irreversible UI actions
+        listOf(
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
+            MobileActionFunctions.UI_PRESS_BACK,
+            MobileActionFunctions.UI_WAIT,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+        ).forEach { registerUndoPolicy(it, notUndoableUi) }
+    }
 
     fun toolNamesWithTag(tag: ToolCapabilityTag): Set<String> =
         orderedSpecs
@@ -145,7 +220,7 @@ class ToolRegistry private constructor(
         validate(request)?.let { return it }
         val spec = specFor(request.toolName)
             ?: return request.rejected("Unknown tool: ${request.toolName}")
-        if (!spec.isPublicEvidenceBatchEligible()) {
+        if (!spec.isEligibleForParallelBatch()) {
             return request.rejected(
                 "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
             )
@@ -292,7 +367,7 @@ class ToolRegistry private constructor(
 
     companion object {
         fun fromSupportedActions(supportedActions: Set<String> = builtInToolNames()): ToolRegistry =
-            ToolRegistry(definitionsFor(supportedActions))
+            ToolRegistry(definitionsFor(supportedActions), InternalTag.Definitions)
     }
 }
 
@@ -519,6 +594,17 @@ private fun String.containsHighRiskUiActionTarget(): Boolean {
 private object BuiltInToolProvider : ToolProvider {
     override fun specs(): List<ToolSpec> =
         builtInToolSpecs
+}
+
+/**
+ * Built-in tools exposed as a SolinModule. Always registered first; user modules
+ * append or override via ToolHandler.
+ */
+class BuiltInToolsModule : com.bytedance.zgx.solin.module.SolinModule {
+    override val moduleId: String get() = "builtin:tools"
+    override fun register(registry: com.bytedance.zgx.solin.module.SolinModuleRegistry) {
+        registry.addToolProvider(BuiltInToolProvider)
+    }
 }
 
 private val emptyObjectSchemaJson = """
@@ -1153,6 +1239,47 @@ private val cancelReminderSchemaJson = """
           "minLength": 1,
           "pattern": "^task-[A-Za-z0-9_-]+$"
         }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val askUserInputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["prompt"],
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "The clarification question to present to the user.",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "choices": {
+          "type": "array",
+          "description": "Optional list of short choice labels the user can tap to answer; omit for free-text reply.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "maxItems": 8
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val askUserOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["toolName", "answer", "privacy", "requiresLocalModel"],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "questionId": {"type": "string", "minLength": 1},
+        "answer": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean", "const": true}
       },
       "additionalProperties": false
     }
@@ -1952,6 +2079,7 @@ private val builtInToolSpecs: List<ToolSpec> = listOf(
         riskLevel = RiskLevel.LowReadOnly,
         confirmationPolicy = ConfirmationPolicy.NotRequired,
         resultContinuationPolicy = ToolResultContinuationPolicy.PublicEvidence,
+        executionMode = ToolExecutionMode.ConcurrentWhenIndependent,
     ),
     ToolSpec(
         name = MobileActionFunctions.COMPOSE_EMAIL,
@@ -2539,6 +2667,20 @@ private val builtInToolSpecs: List<ToolSpec> = listOf(
         riskLevel = RiskLevel.MediumDraftOrNavigation,
         confirmationPolicy = ConfirmationPolicy.Required,
         pendingArgumentAllowlist = setOf("taskId"),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.ASK_USER,
+        title = "询问用户",
+        description = "当需要额外信息才能继续处理用户请求时，暂停执行并向用户提出澄清问题；可提供可选的简短选项标签供用户点选回答，省略则等待用户自由文本回复。请克制使用——仅在请求确实存在歧义且无法通过已有上下文解决时调用。",
+        inputSchemaJson = askUserInputSchemaJson,
+        outputSchemaJson = askUserOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = emptySet(),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.NotRequired,
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        executionMode = ToolExecutionMode.Sequential,
+        tags = setOf(ToolCapabilityTag.UxInteraction),
     ),
 )
 

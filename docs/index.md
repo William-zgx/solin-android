@@ -18,6 +18,7 @@ flowchart TD
     Run --> Readme["README.md"]
     Explain --> Privacy["privacy_notice.md"]
     Architecture --> Core["agent_core_modules.md"]
+    Architecture --> Harness["harness_architecture_improvements.md"]
     Architecture --> Routing["intent_routing_skill_arbitration.md"]
     ScreenOps --> Core
     ScreenOps --> Phone["phone_acceptance.md"]

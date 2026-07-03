@@ -1275,6 +1275,8 @@ private fun AgentStep.traceType(): String =
         is AgentStep.UserConfirmationRequested -> "UserConfirmationRequested"
         is AgentStep.UserConfirmed -> "UserConfirmed"
         is AgentStep.UserRejected -> "UserRejected"
+        is AgentStep.UserQuestionAsked -> "UserQuestionAsked"
+        is AgentStep.UserQuestionAnswered -> "UserQuestionAnswered"
         is AgentStep.ToolObserved -> "ToolObserved"
         is AgentStep.ExternalOutcomeConfirmed -> "ExternalOutcomeConfirmed"
         is AgentStep.ContinuationCursorRecorded -> "ContinuationCursorRecorded"
@@ -1313,6 +1315,10 @@ private fun AgentStep.traceSummary(): String =
         is AgentStep.UserConfirmationRequested -> "Requested confirmation for ${request.toolName}."
         is AgentStep.UserConfirmed -> "User confirmed request $requestId."
         is AgentStep.UserRejected -> "User rejected request $requestId."
+        is AgentStep.UserQuestionAsked ->
+            "Asked user clarifying question ($questionId): ${prompt.shortTraceText()}"
+        is AgentStep.UserQuestionAnswered ->
+            "User answered question $questionId: ${answer.shortTraceText()}"
         is AgentStep.ToolObserved -> "Observed ${result.status} for ${result.requestId}."
         is AgentStep.ExternalOutcomeConfirmed ->
             "External outcome ${outcome.name} confirmed for $requestId."
@@ -1444,6 +1450,15 @@ private fun AgentStep.traceJson(type: String): JSONObject {
 
         is AgentStep.UserConfirmed -> json.put("requestId", requestId)
         is AgentStep.UserRejected -> json.put("requestId", requestId)
+        is AgentStep.UserQuestionAsked -> json
+            .put("questionId", questionId)
+            .put("prompt", prompt.shortTraceText())
+            .put("choices", choices.toJsonArray())
+
+        is AgentStep.UserQuestionAnswered -> json
+            .put("questionId", questionId)
+            .put("answer", answer.shortTraceText())
+
         is AgentStep.ToolObserved -> json
             .put("requestId", result.requestId)
             .put("status", result.status.name)

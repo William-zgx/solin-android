@@ -57,12 +57,16 @@ private fun AgentRunEvent.userFacingLabel(): String =
         is AgentRunEvent.InputReceived -> "收到输入"
         is AgentRunEvent.ContextLoaded -> "加载上下文"
         is AgentRunEvent.PlanCreated -> "规划下一步"
+        is AgentRunEvent.PlanUpdated -> "更新计划"
         is AgentRunEvent.ConfirmationRequested -> "等待确认"
         is AgentRunEvent.ToolExecuted -> "执行工具"
         is AgentRunEvent.ObservationRecorded -> "观察结果"
         is AgentRunEvent.AnswerGenerated -> "生成回答"
         is AgentRunEvent.RunFailed -> "失败"
         is AgentRunEvent.RunCancelled -> "已取消"
+        is AgentRunEvent.UndoPushed -> "记录撤销"
+        is AgentRunEvent.UndoPopped -> "撤销已清除"
+        is AgentRunEvent.UndoExecuted -> "执行撤销"
     }
 
 private fun AgentRunEvent.userFacingState(): AgentRunEventState =
@@ -70,12 +74,16 @@ private fun AgentRunEvent.userFacingState(): AgentRunEventState =
         is AgentRunEvent.InputReceived -> AgentRunEventState.InputReceived
         is AgentRunEvent.ContextLoaded -> AgentRunEventState.ContextLoaded
         is AgentRunEvent.PlanCreated -> AgentRunEventState.Planning
+        is AgentRunEvent.PlanUpdated -> AgentRunEventState.Planning
         is AgentRunEvent.ConfirmationRequested -> AgentRunEventState.AwaitingConfirmation
         is AgentRunEvent.ToolExecuted -> AgentRunEventState.Executing
         is AgentRunEvent.ObservationRecorded -> AgentRunEventState.Observing
         is AgentRunEvent.AnswerGenerated -> AgentRunEventState.Completed
         is AgentRunEvent.RunFailed -> AgentRunEventState.Failed
         is AgentRunEvent.RunCancelled -> AgentRunEventState.Cancelled
+        is AgentRunEvent.UndoPushed -> AgentRunEventState.Executing
+        is AgentRunEvent.UndoPopped -> AgentRunEventState.Executing
+        is AgentRunEvent.UndoExecuted -> if (success) AgentRunEventState.Observing else AgentRunEventState.Failed
     }
 
 private fun AgentRunEvent.userFacingDetail(): String =
@@ -87,12 +95,16 @@ private fun AgentRunEvent.userFacingDetail(): String =
         }.joinToString("、").ifBlank { "无额外上下文" }
         is AgentRunEvent.PlanCreated -> toolLabels.joinToString("、") { it.safeUiText() }
             .ifBlank { "无工具" }
+        is AgentRunEvent.PlanUpdated -> "${snapshot.doneCount()}/${snapshot.items.size} 已完成，${snapshot.pendingCount()} 待办"
         is AgentRunEvent.ConfirmationRequested -> actionLabel.safeUiText()
         is AgentRunEvent.ToolExecuted -> "${toolLabel.safeUiText()} · ${status.name}"
         is AgentRunEvent.ObservationRecorded -> observationLabel.safeUiText()
         is AgentRunEvent.AnswerGenerated -> outputLabel?.safeUiText() ?: "回答已生成"
         is AgentRunEvent.RunFailed -> reasonLabel.safeUiText()
         is AgentRunEvent.RunCancelled -> reasonLabel.safeUiText()
+        is AgentRunEvent.UndoPushed -> "${entry.toolName.safeUiText()} · ${entry.plan.summary.safeUiText()}"
+        is AgentRunEvent.UndoPopped -> reason.safeUiText()
+        is AgentRunEvent.UndoExecuted -> "${if (success) "成功" else "失败"} · ${detail.safeUiText()}"
     }
 
 private fun AgentRunEvent.privacyMarkers(): Set<*> =
@@ -103,9 +115,13 @@ private fun AgentRunEvent.privacyMarkers(): Set<*> =
         is AgentRunEvent.ObservationRecorded -> privacyMarkers
         is AgentRunEvent.AnswerGenerated -> privacyMarkers
         is AgentRunEvent.PlanCreated,
+        is AgentRunEvent.PlanUpdated,
         is AgentRunEvent.ToolExecuted,
         is AgentRunEvent.RunFailed,
-        is AgentRunEvent.RunCancelled -> emptySet<Any>()
+        is AgentRunEvent.RunCancelled,
+        is AgentRunEvent.UndoPushed,
+        is AgentRunEvent.UndoPopped,
+        is AgentRunEvent.UndoExecuted -> emptySet<Any>()
     }
 
 private fun AgentRunEvent.riskMarkers(): Set<*> =
@@ -116,9 +132,13 @@ private fun AgentRunEvent.riskMarkers(): Set<*> =
         is AgentRunEvent.RunFailed -> riskMarkers
         is AgentRunEvent.InputReceived,
         is AgentRunEvent.ContextLoaded,
+        is AgentRunEvent.PlanUpdated,
         is AgentRunEvent.ObservationRecorded,
         is AgentRunEvent.AnswerGenerated,
-        is AgentRunEvent.RunCancelled -> emptySet<Any>()
+        is AgentRunEvent.RunCancelled,
+        is AgentRunEvent.UndoPushed,
+        is AgentRunEvent.UndoPopped,
+        is AgentRunEvent.UndoExecuted -> emptySet<Any>()
     }
 
 private fun Set<*>.joinToLabel(): String? =

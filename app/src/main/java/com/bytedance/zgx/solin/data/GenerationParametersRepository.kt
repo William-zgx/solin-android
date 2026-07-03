@@ -33,6 +33,7 @@ fun GenerationParameters.normalized(): GenerationParameters =
             .roundToStep(0.01f)
             .coerceIn(GenerationParameters.MIN_TOP_P, GenerationParameters.MAX_TOP_P),
         topK = topK.coerceIn(GenerationParameters.MIN_TOP_K, GenerationParameters.MAX_TOP_K),
+        reasoningEffort = reasoningEffort,
     )
 
 private fun Float.roundToStep(step: Float): Float =

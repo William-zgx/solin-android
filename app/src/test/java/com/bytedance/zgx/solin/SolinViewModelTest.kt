@@ -8444,6 +8444,15 @@ class SolinViewModelTest {
             return cancelObservation
         }
 
+        override fun answerUserQuestion(
+            runId: String,
+            questionId: String,
+            answer: String,
+        ): AgentObservationResult? = null
+
+        override fun cancelUserQuestion(runId: String, questionId: String): AgentObservationResult? =
+            null
+
         override fun failPendingToolRequest(
             runId: String,
             requestId: String,

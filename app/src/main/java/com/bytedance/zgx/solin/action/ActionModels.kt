@@ -107,6 +107,7 @@ object MobileActionFunctions {
     const val UI_PRESS_BACK = "ui_press_back"
     const val UI_WAIT = "ui_wait"
     const val CANCEL_REMINDER = "cancel_reminder"
+    const val ASK_USER = "ask_user"
 
     val supported: Set<String> = setOf(
         OPEN_WIFI_SETTINGS,
@@ -147,6 +148,11 @@ object MobileActionFunctions {
         QUERY_FOREGROUND_APP,
         QUERY_RECENT_NOTIFICATIONS,
         CANCEL_REMINDER,
+        // NOTE: `ask_user` is registered in ToolRegistry (builtInToolSpecs) and intercepted by
+        // AgentLoopRuntime at plan-apply time, but it is NOT dispatched by BuiltInSkillRuntime —
+        // it is an orchestration-level UxInteraction tool available to the model in any skill
+        // context. It is therefore intentionally omitted from MobileActionFunctions.supported
+        // (which tracks tools covered by at least one built-in skill manifest).
     )
 }
 

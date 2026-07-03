@@ -587,7 +587,7 @@ class ToolRegistryTest {
         assertTrue(uiSubmitSearchSpec.inputSchemaJson.contains("\"targetPackageName\""))
         assertTrue("expectedPackageName" in uiSubmitSearchSpec.pendingArgumentAllowlist)
         assertFalse(uiSubmitSearchSpec.isRemoteModelPlanningEligible())
-        assertFalse(uiSubmitSearchSpec.isPublicEvidenceBatchEligible())
+        assertFalse(uiSubmitSearchSpec.isEligibleForParallelBatch())
 
         val uiScrollSpec = registry.builtInSpec(MobileActionFunctions.UI_SCROLL)
         assertTrue(uiScrollSpec.inputSchemaJson.contains("\"expectedPackageName\""))
@@ -678,7 +678,7 @@ class ToolRegistryTest {
     fun publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools() {
         val eligibleWebSearch = registry.builtInSpec(MobileActionFunctions.WEB_SEARCH)
 
-        assertTrue(eligibleWebSearch.isPublicEvidenceBatchEligible())
+        assertTrue(eligibleWebSearch.isEligibleForParallelBatch())
 
         val blockedTools = listOf(
             MobileActionFunctions.READ_CLIPBOARD,
@@ -706,14 +706,14 @@ class ToolRegistryTest {
 
         blockedTools.forEach { toolName ->
             val spec = registry.builtInSpec(toolName)
-            assertFalse("$toolName must not be eligible for public evidence batch", spec.isPublicEvidenceBatchEligible())
+            assertFalse("$toolName must not be eligible for public evidence batch", spec.isEligibleForParallelBatch())
         }
     }
 
     @Test
     fun remoteToolExposureRequiresExplicitReviewedAllowlist() {
         val publicEvidenceTools = registry.specs()
-            .filter { spec -> spec.isPublicEvidenceBatchEligible() }
+            .filter { spec -> spec.isEligibleForParallelBatch() }
             .map { spec -> spec.name }
         val remotePlanningTools = registry.specs()
             .filter { spec -> spec.isRemoteModelPlanningEligible() }
@@ -759,7 +759,7 @@ class ToolRegistryTest {
         // other planning-eligible tool MUST require confirmation. This test pins that invariant so
         // no future action tool can join the planning surface with a weaker confirmation policy.
         val privilegedPlanningSpecs = registry.specs()
-            .filter { spec -> spec.isRemoteModelPlanningEligible() && !spec.isPublicEvidenceBatchEligible() }
+            .filter { spec -> spec.isRemoteModelPlanningEligible() && !spec.isEligibleForParallelBatch() }
         assertTrue(
             "expected at least one privileged remote-planning-eligible tool",
             privilegedPlanningSpecs.isNotEmpty(),
@@ -1015,7 +1015,7 @@ class ToolRegistryTest {
             assertTrue("$toolName must declare private outputs", spec.privateOutputKeys.isNotEmpty())
             assertEquals(ConfirmationPolicy.Required, spec.confirmationPolicy)
             assertFalse("$toolName must not be remote planning eligible", spec.isRemoteModelPlanningEligible())
-            assertFalse("$toolName must not be public evidence batch eligible", spec.isPublicEvidenceBatchEligible())
+            assertFalse("$toolName must not be public evidence batch eligible", spec.isEligibleForParallelBatch())
         }
     }
 

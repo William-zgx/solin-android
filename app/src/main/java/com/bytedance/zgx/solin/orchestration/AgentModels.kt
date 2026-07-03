@@ -17,6 +17,7 @@ enum class AgentRunState {
     LoadingContext,
     Planning,
     AwaitingUserConfirmation,
+    AwaitingUserAnswer,
     ExecutingTool,
     RetryingTool,
     Observing,
@@ -46,6 +47,7 @@ fun AgentRunState.contractPhase(): AgentRuntimePhase =
         AgentRunState.LoadingContext -> AgentRuntimePhase.LoadingContext
         AgentRunState.Planning -> AgentRuntimePhase.Planning
         AgentRunState.AwaitingUserConfirmation -> AgentRuntimePhase.NeedsConfirmation
+        AgentRunState.AwaitingUserAnswer -> AgentRuntimePhase.NeedsConfirmation
         AgentRunState.ExecutingTool,
         AgentRunState.RetryingTool,
         AgentRunState.Observing -> AgentRuntimePhase.Executing
@@ -203,6 +205,17 @@ sealed class AgentStep {
 
     data class UserRejected(
         val requestId: String,
+    ) : AgentStep()
+
+    data class UserQuestionAsked(
+        val questionId: String,
+        val prompt: String,
+        val choices: List<String> = emptyList(),
+    ) : AgentStep()
+
+    data class UserQuestionAnswered(
+        val questionId: String,
+        val answer: String,
     ) : AgentStep()
 
     data class ToolObserved(

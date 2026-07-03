@@ -11,6 +11,7 @@ import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.PendingRemoteSendMarker
+import com.bytedance.zgx.solin.ReasoningEffort
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
@@ -53,6 +54,12 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
             temperature = readFloat(Keys.TEMPERATURE, GenerationParameters.DEFAULT_TEMPERATURE),
             topP = readFloat(Keys.TOP_P, GenerationParameters.DEFAULT_TOP_P),
             topK = readInt(Keys.TOP_K, GenerationParameters.DEFAULT_TOP_K),
+            reasoningEffort = reasoningEffortFromOrdinal(
+                readInt(
+                    Keys.REASONING_EFFORT_ORDINAL,
+                    GenerationParameters.DEFAULT_REASONING_EFFORT_ORDINAL,
+                ),
+            ),
         ).normalized()
 
     override fun saveGenerationParameters(parameters: GenerationParameters): GenerationParameters {
@@ -62,6 +69,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
                 prefs[Keys.TEMPERATURE] = normalized.temperature
                 prefs[Keys.TOP_P] = normalized.topP
                 prefs[Keys.TOP_K] = normalized.topK
+                prefs[Keys.REASONING_EFFORT_ORDINAL] = normalized.reasoningEffort.ordinal
             }
         }
         return normalized
@@ -211,6 +219,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val TEMPERATURE = floatPreferencesKey("generation_temperature")
         val TOP_P = floatPreferencesKey("generation_top_p")
         val TOP_K = intPreferencesKey("generation_top_k")
+        val REASONING_EFFORT_ORDINAL = intPreferencesKey("generation_reasoning_effort_ordinal")
         val INFERENCE_MODE = stringPreferencesKey("inference_mode")
         val BACKEND = stringPreferencesKey("backend")
         val REMOTE_BASE_URL = stringPreferencesKey("remote_model_base_url")
@@ -222,4 +231,9 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
         val ACTIVE_INSTALLED_MODEL_ID = stringPreferencesKey("active_installed_model_id")
     }
+}
+
+private fun reasoningEffortFromOrdinal(ordinal: Int): ReasoningEffort {
+    val values = enumValues<ReasoningEffort>()
+    return if (ordinal in values.indices) values[ordinal] else ReasoningEffort.Off
 }

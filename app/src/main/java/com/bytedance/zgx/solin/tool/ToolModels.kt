@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.evidence.EvidenceBlobRef
 import java.util.UUID
 
 const val TOOL_NAME_ONLY_OUTPUT_SCHEMA_JSON =
@@ -25,6 +26,7 @@ data class ToolSpec(
     val planningPromptHint: String? = null,
     val tags: Set<ToolCapabilityTag> = emptySet(),
     val androidRuntimePermissions: List<AndroidRuntimePermissionSpec> = emptyList(),
+    val executionMode: ToolExecutionMode = ToolExecutionMode.Sequential,
 )
 
 fun interface ToolProvider {
@@ -46,6 +48,12 @@ data class ToolResult(
     val error: ToolError? = null,
     val retryable: Boolean = false,
     val userVisible: Boolean = true,
+    /**
+     * Content-addressed overflow payloads (ev://<sha256>) for results whose
+     * summary/data were truncated by prompt-budget limits. Populated by
+     * executors that detect long outputs; default empty for backward compat.
+     */
+    val overflowRefs: List<EvidenceBlobRef> = emptyList(),
 )
 
 const val UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX =
@@ -118,6 +126,11 @@ enum class ToolResultContinuationPolicy {
     LocalEvidence,
 }
 
+enum class ToolExecutionMode {
+    Sequential,
+    ConcurrentWhenIndependent,
+}
+
 enum class ToolCapability {
     DeviceSettings,
     ExternalNavigation,
@@ -127,6 +140,10 @@ enum class ToolCapability {
     DeviceContext,
     DeviceControl,
     ExternalShare,
+    /** Third-party / out-of-process extension tool surfaced via MCP or similar pluggable protocol. */
+    Extension,
+    /** Meta/orchestration tool (e.g. plan_read/plan_write) used by the agent itself; no device or external side effects. */
+    Orchestration,
 }
 
 enum class ToolCapabilityTag {
@@ -143,6 +160,11 @@ enum class ToolCapabilityTag {
     UsageStatsSpecialAccess,
     AccessibilityScreenTextSpecialAccess,
     AccessibilityDeviceControlSpecialAccess,
+    UxInteraction,
+    /** Tag applied to tools surfaced via the Model Context Protocol plug-in layer. */
+    McpTool,
+    /** Tag applied to meta/planning tools used by the agent for its own orchestration state. */
+    Planning,
 }
 
 data class AndroidRuntimePermissionSpec(
@@ -175,8 +197,9 @@ private val publicEvidenceBatchDisallowedPermissions = setOf(
     ToolPermission.PostsNotification,
 )
 
-fun ToolSpec.isPublicEvidenceBatchEligible(): Boolean =
-    resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence &&
+fun ToolSpec.isEligibleForParallelBatch(): Boolean =
+    executionMode == ToolExecutionMode.ConcurrentWhenIndependent &&
+        resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence &&
         confirmationPolicy == ConfirmationPolicy.NotRequired &&
         riskLevel == RiskLevel.LowReadOnly &&
         privateOutputKeys.isEmpty() &&
@@ -202,7 +225,7 @@ private val remoteModelPlanningDisallowedPermissions = setOf(
 )
 
 fun ToolSpec.isRemoteModelPlanningEligible(): Boolean =
-    isPublicEvidenceBatchEligible() ||
+    isEligibleForParallelBatch() ||
         (
             privateOutputKeys.isEmpty() &&
                 resultContinuationPolicy != ToolResultContinuationPolicy.LocalEvidence &&

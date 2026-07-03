@@ -34,15 +34,26 @@ enum class MessagePrivacy {
     LocalOnly,
 }
 
+/**
+ * Reasoning-budget hint passed to the model provider.
+ * - Local (LiteRt) runtimes ignore this field.
+ * - Remote runtimes may translate it to a provider-specific param
+ *   (e.g. OpenAI reasoning_effort, Anthropic thinking.budget_tokens).
+ *   That mapping lives in RemoteChatRuntime; this is carrier-only.
+ */
+enum class ReasoningEffort { Off, Minimal, Low, Medium, High }
+
 data class GenerationParameters(
     val temperature: Float = DEFAULT_TEMPERATURE,
     val topP: Float = DEFAULT_TOP_P,
     val topK: Int = DEFAULT_TOP_K,
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.Off,
 ) {
     companion object {
         const val DEFAULT_TEMPERATURE = 0.7f
         const val DEFAULT_TOP_P = 0.95f
         const val DEFAULT_TOP_K = 40
+        const val DEFAULT_REASONING_EFFORT_ORDINAL = 0  // Off
 
         const val MIN_TEMPERATURE = 0.0f
         const val MAX_TEMPERATURE = 1.2f
@@ -228,6 +239,13 @@ data class PendingAgentConfirmation(
     val skillId: String?,
     val plannedByModel: Boolean,
     val fallbackReason: String?,
+)
+
+data class PendingUserQuestion(
+    val runId: String?,
+    val questionId: String,
+    val prompt: String,
+    val choices: List<String> = emptyList(),
 )
 
 enum class RemoteSendDisclosureKind {

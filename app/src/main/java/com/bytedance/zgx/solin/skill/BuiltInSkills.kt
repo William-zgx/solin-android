@@ -1947,3 +1947,15 @@ private val builtInSkillDefinitions = builtInSkillManifests.map { manifest ->
 }
 
 private val builtInSkillCatalog = SkillCatalog(builtInSkillDefinitions)
+
+private class BuiltInSkillSource : SkillSource {
+    override fun manifests(): List<SkillManifest> = builtInSkillManifests
+}
+
+/** Built-in skills exposed as a SolinModule. */
+class BuiltInSkillsModule : com.bytedance.zgx.solin.module.SolinModule {
+    override val moduleId: String get() = "builtin:skills"
+    override fun register(registry: com.bytedance.zgx.solin.module.SolinModuleRegistry) {
+        registry.addSkillSource(BuiltInSkillSource())
+    }
+}

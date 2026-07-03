@@ -412,7 +412,6 @@ class ToolSchemaContractTest {
         val invalidInputPropertySchemas = listOf(
             "missing property type" to """{"minLength":1}""",
             "non-string property type" to """{"type":7}""",
-            "array property with nested items" to """{"type":"array","items":{"type":"string"}}""",
             "object property with nested properties" to
                 """{"type":"object","properties":{"nested":{"type":"string"}}}""",
             "object property with nested required" to """{"type":"object","required":["nested"]}""",
@@ -436,6 +435,10 @@ class ToolSchemaContractTest {
             "integer property with string minLength keyword" to """{"type":"integer","minLength":1}""",
             "boolean property with numeric maximum keyword" to """{"type":"boolean","maximum":1}""",
             "array property with string format keyword" to """{"type":"array","format":"date-time"}""",
+            "array property with non-object items" to """{"type":"array","items":"string"}""",
+            "array property with negative minItems" to """{"type":"array","items":{"type":"string"},"minItems":-1}""",
+            "array property with inverted item count bounds" to
+                """{"type":"array","items":{"type":"string"},"minItems":5,"maxItems":2}""",
             "object property with JSON content media type keyword" to
                 """{"type":"object","contentMediaType":"application/json"}""",
         )

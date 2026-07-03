@@ -6,6 +6,9 @@ import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.credentials.ApiKeyCredentialResolver
+import com.bytedance.zgx.solin.credentials.Credential
+import com.bytedance.zgx.solin.credentials.CredentialResolver
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.util.concurrent.TimeUnit
@@ -24,6 +27,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -62,6 +66,7 @@ class OkHttpRemoteChatRuntime(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val credentialResolver: CredentialResolver = ApiKeyCredentialResolver,
 ) : RemoteChatRuntime {
     @Volatile
     private var activeCall: Call? = null
@@ -75,6 +80,11 @@ class OkHttpRemoteChatRuntime(
     ): Flow<String> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
+        val credential = runCatching { credentialResolver.resolve(normalized) }
+            .getOrElse { throwable ->
+                close(IllegalStateException("凭证解析失败：${throwable.message ?: throwable.javaClass.simpleName}", throwable))
+                return@callbackFlow
+            }
         val request = Request.Builder()
             .url(normalized.chatCompletionsUrl())
             .post(
@@ -85,8 +95,8 @@ class OkHttpRemoteChatRuntime(
             .header("Accept", "text/event-stream, application/json")
             .header("Content-Type", "application/json")
             .apply {
-                if (normalized.apiKey.isNotBlank()) {
-                    header("Authorization", "Bearer ${normalized.apiKey}")
+                credential.authorizationHeader.takeIf { credential.hasAuthorization() }?.let {
+                    header("Authorization", it)
                 }
             }
             .build()
@@ -96,8 +106,30 @@ class OkHttpRemoteChatRuntime(
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
+                        // Read a bounded body snippet ONLY for the non-image path and only for
+                        // codes where providers return a machine-readable reason (e.g. 400/422/413
+                        // "context_length_exceeded", 5xx server errors). For auth responses
+                        // (401/403) we skip entirely because they frequently echo the API key;
+                        // for image-attachment failures we also skip because the localized
+                        // user-facing message is sufficient and bodies may contain URLs/paths.
+                        // See RemoteChatRuntimeTest.redaction tests.
+                        val bodySnippet = if (
+                            imageAttachments.isEmpty() &&
+                            response.code != 401 &&
+                            response.code != 403
+                        ) {
+                            runCatching {
+                                response.body.source().use { source ->
+                                    val buffer = Buffer()
+                                    source.read(buffer, ERROR_BODY_SNIPPET_BYTES)
+                                    buffer.readUtf8()
+                                }
+                            }.getOrNull().orEmpty().trim()
+                        } else {
+                            ""
+                        }
                         response.body.close()
-                        error(remoteFailureMessage(response.code, imageAttachments))
+                        error(remoteFailureMessage(response.code, imageAttachments, bodySnippet))
                     }
                     val body = response.body
                     if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
@@ -147,6 +179,11 @@ class OkHttpRemoteChatRuntime(
     ): Flow<RemoteChatEvent> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
+        val credential = runCatching { credentialResolver.resolve(normalized) }
+            .getOrElse { throwable ->
+                close(IllegalStateException("凭证解析失败：${throwable.message ?: throwable.javaClass.simpleName}", throwable))
+                return@callbackFlow
+            }
         val request = Request.Builder()
             .url(normalized.chatCompletionsUrl())
             .post(
@@ -164,8 +201,8 @@ class OkHttpRemoteChatRuntime(
             .header("Accept", "text/event-stream, application/json")
             .header("Content-Type", "application/json")
             .apply {
-                if (normalized.apiKey.isNotBlank()) {
-                    header("Authorization", "Bearer ${normalized.apiKey}")
+                credential.authorizationHeader.takeIf { credential.hasAuthorization() }?.let {
+                    header("Authorization", it)
                 }
             }
             .build()
@@ -175,8 +212,30 @@ class OkHttpRemoteChatRuntime(
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
+                        // Read a bounded body snippet ONLY for the non-image path and only for
+                        // codes where providers return a machine-readable reason (e.g. 400/422/413
+                        // "context_length_exceeded", 5xx server errors). For auth responses
+                        // (401/403) we skip entirely because they frequently echo the API key;
+                        // for image-attachment failures we also skip because the localized
+                        // user-facing message is sufficient and bodies may contain URLs/paths.
+                        // See RemoteChatRuntimeTest.redaction tests.
+                        val bodySnippet = if (
+                            imageAttachments.isEmpty() &&
+                            response.code != 401 &&
+                            response.code != 403
+                        ) {
+                            runCatching {
+                                response.body.source().use { source ->
+                                    val buffer = Buffer()
+                                    source.read(buffer, ERROR_BODY_SNIPPET_BYTES)
+                                    buffer.readUtf8()
+                                }
+                            }.getOrNull().orEmpty().trim()
+                        } else {
+                            ""
+                        }
                         response.body.close()
-                        error(remoteFailureMessage(response.code, imageAttachments))
+                        error(remoteFailureMessage(response.code, imageAttachments, bodySnippet))
                     }
                     val body = response.body
                     if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
@@ -277,8 +336,12 @@ private fun userMessageJson(prompt: String, imageAttachments: List<ChatImageAtta
     return message.put("content", content)
 }
 
-private fun remoteFailureMessage(code: Int, imageAttachments: List<ChatImageAttachment>): String =
-    if (imageAttachments.isNotEmpty()) {
+private fun remoteFailureMessage(
+    code: Int,
+    imageAttachments: List<ChatImageAttachment>,
+    bodySnippet: String = "",
+): String {
+    val base = if (imageAttachments.isNotEmpty()) {
         when (code) {
             400, 404, 415 ->
                 "图片输入请求失败，当前远程模型或接口可能不支持图片输入（HTTP $code）"
@@ -298,6 +361,19 @@ private fun remoteFailureMessage(code: Int, imageAttachments: List<ChatImageAtta
     } else {
         "远程模型请求失败 $code"
     }
+    // Append a bounded prefix of the error body so callers can match machine-readable phrases
+    // (e.g. "context_length_exceeded") for automatic recovery. Snippet is capped server-side
+    // via ERROR_BODY_SNIPPET_BYTES and stripped of newlines/quotes to keep the exception
+    // message single-line and log-safe.
+    val snippet = bodySnippet
+        .replace('\n', ' ')
+        .replace('\r', ' ')
+        .take(ERROR_BODY_SNIPPET_CHARS)
+    return if (snippet.isBlank()) base else "$base: $snippet"
+}
+
+private const val ERROR_BODY_SNIPPET_BYTES = 1024L
+private const val ERROR_BODY_SNIPPET_CHARS = 512
 
 internal fun parseChatCompletionChunkText(raw: String): String {
     val json = runCatching { JSONObject(raw) }.getOrNull() ?: return ""
@@ -562,3 +638,8 @@ private fun RemoteModelConfig.chatCompletionsUrl(): String =
     }
 
 private val JSON = "application/json; charset=utf-8".toMediaType()
+
+private fun Credential.hasAuthorization(): Boolean = when (this) {
+    is Credential.ApiKey -> apiKey.isNotBlank()
+    is Credential.OAuth -> accessToken.isNotBlank()
+}

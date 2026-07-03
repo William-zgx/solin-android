@@ -51,11 +51,24 @@ import com.bytedance.zgx.solin.device.normalizedLookupKey
 import com.bytedance.zgx.solin.device.toScreenNodesJsonString
 import com.bytedance.zgx.solin.device.toScreenObservationJsonString
 import com.bytedance.zgx.solin.device.width
+import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
+import com.bytedance.zgx.solin.evidence.EvidenceBounds
+import com.bytedance.zgx.solin.evidence.EvidenceSourceType
+import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrReadResult
 import com.bytedance.zgx.solin.multimodal.OcrTextBlock
 import com.bytedance.zgx.solin.multimodal.toOcrBlocksJsonString
+import com.bytedance.zgx.solin.module.ToolHandler
+import com.bytedance.zgx.solin.orchestration.NoOpToolProgressPublisher
+import com.bytedance.zgx.solin.orchestration.ToolProgressPublisher
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -69,6 +82,48 @@ private const val OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS = 24
 
 interface ToolExecutor {
     fun execute(request: ToolRequest): ToolResult
+
+    /**
+     * Execute a batch of [requests] and return results aligned to the input order.
+     *
+     * Default implementation runs each request sequentially via [execute] with
+     * per-tool isolation: if a single call throws (including
+     * [kotlinx.coroutines.CancellationException] thrown by a suspend-aware tool
+     * handler running inside [runBlocking]), it is caught and converted to a
+     * terminal [ToolResult] rather than aborting the rest of the batch. The
+     * caller's coroutine context is NOT cancelled — cooperative cancellation is
+     * the caller's responsibility (see [com.bytedance.zgx.solin.tool.TimeoutToolExecutionBoundary]).
+     *
+     * Implementations MAY partition the batch and run independent requests concurrently
+     * when safe (see [ToolExecutionMode.ConcurrentWhenIndependent]). Implementations
+     * must preserve input order in the returned list and MUST isolate per-tool failures
+     * (one tool's throw must not prevent siblings from running and must not surface
+     * to the caller as a batch-level throw).
+     */
+    fun executeBatch(requests: List<ToolRequest>): List<ToolResult> =
+        requests.map { request ->
+            try {
+                execute(request)
+            } catch (cancellation: CancellationException) {
+                request.cancelled(
+                    summary = "Tool ${request.toolName} was cancelled: ${cancellation.cleanMessage()}",
+                    data = buildMap {
+                        put("toolName", request.toolName)
+                        putAll(request.localOnlyData())
+                    },
+                )
+            } catch (t: Throwable) {
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = "Tool ${request.toolName} failed in batch: ${t.cleanMessage()}",
+                    retryable = true,
+                    data = buildMap {
+                        put("toolName", request.toolName)
+                        putAll(request.localOnlyData())
+                    },
+                )
+            }
+        }
 }
 
 class RoutingToolExecutor(
@@ -85,7 +140,11 @@ class RoutingToolExecutor(
     private val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = null,
     private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
     private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolHandlers: Map<String, ToolHandler> = emptyMap(),
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val evidenceBlobStore: EvidenceBlobStore = NoOpEvidenceBlobStore,
+    private val maxSummaryChars: Int = EvidenceBlobStore.MAX_INLINE_CHARS,
+    private val maxDataValueChars: Int = EvidenceBlobStore.MAX_INLINE_CHARS,
 ) : ToolExecutor {
     private val currentScreenOcrGroundingCache = CurrentScreenOcrGroundingCache(clockMillis)
     private val currentScreenControlProviderWithOcrGrounding =
@@ -121,7 +180,176 @@ class RoutingToolExecutor(
             preflightProvider = currentScreenControlProvider,
         )
 
-    override fun execute(request: ToolRequest): ToolResult {
+    override fun execute(request: ToolRequest): ToolResult =
+        bound(executeUnvalidated(request))
+
+    /**
+     * Raw execution path without [bound] evidence truncation. Used both by [execute]
+     * and by [executeBatch] so the concurrent path does not re-enter [execute] and
+     * does not double-truncate evidence.
+     */
+    private fun executeUnvalidated(request: ToolRequest): ToolResult {
+        val handler = toolHandlers[request.toolName]
+        if (handler != null) {
+            val handled = runBlocking(Dispatchers.IO) {
+                runCatching { handler.execute(request) }
+                    .getOrElse { t ->
+                        if (t is CancellationException) throw t
+                        request.failed(
+                            code = ToolErrorCode.ExecutionFailed,
+                            summary = "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}",
+                            retryable = true,
+                            data = request.localOnlyData(),
+                        )
+                    }
+            }
+            return handled ?: dispatchAsBuiltIn(request)
+        }
+        return dispatchAsBuiltIn(request)
+    }
+
+    /**
+     * Execute a batch of requests, partitioning into a sequential "device control" segment
+     * (run first, in input order) and an independent segment (run concurrently on
+     * [Dispatchers.IO]). Order is preserved across the whole returned list.
+     *
+     * Partitioning rules (any match puts a request in the sequential segment):
+     *  - [ToolCapability.DeviceControl] tool
+     *  - [RiskLevel.HighExternalSend] or higher risk
+     *  - [ConfirmationPolicy] is not [ConfirmationPolicy.NotRequired]
+     *  - [ToolExecutionMode.Sequential] (explicit opt-out)
+     *
+     * Remaining requests whose [ToolSpec.executionMode] is [ToolExecutionMode.ConcurrentWhenIndependent]
+     * run concurrently. All others fall back to sequential execution.
+     *
+     * NOTE: this method is the raw dispatch path; per-tool validation and progress publishing
+     * are the caller's responsibility (see [ValidatingToolExecutor.executeBatch]).
+     */
+    override fun executeBatch(requests: List<ToolRequest>): List<ToolResult> {
+        if (requests.isEmpty()) return emptyList()
+        if (requests.size == 1) return listOf(execute(requests.single()))
+
+        val sequentialIndices = mutableListOf<Int>()
+        val concurrentIndices = mutableListOf<Int>()
+        requests.forEachIndexed { index, request ->
+            if (shouldRunSequentially(request)) {
+                sequentialIndices += index
+            } else {
+                concurrentIndices += index
+            }
+        }
+
+        val results = arrayOfNulls<ToolResult>(requests.size)
+
+        // Run sequential segment first, in input order.
+        for (index in sequentialIndices) {
+            results[index] = bound(executeUnvalidated(requests[index]))
+        }
+
+        // Run independent segment concurrently when present. Each task is isolated via
+        // supervisorScope + runCatching so one failure or cancellation cannot cancel siblings
+        // (mirrors the default sequential `executeBatch` contract).
+        if (concurrentIndices.isNotEmpty()) {
+            runBlocking(Dispatchers.IO) {
+                supervisorScope {
+                    val deferreds = concurrentIndices.map { index ->
+                        async(Dispatchers.IO) {
+                            val request = requests[index]
+                            runCatching { bound(executeUnvalidated(request)) }
+                                .getOrElse { t ->
+                                    when (t) {
+                                        is CancellationException -> request.cancelled(
+                                            summary = "Tool ${request.toolName} was cancelled in concurrent batch: ${t.cleanMessage()}",
+                                            data = buildMap {
+                                                put("toolName", request.toolName)
+                                                putAll(request.localOnlyData())
+                                            },
+                                        )
+                                        else -> request.failed(
+                                            code = ToolErrorCode.ExecutionFailed,
+                                            summary = "Tool ${request.toolName} failed in concurrent batch: ${t.cleanMessage()}",
+                                            retryable = true,
+                                            data = request.localOnlyData(),
+                                        )
+                                    }
+                                }
+                        }
+                    }
+                    val concurrentResults = deferreds.awaitAll()
+                    concurrentIndices.forEachIndexed { i, index ->
+                        results[index] = concurrentResults[i]
+                    }
+                }
+            }
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        return results.toList() as List<ToolResult>
+    }
+
+    private fun shouldRunSequentially(request: ToolRequest): Boolean {
+        if (request.isDeviceControlTool()) return true
+        val spec = toolRegistry.specFor(request.toolName) ?: return true
+        if (spec.riskLevel.ordinal >= RiskLevel.HighExternalSend.ordinal) return true
+        if (spec.confirmationPolicy != ConfirmationPolicy.NotRequired) return true
+        if (spec.executionMode == ToolExecutionMode.Sequential) return true
+        // Only ConcurrentWhenIndependent tools may run concurrently; everything else stays sequential.
+        return spec.executionMode != ToolExecutionMode.ConcurrentWhenIndependent
+    }
+
+    private fun bound(result: ToolResult): ToolResult {
+        val sourceType = EvidenceSourceType.ToolResult
+        val privacy = MessagePrivacy.LocalOnly
+
+        // Bound summary
+        val boundedSummaryResult = EvidenceBounds.headTail(
+            text = result.summary,
+            maxChars = maxSummaryChars,
+            sourceType = sourceType,
+            privacy = privacy,
+            store = evidenceBlobStore,
+        )
+
+        // Bound each data value
+        val dataRefs = mutableListOf<com.bytedance.zgx.solin.evidence.EvidenceBlobRef>()
+        var boundedData: MutableMap<String, String>? = null
+        for ((key, value) in result.data) {
+            val boundedValue = EvidenceBounds.headTail(
+                text = value,
+                maxChars = maxDataValueChars,
+                sourceType = sourceType,
+                privacy = privacy,
+                store = evidenceBlobStore,
+            )
+            if (boundedValue.truncated) {
+                if (boundedData == null) {
+                    boundedData = result.data.toMutableMap()
+                }
+                boundedData[key] = boundedValue.text
+                boundedValue.ref?.let { dataRefs.add(it) }
+            }
+        }
+
+        val summaryChanged = boundedSummaryResult.truncated
+        val dataChanged = boundedData != null || dataRefs.isNotEmpty()
+        val overflowRefsFromSummary = if (boundedSummaryResult.truncated) {
+            listOfNotNull(boundedSummaryResult.ref)
+        } else {
+            emptyList()
+        }
+        val newOverflowRefs = overflowRefsFromSummary + dataRefs
+
+        if (!summaryChanged && !dataChanged && newOverflowRefs.isEmpty()) {
+            return result
+        }
+        return result.copy(
+            summary = if (summaryChanged) boundedSummaryResult.text else result.summary,
+            data = boundedData ?: result.data,
+            overflowRefs = result.overflowRefs + newOverflowRefs,
+        )
+    }
+
+    private fun dispatchAsBuiltIn(request: ToolRequest): ToolResult {
         if (request.isDeviceControlTool()) return deviceControlToolExecutor.execute(request)
         if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
             currentScreenOcrGroundingCache.clear()
@@ -722,12 +950,28 @@ class WebSearchToolExecutor(
 class ValidatingToolExecutor(
     private val delegate: ToolExecutor,
     private val registry: ToolRegistry = ToolRegistry(),
+    private val progressPublisher: ToolProgressPublisher = NoOpToolProgressPublisher,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
-        registry.validate(request)?.let { rejection -> return rejection }
-        val result = runCatching {
+        registry.validate(request)?.let { rejection ->
+            // Pre-execution schema rejection — no tool handler was invoked; still publish a
+            // terminal fail event so subscribers see the lifecycle close out.
+            progressPublisher.fail(
+                toolCallId = request.id,
+                toolName = request.toolName,
+                error = rejection.error?.message ?: "request rejected by registry",
+            )
+            return rejection
+        }
+        progressPublisher.start(toolCallId = request.id, toolName = request.toolName)
+        val result = try {
             delegate.execute(request)
-        }.getOrElse { throwable ->
+        } catch (throwable: Throwable) {
+            progressPublisher.fail(
+                toolCallId = request.id,
+                toolName = request.toolName,
+                error = throwable.cleanMessage(),
+            )
             request.failed(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "Tool execution failed before completion: ${throwable.cleanMessage()}",
@@ -735,7 +979,108 @@ class ValidatingToolExecutor(
                 data = request.toolExecutionContext(),
             )
         }.withToolExecutionContext(request.toolName)
-        return registry.validateResult(request, result) ?: result
+        val validated = registry.validateResult(request, result) ?: result
+        when (validated.status) {
+            ToolStatus.Succeeded ->
+                progressPublisher.complete(toolCallId = request.id, toolName = request.toolName)
+            ToolStatus.Failed, ToolStatus.Rejected, ToolStatus.Cancelled ->
+                progressPublisher.fail(
+                    toolCallId = request.id,
+                    toolName = request.toolName,
+                    error = validated.error?.message ?: validated.summary,
+                )
+        }
+        return validated
+    }
+
+    /**
+     * Batch execution that publishes per-tool start/complete/fail lifecycle events and
+     * validates each request/result sequentially before/after delegating to
+     * [delegate.executeBatch]. Validation is performed SEQUENTIALLY for every request
+     * BEFORE any tool is dispatched, so a single invalid request fails fast with no
+     * concurrent work launched (matches the safety/gate requirement that policy checks
+     * happen before the parallel pool starts).
+     */
+    override fun executeBatch(requests: List<ToolRequest>): List<ToolResult> {
+        if (requests.isEmpty()) return emptyList()
+        if (requests.size == 1) return listOf(execute(requests.single()))
+
+        // Pre-validate every request sequentially before any dispatch.
+        val rejections = mutableMapOf<String, ToolResult>()
+        requests.forEach { request ->
+            registry.validate(request)?.let { rejection ->
+                rejections[request.id] = rejection
+                progressPublisher.fail(
+                    toolCallId = request.id,
+                    toolName = request.toolName,
+                    error = rejection.error?.message ?: "request rejected by registry",
+                )
+            }
+        }
+
+        val dispatchable = requests.filter { it.id !in rejections }
+        // Publish start for every dispatchable request up-front so subscribers see the
+        // concurrent lifecycle before any tool begins blocking.
+        dispatchable.forEach { request ->
+            progressPublisher.start(toolCallId = request.id, toolName = request.toolName)
+        }
+
+        val batchResults = try {
+            delegate.executeBatch(dispatchable)
+        } catch (throwable: Throwable) {
+            // Defensive: the delegate should isolate per-tool failures, but a catastrophic
+            // failure in the batch infrastructure is mapped to a failure for each request.
+            dispatchable.map { request ->
+                val failed = request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
+                    retryable = true,
+                    data = request.toolExecutionContext(),
+                ).withToolExecutionContext(request.toolName)
+                progressPublisher.fail(
+                    toolCallId = request.id,
+                    toolName = request.toolName,
+                    error = throwable.cleanMessage(),
+                )
+                failed
+            }
+        }
+
+        // Pair each dispatched request with its result, validate, and publish terminal state.
+        val resultsByRequestId = mutableMapOf<String, ToolResult>()
+        dispatchable.forEachIndexed { i, request ->
+            val raw = batchResults.getOrElse(i) {
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = "Tool batch returned fewer results than requests",
+                    retryable = false,
+                    data = request.toolExecutionContext(),
+                )
+            }
+            val withCtx = raw.withToolExecutionContext(request.toolName)
+            val validated = registry.validateResult(request, withCtx) ?: withCtx
+            when (validated.status) {
+                ToolStatus.Succeeded ->
+                    progressPublisher.complete(toolCallId = request.id, toolName = request.toolName)
+                ToolStatus.Failed, ToolStatus.Rejected, ToolStatus.Cancelled ->
+                    progressPublisher.fail(
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        error = validated.error?.message ?: validated.summary,
+                    )
+            }
+            resultsByRequestId[request.id] = validated
+        }
+
+        return requests.map { request ->
+            rejections[request.id] ?: resultsByRequestId[request.id]
+            ?: request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "Tool batch produced no result for ${request.toolName}",
+                retryable = false,
+                data = request.toolExecutionContext(),
+            )
+        }
     }
 }
 

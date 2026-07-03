@@ -107,7 +107,7 @@ import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.failed
-import com.bytedance.zgx.solin.tool.isPublicEvidenceBatchEligible
+import com.bytedance.zgx.solin.tool.isEligibleForParallelBatch
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.solin.tool.unverifiedExternalLaunchSummary
 import java.io.File
@@ -143,6 +143,18 @@ private const val REMOTE_SEND_RESTART_DISCARDED_TEXT =
     "上次远程发送确认因应用重启已失效，内容没有发送。请重新发起请求。"
 private const val REMOTE_TOOL_CONTINUATION_RESTART_DISCARDED_TEXT =
     "上次远程工具结果续写确认因应用重启已失效，工具结果没有发送到远程模型。请重新发起请求。"
+private const val REMOTE_COMPACTION_BUDGET_RATIO = 0.85
+private val CONTEXT_OVERFLOW_MARKERS = listOf(
+    "context_length",
+    "context length",
+    "maximum context",
+    "prompt is too long",
+    "prompt too long",
+    "context window",
+    "exceeded",
+    "上下文过长",
+    "context_overflow",
+)
 internal const val NO_MODEL_READY_STATUS_TEXT =
     "选择远程模型或下载本地模型后即可开始"
 private val VOICE_WAVEFORM_MULTIPLIERS =
@@ -1480,7 +1492,7 @@ class SolinViewModel(
                 MessagePrivacy.LocalOnly
             }
         val remoteConfig = stateBeforeSend.remoteModelConfig
-        val remoteHistory = remoteHistoryForRemoteSend(stateBeforeSend.messages)
+        var remoteHistory: List<ChatMessage> = remoteHistoryForRemoteSend(stateBeforeSend.messages)
         val localImageAttachmentCount = if (useRemoteModel) 0 else localImageAttachments.size
         if (!useRemoteModel &&
             localImageAttachments.isNotEmpty() &&
@@ -1955,61 +1967,71 @@ class SolinViewModel(
                                     remoteHistoryCount = remoteHistory.size,
                                 )
                             }
-                            remoteRuntime.sendWithTools(
-                                prompt = route.promptForModel,
+                            val remoteTokenBudget = remoteConfig.modelProfile().contextWindowTokens
+                                ?.let { window -> (window * REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
+                                ?: Int.MAX_VALUE
+                            val result = sendRemoteWithOverflowRetry(
+                                runId = route.runId,
                                 history = remoteHistory,
-                                parameters = _uiState.value.generationParameters,
-                                config = remoteConfig,
-                                tools = remoteTools,
-                                imageAttachments = imageAttachments,
-                            ).collect { event ->
-                                if (outputQualityDecision != null) return@collect
-                                when (event) {
-                                    is RemoteChatEvent.TextDelta -> {
-                                        if (remoteToolObservation == null) {
-                                            val decision = appendGuardedGenerationChunk(
-                                                partial = partial,
-                                                chunk = event.text,
+                                tokenBudget = remoteTokenBudget,
+                            ) { historyToSend ->
+                                remoteRuntime.sendWithTools(
+                                    prompt = route.promptForModel,
+                                    history = historyToSend,
+                                    parameters = _uiState.value.generationParameters,
+                                    config = remoteConfig,
+                                    tools = remoteTools,
+                                    imageAttachments = imageAttachments,
+                                ).collect { event ->
+                                    if (outputQualityDecision != null) return@collect
+                                    when (event) {
+                                        is RemoteChatEvent.TextDelta -> {
+                                            if (remoteToolObservation == null) {
+                                                val decision = appendGuardedGenerationChunk(
+                                                    partial = partial,
+                                                    chunk = event.text,
+                                                    runtimeKind = GenerationRuntimeKind.Remote,
+                                                    modelId = remoteConfig.modelProfile().id,
+                                                    backend = null,
+                                                    parameters = _uiState.value.generationParameters,
+                                                )
+                                                if (decision !is GenerationQualityDecision.Continue) {
+                                                    outputQualityDecision = decision
+                                                    remoteRuntime.stop()
+                                                }
+                                            }
+                                        }
+
+                                        is RemoteChatEvent.ToolCall -> {
+                                            val runId = route.runId ?: error("远程工具调用缺少 Agent run")
+                                            remoteToolObservation =
+                                                assistantOrchestrator.observeModelToolRequest(runId, event.request)
+                                                    ?: error("远程工具调用无法进入确认流程")
+                                        }
+
+                                        is RemoteChatEvent.ToolCalls -> {
+                                            val runId = route.runId ?: error("远程工具调用缺少 Agent run")
+                                            remoteToolObservation =
+                                                assistantOrchestrator.observeModelToolRequests(runId, event.requests)
+                                                    ?: error("远程批量工具调用无法进入执行流程")
+                                        }
+
+                                        is RemoteChatEvent.ParseError -> {
+                                            val decision = outputQualityGuard.failClosedForFormatViolation(
+                                                summary = event.summary,
+                                                accumulatedText = partial.toString(),
                                                 runtimeKind = GenerationRuntimeKind.Remote,
                                                 modelId = remoteConfig.modelProfile().id,
                                                 backend = null,
-                                                parameters = _uiState.value.generationParameters,
                                             )
-                                            if (decision !is GenerationQualityDecision.Continue) {
-                                                outputQualityDecision = decision
-                                                remoteRuntime.stop()
-                                            }
+                                            applyOutputQualityDecisionToAssistant(partial, decision)
+                                            outputQualityDecision = decision
+                                            remoteRuntime.stop()
                                         }
-                                    }
-
-                                    is RemoteChatEvent.ToolCall -> {
-                                        val runId = route.runId ?: error("远程工具调用缺少 Agent run")
-                                        remoteToolObservation =
-                                            assistantOrchestrator.observeModelToolRequest(runId, event.request)
-                                                ?: error("远程工具调用无法进入确认流程")
-                                    }
-
-                                    is RemoteChatEvent.ToolCalls -> {
-                                        val runId = route.runId ?: error("远程工具调用缺少 Agent run")
-                                        remoteToolObservation =
-                                            assistantOrchestrator.observeModelToolRequests(runId, event.requests)
-                                                ?: error("远程批量工具调用无法进入执行流程")
-                                    }
-
-                                    is RemoteChatEvent.ParseError -> {
-                                        val decision = outputQualityGuard.failClosedForFormatViolation(
-                                            summary = event.summary,
-                                            accumulatedText = partial.toString(),
-                                            runtimeKind = GenerationRuntimeKind.Remote,
-                                            modelId = remoteConfig.modelProfile().id,
-                                            backend = null,
-                                        )
-                                        applyOutputQualityDecisionToAssistant(partial, decision)
-                                        outputQualityDecision = decision
-                                        remoteRuntime.stop()
                                     }
                                 }
                             }
+                            remoteHistory = result.first
                         } else {
                             collectLocalRuntimeResponse(
                                 promptForModel = route.promptForModel,
@@ -3679,7 +3701,7 @@ class SolinViewModel(
         val stateAtStart = _uiState.value
         val useRemoteModel = stateAtStart.inferenceMode == InferenceMode.Remote
         val remoteConfig = stateAtStart.remoteModelConfig
-        val remoteHistory = remoteHistoryForRemoteSend(stateAtStart.messages.dropLast(1))
+        var remoteHistory: List<ChatMessage> = remoteHistoryForRemoteSend(stateAtStart.messages.dropLast(1))
         if (useRemoteModel &&
             responsePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
@@ -3856,60 +3878,70 @@ class SolinViewModel(
                             remoteHistoryCount = remoteHistory.size,
                         )
                     }
-                    remoteRuntime.sendWithTools(
-                        prompt = promptForModel,
+                    val remoteTokenBudget = remoteConfig.modelProfile().contextWindowTokens
+                        ?.let { window -> (window * REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
+                        ?: Int.MAX_VALUE
+                    val result = sendRemoteWithOverflowRetry(
+                        runId = runId,
                         history = remoteHistory,
-                        parameters = _uiState.value.generationParameters,
-                        config = remoteConfig,
-                        tools = remoteTools,
-                    ).collect { event ->
-                        if (outputQualityDecision != null) return@collect
-                        when (event) {
-                            is RemoteChatEvent.TextDelta -> {
-                                if (modelObservation == null) {
-                                    val decision = appendGuardedGenerationChunk(
-                                        partial = partial,
-                                        chunk = event.text,
+                        tokenBudget = remoteTokenBudget,
+                    ) { historyToSend ->
+                        remoteRuntime.sendWithTools(
+                            prompt = promptForModel,
+                            history = historyToSend,
+                            parameters = _uiState.value.generationParameters,
+                            config = remoteConfig,
+                            tools = remoteTools,
+                        ).collect { event ->
+                            if (outputQualityDecision != null) return@collect
+                            when (event) {
+                                is RemoteChatEvent.TextDelta -> {
+                                    if (modelObservation == null) {
+                                        val decision = appendGuardedGenerationChunk(
+                                            partial = partial,
+                                            chunk = event.text,
+                                            runtimeKind = GenerationRuntimeKind.Remote,
+                                            modelId = remoteConfig.modelProfile().id,
+                                            backend = null,
+                                            parameters = _uiState.value.generationParameters,
+                                        )
+                                        if (decision !is GenerationQualityDecision.Continue) {
+                                            outputQualityDecision = decision
+                                            remoteRuntime.stop()
+                                        }
+                                    }
+                                }
+
+                                is RemoteChatEvent.ToolCall -> {
+                                    val id = runId ?: error("远程工具调用缺少 Agent run")
+                                    modelObservation =
+                                        assistantOrchestrator.observeModelToolRequest(id, event.request)
+                                            ?: error("远程工具调用无法进入确认流程")
+                                }
+
+                                is RemoteChatEvent.ToolCalls -> {
+                                    val id = runId ?: error("远程工具调用缺少 Agent run")
+                                    modelObservation =
+                                        assistantOrchestrator.observeModelToolRequests(id, event.requests)
+                                            ?: error("远程批量工具调用无法进入执行流程")
+                                }
+
+                                is RemoteChatEvent.ParseError -> {
+                                    val decision = outputQualityGuard.failClosedForFormatViolation(
+                                        summary = event.summary,
+                                        accumulatedText = partial.toString(),
                                         runtimeKind = GenerationRuntimeKind.Remote,
                                         modelId = remoteConfig.modelProfile().id,
                                         backend = null,
-                                        parameters = _uiState.value.generationParameters,
                                     )
-                                    if (decision !is GenerationQualityDecision.Continue) {
-                                        outputQualityDecision = decision
-                                        remoteRuntime.stop()
-                                    }
+                                    applyOutputQualityDecisionToAssistant(partial, decision)
+                                    outputQualityDecision = decision
+                                    remoteRuntime.stop()
                                 }
-                            }
-
-                            is RemoteChatEvent.ToolCall -> {
-                                val id = runId ?: error("远程工具调用缺少 Agent run")
-                                modelObservation =
-                                    assistantOrchestrator.observeModelToolRequest(id, event.request)
-                                        ?: error("远程工具调用无法进入确认流程")
-                            }
-
-                            is RemoteChatEvent.ToolCalls -> {
-                                val id = runId ?: error("远程工具调用缺少 Agent run")
-                                modelObservation =
-                                    assistantOrchestrator.observeModelToolRequests(id, event.requests)
-                                        ?: error("远程批量工具调用无法进入执行流程")
-                            }
-
-                            is RemoteChatEvent.ParseError -> {
-                                val decision = outputQualityGuard.failClosedForFormatViolation(
-                                    summary = event.summary,
-                                    accumulatedText = partial.toString(),
-                                    runtimeKind = GenerationRuntimeKind.Remote,
-                                    modelId = remoteConfig.modelProfile().id,
-                                    backend = null,
-                                )
-                                applyOutputQualityDecisionToAssistant(partial, decision)
-                                outputQualityDecision = decision
-                                remoteRuntime.stop()
                             }
                         }
                     }
+                    remoteHistory = result.first
                 } else {
                     collectLocalRuntimeResponse(
                         promptForModel = promptForModel,
@@ -4312,7 +4344,7 @@ class SolinViewModel(
     private fun privacyForPublicEvidenceToolName(toolName: String?): MessagePrivacy {
         val isInternalPublicEvidenceBatch = toolName == PUBLIC_EVIDENCE_BATCH_TOOL_NAME
         val isRegisteredPublicEvidence =
-            toolName != null && toolRegistry.specFor(toolName)?.isPublicEvidenceBatchEligible() == true
+            toolName != null && toolRegistry.specFor(toolName)?.isEligibleForParallelBatch() == true
         return if (isInternalPublicEvidenceBatch || isRegisteredPublicEvidence) {
             MessagePrivacy.RemoteEligible
         } else {
@@ -5640,6 +5672,76 @@ class SolinViewModel(
             else -> cleanMessage
         }
     }
+
+    /**
+     * Detect context-length overflow phrases in an exception chain. Matches wording produced by
+     * common remote providers (OpenAI "context_length_exceeded", Anthropic "prompt is too long",
+     * Gemini "maximum context", LiteLLM/OpenAI-compatible proxies) plus the Chinese-localized
+     * surface strings we emit ourselves. We walk the cause chain so wrapped IOExceptions/
+     * RemoteChatRuntime failures still match.
+     */
+    private fun Throwable.isContextOverflowError(): Boolean {
+        var current: Throwable? = this
+        val visited = HashSet<Throwable>(4)
+        while (current != null && current !in visited) {
+            visited += current
+            val msg = current.message.orEmpty().lowercase()
+            if (CONTEXT_OVERFLOW_MARKERS.any { it in msg }) return true
+            current = current.cause
+        }
+        return false
+    }
+
+    /**
+     * Call [block] streaming remote events; if it throws a context-overflow error, force a
+     * compaction pass against [history] (returning the compacted list) and retry exactly once.
+     * Second throw propagates. Preflight proactive compaction is performed before the first call.
+     *
+     * @return Pair(compactedHistory, retried) — caller should use the returned history for any
+     *   subsequent work (it may be the original or a compacted replacement).
+     */
+    private suspend fun sendRemoteWithOverflowRetry(
+        runId: String?,
+        history: List<ChatMessage>,
+        tokenBudget: Int,
+        estimatedTokens: ((List<ChatMessage>) -> Int)? = null,
+        block: suspend (history: List<ChatMessage>) -> Unit,
+    ): Pair<List<ChatMessage>, Boolean> {
+        val estimator = estimatedTokens ?: ::estimateHistoryTokensDefault
+        // Preflight: proactive compaction under normal budget. No-op for NoOpContextCompactor.
+        val preflightBudget = if (tokenBudget > 0) tokenBudget else Int.MAX_VALUE
+        var currentHistory: List<ChatMessage> = assistantOrchestrator.compactHistory(
+            messages = history,
+            tokenBudget = preflightBudget,
+            runId = runId,
+            force = false,
+            estimatedTokens = estimator,
+        )
+        return try {
+            block(currentHistory)
+            currentHistory to false
+        } catch (first: Throwable) {
+            if (!first.isContextOverflowError()) throw first
+            // ONE retry with forced aggressive compaction (budget=0 triggers OverBudget).
+            currentHistory = assistantOrchestrator.compactHistory(
+                messages = currentHistory,
+                tokenBudget = 0,
+                runId = runId,
+                force = true,
+                estimatedTokens = estimator,
+            )
+            try {
+                block(currentHistory)
+                currentHistory to true
+            } catch (second: Throwable) {
+                second.addSuppressed(first)
+                throw second
+            }
+        }
+    }
+
+    private fun estimateHistoryTokensDefault(messages: List<ChatMessage>): Int =
+        com.bytedance.zgx.solin.orchestration.estimateTokensApproximate(messages)
 
     private fun MutableStateFlow<ChatUiState>.updateLastAssistant(text: String) {
         update { state ->

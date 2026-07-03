@@ -3,8 +3,6 @@ package com.bytedance.zgx.solin.tool
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
@@ -44,10 +42,25 @@ class TimeoutToolExecutionBoundary(
             data = request.toolExecutionContext(),
         )
 
-    suspend fun executePublicEvidenceBatch(
+    /**
+     * Execute a batch of requests with timeout and retry support. The batch is first
+     * validated via [publicEvidenceBatchRequestValidator] — if any request is rejected,
+     * NONE are executed and every request receives a rejection result (valid ones get
+     * a synthetic "another request was ineligible" rejection). Validated requests are
+     * dispatched through [executor.executeBatch] under a supervisorScope so a
+     * catastrophic throw escaping the executor (defensive; executors are required to
+     * isolate per-tool failures via their own [ToolExecutor.executeBatch] contract)
+     * is caught at the boundary and mapped to per-tool failures. The executor is
+     * responsible for concurrency/partitioning policy (e.g. running device-control
+     * tools sequentially before a concurrent independent segment).
+     */
+    suspend fun executeBatch(
         requests: List<ToolRequest>,
         onRetry: suspend () -> Unit = {},
     ): List<ToolResult> {
+        if (requests.isEmpty()) return emptyList()
+
+        // Step 1: pre-validate the whole batch. Any rejection short-circuits execution.
         val rejectedByRequestId = requests.mapNotNull { request ->
             publicEvidenceBatchRequestValidator(request)?.let { rejection -> request.id to rejection }
         }.toMap()
@@ -58,48 +71,83 @@ class TimeoutToolExecutionBoundary(
                 )
             }
         }
-        var results = executeAll(requests)
+
+        // Step 2: run the batch. Per-tool isolation is the executor's responsibility
+        // (see ToolExecutor.executeBatch contract); the boundary only guards against
+        // catastrophic failure that escapes the executor.
+        var results = executeBatchInternal(requests)
+
+        // Step 3: retry retryable failures.
         repeat(publicEvidenceBatchRetryAttempts) {
-            val retryRequests = requests.retryableFailures(results)
-            if (retryRequests.isEmpty()) return results
+            val retryRequests = requests.filter { request ->
+                resultsByRequestId(results, requests)[request.id]?.let { result ->
+                    result.status != ToolStatus.Succeeded && result.retryable
+                } == true
+            }
+            if (retryRequests.isEmpty()) return@repeat
             onRetry()
-            val retryResultsByRequestId = executeAll(retryRequests)
-                .associateBy { result -> result.requestId }
-            results = results.map { result ->
-                retryResultsByRequestId[result.requestId] ?: result
+            val retryResults = executeBatchInternal(retryRequests)
+            val retryById = resultsByRequestId(retryResults, retryRequests)
+            results = requests.map { request ->
+                retryById[request.id] ?: resultsByRequestId(results, requests).getValue(request.id)
             }
         }
+
         return results
     }
 
-    private suspend fun executeAll(requests: List<ToolRequest>): List<ToolResult> =
-        supervisorScope {
-            requests.map { request ->
-                async {
-                    executeForBatch(request)
+    private suspend fun executeBatchInternal(requests: List<ToolRequest>): List<ToolResult> =
+        withTimeoutOrNull(timeoutMillis) {
+            supervisorScope {
+                runCatching {
+                    withContext(dispatcher) { executor.executeBatch(requests) }
+                }.getOrElse { throwable ->
+                    if (throwable is CancellationException) {
+                        if (!currentCoroutineContext().isActive) throw throwable
+                        requests.map { request ->
+                            request.cancelled(
+                                summary = "Tool batch was cancelled before completion: ${throwable.cleanMessage()}",
+                                data = request.toolExecutionContext(),
+                            )
+                        }
+                    } else {
+                        requests.map { request ->
+                            request.failed(
+                                code = ToolErrorCode.ExecutionFailed,
+                                summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
+                                retryable = true,
+                                data = request.toolExecutionContext(),
+                            )
+                        }
+                    }
                 }
-            }.awaitAll()
-        }
-
-    private suspend fun executeForBatch(request: ToolRequest): ToolResult =
-        try {
-            execute(request)
-        } catch (cancellation: CancellationException) {
-            if (!currentCoroutineContext().isActive) throw cancellation
-            request.cancelled(
-                summary = "Tool execution was cancelled before completion: ${cancellation.cleanMessage()}",
+            }
+        } ?: requests.map { request ->
+            request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "Tool batch execution timed out after ${timeoutMillis / 1_000} seconds.",
+                retryable = true,
                 data = request.toolExecutionContext(),
             )
         }
+
+    /**
+     * Backwards-compatible public-evidence batch API. Delegates to [executeBatch].
+     */
+    suspend fun executePublicEvidenceBatch(
+        requests: List<ToolRequest>,
+        onRetry: suspend () -> Unit = {},
+    ): List<ToolResult> = executeBatch(requests, onRetry)
 }
 
-private fun List<ToolRequest>.retryableFailures(results: List<ToolResult>): List<ToolRequest> {
-    val resultsByRequestId = results.associateBy { result -> result.requestId }
-    return filter { request ->
-        resultsByRequestId[request.id]?.let { result ->
-            result.status != ToolStatus.Succeeded && result.retryable
-        } == true
+private fun resultsByRequestId(
+    results: List<ToolResult>,
+    requests: List<ToolRequest>,
+): Map<String, ToolResult> {
+    if (results.size == requests.size && results.indices.all { results[it].requestId == requests[it].id }) {
+        return requests.zip(results).associate { (req, res) -> req.id to res }
     }
+    return results.associateBy { it.requestId }
 }
 
 private fun ToolRequest.toolExecutionContext(): Map<String, String> =

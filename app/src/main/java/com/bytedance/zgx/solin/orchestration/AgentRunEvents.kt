@@ -1,17 +1,23 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.plan.PlanSnapshot
 import com.bytedance.zgx.solin.tool.ToolStatus
+import com.bytedance.zgx.solin.undo.UndoEntry
 
 enum class AgentRunEventKind {
     InputReceived,
     ContextLoaded,
     PlanCreated,
+    PlanUpdated,
     ConfirmationRequested,
     ToolExecuted,
     ObservationRecorded,
     AnswerGenerated,
     RunFailed,
     RunCancelled,
+    UndoPushed,
+    UndoPopped,
+    UndoExecuted,
 }
 
 enum class AgentRunEventState {
@@ -86,6 +92,32 @@ sealed class AgentRunEvent(
         val riskMarkers: Set<AgentRunRiskMarker> = emptySet(),
     ) : AgentRunEvent(eventId, runId, AgentRunEventKind.PlanCreated)
 
+    data class PlanUpdated(
+        override val eventId: String,
+        override val runId: String,
+        val snapshot: PlanSnapshot,
+    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.PlanUpdated)
+
+    data class UndoPushed(
+        override val eventId: String,
+        override val runId: String,
+        val entry: UndoEntry,
+    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.UndoPushed)
+
+    data class UndoPopped(
+        override val eventId: String,
+        override val runId: String,
+        val reason: String,
+    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.UndoPopped)
+
+    data class UndoExecuted(
+        override val eventId: String,
+        override val runId: String,
+        val sourceRequestId: String,
+        val success: Boolean,
+        val detail: String,
+    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.UndoExecuted)
+
     data class ConfirmationRequested(
         override val eventId: String,
         override val runId: String,
@@ -140,47 +172,6 @@ sealed class AgentRunEvent(
     ) : AgentRunEvent(eventId, runId, AgentRunEventKind.RunCancelled)
 }
 
-data class AgentRunEventCounts(
-    val total: Int = 0,
-    val inputReceived: Int = 0,
-    val contextLoaded: Int = 0,
-    val planCreated: Int = 0,
-    val confirmationRequested: Int = 0,
-    val toolExecuted: Int = 0,
-    val observationRecorded: Int = 0,
-    val answerGenerated: Int = 0,
-    val runFailed: Int = 0,
-    val runCancelled: Int = 0,
-    val memoryHits: Int = 0,
-    val deviceContextLoads: Int = 0,
-    val plannedSteps: Int = 0,
-    val observationSources: Int = 0,
-    val inputAttachments: Int = 0,
-)
-
-data class AgentRunPendingConfirmationSummary(
-    val confirmationId: String,
-    val toolCallId: String,
-    val actionLabel: String,
-    val privacyMarkers: Set<AgentRunPrivacyMarker> = emptySet(),
-    val riskMarkers: Set<AgentRunRiskMarker> = emptySet(),
-)
-
-data class AgentRunEventSummary(
-    val runId: String?,
-    val firstEventId: String?,
-    val lastEventId: String?,
-    val orderedEventKinds: List<AgentRunEventKind>,
-    val currentState: AgentRunEventState,
-    val terminalState: AgentRunTerminalState?,
-    val terminalEventId: String?,
-    val pendingConfirmation: AgentRunPendingConfirmationSummary?,
-    val counts: AgentRunEventCounts,
-    val labels: List<String>,
-    val privacyMarkers: Set<AgentRunPrivacyMarker>,
-    val riskMarkers: Set<AgentRunRiskMarker>,
-    val latestSafeText: String?,
-)
 
 object AgentStepRunEventAdapter {
     fun adapt(run: AgentRun, steps: List<AgentStep>): List<AgentRunEvent> =
@@ -393,6 +384,8 @@ object AgentStepRunEventAdapter {
             is AgentStep.RunDataReceiptRecorded,
             is AgentStep.SafetyChecked,
             is AgentStep.UserConfirmed,
+            is AgentStep.UserQuestionAsked,
+            is AgentStep.UserQuestionAnswered,
             is AgentStep.ContinuationCursorRecorded,
             is AgentStep.ToolRetryScheduled -> emptyList()
         }
@@ -448,206 +441,6 @@ object AgentStepRunEventAdapter {
             "RemoteEligible" -> emptySet()
             else -> emptySet()
         }
-}
-
-object AgentRunEventProjector {
-    fun summarize(events: List<AgentRunEvent>): AgentRunEventSummary {
-        if (events.isEmpty()) {
-            return AgentRunEventSummary(
-                runId = null,
-                firstEventId = null,
-                lastEventId = null,
-                orderedEventKinds = emptyList(),
-                currentState = AgentRunEventState.Empty,
-                terminalState = null,
-                terminalEventId = null,
-                pendingConfirmation = null,
-                counts = AgentRunEventCounts(),
-                labels = emptyList(),
-                privacyMarkers = emptySet(),
-                riskMarkers = emptySet(),
-                latestSafeText = null,
-            )
-        }
-
-        val labels = linkedSetOf<String>()
-        val privacyMarkers = linkedSetOf<AgentRunPrivacyMarker>()
-        val riskMarkers = linkedSetOf<AgentRunRiskMarker>()
-        var pendingConfirmation: AgentRunPendingConfirmationSummary? = null
-        var terminalState: AgentRunTerminalState? = null
-        var terminalEventId: String? = null
-        var latestSafeText: String? = null
-
-        var inputReceived = 0
-        var contextLoaded = 0
-        var planCreated = 0
-        var confirmationRequested = 0
-        var toolExecuted = 0
-        var observationRecorded = 0
-        var answerGenerated = 0
-        var runFailed = 0
-        var runCancelled = 0
-        var memoryHits = 0
-        var deviceContextLoads = 0
-        var plannedSteps = 0
-        var observationSources = 0
-        var inputAttachments = 0
-
-        events.forEach { event ->
-            when (event) {
-                is AgentRunEvent.InputReceived -> {
-                    inputReceived += 1
-                    inputAttachments += event.attachmentCount.coerceAtLeast(0)
-                    privacyMarkers.addAll(event.privacyMarkers)
-                    labels.addSanitizedLabel(event.sourceLabel)
-                }
-
-                is AgentRunEvent.ContextLoaded -> {
-                    contextLoaded += 1
-                    memoryHits += event.memoryHitCount.coerceAtLeast(0)
-                    if (event.deviceContextIncluded) {
-                        deviceContextLoads += 1
-                    }
-                    privacyMarkers.addAll(event.privacyMarkers)
-                    event.sourceLabels.forEach(labels::addSanitizedLabel)
-                }
-
-                is AgentRunEvent.PlanCreated -> {
-                    planCreated += 1
-                    plannedSteps += event.stepCount.coerceAtLeast(0)
-                    riskMarkers.addAll(event.riskMarkers)
-                    event.toolLabels.forEach(labels::addSanitizedLabel)
-                }
-
-                is AgentRunEvent.ConfirmationRequested -> {
-                    confirmationRequested += 1
-                    privacyMarkers.addAll(event.privacyMarkers)
-                    riskMarkers.addAll(event.riskMarkers)
-                    labels.addSanitizedLabel(event.actionLabel)
-                    pendingConfirmation = AgentRunPendingConfirmationSummary(
-                        confirmationId = sanitizeId(event.confirmationId),
-                        toolCallId = sanitizeId(event.toolCallId),
-                        actionLabel = sanitizeText(event.actionLabel),
-                        privacyMarkers = event.privacyMarkers,
-                        riskMarkers = event.riskMarkers,
-                    )
-                }
-
-                is AgentRunEvent.ToolExecuted -> {
-                    toolExecuted += 1
-                    riskMarkers.addAll(event.riskMarkers)
-                    labels.addSanitizedLabel(event.toolLabel)
-                    if (pendingConfirmation?.toolCallId == sanitizeId(event.toolCallId)) {
-                        pendingConfirmation = null
-                    }
-                }
-
-                is AgentRunEvent.ObservationRecorded -> {
-                    observationRecorded += 1
-                    observationSources += event.sourceCount.coerceAtLeast(0)
-                    privacyMarkers.addAll(event.privacyMarkers)
-                    labels.addSanitizedLabel(event.observationLabel)
-                }
-
-                is AgentRunEvent.AnswerGenerated -> {
-                    answerGenerated += 1
-                    privacyMarkers.addAll(event.privacyMarkers)
-                    event.outputLabel?.let(labels::addSanitizedLabel)
-                    latestSafeText = event.safeAnswerPreview?.let(::sanitizeText)
-                    pendingConfirmation = null
-                    terminalState = AgentRunTerminalState.AnswerGenerated
-                    terminalEventId = sanitizeId(event.answerId)
-                }
-
-                is AgentRunEvent.RunFailed -> {
-                    runFailed += 1
-                    riskMarkers.addAll(event.riskMarkers)
-                    labels.addSanitizedLabel(event.reasonLabel)
-                    pendingConfirmation = null
-                    terminalState = AgentRunTerminalState.Failed
-                    terminalEventId = sanitizeId(event.failureId)
-                }
-
-                is AgentRunEvent.RunCancelled -> {
-                    runCancelled += 1
-                    labels.addSanitizedLabel(event.reasonLabel)
-                    pendingConfirmation = null
-                    terminalState = AgentRunTerminalState.Cancelled
-                    terminalEventId = sanitizeId(event.cancellationId)
-                }
-            }
-        }
-
-        val counts = AgentRunEventCounts(
-            total = events.size,
-            inputReceived = inputReceived,
-            contextLoaded = contextLoaded,
-            planCreated = planCreated,
-            confirmationRequested = confirmationRequested,
-            toolExecuted = toolExecuted,
-            observationRecorded = observationRecorded,
-            answerGenerated = answerGenerated,
-            runFailed = runFailed,
-            runCancelled = runCancelled,
-            memoryHits = memoryHits,
-            deviceContextLoads = deviceContextLoads,
-            plannedSteps = plannedSteps,
-            observationSources = observationSources,
-            inputAttachments = inputAttachments,
-        )
-
-        return AgentRunEventSummary(
-            runId = summarizeRunId(events),
-            firstEventId = sanitizeId(events.first().eventId),
-            lastEventId = sanitizeId(events.last().eventId),
-            orderedEventKinds = events.map { it.kind },
-            currentState = currentState(events.last(), terminalState, pendingConfirmation),
-            terminalState = terminalState,
-            terminalEventId = terminalEventId,
-            pendingConfirmation = pendingConfirmation,
-            counts = counts,
-            labels = labels.toList(),
-            privacyMarkers = privacyMarkers,
-            riskMarkers = riskMarkers,
-            latestSafeText = latestSafeText,
-        )
-    }
-
-    private fun currentState(
-        lastEvent: AgentRunEvent,
-        terminalState: AgentRunTerminalState?,
-        pendingConfirmation: AgentRunPendingConfirmationSummary?,
-    ): AgentRunEventState =
-        when {
-            terminalState == AgentRunTerminalState.Failed -> AgentRunEventState.Failed
-            terminalState == AgentRunTerminalState.Cancelled -> AgentRunEventState.Cancelled
-            terminalState == AgentRunTerminalState.AnswerGenerated -> AgentRunEventState.Completed
-            pendingConfirmation != null -> AgentRunEventState.AwaitingConfirmation
-            else -> when (lastEvent) {
-                is AgentRunEvent.InputReceived -> AgentRunEventState.InputReceived
-                is AgentRunEvent.ContextLoaded -> AgentRunEventState.ContextLoaded
-                is AgentRunEvent.PlanCreated -> AgentRunEventState.Planning
-                is AgentRunEvent.ConfirmationRequested -> AgentRunEventState.AwaitingConfirmation
-                is AgentRunEvent.ToolExecuted -> AgentRunEventState.Executing
-                is AgentRunEvent.ObservationRecorded -> AgentRunEventState.Observing
-                is AgentRunEvent.AnswerGenerated -> AgentRunEventState.Completed
-                is AgentRunEvent.RunFailed -> AgentRunEventState.Failed
-                is AgentRunEvent.RunCancelled -> AgentRunEventState.Cancelled
-            }
-        }
-
-    private fun summarizeRunId(events: List<AgentRunEvent>): String? {
-        val firstRunId = events.first().runId
-        return if (events.all { it.runId == firstRunId }) {
-            sanitizeId(firstRunId)
-        } else {
-            "mixed"
-        }
-    }
-}
-
-private fun MutableSet<String>.addSanitizedLabel(value: String) {
-    add(sanitizeText(value))
 }
 
 private fun sanitizeId(value: String): String {

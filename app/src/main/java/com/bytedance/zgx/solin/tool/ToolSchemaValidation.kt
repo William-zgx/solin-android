@@ -220,6 +220,9 @@ private val SUPPORTED_PROPERTY_SCHEMA_KEYS = setOf(
     "maximum",
     "exclusiveMinimum",
     "exclusiveMaximum",
+    "items",
+    "maxItems",
+    "minItems",
 )
 
 private const val MAX_SUPPORTED_STRING_LENGTH_BOUND = Int.MAX_VALUE.toLong()
@@ -320,10 +323,40 @@ private fun requireCompatiblePropertyKeywords(
                 if (propertyJson.has(keyword)) add(keyword)
             }
         }
+        if (type != "array") {
+            listOf("items", "minItems", "maxItems").forEach { keyword ->
+                if (propertyJson.has(keyword)) add(keyword)
+            }
+        }
     }
     require(incompatibleKeys.isEmpty()) {
         "Tool $toolName $schemaKind property $propertyName declares incompatible schema keyword(s) " +
             "for type '$type': ${incompatibleKeys.sorted().joinToString()}"
+    }
+    if (type == "array" && propertyJson.has("items")) {
+        val items = propertyJson.optJSONObject("items")
+        require(items != null) {
+            "Tool $toolName $schemaKind property $propertyName items must be an object schema"
+        }
+        // Recursively validate the items sub-schema so malformed nested schemas are rejected
+        // during registry construction rather than silently accepted.
+        validatePropertySchema(
+            toolName = toolName,
+            schemaKind = "$schemaKind property $propertyName items",
+            propertyName = "item",
+            propertyJson = items,
+        )
+    }
+    val minItems = optionalIntegerValue(propertyJson, "minItems", toolName, schemaKind, propertyName)
+    val maxItems = optionalIntegerValue(propertyJson, "maxItems", toolName, schemaKind, propertyName)
+    require(minItems == null || minItems >= 0) {
+        "Tool $toolName $schemaKind property $propertyName minItems must be non-negative"
+    }
+    require(maxItems == null || maxItems >= 0) {
+        "Tool $toolName $schemaKind property $propertyName maxItems must be non-negative"
+    }
+    require(minItems == null || maxItems == null || minItems <= maxItems) {
+        "Tool $toolName $schemaKind property $propertyName minItems must not exceed maxItems"
     }
 }
 

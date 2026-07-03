@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.runtime
 
+import android.util.Log
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.GenerationParameters
@@ -9,6 +10,8 @@ import com.bytedance.zgx.solin.LocalImageAttachment
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.isUsable
+import com.bytedance.zgx.solin.orchestration.CompactionTrigger
+import com.bytedance.zgx.solin.orchestration.ContextCompactor
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.BenchmarkInfo
 import com.google.ai.edge.litertlm.Content
@@ -24,6 +27,7 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 
 data class LocalModelRequest(
     val prompt: String,
@@ -170,6 +174,7 @@ object DisabledLiteRtRuntime : LocalChatRuntime {
 
 class RealLiteRtRuntime(
     private val cacheDir: File,
+    private val contextCompactor: ContextCompactor? = null,
 ) : LocalChatRuntime {
     private var engine: Engine? = null
     private var conversation: Conversation? = null
@@ -242,10 +247,67 @@ class RealLiteRtRuntime(
         maxInputTokens: Int? = null,
     ) {
         val currentEngine = engine ?: error("模型尚未就绪")
+        // Wave 2: opt-in context compaction. If a compactor is supplied and a token budget is
+        // known, run it BEFORE constructing the ConversationConfig. The existing
+        // budgetLocalRuntimeHistory heuristic still runs afterwards as a safety net (coexistence).
+        // System instruction is out-of-band via ConversationConfig.systemInstruction, so the
+        // history passed here contains only user/assistant turns — no system prefix to preserve.
+        val compactedHistory = compactHistoryIfRequested(history, currentPrompt, maxInputTokens)
         conversation?.close()
         conversation = currentEngine.createConversation(
-            defaultConversationConfig(history, parameters, currentPrompt, maxInputTokens),
+            defaultConversationConfig(compactedHistory, parameters, currentPrompt, maxInputTokens),
         )
+    }
+
+    /**
+     * Run [ContextCompactor.compact] on [history] when configured. Uses [runBlocking] because
+     * the Wave 2 heuristic impl is purely CPU-bound and synchronous; the `suspend` modifier on
+     * [ContextCompactor.compact] is forward-compatibility for future LLM-based compactors.
+     *
+     * Logs via [Log.d] when compaction actually collapses messages. TelemetrySink wiring is
+     * deferred to a later wave to avoid constructor-parameter ripple.
+     */
+    private fun compactHistoryIfRequested(
+        history: List<ChatMessage>,
+        currentPrompt: String,
+        maxInputTokens: Int?,
+    ): List<ChatMessage> {
+        val compactor = contextCompactor ?: return history
+        val budget = maxInputTokens ?: return history
+        if (history.isEmpty()) return history
+        // Reserve budget for system prompt + current prompt (mirrors budgetLocalRuntimeHistory).
+        val promptReserve = maxOf(
+            LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE,
+            estimateLocalRuntimeTokens(currentPrompt),
+        )
+        val historyBudget = (
+            budget -
+                LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
+                promptReserve
+            ).coerceAtLeast(0)
+        if (historyBudget <= 0) return history
+        return try {
+            val result = runBlocking {
+                compactor.compact(
+                    messages = history,
+                    tokenBudget = historyBudget,
+                    estimatedTokens = { msgs -> msgs.sumOf { it.estimatedLocalRuntimeTokens() } },
+                )
+            }
+            if (result.compactionCount > 0) {
+                Log.d(
+                    TAG,
+                    "Context compaction: trigger=${result.triggerReason} " +
+                        "count=${result.compactionCount} " +
+                        "tokensBefore=${result.tokensBefore} tokensAfter=${result.tokensAfter} " +
+                        "budget=$historyBudget",
+                )
+            }
+            result.messages
+        } catch (t: Throwable) {
+            Log.w(TAG, "Context compaction failed, falling through to budget heuristic", t)
+            history
+        }
     }
 
     override fun send(prompt: String): Flow<String> =
@@ -317,6 +379,8 @@ class RealLiteRtRuntime(
     }
 
     companion object {
+        private const val TAG = "LiteRtRuntime"
+
         fun configureNativeLogging() {
             Engine.setNativeMinLogSeverity(LogSeverity.ERROR)
         }
