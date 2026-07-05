@@ -131,7 +131,10 @@ class MainActivityComprehensiveTest {
                 ),
             ).use {
                 dismissFirstRunSetupIfPresent()
-                // Skip configureRemoteModel — state is pre-configured for Remote mode
+                // Run configureRemoteModel even though state is pre-configured:
+                // the UI flow triggers updateRemoteModelConfig → updateRemoteReadiness
+                // which ensures isReady and disclosure state are fully initialised.
+                configureRemoteModel(server.baseUrl)
 
                 sendPrompt(REMOTE_TOOL_CALL_PROMPT, server)
                 val request = server.awaitPost()

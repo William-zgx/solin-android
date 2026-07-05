@@ -266,6 +266,12 @@ class SolinViewModel(
         if (skipModelRuntimeWork) {
             if (_uiState.value.inferenceMode == InferenceMode.Remote) {
                 updateRemoteReadiness("远程模型")
+                // Ensure first-run setup is dismissed when remote is already
+                // configured (mirrors updateRemoteModelConfig's behaviour so
+                // pre-configured test/production states reach isReady=true).
+                if (_uiState.value.remoteModelConfig.isConfigured) {
+                    _uiState.update { it.copy(showFirstRunSetup = false) }
+                }
             } else if (_uiState.value.modelPath != null) {
                 _uiState.update {
                     it.copy(statusText = "已找到模型，点击加载模型")
@@ -1467,6 +1473,13 @@ class SolinViewModel(
             return
         }
         if (trimmed.isEmpty() || _uiState.value.isBusy || generationJob?.isActive == true) {
+            if (trimmed.isNotEmpty()) {
+                android.util.Log.w(
+                    "SolinViewModel",
+                    "sendMessageInternal skipped: isBusy=${_uiState.value.isBusy}, " +
+                        "generationActive=${generationJob?.isActive == true}",
+                )
+            }
             return
         }
         if (explicitUserPreferenceForgetFrom(trimmed) != null) {
@@ -1482,6 +1495,12 @@ class SolinViewModel(
             return
         }
         if (!_uiState.value.isReady) {
+            android.util.Log.w(
+                "SolinViewModel",
+                "sendMessageInternal blocked: isReady=false, mode=${_uiState.value.inferenceMode}, " +
+                    "remoteConfigured=${_uiState.value.remoteModelConfig.isConfigured}, " +
+                    "modelPath=${_uiState.value.modelPath != null}",
+            )
             handleNotReadySendAttempt()
             return
         }
@@ -1693,12 +1712,17 @@ class SolinViewModel(
                     // send can still proceed. This is critical for remote-mode tests
                     // where any routing exception would silently prevent the HTTP
                     // request from reaching the mock server.
+                    //
+                    // Generate an ephemeral runId so that downstream tool-call
+                    // handling (which requires a non-null runId for observeModelToolRequest)
+                    // still works when the remote model returns tool calls.
                     android.util.Log.w(
                         "SolinViewModel",
                         "assistantOrchestrator.route failed, using fallback Chat route: ${throwable.message}",
                     )
+                    val fallbackRunId = "fallback-${System.currentTimeMillis()}-${(0..Int.MAX_VALUE).random()}"
                     AssistantRoute.Chat(
-                        runId = null,
+                        runId = fallbackRunId,
                         promptForModel = trimmed,
                         memoryHits = emptyList(),
                         deviceContext = null,
