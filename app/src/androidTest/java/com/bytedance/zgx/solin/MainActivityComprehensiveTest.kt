@@ -51,7 +51,14 @@ class MainActivityComprehensiveTest {
     @Test
     fun emulatorFeatureWalkthroughCoversRemoteSessionsMemoryActionsAndCustomDownload() {
         LocalOpenAiServer().use { server ->
-            launchComprehensiveActivity().use {
+            launchComprehensiveActivity(
+                inferenceMode = InferenceMode.Remote,
+                remoteModelConfig = RemoteModelConfig(
+                    baseUrl = server.baseUrl,
+                    modelName = "mock-model",
+                    supportsVisionInput = true,
+                ),
+            ).use {
                 dismissFirstRunSetupIfPresent()
                 configureRemoteModel(server.baseUrl)
 
@@ -115,9 +122,16 @@ class MainActivityComprehensiveTest {
     @Test
     fun remoteWebSearchToolCallExecutesReadOnlyToolWithoutConfirmation() {
         LocalOpenAiServer().use { server ->
-            launchComprehensiveActivity().use {
+            launchComprehensiveActivity(
+                inferenceMode = InferenceMode.Remote,
+                remoteModelConfig = RemoteModelConfig(
+                    baseUrl = server.baseUrl,
+                    modelName = "mock-model",
+                    supportsVisionInput = true,
+                ),
+            ).use {
                 dismissFirstRunSetupIfPresent()
-                configureRemoteModel(server.baseUrl)
+                // Skip configureRemoteModel — state is pre-configured for Remote mode
 
                 sendPrompt(REMOTE_TOOL_CALL_PROMPT, server)
                 val request = server.awaitPost()
@@ -134,10 +148,14 @@ class MainActivityComprehensiveTest {
         }
     }
 
-    private fun launchComprehensiveActivity(): ActivityScenario<MainActivity> {
+    private fun launchComprehensiveActivity(
+        inferenceMode: InferenceMode = InferenceMode.Local,
+        remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
+    ): ActivityScenario<MainActivity> {
         resetMainActivityPersistentState(
             context = targetContext,
-            inferenceMode = InferenceMode.Local,
+            inferenceMode = inferenceMode,
+            remoteModelConfig = remoteModelConfig,
         )
         return ActivityScenario.launch(mainActivitySkipStartupIntent(targetContext))
     }

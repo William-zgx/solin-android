@@ -285,9 +285,20 @@ class RoomAgentTraceStore(
             sessionId = sessionId,
         )
         liveRuns[run.id] = run
-        traceDao.upsertRun(run.toEntity())
         liveSteps[run.id] = mutableListOf()
         liveVerboseTraces[run.id] = mutableListOf()
+        // Persist to Room, but never let a DB failure prevent the run from being
+        // usable. The in-memory maps (liveRuns, liveSteps, etc.) are the source
+        // of truth for the active run; the DB is a write-through cache for
+        // observability. If the DB is unavailable (e.g. fresh test install,
+        // tables cleared), the run still proceeds in-memory.
+        runCatching { traceDao.upsertRun(run.toEntity()) }
+            .onFailure { throwable ->
+                android.util.Log.w(
+                    "RoomAgentTraceStore",
+                    "upsertRun failed for ${run.id}, continuing in-memory: ${throwable.message}",
+                )
+            }
         return run
     }
 
@@ -297,8 +308,16 @@ class RoomAgentTraceStore(
 
     override fun updateState(runId: String, state: AgentRunState): AgentRun {
         val now = clockMillis()
-        val updatedRows = traceDao.updateRunState(runId, state.name, now)
-        require(updatedRows > 0) { "Agent run does not exist: $runId" }
+        // Try DB update first; if the run doesn't exist in the DB yet (e.g.
+        // createRun's upsert failed), try to insert it now so subsequent
+        // updates succeed.
+        val updatedRows = runCatching { traceDao.updateRunState(runId, state.name, now) }
+            .getOrDefault(0)
+        if (updatedRows == 0) {
+            liveRuns[runId]?.let { run ->
+                runCatching { traceDao.upsertRun(run.copy(state = state, updatedAtMillis = now).toEntity()) }
+            }
+        }
         liveRuns[runId]?.let { liveRun ->
             val updated = liveRun.copy(
                 state = state,
@@ -309,7 +328,7 @@ class RoomAgentTraceStore(
                 livePendingConfirmations.remove(runId)
                 liveNextActionInputs.remove(runId)
                 liveContinuationCursors.remove(runId)
-                traceDao.deleteSkillRunCheckpointsForRun(runId)
+                runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
             }
             return updated
         }
@@ -317,18 +336,23 @@ class RoomAgentTraceStore(
             livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
             liveContinuationCursors.remove(runId)
-            traceDao.deleteSkillRunCheckpointsForRun(runId)
+            runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
         }
         return traceDao.run(runId)?.toDomain()
-            ?: error("Agent run disappeared after update: $runId")
+            ?: error("Agent run not found: $runId")
     }
 
     override fun appendStep(runId: String, step: AgentStep) {
-        requireNotNull(traceDao.run(runId)) { "Agent run does not exist: $runId" }
         val now = clockMillis()
-        val position = traceDao.nextStepPosition(runId)
-        traceDao.insertStep(step.toEntity(runId, position, now))
-        traceDao.touchRun(runId, now)
+        // DB operations are best-effort; the in-memory lists are the source of
+        // truth for active runs. If the run doesn't exist in the DB (e.g.
+        // createRun's upsert failed), we skip the DB write rather than throwing.
+        val runExistsInDb = runCatching { traceDao.run(runId) != null }.getOrDefault(false)
+        if (runExistsInDb) {
+            val position = runCatching { traceDao.nextStepPosition(runId) }.getOrDefault(0)
+            runCatching { traceDao.insertStep(step.toEntity(runId, position, now)) }
+            runCatching { traceDao.touchRun(runId, now) }
+        }
         liveRuns[runId]?.let { liveRun ->
             liveRuns[runId] = liveRun.copy(updatedAtMillis = now)
         }

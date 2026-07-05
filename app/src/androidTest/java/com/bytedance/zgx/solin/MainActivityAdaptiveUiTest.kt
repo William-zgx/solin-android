@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.util.DisplayMetrics
 import android.view.KeyEvent
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -65,27 +64,26 @@ class MainActivityAdaptiveUiTest {
     fun largeFontChatShellAndModelManagerRemainReachable() {
         resetMainActivityPersistentState(targetContext, inferenceMode = InferenceMode.Local)
 
-        withTargetFontScale(1.3f) {
-            ActivityScenario.launch<MainActivity>(skipStartupIntent()).use { scenario ->
-                scenario.onActivity { activity ->
-                    assertTrue(
-                        "Expected test font scale to be applied to MainActivity.",
-                        activity.resources.configuration.fontScale >= 1.29f,
-                    )
-                }
-                composeRule.waitForTag("app_title")
-                composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
-                composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
-                composeRule.onNodeWithTag("composer_attachment_button").assertIsDisplayed()
-                composeRule.onNodeWithTag("composer_voice_button").assertIsDisplayed()
-
-                composeRule.onNodeWithTag("top_model_button").performClick()
-                composeRule.waitForTag("model_manager_sheet")
-                composeRule.onNodeWithText("模型管理").assertIsDisplayed()
-                composeRule.onNodeWithTag("model_tab_advanced").performClick()
-                composeRule.waitForText("生成参数")
-                composeRule.onNodeWithText("Temperature · 创造性").assertIsDisplayed()
+        ActivityScenario.launch<MainActivity>(skipStartupIntent()).use { scenario ->
+            scenario.onActivity { activity ->
+                applyFontScale(activity, 1.3f)
+                assertTrue(
+                    "Expected test font scale to be applied to MainActivity.",
+                    activity.resources.configuration.fontScale >= 1.29f,
+                )
             }
+            composeRule.waitForTag("app_title")
+            composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
+            composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
+            composeRule.onNodeWithTag("composer_attachment_button").assertIsDisplayed()
+            composeRule.onNodeWithTag("composer_voice_button").assertIsDisplayed()
+
+            composeRule.onNodeWithTag("top_model_button").performClick()
+            composeRule.waitForTag("model_manager_sheet")
+            composeRule.onNodeWithText("模型管理").assertIsDisplayed()
+            composeRule.onNodeWithTag("model_tab_advanced").performClick()
+            composeRule.waitForText("生成参数")
+            composeRule.onNodeWithText("Temperature · 创造性").assertIsDisplayed()
         }
     }
 
@@ -179,21 +177,11 @@ class MainActivityAdaptiveUiTest {
         })
 
     @Suppress("DEPRECATION")
-    private fun <T> withTargetFontScale(scale: Float, block: () -> T): T {
-        val resources = targetContext.resources
-        val originalConfiguration = Configuration(resources.configuration)
-        val originalDisplayMetrics = DisplayMetrics().apply {
-            setTo(resources.displayMetrics)
-        }
-        val scaledConfiguration = Configuration(originalConfiguration).apply {
-            fontScale = scale
-        }
-        resources.updateConfiguration(scaledConfiguration, resources.displayMetrics)
-        return try {
-            block()
-        } finally {
-            resources.updateConfiguration(originalConfiguration, originalDisplayMetrics)
-        }
+    private fun applyFontScale(activity: android.app.Activity, scale: Float) {
+        val resources = activity.resources
+        val config = Configuration(resources.configuration)
+        config.fontScale = scale
+        resources.updateConfiguration(config, resources.displayMetrics)
     }
 
     private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {

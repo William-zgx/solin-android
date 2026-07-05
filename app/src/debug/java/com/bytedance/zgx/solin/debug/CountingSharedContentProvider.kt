@@ -6,11 +6,12 @@ import android.content.Context
 import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.database.MatrixCursor
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
-import android.util.Base64
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 
 class CountingSharedContentProvider : ContentProvider() {
@@ -54,7 +55,8 @@ class CountingSharedContentProvider : ContentProvider() {
     override fun openAssetFile(uri: Uri, mode: String): AssetFileDescriptor {
         check(mode.contains("r")) { "CountingSharedContentProvider is read-only" }
         recordOpen(uri)
-        return AssetFileDescriptor(openPipeFor(uri), 0, AssetFileDescriptor.UNKNOWN_LENGTH)
+        val payloadSize = payloadFor(uri).size.toLong()
+        return AssetFileDescriptor(openPipeFor(uri), 0, payloadSize)
     }
 
     override fun openTypedAssetFile(
@@ -63,7 +65,8 @@ class CountingSharedContentProvider : ContentProvider() {
         opts: Bundle?,
     ): AssetFileDescriptor {
         recordOpen(uri)
-        return AssetFileDescriptor(openPipeFor(uri), 0, AssetFileDescriptor.UNKNOWN_LENGTH)
+        val payloadSize = payloadFor(uri).size.toLong()
+        return AssetFileDescriptor(openPipeFor(uri), 0, payloadSize)
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? =
@@ -80,12 +83,18 @@ class CountingSharedContentProvider : ContentProvider() {
     ): Int =
         throw UnsupportedOperationException("CountingSharedContentProvider is read-only")
 
-    private fun openPipeFor(uri: Uri): ParcelFileDescriptor =
-        openPipeHelper(uri, mimeTypeFor(uri), null, payloadFor(uri)) { output, _, _, _, bytes ->
-            ParcelFileDescriptor.AutoCloseOutputStream(output).use { stream ->
-                stream.write(bytes)
-            }
-        }
+    private fun openPipeFor(uri: Uri): ParcelFileDescriptor {
+        val payload = payloadFor(uri)
+        val ctx = context ?: error("CountingSharedContentProvider has no context")
+        val dir = ctx.cacheDir ?: error("Cache dir not available")
+        if (!dir.exists()) dir.mkdirs()
+        val prefix = if (isImageUri(uri)) "img-" else "txt-"
+        val suffix = if (isImageUri(uri)) ".png" else ".txt"
+        val file = java.io.File.createTempFile(prefix, suffix, dir)
+        file.deleteOnExit()
+        file.writeBytes(payload)
+        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
 
     private fun recordOpen(uri: Uri) {
         if (isImageUri(uri)) {
@@ -96,7 +105,7 @@ class CountingSharedContentProvider : ContentProvider() {
     }
 
     private fun payloadFor(uri: Uri): ByteArray =
-        if (isImageUri(uri)) TINY_PNG_BYTES else TEXT_BYTES
+        if (isImageUri(uri)) tinyPngBytes() else TEXT_BYTES
 
     private fun displayNameFor(uri: Uri): String =
         if (isImageUri(uri)) "counting-image.png" else "private-notes.txt"
@@ -107,6 +116,21 @@ class CountingSharedContentProvider : ContentProvider() {
     private fun isImageUri(uri: Uri): Boolean =
         uri.lastPathSegment == IMAGE_PATH
 
+    private fun tinyPngBytes(): ByteArray {
+        val cached = cachedTinyPng
+        if (cached != null) return cached
+        val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        try {
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            val bytes = output.toByteArray()
+            cachedTinyPng = bytes
+            return bytes
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     companion object {
         private const val AUTHORITY = "com.bytedance.zgx.solin.debug.sharedcontent"
         private const val METHOD_RESET_COUNTERS = "resetCounters"
@@ -115,11 +139,9 @@ class CountingSharedContentProvider : ContentProvider() {
         private const val KEY_TEXT_OPEN_COUNT = "textOpenCount"
         private const val IMAGE_PATH = "image.png"
         private const val TEXT_PATH = "private-notes.txt"
-        private const val TINY_PNG_BASE64 =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
-        private val TINY_PNG_BYTES = Base64.decode(TINY_PNG_BASE64, Base64.DEFAULT)
         private val TEXT_BYTES = "PRIVATE_NOTES_SHOULD_NOT_BE_READ".toByteArray(Charsets.UTF_8)
 
+        private var cachedTinyPng: ByteArray? = null
         private val imageOpenCount = AtomicInteger()
         private val textOpenCount = AtomicInteger()
 

@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 
 internal val ReadyRemoteModelConfig = RemoteModelConfig(
-    baseUrl = "http://127.0.0.1:1/v1",
+    baseUrl = "http://127.0.0.1:16543/v1",
     modelName = "android-test-model",
     supportsVisionInput = true,
 )

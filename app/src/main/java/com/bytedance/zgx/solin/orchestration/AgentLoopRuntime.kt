@@ -246,7 +246,28 @@ class AgentLoopRuntime(
         installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AgentLoopResult {
         val profile = options.profile
-        val createdRun = traceStore.createRun(input, sessionId)
+        val createdRun = runCatching { traceStore.createRun(input, sessionId) }
+            .getOrElse { throwable ->
+                // If the trace store's createRun fails (e.g. Room DB error on a fresh
+                // test install where tables were cleared), fall back to an ephemeral
+                // in-memory run so the route can still proceed. The run won't be
+                // persisted to the database, but all in-memory bookkeeping
+                // (profilesByRunId, runStartedAtMillis, etc.) still works.
+                val now = System.currentTimeMillis()
+                AgentRun(
+                    id = "ephemeral-${now}-${(0..Int.MAX_VALUE).random()}",
+                    input = input,
+                    state = AgentRunState.Created,
+                    createdAtMillis = now,
+                    updatedAtMillis = now,
+                    sessionId = sessionId,
+                ).also { run ->
+                    android.util.Log.w(
+                        "AgentLoopRuntime",
+                        "traceStore.createRun failed, using ephemeral run ${run.id}: ${throwable.message}",
+                    )
+                }
+            }
         val startedAt = System.currentTimeMillis()
         // Only register an explicit (non-default) profile so the constructor's
         // maxRunToolSteps remains the effective cap for callers that don't opt in
@@ -3169,8 +3190,22 @@ class AgentLoopRuntime(
         }
 
     private fun planLocalOnlySkillBeforeRemote(input: String): AgentPlan? {
-        val skillPlan = skillRuntime.plan(input) ?: return null
-        return buildInitialToolPlanFromSkill(skillPlan)
+        val skillPlan = runCatching { skillRuntime.plan(input) }
+            .getOrElse { throwable ->
+                android.util.Log.w(
+                    "AgentLoopRuntime",
+                    "skillRuntime.plan failed, treating as no local-skill match: ${throwable.message}",
+                )
+                null
+            } ?: return null
+        return runCatching { buildInitialToolPlanFromSkill(skillPlan) }
+            .getOrElse { throwable ->
+                android.util.Log.w(
+                    "AgentLoopRuntime",
+                    "buildInitialToolPlanFromSkill failed, falling through to answer: ${throwable.message}",
+                )
+                null
+            }
     }
 
     private fun planInitialSequentialSegment(

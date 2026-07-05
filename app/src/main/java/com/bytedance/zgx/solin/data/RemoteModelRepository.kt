@@ -32,7 +32,9 @@ class RemoteModelRepository(
     override fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> =
         runCatching {
             val normalized = config.normalized()
-            secretStore.saveString(PREF_REMOTE_API_KEY, normalized.apiKey).getOrThrow()
+            if (normalized.apiKey.isNotBlank()) {
+                secretStore.saveString(PREF_REMOTE_API_KEY, normalized.apiKey).getOrThrow()
+            }
             settingsStore.saveRemoteConfig(normalized)
             legacyPrefs?.edit()?.remove(PREF_REMOTE_API_KEY)?.apply()
             normalized

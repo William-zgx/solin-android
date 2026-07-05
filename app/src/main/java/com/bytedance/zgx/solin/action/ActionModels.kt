@@ -243,14 +243,12 @@ object MobileActionFunctions {
         QUERY_FOREGROUND_APP,
         QUERY_RECENT_NOTIFICATIONS,
         CANCEL_REMINDER,
-        NOTE,
-        FINISH,
-        TAKE_OVER,
-        // NOTE: `ask_user` is registered in ToolRegistry (builtInToolSpecs) and intercepted by
-        // AgentLoopRuntime at plan-apply time, but it is NOT dispatched by BuiltInSkillRuntime —
-        // it is an orchestration-level UxInteraction tool available to the model in any skill
-        // context. It is therefore intentionally omitted from MobileActionFunctions.supported
-        // (which tracks tools covered by at least one built-in skill manifest).
+        // NOTE: `ask_user`, `note`, `finish`, and `take_over` are registered in ToolRegistry
+        // (builtInToolSpecs) and intercepted by AgentLoopRuntime at plan-apply time, but they are
+        // NOT dispatched by BuiltInSkillRuntime — they are orchestration-level tools available to
+        // the model in any skill context. They are therefore intentionally omitted from
+        // MobileActionFunctions.supported (which tracks tools covered by at least one built-in
+        // skill manifest).
     )
 }
 

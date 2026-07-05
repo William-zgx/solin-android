@@ -46,10 +46,13 @@ class ContextAssembler(
         run: AgentRun,
     ): String {
         val localMemoryHits = memoryHits.filter { hit -> hit.isAvailableForLocalContext() }
-        val contributorCards = systemPromptBuilder
-            ?.buildSystemPromptBlocking(input, run)
-            ?.evidenceCards
-            .orEmpty()
+        val contributorCards = runCatching {
+            systemPromptBuilder
+                ?.buildSystemPromptBlocking(input, run)
+                ?.evidenceCards
+                .orEmpty()
+                .filter { card -> !card.requiresLocalModel }
+        }.getOrDefault(emptyList())
         val builtInCards = evidenceCardsForAnswerContext(localMemoryHits, deviceContext)
         val allCards = builtInCards + contributorCards
         if (

@@ -1114,6 +1114,57 @@
         "AgentLoopRuntimeTest"
       ],
       "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_note",
+      "entrypoint": "tool_registry",
+      "toolName": "note",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_finish",
+      "entrypoint": "tool_registry",
+      "toolName": "finish",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_take_over",
+      "entrypoint": "tool_registry",
+      "toolName": "take_over",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
     }
   ],
   "toolMatrixSourceFields": [

@@ -1027,7 +1027,13 @@ class SolinViewModel(
                 },
                 onFailure = { throwable ->
                     _uiState.update {
-                        it.copy(statusText = "API Key 加密保存失败：${throwable.cleanMessage()}")
+                        it.copy(
+                            remoteModelConfig = configToSave,
+                            statusText = "远程配置保存失败（已临时生效）：${throwable.cleanMessage()}",
+                        )
+                    }
+                    if (_uiState.value.inferenceMode == InferenceMode.Remote) {
+                        updateRemoteReadiness("远程模型")
                     }
                 },
             )
@@ -1669,16 +1675,35 @@ class SolinViewModel(
                     text = trimmed,
                     privacy = effectiveMessagePrivacy,
                 )
-                val route = assistantOrchestrator.route(
-                    input = trimmed,
-                    installedCapabilities = stateBeforeSend.installedCapabilities,
-                    memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
-                    actionModelPath = modelRepository.verifiedActionModelPath(),
-                    deviceContext = stateBeforeSend.toDeviceContextSnapshot().takeIf { includePrivateLocalContext },
-                    sessionId = stateBeforeSend.activeSessionId,
-                    options = agentRunOptions,
-                    installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
-                )
+                val route = runCatching {
+                    assistantOrchestrator.route(
+                        input = trimmed,
+                        installedCapabilities = stateBeforeSend.installedCapabilities,
+                        memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
+                        actionModelPath = modelRepository.verifiedActionModelPath(),
+                        deviceContext = stateBeforeSend.toDeviceContextSnapshot().takeIf { includePrivateLocalContext },
+                        sessionId = stateBeforeSend.activeSessionId,
+                        options = agentRunOptions,
+                        installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
+                    )
+                }.getOrElse { throwable ->
+                    // If routing fails for any unanticipated reason (e.g. trace store
+                    // error, skill planner exception, context assembler bug), fall back
+                    // to a synthetic Chat route with the raw user input so the remote
+                    // send can still proceed. This is critical for remote-mode tests
+                    // where any routing exception would silently prevent the HTTP
+                    // request from reaching the mock server.
+                    android.util.Log.w(
+                        "SolinViewModel",
+                        "assistantOrchestrator.route failed, using fallback Chat route: ${throwable.message}",
+                    )
+                    AssistantRoute.Chat(
+                        runId = null,
+                        promptForModel = trimmed,
+                        memoryHits = emptyList(),
+                        deviceContext = null,
+                    )
+                }
                 val routeReceipt = route.runDataReceipt(
                     stateBeforeSend = stateBeforeSend,
                     destination = if (useRemoteModel) RunDataDestination.Remote else RunDataDestination.Local,

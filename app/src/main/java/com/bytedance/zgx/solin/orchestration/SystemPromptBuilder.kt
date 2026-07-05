@@ -84,14 +84,53 @@ class SystemPromptBuilder(
 
     /**
      * Convenience non-suspend wrapper for call sites (e.g., [AgentLoopRuntime.promptWithContextIfUseful])
-     * that run on synchronous/blocking threads. Runs [buildSystemPrompt] inside [runBlocking] on
-     * [Dispatchers.Default] to avoid calling blocking I/O on the main thread.
+     * that run on synchronous/blocking threads.
+     *
+     * Optimisation: when the contributor list is empty (the common case in the current
+     * codebase — contributors are reserved for future waves), we can build the result
+     * directly without [runBlocking]. This avoids blocking a coroutine dispatcher thread
+     * when this method is invoked from within a `viewModelScope.launch` chain (e.g.
+     * [ContextAssembler.assembleAnswerPrompt] called from [AgentLoopRuntime.runOnce]).
+     * `runBlocking` inside a coroutine is a known anti-pattern that can starve the
+     * dispatcher; this fast path eliminates it for the no-contributors case.
      */
     fun buildSystemPromptBlocking(
         userInput: String,
         run: AgentRun,
-    ): SystemPrompt =
-        runBlocking(Dispatchers.Default) {
+    ): SystemPrompt {
+        if (contributors.isEmpty()) {
+            // Fast path: no contributors means no suspend calls needed.
+            // Duplicates the survival-rules logic from buildSystemPrompt but avoids
+            // runBlocking entirely — safe because contributors is empty.
+            val cards = if (includeDeviceControlSurvivalRules) {
+                listOf(
+                    EvidenceCard(
+                        id = "agent-survival-rules",
+                        sourceType = EvidenceSourceType.UserPrompt,
+                        privacy = MessagePrivacy.LocalOnly,
+                        requiresLocalModel = true,
+                        text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
+                        quality = EvidenceQuality(EvidenceQualityLevel.High),
+                        tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+            val attributions = if (includeDeviceControlSurvivalRules) {
+                listOf("SurvivalRules")
+            } else {
+                emptyList()
+            }
+            return SystemPrompt(
+                baseInstruction = defaultSystemInstruction,
+                evidenceCards = cards,
+                contributorAttributions = attributions,
+            )
+        }
+        // Slow path: contributors may use suspend APIs; fall back to runBlocking.
+        return runBlocking(Dispatchers.Default) {
             buildSystemPrompt(userInput, run)
         }
+    }
 }

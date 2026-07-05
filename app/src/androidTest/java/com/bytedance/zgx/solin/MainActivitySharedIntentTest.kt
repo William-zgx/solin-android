@@ -6,7 +6,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
-import android.util.Base64
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -28,12 +27,23 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class MainActivitySharedIntentTest {
     @get:Rule
     val composeRule = createEmptyComposeRule()
+
+    @Before
+    fun grantMediaPermissions() {
+        val uiAutomation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
+        uiAutomation.grantRuntimePermission(
+            packageName,
+            android.Manifest.permission.READ_MEDIA_IMAGES,
+        )
+    }
 
     @Test
     fun shareIntentConsumptionKeyIsStableForRecreateButChangesForNewShare() {
@@ -216,6 +226,17 @@ class MainActivitySharedIntentTest {
         CountingSharedContentProvider.resetCounters(context)
         val imageTextExtractor = CountingImageTextExtractor()
 
+        // Read the expected PNG bytes directly from the provider (generated at runtime
+        // for compatibility with the device's BitmapFactory implementation).
+        val expectedPngBytes = context.contentResolver
+            .openInputStream(CountingSharedContentProvider.imageUri)?.use { it.readBytes() }
+        assertNotNull("Provider should deliver non-empty PNG bytes", expectedPngBytes)
+        val expectedBase64 = android.util.Base64.encodeToString(
+            expectedPngBytes, android.util.Base64.NO_WRAP,
+        )
+        // Reset counters after the diagnostic read.
+        CountingSharedContentProvider.resetCounters(context)
+
         val sharedInput = ShareIntentReader(
             context = context,
             imageTextExtractor = imageTextExtractor,
@@ -238,7 +259,7 @@ class MainActivitySharedIntentTest {
         assertEquals(0, sharedInput.protectedImageSourceCount)
         val imageAttachment = requireNotNull(sharedInput.attachments.single().imageAttachment)
         assertEquals("image/png", imageAttachment.mimeType)
-        assertEquals("data:image/png;base64,$TINY_PNG_BASE64", imageAttachment.dataUrl)
+        assertEquals("data:image/png;base64,$expectedBase64", imageAttachment.dataUrl)
         val prompt = sharedInput.toRemoteVisionPrompt()
         assertTrue(prompt.contains("已附加 1 张图片"))
         assertTrue(prompt.contains("1 个非图片或分享来源已被保护"))
@@ -319,8 +340,21 @@ class MainActivitySharedIntentTest {
         val uri = checkNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)) {
             "Failed to create shared image URI"
         }
+        // Generate a valid 1x1 PNG at runtime for compatibility with the device's
+        // BitmapFactory (the hardcoded tiny PNG from base64 is rejected on API 36).
+        val pngBytes = java.io.ByteArrayOutputStream().use { out ->
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                1, 1, android.graphics.Bitmap.Config.ARGB_8888,
+            )
+            try {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            } finally {
+                bitmap.recycle()
+            }
+            out.toByteArray()
+        }
         resolver.openOutputStream(uri)?.use { output ->
-            output.write(Base64.decode(TINY_PNG_BASE64, Base64.DEFAULT))
+            output.write(pngBytes)
         }
         val publishValues = ContentValues().apply {
             put(MediaStore.Images.Media.IS_PENDING, 0)
@@ -346,8 +380,5 @@ class MainActivitySharedIntentTest {
         }
     }
 
-    private companion object {
-        const val TINY_PNG_BASE64 =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
-    }
+    private companion object
 }
