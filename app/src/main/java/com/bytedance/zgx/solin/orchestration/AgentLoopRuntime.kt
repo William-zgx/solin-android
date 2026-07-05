@@ -94,6 +94,7 @@ private const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
 private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
 private const val TAG = "AgentLoopRuntime"
 private const val PUBLIC_EVIDENCE_CITATION_RETRY_REASON = "public_evidence_citation_retry"
+private const val MAX_VERBOSE_TRACE_THINK_TEXT_CHARS = 4_000
 
 /**
  * Envelope for messages pushed onto the steer/queued in-memory channels. Carries the target [runId]
@@ -182,6 +183,7 @@ class AgentLoopRuntime(
     private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
     private val installedCapabilityProfilesByRunId = mutableMapOf<String, List<ModelCapabilityProfile>>()
     private val profilesByRunId = mutableMapOf<String, AgentProfile>()
+    private val scratchpad = com.bytedance.zgx.solin.memory.PerRunScratchpad()
 
     // Wave 2 SolinEvent lifecycle bookkeeping. Tracks per-run wall-clock start time and turn index
     // so TurnStarted/TurnEnded/RunEnded events carry monotonic counters without disturbing the
@@ -1164,6 +1166,15 @@ class AgentLoopRuntime(
     ): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
+        // Capture model's raw output / reasoning for verbose trace (optimization #8).
+        // This records the model's full text before tool-call extraction, enabling
+        // post-hoc debugging of why the model chose a particular action.
+        if (text.isNotBlank()) {
+            recordVerboseTrace(
+                runId = runId,
+                thinkText = text.take(MAX_VERBOSE_TRACE_THINK_TEXT_CHARS),
+            )
+        }
         if (observationDecisionBudgetExceeded(runId)) {
             return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
         }
@@ -1956,6 +1967,18 @@ class AgentLoopRuntime(
             null
         }
         val observedResult = safeResult.redactedForTrace(request)
+        // Handle note: add to per-run scratchpad
+        if (request.toolName == MobileActionFunctions.NOTE) {
+            val noteContent = safeResult.data["noteContent"]
+            if (noteContent != null && noteContent.isNotBlank()) {
+                runCatching { scratchpad.addNote(runId, noteContent) }
+                    .onFailure { Log.e(TAG, "Scratchpad note failed", it) }
+            }
+        }
+        val shouldFinish = safeResult.data["shouldFinish"] == "true"
+        val finishMessage = safeResult.data["finishMessage"]
+        val shouldTakeOver = safeResult.data["shouldTakeOver"] == "true"
+        val takeOverPrompt = safeResult.data["takeOverPrompt"]
         val localPlanningResult = if (
             canPlanNextToolBeforeContinuation ||
             rawLocalPlanningResult != null
@@ -1968,6 +1991,7 @@ class AgentLoopRuntime(
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
         traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
+        recordVerboseTrace(runId = runId, actionToolName = request.toolName, actionSummary = request.reason.ifBlank { request.toolName }, observationSummary = observedResult.summary.take(500))
         // Wave 2 lifecycle: dual-write ToolSucceeded / ToolFailed based on observed status.
         // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
         // (ValidatingToolExecutor), so these are the terminal counterpart events.
@@ -2191,31 +2215,59 @@ class AgentLoopRuntime(
             searchResultVerified = searchResultVerified,
             nextToolPlan = nextToolPlan,
         )
-        when (decision) {
+        val effectiveDecision = when {
+            shouldFinish -> AgentObservationDecision.Complete
+            shouldTakeOver -> {
+                runCatching { parkForTakeOver(runId, takeOverPrompt, safeResult) }
+                AgentObservationDecision.Complete
+            }
+            else -> decision
+        }
+        when (effectiveDecision) {
             is AgentObservationDecision.RetryTool -> traceStore.appendStep(
                 runId,
                 AgentStep.ToolRetryScheduled(
-                    request = decision.request,
-                    attempt = decision.attempt,
-                    reason = decision.reason,
+                    request = effectiveDecision.request,
+                    attempt = effectiveDecision.attempt,
+                    reason = effectiveDecision.reason,
                 ),
             )
 
             is AgentObservationDecision.PlanNextTool -> appendToolPlanSteps(
                 runId = runId,
-                plan = decision.plan,
+                plan = effectiveDecision.plan,
             )
 
             else -> Unit
         }
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        if (decision is AgentObservationDecision.RetryTool) {
+        // Capture observation decision reasoning for verbose trace (optimization #8).
+        recordVerboseTrace(
+            runId = runId,
+            actionSummary = when (effectiveDecision) {
+                AgentObservationDecision.Complete -> "observation:complete"
+                is AgentObservationDecision.ContinueWithModel -> "observation:continue_with_model"
+                is AgentObservationDecision.RetryTool -> "observation:retry_tool(${effectiveDecision.attempt})"
+                is AgentObservationDecision.PlanNextTool -> "observation:plan_next_tool"
+                is AgentObservationDecision.PlanToolBatch -> "observation:plan_tool_batch"
+                is AgentObservationDecision.Fail -> "observation:fail"
+                AgentObservationDecision.Cancel -> "observation:cancel"
+            },
+            observationSummary = when (effectiveDecision) {
+                is AgentObservationDecision.ContinueWithModel -> effectiveDecision.reason
+                is AgentObservationDecision.RetryTool -> effectiveDecision.reason
+                is AgentObservationDecision.PlanNextTool -> effectiveDecision.reason
+                is AgentObservationDecision.Fail -> effectiveDecision.reason
+                else -> null
+            }?.take(500),
+        )
+        if (effectiveDecision is AgentObservationDecision.RetryTool) {
             auditToolRequest(
                 runId = runId,
-                request = decision.request,
+                request = effectiveDecision.request,
                 eventType = ToolAuditEventType.ToolRetryScheduled,
                 status = ToolStatus.Failed,
-                summary = "Retry ${decision.attempt} scheduled.",
+                summary = "Retry ${effectiveDecision.attempt} scheduled.",
             )
         }
         val shouldAwaitExternalOutcome = shouldAwaitExternalOutcomeConfirmation(
@@ -2223,7 +2275,7 @@ class AgentLoopRuntime(
             request = request,
             result = observedResult,
         )
-        val finalState = when (decision) {
+        val finalState = when (effectiveDecision) {
             AgentObservationDecision.Complete ->
                 if (shouldAwaitExternalOutcome) {
                     AgentRunState.AwaitingExternalOutcome
@@ -2233,7 +2285,7 @@ class AgentLoopRuntime(
 
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
-            is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
+            is AgentObservationDecision.PlanNextTool -> effectiveDecision.plan.nextExecutionState()
             is AgentObservationDecision.PlanToolBatch -> AgentRunState.ExecutingTool
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
@@ -2243,10 +2295,10 @@ class AgentLoopRuntime(
         // + remember pending state BEFORE updating run state so subscribers see the step
         // before the AwaitingUserAnswer state transition.
         var parkedForAskUser = false
-        if (decision is AgentObservationDecision.PlanNextTool &&
-            decision.plan.nextExecutionState() == AgentRunState.AwaitingUserAnswer
+        if (effectiveDecision is AgentObservationDecision.PlanNextTool &&
+            effectiveDecision.plan.nextExecutionState() == AgentRunState.AwaitingUserAnswer
         ) {
-            parkedForAskUser = parkForAskUserIfNeeded(runId, decision.plan)
+            parkedForAskUser = parkForAskUserIfNeeded(runId, effectiveDecision.plan)
         }
         // Wave 2 lifecycle: publish terminal / transition events alongside trace. Note that
         // TurnEnded requires tokensIn/tokensOut/ttft/duration which are known only when a model
@@ -2255,7 +2307,7 @@ class AgentLoopRuntime(
         when (finalState) {
             AgentRunState.Completed -> publishRunEnded(runId, finalText = assistantMessage)
             AgentRunState.Failed -> {
-                val failureMessage = (decision as? AgentObservationDecision.Fail)?.reason
+                val failureMessage = (effectiveDecision as? AgentObservationDecision.Fail)?.reason
                     ?: observedResult.summary
                 publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), failureMessage)
             }
@@ -2738,6 +2790,7 @@ class AgentLoopRuntime(
             toolName = draft.functionName,
             arguments = draft.parameters,
             reason = "local model tool call",
+            sensitivityReason = draft.sensitivityReason,
         )
         if (
             request.requiresMobileActionProfileForInlineToolCall() &&
@@ -3239,6 +3292,7 @@ class AgentLoopRuntime(
             summary = spec?.title?.let { title -> "$title · 远程模型请求" } ?: "远程模型请求执行 ${request.toolName}",
             parameters = request.arguments,
             requiresConfirmation = spec?.confirmationPolicy == com.bytedance.zgx.solin.tool.ConfirmationPolicy.Required,
+            sensitivityReason = request.sensitivityReason,
         )
     }
 
@@ -4322,6 +4376,7 @@ class AgentLoopRuntime(
         drainPendingMessages(runId)
         cancelAndClearModelCallJob(runId)
         pendingUserQuestionsByRunId.remove(runId)
+        runCatching { scratchpad.clear(runId) }
         // Wave 7: expire undo entries whose source run is terminating. Any surviving entries
         // with a later TTL than the run lifetime are invalidated by the run end.
         runCatching {
@@ -4976,6 +5031,15 @@ class AgentLoopRuntime(
         return true
     }
 
+    private fun parkForTakeOver(runId: String, prompt: String?, result: ToolResult) {
+        val takeOverPrompt = prompt?.takeIf { it.isNotBlank() } ?: "请完成需要人工操作的步骤，完成后告诉我继续。"
+        val questionId = java.util.UUID.randomUUID().toString()
+        traceStore.appendStep(runId, AgentStep.UserQuestionAsked(questionId = questionId, prompt = takeOverPrompt, choices = listOf("已完成，继续")))
+        eventBus.publish(SolinEvent.Agent.UserQuestionAsked(runId = runId, questionId = questionId, prompt = takeOverPrompt, choices = listOf("已完成，继续")))
+        pendingUserQuestionsByRunId[runId] = PendingUserQuestionState(questionId = questionId, request = ToolRequest(toolName = MobileActionFunctions.TAKE_OVER, reason = "take_over parking"))
+        safeRecordTelemetry(MetricSample.CounterInc(name = TelemetryCounter.AskUserQuestions, runId = runId), "TakeOver parking")
+    }
+
     // -----------------------------------------------------------------------
     // Wave 4 telemetry + hook safety helpers.
     //
@@ -5014,6 +5078,15 @@ class AgentLoopRuntime(
             "StepLatency:$stepType",
         )
     }
+
+    private fun recordVerboseTrace(runId: String, thinkText: String? = null, actionSummary: String? = null, actionToolName: String? = null, observationSummary: String? = null) {
+        runCatching {
+            val stepIndex = traceStore.steps(runId).size
+            traceStore.appendVerboseTrace(runId, VerboseTraceEntry(stepIndex = stepIndex, thinkText = thinkText, actionSummary = actionSummary, actionToolName = actionToolName, observationSummary = observationSummary))
+        }.onFailure { Log.e(TAG, "Verbose trace recording failed", it) }
+    }
+
+    fun scratchpadForPrompt(runId: String): String? = scratchpad.formatForPrompt(runId)
 
     private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
         com.bytedance.zgx.solin.evidence.EvidenceBounds.headTail(

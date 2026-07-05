@@ -111,6 +111,8 @@ interface ContextCompactor {
         tokenBudget: Int,
         estimatedTokens: (List<ChatMessage>) -> Int,
     ): CompactionResult
+
+    fun compactImages(messages: List<ChatMessage>): List<ChatMessage> = messages
 }
 
 /**
@@ -240,6 +242,9 @@ class DefaultContextCompactor(
         )
     }
 
+    override fun compactImages(messages: List<ChatMessage>): List<ChatMessage> =
+        stripEarlierScreenshotReferences(messages)
+
     private data class SectionSplit(
         val prefix: List<ChatMessage>,
         val middle: List<ChatMessage>,
@@ -365,5 +370,19 @@ object NoOpContextCompactor : ContextCompactor {
             tokensAfter = tokens,
             triggerReason = CompactionTrigger.None,
         )
+    }
+}
+
+fun stripEarlierScreenshotReferences(messages: List<ChatMessage>): List<ChatMessage> {
+    if (messages.size <= 1) return messages
+    val screenshotPattern = Regex("\\[(?:screenshot|screen_capture|屏幕截图)[^\\]]*\\]", RegexOption.IGNORE_CASE)
+    val indicesWithScreenshots = messages.mapIndexedNotNull { i, msg ->
+        if (screenshotPattern.containsMatchIn(msg.text)) i else null
+    }
+    if (indicesWithScreenshots.size <= 1) return messages
+    val toStrip = indicesWithScreenshots.dropLast(1).toSet()
+    return messages.mapIndexed { i, msg ->
+        if (i in toStrip) msg.copy(text = screenshotPattern.replace(msg.text, "[早期截图已省略]"))
+        else msg
     }
 }

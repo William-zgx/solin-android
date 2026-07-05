@@ -1,7 +1,12 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.evidence.EvidenceCard
+import com.bytedance.zgx.solin.evidence.EvidenceQuality
+import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
+import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.runtime.DEFAULT_CHAT_SYSTEM_INSTRUCTION
+import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
@@ -32,6 +37,7 @@ data class SystemPrompt(
 class SystemPromptBuilder(
     private val defaultSystemInstruction: String = DEFAULT_CHAT_SYSTEM_INSTRUCTION,
     private val contributors: List<SystemContextContributor> = emptyList(),
+    private val includeDeviceControlSurvivalRules: Boolean = false,
 ) {
     /**
      * Compute the [SystemPrompt] for a given [userInput] and [run]. Suspends so that contributors may
@@ -55,6 +61,19 @@ class SystemPromptBuilder(
                 collected += card
                 attributions += contributor.sourceType.name
             }
+        }
+        if (includeDeviceControlSurvivalRules) {
+            val survivalCard = EvidenceCard(
+                id = "agent-survival-rules",
+                sourceType = EvidenceSourceType.UserPrompt,
+                privacy = MessagePrivacy.LocalOnly,
+                requiresLocalModel = true,
+                text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
+                quality = EvidenceQuality(EvidenceQualityLevel.High),
+                tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
+            )
+            collected.add(0, survivalCard)
+            attributions.add(0, "SurvivalRules")
         }
         return SystemPrompt(
             baseInstruction = defaultSystemInstruction,

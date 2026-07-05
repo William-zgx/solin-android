@@ -6,7 +6,94 @@ data class ActionDraft(
     val summary: String,
     val parameters: Map<String, String>,
     val requiresConfirmation: Boolean = true,
+    /**
+     * Model-annotated sensitivity reason. When non-null, the SafetyPolicy upgrades
+     * the decision to RequireConfirmation with this reason appended. This is the
+     * model's way of saying "this action might need extra care" (e.g. "涉及支付").
+     *
+     * Inspired by Open-AutoGLM's Tap with message="涉及支付" triggering confirmation_callback.
+     * Can only INCREASE safety requirements, never decrease — preserves fail-closed.
+     */
+    val sensitivityReason: String? = null,
 )
+
+/**
+ * Normalized 0-1000 coordinate for UI targeting.
+ *
+ * Inspired by Open-AutoGLM's normalized coordinate system where the model outputs
+ * relative coordinates (0-1000 in each dimension) and the execution layer maps
+ * them to absolute pixel coordinates based on the actual screen resolution.
+ *
+ * This makes the model's targeting resolution-agnostic: (500, 500) always means
+ * the center of the screen regardless of device pixel density.
+ */
+data class NormalizedTarget(val x: Int, val y: Int) {
+    init {
+        require(x in 0..1000) { "NormalizedTarget x must be in 0..1000, got $x" }
+        require(y in 0..1000) { "NormalizedTarget y must be in 0..1000, got $y" }
+    }
+
+    /** Convert to absolute pixel coordinates for the given screen dimensions. */
+    fun toAbsolutePixels(screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+        val absX = (x * screenWidth) / 1000
+        val absY = (y * screenHeight) / 1000
+        return absX to absY
+    }
+
+    companion object {
+        /** Try to parse from "targetX" and "targetY" argument map entries. */
+        fun fromArguments(arguments: Map<String, String>): NormalizedTarget? {
+            val x = arguments["targetX"]?.toIntOrNull() ?: return null
+            val y = arguments["targetY"]?.toIntOrNull() ?: return null
+            return runCatching { NormalizedTarget(x, y) }.getOrNull()
+        }
+    }
+}
+
+/**
+ * Perception result from a per-step screenshot capture.
+ *
+ * Inspired by Open-AutoGLM's per-step screenshot perception: after each action, capture
+ * a screenshot and feed it to a vision model for richer understanding of the current screen
+ * state. This complements the Accessibility tree observation with visual information that
+ * Accessibility nodes may miss (e.g., custom-drawn content, images, canvas-based UIs).
+ *
+ * The actual vision model inference is NOT performed here — this data class only carries
+ * the captured screenshot metadata. The model inference happens in the observation replanner
+ * or a dedicated vision perception step.
+ *
+ * @property widthPx Screenshot width in pixels
+ * @property heightPx Screenshot height in pixels
+ * @property captureTimeMillis Wall-clock time of capture (for ordering/dead-loop detection)
+ * @property ocrText Optional OCR text extracted from the screenshot (if OCR ran locally)
+ * @property visionSummary Optional vision model summary of the screenshot content
+ */
+data class ScreenshotPerception(
+    val widthPx: Int,
+    val heightPx: Int,
+    val captureTimeMillis: Long,
+    val ocrText: String? = null,
+    val visionSummary: String? = null,
+) {
+    /** Non-empty if we have any visual perception data to feed the model. */
+    val hasPerceptionData: Boolean
+        get() = !ocrText.isNullOrBlank() || !visionSummary.isNullOrBlank()
+
+    /** Format for inclusion in observation prompt context. */
+    fun formatForPrompt(): String = buildString {
+        append("screenshotPerception(")
+        append("size=${widthPx}x${heightPx}")
+        if (!ocrText.isNullOrBlank()) {
+            append(",ocr=")
+            append(ocrText.take(200))
+        }
+        if (!visionSummary.isNullOrBlank()) {
+            append(",vision=")
+            append(visionSummary.take(200))
+        }
+        append(")")
+    }
+}
 
 enum class ActionIntentConfidence {
     None,
@@ -109,6 +196,14 @@ object MobileActionFunctions {
     const val CANCEL_REMINDER = "cancel_reminder"
     const val ASK_USER = "ask_user"
 
+    // ── Open-AutoGLM-inspired expanded action vocabulary ──
+    /** Per-run scratchpad note. Records page content for later reference within the same run. */
+    const val NOTE = "note"
+    /** Explicit run termination with a summary message. */
+    const val FINISH = "finish"
+    /** Human takeover: hand control back to the user for login/captcha scenarios. */
+    const val TAKE_OVER = "take_over"
+
     val supported: Set<String> = setOf(
         OPEN_WIFI_SETTINGS,
         OPEN_USAGE_ACCESS_SETTINGS,
@@ -148,6 +243,9 @@ object MobileActionFunctions {
         QUERY_FOREGROUND_APP,
         QUERY_RECENT_NOTIFICATIONS,
         CANCEL_REMINDER,
+        NOTE,
+        FINISH,
+        TAKE_OVER,
         // NOTE: `ask_user` is registered in ToolRegistry (builtInToolSpecs) and intercepted by
         // AgentLoopRuntime at plan-apply time, but it is NOT dispatched by BuiltInSkillRuntime —
         // it is an orchestration-level UxInteraction tool available to the model in any skill

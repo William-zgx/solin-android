@@ -181,6 +181,7 @@ class AssistantOrchestrator(
     private val skillRuntime: SkillRuntime = BuiltInSkillRuntime(),
     actionModelPathProvider: () -> String? = { null },
     observationReplanner: AgentObservationReplanner = CompositeAgentObservationReplanner(
+        DeadLoopDetectionReplanner(),
         ModelObservationReplanner(
             actionPlanningRuntime = actionPlanningRuntime,
             actionModelPathProvider = actionModelPathProvider,
@@ -202,7 +203,9 @@ class AssistantOrchestrator(
     private val contextCompactor: ContextCompactor = NoOpContextCompactor,
 ) : AssistantRouter {
     private val resolvedSystemPromptBuilder = systemPromptBuilder
-        ?: systemContextContributors.takeIf { it.isNotEmpty() }?.let { SystemPromptBuilder(contributors = it) }
+        ?: systemContextContributors.takeIf { it.isNotEmpty() }?.let {
+            SystemPromptBuilder(contributors = it, includeDeviceControlSurvivalRules = true)
+        }
     private val agentLoopRuntime = AgentLoopRuntime(
         memoryIndex = memoryIndex,
         actionPlanningRuntime = actionPlanningRuntime,

@@ -145,12 +145,17 @@ class SolinAccessibilityService : AccessibilityService() {
     private fun observeSnapshot(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
         val root = activeWindowRoot()
             ?: return ScreenStateReadResult.Failed("当前屏幕没有可访问节点根节点")
+        val displayMetrics = runCatching { resources.displayMetrics }.getOrNull()
+        val widthPx = displayMetrics?.widthPixels
+        val heightPx = displayMetrics?.heightPixels
         return runCatching {
             ScreenStateReadResult.Available(
                 root.toScreenStateSnapshot(
                     maxTextChars = maxTextChars,
                     maxNodes = maxNodes,
                     capturedAtMillis = System.currentTimeMillis(),
+                    widthPx = widthPx,
+                    heightPx = heightPx,
                 ),
             )
         }.getOrElse {
@@ -466,6 +471,37 @@ class SolinAccessibilityService : AccessibilityService() {
         return completed
     }
 
+    /**
+     * Tap at a position specified by normalized 0-1000 coordinates.
+     *
+     * Inspired by Open-AutoGLM's normalized coordinate system: the model outputs resolution-agnostic
+     * (x, y) in [0, 1000] and we map to absolute pixel coordinates based on the actual screen size.
+     * This makes targeting consistent across devices with different resolutions and densities.
+     */
+    private fun tapByNormalizedCoords(
+        normalizedX: Int,
+        normalizedY: Int,
+        timeoutMillis: Long,
+    ): UiActionReadResult =
+        executeUiAction(timeoutMillis = timeoutMillis) {
+            val clampedX = normalizedX.coerceIn(0, 1000)
+            val clampedY = normalizedY.coerceIn(0, 1000)
+            val displayMetrics = resources.displayMetrics
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+            val absX = (clampedX * screenWidth) / 1000
+            val absY = (clampedY * screenHeight) / 1000
+            val performed = dispatchTapGesture(absX, absY)
+            if (performed) {
+                UiPrimitiveResult.succeeded("已点击坐标 ($normalizedX, $normalizedY)")
+            } else {
+                UiPrimitiveResult.failed(
+                    reason = "坐标点击未被系统接受",
+                    failureKind = UiActionFailureKind.Unknown,
+                )
+            }
+        }
+
     private fun activateCandidate(candidate: NodeCandidate): Boolean {
         val clickNode = candidate.node.clickableSelfOrAncestor()
         val preferredPoint = candidate.node.searchEntryFallbackTapPoint(candidate.label)
@@ -748,6 +784,25 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
 
+        /**
+         * Perform a tap at normalized 0-1000 coordinates.
+         *
+         * Used when the model outputs explicit normalized coordinates rather than a named target.
+         * The coordinates are resolution-agnostic: (500, 500) always means the screen center.
+         */
+        internal fun performTapByNormalizedCoords(
+            normalizedX: Int,
+            normalizedY: Int,
+            timeoutMillis: Long,
+        ): UiActionReadResult {
+            val service = activeService?.get()
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress("正在点击坐标：($normalizedX, $normalizedY)")
+            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+                service.tapByNormalizedCoords(normalizedX, normalizedY, timeoutMillis)
+            }
+        }
+
         internal fun performTypeText(
             text: String,
             target: String?,
@@ -980,6 +1035,8 @@ internal fun AccessibilityNodeInfo.toScreenStateSnapshot(
     maxTextChars: Int,
     maxNodes: Int,
     capturedAtMillis: Long,
+    widthPx: Int? = null,
+    heightPx: Int? = null,
 ): ScreenStateSnapshot {
     val collector = ScreenStateCollector(
         maxTextChars = maxTextChars,
@@ -1003,6 +1060,8 @@ internal fun AccessibilityNodeInfo.toScreenStateSnapshot(
         nodes = collector.nodes,
         textSummary = collector.textSummary,
         truncated = collector.truncated,
+        widthPx = widthPx,
+        heightPx = heightPx,
     )
 }
 

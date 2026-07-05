@@ -38,6 +38,12 @@ data class ToolRequest(
     val toolName: String,
     val arguments: Map<String, String> = emptyMap(),
     val reason: String = "",
+    /**
+     * Model-annotated sensitivity reason. When non-null, SafetyPolicy upgrades
+     * the decision to RequireConfirmation. Can only increase safety requirements.
+     * Carried through from ActionDraft.sensitivityReason.
+     */
+    val sensitivityReason: String? = null,
 )
 
 data class ToolResult(

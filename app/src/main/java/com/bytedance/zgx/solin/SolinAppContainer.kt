@@ -258,7 +258,10 @@ class SolinAppContainer(
         telemetrySink = InMemoryTelemetrySink()
         agentHooks = NoOpAgentHooks
         systemContextContributors = emptyList()
-        systemPromptBuilder = SystemPromptBuilder(contributors = systemContextContributors)
+        systemPromptBuilder = SystemPromptBuilder(
+            contributors = systemContextContributors,
+            includeDeviceControlSurvivalRules = true,
+        )
         toolProgressPublisher = DefaultToolProgressPublisher(eventBus = eventBus)
         // App-wide coroutine scope for long-lived subscribers (telemetry fan-out, audit sinks).
         // Tied to the container's lifecycle; cancellation happens via close().

@@ -200,6 +200,23 @@ class SafetyPolicy {
             )
         }
 
+        // ── Open-AutoGLM-inspired sensitivity annotation ──
+        // If the model annotated this request with a sensitivity reason, upgrade to
+        // RequireConfirmation. This can only INCREASE safety requirements (fail-closed):
+        // a null sensitivityReason preserves existing behavior. The model's annotation
+        // is treated as an additional confirmation trigger, similar to how Open-AutoGLM's
+        // Tap with message="涉及支付" triggers confirmation_callback.
+        if (!context.userConfirmed &&
+            request.sensitivityReason != null &&
+            spec.confirmationPolicy != ConfirmationPolicy.NotRequired
+        ) {
+            val reason = request.sensitivityReason
+            return SafetyDecision(
+                outcome = SafetyOutcome.RequireConfirmation,
+                reason = "模型标注敏感度：$reason。Tool ${request.toolName} 在模型标注为敏感操作时需要用户确认。",
+            )
+        }
+
         return SafetyDecision(
             outcome = SafetyOutcome.Allow,
             reason = "Tool ${request.toolName} is allowed by current safety policy.",

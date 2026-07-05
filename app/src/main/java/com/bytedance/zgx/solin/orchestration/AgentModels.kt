@@ -411,6 +411,30 @@ data class AgentRecoveryAction(
     val draft: ActionDraft,
 )
 
+/**
+ * Verbose per-step trace entry capturing think/action/observation for each agent step.
+ *
+ * Inspired by Open-AutoGLM's per-step display of model reasoning, planned action,
+ * and post-execution observation. Populated only in debug builds to avoid overhead
+ * in release builds.
+ *
+ * Privacy: thinkText may contain raw model output (potentially sensitive) — it is
+ * ALWAYS LocalOnly and never included in remote telemetry.
+ */
+data class VerboseTraceEntry(
+    val stepIndex: Int,
+    /** The model's reasoning/raw output before action extraction. Null if not captured. */
+    val thinkText: String? = null,
+    /** Summary of what action was planned/executed. */
+    val actionSummary: String? = null,
+    /** Tool name if the action was a tool call. */
+    val actionToolName: String? = null,
+    /** What was observed after the action. */
+    val observationSummary: String? = null,
+    /** Timestamp of this trace entry. */
+    val timestampMillis: Long = System.currentTimeMillis(),
+)
+
 data class PendingToolConfirmationSnapshot(
     val run: AgentRun,
     val request: ToolRequest,

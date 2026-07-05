@@ -4,6 +4,8 @@ import android.provider.Settings
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.action.NormalizedTarget
+import com.bytedance.zgx.solin.action.ScreenshotPerception
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.ScheduledTask
@@ -508,6 +510,19 @@ private class OcrGroundingCurrentScreenControlProvider(
     override fun waitForScreen(timeoutMillis: Long): UiActionReadResult {
         cache.clear()
         return delegate.waitForScreen(timeoutMillis = timeoutMillis)
+    }
+
+    override fun tapByNormalizedCoords(
+        normalizedX: Int,
+        normalizedY: Int,
+        timeoutMillis: Long,
+    ): UiActionReadResult {
+        cache.clear()
+        return delegate.tapByNormalizedCoords(
+            normalizedX = normalizedX,
+            normalizedY = normalizedY,
+            timeoutMillis = timeoutMillis,
+        )
     }
 
     private fun ocrGroundingValidationSnapshot(): ScreenStateSnapshot? =
@@ -1654,6 +1669,28 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
+        // Support normalized 0-1000 coordinate targeting (inspired by Open-AutoGLM).
+        // When targetX/targetY are present, use direct coordinate tapping instead of
+        // named-target resolution. This is useful for canvas-based UIs where Accessibility
+        // nodes don't provide useful target labels.
+        val normalizedTarget = NormalizedTarget.fromArguments(request.arguments)
+        if (normalizedTarget != null) {
+            val targetLabel = "坐标(${normalizedTarget.x}, ${normalizedTarget.y})"
+            expectedForegroundPackagePreflight(request, actionType = "tap", target = targetLabel)
+                ?.let { return it }
+            dangerousUiActionPreflight(request, actionType = "tap", target = targetLabel)
+                ?.let { return it }
+            return actionResult(
+                request = request,
+                actionType = "tap_normalized",
+                target = targetLabel,
+                result = provider.tapByNormalizedCoords(
+                    normalizedX = normalizedTarget.x,
+                    normalizedY = normalizedTarget.y,
+                    timeoutMillis = request.timeoutMillis(),
+                ).withExpectedForegroundPackageVerification(request),
+            )
+        }
         val target = request.arguments["target"].orEmpty()
         expectedForegroundPackagePreflight(request, actionType = "tap", target = target)?.let { return it }
         dangerousUiActionPreflight(request, actionType = "tap", target = target)?.let { return it }
@@ -1878,6 +1915,12 @@ class DeviceControlToolExecutor(
                     execution.failureKind?.let { mapOf("failureKind" to it.schemaValue) }.orEmpty() +
                     execution.before?.toBeforeObservationData().orEmpty() +
                     after?.toAfterObservationData().orEmpty() +
+                    (after?.widthPx ?: execution.before?.widthPx)?.let {
+                        mapOf("screenWidthPx" to it.toString())
+                    }.orEmpty() +
+                    (after?.heightPx ?: execution.before?.heightPx)?.let {
+                        mapOf("screenHeightPx" to it.toString())
+                    }.orEmpty() +
                     extraData
                     ).withAppSearchProgressEvidence()
                 if (execution.status == UiActionStatus.Succeeded) {
@@ -2061,7 +2104,20 @@ class DeviceControlToolExecutor(
             "screenObservationJson" to toScreenObservationJsonString(),
             "maxTextChars" to requestedMaxTextChars.toString(),
             "maxNodes" to requestedMaxNodes.toString(),
-        ) + packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty()
+        ) + packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty() +
+            widthPx?.let { mapOf("screenWidthPx" to it.toString()) }.orEmpty() +
+            heightPx?.let { mapOf("screenHeightPx" to it.toString()) }.orEmpty() +
+            toScreenshotPerception()?.let { mapOf("screenshotPerception" to it.formatForPrompt()) }.orEmpty()
+
+    private fun ScreenStateSnapshot.toScreenshotPerception(): ScreenshotPerception? {
+        val w = widthPx ?: return null
+        val h = heightPx ?: return null
+        return ScreenshotPerception(
+            widthPx = w,
+            heightPx = h,
+            captureTimeMillis = capturedAtMillis,
+        )
+    }
 
     private fun ScreenStateSnapshot.toAfterObservationData(): Map<String, String> =
         mapOf(
@@ -2073,7 +2129,9 @@ class DeviceControlToolExecutor(
             "afterTruncated" to truncated.toString(),
             "afterNodesJson" to nodes.toScreenNodesJsonString(),
             "afterScreenObservationJson" to toScreenObservationJsonString(),
-        )
+        ) + widthPx?.let { mapOf("afterScreenWidthPx" to it.toString()) }.orEmpty() +
+            heightPx?.let { mapOf("afterScreenHeightPx" to it.toString()) }.orEmpty() +
+            toScreenshotPerception()?.let { mapOf("afterScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
 
     private fun ScreenStateSnapshot.toBeforeObservationData(): Map<String, String> =
         mapOf(
@@ -2085,7 +2143,9 @@ class DeviceControlToolExecutor(
             "beforeTruncated" to truncated.toString(),
             "beforeNodesJson" to nodes.toScreenNodesJsonString(),
             "beforeScreenObservationJson" to toScreenObservationJsonString(),
-        )
+        ) + widthPx?.let { mapOf("beforeScreenWidthPx" to it.toString()) }.orEmpty() +
+            heightPx?.let { mapOf("beforeScreenHeightPx" to it.toString()) }.orEmpty() +
+            toScreenshotPerception()?.let { mapOf("beforeScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
 
     private fun ScreenStateSnapshot.observationSummary(): String {
         val packagePart = packageName?.takeIf { it.isNotBlank() }?.let { "包名 $it，" }.orEmpty()

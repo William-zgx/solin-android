@@ -20,6 +20,8 @@ data class ScreenObservation(
     val sources: List<String>,
     val elements: List<ObservationElement>,
     val truncated: Boolean,
+    val widthPx: Int? = null,
+    val heightPx: Int? = null,
 )
 
 data class ObservationElement(
@@ -59,6 +61,8 @@ fun ScreenStateSnapshot.toScreenObservation(
         sources = elements.map { element -> element.source }.distinct(),
         elements = elements,
         truncated = truncated || elements.size < allElements.size,
+        widthPx = widthPx,
+        heightPx = heightPx,
     )
 }
 
@@ -82,6 +86,8 @@ fun ScreenObservation.toJsonObject(): JSONObject =
         .put("elementCount", elements.size)
         .put("sourceCounts", elements.sourceCountsJson())
         .put("truncated", truncated)
+        .put("widthPx", widthPx ?: JSONObject.NULL)
+        .put("heightPx", heightPx ?: JSONObject.NULL)
         .put("elements", JSONArray().apply {
             elements.forEach { element -> put(element.toJsonObject()) }
         })
@@ -105,6 +111,8 @@ private fun JSONObject.toScreenObservationOrNull(): ScreenObservation? {
             elements.optJSONObject(index)?.toObservationElementOrNull()
         },
         truncated = optBoolean("truncated", false),
+        widthPx = optInt("widthPx", -1).takeIf { it > 0 },
+        heightPx = optInt("heightPx", -1).takeIf { it > 0 },
     )
 }
 

@@ -3258,6 +3258,16 @@ class RoutingAndValidatingToolExecutorTest {
 
         override fun waitForScreen(timeoutMillis: Long): UiActionReadResult =
             actionResult
+
+        override fun tapByNormalizedCoords(
+            normalizedX: Int,
+            normalizedY: Int,
+            timeoutMillis: Long,
+        ): UiActionReadResult {
+            tapTargets += "coord($normalizedX,$normalizedY)"
+            tapOcrGroundingHints += null
+            return actionResult
+        }
     }
 
     private companion object {

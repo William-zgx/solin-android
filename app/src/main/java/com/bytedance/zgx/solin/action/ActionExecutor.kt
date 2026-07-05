@@ -48,6 +48,7 @@ class ActionExecutor(
             toolName = draft.functionName,
             arguments = draft.parameters,
             reason = draft.summary,
+            sensitivityReason = draft.sensitivityReason,
         )
         return execute(request).status == ToolStatus.Succeeded
     }
@@ -64,6 +65,16 @@ class ActionExecutor(
         }
         if (request.toolName == MobileActionFunctions.READ_CLIPBOARD) {
             return readClipboard(request)
+        }
+        // ── Open-AutoGLM-inspired expanded action vocabulary ──
+        if (request.toolName == MobileActionFunctions.NOTE) {
+            return executeNote(request)
+        }
+        if (request.toolName == MobileActionFunctions.FINISH) {
+            return executeFinish(request)
+        }
+        if (request.toolName == MobileActionFunctions.TAKE_OVER) {
+            return executeTakeOver(request)
         }
         validateExternalIntentRequest(request)?.let { failure -> return failure }
         executeExternalActivityWithInjectedStarter(request)?.let { result -> return result }
@@ -95,6 +106,91 @@ class ActionExecutor(
             data = request.clipboardContextData() + mapOf(
                 "text" to clipped,
                 "truncated" to (text.length > clipped.length).toString(),
+            ),
+        )
+    }
+
+    // ── Open-AutoGLM-inspired expanded action vocabulary handlers ──
+
+    /**
+     * Handle the `note` action: record content to the per-run scratchpad.
+     * The actual scratchpad storage is managed by AgentLoopRuntime which
+     * passes the runId via the request's data context.
+     */
+    private fun executeNote(request: ToolRequest): ToolResult {
+        val content = request.arguments["content"]?.trim()
+            ?: return request.failed(
+                code = ToolErrorCode.MissingArgument,
+                summary = "note 动作缺少 content 参数",
+                retryable = false,
+            )
+        if (content.isBlank()) {
+            return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "note 内容不能为空",
+                retryable = false,
+            )
+        }
+        // The scratchpad integration happens in AgentLoopRuntime which reads
+        // the result data and calls PerRunScratchpad.addNote(). Here we just
+        // return a successful result carrying the content.
+        val noteIndex = request.arguments["_noteIndexHint"]?.toIntOrNull() ?: 0
+        return request.succeeded(
+            summary = "已记录笔记：${content.take(80)}${if (content.length > 80) "…" else ""}",
+            data = mapOf(
+                "toolName" to request.toolName,
+                "noteContent" to content,
+                "noteIndex" to noteIndex.toString(),
+            ),
+        )
+    }
+
+    /**
+     * Handle the `finish` action: signal that the agent run should complete
+     * with the provided summary message.
+     */
+    private fun executeFinish(request: ToolRequest): ToolResult {
+        val message = request.arguments["message"]?.trim()
+            ?: return request.failed(
+                code = ToolErrorCode.MissingArgument,
+                summary = "finish 动作缺少 message 参数",
+                retryable = false,
+            )
+        return request.succeeded(
+            summary = message,
+            data = mapOf(
+                "toolName" to request.toolName,
+                "shouldFinish" to "true",
+                "finishMessage" to message,
+            ),
+        )
+    }
+
+    /**
+     * Handle the `take_over` action: hand control back to the user for
+     * login/captcha scenarios that the agent cannot autonomously handle.
+     *
+     * Returns a result with shouldTakeOver=true which AgentLoopRuntime
+     * intercepts to park the run in an AwaitingUserAnswer state.
+     */
+    private fun executeTakeOver(request: ToolRequest): ToolResult {
+        val reason = request.arguments["reason"]?.trim()
+            ?: return request.failed(
+                code = ToolErrorCode.MissingArgument,
+                summary = "take_over 动作缺少 reason 参数",
+                retryable = false,
+            )
+        val prompt = request.arguments["prompt"]?.trim()
+            ?: "请完成需要人工操作的步骤（$reason），完成后告诉我继续。"
+        return request.succeeded(
+            summary = "已请求人工接管：$reason",
+            data = mapOf(
+                "toolName" to request.toolName,
+                "shouldTakeOver" to "true",
+                "takeOverReason" to reason,
+                "takeOverPrompt" to prompt,
+                "privacy" to MessagePrivacy.LocalOnly.name,
+                "requiresLocalModel" to "true",
             ),
         )
     }

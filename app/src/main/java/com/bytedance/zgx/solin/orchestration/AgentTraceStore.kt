@@ -84,6 +84,8 @@ interface AgentTraceStore {
     fun run(runId: String): AgentRun?
     fun updateState(runId: String, state: AgentRunState): AgentRun
     fun appendStep(runId: String, step: AgentStep)
+    fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry)
+    fun verboseTrace(runId: String): List<VerboseTraceEntry>
     fun steps(runId: String): List<AgentStep>
     fun stepSummaries(runId: String): List<AgentTraceStepSummary>
     fun recentRunSummaries(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary>
@@ -104,6 +106,7 @@ class InMemoryAgentTraceStore(
     private val runs = linkedMapOf<String, AgentRun>()
     private val runSteps = linkedMapOf<String, MutableList<AgentStep>>()
     private val runStepSummaries = linkedMapOf<String, MutableList<AgentTraceStepSummary>>()
+    private val runVerboseTraces = linkedMapOf<String, MutableList<VerboseTraceEntry>>()
     private val pendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
     private val continuationCursors = linkedMapOf<String, AgentContinuationCursor>()
 
@@ -120,6 +123,7 @@ class InMemoryAgentTraceStore(
         runs[run.id] = run
         runSteps[run.id] = mutableListOf()
         runStepSummaries[run.id] = mutableListOf()
+        runVerboseTraces[run.id] = mutableListOf()
         return run
     }
 
@@ -151,6 +155,13 @@ class InMemoryAgentTraceStore(
         )
         steps.add(step)
     }
+
+    override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
+        runVerboseTraces.getOrPut(runId) { mutableListOf() }.add(entry)
+    }
+
+    override fun verboseTrace(runId: String): List<VerboseTraceEntry> =
+        runVerboseTraces[runId]?.toList().orEmpty()
 
     override fun steps(runId: String): List<AgentStep> =
         runSteps[runId].orEmpty().toList()
@@ -242,6 +253,7 @@ class InMemoryAgentTraceStore(
             runs.remove(runId)
             runSteps.remove(runId)
             runStepSummaries.remove(runId)
+            runVerboseTraces.remove(runId)
             pendingConfirmations.remove(runId)
             continuationCursors.remove(runId)
         }
@@ -257,6 +269,7 @@ class RoomAgentTraceStore(
 ) : AgentTraceStore {
     private val liveRuns = linkedMapOf<String, AgentRun>()
     private val liveSteps = linkedMapOf<String, MutableList<AgentStep>>()
+    private val liveVerboseTraces = linkedMapOf<String, MutableList<VerboseTraceEntry>>()
     private val livePendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
     private val liveNextActionInputs = linkedMapOf<String, String>()
     private val liveContinuationCursors = linkedMapOf<String, AgentContinuationCursor>()
@@ -274,6 +287,7 @@ class RoomAgentTraceStore(
         liveRuns[run.id] = run
         traceDao.upsertRun(run.toEntity())
         liveSteps[run.id] = mutableListOf()
+        liveVerboseTraces[run.id] = mutableListOf()
         return run
     }
 
@@ -320,6 +334,13 @@ class RoomAgentTraceStore(
         }
         liveSteps.getOrPut(runId) { mutableListOf() }.add(step)
     }
+
+    override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
+        liveVerboseTraces.getOrPut(runId) { mutableListOf() }.add(entry)
+    }
+
+    override fun verboseTrace(runId: String): List<VerboseTraceEntry> =
+        liveVerboseTraces[runId]?.toList().orEmpty()
 
     override fun steps(runId: String): List<AgentStep> =
         liveSteps[runId]?.toList()
@@ -458,6 +479,7 @@ class RoomAgentTraceStore(
         runIds.forEach { runId ->
             liveRuns.remove(runId)
             liveSteps.remove(runId)
+            liveVerboseTraces.remove(runId)
             livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
             liveContinuationCursors.remove(runId)

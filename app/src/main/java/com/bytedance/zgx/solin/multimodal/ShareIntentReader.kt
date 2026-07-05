@@ -232,10 +232,12 @@ class ShareIntentReader(
         }.getOrNull() ?: return null
         if (bytes.isEmpty()) return null
         if (!remoteImageBytesMatchDeclaredMimeType(normalizedMimeType, bytes)) return null
-        val base64 = Base64.getEncoder().encodeToString(bytes)
+        val compactedBytes = bytes.compactedImageBytesForVision() ?: return null
+        val outputMimeType = if (compactedBytes !== bytes) "image/jpeg" else normalizedMimeType
+        val base64 = Base64.getEncoder().encodeToString(compactedBytes)
         return ChatImageAttachment(
-            mimeType = normalizedMimeType,
-            dataUrl = "data:$normalizedMimeType;base64,$base64",
+            mimeType = outputMimeType,
+            dataUrl = "data:$outputMimeType;base64,$base64",
         )
     }
 
@@ -251,10 +253,12 @@ class ShareIntentReader(
         }.getOrNull() ?: return null
         if (bytes.isEmpty()) return null
         if (!remoteImageBytesMatchDeclaredMimeType(normalizedMimeType, bytes)) return null
+        val compactedBytes = bytes.compactedImageBytesForVision() ?: return null
+        val outputMimeType = if (compactedBytes !== bytes) "image/jpeg" else normalizedMimeType
         return LocalImageAttachment(
-            mimeType = normalizedMimeType,
-            bytes = bytes,
-            sizeBytes = sizeBytes ?: bytes.size.toLong(),
+            mimeType = outputMimeType,
+            bytes = compactedBytes,
+            sizeBytes = compactedBytes.size.toLong(),
         )
     }
 

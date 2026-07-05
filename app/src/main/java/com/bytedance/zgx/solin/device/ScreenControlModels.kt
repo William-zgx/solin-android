@@ -69,6 +69,18 @@ interface CurrentScreenControlProvider {
     fun pressBack(timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS): UiActionReadResult
 
     fun waitForScreen(timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS): UiActionReadResult
+
+    /**
+     * Tap at a position specified by normalized 0-1000 coordinates.
+     *
+     * Resolution-agnostic targeting: (500, 500) always means the screen center.
+     * Inspired by Open-AutoGLM's normalized coordinate system.
+     */
+    fun tapByNormalizedCoords(
+        normalizedX: Int,
+        normalizedY: Int,
+        timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
+    ): UiActionReadResult
 }
 
 data class ScreenBounds(
@@ -127,6 +139,8 @@ data class ScreenStateSnapshot(
     val nodes: List<ScreenNode>,
     val textSummary: String,
     val truncated: Boolean,
+    val widthPx: Int? = null,
+    val heightPx: Int? = null,
 ) {
     val nodeCount: Int get() = nodes.size
     val actionableNodeCount: Int
@@ -346,6 +360,17 @@ class AndroidCurrentScreenControlProvider : CurrentScreenControlProvider {
 
     override fun waitForScreen(timeoutMillis: Long): UiActionReadResult =
         SolinAccessibilityService.performWait(
+            timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+        )
+
+    override fun tapByNormalizedCoords(
+        normalizedX: Int,
+        normalizedY: Int,
+        timeoutMillis: Long,
+    ): UiActionReadResult =
+        SolinAccessibilityService.performTapByNormalizedCoords(
+            normalizedX = normalizedX.coerceIn(0, 1000),
+            normalizedY = normalizedY.coerceIn(0, 1000),
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
         )
 }

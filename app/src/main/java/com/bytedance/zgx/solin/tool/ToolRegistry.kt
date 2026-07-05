@@ -100,9 +100,16 @@ class ToolRegistry private constructor(
             MobileActionFunctions.READ_RECENT_IMAGE_OCR,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.NOTE,
+            MobileActionFunctions.FINISH,
             // plan_read is not a MobileActionFunctions constant; registered by literal
             "plan_read",
         ).forEach { registerUndoPolicy(it, notApplicable) }
+
+        // Human takeover — user completes externally
+        listOf(
+            MobileActionFunctions.TAKE_OVER,
+        ).forEach { registerUndoPolicy(it, externalHandoff) }
 
         // Irreversible UI actions
         listOf(
@@ -1278,6 +1285,105 @@ private val askUserOutputSchemaJson = """
         "toolName": {"type": "string", "minLength": 1},
         "questionId": {"type": "string", "minLength": 1},
         "answer": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean", "const": true}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+// ── Open-AutoGLM-inspired expanded action vocabulary schemas ──
+
+private val noteInputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "要记录到本次运行暂存笔记中的内容。建议简洁：页面标题、搜索结果摘要、验证证据等。后续步骤可引用这些笔记。",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val noteOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["toolName", "noteIndex", "content"],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "noteIndex": {"type": "integer", "minimum": 1},
+        "content": {"type": "string", "minLength": 1},
+        "totalNotes": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val finishInputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "完成总结，向用户说明本次操作的结果。",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val finishOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["toolName", "shouldFinish", "finishMessage"],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "shouldFinish": {"type": "string", "enum": ["true"]},
+        "finishMessage": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val takeOverInputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "为什么需要人工接管的原因，例如：'需要登录'、'验证码'、'密码输入'、'身份验证'。",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "prompt": {
+          "type": "string",
+          "description": "向用户展示的提示文本，指导用户完成需要人工操作的步骤。",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val takeOverOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["toolName", "shouldTakeOver", "takeOverReason", "privacy", "requiresLocalModel"],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "shouldTakeOver": {"type": "string", "enum": ["true"]},
+        "takeOverReason": {"type": "string", "minLength": 1},
+        "takeOverPrompt": {"type": "string"},
         "privacy": {"type": "string", "enum": ["LocalOnly"]},
         "requiresLocalModel": {"type": "boolean", "const": true}
       },
@@ -2681,6 +2787,44 @@ private val builtInToolSpecs: List<ToolSpec> = listOf(
         resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         executionMode = ToolExecutionMode.Sequential,
         tags = setOf(ToolCapabilityTag.UxInteraction),
+    ),
+    // ── Open-AutoGLM-inspired expanded action vocabulary ──
+    ToolSpec(
+        name = MobileActionFunctions.NOTE,
+        title = "记录笔记",
+        description = "向本次运行的暂存笔记中添加一条记录，供后续步骤参考。不会触发任何外部操作，不离开当前页面。对记录搜索结果、页面标题、验证证据等场景特别有用。",
+        inputSchemaJson = noteInputSchemaJson,
+        outputSchemaJson = noteOutputSchemaJson,
+        capability = ToolCapability.Orchestration,
+        permissions = emptySet(),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.NotRequired,
+        tags = setOf(ToolCapabilityTag.Planning),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.FINISH,
+        title = "完成任务",
+        description = "显式结束本次运行并附上完成总结。当用户的请求已完成时使用此动作，不要只是停止操作。",
+        inputSchemaJson = finishInputSchemaJson,
+        outputSchemaJson = finishOutputSchemaJson,
+        capability = ToolCapability.Orchestration,
+        permissions = emptySet(),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.NotRequired,
+        tags = setOf(ToolCapabilityTag.Planning),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.TAKE_OVER,
+        title = "人工接管",
+        description = "将控制权交还给用户处理。当遇到登录页面、验证码、密码输入框或任何 Agent 无法自主处理的界面时使用此动作。用户完成操作后可继续本次运行。",
+        inputSchemaJson = takeOverInputSchemaJson,
+        outputSchemaJson = takeOverOutputSchemaJson,
+        capability = ToolCapability.Orchestration,
+        permissions = emptySet(),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.NotRequired,
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        tags = setOf(ToolCapabilityTag.UxInteraction, ToolCapabilityTag.Planning),
     ),
 )
 
