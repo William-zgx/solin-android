@@ -2902,7 +2902,7 @@ assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "capabilityM
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "matrixVersion=1"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "scenarioCount=6"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "productCapabilityCount=17"
-assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "toolCapabilityCount=38"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "toolCapabilityCount=42"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "sensitiveDisclosureCount=9"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "requiredBehaviorBoundaryCount=1"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "localEvidenceRemoteEligibleCount=0"

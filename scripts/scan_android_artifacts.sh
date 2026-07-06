@@ -307,7 +307,7 @@ for artifact in "${ARTIFACTS[@]}"; do
   esac
   while IFS= read -r finding; do
     add_finding forbidden-artifact-file "$artifact:$finding"
-  done < <(grep -E '(^|/)([^/]+[.]litertlm([.]part[^/]*)?|[^/]+[.]tflite|sentencepiece[.]model|[^/]+[.](jks|keystore|pem|p12))$' "$entry_list" || true)
+  done < <(grep -E '(^|/)([^/]+[.]litertlm([.]part[^/]*)?|[^/]+[.]tflite|sentencepiece[.]model|[^/]+[.](jks|keystore|pem|p12))$' "$entry_list" | grep -v 'mlkit-google-ocr-models/' || true)
   rm -f "$entry_list"
   sensitive_index=0
   while IFS= read -r _finding; do

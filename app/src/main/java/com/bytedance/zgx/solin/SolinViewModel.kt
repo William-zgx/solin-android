@@ -1473,13 +1473,6 @@ class SolinViewModel(
             return
         }
         if (trimmed.isEmpty() || _uiState.value.isBusy || generationJob?.isActive == true) {
-            if (trimmed.isNotEmpty()) {
-                android.util.Log.w(
-                    "SolinViewModel",
-                    "sendMessageInternal skipped: isBusy=${_uiState.value.isBusy}, " +
-                        "generationActive=${generationJob?.isActive == true}",
-                )
-            }
             return
         }
         if (explicitUserPreferenceForgetFrom(trimmed) != null) {
@@ -1495,12 +1488,6 @@ class SolinViewModel(
             return
         }
         if (!_uiState.value.isReady) {
-            android.util.Log.w(
-                "SolinViewModel",
-                "sendMessageInternal blocked: isReady=false, mode=${_uiState.value.inferenceMode}, " +
-                    "remoteConfigured=${_uiState.value.remoteModelConfig.isConfigured}, " +
-                    "modelPath=${_uiState.value.modelPath != null}",
-            )
             handleNotReadySendAttempt()
             return
         }
@@ -1716,10 +1703,6 @@ class SolinViewModel(
                     // Generate an ephemeral runId so that downstream tool-call
                     // handling (which requires a non-null runId for observeModelToolRequest)
                     // still works when the remote model returns tool calls.
-                    android.util.Log.w(
-                        "SolinViewModel",
-                        "assistantOrchestrator.route failed, using fallback Chat route: ${throwable.message}",
-                    )
                     val fallbackRunId = "fallback-${System.currentTimeMillis()}-${(0..Int.MAX_VALUE).random()}"
                     AssistantRoute.Chat(
                         runId = fallbackRunId,
