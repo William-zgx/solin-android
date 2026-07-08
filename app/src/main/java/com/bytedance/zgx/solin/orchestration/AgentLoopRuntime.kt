@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ModelCapabilityProfile
@@ -136,9 +137,9 @@ class AgentLoopRuntime(
     private val eventBus: SolinEventBus = NoOpSolinEventBus,
     private val hooks: AgentHooks = NoOpAgentHooks,
     private val telemetrySink: TelemetrySink = NoOpTelemetrySink,
-    private val maxToolRetryAttempts: Int = 1,
-    private val maxRunToolSteps: Int = 10,
-    private val maxObservationDecisions: Int = 16,
+    private val maxToolRetryAttempts: Int = SolinConstants.AgentLoop.MAX_TOOL_RETRY_ATTEMPTS,
+    private val maxRunToolSteps: Int = SolinConstants.AgentLoop.MAX_RUN_TOOL_STEPS,
+    private val maxObservationDecisions: Int = SolinConstants.AgentLoop.MAX_OBSERVATION_DECISIONS,
     private val deviceControlSessionFinisher: () -> Unit = {},
     private val systemPromptBuilder: SystemPromptBuilder? = null,
     private val evidenceBlobStore: EvidenceBlobStore = NoOpEvidenceBlobStore,
@@ -177,19 +178,19 @@ class AgentLoopRuntime(
 
     private val undoStack = java.util.ArrayDeque<UndoEntry>()
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
-    private val valueFreeCompletedStepFrontiersByRunId = mutableMapOf<String, Set<String>>()
-    private val remoteToolScopesByRunId = mutableMapOf<String, RemoteToolScope>()
-    private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
-    private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
-    private val installedCapabilityProfilesByRunId = mutableMapOf<String, List<ModelCapabilityProfile>>()
-    private val profilesByRunId = mutableMapOf<String, AgentProfile>()
+    private val valueFreeCompletedStepFrontiersByRunId = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+    private val remoteToolScopesByRunId = java.util.concurrent.ConcurrentHashMap<String, RemoteToolScope>()
+    private val remoteExposedToolNamesByRunId = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+    private val lowRiskDeviceActionConfirmationBypassByRunId = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val installedCapabilityProfilesByRunId = java.util.concurrent.ConcurrentHashMap<String, List<ModelCapabilityProfile>>()
+    private val profilesByRunId = java.util.concurrent.ConcurrentHashMap<String, AgentProfile>()
     private val scratchpad = com.bytedance.zgx.solin.memory.PerRunScratchpad()
 
     // Wave 2 SolinEvent lifecycle bookkeeping. Tracks per-run wall-clock start time and turn index
     // so TurnStarted/TurnEnded/RunEnded events carry monotonic counters without disturbing the
     // existing traceStore contract.
-    private val runStartedAtMillis = mutableMapOf<String, Long>()
-    private val runTurnIndex = mutableMapOf<String, Int>()
+    private val runStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val runTurnIndex = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     // Wave 3 mid-run steering: ChatMessages injected via steerRun()/steer() are queued here and
     // drained (prepended to the model message list) on the next model call.
@@ -225,7 +226,7 @@ class AgentLoopRuntime(
         val questionId: String,
         val request: ToolRequest,
     )
-    private val pendingUserQuestionsByRunId = mutableMapOf<String, PendingUserQuestionState>()
+    private val pendingUserQuestionsByRunId = java.util.concurrent.ConcurrentHashMap<String, PendingUserQuestionState>()
 
     // Wave 4 telemetry bookkeeping: wall-clock time a ToolRequested step was appended, keyed by
     // requestId, so ToolCompleted telemetry can record latencyMs. Entries are cleared when the
@@ -1290,8 +1291,7 @@ class AgentLoopRuntime(
             AgentRunState.Cancelled ->
                 eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
             AgentRunState.GeneratingAnswer -> {
-                val nextTurn = (runTurnIndex[runId] ?: 0) + 1
-                runTurnIndex[runId] = nextTurn
+                val nextTurn = runTurnIndex.compute(runId) { _, old -> (old ?: 0) + 1 }!!
                 eventBus.publish(
                     SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
                 )
@@ -2336,8 +2336,7 @@ class AgentLoopRuntime(
                 eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
             AgentRunState.GeneratingAnswer -> {
                 // Starting a new model turn — bump the turn counter and publish TurnStarted.
-                val nextTurn = (runTurnIndex[runId] ?: 0) + 1
-                runTurnIndex[runId] = nextTurn
+                val nextTurn = runTurnIndex.compute(runId) { _, old -> (old ?: 0) + 1 }!!
                 eventBus.publish(
                     SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
                 )

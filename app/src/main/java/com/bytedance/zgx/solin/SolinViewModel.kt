@@ -47,6 +47,16 @@ import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
 import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.evidence.toEvidenceReceiptSummary
+import com.bytedance.zgx.solin.logging.solinD
+import com.bytedance.zgx.solin.logging.solinE
+import com.bytedance.zgx.solin.logging.solinI
+import com.bytedance.zgx.solin.logging.solinW
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_AUDIT
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MEMORY
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
@@ -131,19 +141,15 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val MAX_VOICE_TRANSCRIPT_CHARS = 2_000
-private const val VOICE_WAVEFORM_SAMPLE_COUNT = 9
 private const val STALE_AGENT_RUN_STARTUP_REASON =
     "App restarted before this Agent step completed."
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
 private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
-private const val REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS = 240
 private const val REMOTE_SEND_RESTART_DISCARDED_TEXT =
     "上次远程发送确认因应用重启已失效，内容没有发送。请重新发起请求。"
 private const val REMOTE_TOOL_CONTINUATION_RESTART_DISCARDED_TEXT =
     "上次远程工具结果续写确认因应用重启已失效，工具结果没有发送到远程模型。请重新发起请求。"
-private const val REMOTE_COMPACTION_BUDGET_RATIO = 0.85
 private val CONTEXT_OVERFLOW_MARKERS = listOf(
     "context_length",
     "context length",
@@ -679,7 +685,7 @@ class SolinViewModel(
         val cleaned = transcript
             .replace(Regex("""\s+"""), " ")
             .trim()
-            .take(MAX_VOICE_TRANSCRIPT_CHARS)
+            .take(SolinConstants.Ui.MAX_VOICE_TRANSCRIPT_CHARS)
         if (cleaned.isBlank()) {
             _uiState.update { it.copy(voiceCapture = VoiceCaptureUiState()) }
             return
@@ -754,7 +760,7 @@ class SolinViewModel(
         val cleaned = transcript
             .replace(Regex("""\s+"""), " ")
             .trim()
-            .take(MAX_VOICE_TRANSCRIPT_CHARS)
+            .take(SolinConstants.Ui.MAX_VOICE_TRANSCRIPT_CHARS)
         _uiState.update {
             if (!it.voiceCapture.isActive) {
                 it
@@ -1183,6 +1189,7 @@ class SolinViewModel(
         val path = _uiState.value.modelPath ?: return
         if (_uiState.value.isBusy) return
         val backendChoice = preferredBackendForActiveModel(_uiState.value, _uiState.value.backend)
+        solinI(TAG_MODEL, "loadModel: path=$path backend=${backendChoice.name}")
         remoteModelRepository.saveMode(InferenceMode.Local)
         pendingRemoteContinuation = null
         pendingSharedInputRemoteSendRestore = null
@@ -1212,6 +1219,7 @@ class SolinViewModel(
 
         viewModelScope.launch(ioDispatcher) {
             val runtimeCapabilities = localModelRuntimeCapabilitiesFor(_uiState.value)
+            val loadStartMs = System.currentTimeMillis()
             val result = runCatching {
                 runtimeLock.withLock {
                     runtime.configureModelCapabilities(runtimeCapabilities)
@@ -1226,6 +1234,8 @@ class SolinViewModel(
 
             result.fold(
                 onSuccess = {
+                    val durationMs = System.currentTimeMillis() - loadStartMs
+                    solinI(TAG_MODEL, "loadModel: success in ${durationMs}ms backend=${backendChoice.name}")
                     _uiState.update {
                         it.copy(
                             isBusy = false,
@@ -1244,6 +1254,7 @@ class SolinViewModel(
                     }
                 },
                 onFailure = { throwable ->
+                    solinE(TAG_MODEL, "loadModel: failed backend=${backendChoice.name}", throwable)
                     var fallbackFailure: Throwable? = null
                     if (backendChoice == BackendChoice.GPU &&
                         backendAllowedForActiveModel(_uiState.value, BackendChoice.CPU)
@@ -1492,6 +1503,13 @@ class SolinViewModel(
             return
         }
 
+        solinD(
+            TAG_LIFECYCLE,
+            "sendMessageInternal: len=${trimmed.length} " +
+                "mode=${_uiState.value.inferenceMode.name} " +
+                "busy=${_uiState.value.isBusy}",
+        )
+
         syncTaskStateMemories()
         rebuildMemoryIndex()
         _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
@@ -1531,16 +1549,14 @@ class SolinViewModel(
                 text = trimmed,
                 privacy = MessagePrivacy.LocalOnly,
             )
-            replaceActiveSessionMessages(
-                stateBeforeSend.messages + userMessage + ChatMessage(
+            persistMessagesAndRebuildMemory(
+                messages = stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
                     privacy = MessagePrivacy.LocalOnly,
                 ),
-                persistNow = true,
+                memoryUserMessage = userMessage,
             )
-            persistExplicitPreferenceMemory(userMessage)
-            rebuildMemoryIndex()
             _uiState.update {
                 it.copy(statusText = "已保护本地内容")
             }
@@ -1563,16 +1579,14 @@ class SolinViewModel(
                 imageCount = imageAttachments.size,
                 remoteHistoryCount = remoteHistory.size,
             )
-            replaceActiveSessionMessages(
-                stateBeforeSend.messages + userMessage + ChatMessage(
+            persistMessagesAndRebuildMemory(
+                messages = stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。",
                     privacy = MessagePrivacy.LocalOnly,
                 ),
-                persistNow = true,
+                memoryUserMessage = userMessage,
             )
-            persistExplicitPreferenceMemory(userMessage)
-            rebuildMemoryIndex()
             _uiState.update {
                 it.copy(statusText = "远程连接不可用")
             }
@@ -1619,15 +1633,13 @@ class SolinViewModel(
                 text = trimmed,
                 privacy = MessagePrivacy.LocalOnly,
             )
-            replaceActiveSessionMessages(
-                stateBeforeSend.messages + userMessage + ChatMessage(
+            persistMessagesAndRebuildMemory(
+                messages = stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "这条内容疑似包含个人信息或密钥。当前为远程模型模式，我不会把它发送到远程模型；请切换到本地模型，或删去敏感内容后再发送。",
                     privacy = MessagePrivacy.LocalOnly,
                 ),
-                persistNow = true,
             )
-            rebuildMemoryIndex()
             _uiState.update {
                 it.copy(statusText = "已保护敏感内容")
             }
@@ -1744,19 +1756,16 @@ class SolinViewModel(
                                 text = "正在使用工具：${route.draft.title}",
                                 privacy = MessagePrivacy.LocalOnly,
                             )
-                            replaceActiveSessionMessages(
-                                stateBeforeSend.messages + localUserMessage + assistantMessage,
-                                persistNow = true,
+                            persistMessagesAndRebuildMemory(
+                                messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
+                                memoryUserMessage = localUserMessage,
                             )
-                            persistExplicitPreferenceMemory(localUserMessage)
                             _uiState.update {
-                                it.copy(
+                                it.clearedEvidence().copy(
                                     isBusy = true,
                                     isGenerating = false,
                                     pendingConfirmation = null,
-                                    memoryHits = emptyList(),
                                     activeRunTimeline = activeRunTimelineFor(route.runId),
-                                    activeMemoryEvidence = emptyList(),
                                     statusText = "工具执行中",
                                 )
                             }
@@ -1771,7 +1780,6 @@ class SolinViewModel(
                                 ),
                                 request = request,
                             )
-                            rebuildMemoryIndex()
                             return@launch
                         }
                         val assistantMessage = ChatMessage(
@@ -1779,13 +1787,12 @@ class SolinViewModel(
                             text = "已准备本地动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
                             privacy = MessagePrivacy.LocalOnly,
                         )
-                        replaceActiveSessionMessages(
-                            stateBeforeSend.messages + localUserMessage + assistantMessage,
-                            persistNow = true,
+                        persistMessagesAndRebuildMemory(
+                            messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
+                            memoryUserMessage = localUserMessage,
                         )
-                        persistExplicitPreferenceMemory(localUserMessage)
                         _uiState.update {
-                            it.copy(
+                            it.clearedEvidence().copy(
                                 isBusy = false,
                                 isGenerating = false,
                                 pendingConfirmation = PendingAgentConfirmation(
@@ -1796,13 +1803,10 @@ class SolinViewModel(
                                     plannedByModel = route.plannedByModel,
                                     fallbackReason = route.fallbackReason,
                                 ),
-                                memoryHits = emptyList(),
                                 activeRunTimeline = activeRunTimelineFor(route.runId),
-                                activeMemoryEvidence = emptyList(),
                                 statusText = "动作草稿待确认 · $planningLabel",
                             )
                         }
-                        rebuildMemoryIndex()
                         return@launch
                     }
 
@@ -1813,22 +1817,17 @@ class SolinViewModel(
                             text = "无法准备这个动作：${route.summary}",
                             privacy = MessagePrivacy.LocalOnly,
                         )
-                        replaceActiveSessionMessages(
-                            stateBeforeSend.messages + localUserMessage + assistantMessage,
-                            persistNow = true,
+                        persistMessagesAndRebuildMemory(
+                            messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
+                            memoryUserMessage = localUserMessage,
                         )
-                        persistExplicitPreferenceMemory(localUserMessage)
                         _uiState.update {
-                            it.copy(
+                            it.clearedEvidence().copy(
                                 isBusy = false,
                                 isGenerating = false,
-                                memoryHits = emptyList(),
-                                activeRunTimeline = emptyList(),
-                                activeMemoryEvidence = emptyList(),
                                 statusText = "动作不可执行",
                             )
                         }
-                        rebuildMemoryIndex()
                         return@launch
                     }
 
@@ -1848,22 +1847,17 @@ class SolinViewModel(
                             text = "需要先安装$capabilityName，才能完成这个请求。$installHint",
                             privacy = effectiveMessagePrivacy,
                         )
-                        replaceActiveSessionMessages(
-                            stateBeforeSend.messages + userMessage + assistantMessage,
-                            persistNow = true,
+                        persistMessagesAndRebuildMemory(
+                            messages = stateBeforeSend.messages + userMessage + assistantMessage,
+                            memoryUserMessage = userMessage,
                         )
-                        persistExplicitPreferenceMemory(userMessage)
                         _uiState.update {
-                            it.copy(
+                            it.clearedEvidence().copy(
                                 isBusy = false,
                                 isGenerating = false,
-                                memoryHits = emptyList(),
-                                activeRunTimeline = emptyList(),
-                                activeMemoryEvidence = emptyList(),
                                 statusText = "缺少$capabilityName",
                             )
                         }
-                        rebuildMemoryIndex()
                         return@launch
                     }
 
@@ -2000,7 +1994,7 @@ class SolinViewModel(
                                 )
                             }
                             val remoteTokenBudget = remoteConfig.modelProfile().contextWindowTokens
-                                ?.let { window -> (window * REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
+                                ?.let { window -> (window * SolinConstants.Ui.REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
                                 ?: Int.MAX_VALUE
                             val result = sendRemoteWithOverflowRetry(
                                 runId = route.runId,
@@ -2263,6 +2257,7 @@ class SolinViewModel(
                     }
                 }
             } catch (cancellation: CancellationException) {
+                solinD(TAG_LIFECYCLE, "generation: cancelled")
                 cancelActiveGenerationRun(activeModelRunId)
                 if (_uiState.value.isGenerating) {
                     finishStoppedGeneration(activeModelRunId)
@@ -2277,6 +2272,7 @@ class SolinViewModel(
                 }
                 throw cancellation
             } catch (throwable: Throwable) {
+                solinE(TAG_MODEL, "generation: failed useRemoteModel=$useRemoteModel", throwable)
                 val errorMessage = throwable.generationFailureMessage(useRemoteModel)
                 activeModelRunId?.let { runId ->
                     assistantOrchestrator.failModelGeneration(runId, errorMessage)
@@ -2508,6 +2504,15 @@ class SolinViewModel(
         }
     }
 
+    /**
+     * Records a structured egress audit event for a remote-send decision. Feeds the
+     * user-reviewable "远程发送记录" list (P2 egress audit).
+     *
+     * IMPORTANT: The [prompt] parameter is the raw user text. It is used ONLY for in-memory
+     * sensitive-category detection via [outboundSafetyPolicy.detectSensitiveCategories].
+     * The raw prompt text is NEVER persisted to the audit log — only the detected category
+     * labels, decision label, and aggregate counts (images, history entries) are stored.
+     */
     private fun recordRemoteSendAuditEvent(
         decision: RemoteSendDecision,
         modelName: String?,
@@ -2515,6 +2520,7 @@ class SolinViewModel(
         imageCount: Int,
         remoteHistoryCount: Int,
     ) {
+        // Raw prompt is used only for in-memory decision making and is NEVER persisted to the audit log.
         val sensitiveCategories = outboundSafetyPolicy.detectSensitiveCategories(prompt)
         val summaryParts = buildList {
             add(decision.label)
@@ -3310,8 +3316,18 @@ class SolinViewModel(
         }
     }
 
-    private suspend fun executeToolWithBoundary(request: ToolRequest): ToolResult =
-        toolExecutionBoundary.execute(request)
+    private suspend fun executeToolWithBoundary(request: ToolRequest): ToolResult {
+        solinD(TAG_TOOL, "executeTool: start tool=${request.toolName}")
+        val startMs = System.currentTimeMillis()
+        val result = toolExecutionBoundary.execute(request)
+        val durationMs = System.currentTimeMillis() - startMs
+        val success = result.error == null
+        solinD(
+            TAG_TOOL,
+            "executeTool: end tool=${request.toolName} success=$success durationMs=$durationMs",
+        )
+        return result
+    }
 
     private suspend fun executePublicEvidenceToolBatchAfterRunIsExecuting(
         runId: String,
@@ -3911,7 +3927,7 @@ class SolinViewModel(
                         )
                     }
                     val remoteTokenBudget = remoteConfig.modelProfile().contextWindowTokens
-                        ?.let { window -> (window * REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
+                        ?.let { window -> (window * SolinConstants.Ui.REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
                         ?: Int.MAX_VALUE
                     val result = sendRemoteWithOverflowRetry(
                         runId = runId,
@@ -4165,10 +4181,12 @@ class SolinViewModel(
                     )
                 }
             } catch (cancellation: CancellationException) {
+                solinD(TAG_LIFECYCLE, "generation(tool-continuation): cancelled")
                 cancelActiveGenerationRun(runId)
                 finishStoppedGeneration(runId)
                 throw cancellation
             } catch (throwable: Throwable) {
+                solinE(TAG_MODEL, "generation(tool-continuation): failed useRemoteModel=$useRemoteModel", throwable)
                 val errorMessage = throwable.generationFailureMessage(useRemoteModel)
                 runId?.let { id ->
                     assistantOrchestrator.failModelGeneration(id, errorMessage)
@@ -4352,10 +4370,10 @@ class SolinViewModel(
 
     private fun String.toRemoteSendPromptPreview(): String {
         val collapsed = trim().replace(Regex("""\s+"""), " ")
-        return if (collapsed.length <= REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS) {
+        return if (collapsed.length <= SolinConstants.Ui.REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS) {
             collapsed
         } else {
-            collapsed.take(REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS).trimEnd() + "…"
+            collapsed.take(SolinConstants.Ui.REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS).trimEnd() + "…"
         }
     }
 
@@ -5181,11 +5199,25 @@ class SolinViewModel(
         }
     }
 
+    // TODO(MemoryController refactor): The following memory-related methods
+    //   (rebuildMemoryIndex, syncTaskStateMemories, loadLongTermMemories,
+    //   persistExplicitPreferenceMemory, persistExplicitUserFactMemory,
+    //   persistExplicitMemory, handleExplicitPreferenceCommand,
+    //   handleExplicitUserFactCommand, handleExplicitMemoryCommand,
+    //   handleExplicitMemoryForgetCommand) should be delegated to
+    //   com.bytedance.zgx.solin.memory.MemoryController in a follow-up refactor.
     private fun rebuildMemoryIndex() {
+        val startMs = System.currentTimeMillis()
         runCatching {
             syncSemanticMemoryRuntime()
             memoryRepository.enabled = _uiState.value.memoryEnabled
             memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
+            val hitCount = currentSemanticMemoryIndexedRecordCount()
+            val durationMs = System.currentTimeMillis() - startMs
+            solinD(
+                TAG_MEMORY,
+                "rebuildMemoryIndex: success hits=$hitCount durationMs=$durationMs",
+            )
             _uiState.update { state ->
                 state.copy(
                     semanticMemoryEnabled = currentSemanticMemoryEnabled(),
@@ -5194,7 +5226,8 @@ class SolinViewModel(
                     semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
                 )
             }
-        }.onFailure {
+        }.onFailure { throwable ->
+            solinE(TAG_MEMORY, "rebuildMemoryIndex: failed", throwable)
             _uiState.update { state ->
                 state.copy(
                     semanticMemoryEnabled = currentSemanticMemoryEnabled(),
@@ -5369,15 +5402,13 @@ class SolinViewModel(
             !memoryEnabled -> disabledText
             else -> failedText
         }
-        replaceActiveSessionMessages(
-            _uiState.value.messages + ChatMessage(
+        persistMessagesAndRebuildMemory(
+            messages = _uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = assistantText,
                 privacy = MessagePrivacy.LocalOnly,
             ),
-            persistNow = true,
         )
-        rebuildMemoryIndex()
         _uiState.update { state ->
             state.copy(
                 memoryHits = emptyList(),
@@ -5416,15 +5447,13 @@ class SolinViewModel(
         } else {
             "未找到这条本地记忆。"
         }
-        replaceActiveSessionMessages(
-            _uiState.value.messages + ChatMessage(
+        persistMessagesAndRebuildMemory(
+            messages = _uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = assistantText,
                 privacy = MessagePrivacy.LocalOnly,
             ),
-            persistNow = true,
         )
-        rebuildMemoryIndex()
         _uiState.update { state ->
             state.copy(
                 memoryHits = emptyList(),
@@ -5636,6 +5665,26 @@ class SolinViewModel(
         }
     }
 
+    /**
+     * Combined "persist messages + optionally persist explicit preference memory +
+     * rebuild memory index" helper.  Extracts the repeated sequence that appears
+     * throughout send-message / tool-execution / command-handling paths.
+     *
+     * @param messages Final message list to write to the active session.
+     * @param memoryUserMessage When non-null, [persistExplicitPreferenceMemory] is
+     *   invoked for this message before the index rebuild.
+     */
+    private fun persistMessagesAndRebuildMemory(
+        messages: List<ChatMessage>,
+        memoryUserMessage: ChatMessage? = null,
+    ) {
+        replaceActiveSessionMessages(messages, persistNow = true)
+        if (memoryUserMessage != null) {
+            persistExplicitPreferenceMemory(memoryUserMessage)
+        }
+        rebuildMemoryIndex()
+    }
+
     private fun finishStoppedGeneration(runId: String?) {
         val remoteMode = _uiState.value.inferenceMode == InferenceMode.Remote
         val currentMessages = _uiState.value.messages
@@ -5647,8 +5696,7 @@ class SolinViewModel(
         } else {
             currentMessages
         }
-        replaceActiveSessionMessages(messages, persistNow = true)
-        rebuildMemoryIndex()
+        persistMessagesAndRebuildMemory(messages = messages)
         _uiState.update {
             it.copy(
                 isBusy = false,
@@ -5749,11 +5797,20 @@ class SolinViewModel(
             force = false,
             estimatedTokens = estimator,
         )
+        val remoteUrl = _uiState.value.remoteModelConfig.normalized().baseUrl
+        solinD(TAG_REMOTE, "sendRemote: start url=$remoteUrl historySize=${currentHistory.size}")
+        val requestStartMs = System.currentTimeMillis()
         return try {
             block(currentHistory)
+            val durationMs = System.currentTimeMillis() - requestStartMs
+            solinD(TAG_REMOTE, "sendRemote: success url=$remoteUrl durationMs=$durationMs")
             currentHistory to false
         } catch (first: Throwable) {
-            if (!first.isContextOverflowError()) throw first
+            if (!first.isContextOverflowError()) {
+                solinE(TAG_REMOTE, "sendRemote: error url=$remoteUrl", first)
+                throw first
+            }
+            solinW(TAG_REMOTE, "sendRemote: context overflow, retrying with compaction url=$remoteUrl")
             // ONE retry with forced aggressive compaction (budget=0 triggers OverBudget).
             currentHistory = assistantOrchestrator.compactHistory(
                 messages = currentHistory,
@@ -5764,9 +5821,12 @@ class SolinViewModel(
             )
             try {
                 block(currentHistory)
+                val durationMs = System.currentTimeMillis() - requestStartMs
+                solinD(TAG_REMOTE, "sendRemote: success-after-compaction url=$remoteUrl durationMs=$durationMs")
                 currentHistory to true
             } catch (second: Throwable) {
                 second.addSuppressed(first)
+                solinE(TAG_REMOTE, "sendRemote: error-after-compaction url=$remoteUrl", second)
                 throw second
             }
         }
@@ -5848,6 +5908,20 @@ class SolinViewModel(
             state = ModelHealthState.LoadFailed,
             backend = if (useRemoteModel) null else backend,
             failureReason = reason,
+        )
+
+    /**
+     * Returns a copy of this [ChatUiState] with all transient evidence/run-tracking
+     * lists cleared.  Used throughout the ViewModel whenever a user message is
+     * handled or a generation path is entered to avoid stale evidence from a
+     * previous run leaking into the UI.
+     */
+    private fun ChatUiState.clearedEvidence(): ChatUiState =
+        copy(
+            memoryHits = emptyList(),
+            activeRunTimeline = emptyList(),
+            activeMemoryEvidence = emptyList(),
+            activePublicWebEvidence = emptyList(),
         )
 
     private fun ChatUiState.toDeviceContextSnapshot(): DeviceContextSnapshot =
@@ -6392,17 +6466,17 @@ private fun Float.normalizedVoiceInputLevel(): Float =
     ((this + 2f) / 12f).coerceIn(0.08f, 1f)
 
 private fun seedVoiceWaveformLevels(level: Float): List<Float> =
-    List(VOICE_WAVEFORM_SAMPLE_COUNT) { frame ->
+    List(SolinConstants.Ui.VOICE_WAVEFORM_SAMPLE_COUNT) { frame ->
         voiceWaveformSample(level = level, frame = frame)
     }
 
 private fun List<Float>.nextVoiceWaveformLevels(level: Float, frame: Int): List<Float> {
     val nextSample = voiceWaveformSample(level = level, frame = frame)
-    val samples = (this + nextSample).takeLast(VOICE_WAVEFORM_SAMPLE_COUNT)
-    return if (samples.size == VOICE_WAVEFORM_SAMPLE_COUNT) {
+    val samples = (this + nextSample).takeLast(SolinConstants.Ui.VOICE_WAVEFORM_SAMPLE_COUNT)
+    return if (samples.size == SolinConstants.Ui.VOICE_WAVEFORM_SAMPLE_COUNT) {
         samples
     } else {
-        seedVoiceWaveformLevels(level).take(VOICE_WAVEFORM_SAMPLE_COUNT - samples.size) + samples
+        seedVoiceWaveformLevels(level).take(SolinConstants.Ui.VOICE_WAVEFORM_SAMPLE_COUNT - samples.size) + samples
     }
 }
 

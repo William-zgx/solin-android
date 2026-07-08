@@ -27,9 +27,16 @@ enum class RemoteSendDecision(val label: String) {
 }
 
 /**
- * A single structured, already-redacted record of an outbound remote-send decision. The summary
- * is passed through [ToolAuditSummaryRedactor] on construction so no raw credential/email ever
- * lands in the audit store, even if the caller forgets to redact.
+ * A single structured, already-redacted record of an outbound remote-send decision.
+ *
+ * This class intentionally has NO field for the raw prompt text. Only aggregate metadata
+ * (decision, model name, detected sensitive-category LABELS, image/history counts, and a
+ * human-readable summary built from those labels) is stored. The summary is passed through
+ * [ToolAuditSummaryRedactor] on construction so no raw credential/email ever lands in the
+ * audit store, even if the caller forgets to redact.
+ *
+ * Raw prompt text is NEVER persisted — see [RemoteSendAuditRepository.record] and
+ * `SolinViewModel.recordRemoteSendAuditEvent` for the write path.
  */
 data class RemoteSendAuditEvent(
     val id: String = UUID.randomUUID().toString(),
@@ -69,6 +76,12 @@ class RemoteSendAuditRepository(
     private val dao: RemoteSendAuditDao,
     private val maxStoredEvents: Int = DEFAULT_MAX_STORED_EVENTS,
 ) : RemoteSendAuditSink, RemoteSendAuditLog {
+    /**
+     * Persists an already-redacted audit event. Raw prompt text is NEVER stored — the event
+     * contains only decision labels, counts, and detected sensitive-category labels. The
+     * [RemoteSendAuditEvent.redactedForAudit] call here additionally strips any credentials
+     * or emails that might appear in the summary via [ToolAuditSummaryRedactor].
+     */
     override fun record(event: RemoteSendAuditEvent) {
         dao.insert(event.redactedForAudit().toEntity())
         if (maxStoredEvents > 0) {

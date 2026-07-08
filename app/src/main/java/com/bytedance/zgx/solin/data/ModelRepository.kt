@@ -180,7 +180,7 @@ class ModelRepository(
     private val appContext: Context,
     private val modelDao: ModelDao,
     private val downloadRecordDao: DownloadRecordDao,
-    private val settingsStore: PreferenceSettingsStore,
+    private val settingsStore: SettingsStore,
 ) : ModelRepositoryFacade {
     constructor(context: Context) : this(
         context.applicationContext,

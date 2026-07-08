@@ -101,6 +101,10 @@ interface SettingsStore {
     fun saveInferenceMode(mode: InferenceMode): InferenceMode
     fun loadRemoteConfig(apiKey: String): RemoteModelConfig
     fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig
+    fun selectedModelId(): String?
+    fun saveSelectedModelId(modelId: String)
+    fun activeInstalledModelId(): String?
+    fun saveActiveInstalledModelId(modelId: String?)
 }
 
 interface SecretStore {

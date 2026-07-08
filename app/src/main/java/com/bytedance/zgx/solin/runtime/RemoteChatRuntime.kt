@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.credentials.ApiKeyCredentialResolver
 import com.bytedance.zgx.solin.credentials.Credential
 import com.bytedance.zgx.solin.credentials.CredentialResolver
@@ -61,9 +62,15 @@ interface RemoteChatRuntime {
 }
 
 class OkHttpRemoteChatRuntime(
+    // NOTE: OkHttpClient uses default SSL settings (system trust store). Certificate pinning
+    // is available via CertificatePinner.Builder for future hardening, e.g.:
+    //   val pinner = CertificatePinner.Builder()
+    //       .add("api.example.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    //       .build()
+    //   OkHttpClient.Builder().certificatePinner(pinner).build()
     private val callFactory: Call.Factory = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .connectTimeout(SolinConstants.Network.CHAT_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(SolinConstants.Network.CHAT_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         .build(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val credentialResolver: CredentialResolver = ApiKeyCredentialResolver,
@@ -121,7 +128,7 @@ class OkHttpRemoteChatRuntime(
                             runCatching {
                                 response.body.source().use { source ->
                                     val buffer = Buffer()
-                                    source.read(buffer, ERROR_BODY_SNIPPET_BYTES)
+                                    source.read(buffer, SolinConstants.Network.ERROR_BODY_SNIPPET_BYTES)
                                     buffer.readUtf8()
                                 }
                             }.getOrNull().orEmpty().trim()
@@ -227,7 +234,7 @@ class OkHttpRemoteChatRuntime(
                             runCatching {
                                 response.body.source().use { source ->
                                     val buffer = Buffer()
-                                    source.read(buffer, ERROR_BODY_SNIPPET_BYTES)
+                                    source.read(buffer, SolinConstants.Network.ERROR_BODY_SNIPPET_BYTES)
                                     buffer.readUtf8()
                                 }
                             }.getOrNull().orEmpty().trim()
@@ -363,17 +370,16 @@ private fun remoteFailureMessage(
     }
     // Append a bounded prefix of the error body so callers can match machine-readable phrases
     // (e.g. "context_length_exceeded") for automatic recovery. Snippet is capped server-side
-    // via ERROR_BODY_SNIPPET_BYTES and stripped of newlines/quotes to keep the exception
+    // via SolinConstants.Network.ERROR_BODY_SNIPPET_BYTES and stripped of newlines/quotes to keep the exception
     // message single-line and log-safe.
     val snippet = bodySnippet
         .replace('\n', ' ')
         .replace('\r', ' ')
-        .take(ERROR_BODY_SNIPPET_CHARS)
+        .take(SolinConstants.Network.ERROR_BODY_SNIPPET_CHARS)
     return if (snippet.isBlank()) base else "$base: $snippet"
 }
 
-private const val ERROR_BODY_SNIPPET_BYTES = 1024L
-private const val ERROR_BODY_SNIPPET_CHARS = 512
+private val JSON = "application/json; charset=utf-8".toMediaType()
 
 internal fun parseChatCompletionChunkText(raw: String): String {
     val json = runCatching { JSONObject(raw) }.getOrNull() ?: return ""
@@ -636,8 +642,6 @@ private fun RemoteModelConfig.chatCompletionsUrl(): String =
     } else {
         "$baseUrl/chat/completions"
     }
-
-private val JSON = "application/json; charset=utf-8".toMediaType()
 
 private fun Credential.hasAuthorization(): Boolean = when (this) {
     is Credential.ApiKey -> apiKey.isNotBlank()

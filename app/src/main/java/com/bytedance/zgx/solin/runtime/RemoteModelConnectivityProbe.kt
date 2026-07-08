@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.runtime
 
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
+import com.bytedance.zgx.solin.SolinConstants
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
@@ -17,8 +18,8 @@ interface RemoteModelConnectivityProbe {
 
 class OkHttpRemoteModelConnectivityProbe(
     private val callFactory: Call.Factory = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(SolinConstants.Network.PROBE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(SolinConstants.Network.PROBE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : RemoteModelConnectivityProbe {

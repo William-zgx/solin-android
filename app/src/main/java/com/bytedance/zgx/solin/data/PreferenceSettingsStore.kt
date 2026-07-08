@@ -21,6 +21,22 @@ import org.json.JSONObject
 
 private val Context.solinDataStore by preferencesDataStore(name = "solin_settings")
 
+/**
+ * Known ISP violation: this class implements three interfaces
+ * ([SettingsStore], [ActiveSessionStore], [RemoteSendPendingStore]) that each
+ * serve a distinct responsibility.  Plan to split it into three focused classes:
+ *
+ * 1. `PreferenceSettingsStore` — implements [SettingsStore] only
+ *    (first-run, memory, generation parameters, backend, inference mode,
+ *    remote config, selected / active model IDs).
+ * 2. `PreferenceActiveSessionStore` — implements [ActiveSessionStore] only
+ *    (persists the currently active chat-session ID).
+ * 3. `PreferenceRemoteSendPendingStore` — implements [RemoteSendPendingStore] only
+ *    (persists the pending-remote-send marker for disclosure confirmation).
+ *
+ * All three would share the same underlying `solin_settings` DataStore so the
+ * migration path is transparent to existing data.
+ */
 class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionStore, RemoteSendPendingStore {
     private val dataStore = context.applicationContext.solinDataStore
 
@@ -101,17 +117,17 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         writeString(Keys.ACTIVE_SESSION_ID, sessionId)
     }
 
-    fun selectedModelId(): String? =
+    override fun selectedModelId(): String? =
         readString(Keys.SELECTED_MODEL_ID, "").takeIf { it.isNotBlank() }
 
-    fun saveSelectedModelId(modelId: String) {
+    override fun saveSelectedModelId(modelId: String) {
         writeString(Keys.SELECTED_MODEL_ID, modelId)
     }
 
-    fun activeInstalledModelId(): String? =
+    override fun activeInstalledModelId(): String? =
         readString(Keys.ACTIVE_INSTALLED_MODEL_ID, "").takeIf { it.isNotBlank() }
 
-    fun saveActiveInstalledModelId(modelId: String?) {
+    override fun saveActiveInstalledModelId(modelId: String?) {
         writeString(Keys.ACTIVE_INSTALLED_MODEL_ID, modelId.orEmpty())
     }
 

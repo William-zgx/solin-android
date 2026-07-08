@@ -3,6 +3,8 @@ package com.bytedance.zgx.solin.data
 import android.content.Context
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.logging.solinW
+import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 
 private const val LEGACY_PREFS_NAME = "solin"
 private const val PREF_REMOTE_API_KEY = "remote_model_api_key"
@@ -49,11 +51,23 @@ class RemoteModelRepository(
     private fun loadApiKey(): Result<String> {
         val plaintextLegacy = legacyPrefs?.getString(PREF_REMOTE_API_KEY, "").orEmpty()
         if (plaintextLegacy.isNotBlank()) {
+            // Migration strategy: attempt to move the legacy plaintext key into encrypted
+            // storage. If the encrypted write fails, we log a warning and still return the
+            // plaintext key so the app keeps working. The migration will be retried on the
+            // next loadApiKey() call (e.g. next app launch), since the plaintext copy is
+            // only removed after a successful save.
             val saved = secretStore.saveString(PREF_REMOTE_API_KEY, plaintextLegacy)
             if (saved.isSuccess) {
                 legacyPrefs?.edit()?.remove(PREF_REMOTE_API_KEY)?.apply()
+            } else {
+                solinW(
+                    TAG_REMOTE,
+                    "Failed to migrate plaintext API key to encrypted storage; " +
+                        "retaining plaintext copy and retrying on next load. " +
+                        "Cause: ${saved.exceptionOrNull()?.message}",
+                )
             }
-            return saved.map { plaintextLegacy }
+            return Result.success(plaintextLegacy)
         }
         return secretStore.loadString(PREF_REMOTE_API_KEY)
     }

@@ -98,6 +98,11 @@ class RemoteModelRepositoryTest {
             remoteConfig = config.normalized()
             return remoteConfig
         }
+
+        override fun selectedModelId(): String? = null
+        override fun saveSelectedModelId(modelId: String) = Unit
+        override fun activeInstalledModelId(): String? = null
+        override fun saveActiveInstalledModelId(modelId: String?) = Unit
     }
 
     private object FailingSecretStore : SecretStore {
