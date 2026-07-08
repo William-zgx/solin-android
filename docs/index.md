@@ -14,7 +14,9 @@ flowchart TD
     Need --> Release["Prepare a release"]
     Need --> Brand["Check brand, listing, or policy facts"]
     Need --> Evidence["Record verification evidence"]
+    Need --> Plans["Plan a future refactor"]
 
+    Plans --> PlansDir["plans/"]
     Run --> Readme["README.md"]
     Explain --> Privacy["privacy_notice.md"]
     Architecture --> Core["agent_core_modules.md"]
@@ -54,6 +56,7 @@ flowchart TD
 | `release_blocker_dashboard.md` | Generated blocker view | Compact status generated from roadmap/release readiness inputs |
 | `validation_report.md` | Append-only evidence log | Dated commands, results, artifacts, and known gaps |
 | `ai_behavior_eval_plan.md` | AI behavior evidence plan | Fixture taxonomy, actual-trace contract, and release-gate behavior-eval rules |
+| `docs/plans/*.md` | Future refactor plans | Detailed multi-step migration plans for data layer, ViewModel, UI state, and screen composables |
 
 JSON files in `docs/` are machine-readable records or capability matrices. They
 are inputs to verifier scripts and should stay structured rather than become
@@ -65,6 +68,81 @@ bootstrap rules live in `agent_core_modules.md` and
 and the `verifySearchQuery` / `expectedPackageName` / `expectedAppName` result
 guards live in `phone_acceptance.md`; dated command evidence belongs in
 `validation_report.md`.
+
+## Recent Architecture Improvements (2026-07)
+
+The following improvements were recently merged to main (commit 4ad758e):
+
+### Structured Logging (SolinLog)
+- New module: `app/src/main/java/com/bytedance/zgx/solin/logging/`
+- `SolinLog` interface (d/i/w/w/e) — does NOT reference android.util.Log, safe for pure-Kotlin and unit tests
+- `AndroidSolinLog` — production impl; every call wrapped in `runCatching { android.util.Log.x(...) }` to avoid crashing unit tests where Log is not mocked
+- `NoOpSolinLog` — silent impl for release builds
+- `SolinLogHolder` — global holder; default = AndroidSolinLog when BuildConfig.DEBUG, NoOp otherwise
+- Top-level convenience functions: `solinD()`, `solinI()`, `solinW()`, `solinE()`
+- `SolinLogTags.kt` — 12 standard tag constants: TAG_MODEL, TAG_TOOL, TAG_MEMORY, TAG_REMOTE, TAG_DEVICE, TAG_AUDIT, TAG_SAFETY, TAG_LIFECYCLE, TAG_BACKGROUND, TAG_MCP, TAG_UI, TAG_EVIDENCE
+- Migration: `RemoteModelRepository` now uses `solinW(TAG_REMOTE, ...)` instead of raw `android.util.Log.w`
+- `SolinViewModel` has 8 structured logging calls in loadModel, sendMessageInternal, executeToolWithBoundary
+
+### Centralized Constants (SolinConstants)
+- New file: `app/src/main/java/com/bytedance/zgx/solin/SolinConstants.kt`
+- Nested objects: `Network`, `AgentLoop`, `Ui`, `Embedding`
+- Network: CHAT_CONNECT_TIMEOUT_SECONDS=15, CHAT_READ_TIMEOUT_MILLIS=0, PROBE_CONNECT_TIMEOUT_SECONDS=5, PROBE_READ_TIMEOUT_SECONDS=8, ERROR_BODY_SNIPPET_BYTES=1024, ERROR_BODY_SNIPPET_CHARS=512
+- AgentLoop: MAX_TOOL_RETRY_ATTEMPTS=1, MAX_RUN_TOOL_STEPS=10, MAX_OBSERVATION_DECISIONS=16
+- Ui: REMOTE_COMPACTION_BUDGET_RATIO=0.85, MAX_VOICE_TRANSCRIPT_CHARS=2000, VOICE_WAVEFORM_SAMPLE_COUNT=9, REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS=240
+- Embedding: EMBEDDING_TIMEOUT_SECONDS=30
+- Replaced scattered private const vals in SolinViewModel, RemoteChatRuntime, RemoteModelConnectivityProbe, AgentLoopRuntime
+
+### Concurrency Safety (AgentLoopRuntime)
+- P0 fix: 8 `mutableMapOf` fields changed to `java.util.concurrent.ConcurrentHashMap` for safe multi-coroutine access
+- Constructor defaults now reference `SolinConstants.AgentLoop.*`
+
+### MemoryController Extraction
+- New file: `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryController.kt` (385 lines)
+- Encapsulates memory logic previously inline in SolinViewModel
+- Data classes: `MemoryControllerResult`, `MemoryCommandResult`
+- Methods: rebuildMemoryIndex, loadLongTermMemories, handleExplicitPreferenceCommand, handleExplicitUserFactCommand, handleExplicitMemoryCommand, handleExplicitMemoryForgetCommand, syncTaskStateMemories
+- Constructor deps: memoryIndex, longTermMemoryControls, sessionStore, modelRepository, backgroundTaskScheduler, semanticMemoryRuntimeController, ioDispatcher
+
+### Evidence Encryption (OnDeviceEvidenceBlobStore)
+- Evidence blobs now encrypted at rest using AES/CBC/PKCS5Padding with key in AndroidKeyStore
+- Key alias: `solin_evidence_key`
+- IV (16 bytes) prepended to ciphertext
+- `BlobEncryptor` interface + `AndroidKeyStoreBlobEncryptor` private class
+- Automatic legacy plaintext migration: `maybeDecrypt()` falls back to plaintext if decryption fails
+- Meta file includes `encrypted=true/false` line
+- Test constructors passing `appContext=null` disable encryption (backward compatible)
+
+### Network Security Config
+- New: `app/src/main/res/xml/network_security_config.xml`
+- Base config: `cleartextTrafficPermitted="false"` (HTTPS-only by default)
+- Trust anchors: system certificates only
+- Domain exceptions (cleartext allowed): localhost, 127.0.0.1, 10.0.2.2 (emulator), ::1
+- Referenced in `AndroidManifest.xml` via `android:networkSecurityConfig="@xml/network_security_config"`
+
+### Dependency Inversion (ModelRepository)
+- `ModelRepository` constructor now takes `SettingsStore` interface, not `PreferenceSettingsStore` concrete
+- Added 4 methods to `SettingsStore` interface: `selectedModelId()`, `saveSelectedModelId()`, `activeInstalledModelId()`, `saveActiveInstalledModelId()`
+- `PreferenceSettingsStore` now overrides these 4 methods (previously non-interface methods)
+- Known ISP violation: `PreferenceSettingsStore` implements 3 interfaces (documented with KDoc, plan to split)
+
+### SolinViewModel Code Deduplication
+- Extracted `persistMessagesAndRebuildMemory(messages, memoryUserMessage)` helper (11 call sites consolidated)
+- Extracted `ChatUiState.clearedEvidence()` extension (5 call sites; clears memoryHits, activeRunTimeline, activeMemoryEvidence, activePublicWebEvidence)
+- Bug fix: `result.errorCode == null` → `result.error == null` (ToolResult has `error: ToolError?` not `errorCode`)
+- Replaced 4 private const val with `SolinConstants.Ui.*` references (10 usages)
+
+### Privacy Guarantees
+- `RemoteSendAuditEvent` intentionally has NO raw prompt field (confirmed by KDoc)
+- `RemoteSendAuditRepository.record()` never persists raw user prompts
+- `MessagePrivacy.LocalOnly` vs `RemoteEligible` governs what can reach remote models
+
+### Future Plans (docs/plans/)
+Four detailed migration plans:
+- `data-layer-suspend-migration.md` — 9 interfaces, 18 methods, 4-step coroutine migration
+- `viewmodel-split.md` — 8 controllers, 8-step split, 8-10 days
+- `uistate-split.md` — 10 sub-states, 5-step migration, perf benefits
+- `solin-screen-split.md` — 91 composables, 12 components, 9-step split, 6-8 days
 
 ## Editing Rules
 
@@ -93,3 +171,4 @@ guards live in `phone_acceptance.md`; dated command evidence belongs in
 - Device acceptance flow: `phone_acceptance.md`.
 - Release evidence flow: `release_checklist.md`.
 - AI behavior evidence flow: `ai_behavior_eval_plan.md`.
+- Architecture refactor plans: docs/plans/

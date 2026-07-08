@@ -23,6 +23,14 @@ The model does not get permission to perform arbitrary device actions. It can
 only choose from the existing app-search tool set: open app, observe, tap, type,
 submit search, scroll, wait, and back.
 
+## Recent Infrastructure Improvements
+
+These supporting improvements have been merged and are available for use by the model-driven app control system:
+
+- **SolinConstants** — all timeout, retry, and UI tuning values in one place (`SolinConstants.kt`)
+- **SolinLog** — structured logging with standard tags including `TAG_TOOL`, `TAG_DEVICE`, `TAG_UI`
+- **Network security config** — HTTPS-by-default with loopback exceptions for local model endpoints
+
 ## Existing Base
 
 The app already has the runtime skeleton:
@@ -74,7 +82,7 @@ Model-driven app control is allowed only when all conditions hold:
 - The previous result includes local-only screen evidence or a validated UI
   action result.
 - The requested tool is in the low-risk app-search tool allowlist.
-- Step and replan budgets are still available.
+- Step and replan budgets (now centralized in `SolinConstants.AgentLoop`) are still available.
 
 The model receives redacted local observation evidence, not screenshot pixels.
 The executor still validates arguments and output schemas before the run can

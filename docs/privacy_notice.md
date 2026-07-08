@@ -52,6 +52,15 @@ removes the stored secret.
 The Android manifest sets `allowBackup=false`, so this codebase does not opt
 local app storage into Android cloud backup or app-data sync.
 
+### Evidence Encryption
+
+On-device evidence blobs are encrypted at rest using AES/CBC/PKCS5Padding.
+The encryption key is stored in AndroidKeyStore under the alias
+`solin_evidence_key`. Each blob has a random 16-byte IV prepended to the
+ciphertext. Legacy plaintext blobs are automatically migrated to encrypted
+format on next write. Evidence meta files record `encrypted=true/false`
+status.
+
 ## Remote Model Mode
 
 Remote model mode sends requests only after the user-configured
@@ -79,8 +88,10 @@ supports that message shape, and the user confirms the send. If the endpoint
 rejects image content, Solin reports image-input failure and does not
 fall back to OCR.
 
-Remote transport requires HTTPS, except for local debug hosts such as
-`localhost`, `127.0.0.1`, `::1`, and Android emulator `10.0.2.2`. When an API
+Remote transport requires HTTPS by default. The network security config
+enforces HTTPS for all remote traffic; cleartext is only permitted for
+loopback addresses (`localhost`, `127.0.0.1`, `10.0.2.2`, `::1`).
+See `res/xml/network_security_config.xml`. When an API
 key is configured, the runtime sends it as an authorization credential to the
 configured endpoint. The endpoint operator's logging and retention policies
 apply.
@@ -205,6 +216,13 @@ Tool audit events store metadata such as event time, event type, tool name,
 status, risk level, permission names, and sanitized summaries. They are not a
 full prompt or tool-argument log. The app prunes the Room-backed audit table
 after writes and keeps only the most recent 500 audit events.
+
+### Audit Privacy
+
+`RemoteSendAuditEvent` does NOT contain the raw user prompt.
+`RemoteSendAuditRepository.record()` never persists raw prompts. Audit records
+contain: timestamp, model used, token counts, privacy level, error codes —
+never message content.
 
 Agent trace and pending confirmation recovery are narrower than a full
 execution replay. Pending rows persist only allowlisted request arguments,

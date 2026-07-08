@@ -1,5 +1,25 @@
 # Harness 架构改进建议（修订版 v2）
 
+## 已完成改进 (Completed 2026-07)
+
+以下改进已在 commit 4ad758e 中合并到 main：
+
+- **结构化日志 (SolinLog)**：新增 `logging/SolinLog.kt` 接口 + `AndroidSolinLog`（runCatching 包裹）+ `NoOpSolinLog` + 12 个标准 tag。替代散落的 `android.util.Log` 调用。
+- **集中常量 (SolinConstants)**：新增 `SolinConstants.kt`，含 Network/AgentLoop/Ui/Embedding 嵌套对象，替代散落的 private const val。
+- **并发安全 (AgentLoopRuntime)**：8 个 `mutableMapOf` 改为 `ConcurrentHashMap`，消除多协程并发风险。
+- **MemoryController 提取**：从 SolinViewModel 提取 385 行 memory 逻辑到独立 `memory/MemoryController.kt`。
+- **证据加密**：OnDeviceEvidenceBlobStore 新增 AES/CBC/PKCS5Padding 加密（AndroidKeyStore key），IV 前置，自动迁移旧明文。
+- **网络安全配置**：新增 `network_security_config.xml`，默认禁止明文流量，仅放行 loopback。
+- **依赖反转**：ModelRepository 构造参数从 `PreferenceSettingsStore` 改为 `SettingsStore` 接口；接口新增 4 个 model-selection 方法。
+- **SolinViewModel 去重**：提取 `persistMessagesAndRebuildMemory`（11 处）和 `clearedEvidence()`（5 处）；修复 `result.errorCode` → `result.error` bug。
+
+仍待完成（见 docs/plans/）：
+- AgentLoopRuntime 拆分为多组件 + 类型化事件总线
+- Data layer 迁移为 suspend 函数
+- ViewModel 拆分为 8 个 controller
+- UiState 拆分为 10 个子状态
+- SolinScreen 91 个 composable 拆分为 12 个组件
+
 参考 pi（earendil-works/pi，TypeScript agent toolkit + coding agent CLI）与 opencode（anomalyco/opencode，基于 Effect.ts 的开源 coding agent）的 Harness 实现，对照 Solin Android 当前的 Harness（`orchestration/`、`tool/`、`safety/`、`runtime/`），给出按优先级排序的改进点。Solin 当前核心编排循环在 `AgentLoopRuntime.kt`（~3960 行），由 `AssistantOrchestrator` 包装；Tool 层有 `ToolRegistry`（~2500 行，硬编码 `BuiltInToolProvider`）；模型层有 `RemoteChatRuntime`（OkHttp streaming）+ `LiteRtRuntime`（本地）；审计层有 `ToolAuditRepository`/`RemoteSendAuditSink` 两个 Room 环形缓冲。整体结构扎实、安全审计比多数开源项目重；下文列出结构性缺口，优先级经 8 个子系统审计与 adversarial panel 校准。
 
 ---
@@ -7,6 +27,8 @@
 ## P0 — 结构性可维护性改进（应尽快做）
 
 ### 1. 拆分 AgentLoopRuntime 巨型类（3960 行 → 多职责组件）+ 同步引入类型化事件总线
+
+> 部分完成：ConcurrentHashMap 修复已落地；完整拆分计划见 `docs/plans/viewmodel-split.md`
 
 **参考**：opencode 将 runner 拆为 `session/runner/llm.ts`、`session/runner/model.ts`、`tool/registry.ts`、`session/compaction/`、`session/snapshot/`；pi 把 hooks、compaction、session、memory 独立。但 opencode 的 SQLite 事件溯源/versioned manifest/projector-in-tx **不适合单进程 Android**（已有 `AgentTraceStore` + Room 审计表承载持久化，Kotlin sealed class 提供编译期类型清单），应只采纳其 pub/sub + typed-hierarchy 思路。
 

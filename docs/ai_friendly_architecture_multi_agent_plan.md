@@ -4,6 +4,25 @@ This plan translates the Codinx AI Friendly architecture and Harness guidance
 into an executable refactor plan for Solin Android. It is a development plan,
 not an implementation diff.
 
+## Related Detailed Plans
+
+This document outlines the multi-agent architecture vision. For step-by-step implementation plans, see:
+
+- `docs/plans/viewmodel-split.md` — Splitting SolinViewModel into 8 focused controllers
+- `docs/plans/uistate-split.md` — Decomposing ChatUiState into 10 sub-states
+- `docs/plans/solin-screen-split.md` — Breaking SolinScreen's 91 composables into 12 components
+- `docs/plans/data-layer-suspend-migration.md` — Migrating 9 data layer interfaces to suspend functions
+
+The following foundational improvements have already landed:
+
+- SolinLog structured logging facade (test-safe)
+- SolinConstants centralized tuning parameters
+- MemoryController extracted from ViewModel
+- Evidence encryption at rest (AES/AndroidKeyStore)
+- Network security config (HTTPS-by-default)
+- AgentLoopRuntime ConcurrentHashMap concurrency fix
+- ModelRepository dependency inversion (SettingsStore interface)
+
 ## Source Principles
 
 - **Harness first**: an agent entering the repo must know where the rules live,

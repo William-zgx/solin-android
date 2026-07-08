@@ -72,10 +72,18 @@ flowchart TD
 - [ ] `docs/model_license_metadata.json` is freshly collected before review, and `docs/model_license_review.json` approves every recommended model with concrete license source, reviewer, review date, redistribution decision, attribution/notice requirements, evidence path, and SHA-256.
 - [ ] `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh` passes for the focused model-license check; the final public gate still requires perf evidence.
 - [ ] `scripts/privacy_scan.sh` passes. No API keys, bearer tokens, private endpoints, raw prompts, private device-context payloads, contacts, notifications, clipboard text, or sensitive screenshots are present in release docs, logs, screenshots, or notes.
+- [ ] Evidence blobs verified encrypted at rest (check meta file `encrypted=true`)
+- [ ] AndroidKeyStore key `solin_evidence_key` present on first launch after install
+- [ ] Network security config active: `network_security_config.xml` referenced in manifest
+- [ ] No cleartext traffic to non-loopback addresses (verify with NetworkSecurityPolicy)
+- [ ] SolinLog used instead of raw `android.util.Log` in all production code (grep check)
+- [ ] SolinConstants used instead of inline timeout/retry constants (grep check)
+- [ ] RemoteSendAuditEvent confirmed to NOT contain raw user prompt field
 
 ## Validation
 
 - [ ] `scripts/verify_local.sh` passes on a clean checkout.
+- [ ] Unit test suite: 1637 tests pass, 0 failures.
 - [ ] Emulator regression passes on prepared arm64 AVDs, including API 28, 32, 33, 34, and 36, or the release record explains why emulator validation was unavailable.
 - [ ] `scripts/check_emulator_api_matrix.sh` and, when needed, `scripts/prepare_emulator_api_matrix.sh` produce readiness evidence before API-matrix regression.
 - [ ] At least one physical `arm64-v8a` device passes `scripts/install_and_test_device.sh` against the final signed release APK. Emulator serials are rejected as physical-device evidence.

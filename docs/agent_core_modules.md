@@ -155,6 +155,7 @@ Current status:
   user to record whether the target-side outcome completed.
 - Run-level step and observation budgets fail closed before another pending
   confirmation, retry, replan, or model continuation is saved.
+- **Concurrency safety**: All 8 internal `mutableMapOf` fields in `AgentLoopRuntime` are now `ConcurrentHashMap` for safe multi-coroutine access.
 
 Tests:
 
@@ -513,6 +514,92 @@ Tests:
 - `CurrentScreenshotOcrContractTest`
 - `SolinViewModelTest`
 - `MainActivitySharedIntentTest`
+
+## Structured Logging
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/logging/SolinLog.kt`
+- `app/src/main/java/com/bytedance/zgx/solin/logging/SolinLogTags.kt`
+
+Responsibilities:
+
+- Provide a test-safe logging facade that does not directly reference `android.util.Log`.
+- Route log calls through `SolinLogHolder.current` (default: `AndroidSolinLog` in debug, `NoOpSolinLog` in release).
+- Define 12 standard tag constants so log filtering is consistent across modules.
+
+Boundaries:
+
+- `AndroidSolinLog` wraps every `android.util.Log` call in `runCatching` so unit tests never crash from unmocked Log.
+- Top-level `solinD/solinI/solinW/solinE` functions are the preferred entry point; avoid raw `android.util.Log` in production code.
+- Tests may swap the implementation via `setSolinLog()` to capture or silence output.
+
+Current status:
+
+- `SolinViewModel` emits structured logs for model load, message send, and tool execution.
+- `RemoteModelRepository` uses `solinW(TAG_REMOTE, ...)` for migration warnings.
+
+## Centralized Constants
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/SolinConstants.kt`
+
+Responsibilities:
+
+- Hold all magic numbers and tuning parameters in one typed, documented location.
+- Expose nested objects: `Network`, `AgentLoop`, `Ui`, `Embedding`.
+
+Boundaries:
+
+- Prefer `SolinConstants.X.Y` over scattered `private const val`.
+- Each value carries KDoc explaining its purpose and units.
+
+## Memory Controller
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryController.kt`
+
+Responsibilities:
+
+- Encapsulate memory index rebuild, long-term memory load, and explicit memory commands (preference, fact, remember, forget).
+- Coordinate between `MemoryIndex`, `LongTermMemoryControls`, `SessionStore`, `ModelRepository`, and `BackgroundTaskScheduler`.
+
+Boundaries:
+
+- Returns `MemoryControllerResult` / `MemoryCommandResult` data classes; does not directly mutate UI state.
+- Runs on an injected `ioDispatcher`.
+
+## Evidence Encryption
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/evidence/OnDeviceEvidenceBlobStore.kt`
+
+Responsibilities:
+
+- Encrypt evidence blobs at rest using AES/CBC/PKCS5Padding with an AndroidKeyStore key (`solin_evidence_key`).
+- Prepend a 16-byte IV to each ciphertext blob.
+- Auto-migrate legacy plaintext blobs on read (decrypt failure → fall back to plaintext).
+
+Boundaries:
+
+- Encryption is enabled only when a valid `Context` is provided; test constructors pass `null` to disable.
+- Meta files include an `encrypted=true/false` line.
+
+## Network Security
+
+Code:
+
+- `app/src/main/res/xml/network_security_config.xml`
+- Referenced from `AndroidManifest.xml` via `android:networkSecurityConfig`
+
+Responsibilities:
+
+- Enforce HTTPS for all outbound traffic by default (`cleartextTrafficPermitted="false"`).
+- Allow cleartext only for loopback addresses: localhost, 127.0.0.1, 10.0.2.2 (emulator), ::1.
+- Trust anchors: system certificates only.
 
 ## Regression Strategy
 

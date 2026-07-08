@@ -5,7 +5,7 @@ evidence; it does not close device, performance, signing, store, legal,
 privacy, or release-owner blockers by itself.
 
 - Roadmap source date: `2026-06-29`
-- Dashboard refreshed: `2026-06-29`
+- Dashboard refreshed: `2026-07-08`
 - Close rule: a blocker is closed only by linked evidence with owner/date/SHA-256, or by explicit release-owner risk acceptance recorded in the release record.
 - Final authority: `PUBLIC_RELEASE=1 ... scripts/verify_release_gate.sh`
 
@@ -21,6 +21,32 @@ privacy, or release-owner blockers by itself.
 | Privacy, store, model license, and release approvals | partial | Human approvals and final public metadata are still required. | Fill real owners/reviewers, public privacy URL, store evidence, privacy/security/legal approvals, model license approvals, signing identity, artifact SHA-256, and approved evidence files. |
 | Production signing and public artifact | blocked | Production signing material and final public AAB evidence are not complete. | Run protected signing, record upload/app-signing certificate fingerprints, archive AAB/APK/mapping artifacts, and pass artifact scan. |
 | Release operations | partial | Monitoring, crash/ANR smoke, rollout watcher, and rollback evidence need final owner-approved records. | Complete `docs/release_operations_record.json`, crash/ANR smoke, monitoring evidence, rollback evidence, and `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
+
+## Recently Completed
+
+Resolved in commit `4ad758e`. All items below are DONE / GREEN.
+
+| Area | Item | Status |
+| --- | --- | --- |
+| Logging | Structured logging facade (SolinLog) | DONE |
+| Constants | Centralized constants (SolinConstants) | DONE |
+| Concurrency | AgentLoopRuntime concurrency safety (ConcurrentHashMap) | DONE |
+| Evidence | Evidence encryption at rest | DONE |
+| Network | Network security config (HTTPS-by-default) | DONE |
+| Architecture | ModelRepository dependency inversion | DONE |
+| Architecture | SolinViewModel code deduplication | DONE |
+
+## Future Work (PLANNED)
+
+Planned items tracked under `docs/plans/`:
+
+| Area | Item | Status |
+| --- | --- | --- |
+| Architecture | AgentLoopRuntime split into multi-component + typed event bus | PLANNED |
+| Data layer | Data layer suspend migration (9 interfaces, 18 methods) | PLANNED |
+| ViewModel | ViewModel split into 8 controllers | PLANNED |
+| UiState | UiState split into 10 sub-states | PLANNED |
+| UI | SolinScreen composable split (91 → 12 components) | PLANNED |
 
 ## Evidence That Does Not Close Release Blockers
 

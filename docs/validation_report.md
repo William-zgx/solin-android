@@ -40,6 +40,41 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
 
+## 2026-07-08 — Architecture Improvements Wave (commit 4ad758e)
+
+### Changes Implemented
+
+1. **SolinLog structured logging** — New `logging/` module with `SolinLog` interface, `AndroidSolinLog` (runCatching-wrapped), `NoOpSolinLog`, `SolinLogHolder`, top-level `solinD/I/W/E` functions, and 12 standard tag constants in `SolinLogTags.kt`.
+2. **SolinConstants** — Centralized constants in `SolinConstants.kt` with `Network`, `AgentLoop`, `Ui`, `Embedding` nested objects.
+3. **AgentLoopRuntime concurrency fix** — 8 `mutableMapOf` → `ConcurrentHashMap` for multi-coroutine safety.
+4. **MemoryController** — 385-line memory logic extracted from SolinViewModel to `memory/MemoryController.kt`.
+5. **Evidence encryption** — `OnDeviceEvidenceBlobStore` now encrypts blobs with AES/CBC/PKCS5Padding, key in AndroidKeyStore (`solin_evidence_key`), IV-prepended ciphertext, auto legacy plaintext migration.
+6. **Network security config** — `res/xml/network_security_config.xml`: HTTPS-by-default, cleartext only for loopback (localhost, 127.0.0.1, 10.0.2.2, ::1).
+7. **Dependency inversion** — `ModelRepository` takes `SettingsStore` interface. Interface gained 4 model-selection methods.
+8. **SolinViewModel dedup** — `persistMessagesAndRebuildMemory` (11 call sites), `clearedEvidence()` (5 call sites). Bug fix: `result.errorCode` → `result.error`.
+
+### Test Results
+
+- Unit tests: **1637 passed, 0 failed**
+- `verify_local.sh`: **exit code 0**
+- Emulator tests: previously 7 failing → **now all passing**
+
+### Key Bug Fix
+
+`SolinViewModel.kt` had `result.errorCode == null` but `ToolResult` exposes `error: ToolError?` not `errorCode`. Fixed to `result.error == null`. This could have caused incorrect tool success/failure detection.
+
+### Files Added
+
+- `app/src/main/java/com/bytedance/zgx/solin/logging/SolinLog.kt`
+- `app/src/main/java/com/bytedance/zgx/solin/logging/SolinLogTags.kt`
+- `app/src/main/java/com/bytedance/zgx/solin/SolinConstants.kt`
+- `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryController.kt`
+- `app/src/main/res/xml/network_security_config.xml`
+- `docs/plans/data-layer-suspend-migration.md`
+- `docs/plans/viewmodel-split.md`
+- `docs/plans/uistate-split.md`
+- `docs/plans/solin-screen-split.md`
+
 ## 2026-07-01 Model-Driven App Search Documentation Contract
 
 本轮覆盖项：

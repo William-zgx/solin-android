@@ -38,6 +38,15 @@ only summarizes current readiness and blockers.
   `assembleBundledModelsPackage`, `bundleBundledModelsPackage`,
   `checkBundledModelsPackageOutputs`, and
   `scripts/package_bundled_models.sh`.
+- SolinLog structured logging facade (test-safe, no `android.util.Log` crash in unit tests).
+- SolinConstants centralized constants (Network/AgentLoop/Ui/Embedding).
+- AgentLoopRuntime concurrency safety: 8 maps converted to `ConcurrentHashMap`.
+- MemoryController extracted from SolinViewModel (385 lines).
+- Evidence encryption at rest: AES/CBC/PKCS5Padding with AndroidKeyStore.
+- Network security config: HTTPS-by-default, loopback cleartext only.
+- ModelRepository dependency inversion: now takes `SettingsStore` interface.
+- SolinViewModel code deduplication: `persistMessagesAndRebuildMemory` (11 sites), `clearedEvidence()` (5 sites).
+- Bug fix: `ToolResult.errorCode` → `ToolResult.error` in SolinViewModel.
 
 ## Current Evidence
 
@@ -51,6 +60,12 @@ only summarizes current readiness and blockers.
 | Bundled model package | Internal split package path exists and can install base plus four modelpack splits with same-signature `adb install-multiple --no-incremental -r`. | Internal quick-experience evidence only. It is not Play/public release evidence, and external handoff still requires approved model license and redistribution review. |
 | Store/privacy/license | Records and verifiers exist. | Real support contact, public privacy URL, reviewers, approvals, and model redistribution decisions remain pending. |
 | Perf | RC perf collector and verifier exist. | Final metrics must be measured on physical arm64 hardware against the final signed RC artifact with `runner=rc_perf_release_broadcast`. |
+
+## Recent Test Results
+
+- 1637 unit tests passing, 0 failures.
+- `scripts/verify_local.sh` passes (exit code 0).
+- Emulator tests: 7 previously-failing tests now passing.
 
 ## Release Blockers
 
@@ -68,6 +83,11 @@ only summarizes current readiness and blockers.
 | Performance owner | Collect RC load, first-token, throughput, memory, ANR/OOM, GPU fallback, and 50k memory metrics on physical arm64 hardware. | `RELEASE_ARTIFACT=<signed-rc> APP_VERSION=<version> scripts/collect_rc_perf_from_device.sh` report and `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`. |
 | AI behavior owner | Collect a fresh public-strict `agent_loop_runtime` actual trace for the current fixture set. | `scripts/collect_ai_behavior_actual_trace.sh` and strict `scripts/verify_ai_behavior_eval.sh` report with zero mismatches and zero unresolved allowed failures. |
 | Release / model owner | If sharing the large bundled-model tester package, bind split APKs, signing certificate, model hashes, model license approval, and install smoke separately from Play artifacts. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`, then `scripts/package_bundled_models.sh` report plus device smoke showing base plus four modelpack splits and verified models. |
+
+## Future Work
+
+Detailed implementation plans live in `docs/plans/`. The four active plans
+are tracked as future work items beyond the current release gate.
 
 ## Next Commands
 
