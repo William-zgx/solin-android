@@ -42,7 +42,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -92,7 +92,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -108,7 +108,7 @@ jobs:
 
   emulator-regression:
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: macos-14
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
 
     steps:
@@ -121,7 +121,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -135,6 +135,16 @@ jobs:
             "platform-tools" \
             "emulator" \
             "system-images;android-36;google_apis;arm64-v8a"
+
+      - name: Enable native ARM emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check
 
       - name: Create API 36 arm64 AVD
         run: |
@@ -150,7 +160,7 @@ jobs:
         run: |
           AVD_NAME=solin_ci_api36_arm64 \
           ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
-          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel on" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-regression \
@@ -167,7 +177,7 @@ jobs:
 
   emulator-api-matrix:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: macos-14
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
 
     steps:
@@ -180,7 +190,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -192,6 +202,16 @@ jobs:
             "platform-tools" \
             "emulator" \
             "build-tools;36.0.0"
+
+      - name: Enable native ARM emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check
 
       - name: Prepare API matrix AVDs
         run: |
@@ -208,7 +228,7 @@ jobs:
         run: |
           REQUIRED_APIS="28 32 33 34 36" \
           ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
-          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel on" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-api-matrix \
@@ -239,7 +259,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -314,7 +334,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -392,7 +412,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3

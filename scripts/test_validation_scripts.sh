@@ -3165,11 +3165,28 @@ final_release_gate_block = job_block("final-release-gate")
 
 if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
-if "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0" not in emulator_regression_block:
-    fail("emulator-regression must fail closed when emulator infrastructure is unavailable")
 for required in (
+    "runs-on: ubuntu-24.04-arm",
+    "Enable native ARM emulator KVM",
+    'KERNEL=="kvm", GROUP="kvm", MODE="0666"',
+    'test -r /dev/kvm',
+    'test -w /dev/kvm',
+    '"$ANDROID_HOME/emulator/emulator" -accel-check',
+    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
+    '-no-snapshot',
+    '-accel on',
+):
+    if required not in emulator_regression_block:
+        fail(f"emulator-regression missing native ARM KVM marker: {required}")
+if "java-version: \"21\"" not in verify_block:
+    fail("verify must use JDK 21 for localagents-rag generated classes")
+for required in (
+    "runs-on: ubuntu-24.04-arm",
+    "Enable native ARM emulator KVM",
     'REQUIRED_APIS="28 32 33 34 36"',
     "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
+    '-no-snapshot',
+    '-accel on',
     "scripts/prepare_emulator_api_matrix.sh",
     "scripts/regression_emulator_api_matrix.sh",
     "android-emulator-api-matrix-evidence",
@@ -11439,10 +11456,10 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "reason=em
 
 reset_logs
 expect_success \
-  "regression emulator records hosted HVF infra failure as skipped when allowed" \
+  "regression emulator records hosted HVF_UNSUPPORTED infrastructure as skipped when allowed" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES="" FAKE_EMULATOR_AVDS="test-avd" AVD_NAME="test-avd" \
-  FAKE_EMULATOR_OUTPUT=$'HVF error: HV_UNSUPPORTED\nqemu-system-aarch64-headless: failed to initialize HVF: Invalid argument' \
+  FAKE_EMULATOR_OUTPUT=$'HVF_UNSUPPORTED' \
   EMULATOR_SELECT_TIMEOUT_SECONDS=0 ALLOW_EMULATOR_INFRA_UNAVAILABLE=1 \
   EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT" GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
 assert_no_gradle_call
@@ -11450,7 +11467,7 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=sk
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "failedTarget=emulator-infra"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "reason=emulator-infra-hvf-unsupported"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "reason=no-single-authorized-emulator"
-grep -q "HV_UNSUPPORTED" "$ARTIFACT_DIR-emulator.log" ||
+grep -q "HVF_UNSUPPORTED" "$ARTIFACT_DIR-emulator.log" ||
   fail "Expected hosted HVF skip to preserve the emulator log evidence"
 
 reset_logs
@@ -11459,6 +11476,7 @@ expect_failure \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
   FAKE_INSTRUMENTATION_OUTPUT=$'INSTRUMENTATION_STATUS: numtests=3\nFAILURES!!!\nTests run: 3,  Failures: 1\nINSTRUMENTATION_CODE: -1' \
+  ALLOW_EMULATOR_INFRA_UNAVAILABLE=1 \
   EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT" GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"

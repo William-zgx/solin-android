@@ -305,6 +305,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
             val bins = root.listFiles { _, n -> n.endsWith(".bin") } ?: return@forEach
             // 1. TTL sweep
             for (bin in bins) {
+                if (bin == excluding) continue
                 val meta = readMeta(bin) ?: continue
                 val ttl = meta.ttlUntil
                 if (ttl != null && ttl < now) {
