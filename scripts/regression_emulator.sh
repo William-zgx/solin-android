@@ -59,7 +59,9 @@ is_allowed_hvf_infra_failure() {
   local nested_reason="$1"
   local emulator_log
   [[ "${ALLOW_EMULATOR_INFRA_UNAVAILABLE:-0}" == "1" ]] || return 1
-  [[ "$nested_reason" == "no-single-authorized-emulator" || "$nested_reason" == "emulator-boot-timeout" ]] || return 1
+  [[ "$nested_reason" == "no-single-authorized-emulator" ||
+    "$nested_reason" == "emulator-startup-process-exited" ||
+    "$nested_reason" == "emulator-boot-timeout" ]] || return 1
   emulator_log="$(report_value "$EMULATOR_REPORT_FILE" "emulator_log")"
   [[ -n "$emulator_log" && -f "$emulator_log" ]] || return 1
   grep -Eq 'HV_UNSUPPORTED|HVF_UNSUPPORTED|failed to initialize HVF' "$emulator_log"

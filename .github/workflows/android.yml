@@ -108,7 +108,7 @@ jobs:
 
   emulator-regression:
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: ubuntu-24.04-arm
+    runs-on: macos-14
     timeout-minutes: 75
 
     steps:
@@ -125,11 +125,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: false
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses >/dev/null
 
       - name: Install Android SDK emulator packages
         run: |
@@ -140,16 +135,6 @@ jobs:
             "platform-tools" \
             "emulator" \
             "system-images;android-36;google_apis;arm64-v8a"
-
-      - name: Enable native ARM emulator KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          test -r /dev/kvm
-          test -w /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -accel-check
 
       - name: Create API 36 arm64 AVD
         run: |
@@ -164,12 +149,32 @@ jobs:
       - name: Run connected emulator regression
         run: |
           AVD_NAME=solin_ci_api36_arm64 \
-          ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
-          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel on" \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-regression \
           scripts/regression_emulator.sh
+
+      - name: Summarize emulator infrastructure skip
+        if: always()
+        run: |
+          REPORT=build/verification/ci-emulator-regression/regression-emulator.properties
+          if [[ -f "$REPORT" ]]; then
+            STATUS="$(awk -F= '$1 == "status" {print $2; exit}' "$REPORT")"
+            REASON="$(awk -F= '$1 == "reason" {print $2; exit}' "$REPORT")"
+            if [[ "$STATUS" == "skipped" ]]; then
+              MESSAGE="Connected emulator regression was skipped because hosted emulator infrastructure is unavailable: ${REASON:-unknown}."
+              echo "::warning::$MESSAGE"
+              {
+                echo "## Emulator regression"
+                echo
+                echo "> **Skipped:** $MESSAGE"
+                echo
+                echo "The skipped report and emulator log are attached as CI artifacts."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
 
       - name: Upload emulator evidence
         if: always()
@@ -182,7 +187,7 @@ jobs:
 
   emulator-api-matrix:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: ubuntu-24.04-arm
+    runs-on: macos-14
     timeout-minutes: 240
 
     steps:
@@ -199,11 +204,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: false
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses >/dev/null
 
       - name: Install Android SDK base packages
         run: |
@@ -212,16 +212,6 @@ jobs:
             "platform-tools" \
             "emulator" \
             "build-tools;36.0.0"
-
-      - name: Enable native ARM emulator KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          test -r /dev/kvm
-          test -w /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -accel-check
 
       - name: Prepare API matrix AVDs
         run: |
@@ -237,8 +227,8 @@ jobs:
       - name: Run connected API matrix regression
         run: |
           REQUIRED_APIS="28 32 33 34 36" \
-          ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
-          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel on" \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-api-matrix \

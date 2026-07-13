@@ -29,6 +29,7 @@ ABI_LIST=""
 AVD_LABEL=""
 FAILED_TARGET=""
 FAILURE_REASON=""
+EMULATOR_PID=""
 source "$ROOT_DIR/scripts/lib/report_helpers.sh"
 
 available_avd_summary() {
@@ -144,6 +145,10 @@ wait_for_emulator_selection() {
     if select_emulator_once; then
       return
     fi
+    if [[ -n "$EMULATOR_PID" ]] && ! kill -0 "$EMULATOR_PID" >/dev/null 2>&1; then
+      fail emulator-startup emulator-startup-process-exited \
+        "Android emulator process exited before an authorized emulator was available."
+    fi
     [[ "$SECONDS" -lt "$deadline" ]] ||
       fail emulator-selection no-single-authorized-emulator \
         "Timed out waiting for a single authorized emulator. Start exactly one emulator-* device or set AVD_NAME to an available AVD."
@@ -188,6 +193,7 @@ if [[ -n "${AVD_NAME:-}" ]]; then
   echo "Starting emulator AVD: $AVD_NAME"
   echo "Emulator log: $EMULATOR_LOG"
   "${EMULATOR_CMD[@]}" > "$EMULATOR_LOG" 2>&1 &
+  EMULATOR_PID=$!
 fi
 
 wait_for_emulator_selection

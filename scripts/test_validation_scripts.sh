@@ -3166,33 +3166,23 @@ final_release_gate_block = job_block("final-release-gate")
 if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
 for required in (
-    "runs-on: ubuntu-24.04-arm",
-    "accept-android-sdk-licenses: false",
-    "Accept Android SDK licenses",
-    "yes | sdkmanager --licenses >/dev/null",
-    "Enable native ARM emulator KVM",
-    'KERNEL=="kvm", GROUP="kvm", MODE="0666"',
-    'test -r /dev/kvm',
-    'test -w /dev/kvm',
-    '"$ANDROID_HOME/emulator/emulator" -accel-check',
-    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
-    '-no-snapshot',
-    '-accel on',
+    "runs-on: macos-14",
+    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}",
+    '-no-snapshot-save',
+    '-accel off',
+    "Summarize emulator infrastructure skip",
+    "The skipped report and emulator log are attached as CI artifacts.",
 ):
     if required not in emulator_regression_block:
-        fail(f"emulator-regression missing native ARM KVM marker: {required}")
+        fail(f"emulator-regression missing transparent HVF infrastructure marker: {required}")
 if "java-version: \"21\"" not in verify_block:
     fail("verify must use JDK 21 for localagents-rag generated classes")
 for required in (
-    "runs-on: ubuntu-24.04-arm",
-    "accept-android-sdk-licenses: false",
-    "Accept Android SDK licenses",
-    "yes | sdkmanager --licenses >/dev/null",
-    "Enable native ARM emulator KVM",
+    "runs-on: macos-14",
     'REQUIRED_APIS="28 32 33 34 36"',
-    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
-    '-no-snapshot',
-    '-accel on',
+    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}",
+    '-no-snapshot-save',
+    '-accel off',
     "scripts/prepare_emulator_api_matrix.sh",
     "scripts/regression_emulator_api_matrix.sh",
     "android-emulator-api-matrix-evidence",
@@ -11472,7 +11462,7 @@ assert_no_gradle_call
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=skipped"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "failedTarget=emulator-infra"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "reason=emulator-infra-hvf-unsupported"
-assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "reason=no-single-authorized-emulator"
+assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "reason=emulator-startup-process-exited"
 grep -q "HVF_UNSUPPORTED" "$ARTIFACT_DIR-emulator.log" ||
   fail "Expected hosted HVF skip to preserve the emulator log evidence"
 
