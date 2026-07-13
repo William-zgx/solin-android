@@ -546,6 +546,54 @@ if not is_sha256(signing_ci_props.get("signedAabSha256", "")):
     failures.append("ci-protected-signing-aab-sha-invalid")
 elif expected_release_artifact_sha and expected_release_artifact_type != "apk" and signing_ci_props.get("signedAabSha256", "") != expected_release_artifact_sha:
     failures.append("ci-protected-signing-aab-sha-mismatch")
+signed_apk = signing_ci_props.get("signedApk", "")
+if not non_empty_string(signed_apk):
+    failures.append("ci-protected-signing-apk-missing")
+elif not is_sha256(signing_ci_props.get("signedApkSha256", "")):
+    failures.append("ci-protected-signing-apk-sha-invalid")
+elif expected_release_artifact_sha and expected_release_artifact_type == "apk" and signing_ci_props.get("signedApkSha256", "") != expected_release_artifact_sha:
+    failures.append("ci-protected-signing-apk-sha-mismatch")
+signed_android_test_apk = signing_ci_props.get("signedAndroidTestApk", "")
+if not non_empty_string(signed_android_test_apk):
+    failures.append("ci-protected-signing-android-test-apk-missing")
+elif signing_ci_props.get("signedAndroidTestApkSha256", "") and not is_sha256(signing_ci_props.get("signedAndroidTestApkSha256", "")):
+    failures.append("ci-protected-signing-android-test-apk-sha-invalid")
+elif not is_sha256(signing_ci_props.get("signedAndroidTestApkSha256", "")):
+    failures.append("ci-protected-signing-android-test-apk-sha-missing")
+if not is_sha256(signing_ci_props.get("appSignerSha256", "")):
+    failures.append("ci-protected-signing-app-signer-sha-invalid")
+if not is_sha256(signing_ci_props.get("androidTestSignerSha256", "")):
+    failures.append("ci-protected-signing-android-test-signer-sha-invalid")
+if not is_sha256(signing_ci_props.get("aabSignerSha256", "")):
+    failures.append("ci-protected-signing-aab-signer-sha-invalid")
+if (
+    is_sha256(signing_ci_props.get("appSignerSha256", ""))
+    and is_sha256(signing_ci_props.get("androidTestSignerSha256", ""))
+    and signing_ci_props.get("appSignerSha256", "").lower()
+    != signing_ci_props.get("androidTestSignerSha256", "").lower()
+):
+    failures.append("ci-protected-signing-app-android-test-signer-mismatch")
+if (
+    is_sha256(signing_ci_props.get("appSignerSha256", ""))
+    and is_sha256(signing_ci_props.get("aabSignerSha256", ""))
+    and signing_ci_props.get("appSignerSha256", "").lower()
+    != signing_ci_props.get("aabSignerSha256", "").lower()
+):
+    failures.append("ci-protected-signing-app-aab-signer-mismatch")
+if signing_ci_props.get("appAndAndroidTestSignersMatch") != "true":
+    failures.append("ci-protected-signing-app-android-test-signers-not-matched")
+if (
+    expected_signing_cert_sha
+    and is_sha256(signing_ci_props.get("appSignerSha256", ""))
+    and signing_ci_props.get("appSignerSha256", "").lower() != expected_signing_cert_sha
+):
+    failures.append("ci-protected-signing-app-signer-cert-mismatch")
+if (
+    expected_signing_cert_sha
+    and is_sha256(signing_ci_props.get("aabSignerSha256", ""))
+    and signing_ci_props.get("aabSignerSha256", "").lower() != expected_signing_cert_sha
+):
+    failures.append("ci-protected-signing-aab-signer-cert-mismatch")
 
 monitoring = record.get("monitoring")
 if not isinstance(monitoring, dict):

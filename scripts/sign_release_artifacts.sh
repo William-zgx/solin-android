@@ -11,9 +11,12 @@ APKSIGNER="${APKSIGNER:-$BUILD_TOOLS_DIR/apksigner}"
 
 UNSIGNED_APK="${UNSIGNED_APK:-app/build/outputs/apk/release/app-release-unsigned.apk}"
 UNSIGNED_AAB="${UNSIGNED_AAB:-app/build/outputs/bundle/release/app-release.aab}"
+UNSIGNED_ANDROID_TEST_APK="${UNSIGNED_ANDROID_TEST_APK:-releaseSmoke/build/outputs/apk/release/releaseSmoke-release.apk}"
 SIGNED_APK="${SIGNED_APK:-app/build/outputs/apk/release/app-release-signed.apk}"
 SIGNED_AAB="${SIGNED_AAB:-app/build/outputs/bundle/release/app-release-signed.aab}"
+SIGNED_ANDROID_TEST_APK="${SIGNED_ANDROID_TEST_APK:-releaseSmoke/build/outputs/apk/release/releaseSmoke-release-signed.apk}"
 ALIGNED_APK="${ALIGNED_APK:-${SIGNED_APK%.apk}-aligned.apk}"
+ALIGNED_ANDROID_TEST_APK="${ALIGNED_ANDROID_TEST_APK:-${SIGNED_ANDROID_TEST_APK%.apk}-aligned.apk}"
 REPORT_FILE="${REPORT_FILE:-build/verification/signing/signing.properties}"
 ARTIFACT_SCAN_REPORT_FILE="${REPORT_FILE}.artifact-scan.properties"
 ALLOW_DEBUG_KEYSTORE="${ALLOW_DEBUG_KEYSTORE:-0}"
@@ -81,6 +84,46 @@ cleanup_secret_files() {
   fi
 }
 
+apk_signer_sha256() {
+  local apk="$1"
+  local output
+  [[ -f "$apk" && -x "$APKSIGNER" ]] || return 0
+  output="$("$APKSIGNER" verify --print-certs "$apk" 2>/dev/null || true)"
+  printf '%s\n' "$output" |
+    awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {
+      value = tolower($2)
+      gsub(/[^0-9a-f]/, "", value)
+      print value
+      exit
+    }'
+}
+
+bundle_signer_sha256() {
+  local bundle="$1"
+  local output
+  [[ -f "$bundle" ]] || return 0
+  command -v keytool >/dev/null 2>&1 || return 0
+  output="$(keytool -printcert -jarfile "$bundle" 2>/dev/null || true)"
+  printf '%s\n' "$output" |
+    awk -F': ' '/SHA256:/ {
+      value = tolower($2)
+      gsub(/[^0-9a-f]/, "", value)
+      print value
+      exit
+    }'
+}
+
+app_and_test_signers_match() {
+  local app_signer test_signer
+  app_signer="$(apk_signer_sha256 "$SIGNED_APK")"
+  test_signer="$(apk_signer_sha256 "$SIGNED_ANDROID_TEST_APK")"
+  if [[ -n "$app_signer" && "$app_signer" == "$test_signer" ]]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
 write_report() {
   local exit_code="$1"
   local status="failed"
@@ -106,6 +149,8 @@ write_report() {
     printf 'unsignedApkSha256=%s\n' "$(sha256_or_empty "$UNSIGNED_APK")"
     printf 'unsignedAab=%s\n' "$UNSIGNED_AAB"
     printf 'unsignedAabSha256=%s\n' "$(sha256_or_empty "$UNSIGNED_AAB")"
+    printf 'unsignedAndroidTestApk=%s\n' "$UNSIGNED_ANDROID_TEST_APK"
+    printf 'unsignedAndroidTestApkSha256=%s\n' "$(sha256_or_empty "$UNSIGNED_ANDROID_TEST_APK")"
     printf 'signedApk=%s\n' "$SIGNED_APK"
     if [[ -f "$SIGNED_APK" ]]; then
       printf 'signedApkSha256=%s\n' "$(shasum -a 256 "$SIGNED_APK" | awk '{print $1}')"
@@ -114,6 +159,14 @@ write_report() {
     if [[ -f "$SIGNED_AAB" ]]; then
       printf 'signedAabSha256=%s\n' "$(shasum -a 256 "$SIGNED_AAB" | awk '{print $1}')"
     fi
+    printf 'signedAndroidTestApk=%s\n' "$SIGNED_ANDROID_TEST_APK"
+    if [[ -f "$SIGNED_ANDROID_TEST_APK" ]]; then
+      printf 'signedAndroidTestApkSha256=%s\n' "$(shasum -a 256 "$SIGNED_ANDROID_TEST_APK" | awk '{print $1}')"
+    fi
+    printf 'appSignerSha256=%s\n' "$(apk_signer_sha256 "$SIGNED_APK")"
+    printf 'androidTestSignerSha256=%s\n' "$(apk_signer_sha256 "$SIGNED_ANDROID_TEST_APK")"
+    printf 'appAndAndroidTestSignersMatch=%s\n' "$(app_and_test_signers_match)"
+    printf 'aabSignerSha256=%s\n' "$(bundle_signer_sha256 "$SIGNED_AAB")"
     printf 'artifactScanReport=%s\n' "$ARTIFACT_SCAN_REPORT_FILE"
     printf 'artifactScanReportSha256=%s\n' "$(sha256_or_empty "$ARTIFACT_SCAN_REPORT_FILE")"
     printf 'artifactScanStatus=%s\n' "$(report_value "$ARTIFACT_SCAN_REPORT_FILE" status)"
@@ -219,6 +272,17 @@ fi
 if [[ "$REQUIRE_AAB" == "1" && ! -f "$UNSIGNED_AAB" ]]; then
   fail input-artifact unsigned-aab-missing "Release signing requires unsigned AAB: $UNSIGNED_AAB"
 fi
+if [[ "$ALLOW_DEBUG_KEYSTORE" != "1" && ! -f "$UNSIGNED_APK" ]]; then
+  fail input-artifact unsigned-apk-missing "Production release signing requires unsigned APK: $UNSIGNED_APK"
+fi
+if [[ "$ALLOW_DEBUG_KEYSTORE" != "1" && ! -f "$UNSIGNED_ANDROID_TEST_APK" ]]; then
+  fail input-artifact unsigned-android-test-apk-missing \
+    "Production release signing requires an AndroidTest APK: $UNSIGNED_ANDROID_TEST_APK"
+fi
+if [[ -f "$UNSIGNED_APK" && ! -f "$UNSIGNED_ANDROID_TEST_APK" ]]; then
+  fail input-artifact unsigned-android-test-apk-missing \
+    "Release signing requires an AndroidTest APK when signing an APK: $UNSIGNED_ANDROID_TEST_APK"
+fi
 
 require_tool "$ZIPALIGN" zipalign
 require_tool "$APKSIGNER" apksigner
@@ -226,7 +290,11 @@ command -v jarsigner >/dev/null 2>&1 || {
   fail tool jarsigner-not-found "jarsigner not found in PATH."
 }
 
-mkdir -p "$(dirname "$SIGNED_APK")" "$(dirname "$SIGNED_AAB")" "$(dirname "$REPORT_FILE")"
+mkdir -p \
+  "$(dirname "$SIGNED_APK")" \
+  "$(dirname "$SIGNED_AAB")" \
+  "$(dirname "$SIGNED_ANDROID_TEST_APK")" \
+  "$(dirname "$REPORT_FILE")"
 
 if [[ -f "$UNSIGNED_APK" ]]; then
   if ! "$ZIPALIGN" -p -f 4 "$UNSIGNED_APK" "$ALIGNED_APK"; then
@@ -246,6 +314,36 @@ if [[ -f "$UNSIGNED_APK" ]]; then
   fi
 fi
 
+if [[ -f "$UNSIGNED_APK" ]]; then
+  if ! "$ZIPALIGN" -p -f 4 "$UNSIGNED_ANDROID_TEST_APK" "$ALIGNED_ANDROID_TEST_APK"; then
+    fail android-test-signing android-test-zipalign-failed "AndroidTest APK zipalign failed."
+  fi
+  if ! "$APKSIGNER" sign \
+    --ks "$RELEASE_KEYSTORE" \
+    --ks-key-alias "$RELEASE_KEY_ALIAS" \
+    --ks-pass "file:$KEYSTORE_PASSWORD_FILE_RESOLVED" \
+    --key-pass "file:$KEY_PASSWORD_FILE_RESOLVED" \
+    --out "$SIGNED_ANDROID_TEST_APK" \
+    "$ALIGNED_ANDROID_TEST_APK"; then
+    fail android-test-signing android-test-apksigner-sign-failed "AndroidTest APK signing failed."
+  fi
+  if ! "$APKSIGNER" verify --verbose --print-certs "$SIGNED_ANDROID_TEST_APK" > "$REPORT_FILE.android-test-apk-certs.txt"; then
+    fail android-test-signing android-test-apksigner-verify-failed "AndroidTest APK signature verification failed."
+  fi
+
+  APP_SIGNER_SHA256="$(apk_signer_sha256 "$SIGNED_APK")"
+  ANDROID_TEST_SIGNER_SHA256="$(apk_signer_sha256 "$SIGNED_ANDROID_TEST_APK")"
+  if [[ -z "$APP_SIGNER_SHA256" || "$APP_SIGNER_SHA256" != "$ANDROID_TEST_SIGNER_SHA256" ]]; then
+    fail signing-policy app-android-test-signer-mismatch \
+      "Release app and AndroidTest APK must be signed by the same certificate."
+  fi
+  if [[ -n "$EXPECTED_SIGNING_CERT_SHA256" &&
+    "$APP_SIGNER_SHA256" != "$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')" ]]; then
+    fail signing-policy signed-apk-certificate-mismatch \
+      "Signed app and AndroidTest APK do not match EXPECTED_SIGNING_CERT_SHA256."
+  fi
+fi
+
 if [[ -f "$UNSIGNED_AAB" ]]; then
   cp "$UNSIGNED_AAB" "$SIGNED_AAB"
   if ! jarsigner \
@@ -259,6 +357,30 @@ if [[ -f "$UNSIGNED_AAB" ]]; then
   if ! jarsigner -verify -certs -verbose "$SIGNED_AAB" > "$REPORT_FILE.aab-certs.txt" 2>&1; then
     fail aab-signing jarsigner-verify-failed "AAB signature verification failed."
   fi
+fi
+
+if [[ "$ALLOW_DEBUG_KEYSTORE" != "1" ]]; then
+  APP_SIGNER_SHA256="$(apk_signer_sha256 "$SIGNED_APK")"
+  ANDROID_TEST_SIGNER_SHA256="$(apk_signer_sha256 "$SIGNED_ANDROID_TEST_APK")"
+  AAB_SIGNER_SHA256="$(bundle_signer_sha256 "$SIGNED_AAB")"
+  if [[ ! "$APP_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ||
+    ! "$ANDROID_TEST_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ||
+    ! "$AAB_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+    fail signing-policy signed-artifact-signer-unreadable \
+      "Could not read a SHA-256 signer from each signed production release artifact."
+  fi
+  if [[ "$APP_SIGNER_SHA256" != "$ANDROID_TEST_SIGNER_SHA256" ||
+    "$APP_SIGNER_SHA256" != "$AAB_SIGNER_SHA256" ]]; then
+    fail signing-policy signed-artifact-signer-mismatch \
+      "Production release APK, AndroidTest APK, and AAB must use the same certificate."
+  fi
+  if [[ "$APP_SIGNER_SHA256" != "$(printf '%s' "$EXPECTED_SIGNING_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')" ]]; then
+    fail signing-policy signed-artifact-certificate-mismatch \
+      "Signed production release artifacts do not match EXPECTED_SIGNING_CERT_SHA256."
+  fi
+  [[ -f "$SIGNED_APK" && -f "$SIGNED_ANDROID_TEST_APK" && -f "$SIGNED_AAB" ]] ||
+    fail output-artifact signed-artifact-missing \
+      "Production release signing did not produce all required signed artifacts."
 fi
 
 scan_args=()

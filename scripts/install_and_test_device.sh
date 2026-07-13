@@ -9,6 +9,9 @@ export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
+BUILD_TOOLS_DIR="${BUILD_TOOLS_DIR:-$({ find "$ANDROID_SDK/build-tools" -maxdepth 1 -type d 2>/dev/null || true; } | sort | tail -n 1)}"
+APKSIGNER="${APKSIGNER:-$BUILD_TOOLS_DIR/apksigner}"
+AAPT="${AAPT:-$BUILD_TOOLS_DIR/aapt}"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
@@ -25,8 +28,10 @@ LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 LOGCAT_TAIL_LINES="${LOGCAT_TAIL_LINES:-500}"
 INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-}"
 INSTRUMENTATION_TIMEOUT_SECONDS="${INSTRUMENTATION_TIMEOUT_SECONDS:-900}"
+RELEASE_MAIN_SHELL_TIMEOUT_SECONDS="${RELEASE_MAIN_SHELL_TIMEOUT_SECONDS:-45}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
 RELEASE_ARTIFACT_TYPE="${RELEASE_ARTIFACT_TYPE:-}"
+EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 APP_APK_MODE="${APP_APK_MODE:-debug}"
 DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
 DEFERRED_REASON="${DEFERRED_REASON:-}"
@@ -39,7 +44,11 @@ ABI_LIST=""
 DATA_FREE_KB=""
 INSTRUMENTATION_STATUS="not-run"
 INSTRUMENTATION_TEST_COUNT=""
+INSTRUMENTATION_EXECUTED_TEST_COUNT=""
+INSTRUMENTATION_SKIPPED_TEST_COUNT=""
+INSTRUMENTATION_SKIPPED_TESTS=""
 LOGCAT_CAPTURED=0
+RELEASE_MAIN_SHELL_VERIFIED=0
 MIUI_BACKGROUND_ACTIVITY_STARTS_PREPARED=0
 MIUI_BACKGROUND_ACTIVITY_STARTS_RESTORE_TARGET=""
 MIUI_BACKGROUND_ACTIVITY_STARTS_RESTORE_TEST=""
@@ -57,16 +66,41 @@ SCRIPT_COMPLETED=0
 REPORT_WRITTEN=0
 
 PACKAGE_NAME="com.bytedance.zgx.solin"
-TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
+DEBUG_TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
+RELEASE_TEST_PACKAGE_NAME="${PACKAGE_NAME}.releasesmoke"
+TEST_PACKAGE_NAME="$DEBUG_TEST_PACKAGE_NAME"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
+RELEASE_TEST_RUNNER="${RELEASE_TEST_PACKAGE_NAME}/${RELEASE_TEST_PACKAGE_NAME}.ReleaseSmokeInstrumentation"
+RELEASE_SMOKE_TEST_CLASS="${PACKAGE_NAME}.ReleaseSignedSmokeDeviceTest"
 SOLIN_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.SolinAccessibilityService"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 DEFAULT_RELEASE_APK="app/build/outputs/apk/release/app-release-signed.apk"
+DEFAULT_DEBUG_ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+DEFAULT_RELEASE_ANDROID_TEST_APK="releaseSmoke/build/outputs/apk/release/releaseSmoke-release-signed.apk"
 APP_APK="${APP_APK:-}"
-ANDROID_TEST_APK="${ANDROID_TEST_APK:-app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk}"
+ANDROID_TEST_APK="${ANDROID_TEST_APK:-}"
 REQUIRED_FREE_KB=$((3 * 1024 * 1024))
 APP_APK_SHA256=""
+ANDROID_TEST_APK_SHA256=""
+APP_SIGNER_SHA256=""
+ANDROID_TEST_SIGNER_SHA256=""
+APP_APK_VERSION_CODE=""
+APP_APK_VERSION_NAME=""
+INSTALLED_APP_APK_PATH=""
+INSTALLED_TEST_APK_PATH=""
+INSTALLED_APP_APK_SHA256=""
+INSTALLED_TEST_APK_SHA256=""
+INSTALLED_APP_SIGNER_SHA256=""
+INSTALLED_TEST_SIGNER_SHA256=""
+INSTALLED_APP_VERSION_CODE=""
+INSTALLED_APP_VERSION_NAME=""
+RELEASE_MAIN_SHELL_START_OUTPUT_FILE="${ARTIFACT_DIR}/release-main-shell-start.txt"
+RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE="${ARTIFACT_DIR}/release-main-shell-activity.txt"
+RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE="${ARTIFACT_DIR}/release-main-shell-window.txt"
+RELEASE_MAIN_SHELL_UI_DUMP_FILE="${ARTIFACT_DIR}/release-main-shell.xml"
+RELEASE_MAIN_SHELL_SCREENSHOT_FILE="${ARTIFACT_DIR}/release-main-shell.png"
+RELEASE_MAIN_SHELL_UI_DUMP_REMOTE_PATH="/sdcard/solin-release-main-shell.xml"
 
 if [[ -z "$APP_APK" ]]; then
   case "$APP_APK_MODE" in
@@ -81,6 +115,23 @@ if [[ -z "$APP_APK" ]]; then
       ;;
   esac
 fi
+if [[ -z "$ANDROID_TEST_APK" ]]; then
+  case "$APP_APK_MODE" in
+    release)
+      ANDROID_TEST_APK="$DEFAULT_RELEASE_ANDROID_TEST_APK"
+      ;;
+    *)
+      ANDROID_TEST_APK="$DEFAULT_DEBUG_ANDROID_TEST_APK"
+      ;;
+  esac
+fi
+if [[ "$APP_APK_MODE" == "release" && -z "$INSTRUMENTATION_CLASS" ]]; then
+  INSTRUMENTATION_CLASS="$RELEASE_SMOKE_TEST_CLASS"
+fi
+if [[ "$APP_APK_MODE" == "release" ]]; then
+  TEST_PACKAGE_NAME="$RELEASE_TEST_PACKAGE_NAME"
+  TEST_RUNNER="$RELEASE_TEST_RUNNER"
+fi
 
 sha256_file() {
   local file="$1"
@@ -91,6 +142,43 @@ sha256_file() {
 
 normalize_sha256() {
   tr '[:upper:]' '[:lower:]' <<<"$1"
+}
+
+apk_signer_sha256() {
+  local apk="$1"
+  local output
+  [[ -f "$apk" && -x "$APKSIGNER" ]] || return 0
+  output="$("$APKSIGNER" verify --print-certs "$apk" 2>/dev/null || true)"
+  printf '%s\n' "$output" |
+    awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {
+      value = tolower($2)
+      gsub(/[^0-9a-f]/, "", value)
+      print value
+      exit
+    }'
+}
+
+apk_badging_value() {
+  local apk="$1"
+  local field="$2"
+  [[ -f "$apk" && -x "$AAPT" ]] || return 0
+  "$AAPT" dump badging "$apk" 2>/dev/null |
+    sed -nE "s/^package: .*${field}='([^']*)'.*/\1/p" |
+    head -n 1
+}
+
+installed_package_value() {
+  local package_name="$1"
+  local field="$2"
+  "${ADB[@]}" shell dumpsys package "$package_name" 2>/dev/null |
+    tr -d '\r' |
+    awk -v field="$field" '
+      index($1, field "=") == 1 {
+        value = substr($1, length(field) + 2)
+        print value
+        exit
+      }
+    '
 }
 
 write_verification_report() {
@@ -146,14 +234,47 @@ write_verification_report() {
     echo "data_free_kb=${DATA_FREE_KB:-}"
     echo "instrumentation=$INSTRUMENTATION_STATUS"
     echo "instrumentation_test_count=${INSTRUMENTATION_TEST_COUNT:-}"
+    echo "instrumentation_executed_test_count=${INSTRUMENTATION_EXECUTED_TEST_COUNT:-}"
+    echo "instrumentation_skipped_test_count=${INSTRUMENTATION_SKIPPED_TEST_COUNT:-}"
+    echo "instrumentation_skipped_tests=${INSTRUMENTATION_SKIPPED_TESTS:-}"
     echo "instrumentation_class=${INSTRUMENTATION_CLASS:-}"
+    echo "instrumentation_runner=$TEST_RUNNER"
     echo "instrumentation_timeout_seconds=$INSTRUMENTATION_TIMEOUT_SECONDS"
     echo "instrumentation_output_file=$INSTRUMENTATION_OUTPUT_FILE"
     echo "instrumentation_output_sha256=$instrumentation_output_sha256"
     echo "test_count=${INSTRUMENTATION_TEST_COUNT:-}"
+    echo "release_main_shell_verified=$RELEASE_MAIN_SHELL_VERIFIED"
+    echo "release_main_shell_start_output_file=$RELEASE_MAIN_SHELL_START_OUTPUT_FILE"
+    echo "release_main_shell_start_output_sha256=$(sha256_file "$RELEASE_MAIN_SHELL_START_OUTPUT_FILE")"
+    echo "release_main_shell_activity_dump_file=$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE"
+    echo "release_main_shell_activity_dump_sha256=$(sha256_file "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE")"
+    echo "release_main_shell_window_dump_file=$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE"
+    echo "release_main_shell_window_dump_sha256=$(sha256_file "$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE")"
+    echo "release_main_shell_ui_dump_file=$RELEASE_MAIN_SHELL_UI_DUMP_FILE"
+    echo "release_main_shell_ui_dump_sha256=$(sha256_file "$RELEASE_MAIN_SHELL_UI_DUMP_FILE")"
+    echo "release_main_shell_screenshot_file=$RELEASE_MAIN_SHELL_SCREENSHOT_FILE"
+    echo "release_main_shell_screenshot_sha256=$(sha256_file "$RELEASE_MAIN_SHELL_SCREENSHOT_FILE")"
     echo "app_apk_mode=$APP_APK_MODE"
     echo "app_apk=$APP_APK"
     echo "app_apk_sha256=$APP_APK_SHA256"
+    echo "android_test_apk=$ANDROID_TEST_APK"
+    echo "android_test_apk_sha256=$ANDROID_TEST_APK_SHA256"
+    echo "app_signer_sha256=$APP_SIGNER_SHA256"
+    echo "android_test_signer_sha256=$ANDROID_TEST_SIGNER_SHA256"
+    echo "app_apk_version_code=$APP_APK_VERSION_CODE"
+    echo "app_apk_version_name=$APP_APK_VERSION_NAME"
+    echo "app_android_test_signers_match=$([[ -n "$APP_SIGNER_SHA256" && "$APP_SIGNER_SHA256" == "$ANDROID_TEST_SIGNER_SHA256" ]] && echo true || echo false)"
+    echo "expected_signing_cert_sha256=$EXPECTED_SIGNING_CERT_SHA256"
+    echo "installed_app_apk_path=$INSTALLED_APP_APK_PATH"
+    echo "installed_test_apk_path=$INSTALLED_TEST_APK_PATH"
+    echo "installed_app_apk_sha256=$INSTALLED_APP_APK_SHA256"
+    echo "installed_test_apk_sha256=$INSTALLED_TEST_APK_SHA256"
+    echo "installed_app_signer_sha256=$INSTALLED_APP_SIGNER_SHA256"
+    echo "installed_test_signer_sha256=$INSTALLED_TEST_SIGNER_SHA256"
+    echo "installed_app_version_code=$INSTALLED_APP_VERSION_CODE"
+    echo "installed_app_version_name=$INSTALLED_APP_VERSION_NAME"
+    echo "installed_app_matches_requested_apk=$([[ -n "$INSTALLED_APP_APK_SHA256" && "$INSTALLED_APP_APK_SHA256" == "$APP_APK_SHA256" ]] && echo true || echo false)"
+    echo "installed_test_matches_requested_apk=$([[ -n "$INSTALLED_TEST_APK_SHA256" && "$INSTALLED_TEST_APK_SHA256" == "$ANDROID_TEST_APK_SHA256" ]] && echo true || echo false)"
     echo "releaseArtifactType=$RELEASE_ARTIFACT_TYPE"
     echo "releaseArtifactSha256=$RELEASE_ARTIFACT_SHA256"
     echo "logcat_file=$LOGCAT_FILE"
@@ -161,7 +282,6 @@ write_verification_report() {
     echo "logcat_captured=$LOGCAT_CAPTURED"
     echo "logcat_tail_lines=$LOGCAT_TAIL_LINES"
     echo "debug_apk=$DEBUG_APK"
-    echo "android_test_apk=$ANDROID_TEST_APK"
   } > "$VERIFICATION_REPORT_FILE"
   REPORT_WRITTEN=1
   echo "Device verification report: $VERIFICATION_REPORT_FILE"
@@ -194,6 +314,85 @@ capture_logcat_artifact() {
   else
     LOGCAT_CAPTURED=0
   fi
+}
+
+capture_release_main_shell_artifacts() {
+  if [[ "$APP_APK_MODE" != "release" ]] || ! selected_device_is_available; then
+    return
+  fi
+  mkdir -p "$ARTIFACT_DIR"
+  "${ADB[@]}" shell dumpsys activity activities >"$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" 2>/dev/null || true
+  "${ADB[@]}" shell dumpsys window windows >"$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE" 2>/dev/null || true
+  "${ADB[@]}" shell uiautomator dump "$RELEASE_MAIN_SHELL_UI_DUMP_REMOTE_PATH" >/dev/null 2>&1 || true
+  "${ADB[@]}" exec-out cat "$RELEASE_MAIN_SHELL_UI_DUMP_REMOTE_PATH" \
+    >"$RELEASE_MAIN_SHELL_UI_DUMP_FILE" 2>/dev/null || true
+  "${ADB[@]}" exec-out screencap -p >"$RELEASE_MAIN_SHELL_SCREENSHOT_FILE" 2>/dev/null || true
+}
+
+release_main_shell_window_is_drawn() {
+  awk -v target="$PACKAGE_NAME/$PACKAGE_NAME.MainActivity" '
+    /^  Window #[0-9]+ Window\{/ {
+      in_target = index($0, target) != 0
+    }
+    in_target && /shown=true.*mDrawState=HAS_DRAWN/ {
+      drawn = 1
+    }
+    in_target && /isOnScreen=true/ {
+      on_screen = 1
+    }
+    in_target && /isVisible=true/ {
+      visible = 1
+    }
+    END {
+      exit !(drawn && on_screen && visible)
+    }
+  ' "$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE"
+}
+
+release_main_shell_is_visible() {
+  [[ -s "$RELEASE_MAIN_SHELL_START_OUTPUT_FILE" ]] ||
+    return 1
+  [[ -s "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" ]] ||
+    return 1
+  [[ -s "$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE" ]] ||
+    return 1
+  [[ -s "$RELEASE_MAIN_SHELL_UI_DUMP_FILE" ]] ||
+    return 1
+  [[ -s "$RELEASE_MAIN_SHELL_SCREENSHOT_FILE" ]] ||
+    return 1
+  grep -Fq "topResumedActivity=" "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" &&
+    grep -Fq "$PACKAGE_NAME/.MainActivity" "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" &&
+    grep -Eq 'm(CurrentFocus|FocusedWindow)=Window\{' "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" &&
+    grep -Fq "$PACKAGE_NAME/$PACKAGE_NAME.MainActivity" "$RELEASE_MAIN_SHELL_ACTIVITY_DUMP_FILE" &&
+    grep -Fq "$PACKAGE_NAME/$PACKAGE_NAME.MainActivity" "$RELEASE_MAIN_SHELL_WINDOW_DUMP_FILE" &&
+    release_main_shell_window_is_drawn &&
+    grep -Fq 'text="Solin"' "$RELEASE_MAIN_SHELL_UI_DUMP_FILE"
+}
+
+verify_release_main_shell() {
+  local deadline launch_output
+  if [[ "$APP_APK_MODE" != "release" ]]; then
+    return 0
+  fi
+  mkdir -p "$ARTIFACT_DIR"
+  if ! launch_output="$("${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" 2>&1)"; then
+    printf '%s\n' "$launch_output" >"$RELEASE_MAIN_SHELL_START_OUTPUT_FILE"
+    return 1
+  fi
+  printf '%s\n' "$launch_output" >"$RELEASE_MAIN_SHELL_START_OUTPUT_FILE"
+  grep -q '^Status: ok' "$RELEASE_MAIN_SHELL_START_OUTPUT_FILE" ||
+    return 1
+  deadline=$((SECONDS + RELEASE_MAIN_SHELL_TIMEOUT_SECONDS))
+  while true; do
+    capture_release_main_shell_artifacts
+    if release_main_shell_is_visible; then
+      RELEASE_MAIN_SHELL_VERIFIED=1
+      return 0
+    fi
+    [[ "$SECONDS" -lt "$deadline" ]] ||
+      return 1
+    sleep 1
+  done
 }
 
 stop_test_processes() {
@@ -449,6 +648,10 @@ else
       "Connect exactly one authorized Android device, or set ANDROID_SERIAL to select one."
   fi
   SELECTED_SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
+  if [[ "$SELECTED_SERIAL" != emulator-* ]]; then
+    fail_with_reason device-selection android-serial-required-for-physical-device \
+      "Set ANDROID_SERIAL explicitly before running tests on a physical Android device."
+  fi
 fi
 
 ADB=("$ADB_BIN" -s "$SELECTED_SERIAL")
@@ -461,6 +664,14 @@ if [[ "$ABI_LIST" != *"arm64-v8a"* ]]; then
   fail_with_reason device-abi device-abi-not-arm64 \
     "Connected device is not arm64-v8a compatible: ${ABI_LIST:-unknown}"
 fi
+if [[ "$SELECTED_SERIAL" != emulator-* && "$CLEAN_DEVICE" != "0" ]]; then
+  fail_with_reason device-cleanup physical-device-clean-not-allowed \
+    "CLEAN_DEVICE must be 0 for a physical Android device."
+fi
+if [[ "$SELECTED_SERIAL" != emulator-* && "$RESET_APP_DATA_AFTER_TESTS" != "0" ]]; then
+  fail_with_reason device-cleanup physical-device-data-reset-not-allowed \
+    "RESET_APP_DATA_AFTER_TESTS must be 0 for a physical Android device."
+fi
 
 case "$APP_APK_MODE" in
   debug|release)
@@ -469,6 +680,10 @@ case "$APP_APK_MODE" in
     fail_with_reason build invalid-app-apk-mode "APP_APK_MODE must be debug or release."
     ;;
 esac
+if [[ "$APP_APK_MODE" == "release" && "$SKIP_INSTALL" == "1" ]]; then
+  fail_with_reason install release-skip-install-not-allowed \
+    "APP_APK_MODE=release requires SKIP_INSTALL=0 so evidence is bound to the requested APKs."
+fi
 
 DATA_FREE_KB="$("${ADB[@]}" shell df -k /data | awk 'NR == 2 {print $4}' | tr -d '\r')"
 if [[ "$DATA_FREE_KB" =~ ^[0-9]+$ && "$DATA_FREE_KB" -lt "$REQUIRED_FREE_KB" ]]; then
@@ -490,7 +705,7 @@ else
       "$GRADLE_CMD" :app:assembleDebug :app:assembleDebugAndroidTest
       ;;
     release)
-      "$GRADLE_CMD" :app:assembleDebugAndroidTest
+      "$GRADLE_CMD" :releaseSmoke:assembleRelease
       [[ -f "$APP_APK" ]] ||
         fail_with_reason build release-app-apk-missing \
           "APP_APK_MODE=release requires an existing signed release APK at APP_APK=$APP_APK."
@@ -499,9 +714,40 @@ else
 fi
 
 APP_APK_SHA256="$(sha256_file "$APP_APK")"
+ANDROID_TEST_APK_SHA256="$(sha256_file "$ANDROID_TEST_APK")"
 if [[ "$APP_APK_MODE" == "release" ]]; then
   [[ -n "$APP_APK_SHA256" ]] ||
     fail_with_reason build release-app-apk-missing "Release APP_APK is missing: $APP_APK"
+  [[ -n "$ANDROID_TEST_APK_SHA256" ]] ||
+    fail_with_reason build release-android-test-apk-missing \
+      "Release AndroidTest APK is missing: $ANDROID_TEST_APK"
+  [[ -x "$APKSIGNER" ]] ||
+    fail_with_reason signing apksigner-not-found "apksigner is required for release device validation: $APKSIGNER"
+  [[ -x "$AAPT" ]] ||
+    fail_with_reason build aapt-not-found "aapt is required for release device validation: $AAPT"
+  APP_SIGNER_SHA256="$(apk_signer_sha256 "$APP_APK")"
+  ANDROID_TEST_SIGNER_SHA256="$(apk_signer_sha256 "$ANDROID_TEST_APK")"
+  APP_APK_VERSION_CODE="$(apk_badging_value "$APP_APK" versionCode)"
+  APP_APK_VERSION_NAME="$(apk_badging_value "$APP_APK" versionName)"
+  [[ "$APP_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
+    fail_with_reason signing release-app-signer-invalid "Could not read the release app signing certificate."
+  [[ "$ANDROID_TEST_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] ||
+    fail_with_reason signing release-android-test-signer-invalid \
+      "Could not read the release AndroidTest signing certificate."
+  [[ "$APP_SIGNER_SHA256" == "$ANDROID_TEST_SIGNER_SHA256" ]] ||
+    fail_with_reason signing release-app-android-test-signer-mismatch \
+      "Release app and AndroidTest APK must use the same signing certificate."
+  [[ "$APP_APK_VERSION_CODE" =~ ^[0-9]+$ ]] ||
+    fail_with_reason build release-app-version-code-invalid \
+      "Could not read a numeric versionCode from the release APK."
+  [[ -n "$APP_APK_VERSION_NAME" ]] ||
+    fail_with_reason build release-app-version-name-missing \
+      "Could not read versionName from the release APK."
+  if [[ -n "$EXPECTED_SIGNING_CERT_SHA256" &&
+    "$APP_SIGNER_SHA256" != "$(normalize_sha256 "$EXPECTED_SIGNING_CERT_SHA256" | tr -d ':')" ]]; then
+    fail_with_reason signing release-signing-certificate-mismatch \
+      "Release APK certificate does not match EXPECTED_SIGNING_CERT_SHA256."
+  fi
   if [[ -z "$RELEASE_ARTIFACT_TYPE" ]]; then
     RELEASE_ARTIFACT_TYPE="apk"
   fi
@@ -546,6 +792,33 @@ install_device_apks() {
     "${ADB[@]}" install -r "$APP_APK" || return
     "${ADB[@]}" install -r -t "$ANDROID_TEST_APK" || return
   fi
+}
+
+verify_installed_release_apks() {
+  local installed_dir
+  if [[ "$APP_APK_MODE" != "release" ]]; then
+    return 0
+  fi
+  installed_dir="$ARTIFACT_DIR/installed-apks"
+  mkdir -p "$installed_dir"
+  INSTALLED_APP_APK_PATH="$("${ADB[@]}" shell pm path "$PACKAGE_NAME" | tr -d '\r' | sed -n 's/^package://p' | head -n 1)"
+  INSTALLED_TEST_APK_PATH="$("${ADB[@]}" shell pm path "$TEST_PACKAGE_NAME" | tr -d '\r' | sed -n 's/^package://p' | head -n 1)"
+  [[ -n "$INSTALLED_APP_APK_PATH" && -n "$INSTALLED_TEST_APK_PATH" ]] ||
+    return 1
+  "${ADB[@]}" pull "$INSTALLED_APP_APK_PATH" "$installed_dir/app-installed.apk" >/dev/null || return 1
+  "${ADB[@]}" pull "$INSTALLED_TEST_APK_PATH" "$installed_dir/test-installed.apk" >/dev/null || return 1
+  INSTALLED_APP_APK_SHA256="$(sha256_file "$installed_dir/app-installed.apk")"
+  INSTALLED_TEST_APK_SHA256="$(sha256_file "$installed_dir/test-installed.apk")"
+  INSTALLED_APP_SIGNER_SHA256="$(apk_signer_sha256 "$installed_dir/app-installed.apk")"
+  INSTALLED_TEST_SIGNER_SHA256="$(apk_signer_sha256 "$installed_dir/test-installed.apk")"
+  INSTALLED_APP_VERSION_CODE="$(installed_package_value "$PACKAGE_NAME" versionCode)"
+  INSTALLED_APP_VERSION_NAME="$(installed_package_value "$PACKAGE_NAME" versionName)"
+  [[ "$INSTALLED_APP_APK_SHA256" == "$APP_APK_SHA256" ]] || return 1
+  [[ "$INSTALLED_TEST_APK_SHA256" == "$ANDROID_TEST_APK_SHA256" ]] || return 1
+  [[ "$INSTALLED_APP_SIGNER_SHA256" == "$APP_SIGNER_SHA256" ]] || return 1
+  [[ "$INSTALLED_TEST_SIGNER_SHA256" == "$ANDROID_TEST_SIGNER_SHA256" ]] || return 1
+  [[ "$INSTALLED_APP_VERSION_CODE" == "$APP_APK_VERSION_CODE" ]] || return 1
+  [[ "$INSTALLED_APP_VERSION_NAME" == "$APP_APK_VERSION_NAME" ]] || return 1
 }
 
 prepare_device_for_instrumentation() {
@@ -658,8 +931,49 @@ instrumentation_test_count_for() {
   fi
 }
 
+instrumentation_skipped_tests_for() {
+  local output="$1"
+  awk '
+    /^INSTRUMENTATION_STATUS: class=/ {
+      test_class = $0
+      sub(/^INSTRUMENTATION_STATUS: class=/, "", test_class)
+    }
+    /^INSTRUMENTATION_STATUS: test=/ {
+      test_name = $0
+      sub(/^INSTRUMENTATION_STATUS: test=/, "", test_name)
+    }
+    /^INSTRUMENTATION_STATUS_CODE: -[34]\r?$/ {
+      if (test_class != "" && test_name != "") {
+        key = test_class "#" test_name
+        if (!seen[key]++) {
+          if (result != "") {
+            result = result "|"
+          }
+          result = result key
+        }
+      }
+    }
+    END {
+      print result
+    }
+  ' <<<"$output"
+}
+
+instrumentation_skipped_test_count_for() {
+  local skipped_tests="$1"
+  if [[ -z "$skipped_tests" ]]; then
+    echo 0
+    return
+  fi
+  awk -F'|' '{print NF}' <<<"$skipped_tests"
+}
+
 if ! install_device_apks; then
   fail_with_reason install install-command-failed "Failed to install Solin app or androidTest APK."
+fi
+if ! verify_installed_release_apks; then
+  fail_with_reason install installed-release-apk-binding-failed \
+    "Installed release app/test APKs do not match the requested files and signing certificate."
 fi
 
 if ! prepare_device_for_instrumentation; then
@@ -676,6 +990,17 @@ mkdir -p "$(dirname "$INSTRUMENTATION_OUTPUT_FILE")"
 printf '%s\n' "$TEST_OUTPUT" > "$INSTRUMENTATION_OUTPUT_FILE"
 printf '%s\n' "$TEST_OUTPUT"
 INSTRUMENTATION_TEST_COUNT="$(instrumentation_test_count_for "$TEST_OUTPUT")"
+INSTRUMENTATION_SKIPPED_TESTS="$(instrumentation_skipped_tests_for "$TEST_OUTPUT")"
+INSTRUMENTATION_SKIPPED_TEST_COUNT="$(
+  instrumentation_skipped_test_count_for "$INSTRUMENTATION_SKIPPED_TESTS"
+)"
+if [[ "$INSTRUMENTATION_TEST_COUNT" =~ ^[0-9]+$ &&
+  "$INSTRUMENTATION_SKIPPED_TEST_COUNT" =~ ^[0-9]+$ &&
+  "$INSTRUMENTATION_SKIPPED_TEST_COUNT" -le "$INSTRUMENTATION_TEST_COUNT" ]]; then
+  INSTRUMENTATION_EXECUTED_TEST_COUNT="$(
+    echo $((INSTRUMENTATION_TEST_COUNT - INSTRUMENTATION_SKIPPED_TEST_COUNT))
+  )"
+fi
 INSTRUMENTATION_SUCCEEDED=0
 if instrumentation_output_succeeded "$TEST_OUTPUT"; then
   INSTRUMENTATION_SUCCEEDED=1
@@ -687,11 +1012,6 @@ if [[ "$TEST_STATUS" -eq 124 ]]; then
   FAILURE_REASON="instrumentation-timeout"
   cleanup_test_device_state
 fi
-if [[ "$TEST_STATUS" -ne 0 &&
-  "$FAILURE_REASON" != "instrumentation-timeout" &&
-  "$INSTRUMENTATION_SUCCEEDED" == "1" ]]; then
-  TEST_STATUS=0
-fi
 if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
   TEST_STATUS=1
   FAILED_TARGET="instrumentation"
@@ -702,6 +1022,14 @@ if [[ "$TEST_STATUS" -eq 0 && "$INSTRUMENTATION_SUCCEEDED" != "1" ]]; then
   TEST_STATUS=1
   FAILED_TARGET="instrumentation"
   FAILURE_REASON="instrumentation-success-marker-missing"
+fi
+if [[ "$TEST_STATUS" -eq 0 &&
+  "$APP_APK_MODE" == "release" &&
+  "$INSTRUMENTATION_SKIPPED_TEST_COUNT" != "0" ]]; then
+  echo "Release instrumentation skipped test(s): $INSTRUMENTATION_SKIPPED_TESTS" >&2
+  TEST_STATUS=1
+  FAILED_TARGET="instrumentation"
+  FAILURE_REASON="release-instrumentation-tests-skipped"
 fi
 if [[ "$TEST_STATUS" -ne 0 ]]; then
   INSTRUMENTATION_STATUS="failed"
@@ -734,11 +1062,20 @@ EOF
 fi
 INSTRUMENTATION_STATUS="passed"
 
+if ! verify_release_main_shell; then
+  FAILED_TARGET="release-main-shell"
+  FAILURE_REASON="release-main-shell-not-visible"
+  capture_logcat_artifact
+  cleanup_test_device_state
+  SCRIPT_COMPLETED=1
+  write_verification_report 1
+  exit 1
+fi
+
 clear_app_data_after_tests
 restore_runtime_permission_dialog_tests
 restore_miui_background_activity_starts
 restore_device_awake_state
-"${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
 capture_logcat_artifact
 
 SCRIPT_COMPLETED=1

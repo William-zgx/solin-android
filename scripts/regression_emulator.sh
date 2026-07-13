@@ -18,6 +18,9 @@ CI_RUN_ID="${REGRESSION_EMULATOR_RUN_ID:-${GITHUB_RUN_ID:-}}"
 CI_COMMIT_SHA="${REGRESSION_EMULATOR_COMMIT_SHA:-${GITHUB_SHA:-}}"
 SOURCE_ANDROID_TEST_COUNT=""
 ACTUAL_ANDROID_TEST_COUNT=""
+EXECUTED_ANDROID_TEST_COUNT=""
+SKIPPED_ANDROID_TEST_COUNT=""
+SKIPPED_ANDROID_TESTS=""
 EMULATOR_SERIAL=""
 EMULATOR_API_LEVEL=""
 EMULATOR_ABI=""
@@ -102,6 +105,12 @@ harvest_reports() {
   if [[ -f "$DEVICE_REPORT_FILE" ]]; then
     value="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_test_count")"
     [[ -n "$value" ]] && ACTUAL_ANDROID_TEST_COUNT="$value"
+    value="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_executed_test_count")"
+    [[ -n "$value" ]] && EXECUTED_ANDROID_TEST_COUNT="$value"
+    value="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_skipped_test_count")"
+    [[ -n "$value" ]] && SKIPPED_ANDROID_TEST_COUNT="$value"
+    value="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_skipped_tests")"
+    [[ -n "$value" ]] && SKIPPED_ANDROID_TESTS="$value"
     value="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_output_file")"
     [[ -n "$value" ]] && DEVICE_INSTRUMENTATION_OUTPUT_FILE="$value"
     value="$(report_value "$DEVICE_REPORT_FILE" "logcat_file")"
@@ -136,6 +145,9 @@ write_regression_report() {
     echo "source_android_test_count=${SOURCE_ANDROID_TEST_COUNT:-}"
     echo "expected_android_test_count=${EXPECTED_ANDROID_TEST_COUNT:-}"
     echo "actual_android_test_count=${ACTUAL_ANDROID_TEST_COUNT:-}"
+    echo "executed_android_test_count=${EXECUTED_ANDROID_TEST_COUNT:-}"
+    echo "skipped_android_test_count=${SKIPPED_ANDROID_TEST_COUNT:-}"
+    echo "skipped_android_tests=${SKIPPED_ANDROID_TESTS:-}"
     echo "releaseArtifactSha256=$RELEASE_ARTIFACT_SHA256"
     echo "serial=${EMULATOR_SERIAL:-}"
     echo "api_level=${EMULATOR_API_LEVEL:-}"
@@ -214,4 +226,18 @@ if [[ "$ACTUAL_ANDROID_TEST_COUNT" -lt "$EXPECTED_ANDROID_TEST_COUNT" ]]; then
   fail instrumentation-test-count instrumentation-test-count-below-expected "Instrumentation ran $ACTUAL_ANDROID_TEST_COUNT tests, expected at least $EXPECTED_ANDROID_TEST_COUNT."
 fi
 
-echo "Emulator regression passed with $ACTUAL_ANDROID_TEST_COUNT AndroidTest(s)."
+EXECUTED_ANDROID_TEST_COUNT="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_executed_test_count")"
+SKIPPED_ANDROID_TEST_COUNT="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_skipped_test_count")"
+SKIPPED_ANDROID_TESTS="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_skipped_tests")"
+[[ "$EXECUTED_ANDROID_TEST_COUNT" =~ ^[0-9]+$ ]] ||
+  fail instrumentation-test-count instrumentation-executed-test-count-invalid \
+    "instrumentation_executed_test_count must be numeric; got ${EXECUTED_ANDROID_TEST_COUNT:-<missing>}."
+[[ "$SKIPPED_ANDROID_TEST_COUNT" =~ ^[0-9]+$ ]] ||
+  fail instrumentation-test-count instrumentation-skipped-test-count-invalid \
+    "instrumentation_skipped_test_count must be numeric; got ${SKIPPED_ANDROID_TEST_COUNT:-<missing>}."
+if [[ $((EXECUTED_ANDROID_TEST_COUNT + SKIPPED_ANDROID_TEST_COUNT)) -ne "$ACTUAL_ANDROID_TEST_COUNT" ]]; then
+  fail instrumentation-test-count instrumentation-execution-accounting-mismatch \
+    "Executed $EXECUTED_ANDROID_TEST_COUNT plus skipped $SKIPPED_ANDROID_TEST_COUNT does not equal discovered $ACTUAL_ANDROID_TEST_COUNT."
+fi
+
+echo "Emulator regression passed: discovered=$ACTUAL_ANDROID_TEST_COUNT executed=$EXECUTED_ANDROID_TEST_COUNT skipped=$SKIPPED_ANDROID_TEST_COUNT."

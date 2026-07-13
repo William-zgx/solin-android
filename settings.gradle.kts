@@ -16,6 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Solin"
 include(":app")
+include(":releaseSmoke")
 include(":modelpackE2b")
 include(":modelpackE2bExtra")
 include(":modelpackE4b")

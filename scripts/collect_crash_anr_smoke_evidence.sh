@@ -151,7 +151,11 @@ count_logcat_install_crash_signals() {
     BEGIN { package_lower = tolower(package_name) }
     {
       lower = tolower($0)
-      if (index(lower, package_lower) > 0 && lower ~ /(install|packageinstaller|installd)/ && lower ~ /(crash|crashed|fatal|failed|failure)/) {
+      # Exclude test runner output — test method names like "installedXxx" are not install crashes
+      if (lower ~ /testrunner/) next
+      if (index(lower, package_lower) > 0 && \
+          lower ~ /(packageinstaller|installd|install_failed|install_failed_|package.*install|install.*package)/ && \
+          lower ~ /(crash|crashed|fatal|failed|failure)/) {
         count += 1
       }
     }

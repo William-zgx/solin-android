@@ -25,14 +25,16 @@ fi
 # lintDebug's lint models can reference Room/KSP release generated sources.
 # Generate them first so lint does not race assembleRelease for the same files.
 "$GRADLE_CMD" :app:kspReleaseKotlin
-"$GRADLE_CMD" :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease
+"$GRADLE_CMD" :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease :releaseSmoke:assembleRelease
 
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 RELEASE_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
 RELEASE_AAB="app/build/outputs/bundle/release/app-release.aab"
+RELEASE_SMOKE_APK="releaseSmoke/build/outputs/apk/release/releaseSmoke-release.apk"
 [[ -f "$DEBUG_APK" ]]
 [[ -f "$RELEASE_APK" ]]
 [[ -f "$RELEASE_AAB" ]]
+[[ -f "$RELEASE_SMOKE_APK" ]]
 
 if unzip -Z1 "$DEBUG_APK" | grep -E '(^|/)[^/]+\.litertlm$' >/dev/null; then
   echo "APK unexpectedly contains a model artifact." >&2
@@ -59,6 +61,12 @@ grep -q "native-code: 'arm64-v8a'" <<<"$BADGING"
 
 RELEASE_BADGING="$("$AAPT" dump badging "$RELEASE_APK")"
 grep -q "native-code: 'arm64-v8a'" <<<"$RELEASE_BADGING"
+
+RELEASE_SMOKE_BADGING="$("$AAPT" dump badging "$RELEASE_SMOKE_APK")"
+grep -q "package: name='com.bytedance.zgx.solin.releasesmoke'" <<<"$RELEASE_SMOKE_BADGING"
+RELEASE_SMOKE_MANIFEST="$("$AAPT" dump xmltree "$RELEASE_SMOKE_APK" AndroidManifest.xml)"
+grep -q 'com.bytedance.zgx.solin.releasesmoke.ReleaseSmokeInstrumentation' <<<"$RELEASE_SMOKE_MANIFEST"
+grep -q 'com.bytedance.zgx.solin' <<<"$RELEASE_SMOKE_MANIFEST"
 
 RELEASE_BYTES="$(wc -c < "$RELEASE_APK" | tr -d ' ')"
 if [[ "$RELEASE_BYTES" -gt "$MAX_RELEASE_APK_BYTES" ]]; then

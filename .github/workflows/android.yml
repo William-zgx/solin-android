@@ -149,7 +149,7 @@ jobs:
       - name: Run connected emulator regression
         run: |
           AVD_NAME=solin_ci_api36_arm64 \
-          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
           EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
@@ -207,7 +207,7 @@ jobs:
       - name: Run connected API matrix regression
         run: |
           REQUIRED_APIS="28 32 33 34 36" \
-          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=0 \
           EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
@@ -250,8 +250,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build release APK and AAB
-        run: ./gradlew :app:assembleRelease :app:bundleRelease
+      - name: Build release APK, AAB, and release smoke APK
+        run: ./gradlew :app:assembleRelease :app:bundleRelease :releaseSmoke:assembleRelease
 
       - name: Scan release artifacts
         run: |
@@ -292,6 +292,7 @@ jobs:
           name: android-release-artifacts
           path: |
             app/build/outputs/apk/release
+            releaseSmoke/build/outputs/apk/release/releaseSmoke-release.apk
             app/build/outputs/bundle/release
             app/build/outputs/mapping/release
             build/verification/ci-release-artifact-archive
@@ -357,8 +358,10 @@ jobs:
           EXPECTED_SIGNING_CERT_SHA256="$EXPECTED_SIGNING_CERT_SHA256" \
           UNSIGNED_APK="$PWD/app/build/outputs/apk/release/app-release-unsigned.apk" \
           UNSIGNED_AAB="$PWD/app/build/outputs/bundle/release/app-release.aab" \
+          UNSIGNED_ANDROID_TEST_APK="$PWD/releaseSmoke/build/outputs/apk/release/releaseSmoke-release.apk" \
           SIGNED_APK="$PWD/app/build/outputs/apk/release/app-release-signed.apk" \
           SIGNED_AAB="$PWD/app/build/outputs/bundle/release/app-release-signed.aab" \
+          SIGNED_ANDROID_TEST_APK="$PWD/releaseSmoke/build/outputs/apk/release/releaseSmoke-release-signed.apk" \
           REPORT_FILE="$PWD/build/verification/ci-protected-signing/signing.properties" \
           scripts/sign_release_artifacts.sh
 
@@ -369,6 +372,7 @@ jobs:
           name: android-signed-release-artifacts
           path: |
             app/build/outputs/apk/release/*signed*.apk
+            releaseSmoke/build/outputs/apk/release/*signed*.apk
             app/build/outputs/bundle/release/*signed*.aab
             build/verification/ci-protected-signing
 

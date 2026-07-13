@@ -10,6 +10,7 @@ VALIDATION_RECORD_FILE="${VALIDATION_RECORD_FILE:-docs/release_validation_record
 ANDROID_TEST_SOURCE_DIR="${ANDROID_TEST_SOURCE_DIR:-app/src/androidTest}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
 EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
+EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
 ORIGINAL_ARGS=("$@")
@@ -112,6 +113,7 @@ write_report() {
       printf 'androidTestSourceDir=%s\n' "$ANDROID_TEST_SOURCE_DIR"
       printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
+      printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     } > "$REPORT_FILE"
   fi
 }
@@ -126,7 +128,12 @@ TMP_FAILURES="$(mktemp)"
 trap 'rm -f "$TMP_FAILURES"' EXIT
 
 set +e
-python3 - "$VALIDATION_RECORD_FILE" "$ANDROID_TEST_SOURCE_DIR" "$EXPECTED_RELEASE_ARTIFACT_SHA256" "$EXPECTED_RELEASE_ARTIFACT_TYPE" > "$TMP_FAILURES" <<'PY'
+python3 - \
+  "$VALIDATION_RECORD_FILE" \
+  "$ANDROID_TEST_SOURCE_DIR" \
+  "$EXPECTED_RELEASE_ARTIFACT_SHA256" \
+  "$EXPECTED_RELEASE_ARTIFACT_TYPE" \
+  "$EXPECTED_SIGNING_CERT_SHA256" > "$TMP_FAILURES" <<'PY'
 import json
 import hashlib
 import re
@@ -138,6 +145,7 @@ record_path = Path(sys.argv[1])
 android_test_source_dir = Path(sys.argv[2])
 expected_release_artifact_sha = sys.argv[3]
 expected_release_artifact_type = sys.argv[4]
+expected_signing_cert_sha = sys.argv[5].lower().replace(":", "")
 
 try:
     record = json.loads(record_path.read_text())
@@ -147,6 +155,9 @@ except Exception:
 
 def non_empty_string(value):
     return isinstance(value, str) and bool(value.strip())
+
+def is_sha256(value):
+    return isinstance(value, str) and bool(re.match(r"^[0-9a-fA-F]{64}$", value))
 
 def properties_for(path):
     values = {}
@@ -263,6 +274,67 @@ def validate_file_sha(prefix, path, expected_sha):
         return
     if actual_sha != expected_sha:
         failures.append(f"{prefix}-sha-mismatch")
+
+def validate_release_main_shell_artifacts(props):
+    prefix = "physical-device-report-release-main-shell"
+    if props.get("release_main_shell_verified") != "1":
+        failures.append(f"{prefix}-not-verified")
+
+    evidence_fields = (
+        ("start-output", "release_main_shell_start_output_file", "release_main_shell_start_output_sha256"),
+        ("activity-dump", "release_main_shell_activity_dump_file", "release_main_shell_activity_dump_sha256"),
+        ("window-dump", "release_main_shell_window_dump_file", "release_main_shell_window_dump_sha256"),
+        ("ui-dump", "release_main_shell_ui_dump_file", "release_main_shell_ui_dump_sha256"),
+        ("screenshot", "release_main_shell_screenshot_file", "release_main_shell_screenshot_sha256"),
+    )
+    evidence = {}
+    for name, path_key, sha_key in evidence_fields:
+        path = props.get(path_key, "")
+        evidence[name] = Path(path) if non_empty_string(path) else None
+        if evidence[name] is None or not evidence[name].is_file():
+            failures.append(f"{prefix}-{name}-file-missing")
+            continue
+        validate_file_sha(f"{prefix}-{name}", evidence[name], props.get(sha_key, ""))
+
+    start_output = evidence["start-output"]
+    if start_output is not None and start_output.is_file():
+        if "Status: ok" not in start_output.read_text(errors="ignore"):
+            failures.append(f"{prefix}-start-output-status-missing")
+
+    activity_dump = evidence["activity-dump"]
+    if activity_dump is not None and activity_dump.is_file():
+        activity_text = activity_dump.read_text(errors="ignore")
+        if "topResumedActivity=" not in activity_text:
+            failures.append(f"{prefix}-activity-dump-top-resumed-missing")
+        if "com.bytedance.zgx.solin/.MainActivity" not in activity_text:
+            failures.append(f"{prefix}-activity-dump-main-activity-missing")
+        if not re.search(
+            r"m(?:CurrentFocus|FocusedWindow)=Window\{.*com\.bytedance\.zgx\.solin/"
+            r"com\.bytedance\.zgx\.solin\.MainActivity",
+            activity_text,
+        ):
+            failures.append(f"{prefix}-activity-dump-focus-missing")
+
+    window_dump = evidence["window-dump"]
+    if window_dump is not None and window_dump.is_file():
+        window_text = window_dump.read_text(errors="ignore")
+        window_target = "com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity"
+        if window_target not in window_text:
+            failures.append(f"{prefix}-window-dump-main-activity-missing")
+        if "shown=true" not in window_text or "mDrawState=HAS_DRAWN" not in window_text:
+            failures.append(f"{prefix}-window-dump-not-drawn")
+        if "isOnScreen=true" not in window_text or "isVisible=true" not in window_text:
+            failures.append(f"{prefix}-window-dump-not-visible")
+
+    ui_dump = evidence["ui-dump"]
+    if ui_dump is not None and ui_dump.is_file():
+        if 'text="Solin"' not in ui_dump.read_text(errors="ignore"):
+            failures.append(f"{prefix}-ui-dump-solin-missing")
+
+    screenshot = evidence["screenshot"]
+    if screenshot is not None and screenshot.is_file():
+        if not screenshot.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+            failures.append(f"{prefix}-screenshot-not-png")
 
 def validate_release_artifact_binding(prefix, props):
     if not expected_release_artifact_sha:
@@ -1230,7 +1302,8 @@ elif not Path(device_report).is_file():
 else:
     validate_file_sha("physical-device-report", device_report, physical.get("reportSha256", ""))
     props = properties_for(device_report)
-    validate_release_artifact_binding("physical-device-report", props)
+    if expected_release_artifact_type != "aab":
+        validate_release_artifact_binding("physical-device-report", props)
     report_serial = props.get("serial", "")
     if props.get("status") != "passed":
         failures.append("physical-device-report-status-not-passed")
@@ -1260,9 +1333,10 @@ else:
     validate_no_x86_abi("physical-device-report", report_abis)
     if non_empty_string(expected_abi) and expected_abi not in report_abis:
         failures.append("physical-device-report-abi-mismatch")
-    expected_clean = "1" if physical.get("cleanDevice") is True else "0"
-    if props.get("clean_device") != expected_clean:
-        failures.append("physical-device-report-clean-device-mismatch")
+    if physical.get("cleanDevice") is not False:
+        failures.append("physical-device-record-clean-device-not-false")
+    if props.get("clean_device") != "0":
+        failures.append("physical-device-report-clean-device-not-disabled")
     if props.get("reset_app_data_after_tests") != "0":
         failures.append("physical-device-report-reset-app-data-after-tests-not-disabled")
     app_apk_mode = props.get("app_apk_mode", "")
@@ -1283,10 +1357,12 @@ else:
     release_artifact_sha = props.get("releaseArtifactSha256", "")
     if not re.match(r"^[0-9a-fA-F]{64}$", release_artifact_sha):
         failures.append("physical-device-report-release-artifact-sha-invalid")
-    elif re.match(r"^[0-9a-fA-F]{64}$", app_apk_sha) and release_artifact_sha.lower() != app_apk_sha.lower():
+    elif (
+        expected_release_artifact_type == "apk"
+        and re.match(r"^[0-9a-fA-F]{64}$", app_apk_sha)
+        and release_artifact_sha.lower() != app_apk_sha.lower()
+    ):
         failures.append("physical-device-report-release-artifact-sha-not-installed-apk")
-    if expected_release_artifact_type and expected_release_artifact_type != "apk":
-        failures.append("physical-device-report-release-artifact-type-not-installed-apk")
     try:
         data_free_kb = int(props.get("data_free_kb", ""))
     except ValueError:
@@ -1305,19 +1381,105 @@ else:
     validate_logcat_artifact("physical-device-report", props.get("logcat_file", ""))
     if non_empty_string(props.get("logcat_file", "")) and Path(props.get("logcat_file", "")).is_file():
         validate_file_sha("physical-device-report-logcat", props.get("logcat_file", ""), props.get("logcat_sha256", ""))
+    actual_count = None
     try:
         actual_count = int(props.get("instrumentation_test_count", ""))
     except ValueError:
         failures.append("physical-device-report-test-count-invalid")
     else:
-        if actual_count < source_android_test_count:
+        if actual_count < 1:
             failures.append("physical-device-report-test-count-too-low")
         if props.get("test_count", "") and props.get("test_count") != props.get("instrumentation_test_count", ""):
             failures.append("physical-device-report-test-count-alias-mismatch")
         if instrumentation_output_count is not None and instrumentation_output_count != actual_count:
             failures.append("physical-device-report-instrumentation-output-count-mismatch")
-    if props.get("android_test_apk") != "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk":
-        failures.append("physical-device-report-android-test-apk-invalid")
+    try:
+        executed_count = int(props.get("instrumentation_executed_test_count", ""))
+    except ValueError:
+        failures.append("physical-device-report-executed-test-count-invalid")
+        executed_count = None
+    try:
+        skipped_count = int(props.get("instrumentation_skipped_test_count", ""))
+    except ValueError:
+        failures.append("physical-device-report-skipped-test-count-invalid")
+        skipped_count = None
+    if skipped_count is not None and skipped_count != 0:
+        failures.append("physical-device-report-release-smoke-tests-skipped")
+    if non_empty_string(props.get("instrumentation_skipped_tests", "")):
+        failures.append("physical-device-report-release-smoke-skipped-tests-present")
+    if (
+        executed_count is not None
+        and skipped_count is not None
+        and actual_count is not None
+        and executed_count + skipped_count != actual_count
+    ):
+        failures.append("physical-device-report-instrumentation-execution-accounting-mismatch")
+    if props.get("instrumentation_class") != "com.bytedance.zgx.solin.ReleaseSignedSmokeDeviceTest":
+        failures.append("physical-device-report-release-smoke-class-invalid")
+    if (
+        props.get("instrumentation_runner")
+        != "com.bytedance.zgx.solin.releasesmoke/com.bytedance.zgx.solin.releasesmoke.ReleaseSmokeInstrumentation"
+    ):
+        failures.append("physical-device-report-release-smoke-runner-invalid")
+    validate_release_main_shell_artifacts(props)
+    android_test_apk = props.get("android_test_apk", "")
+    if not non_empty_string(android_test_apk):
+        failures.append("physical-device-report-android-test-apk-missing")
+    elif android_test_apk.endswith("/debug/app-debug-androidTest.apk"):
+        failures.append("physical-device-report-debug-android-test-apk-installed")
+    elif not Path(android_test_apk).is_file():
+        failures.append("physical-device-report-android-test-apk-file-missing")
+    android_test_apk_sha = props.get("android_test_apk_sha256", "")
+    if not re.match(r"^[0-9a-fA-F]{64}$", android_test_apk_sha):
+        failures.append("physical-device-report-android-test-apk-sha-invalid")
+    elif non_empty_string(android_test_apk) and Path(android_test_apk).is_file():
+        validate_file_sha("physical-device-report-android-test-apk", android_test_apk, android_test_apk_sha)
+    app_signer_sha = props.get("app_signer_sha256", "")
+    test_signer_sha = props.get("android_test_signer_sha256", "")
+    if not is_sha256(app_signer_sha):
+        failures.append("physical-device-report-app-signer-sha-invalid")
+    if not is_sha256(test_signer_sha):
+        failures.append("physical-device-report-android-test-signer-sha-invalid")
+    if is_sha256(app_signer_sha) and is_sha256(test_signer_sha) and app_signer_sha.lower() != test_signer_sha.lower():
+        failures.append("physical-device-report-app-android-test-signer-mismatch")
+    if props.get("app_android_test_signers_match") != "true":
+        failures.append("physical-device-report-app-android-test-signers-not-matched")
+    if expected_signing_cert_sha and is_sha256(app_signer_sha) and app_signer_sha.lower() != expected_signing_cert_sha:
+        failures.append("physical-device-report-signing-cert-sha-mismatch")
+    if props.get("skip_install") != "0":
+        failures.append("physical-device-report-skip-install-not-disabled")
+    if props.get("installed_app_matches_requested_apk") != "true":
+        failures.append("physical-device-report-installed-app-not-bound")
+    if props.get("installed_test_matches_requested_apk") != "true":
+        failures.append("physical-device-report-installed-test-not-bound")
+    installed_app_sha = props.get("installed_app_apk_sha256", "")
+    installed_test_sha = props.get("installed_test_apk_sha256", "")
+    if not is_sha256(installed_app_sha) or installed_app_sha.lower() != app_apk_sha.lower():
+        failures.append("physical-device-report-installed-app-sha-mismatch")
+    if not is_sha256(installed_test_sha) or installed_test_sha.lower() != android_test_apk_sha.lower():
+        failures.append("physical-device-report-installed-test-sha-mismatch")
+    installed_app_signer = props.get("installed_app_signer_sha256", "")
+    installed_test_signer = props.get("installed_test_signer_sha256", "")
+    if not is_sha256(installed_app_signer) or installed_app_signer.lower() != app_signer_sha.lower():
+        failures.append("physical-device-report-installed-app-signer-mismatch")
+    if not is_sha256(installed_test_signer) or installed_test_signer.lower() != test_signer_sha.lower():
+        failures.append("physical-device-report-installed-test-signer-mismatch")
+    app_apk_version_code = props.get("app_apk_version_code", "")
+    installed_app_version_code = props.get("installed_app_version_code", "")
+    if not app_apk_version_code.isdigit():
+        failures.append("physical-device-report-app-version-code-invalid")
+    if not installed_app_version_code.isdigit():
+        failures.append("physical-device-report-installed-version-code-invalid")
+    if app_apk_version_code.isdigit() and installed_app_version_code != app_apk_version_code:
+        failures.append("physical-device-report-installed-version-code-mismatch")
+    app_apk_version_name = props.get("app_apk_version_name", "")
+    installed_app_version_name = props.get("installed_app_version_name", "")
+    if not non_empty_string(app_apk_version_name):
+        failures.append("physical-device-report-app-version-name-missing")
+    if not non_empty_string(installed_app_version_name):
+        failures.append("physical-device-report-installed-version-name-missing")
+    if non_empty_string(app_apk_version_name) and installed_app_version_name != app_apk_version_name:
+        failures.append("physical-device-report-installed-version-name-mismatch")
 
 api_matrix = record.get("apiMatrix")
 required_apis = {28, 32, 33, 34, 36}

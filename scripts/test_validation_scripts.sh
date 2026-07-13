@@ -74,6 +74,11 @@ create_base_sdk() {
   mkdir -p "$sdk/platforms/android-36" "$sdk/build-tools/36.0.0"
   cat > "$sdk/build-tools/36.0.0/aapt" <<'FAKE_AAPT'
 #!/usr/bin/env bash
+if [[ "$*" == *"dump badging"* ]]; then
+  printf "package: name='com.bytedance.zgx.solin' versionCode='%s' versionName='%s'\n" \
+    "${FAKE_PACKAGE_VERSION_CODE:-1}" \
+    "${FAKE_PACKAGE_VERSION_NAME:-0.1.0}"
+fi
 exit 0
 FAKE_AAPT
   chmod +x "$sdk/build-tools/36.0.0/aapt"
@@ -140,6 +145,7 @@ case "${1:-}" in
           echo "INSTRUMENTATION_STATUS: numtests=20"
           echo "OK (20 tests)"
         fi
+        exit "${FAKE_INSTRUMENTATION_EXIT_CODE:-0}"
         ;;
       am\ start\ -W\ -n*)
         echo "Status: ok"
@@ -194,12 +200,35 @@ FAKE_ACCESSIBILITY_DUMPSYS
         echo "Binding services: "
         echo "Crashed services: "
         ;;
+      dumpsys\ activity\ activities)
+        if [[ "${FAKE_SOLIN_MAIN_SHELL_VISIBLE:-0}" == "1" ]]; then
+          cat <<'FAKE_ACTIVITY_DUMPSYS'
+topResumedActivity=ActivityRecord{com.bytedance.zgx.solin/.MainActivity}
+mCurrentFocus=Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}
+mFocusedWindow=Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}
+FAKE_ACTIVITY_DUMPSYS
+        else
+          echo "topResumedActivity=ActivityRecord{com.taobao.taobao/.MainActivity}"
+        fi
+        ;;
       dumpsys\ window|dumpsys\ window\ windows)
-        cat <<'FAKE_WINDOW_DUMPSYS'
+        if [[ "${FAKE_SOLIN_MAIN_SHELL_VISIBLE:-0}" == "1" ]]; then
+          cat <<'FAKE_SOLIN_WINDOW_DUMPSYS'
+mCurrentFocus=Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}
+mFocusedApp=ActivityRecord{com.bytedance.zgx.solin/.MainActivity}
+  Window #8 Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}:
+    WindowStateAnimator{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}:
+      Surface: shown=true      mDrawState=HAS_DRAWN       mLastHidden=false
+    isOnScreen=true
+    isVisible=true
+FAKE_SOLIN_WINDOW_DUMPSYS
+        else
+          cat <<'FAKE_WINDOW_DUMPSYS'
 mCurrentFocus=Window{com.taobao.taobao/com.taobao.taobao.MainActivity}
 mFocusedApp=ActivityRecord{com.taobao.taobao/.MainActivity}
 mFocusedWindow=Window{com.taobao.taobao/com.taobao.taobao.MainActivity}
 FAKE_WINDOW_DUMPSYS
+        fi
         ;;
       dumpsys\ package\ com.bytedance.zgx.solin)
         install_count="$(grep -c ' install ' "${FAKE_ADB_LOG:?}" 2>/dev/null || true)"
@@ -216,6 +245,15 @@ Packages:
     versionCode=${FAKE_PACKAGE_VERSION_CODE:-1} minSdk=28 targetSdk=36
     versionName=${FAKE_PACKAGE_VERSION_NAME:-0.1.0}
 FAKE_PACKAGE_DUMPSYS
+        ;;
+      pm\ path\ com.bytedance.zgx.solin)
+        echo "package:/data/app/com.bytedance.zgx.solin/base.apk"
+        ;;
+      pm\ path\ com.bytedance.zgx.solin.test)
+        echo "package:/data/app/com.bytedance.zgx.solin.test/base.apk"
+        ;;
+      pm\ path\ com.bytedance.zgx.solin.releasesmoke)
+        echo "package:/data/app/com.bytedance.zgx.solin.releasesmoke/base.apk"
         ;;
       run-as\ com.bytedance.zgx.solin\ am\ broadcast*\ -n\ com.bytedance.zgx.solin/.debug.DebugRemoteConfigReceiver*)
         if [[ "$*" == *"--ez clearRemoteConfig true"* ]]; then
@@ -239,7 +277,7 @@ FAKE_PACKAGE_DUMPSYS
       run-as\ com.bytedance.zgx.solin\ am\ broadcast*\ -n\ com.bytedance.zgx.solin/.debug.DeviceControlEvalReceiver*)
         echo "Broadcast completed: result=-1"
         ;;
-      pm\ clear\ com.bytedance.zgx.solin|pm\ clear\ com.bytedance.zgx.solin.test)
+      pm\ clear\ com.bytedance.zgx.solin|pm\ clear\ com.bytedance.zgx.solin.test|pm\ clear\ com.bytedance.zgx.solin.releasesmoke)
         echo "Success"
         ;;
       pm\ path\ android)
@@ -573,6 +611,9 @@ FAKE_REAL_APP_UI
           echo "zvecMemorySearch50kMs=${FAKE_RC_PERF_ZVEC_MEMORY_SEARCH_50K_MS:-35}"
         fi
         ;;
+      cat\ /sdcard/solin-release-main-shell.xml)
+        printf '<hierarchy><node text="Solin"/></hierarchy>\n'
+        ;;
       *)
         echo "unexpected exec-out command: $*" >&2
         exit 2
@@ -681,6 +722,15 @@ FAKE_FRESH_START_UI
   <node text="最近 Agent 轨迹" bounds="[80,1660][980,1740]" />
 </hierarchy>
 FAKE_RELEASE_SCREENSHOT_UI
+        ;;
+      /data/app/com.bytedance.zgx.solin/base.apk)
+        cp "${FAKE_INSTALLED_APP_APK_SOURCE:?}" "$destination"
+        ;;
+      /data/app/com.bytedance.zgx.solin.test/base.apk)
+        cp "${FAKE_INSTALLED_TEST_APK_SOURCE:?}" "$destination"
+        ;;
+      /data/app/com.bytedance.zgx.solin.releasesmoke/base.apk)
+        cp "${FAKE_INSTALLED_TEST_APK_SOURCE:?}" "$destination"
         ;;
       *)
         echo "unexpected pull command: $*" >&2
@@ -1398,7 +1448,7 @@ LOW_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%
 HIGH_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%s tests)' "$HIGH_ANDROID_TEST_COUNT" "$HIGH_ANDROID_TEST_COUNT")"
 
 ksp_line="$(grep -n 'GRADLE_CMD.*:app:kspReleaseKotlin' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
-verify_line="$(grep -n 'GRADLE_CMD.*:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
+verify_line="$(grep -n 'GRADLE_CMD.*:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease :releaseSmoke:assembleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
 if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; then
   fail "verify_local.sh must generate release KSP sources before lintDebug"
 fi
@@ -1406,6 +1456,10 @@ grep -q 'RELEASE_AAB="app/build/outputs/bundle/release/app-release.aab"' scripts
   fail "verify_local.sh must verify the release AAB artifact"
 grep -q -- '--aab "$RELEASE_AAB"' scripts/verify_local.sh ||
   fail "verify_local.sh must scan the release AAB artifact"
+grep -q 'RELEASE_SMOKE_APK="releaseSmoke/build/outputs/apk/release/releaseSmoke-release.apk"' scripts/verify_local.sh ||
+  fail "verify_local.sh must verify the dedicated release smoke APK"
+grep -q 'ReleaseSmokeInstrumentation' scripts/verify_local.sh ||
+  fail "verify_local.sh must verify the dedicated release smoke runner"
 
 verify_local_shellcheck_scripts=(
   scripts/regression_emulator.sh
@@ -3111,11 +3165,11 @@ final_release_gate_block = job_block("final-release-gate")
 
 if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
-if "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}" not in emulator_regression_block:
-    fail("emulator-regression must only allow infra skips outside workflow_dispatch release gates")
+if "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0" not in emulator_regression_block:
+    fail("emulator-regression must fail closed when emulator infrastructure is unavailable")
 for required in (
     'REQUIRED_APIS="28 32 33 34 36"',
-    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}",
+    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
     "scripts/prepare_emulator_api_matrix.sh",
     "scripts/regression_emulator_api_matrix.sh",
     "android-emulator-api-matrix-evidence",
@@ -4377,8 +4431,16 @@ signingMode=production
 allowDebugKeystore=0
 requireAab=1
 expectedSigningCertSha256=$OPERATIONS_FAKE_SHA_4
+signedApk=app/build/outputs/apk/release/app-release-signed.apk
+signedApkSha256=$OPERATIONS_FAKE_SHA_2
 signedAab=app/build/outputs/bundle/release/app-release-signed.aab
 signedAabSha256=$OPERATIONS_FAKE_SHA_1
+signedAndroidTestApk=app/build/outputs/apk/androidTest/release/app-release-androidTest-signed.apk
+signedAndroidTestApkSha256=$OPERATIONS_FAKE_SHA_2
+appSignerSha256=$OPERATIONS_FAKE_SHA_4
+androidTestSignerSha256=$OPERATIONS_FAKE_SHA_4
+aabSignerSha256=$OPERATIONS_FAKE_SHA_4
+appAndAndroidTestSignersMatch=true
 artifactScanReport=$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT
 artifactScanReportSha256=$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_SHA
 artifactScanStatus=passed
@@ -5184,11 +5246,21 @@ VALIDATION_EMULATOR_SMOKE_REPORT="$TMP_DIR/emulator-crash-anr-smoke.properties"
 VALIDATION_SCREENSHOT_REPORT="$TMP_DIR/release-screenshots.properties"
 VALIDATION_INSTRUMENTATION_OUTPUT="$TMP_DIR/instrumentation.txt"
 VALIDATION_RELEASE_APK="$TMP_DIR/validation-release.apk"
+VALIDATION_RELEASE_ANDROID_TEST_APK="$TMP_DIR/validation-release-androidTest.apk"
+VALIDATION_RELEASE_MAIN_SHELL_DIR="$TMP_DIR/validation-release-main-shell"
+VALIDATION_RELEASE_MAIN_SHELL_START="$VALIDATION_RELEASE_MAIN_SHELL_DIR/start.txt"
+VALIDATION_RELEASE_MAIN_SHELL_ACTIVITY="$VALIDATION_RELEASE_MAIN_SHELL_DIR/activity.txt"
+VALIDATION_RELEASE_MAIN_SHELL_WINDOW="$VALIDATION_RELEASE_MAIN_SHELL_DIR/window.txt"
+VALIDATION_RELEASE_MAIN_SHELL_UI="$VALIDATION_RELEASE_MAIN_SHELL_DIR/window.xml"
+VALIDATION_RELEASE_MAIN_SHELL_SCREENSHOT="$VALIDATION_RELEASE_MAIN_SHELL_DIR/screenshot.png"
+VALIDATION_SIGNER_SHA="4444444444444444444444444444444444444444444444444444444444444444"
 VALIDATION_DATE="$(date +%F)"
 printf 'OK (%s tests)\n' "$SOURCE_ANDROID_TEST_COUNT" > "$VALIDATION_INSTRUMENTATION_OUTPUT"
 printf 'clean emulator validation logcat\n' > "$VALIDATION_EMULATOR_LOGCAT"
 printf 'release apk fixture\n' > "$VALIDATION_RELEASE_APK"
+printf 'release androidTest apk fixture\n' > "$VALIDATION_RELEASE_ANDROID_TEST_APK"
 VALIDATION_RELEASE_ARTIFACT_SHA="$(shasum -a 256 "$VALIDATION_RELEASE_APK" | awk '{print $1}')"
+VALIDATION_RELEASE_ANDROID_TEST_SHA="$(shasum -a 256 "$VALIDATION_RELEASE_ANDROID_TEST_APK" | awk '{print $1}')"
 mkdir -p "$TMP_DIR/validation-screenshots"
 python3 - "$TMP_DIR/validation-screenshots" <<'PY'
 import base64
@@ -5203,6 +5275,23 @@ png = base64.b64decode(
 for name in ("chat-home", "model-manager", "confirmation-sheet", "background-tasks-or-audit"):
     (target / f"{name}.png").write_bytes(png)
 PY
+mkdir -p "$VALIDATION_RELEASE_MAIN_SHELL_DIR"
+printf 'Status: ok\nActivity: com.bytedance.zgx.solin/.MainActivity\n' \
+  > "$VALIDATION_RELEASE_MAIN_SHELL_START"
+cat > "$VALIDATION_RELEASE_MAIN_SHELL_ACTIVITY" <<'VALIDATION_RELEASE_MAIN_SHELL_ACTIVITY_TEXT'
+topResumedActivity=ActivityRecord{com.bytedance.zgx.solin/.MainActivity}
+mCurrentFocus=Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}
+VALIDATION_RELEASE_MAIN_SHELL_ACTIVITY_TEXT
+cat > "$VALIDATION_RELEASE_MAIN_SHELL_WINDOW" <<'VALIDATION_RELEASE_MAIN_SHELL_WINDOW_TEXT'
+mCurrentFocus=Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}
+  Window #8 Window{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}:
+    WindowStateAnimator{com.bytedance.zgx.solin/com.bytedance.zgx.solin.MainActivity}:
+      Surface: shown=true      mDrawState=HAS_DRAWN       mLastHidden=false
+    isOnScreen=true
+    isVisible=true
+VALIDATION_RELEASE_MAIN_SHELL_WINDOW_TEXT
+printf '<hierarchy><node text="Solin"/></hierarchy>\n' > "$VALIDATION_RELEASE_MAIN_SHELL_UI"
+cp "$TMP_DIR/validation-screenshots/chat-home.png" "$VALIDATION_RELEASE_MAIN_SHELL_SCREENSHOT"
 {
   printf 'status=passed\n'
   printf 'exit_code=0\n'
@@ -5493,23 +5582,57 @@ finished_at_utc=2026-06-06T00:01:00Z
 serial=device-a
 api_level=36
 abi=arm64-v8a
-clean_device=1
+clean_device=0
 reset_app_data_after_tests=0
 data_free_kb=4194304
 instrumentation=passed
 instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
+instrumentation_executed_test_count=$SOURCE_ANDROID_TEST_COUNT
+instrumentation_skipped_test_count=0
+instrumentation_skipped_tests=
 test_count=$SOURCE_ANDROID_TEST_COUNT
+instrumentation_class=com.bytedance.zgx.solin.ReleaseSignedSmokeDeviceTest
+instrumentation_runner=com.bytedance.zgx.solin.releasesmoke/com.bytedance.zgx.solin.releasesmoke.ReleaseSmokeInstrumentation
 app_apk_mode=release
 app_apk=$VALIDATION_RELEASE_APK
 app_apk_sha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+android_test_apk=$VALIDATION_RELEASE_ANDROID_TEST_APK
+android_test_apk_sha256=$VALIDATION_RELEASE_ANDROID_TEST_SHA
+app_signer_sha256=$VALIDATION_SIGNER_SHA
+android_test_signer_sha256=$VALIDATION_SIGNER_SHA
+app_android_test_signers_match=true
+expected_signing_cert_sha256=$VALIDATION_SIGNER_SHA
+skip_install=0
+installed_app_apk_path=/data/app/com.bytedance.zgx.solin/base.apk
+installed_test_apk_path=/data/app/com.bytedance.zgx.solin.test/base.apk
+installed_app_apk_sha256=$VALIDATION_RELEASE_ARTIFACT_SHA
+installed_test_apk_sha256=$VALIDATION_RELEASE_ANDROID_TEST_SHA
+installed_app_signer_sha256=$VALIDATION_SIGNER_SHA
+installed_test_signer_sha256=$VALIDATION_SIGNER_SHA
+installed_app_matches_requested_apk=true
+installed_test_matches_requested_apk=true
+app_apk_version_code=1
+app_apk_version_name=0.1.0
+installed_app_version_code=1
+installed_app_version_name=0.1.0
 releaseArtifactType=apk
 releaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA
 instrumentation_output_file=$VALIDATION_INSTRUMENTATION_OUTPUT
 instrumentation_output_sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
+release_main_shell_verified=1
+release_main_shell_start_output_file=$VALIDATION_RELEASE_MAIN_SHELL_START
+release_main_shell_start_output_sha256=$(shasum -a 256 "$VALIDATION_RELEASE_MAIN_SHELL_START" | awk '{print $1}')
+release_main_shell_activity_dump_file=$VALIDATION_RELEASE_MAIN_SHELL_ACTIVITY
+release_main_shell_activity_dump_sha256=$(shasum -a 256 "$VALIDATION_RELEASE_MAIN_SHELL_ACTIVITY" | awk '{print $1}')
+release_main_shell_window_dump_file=$VALIDATION_RELEASE_MAIN_SHELL_WINDOW
+release_main_shell_window_dump_sha256=$(shasum -a 256 "$VALIDATION_RELEASE_MAIN_SHELL_WINDOW" | awk '{print $1}')
+release_main_shell_ui_dump_file=$VALIDATION_RELEASE_MAIN_SHELL_UI
+release_main_shell_ui_dump_sha256=$(shasum -a 256 "$VALIDATION_RELEASE_MAIN_SHELL_UI" | awk '{print $1}')
+release_main_shell_screenshot_file=$VALIDATION_RELEASE_MAIN_SHELL_SCREENSHOT
+release_main_shell_screenshot_sha256=$(shasum -a 256 "$VALIDATION_RELEASE_MAIN_SHELL_SCREENSHOT" | awk '{print $1}')
 logcat_file=$VALIDATION_EMULATOR_LOGCAT
 logcat_sha256=$(shasum -a 256 "$VALIDATION_EMULATOR_LOGCAT" | awk '{print $1}')
 debug_apk=app/build/outputs/apk/debug/app-debug.apk
-android_test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 VALIDATION_DEVICE_REPORT_PROPERTIES
 cat > "$VALIDATION_EMULATOR_DEVICE_REPORT" <<VALIDATION_EMULATOR_DEVICE_REPORT_PROPERTIES
 artifact_schema=DeviceVerificationArtifact/v1
@@ -5585,7 +5708,7 @@ cat > "$VALIDATION_APPROVED" <<VALIDATION_APPROVED_JSON
     "serial": "device-a",
     "apiLevel": 36,
     "abi": "arm64-v8a",
-    "cleanDevice": true
+    "cleanDevice": false
   },
   "apiMatrix": [
     {"apiLevel": 28, "status": "passed", "evidence": "API 28 smoke passed.", "evidencePath": "$TMP_DIR/validation-api-evidence/api-28.properties"},
@@ -5685,11 +5808,11 @@ expect_success \
 assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-current-artifact.properties" "ReleaseValidationRecordVerification/v1"
 assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALIDATION_RELEASE_ARTIFACT_SHA"
 assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactType=apk"
-expect_failure \
-  "release validation verifier rejects aab context without aab physical install proof" \
+expect_success \
+  "release validation verifier accepts aab release context with apk physical proof" \
   env EXPECTED_RELEASE_ARTIFACT_TYPE=aab EXPECTED_RELEASE_ARTIFACT_SHA256="$VALIDATION_RELEASE_ARTIFACT_SHA" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-aab-context.properties"
-assert_report_contains_text "$ARTIFACT_DIR/release-validation-aab-context.properties" "physical-device-report-release-artifact-type-not-installed-apk"
+assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-aab-context.properties" "ReleaseValidationRecordVerification/v1"
 VALIDATION_LOCAL_VISION_COUNT_TWO="$TMP_DIR/release-validation-local-vision-count-two.json"
 VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE="$TMP_DIR/validation-flow-evidence/local-vision-count-two.properties"
 sed \
@@ -6810,6 +6933,30 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-device-report
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-device-report.properties" "physical-device-report-started-at-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-device-report.properties" "physical-device-report-data-free-invalid"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-device-report.properties" "physical-device-report-instrumentation-output-file-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-device-report.properties" "physical-device-report-release-main-shell-not-verified"
+VALIDATION_MISSING_MAIN_SHELL_RECORD="$TMP_DIR/release-validation-missing-main-shell.json"
+VALIDATION_MISSING_MAIN_SHELL_REPORT="$TMP_DIR/release-validation-missing-main-shell.properties"
+grep -Ev '^release_main_shell_(verified|start_output_file|start_output_sha256|activity_dump_file|activity_dump_sha256|window_dump_file|window_dump_sha256|ui_dump_file|ui_dump_sha256|screenshot_file|screenshot_sha256)=' \
+  "$VALIDATION_DEVICE_REPORT" > "$VALIDATION_MISSING_MAIN_SHELL_REPORT"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_MISSING_MAIN_SHELL_RECORD" "$VALIDATION_MISSING_MAIN_SHELL_REPORT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+report = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["physicalDevice"]["reportPath"] = str(report)
+record["physicalDevice"]["reportSha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects physical report without release main shell evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MISSING_MAIN_SHELL_RECORD" --report "$ARTIFACT_DIR/release-validation-missing-main-shell.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-missing-main-shell.properties" "physical-device-report-release-main-shell-not-verified"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-missing-main-shell.properties" "physical-device-report-release-main-shell-ui-dump-file-missing"
 VALIDATION_MANUAL_INSTALL_AS_DEVICE_RECORD="$TMP_DIR/release-validation-manual-install-as-device.json"
 VALIDATION_MANUAL_INSTALL_REPORT="$TMP_DIR/manual-acceptance-install-device.properties"
 cat > "$VALIDATION_MANUAL_INSTALL_REPORT" <<VALIDATION_MANUAL_INSTALL_REPORT_PROPERTIES
@@ -10271,7 +10418,7 @@ reset_logs
 expect_failure \
   "install helper rejects non arm64 device before Gradle" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' FAKE_ABI_LIST="armeabi-v7a,x86" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" FAKE_ABI_LIST="armeabi-v7a,x86" \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_no_gradle_call
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget=device-abi"
@@ -10285,7 +10432,7 @@ reset_logs
 expect_failure \
   "install helper rejects low data partition space before Gradle" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' FAKE_ABI_LIST="arm64-v8a,armeabi-v7a" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" FAKE_ABI_LIST="arm64-v8a,armeabi-v7a" \
   FAKE_DATA_FREE_KB="3145727" \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_no_gradle_call
@@ -10298,19 +10445,19 @@ grep -q -- "-s device-a shell df -k /data" "$FAKE_ADB_LOG" ||
 
 reset_logs
 expect_success \
-  "install helper selects the only authorized device" \
+  "install helper selects the only authorized emulator" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' RELEASE_ARTIFACT_SHA256="$VALID_PERF_SHA" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' RELEASE_ARTIFACT_SHA256="$VALID_PERF_SHA" \
   GRADLE_CMD="$FAKE_GRADLE" \
   scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "artifact_schema=DeviceVerificationArtifact/v1"
-grep -Eq '^artifact_id=device-device-a-api36-' "$ARTIFACT_DIR/device-verification.properties" ||
+grep -Eq '^artifact_id=device-emulator-5554-api36-' "$ARTIFACT_DIR/device-verification.properties" ||
   fail "Expected install helper to write a stable device artifact id"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget="
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason="
-assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=device-a"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=emulator-5554"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "api_level=36"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "abi=arm64-v8a,armeabi-v7a"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app_data_after_tests=0"
@@ -10331,28 +10478,47 @@ grep -q "OK (20 tests)" "$ARTIFACT_DIR/instrumentation.txt" ||
   fail "Expected install helper to persist instrumentation output"
 [[ -s "$ARTIFACT_DIR/logcat.txt" ]] ||
   fail "Expected install helper to persist logcat output"
-grep -q -- "-s device-a shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_LOG" ||
   fail "Expected adb device commands to target the only authorized device"
-grep -q -- "-s device-a logcat -c" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 logcat -c" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to clear the logcat window before validation"
-grep -q -- "-s device-a logcat -d -t 500" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 logcat -d -t 500" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to capture logcat after validation"
-if grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
+if grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
   fail "Default install helper must preserve target app data"
 fi
-if grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG"; then
+if grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG"; then
   fail "Default install helper must preserve test app data"
 fi
 
 reset_logs
+expect_failure \
+  "install helper requires an explicit serial for a physical device" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/install_and_test_device.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget=device-selection"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" \
+  "reason=android-serial-required-for-physical-device"
+
+reset_logs
 DEVICE_RELEASE_APK="$TMP_DIR/device-release.apk"
+DEVICE_RELEASE_ANDROID_TEST_APK="$TMP_DIR/device-release-androidTest.apk"
 printf 'device release apk\n' > "$DEVICE_RELEASE_APK"
+printf 'device release androidTest apk\n' > "$DEVICE_RELEASE_ANDROID_TEST_APK"
 DEVICE_RELEASE_APK_SHA="$(shasum -a 256 "$DEVICE_RELEASE_APK" | awk '{print $1}')"
+DEVICE_RELEASE_ANDROID_TEST_APK_SHA="$(shasum -a 256 "$DEVICE_RELEASE_ANDROID_TEST_APK" | awk '{print $1}')"
 expect_success \
   "install helper can verify an explicit release apk on device" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  ANDROID_SERIAL="device-a" \
+  FAKE_SOLIN_MAIN_SHELL_VISIBLE=1 \
   APP_APK_MODE=release APP_APK="$DEVICE_RELEASE_APK" \
+  ANDROID_TEST_APK="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  FAKE_INSTALLED_APP_APK_SOURCE="$DEVICE_RELEASE_APK" \
+  FAKE_INSTALLED_TEST_APK_SOURCE="$DEVICE_RELEASE_ANDROID_TEST_APK" \
   RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256="$DEVICE_RELEASE_APK_SHA" \
   GRADLE_CMD="$FAKE_GRADLE" \
   scripts/install_and_test_device.sh
@@ -10360,16 +10526,100 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=pa
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk_mode=release"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk=$DEVICE_RELEASE_APK"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk_sha256=$DEVICE_RELEASE_APK_SHA"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "android_test_apk=$DEVICE_RELEASE_ANDROID_TEST_APK"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "android_test_apk_sha256=$DEVICE_RELEASE_ANDROID_TEST_APK_SHA"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_android_test_signers_match=true"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_executed_test_count=20"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_skipped_test_count=0"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "installed_app_matches_requested_apk=true"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "installed_test_matches_requested_apk=true"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "app_apk_version_code=1"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "installed_app_version_code=1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "releaseArtifactType=apk"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "releaseArtifactSha256=$DEVICE_RELEASE_APK_SHA"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "release_main_shell_verified=1"
+for key in \
+  release_main_shell_start_output_sha256 \
+  release_main_shell_activity_dump_sha256 \
+  release_main_shell_window_dump_sha256 \
+  release_main_shell_ui_dump_sha256 \
+  release_main_shell_screenshot_sha256; do
+  grep -Eq "^${key}=[0-9a-f]{64}$" "$ARTIFACT_DIR/device-verification.properties" ||
+    fail "Expected release main-shell evidence SHA for $key"
+done
 grep -q -- "-s device-a install -r $DEVICE_RELEASE_APK" "$FAKE_ADB_LOG" ||
   fail "Expected install helper release mode to install the explicit release APK"
+
+reset_logs
+expect_failure \
+  "install helper rejects a release main shell that is not visible" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  ANDROID_SERIAL="device-a" \
+  APP_APK_MODE=release APP_APK="$DEVICE_RELEASE_APK" \
+  ANDROID_TEST_APK="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  FAKE_INSTALLED_APP_APK_SOURCE="$DEVICE_RELEASE_APK" \
+  FAKE_INSTALLED_TEST_APK_SOURCE="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  RELEASE_MAIN_SHELL_TIMEOUT_SECONDS=1 \
+  SKIP_BUILD=1 \
+  scripts/install_and_test_device.sh
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget=release-main-shell"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=release-main-shell-not-visible"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "release_main_shell_verified=0"
+
+reset_logs
+expect_failure \
+  "install helper rejects release mode skip install" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  ANDROID_SERIAL="device-a" \
+  APP_APK_MODE=release APP_APK="$DEVICE_RELEASE_APK" \
+  ANDROID_TEST_APK="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  SKIP_INSTALL=1 SKIP_BUILD=1 \
+  scripts/install_and_test_device.sh
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=release-skip-install-not-allowed"
+
+reset_logs
+expect_failure \
+  "install helper rejects release app and test signer mismatch" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  ANDROID_SERIAL="device-a" \
+  FAKE_APK_SIGNER_SHA256=2222222222222222222222222222222222222222222222222222222222222222 \
+  APP_APK_MODE=release APP_APK="$DEVICE_RELEASE_APK" \
+  ANDROID_TEST_APK="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  EXPECTED_SIGNING_CERT_SHA256=1111111111111111111111111111111111111111111111111111111111111111 \
+  SKIP_BUILD=1 \
+  scripts/install_and_test_device.sh
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=release-signing-certificate-mismatch"
+
+reset_logs
+expect_failure \
+  "install helper rejects skipped release smoke tests" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  ANDROID_SERIAL="device-a" \
+  FAKE_INSTRUMENTATION_OUTPUT=$'INSTRUMENTATION_STATUS: class=com.bytedance.zgx.solin.ReleaseSignedSmokeDeviceTest\nINSTRUMENTATION_STATUS: test=installedAppLaunchesMainShell\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: -4\nOK (1 test)' \
+  APP_APK_MODE=release APP_APK="$DEVICE_RELEASE_APK" \
+  ANDROID_TEST_APK="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  FAKE_INSTALLED_APP_APK_SOURCE="$DEVICE_RELEASE_APK" \
+  FAKE_INSTALLED_TEST_APK_SOURCE="$DEVICE_RELEASE_ANDROID_TEST_APK" \
+  SKIP_BUILD=1 \
+  scripts/install_and_test_device.sh
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=release-instrumentation-tests-skipped"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_skipped_test_count=1"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" \
+  "instrumentation_skipped_tests=com.bytedance.zgx.solin.ReleaseSignedSmokeDeviceTest#installedAppLaunchesMainShell"
 
 reset_logs
 expect_success \
   "install helper scopes instrumentation class" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
   INSTRUMENTATION_CLASS="com.bytedance.zgx.solin.MainActivitySmokeTest" \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
@@ -10381,9 +10631,9 @@ grep -q -- "-s device-a shell am instrument -w -r -e class com.bytedance.zgx.sol
 
 reset_logs
 expect_success \
-  "install helper clears clean-device app data before success launch" \
+  "install helper clears clean-device app data after successful instrumentation" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
   CLEAN_DEVICE=1 \
   RESET_APP_DATA_AFTER_TESTS=1 \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
@@ -10391,21 +10641,21 @@ assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_device=1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app_data_after_tests=1"
-grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" ||
   fail "Expected clean-device install helper to clear target app data before success launch"
-grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
-  fail "Expected clean-device install helper to clear test app data before success launch"
-pm_clear_line="$(grep -n -- "-s device-a shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" | head -n 1 | cut -d: -f1)"
-launch_line="$(grep -n -- "-s device-a shell am start -W -n com.bytedance.zgx.solin/.MainActivity" "$FAKE_ADB_LOG" | head -n 1 | cut -d: -f1)"
-if [[ -z "$pm_clear_line" || -z "$launch_line" || "$pm_clear_line" -ge "$launch_line" ]]; then
-  fail "Expected target app data to be cleared before launching app after successful clean-device validation"
+grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
+  fail "Expected clean-device install helper to clear test app data after successful instrumentation"
+pm_clear_line="$(grep -n -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" | head -n 1 | cut -d: -f1)"
+instrumentation_line="$(grep -n -- "-s emulator-5554 shell am instrument -w -r com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner" "$FAKE_ADB_LOG" | head -n 1 | cut -d: -f1)"
+if [[ -z "$pm_clear_line" || -z "$instrumentation_line" || "$instrumentation_line" -ge "$pm_clear_line" ]]; then
+  fail "Expected target app data to be cleared after successful instrumentation"
 fi
 
 reset_logs
 expect_failure \
   "install helper times out stuck instrumentation" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
   FAKE_INSTRUMENTATION_SLEEP_SECONDS=2 \
   INSTRUMENTATION_TIMEOUT_SECONDS=1 \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
@@ -10425,7 +10675,7 @@ reset_logs
 expect_failure \
   "install helper clears clean-device state after timeout" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
   FAKE_INSTRUMENTATION_SLEEP_SECONDS=2 \
   CLEAN_DEVICE=1 \
   RESET_APP_DATA_AFTER_TESTS=1 \
@@ -10436,18 +10686,18 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=fa
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_device=1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app_data_after_tests=1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=instrumentation-timeout"
-grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" ||
   fail "Expected clean-device install helper to clear target app data after timeout"
-grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
   fail "Expected clean-device install helper to clear test app data after timeout"
-grep -q -- "-s device-a uninstall com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
+grep -q -- "-s emulator-5554 uninstall com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
   fail "Expected clean-device install helper to uninstall test package after timeout"
 
 reset_logs
 expect_failure \
   "install helper rejects instrumentation numtests without final OK" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
   FAKE_INSTRUMENTATION_OUTPUT=$'INSTRUMENTATION_STATUS: numtests=20' \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
@@ -10459,6 +10709,20 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=in
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
 grep -q "final OK/success marker" <<<"$LAST_OUTPUT" ||
   fail "Expected install helper to reject malformed instrumentation output without final OK"
+
+reset_logs
+expect_failure \
+  "install helper does not accept OK output when instrumentation command exits nonzero" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_INSTRUMENTATION_OUTPUT=$'OK (20 tests)\nINSTRUMENTATION_CODE: -1' \
+  FAKE_INSTRUMENTATION_EXIT_CODE=1 \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget=instrumentation"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=instrumentation-command-failed"
 
 reset_logs
 expect_success \
@@ -10531,7 +10795,7 @@ reset_logs
 expect_failure \
   "install helper fails failed instrumentation output even when adb exits zero" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
   FAKE_INSTRUMENTATION_OUTPUT=$'FAILURES!!!\nTests run: 3,  Failures: 1\nINSTRUMENTATION_CODE: -1' \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
@@ -10548,7 +10812,7 @@ reset_logs
 expect_failure \
   "install helper rejects contradictory instrumentation output even with final OK" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
   FAKE_INSTRUMENTATION_OUTPUT=$'FAILURES!!!\nTests run: 20,  Failures: 1\nOK (20 tests)\nINSTRUMENTATION_CODE: -1' \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
@@ -11051,6 +11315,8 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "clean_dev
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "source_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "executed_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "skipped_android_test_count=0"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "logcat_file=$ARTIFACT_DIR/logcat.txt"
 grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/regression-emulator.properties" ||
@@ -11061,6 +11327,20 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_dev
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
 grep -q -- "-s emulator-5554 uninstall com.bytedance.zgx.solin" "$FAKE_ADB_LOG" ||
   fail "Expected regression emulator to force CLEAN_DEVICE=1 through device helper"
+
+reset_logs
+SKIPPED_TEST_NAME="example.OptionalDeviceTest#requiresInstalledModel"
+expect_success \
+  "regression emulator records assumption skips explicitly" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT=$'INSTRUMENTATION_STATUS: class=example.OptionalDeviceTest\nINSTRUMENTATION_STATUS: test=requiresInstalledModel\nINSTRUMENTATION_STATUS: numtests='"$SOURCE_ANDROID_TEST_COUNT"$'\nINSTRUMENTATION_STATUS_CODE: -4\nOK ('"$SOURCE_ANDROID_TEST_COUNT"$' tests)' \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" \
+  "executed_android_test_count=$LOW_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "skipped_android_test_count=1"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "skipped_android_tests=$SKIPPED_TEST_NAME"
 
 reset_logs
 expect_failure \
