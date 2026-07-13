@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.view.KeyEvent
+import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
@@ -65,25 +66,38 @@ class MainActivityAdaptiveUiTest {
         resetMainActivityPersistentState(targetContext, inferenceMode = InferenceMode.Local)
 
         ActivityScenario.launch<MainActivity>(skipStartupIntent()).use { scenario ->
-            scenario.onActivity { activity ->
-                applyFontScale(activity, 1.3f)
-                assertTrue(
-                    "Expected test font scale to be applied to MainActivity.",
-                    activity.resources.configuration.fontScale >= 1.29f,
-                )
-            }
-            composeRule.waitForTag("app_title")
-            composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
-            composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
-            composeRule.onNodeWithTag("composer_attachment_button").assertIsDisplayed()
-            composeRule.onNodeWithTag("composer_voice_button").assertIsDisplayed()
+            val originalConfiguration = AtomicReference<Configuration>()
+            try {
+                scenario.onActivity { activity ->
+                    originalConfiguration.set(Configuration(activity.resources.configuration))
+                    applyFontScale(activity, 1.3f)
+                    assertTrue(
+                        "Expected test font scale to be applied to MainActivity.",
+                        activity.resources.configuration.fontScale >= 1.29f,
+                    )
+                }
+                composeRule.waitForTag("app_title")
+                composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
+                composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
+                composeRule.onNodeWithTag("composer_attachment_button").assertIsDisplayed()
+                composeRule.onNodeWithTag("composer_voice_button").assertIsDisplayed()
 
-            composeRule.onNodeWithTag("top_model_button").performClick()
-            composeRule.waitForTag("model_manager_sheet")
-            composeRule.onNodeWithText("模型管理").assertIsDisplayed()
-            composeRule.onNodeWithTag("model_tab_advanced").performClick()
-            composeRule.waitForText("生成参数")
-            composeRule.onNodeWithText("Temperature · 创造性").assertIsDisplayed()
+                composeRule.onNodeWithTag("top_model_button").performClick()
+                composeRule.waitForTag("model_manager_sheet")
+                composeRule.onNodeWithText("模型管理").assertIsDisplayed()
+                composeRule.onNodeWithTag("model_tab_advanced").performClick()
+                composeRule.waitForText("生成参数")
+                composeRule.onNodeWithText("Temperature · 创造性").assertIsDisplayed()
+            } finally {
+                scenario.onActivity { activity ->
+                    originalConfiguration.get()?.let { configuration ->
+                        activity.resources.updateConfiguration(
+                            configuration,
+                            activity.resources.displayMetrics,
+                        )
+                    }
+                }
+            }
         }
     }
 

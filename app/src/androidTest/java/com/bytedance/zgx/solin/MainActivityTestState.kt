@@ -20,6 +20,7 @@ internal fun resetMainActivityPersistentState(
     inferenceMode: InferenceMode,
     remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
 ) {
+    (context.applicationContext as? SolinApplication)?.clearContainersForInstrumentation()
     val settingsStore = PreferenceSettingsStore(context)
     settingsStore.saveInferenceMode(inferenceMode)
     settingsStore.saveRemoteConfig(remoteModelConfig)
@@ -33,6 +34,7 @@ internal fun resetMainActivityPersistentState(
 }
 
 internal fun resetMainActivityFreshInstallState(context: Context) {
+    (context.applicationContext as? SolinApplication)?.clearContainersForInstrumentation()
     val settingsStore = PreferenceSettingsStore(context)
     settingsStore.saveInferenceMode(InferenceMode.Local)
     settingsStore.saveRemoteConfig(RemoteModelConfig())

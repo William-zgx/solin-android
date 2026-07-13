@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.evidence
 
 import com.bytedance.zgx.solin.MessagePrivacy
+import java.util.Locale
 
 /**
  * Bounding helpers that choose between inline prefix-truncation (legacy) and
@@ -48,7 +49,7 @@ object EvidenceBounds {
         val head = text.take(headBudget)
         val tail = text.takeLast(tailBudget)
         val omitted = text.length - headBudget - tailBudget
-        val marker = String.format(MARKER_TEMPLATE, omitted, ref.uri)
+        val marker = String.format(Locale.ROOT, MARKER_TEMPLATE, omitted, ref.uri)
         return HeadTailResult(head + marker + tail, ref, truncated = true, omittedChars = omitted)
     }
 }

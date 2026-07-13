@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.orchestration
 
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -340,7 +341,7 @@ class DefaultToolProgressPublisher(
         synchronized(slot) { slot.latest = event }
     }
 
-    private fun slotFor(toolCallId: String): Slot = slots.getOrPut(toolCallId) { Slot() }
+    private fun slotFor(toolCallId: String): Slot = slots.computeIfAbsent(toolCallId) { Slot() }
 
     companion object {
         /** Minimum wall-clock interval between non-terminal progress publishes per tool call. */
@@ -350,9 +351,9 @@ class DefaultToolProgressPublisher(
         private const val INDETERMINATE_PROGRESS: Float = -1f
 
         private fun formatBytes(bytes: Long): String = when {
-            bytes >= 1_000_000_000L -> String.format("%.1f GB", bytes / 1_000_000_000.0)
-            bytes >= 1_000_000L -> String.format("%.1f MB", bytes / 1_000_000.0)
-            bytes >= 1_000L -> String.format("%.1f KB", bytes / 1_000.0)
+            bytes >= 1_000_000_000L -> String.format(Locale.ROOT, "%.1f GB", bytes / 1_000_000_000.0)
+            bytes >= 1_000_000L -> String.format(Locale.ROOT, "%.1f MB", bytes / 1_000_000.0)
+            bytes >= 1_000L -> String.format(Locale.ROOT, "%.1f KB", bytes / 1_000.0)
             else -> "$bytes B"
         }
     }

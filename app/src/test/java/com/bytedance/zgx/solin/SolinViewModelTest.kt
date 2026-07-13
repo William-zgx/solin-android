@@ -942,6 +942,36 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun loadModelFailsClosedWhenActiveModelVerificationFails() = runTest(dispatcher) {
+        val active = installedModelSummary(
+            id = "active-chat",
+            displayName = "当前对话",
+            path = "/tmp/active.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+            activeModelVerificationResult = false,
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+
+        assertTrue(runtime.loadCalls.isEmpty())
+        assertFalse(viewModel.uiState.value.isReady)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertTrue(viewModel.uiState.value.statusText.contains("模型校验失败"))
+    }
+
+    @Test
     fun loadCustomImportedModelConfiguresTextOnlyRuntimeCapabilities() = runTest(dispatcher) {
         val active = installedModelSummary(
             id = "custom-chat",
@@ -4326,6 +4356,37 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun onClearedTerminatesActiveRunOnlyOnce() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-clear",
+                promptForModel = "本地生成 prompt",
+                memoryHits = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+        viewModel.sendMessage("普通问题")
+
+        invokeOnCleared(viewModel)
+        invokeOnCleared(viewModel)
+        advanceUntilIdle()
+
+        assertEquals(1, assistantRouter.terminateRunCallCount)
+        assertEquals("run-clear", assistantRouter.lastTerminatedRunId)
+        assertTrue(assistantRouter.lastTerminatedRunReason.orEmpty().contains("ViewModel cleared"))
+        assertEquals(1, remoteRuntime.stopCallCount)
+    }
+
+    @Test
     fun remoteWebSearchToolCallExecutesWithoutPendingConfirmation() = runTest(dispatcher) {
         val request = ToolRequest(
             id = "call-1",
@@ -6115,7 +6176,7 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex() = runTest(dispatcher) {
+    fun restoreStartupStateDefersVerifiedMemoryModelUntilChatModelLoads() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(
             recordStore = store,
@@ -6125,15 +6186,30 @@ class SolinViewModelTest {
             },
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val active = installedModelSummary(
+            id = "active-chat",
+            displayName = "当前对话",
+            path = TEST_LOCAL_MODEL_PATH,
+        )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = active.id,
+                initialInstalledModels = listOf(active),
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
+            ),
         )
 
-        assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, viewModel.uiState.value.semanticMemoryRuntimeStatus)
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(memoryRepository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, memoryRepository.semanticMemoryRuntimeStatus)
+
+        viewModel.loadModel()
         advanceUntilIdle()
 
         assertTrue(memoryRepository.semanticMemoryEnabled)
@@ -6176,22 +6252,36 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun restoreStartupStateReportsUnavailableSemanticRuntimeWhenFactoryIsMissing() = runTest(dispatcher) {
+    fun chatModelLoadReportsUnavailableSemanticRuntimeWhenFactoryIsMissing() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val active = installedModelSummary(
+            id = "active-chat",
+            displayName = "当前对话",
+            path = TEST_LOCAL_MODEL_PATH,
+        )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = active.id,
+                initialInstalledModels = listOf(active),
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
+            ),
         )
 
         assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
         assertEquals(
-            SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+            SemanticMemoryRuntimeStatus.NoVerifiedModel,
             viewModel.uiState.value.semanticMemoryRuntimeStatus,
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, memoryRepository.semanticMemoryRuntimeStatus)
+
+        viewModel.loadModel()
         advanceUntilIdle()
 
         assertFalse(memoryRepository.semanticMemoryEnabled)
@@ -7741,6 +7831,13 @@ class SolinViewModelTest {
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
 
+    private fun invokeOnCleared(viewModel: SolinViewModel) {
+        SolinViewModel::class.java.getDeclaredMethod("onCleared").apply {
+            isAccessible = true
+            invoke(viewModel)
+        }
+    }
+
     private fun installedModelSummary(
         id: String,
         displayName: String,
@@ -8267,6 +8364,8 @@ class SolinViewModelTest {
             private set
         var cancelRunCallCount: Int = 0
             private set
+        var terminateRunCallCount: Int = 0
+            private set
         var failPendingCallCount: Int = 0
             private set
         var recordExternalOutcomeCallCount: Int = 0
@@ -8288,6 +8387,10 @@ class SolinViewModelTest {
         var lastCancelledRunId: String? = null
             private set
         var lastCancelledRunReason: String? = null
+            private set
+        var lastTerminatedRunId: String? = null
+            private set
+        var lastTerminatedRunReason: String? = null
             private set
         var lastFailedPendingResult: ToolResult? = null
             private set
@@ -8431,6 +8534,13 @@ class SolinViewModelTest {
                 decision = AgentObservationDecision.Cancel,
                 steps = emptyList(),
             )
+        }
+
+        override fun terminateRun(runId: String, reason: String): AgentModelObservationResult? {
+            terminateRunCallCount += 1
+            lastTerminatedRunId = runId
+            lastTerminatedRunReason = reason
+            return cancelRun(runId, reason)
         }
 
         override fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
@@ -8907,6 +9017,7 @@ class SolinViewModelTest {
         private var pendingDownloadId: Long = -1L,
         private var pendingDownloadSource: ModelDownloadSource? = null,
         private val deleteResult: Boolean = true,
+        private val activeModelVerificationResult: Boolean = true,
     ) : ModelRepositoryFacade {
         val registeredModels = mutableListOf<InstalledModelSummary>()
         val deletedModelIds = mutableListOf<String>()
@@ -8923,6 +9034,9 @@ class SolinViewModelTest {
         )
 
         override fun currentState(): ModelSelectionState = state
+
+        override fun verifyActiveModelPath(path: String): Boolean =
+            activeModelVerificationResult && state.activeModelPath == path
 
         override fun selectedRecommendedModel(): RecommendedModel =
             ModelCatalog.recommendedChatModelById(state.selectedModelId)

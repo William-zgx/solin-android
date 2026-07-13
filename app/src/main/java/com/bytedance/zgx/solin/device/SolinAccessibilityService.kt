@@ -54,29 +54,35 @@ private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
     "done",
 ).map { value -> value.normalizedLookupKey() }
 
+private val deviceControlTask = ThreadLocal<DeviceControlTaskLease?>()
+
 class SolinAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var controlOverlayView: TextView? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        activeService = WeakReference(this)
+        deviceControlTasks.connect(this)?.let { previous ->
+            (previous as? SolinAccessibilityService)?.hideControlProgressOverlay()
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        deviceControlTasks.interrupt(this)
+        hideControlProgressOverlay()
+    }
 
     override fun onDestroy() {
-        if (activeService?.get() === this) {
-            activeService = null
-        }
+        deviceControlTasks.invalidate(this)
         hideControlProgressOverlay()
         super.onDestroy()
     }
 
     private fun showControlProgressOverlay(message: String) {
         mainHandler.post {
+            if (!deviceControlTasks.isCurrentOwner(this)) return@post
             val existing = controlOverlayView
             if (existing != null) {
                 existing.text = message.controlProgressMessage()
@@ -285,7 +291,8 @@ class SolinAccessibilityService : AccessibilityService() {
                         failureKind = UiActionFailureKind.EditableNotFound,
                     )
             }
-            val imeAccepted = editableNode.performImeSearchAction()
+            throwIfInterrupted()
+            val imeAccepted = submitUiSideEffect { editableNode.performImeSearchAction() }
             if (imeAccepted) {
                 sleepForUiIdle(timeoutMillis.coerceAtMost(DEFAULT_POST_ACTION_WAIT_MILLIS))
             }
@@ -341,7 +348,8 @@ class SolinAccessibilityService : AccessibilityService() {
                 UiScrollDirection.Right,
                 UiScrollDirection.Forward -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
             }
-            val performed = scrollableNode.performAction(action)
+            throwIfInterrupted()
+            val performed = submitUiSideEffect { scrollableNode.performAction(action) }
             if (performed) {
                 UiPrimitiveResult.succeeded("已滚动当前页面：${direction.schemaValue}")
             } else {
@@ -354,7 +362,8 @@ class SolinAccessibilityService : AccessibilityService() {
 
     private fun pressBack(timeoutMillis: Long): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
-            if (performGlobalAction(GLOBAL_ACTION_BACK)) {
+            throwIfInterrupted()
+            if (submitUiSideEffect { performGlobalAction(GLOBAL_ACTION_BACK) }) {
                 UiPrimitiveResult.succeeded("已执行系统返回")
             } else {
                 UiPrimitiveResult.failed(
@@ -407,6 +416,7 @@ class SolinAccessibilityService : AccessibilityService() {
         preActionWaitMillis: Long = 0L,
         operation: () -> UiPrimitiveResult,
     ): UiActionReadResult {
+        throwIfInterrupted()
         val before = observeSnapshot(
             maxTextChars = DEFAULT_DEVICE_CONTROL_MAX_TEXT_CHARS,
             maxNodes = DEFAULT_DEVICE_CONTROL_MAX_NODES,
@@ -414,10 +424,19 @@ class SolinAccessibilityService : AccessibilityService() {
         if (preActionWaitMillis > 0L) {
             sleepForUiIdle(preActionWaitMillis)
         }
-        val primitive = runCatching(operation).getOrElse {
+        throwIfInterrupted()
+        val primitive = runCatching(operation).getOrElse { error ->
             UiPrimitiveResult.failed(
                 reason = "UI 动作执行失败",
-                failureKind = UiActionFailureKind.Unknown,
+                retryable = false,
+                failureKind = if (
+                    error is InterruptedException ||
+                    error is DeviceControlTaskCancelledException
+                ) {
+                    UiActionFailureKind.Timeout
+                } else {
+                    UiActionFailureKind.Unknown
+                },
             )
         }
         sleepForUiIdle(timeoutMillis.coerceAtMost(DEFAULT_POST_ACTION_WAIT_MILLIS))
@@ -439,10 +458,11 @@ class SolinAccessibilityService : AccessibilityService() {
 
     private fun sleepForUiIdle(timeoutMillis: Long) {
         val bounded = timeoutMillis.coerceIn(50L, MAX_UI_ACTION_TIMEOUT_MILLIS)
-        runCatching { Thread.sleep(bounded) }
+        Thread.sleep(bounded)
     }
 
     private fun dispatchTapGesture(x: Int, y: Int): Boolean {
+        throwIfInterrupted()
         val path = Path().apply {
             moveTo(x.toFloat(), y.toFloat())
         }
@@ -451,23 +471,26 @@ class SolinAccessibilityService : AccessibilityService() {
             .build()
         val latch = CountDownLatch(1)
         var completed = false
-        val accepted = dispatchGesture(
-            gesture,
-            object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    completed = true
-                    latch.countDown()
-                }
+        val accepted = submitUiSideEffect {
+            dispatchGesture(
+                gesture,
+                object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        completed = true
+                        latch.countDown()
+                    }
 
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    completed = false
-                    latch.countDown()
-                }
-            },
-            null,
-        )
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        completed = false
+                        latch.countDown()
+                    }
+                },
+                null,
+            )
+        }
         if (!accepted) return false
         latch.await(500L, TimeUnit.MILLISECONDS)
+        throwIfInterrupted()
         return completed
     }
 
@@ -503,6 +526,7 @@ class SolinAccessibilityService : AccessibilityService() {
         }
 
     private fun activateCandidate(candidate: NodeCandidate): Boolean {
+        throwIfInterrupted()
         val clickNode = candidate.node.clickableSelfOrAncestor()
         val preferredPoint = candidate.node.searchEntryFallbackTapPoint(candidate.label)
         val gestureBounds = candidate.node.safeBounds() ?: clickNode?.safeBounds()
@@ -511,7 +535,9 @@ class SolinAccessibilityService : AccessibilityService() {
             ?: gestureBounds
                 ?.let { bounds -> dispatchTapGesture(bounds.centerX, bounds.centerY) }
             ?: false
-        return gesturePerformed || clickNode?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        return gesturePerformed || clickNode?.let { node ->
+            submitUiSideEffect { node.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+        } == true
     }
 
     private fun tapOcrGroundingHint(
@@ -549,35 +575,50 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
         if (!root.looksLikeSearchBlockingOverlay()) return false
-        val dismissed = performGlobalAction(GLOBAL_ACTION_BACK)
+        throwIfInterrupted()
+        val dismissed = submitUiSideEffect { performGlobalAction(GLOBAL_ACTION_BACK) }
         if (dismissed) sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
         return dismissed
     }
 
     private fun prepareEditableForTextInput(editableNode: AccessibilityNodeInfo) {
-        editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        throwIfInterrupted()
+        submitUiSideEffect { editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS) }
         val bounds = editableNode.safeBounds() ?: return
         dispatchTapGesture(bounds.centerX, bounds.centerY)
         sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
     }
 
     private fun setTextDirectly(editableNode: AccessibilityNodeInfo, text: String): Boolean {
+        throwIfInterrupted()
         val args = Bundle().apply {
             putCharSequence(
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                 text,
             )
         }
-        return editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        return submitUiSideEffect {
+            editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        }
     }
 
     private fun pasteTextIntoEditable(editableNode: AccessibilityNodeInfo, text: String): Boolean {
+        throwIfInterrupted()
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
         val previousClip = runCatching { clipboard.primaryClip }.getOrNull()
-        clipboard.setPrimaryClip(ClipData.newPlainText("Solin输入", text))
-        val pasted = editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        submitUiSideEffect {
+            clipboard.setPrimaryClip(ClipData.newPlainText("Solin输入", text))
+        }
+        val pasted = submitUiSideEffect {
+            editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        }
+        val task = deviceControlTask.get()
         mainHandler.postDelayed(
-            { restoreClipboardAfterPaste(clipboard, previousClip) },
+            {
+                task?.runCleanupIfCurrent {
+                    restoreClipboardAfterPaste(clipboard, previousClip)
+                }
+            },
             DEFAULT_POST_ACTION_WAIT_MILLIS,
         )
         return pasted
@@ -733,20 +774,29 @@ class SolinAccessibilityService : AccessibilityService() {
             .coerceAtLeast(DEFAULT_POST_ACTION_WAIT_MILLIS)
         val deadline = System.currentTimeMillis() + waitMillis
         do {
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("UI action cancelled")
             activeWindowRoot()?.findFocusedEditableForTyping()?.let { return it }
             sleepForUiIdle(SEARCH_ENTRY_FOCUS_POLL_MILLIS)
         } while (System.currentTimeMillis() < deadline)
         return null
     }
 
-    companion object {
-        private var activeService: WeakReference<SolinAccessibilityService>? = null
+    private fun throwIfInterrupted() {
+        deviceControlTask.get()?.requireActive()
+        if (Thread.currentThread().isInterrupted) {
+            throw InterruptedException("UI action cancelled")
+        }
+    }
 
+    companion object {
         internal fun readCurrentScreenText(maxChars: Int): CurrentScreenTextReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return CurrentScreenTextReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在读取当前屏幕")
+            val service = task.owner as? SolinAccessibilityService
+                ?: return CurrentScreenTextReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在读取当前屏幕")
             return runDeviceControlWithTimeout(
+                task = task,
                 timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
                 fallback = { CurrentScreenTextReadResult.Failed("当前屏幕文本读取超时") },
             ) {
@@ -755,10 +805,13 @@ class SolinAccessibilityService : AccessibilityService() {
         }
 
         internal fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return ScreenStateReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在观察当前屏幕")
+            val service = task.owner as? SolinAccessibilityService
+                ?: return ScreenStateReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在观察当前屏幕")
             return runDeviceControlWithTimeout(
+                task = task,
                 timeoutMillis = OBSERVE_HARD_TIMEOUT_MILLIS,
                 fallback = {
                     ScreenStateReadResult.Failed(
@@ -776,10 +829,12 @@ class SolinAccessibilityService : AccessibilityService() {
             timeoutMillis: Long,
             ocrGroundingHint: UiOcrGroundingHint? = null,
         ): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在点击：$target")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在点击：$target")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.tapTarget(target, timeoutMillis, ocrGroundingHint)
             }
         }
@@ -795,10 +850,12 @@ class SolinAccessibilityService : AccessibilityService() {
             normalizedY: Int,
             timeoutMillis: Long,
         ): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在点击坐标：($normalizedX, $normalizedY)")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在点击坐标：($normalizedX, $normalizedY)")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.tapByNormalizedCoords(normalizedX, normalizedY, timeoutMillis)
             }
         }
@@ -810,10 +867,12 @@ class SolinAccessibilityService : AccessibilityService() {
             ocrGroundingHint: UiOcrGroundingHint? = null,
             allowClipboardPasteFallback: Boolean = false,
         ): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在输入文本")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在输入文本")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.typeText(
                     text = text,
                     target = target,
@@ -828,10 +887,12 @@ class SolinAccessibilityService : AccessibilityService() {
             timeoutMillis: Long,
             ocrGroundingHint: UiOcrGroundingHint? = null,
         ): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在提交搜索")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在提交搜索")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.submitSearch(timeoutMillis, ocrGroundingHint)
             }
         }
@@ -841,75 +902,104 @@ class SolinAccessibilityService : AccessibilityService() {
             target: String?,
             timeoutMillis: Long,
         ): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在滚动页面")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在滚动页面")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.scrollTarget(direction, target, timeoutMillis)
             }
         }
 
         internal fun performPressBack(timeoutMillis: Long): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在返回上一页")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在返回上一页")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.pressBack(timeoutMillis)
             }
         }
 
         internal fun performWait(timeoutMillis: Long): UiActionReadResult {
-            val service = activeService?.get()
+            val task = deviceControlTasks.startTask()
                 ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
-            showControlProgress("正在等待页面稳定")
-            return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
+            val service = task.owner as? SolinAccessibilityService
+                ?: return UiActionReadResult.PermissionDenied("未开启Solin无障碍服务")
+            showControlProgress(task, service, "正在等待页面稳定")
+            return runDeviceControlWithTimeout(task, timeoutMillis.uiActionHardTimeout()) {
                 service.waitForScreen(timeoutMillis)
             }
         }
 
         internal fun showControlProgress(message: String) {
-            activeService?.get()?.showControlProgressOverlay(message)
+            (deviceControlTasks.currentOwner() as? SolinAccessibilityService)
+                ?.showControlProgressOverlay(message)
         }
 
         internal fun hideControlProgress() {
-            activeService?.get()?.hideControlProgressOverlay()
+            (deviceControlTasks.currentOwner() as? SolinAccessibilityService)
+                ?.hideControlProgressOverlay()
         }
 
-        private val deviceControlExecutor = Executors.newFixedThreadPool(2) { runnable ->
+        private fun showControlProgress(
+            task: DeviceControlTaskLease,
+            service: SolinAccessibilityService,
+            message: String,
+        ) {
+            task.runIfActive {
+                service.showControlProgressOverlay(message)
+            }
+        }
+
+        private val deviceControlExecutor = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "SolinDeviceControl").apply {
                 isDaemon = true
             }
         }
 
         private fun <T> runDeviceControlWithTimeout(
+            task: DeviceControlTaskLease,
             timeoutMillis: Long,
             fallback: () -> T,
             operation: () -> T,
         ): T {
-            val future: Future<T> = deviceControlExecutor.submit<T> { operation() }
+            val future: Future<T> = deviceControlExecutor.submit<T> {
+                try {
+                    task.requireActive()
+                    deviceControlTask.set(task)
+                    operation()
+                } finally {
+                    deviceControlTask.remove()
+                    task.finish()
+                }
+            }
+            task.attachFuture(future)
             return try {
                 future.get(timeoutMillis, TimeUnit.MILLISECONDS)
             } catch (_: TimeoutException) {
+                task.cancel(DeviceControlTaskCancellationReason.Timeout)
                 future.cancel(true)
                 fallback()
             } catch (_: Exception) {
+                task.cancel(DeviceControlTaskCancellationReason.Failure)
                 future.cancel(true)
                 fallback()
             }
         }
 
         private fun runDeviceControlWithTimeout(
+            task: DeviceControlTaskLease,
             timeoutMillis: Long,
             operation: () -> UiActionReadResult,
         ): UiActionReadResult =
             runDeviceControlWithTimeout(
+                task = task,
                 timeoutMillis = timeoutMillis,
                 fallback = {
-                    UiActionReadResult.Failed(
-                        reason = "UI 动作执行超时",
-                        retryable = true,
-                        failureKind = UiActionFailureKind.Timeout,
-                    )
+                    uiActionTimeoutResult(task)
                 },
                 operation = operation,
             )
@@ -918,6 +1008,260 @@ class SolinAccessibilityService : AccessibilityService() {
             (this + UI_ACTION_HARD_TIMEOUT_MILLIS).coerceAtMost(MAX_UI_ACTION_TIMEOUT_MILLIS)
     }
 }
+
+private fun <T> submitUiSideEffect(action: () -> T): T {
+    val task = deviceControlTask.get()
+    return task?.submitUiSideEffect(action) ?: action()
+}
+
+internal class DeviceControlTaskCancelledException : IllegalStateException()
+
+internal enum class DeviceControlTaskCancellationReason {
+    Lifecycle,
+    Timeout,
+    Failure,
+}
+
+internal class DeviceControlTaskCoordinator {
+    private val lock = Any()
+    private var generation = 0L
+    private var activeOwner: WeakReference<Any>? = null
+    private val tasks = mutableSetOf<DeviceControlTaskLease>()
+
+    fun connect(owner: Any): Any? =
+        synchronized(lock) {
+            val previous = activeOwner?.get()
+            generation += 1
+            activeOwner = WeakReference(owner)
+            cancelTasksLocked(DeviceControlTaskCancellationReason.Lifecycle)
+            previous
+        }
+
+    fun invalidate(owner: Any) {
+        synchronized(lock) {
+            if (activeOwner?.get() !== owner) return
+            generation += 1
+            activeOwner = null
+            cancelTasksLocked(DeviceControlTaskCancellationReason.Lifecycle)
+        }
+    }
+
+    fun interrupt(owner: Any) {
+        synchronized(lock) {
+            if (activeOwner?.get() !== owner) return
+            generation += 1
+            cancelTasksLocked(DeviceControlTaskCancellationReason.Lifecycle)
+        }
+    }
+
+    fun startTask(): DeviceControlTaskLease? =
+        synchronized(lock) {
+            val owner = activeOwner?.get() ?: return null
+            DeviceControlTaskLease(
+                coordinator = this,
+                owner = owner,
+                generation = generation,
+            ).also(tasks::add)
+        }
+
+    fun currentOwner(): Any? =
+        synchronized(lock) {
+            activeOwner?.get()
+        }
+
+    fun isCurrentOwner(owner: Any): Boolean =
+        synchronized(lock) {
+            activeOwner?.get() === owner
+        }
+
+    internal fun requireActive(task: DeviceControlTaskLease) {
+        synchronized(lock) {
+            if (!isActiveLocked(task)) throw DeviceControlTaskCancelledException()
+        }
+    }
+
+    internal fun <T> submitUiSideEffect(task: DeviceControlTaskLease, action: () -> T): T =
+        synchronized(lock) {
+            if (!isActiveLocked(task)) throw DeviceControlTaskCancelledException()
+            task.markUiSideEffectSubmittedLocked()
+            action()
+        }
+
+    internal fun runUiSideEffectIfActive(
+        task: DeviceControlTaskLease,
+        action: () -> Unit,
+    ): Boolean =
+        synchronized(lock) {
+            if (!isActiveLocked(task)) return false
+            task.markUiSideEffectSubmittedLocked()
+            action()
+            true
+        }
+
+    internal fun runIfActive(
+        task: DeviceControlTaskLease,
+        action: () -> Unit,
+    ): Boolean =
+        synchronized(lock) {
+            if (!isActiveLocked(task)) return false
+            action()
+            true
+        }
+
+    internal fun runCleanupIfCurrent(
+        task: DeviceControlTaskLease,
+        action: () -> Unit,
+    ): Boolean =
+        synchronized(lock) {
+            if (
+                task.wasCancelledByLifecycleLocked() ||
+                activeOwner?.get() !== task.owner ||
+                generation != task.generation
+            ) {
+                return false
+            }
+            action()
+            true
+        }
+
+    internal fun attachFuture(task: DeviceControlTaskLease, future: Future<*>) {
+        val shouldCancel = synchronized(lock) {
+            task.attachFutureLocked(future)
+        }
+        if (shouldCancel) {
+            future.cancel(true)
+        }
+    }
+
+    internal fun cancel(
+        task: DeviceControlTaskLease,
+        reason: DeviceControlTaskCancellationReason,
+    ) {
+        val future = synchronized(lock) {
+            task.cancelLocked(reason).also { tasks.remove(task) }
+        }
+        future?.cancel(true)
+    }
+
+    internal fun finish(task: DeviceControlTaskLease) {
+        synchronized(lock) {
+            tasks.remove(task)
+        }
+    }
+
+    internal fun hasSubmittedUiSideEffect(task: DeviceControlTaskLease): Boolean =
+        synchronized(lock) {
+            task.hasSubmittedUiSideEffectLocked()
+        }
+
+    internal fun wasCancelledByLifecycle(task: DeviceControlTaskLease): Boolean =
+        synchronized(lock) {
+            task.wasCancelledByLifecycleLocked()
+        }
+
+    private fun isActiveLocked(task: DeviceControlTaskLease): Boolean =
+        !task.isCancelledLocked() &&
+            tasks.contains(task) &&
+            activeOwner?.get() === task.owner &&
+            generation == task.generation
+
+    private fun cancelTasksLocked(reason: DeviceControlTaskCancellationReason) {
+        val futures = tasks.mapNotNull { task -> task.cancelLocked(reason) }
+        tasks.clear()
+        futures.forEach { future -> future.cancel(true) }
+    }
+}
+
+internal class DeviceControlTaskLease internal constructor(
+    private val coordinator: DeviceControlTaskCoordinator,
+    internal val owner: Any,
+    internal val generation: Long,
+) {
+    private var cancelled = false
+    private var cancellationReason: DeviceControlTaskCancellationReason? = null
+    private var submittedUiSideEffect = false
+    private var future: Future<*>? = null
+
+    internal fun requireActive() {
+        coordinator.requireActive(this)
+    }
+
+    internal fun <T> submitUiSideEffect(action: () -> T): T =
+        coordinator.submitUiSideEffect(this, action)
+
+    internal fun runUiSideEffectIfActive(action: () -> Unit): Boolean =
+        coordinator.runUiSideEffectIfActive(this, action)
+
+    internal fun runIfActive(action: () -> Unit): Boolean =
+        coordinator.runIfActive(this, action)
+
+    internal fun runCleanupIfCurrent(action: () -> Unit): Boolean =
+        coordinator.runCleanupIfCurrent(this, action)
+
+    internal fun attachFuture(future: Future<*>) {
+        coordinator.attachFuture(this, future)
+    }
+
+    internal fun cancel(reason: DeviceControlTaskCancellationReason) {
+        coordinator.cancel(this, reason)
+    }
+
+    internal fun finish() {
+        coordinator.finish(this)
+    }
+
+    internal fun hasSubmittedUiSideEffect(): Boolean =
+        coordinator.hasSubmittedUiSideEffect(this)
+
+    internal fun markUiSideEffectSubmittedLocked() {
+        submittedUiSideEffect = true
+    }
+
+    internal fun hasSubmittedUiSideEffectLocked(): Boolean =
+        submittedUiSideEffect
+
+    internal fun isCancelledLocked(): Boolean =
+        cancelled
+
+    internal fun wasCancelledByLifecycle(): Boolean =
+        coordinator.wasCancelledByLifecycle(this)
+
+    internal fun wasCancelledByLifecycleLocked(): Boolean =
+        cancellationReason == DeviceControlTaskCancellationReason.Lifecycle
+
+    internal fun attachFutureLocked(future: Future<*>): Boolean {
+        this.future = future
+        return cancelled
+    }
+
+    internal fun cancelLocked(reason: DeviceControlTaskCancellationReason): Future<*>? {
+        cancelled = true
+        cancellationReason = cancellationReason ?: reason
+        return future
+    }
+}
+
+internal fun uiActionTimeoutResult(task: DeviceControlTaskLease): UiActionReadResult.Failed {
+    if (task.wasCancelledByLifecycle()) {
+        return UiActionReadResult.Failed(
+            reason = "UI 动作因无障碍服务生命周期变化而取消",
+            retryable = false,
+            failureKind = UiActionFailureKind.Timeout,
+        )
+    }
+    val submitted = task.hasSubmittedUiSideEffect()
+    return UiActionReadResult.Failed(
+        reason = if (submitted) {
+            "UI 动作执行超时，提交状态未确认"
+        } else {
+            "UI 动作执行超时"
+        },
+        retryable = !submitted,
+        failureKind = UiActionFailureKind.Timeout,
+    )
+}
+
+private val deviceControlTasks = DeviceControlTaskCoordinator()
 
 private sealed class EditableFocusResult {
     data class Found(val node: AccessibilityNodeInfo) : EditableFocusResult()

@@ -10,6 +10,7 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.LinkedBlockingQueue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
@@ -656,6 +657,38 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun remoteFailureKeepsOnlyAllowlistedRecoveryMarkerFromResponseBody() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(400)
+                    .body(
+                        """{"error":"context_length_exceeded prompt=private@example.com token=sk-${"x".repeat(32)}"}""",
+                    )
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+
+            val failure = runCatching {
+                runtime.send(
+                    prompt = "private prompt",
+                    history = emptyList(),
+                    parameters = GenerationParameters(),
+                    config = RemoteModelConfig(
+                        server.url("/v1").toString().trimEnd('/'),
+                        "model-a",
+                    ),
+                ).toList()
+            }.exceptionOrNull()
+
+            val message = requireNotNull(failure).message.orEmpty()
+            assertContainsAll(message, "400", "context_length_exceeded")
+            assertContainsNone(message, "private@example.com", "sk-", "private prompt")
+        }
+    }
+
+    @Test
     fun flowCancellationCancelsUnderlyingCall() = runTest {
         val factory = BlockingCallFactory()
         val runtime = OkHttpRemoteChatRuntime(factory)
@@ -674,6 +707,39 @@ class RemoteChatRuntimeTest {
         call.canceled.get(2, java.util.concurrent.TimeUnit.SECONDS)
     }
 
+    @Test
+    fun stopCancelsEveryConcurrentUnderlyingCall() = runTest {
+        val factory = MultiBlockingCallFactory()
+        val runtime = OkHttpRemoteChatRuntime(factory)
+        val firstCollection = async(Dispatchers.Default) {
+            runtime.send(
+                prompt = "first",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            ).toList()
+        }
+        val secondCollection = async(Dispatchers.Default) {
+            runtime.send(
+                prompt = "second",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            ).toList()
+        }
+        val firstCall = factory.created.poll(2, java.util.concurrent.TimeUnit.SECONDS)
+        val secondCall = factory.created.poll(2, java.util.concurrent.TimeUnit.SECONDS)
+        requireNotNull(firstCall)
+        requireNotNull(secondCall)
+
+        runtime.stop()
+
+        firstCall.canceled.get(2, java.util.concurrent.TimeUnit.SECONDS)
+        secondCall.canceled.get(2, java.util.concurrent.TimeUnit.SECONDS)
+        firstCollection.cancelAndJoin()
+        secondCollection.cancelAndJoin()
+    }
+
     private class BlockingCallFactory : Call.Factory {
         val created = CompletableFuture<BlockingCall>()
 
@@ -682,6 +748,13 @@ class RemoteChatRuntimeTest {
             created.complete(call)
             return call
         }
+    }
+
+    private class MultiBlockingCallFactory : Call.Factory {
+        val created = LinkedBlockingQueue<BlockingCall>()
+
+        override fun newCall(request: Request): Call =
+            BlockingCall(request).also(created::add)
     }
 
     private class BlockingCall(

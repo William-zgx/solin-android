@@ -168,6 +168,142 @@ class SolinDatabaseMigrationTest {
     }
 
     @Test
+    fun legacyPrefsMigratorSynchronouslyClearsMigratedSensitivePrefsAfterSuccess() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("solin", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putString(
+                "sessions_json",
+                """
+                [
+                  {
+                    "id": "legacy-cleanup-session",
+                    "title": "私人会话",
+                    "createdAtMillis": 1,
+                    "updatedAtMillis": 2,
+                    "messages": [
+                      {"role": "User", "text": "迁移后不应留在旧偏好中的私人文本"}
+                    ]
+                  }
+                ]
+                """.trimIndent(),
+            )
+            .putString("active_session_id", "legacy-cleanup-session")
+            .putLong("download_id", 42L)
+            .putString(
+                "download_source",
+                """
+                {
+                  "title": "legacy",
+                  "fileName": "legacy.litertlm",
+                  "downloadUrl": "https://example.com/legacy.litertlm?access_token=private-token",
+                  "expectedBytes": 1,
+                  "expectedSha256": null,
+                  "modelId": null,
+                  "registerInstalledModel": true,
+                  "requiresHuggingFaceAuthorization": false
+                }
+                """.trimIndent(),
+            )
+            .putString("remote_model_api_key", "legacy-private-api-key")
+            .commit()
+        val database = Room.inMemoryDatabaseBuilder(context, SolinDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val settingsStore = PreferenceSettingsStore(context)
+        val secretStore = RecordingSecretStore()
+        settingsStore.setMigrationVersion(0)
+
+        try {
+            assertTrue(
+                LegacyPrefsMigrator(
+                    context = context,
+                    database = database,
+                    settingsStore = settingsStore,
+                    secretStore = secretStore,
+                ).migrateIfNeeded(),
+            )
+
+            assertFalse(prefs.contains("sessions_json"))
+            assertFalse(prefs.contains("download_id"))
+            assertFalse(prefs.contains("download_source"))
+            assertFalse(prefs.contains("remote_model_api_key"))
+            assertEquals(
+                "legacy-private-api-key",
+                secretStore.savedValues["remote_model_api_key"],
+            )
+            assertEquals(
+                "迁移后不应留在旧偏好中的私人文本",
+                database.sessionDao().messagesForSession("legacy-cleanup-session").single().text,
+            )
+            val download = database.downloadRecordDao().record()
+            assertEquals(42L, download?.downloadManagerId)
+            assertFalse(download?.sourceJson.orEmpty().contains("private-token"))
+            assertTrue(settingsStore.migrationVersion() > 0)
+        } finally {
+            database.close()
+            prefs.edit().clear().commit()
+            settingsStore.setMigrationVersion(0)
+        }
+    }
+
+    @Test
+    fun legacyPrefsMigratorKeepsSensitivePrefsWhenLaterMigrationFails() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("solin", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putString(
+                "sessions_json",
+                """
+                [
+                  {
+                    "id": "legacy-failure-session",
+                    "title": "私人会话",
+                    "createdAtMillis": 1,
+                    "updatedAtMillis": 2,
+                    "messages": [
+                      {"role": "User", "text": "失败时必须保留原始迁移数据"}
+                    ]
+                  }
+                ]
+                """.trimIndent(),
+            )
+            .putString("active_session_id", "legacy-failure-session")
+            .putString("remote_model_api_key", "legacy-private-api-key")
+            .commit()
+        val database = Room.inMemoryDatabaseBuilder(context, SolinDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val settingsStore = PreferenceSettingsStore(context)
+        settingsStore.setMigrationVersion(0)
+
+        try {
+            assertFalse(
+                LegacyPrefsMigrator(
+                    context = context,
+                    database = database,
+                    settingsStore = settingsStore,
+                    secretStore = FailingSecretStore,
+                ).migrateIfNeeded(),
+            )
+
+            assertTrue(prefs.contains("sessions_json"))
+            assertTrue(prefs.contains("remote_model_api_key"))
+            assertEquals(0, settingsStore.migrationVersion())
+            assertEquals(
+                "失败时必须保留原始迁移数据",
+                database.sessionDao().messagesForSession("legacy-failure-session").single().text,
+            )
+        } finally {
+            database.close()
+            prefs.edit().clear().commit()
+            settingsStore.setMigrationVersion(0)
+        }
+    }
+
+    @Test
     fun migration4To5CreatesMemoryRecordsTableAndRoomCanOpen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(TEST_DB_NAME)
@@ -1456,6 +1592,26 @@ class SolinDatabaseMigrationTest {
 
         override fun saveString(name: String, value: String): Result<Unit> =
             Result.success(Unit)
+    }
+
+    private class RecordingSecretStore : SecretStore {
+        val savedValues = mutableMapOf<String, String>()
+
+        override fun loadString(name: String): Result<String> =
+            Result.success(savedValues[name].orEmpty())
+
+        override fun saveString(name: String, value: String): Result<Unit> {
+            savedValues[name] = value
+            return Result.success(Unit)
+        }
+    }
+
+    private object FailingSecretStore : SecretStore {
+        override fun loadString(name: String): Result<String> =
+            Result.success("")
+
+        override fun saveString(name: String, value: String): Result<Unit> =
+            Result.failure(IllegalStateException("encrypted secret storage unavailable"))
     }
 
     private data class ColumnSchema(

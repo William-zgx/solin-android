@@ -13,6 +13,7 @@ import com.bytedance.zgx.solin.credentials.CredentialResolver
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -75,8 +76,7 @@ class OkHttpRemoteChatRuntime(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val credentialResolver: CredentialResolver = ApiKeyCredentialResolver,
 ) : RemoteChatRuntime {
-    @Volatile
-    private var activeCall: Call? = null
+    private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
     override fun send(
         prompt: String,
@@ -108,19 +108,12 @@ class OkHttpRemoteChatRuntime(
             }
             .build()
         val call = callFactory.newCall(request)
-        activeCall = call
+        activeCalls.add(call)
         val worker = launch(ioDispatcher) {
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        // Read a bounded body snippet ONLY for the non-image path and only for
-                        // codes where providers return a machine-readable reason (e.g. 400/422/413
-                        // "context_length_exceeded", 5xx server errors). For auth responses
-                        // (401/403) we skip entirely because they frequently echo the API key;
-                        // for image-attachment failures we also skip because the localized
-                        // user-facing message is sufficient and bodies may contain URLs/paths.
-                        // See RemoteChatRuntimeTest.redaction tests.
-                        val bodySnippet = if (
+                        val failureMarker = if (
                             imageAttachments.isEmpty() &&
                             response.code != 401 &&
                             response.code != 403
@@ -129,14 +122,14 @@ class OkHttpRemoteChatRuntime(
                                 response.body.source().use { source ->
                                     val buffer = Buffer()
                                     source.read(buffer, SolinConstants.Network.ERROR_BODY_SNIPPET_BYTES)
-                                    buffer.readUtf8()
+                                    safeRemoteFailureMarker(buffer.readUtf8())
                                 }
-                            }.getOrNull().orEmpty().trim()
+                            }.getOrNull().orEmpty()
                         } else {
                             ""
                         }
                         response.body.close()
-                        error(remoteFailureMessage(response.code, imageAttachments, bodySnippet))
+                        error(remoteFailureMessage(response.code, imageAttachments, failureMarker))
                     }
                     val body = response.body
                     if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
@@ -162,17 +155,13 @@ class OkHttpRemoteChatRuntime(
                     close(throwable)
                 }
             } finally {
-                if (activeCall == call) {
-                    activeCall = null
-                }
+                activeCalls.remove(call)
             }
         }
         awaitClose {
             call.cancel()
             worker.cancel()
-            if (activeCall == call) {
-                activeCall = null
-            }
+            activeCalls.remove(call)
         }
     }
 
@@ -214,19 +203,12 @@ class OkHttpRemoteChatRuntime(
             }
             .build()
         val call = callFactory.newCall(request)
-        activeCall = call
+        activeCalls.add(call)
         val worker = launch(ioDispatcher) {
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        // Read a bounded body snippet ONLY for the non-image path and only for
-                        // codes where providers return a machine-readable reason (e.g. 400/422/413
-                        // "context_length_exceeded", 5xx server errors). For auth responses
-                        // (401/403) we skip entirely because they frequently echo the API key;
-                        // for image-attachment failures we also skip because the localized
-                        // user-facing message is sufficient and bodies may contain URLs/paths.
-                        // See RemoteChatRuntimeTest.redaction tests.
-                        val bodySnippet = if (
+                        val failureMarker = if (
                             imageAttachments.isEmpty() &&
                             response.code != 401 &&
                             response.code != 403
@@ -235,14 +217,14 @@ class OkHttpRemoteChatRuntime(
                                 response.body.source().use { source ->
                                     val buffer = Buffer()
                                     source.read(buffer, SolinConstants.Network.ERROR_BODY_SNIPPET_BYTES)
-                                    buffer.readUtf8()
+                                    safeRemoteFailureMarker(buffer.readUtf8())
                                 }
-                            }.getOrNull().orEmpty().trim()
+                            }.getOrNull().orEmpty()
                         } else {
                             ""
                         }
                         response.body.close()
-                        error(remoteFailureMessage(response.code, imageAttachments, bodySnippet))
+                        error(remoteFailureMessage(response.code, imageAttachments, failureMarker))
                     }
                     val body = response.body
                     if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
@@ -269,22 +251,18 @@ class OkHttpRemoteChatRuntime(
                     close(throwable)
                 }
             } finally {
-                if (activeCall == call) {
-                    activeCall = null
-                }
+                activeCalls.remove(call)
             }
         }
         awaitClose {
             call.cancel()
             worker.cancel()
-            if (activeCall == call) {
-                activeCall = null
-            }
+            activeCalls.remove(call)
         }
     }
 
     override fun stop() {
-        activeCall?.cancel()
+        activeCalls.toList().forEach(Call::cancel)
     }
 }
 
@@ -346,7 +324,7 @@ private fun userMessageJson(prompt: String, imageAttachments: List<ChatImageAtta
 private fun remoteFailureMessage(
     code: Int,
     imageAttachments: List<ChatImageAttachment>,
-    bodySnippet: String = "",
+    failureMarker: String = "",
 ): String {
     val base = if (imageAttachments.isNotEmpty()) {
         when (code) {
@@ -368,16 +346,23 @@ private fun remoteFailureMessage(
     } else {
         "远程模型请求失败 $code"
     }
-    // Append a bounded prefix of the error body so callers can match machine-readable phrases
-    // (e.g. "context_length_exceeded") for automatic recovery. Snippet is capped server-side
-    // via SolinConstants.Network.ERROR_BODY_SNIPPET_BYTES and stripped of newlines/quotes to keep the exception
-    // message single-line and log-safe.
-    val snippet = bodySnippet
-        .replace('\n', ' ')
-        .replace('\r', ' ')
-        .take(SolinConstants.Network.ERROR_BODY_SNIPPET_CHARS)
-    return if (snippet.isBlank()) base else "$base: $snippet"
+    return if (failureMarker.isBlank()) base else "$base: $failureMarker"
 }
+
+private fun safeRemoteFailureMarker(body: String): String =
+    when {
+        CONTEXT_LENGTH_ERROR_MARKERS.any { marker -> body.contains(marker, ignoreCase = true) } ->
+            "context_length_exceeded"
+        else -> ""
+    }
+
+private val CONTEXT_LENGTH_ERROR_MARKERS = listOf(
+    "context_length_exceeded",
+    "context length",
+    "maximum context",
+    "prompt is too long",
+    "prompt too long",
+)
 
 private val JSON = "application/json; charset=utf-8".toMediaType()
 

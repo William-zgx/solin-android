@@ -35,18 +35,34 @@ class ReminderNotificationHelper(
     fun postReminder(taskId: String, title: String, body: String): Boolean {
         if (!canPostNotifications()) return false
         ensureChannel()
-        val notification = Notification.Builder(context, REMINDER_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body.ifBlank { title })
-            .setStyle(Notification.BigTextStyle().bigText(body.ifBlank { title }))
-            .setAutoCancel(true)
-            .build()
+        val notification = buildReminderNotification(title, body)
         notificationManager?.notify(taskId.hashCode(), notification)
         return true
     }
 
+    internal fun buildReminderNotification(title: String, body: String): Notification =
+        Notification.Builder(context, REMINDER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_solin)
+            .setContentTitle(title)
+            .setContentText(body.ifBlank { title })
+            .setStyle(Notification.BigTextStyle().bigText(body.ifBlank { title }))
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(buildRedactedPublicNotification())
+            .setAutoCancel(true)
+            .build()
+
+    private fun buildRedactedPublicNotification(): Notification =
+        Notification.Builder(context, REMINDER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_solin)
+            .setContentTitle(PUBLIC_NOTIFICATION_TITLE)
+            .setContentText(PUBLIC_NOTIFICATION_BODY)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .build()
+
     companion object {
         const val REMINDER_CHANNEL_ID = "solin_agent_reminders"
+        internal const val PUBLIC_NOTIFICATION_TITLE = "Solin 提醒"
+        internal const val PUBLIC_NOTIFICATION_BODY = "有一条待查看提醒"
     }
 }

@@ -25,9 +25,19 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.bytedance.zgx.solin.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.solin.device.SolinAccessibilityService
 import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
@@ -39,27 +49,32 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val appContainer: SolinAppContainer by lazy {
-        SolinAppContainer(
-            context = applicationContext,
-            skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork(),
-        )
+        requireNotNull(
+            (application as SolinApplication).readyAppContainer(
+                skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork(),
+            ),
+        ) { "Solin app container is not ready" }
     }
     private val viewModel: SolinViewModel by viewModels {
         appContainer.viewModelFactory(
             skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork(),
         )
     }
+    private var contentInitialization by mutableStateOf<SolinAppContainerInitialization>(
+        SolinAppContainerInitialization.Loading,
+    )
+    private var readyContentInitialized = false
     private val shareIntentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
     private var pendingMediaProjectionConfirmation: PendingAgentConfirmation? = null
     private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
     private var speechRecognizer: SpeechRecognizer? = null
-    private var consumedShareIntentKey: String? = null
     private val voiceInputSessions = VoiceInputSessionGate()
     private val systemResourceMonitor: SystemResourceMonitor by lazy {
         SystemResourceMonitor(applicationContext)
@@ -81,10 +96,12 @@ class MainActivity : ComponentActivity() {
         if (deniedPermissions.isEmpty()) {
             confirmAgentConfirmationWithPermissions(confirmation)
         } else {
-            viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
-                confirmation = confirmation,
-                deniedPermissions = deniedPermissions,
-            )
+            viewModel.launchPersistenceWork {
+                viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
+                    confirmation = confirmation,
+                    deniedPermissions = deniedPermissions,
+                )
+            }
         }
     }
     private val specialAccessLauncher = registerForActivityResult(
@@ -93,10 +110,12 @@ class MainActivity : ComponentActivity() {
         val requirement = pendingSpecialAccessRequirement ?: return@registerForActivityResult
         pendingSpecialAccessRequirement = null
         syncDeviceContextAuthorizationSnapshot()
-        viewModel.reportSpecialAccessResult(
-            requirement = requirement,
-            granted = hasSpecialAccess(requirement.id),
-        )
+        viewModel.launchPersistenceWork {
+            viewModel.reportSpecialAccessResult(
+                requirement = requirement,
+                granted = hasSpecialAccess(requirement.id),
+            )
+        }
     }
     private val voiceAudioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -124,22 +143,66 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val requestId = confirmation.toolRequest?.id
             if (requestId == null) {
-                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+                viewModel.launchPersistenceWork {
+                    viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+                }
             } else {
                 appContainer.currentScreenshotOcrProvider.setOneShotConsent(
                     requestId = requestId,
                     resultCode = result.resultCode,
                     data = result.data,
                 )
-                viewModel.confirmAgentConfirmation(confirmation)
+                viewModel.launchPersistenceWork {
+                    viewModel.confirmAgentConfirmation(confirmation)
+                }
             }
         } else {
-            viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            viewModel.launchPersistenceWork {
+                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork()
+        val containerState = (application as SolinApplication).appContainerState(
+            skipLocalModelRuntime = skipStartupModelRuntimeWork,
+        )
+        setContent {
+            SolinTheme {
+                when (val initialization = contentInitialization) {
+                    is SolinAppContainerInitialization.Ready -> ReadySolinContent(
+                        skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+                    )
+                    SolinAppContainerInitialization.Loading,
+                    is SolinAppContainerInitialization.Failed ->
+                        ContainerInitializationContent(initialization)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            when (
+                val resolved = containerState.first { state ->
+                    state !is SolinAppContainerInitialization.Loading
+                }
+            ) {
+                is SolinAppContainerInitialization.Ready -> initializeReadyContent(
+                    savedInstanceState = savedInstanceState,
+                    skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+                )
+                is SolinAppContainerInitialization.Failed -> contentInitialization = resolved
+                SolinAppContainerInitialization.Loading -> Unit
+            }
+        }
+    }
+
+    private fun initializeReadyContent(
+        savedInstanceState: Bundle?,
+        skipStartupModelRuntimeWork: Boolean,
+    ) {
+        if (readyContentInitialized) return
+        readyContentInitialized = true
         val useDarkSystemBars =
             resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
                 Configuration.UI_MODE_NIGHT_YES
@@ -161,41 +224,72 @@ class MainActivity : ComponentActivity() {
                 )
             },
         )
-        val skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork()
         viewModel.restoreStartupState(
             skipModelRuntimeWork = skipStartupModelRuntimeWork,
         )
-        consumedShareIntentKey = savedInstanceState?.getString(KEY_CONSUMED_SHARE_INTENT)
-        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
-        restorePendingSpecialAccessRequirement(savedInstanceState)
-        handleSharedIntent(intent, allowPreviouslyConsumed = false)
+        contentInitialization = SolinAppContainerInitialization.Ready(appContainer)
+        lifecycleScope.launch {
+            runCatching { viewModel.awaitPersistenceInitialization() }
+                .onSuccess {
+                    withContext(Dispatchers.IO) {
+                        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
+                    }
+                    restorePendingSpecialAccessRequirement(savedInstanceState)
+                    handleSharedIntent(intent, allowPreviouslyConsumed = false)
+                }
+        }
+    }
 
-        setContent {
-            SolinTheme {
-                val context = LocalContext.current
-                val state by viewModel.uiState.collectAsStateWithLifecycle()
-                SolinScreen(
+    @Composable
+    private fun ReadySolinContent(skipStartupModelRuntimeWork: Boolean) {
+        val context = LocalContext.current
+        val state by viewModel.uiState.collectAsStateWithLifecycle()
+        SolinScreen(
                     state = state,
-                    onImportModel = viewModel::importModel,
-                    onDownloadModel = viewModel::startModelDownload,
-                    onDownloadRecommendedModel = viewModel::startRecommendedModelDownload,
-                    onDownloadCustomModel = viewModel::startCustomModelDownload,
-                    onSaveHuggingFaceAccessToken = viewModel::saveHuggingFaceAccessToken,
-                    onClearHuggingFaceAccessToken = viewModel::clearHuggingFaceAccessToken,
-                    onCancelDownload = viewModel::cancelModelDownload,
-                    onLoadModel = viewModel::loadModel,
-                    onRecommendedModelSelected = viewModel::selectRecommendedModel,
-                    onInstalledModelSelected = viewModel::selectInstalledModel,
-                    onDeleteInstalledModel = viewModel::deleteInstalledModel,
+                    onImportModel = { uri -> viewModel.launchPersistenceWork { viewModel.importModel(uri) } },
+                    onDownloadModel = { viewModel.launchPersistenceWork(viewModel::startModelDownload) },
+                    onDownloadRecommendedModel = { modelId ->
+                        viewModel.launchPersistenceWork { viewModel.startRecommendedModelDownload(modelId) }
+                    },
+                    onDownloadCustomModel = { url ->
+                        viewModel.launchPersistenceWork { viewModel.startCustomModelDownload(url) }
+                    },
+                    onSaveHuggingFaceAccessToken = { token ->
+                        viewModel.launchPersistenceWork { viewModel.saveHuggingFaceAccessToken(token) }
+                    },
+                    onClearHuggingFaceAccessToken = {
+                        viewModel.launchPersistenceWork(viewModel::clearHuggingFaceAccessToken)
+                    },
+                    onCancelDownload = { viewModel.launchPersistenceWork(viewModel::cancelModelDownload) },
+                    onLoadModel = { viewModel.launchPersistenceWork(viewModel::loadModel) },
+                    onRecommendedModelSelected = { modelId ->
+                        viewModel.launchPersistenceWork { viewModel.selectRecommendedModel(modelId) }
+                    },
+                    onInstalledModelSelected = { modelId ->
+                        viewModel.launchPersistenceWork { viewModel.selectInstalledModel(modelId) }
+                    },
+                    onDeleteInstalledModel = { modelId ->
+                        viewModel.launchPersistenceWork { viewModel.deleteInstalledModel(modelId) }
+                    },
                     onInferenceModeSelected = viewModel::selectInferenceMode,
                     onRemoteModelConfigChanged = viewModel::updateRemoteModelConfig,
-                    onTestRemoteModelConnectivity = viewModel::testRemoteModelConnectivity,
-                    onBackendSelected = viewModel::selectBackend,
-                    onGenerationParametersChanged = viewModel::updateGenerationParameters,
-                    onResetGenerationParameters = viewModel::resetGenerationParameters,
-                    onCreateSession = viewModel::createNewSession,
-                    onSessionSelected = viewModel::selectSession,
-                    onDeleteSession = viewModel::deleteActiveSession,
+                    onTestRemoteModelConnectivity = {
+                        viewModel.launchPersistenceWork(viewModel::testRemoteModelConnectivity)
+                    },
+                    onBackendSelected = { backend ->
+                        viewModel.launchPersistenceWork { viewModel.selectBackend(backend) }
+                    },
+                    onGenerationParametersChanged = { parameters ->
+                        viewModel.launchPersistenceWork { viewModel.updateGenerationParameters(parameters) }
+                    },
+                    onResetGenerationParameters = {
+                        viewModel.launchPersistenceWork(viewModel::resetGenerationParameters)
+                    },
+                    onCreateSession = { viewModel.launchPersistenceWork(viewModel::createNewSession) },
+                    onSessionSelected = { sessionId ->
+                        viewModel.launchPersistenceWork { viewModel.selectSession(sessionId) }
+                    },
+                    onDeleteSession = { viewModel.launchPersistenceWork(viewModel::deleteActiveSession) },
                     onOpenModelPage = { url ->
                         if (!skipStartupModelRuntimeWork) {
                             context.startActivity(
@@ -203,32 +297,74 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
-                    onSetupModelToggled = viewModel::toggleSetupModel,
-                    onDownloadSetupModels = viewModel::startSetupModelDownload,
-                    onSkipFirstRunSetup = viewModel::skipFirstRunSetup,
-                    onMemoryEnabledChanged = viewModel::updateMemoryEnabled,
-                    onReduceDeviceActionConfirmationsChanged = viewModel::updateReduceDeviceActionConfirmations,
-                    onForgetLongTermMemory = viewModel::forgetLongTermMemory,
-                    onClearLongTermMemory = viewModel::clearLongTermMemory,
-                    onRefreshBackgroundTasks = viewModel::refreshBackgroundTasks,
-                    onRefreshAuditEvents = viewModel::refreshAuditEvents,
-                    onCancelBackgroundTask = viewModel::cancelBackgroundTask,
-                    onSetPeriodicCheckPolicy = viewModel::setPeriodicCheckPolicy,
-                    onDisablePeriodicCheckPolicy = viewModel::disablePeriodicCheckPolicy,
+                    onSetupModelToggled = { modelId, selected ->
+                        viewModel.launchPersistenceWork { viewModel.toggleSetupModel(modelId, selected) }
+                    },
+                    onDownloadSetupModels = {
+                        viewModel.launchPersistenceWork(viewModel::startSetupModelDownload)
+                    },
+                    onSkipFirstRunSetup = { viewModel.launchPersistenceWork(viewModel::skipFirstRunSetup) },
+                    onMemoryEnabledChanged = { enabled ->
+                        viewModel.launchPersistenceWork { viewModel.updateMemoryEnabled(enabled) }
+                    },
+                    onReduceDeviceActionConfirmationsChanged = { enabled ->
+                        viewModel.launchPersistenceWork { viewModel.updateReduceDeviceActionConfirmations(enabled) }
+                    },
+                    onForgetLongTermMemory = { memoryId ->
+                        viewModel.launchPersistenceWork { viewModel.forgetLongTermMemory(memoryId) }
+                    },
+                    onClearLongTermMemory = {
+                        viewModel.launchPersistenceWork(viewModel::clearLongTermMemory)
+                    },
+                    onRefreshBackgroundTasks = {
+                        viewModel.launchPersistenceWork(viewModel::refreshBackgroundTasks)
+                    },
+                    onRefreshAuditEvents = { viewModel.launchPersistenceWork(viewModel::refreshAuditEvents) },
+                    onCancelBackgroundTask = { taskId ->
+                        viewModel.launchPersistenceWork { viewModel.cancelBackgroundTask(taskId) }
+                    },
+                    onSetPeriodicCheckPolicy = { request ->
+                        viewModel.launchPersistenceWork { viewModel.setPeriodicCheckPolicy(request) }
+                    },
+                    onDisablePeriodicCheckPolicy = {
+                        viewModel.launchPersistenceWork(viewModel::disablePeriodicCheckPolicy)
+                    },
                     onOpenSpecialAccessSettings = ::openSpecialAccessSettings,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
-                    onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
-                    onRecordExternalOutcome = viewModel::recordExternalOutcome,
-                    onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
-                    onDismissRemoteModeDisclosure = viewModel::dismissRemoteModeDisclosure,
-                    onConfirmRemoteSendDisclosure = viewModel::confirmRemoteSendDisclosure,
-                    onConfirmRemoteSendWithMasking = viewModel::confirmRemoteSendWithMasking,
-                    onConfirmRemoteSendDespiteSensitive = viewModel::confirmRemoteSendDespiteSensitive,
-                    onDismissRemoteSendDisclosure = viewModel::dismissRemoteSendDisclosure,
-                    onRemoteSendDisclosurePolicySelected = viewModel::setRemoteSendDisclosurePolicy,
-                    onSendMessage = viewModel::sendMessage,
-                    onSendPendingSharedInput = viewModel::sendPendingSharedInput,
-                    onClearPendingSharedInput = viewModel::clearPendingSharedInputDraft,
+                    onDismissAgentConfirmation = { confirmation ->
+                        viewModel.launchPersistenceWork { viewModel.dismissAgentConfirmation(confirmation) }
+                    },
+                    onRecordExternalOutcome = { pending, outcome ->
+                        viewModel.launchPersistenceWork { viewModel.recordExternalOutcome(pending, outcome) }
+                    },
+                    onOpenRecoveryAction = { action ->
+                        viewModel.launchPersistenceWork { viewModel.requestRecoveryActionConfirmation(action) }
+                    },
+                    onDismissRemoteModeDisclosure = {
+                        viewModel.launchPersistenceWork(viewModel::dismissRemoteModeDisclosure)
+                    },
+                    onConfirmRemoteSendDisclosure = { suppress ->
+                        viewModel.launchPersistenceWork { viewModel.confirmRemoteSendDisclosure(suppress) }
+                    },
+                    onConfirmRemoteSendWithMasking = {
+                        viewModel.launchPersistenceWork(viewModel::confirmRemoteSendWithMasking)
+                    },
+                    onConfirmRemoteSendDespiteSensitive = {
+                        viewModel.launchPersistenceWork(viewModel::confirmRemoteSendDespiteSensitive)
+                    },
+                    onDismissRemoteSendDisclosure = {
+                        viewModel.launchPersistenceWork(viewModel::dismissRemoteSendDisclosure)
+                    },
+                    onRemoteSendDisclosurePolicySelected = { policy ->
+                        viewModel.launchPersistenceWork { viewModel.setRemoteSendDisclosurePolicy(policy) }
+                    },
+                    onSendMessage = { prompt -> viewModel.launchPersistenceWork { viewModel.sendMessage(prompt) } },
+                    onSendPendingSharedInput = { instruction ->
+                        viewModel.launchPersistenceWork { viewModel.sendPendingSharedInput(instruction) }
+                    },
+                    onClearPendingSharedInput = { draftId ->
+                        viewModel.launchPersistenceWork { viewModel.clearPendingSharedInputDraft(draftId) }
+                    },
                     onStartVoiceInput = ::startVoiceInput,
                     onCancelVoiceInput = ::cancelVoiceInput,
                     onFinishVoiceInput = ::finishVoiceInput,
@@ -236,9 +372,22 @@ class MainActivity : ComponentActivity() {
                         sharedAttachmentLauncher.launch(SHARED_ATTACHMENT_MIME_TYPES)
                     },
                     onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
-                    onStopGeneration = viewModel::stopGeneration,
+                    onStopGeneration = { viewModel.launchPersistenceWork(viewModel::stopGeneration) },
                     resourceSampler = { systemResourceMonitor.sample() },
-                )
+        )
+    }
+
+    @Composable
+    private fun ContainerInitializationContent(state: SolinAppContainerInitialization) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            when (state) {
+                SolinAppContainerInitialization.Loading -> CircularProgressIndicator()
+                is SolinAppContainerInitialization.Failed ->
+                    Text("初始化失败：${state.cause.message ?: state.cause.javaClass.simpleName}")
+                is SolinAppContainerInitialization.Ready -> Unit
             }
         }
     }
@@ -246,12 +395,21 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
-        handleSharedIntent(intent, allowPreviouslyConsumed = true)
+        if (!isAppContainerReady()) return
+        lifecycleScope.launch {
+            runCatching { viewModel.awaitPersistenceInitialization() }
+                .onSuccess {
+                    withContext(Dispatchers.IO) {
+                        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
+                    }
+                    handleSharedIntent(intent, allowPreviouslyConsumed = true)
+                }
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        if (!isAppContainerReady()) return
         syncDeviceContextAuthorizationSnapshot()
     }
 
@@ -259,16 +417,17 @@ class MainActivity : ComponentActivity() {
         pendingSpecialAccessRequirement?.id?.let {
             outState.putString(KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID, it)
         }
-        consumedShareIntentKey?.let {
-            outState.putString(KEY_CONSUMED_SHARE_INTENT, it)
-        }
         super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        val hadActiveVoiceSession = voiceInputSessions.activeSessionId != 0L
         voiceInputSessions.cancelActiveSession()
         speechRecognizer?.destroy()
         speechRecognizer = null
+        if (hadActiveVoiceSession && readyContentInitialized) {
+            viewModel.reportVoiceInputUnavailable("语音输入已因界面重建或关闭而停止")
+        }
         shareIntentScope.cancel()
         super.onDestroy()
     }
@@ -283,15 +442,13 @@ class MainActivity : ComponentActivity() {
     private fun handleSharedIntent(intent: Intent?, allowPreviouslyConsumed: Boolean) {
         val sharedIntent = intent ?: return
         val shareKey = sharedIntent.shareIntentConsumptionKey() ?: return
-        if (!allowPreviouslyConsumed && consumedShareIntentKey == shareKey) return
-        consumedShareIntentKey = shareKey
-        shareIntentScope.launch {
-            val readMode = sharedInputReadMode()
-            val sharedInput = withContext(Dispatchers.IO) {
-                ShareIntentReader(applicationContext).read(sharedIntent, mode = readMode)
-            }
-            sharedInput?.let(viewModel::ingestSharedInput)
-        }
+        viewModel.enqueueSharedIntent(
+            consumptionKey = shareKey,
+            intent = sharedIntent,
+            readMode = sharedInputReadMode(),
+            reader = ShareIntentReader(applicationContext),
+            allowPreviouslyConsumed = allowPreviouslyConsumed,
+        )
     }
 
     private fun configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent: Intent) {
@@ -311,6 +468,11 @@ class MainActivity : ComponentActivity() {
         intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
             isRunningUnderAndroidTest()
 
+    private fun isAppContainerReady(): Boolean =
+        (application as SolinApplication).readyAppContainer(
+            skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork(),
+        ) != null
+
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
         shareIntentScope.launch {
@@ -318,7 +480,9 @@ class MainActivity : ComponentActivity() {
             val sharedInput = withContext(Dispatchers.IO) {
                 ShareIntentReader(applicationContext).readUris(uris, mode = readMode)
             }
-            sharedInput?.let(viewModel::stageSharedInput)
+            sharedInput?.let { input ->
+                viewModel.launchPersistenceWork { viewModel.stageSharedInput(input) }
+            }
         }
     }
 
@@ -361,7 +525,13 @@ class MainActivity : ComponentActivity() {
 
     private fun finishVoiceInput() {
         val sessionId = voiceInputSessions.activeSessionId
-        runCatching { speechRecognizer?.stopListening() }
+        val recognizer = speechRecognizer
+        if (recognizer == null || !voiceInputSessions.isActive(sessionId)) {
+            voiceInputSessions.clearIfActive(sessionId)
+            viewModel.reportVoiceInputUnavailable("语音输入已中断")
+            return
+        }
+        runCatching { recognizer.stopListening() }
             .onSuccess {
                 if (voiceInputSessions.isActive(sessionId)) {
                     viewModel.finishVoiceInputCapture()
@@ -467,14 +637,18 @@ class MainActivity : ComponentActivity() {
             requestCurrentScreenshotOcrConsent(confirmation)
             return
         }
-        viewModel.confirmAgentConfirmation(confirmation)
+        viewModel.launchPersistenceWork {
+            viewModel.confirmAgentConfirmation(confirmation)
+        }
     }
 
     private fun requestCurrentScreenshotOcrConsent(confirmation: PendingAgentConfirmation) {
         val mediaProjectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         if (mediaProjectionManager == null) {
-            viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            viewModel.launchPersistenceWork {
+                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            }
             return
         }
         pendingMediaProjectionConfirmation = confirmation
@@ -482,7 +656,9 @@ class MainActivity : ComponentActivity() {
             currentScreenshotOcrLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
         }.onFailure {
             pendingMediaProjectionConfirmation = null
-            viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            viewModel.launchPersistenceWork {
+                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            }
         }
     }
 
@@ -530,10 +706,12 @@ class MainActivity : ComponentActivity() {
         val deniedPermissions = current.runtimePermissionsFor()
             .filterNot(::hasRuntimePermission)
             .ifEmpty { current.runtimePermissionsFor() }
-        viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
-            confirmation = current,
-            deniedPermissions = deniedPermissions,
-        )
+        viewModel.launchPersistenceWork {
+            viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
+                confirmation = current,
+                deniedPermissions = deniedPermissions,
+            )
+        }
     }
 
     private fun pendingMediaProjectionConfirmationForResult(): PendingAgentConfirmation? {
@@ -551,7 +729,9 @@ class MainActivity : ComponentActivity() {
         val current = viewModel.uiState.value.pendingConfirmation
             ?.takeIf { it.requiresCurrentScreenshotOcrConsent() }
             ?: return
-        viewModel.rejectAgentConfirmationForMediaProjectionDenial(current)
+        viewModel.launchPersistenceWork {
+            viewModel.rejectAgentConfirmationForMediaProjectionDenial(current)
+        }
     }
 
     private fun syncDeviceContextAuthorizationSnapshot() {
@@ -614,8 +794,6 @@ class MainActivity : ComponentActivity() {
             "com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT"
         private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
             "com.bytedance.zgx.solin.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
-        private const val KEY_CONSUMED_SHARE_INTENT =
-            "com.bytedance.zgx.solin.state.CONSUMED_SHARE_INTENT"
         private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(
             "text/*",
             "image/*",

@@ -29,6 +29,7 @@ interface ActiveSessionStore {
 
 interface ModelRepositoryFacade {
     fun currentState(): ModelSelectionState
+    fun verifyActiveModelPath(path: String): Boolean
     fun selectedRecommendedModel(): com.bytedance.zgx.solin.RecommendedModel
     fun selectRecommendedModel(modelId: String): ModelSelectionResult
     fun selectInstalledModel(modelId: String): com.bytedance.zgx.solin.InstalledModelSummary?

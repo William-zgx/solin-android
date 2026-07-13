@@ -45,18 +45,18 @@ fun ResourcePressureBadge(
     var expanded by rememberSaveable { mutableStateOf(false) }
     val palette = pressurePalette(snapshot.pressure)
     Box(
-        modifier = modifier,
+        modifier = modifier
+            .size(48.dp)
+            .testTag("resource_pressure_badge")
+            .semantics {
+                role = Role.Button
+                contentDescription = "设备资源压力：${snapshot.pressurePercent}%，${snapshot.pressure.label}"
+            }
+            .clickable { expanded = !expanded },
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            modifier = Modifier
-                .size(24.dp)
-                .testTag("resource_pressure_badge")
-                .semantics {
-                    role = Role.Button
-                    contentDescription = "设备资源压力：${snapshot.pressurePercent}%，${snapshot.pressure.label}"
-                }
-                .clickable { expanded = !expanded },
+            modifier = Modifier.size(24.dp),
             shape = CircleShape,
             color = palette.container,
             border = BorderStroke(1.dp, palette.accent.copy(alpha = 0.22f)),

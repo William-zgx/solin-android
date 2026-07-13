@@ -21,6 +21,12 @@ class OnDeviceEvidenceBlobStoreTest {
         return OnDeviceEvidenceBlobStore(localRoot, remoteRoot)
     }
 
+    private fun newStore(maxTotalBytes: Long): OnDeviceEvidenceBlobStore {
+        val localRoot = tempFolder.newFolder("evidence-local")
+        val remoteRoot = tempFolder.newFolder("evidence-remote")
+        return OnDeviceEvidenceBlobStore(localRoot, remoteRoot, maxTotalBytes = maxTotalBytes)
+    }
+
     @Test
     fun `putText then readText round trips`() {
         val store = newStore()
@@ -106,6 +112,42 @@ class OnDeviceEvidenceBlobStoreTest {
         assertNotNull("Blob should exist before gc", store.readBytes(ref))
         store.gc()
         assertNull("Blob should be evicted after gc", store.readBytes(ref))
+    }
+
+    @Test
+    fun `putBytes automatically evicts older blobs when reaching the size limit`() {
+        val store = newStore(maxTotalBytes = 12)
+        val first = store.putText(
+            "111111",
+            EvidenceSourceType.Memory,
+            MessagePrivacy.LocalOnly,
+        )
+        Thread.sleep(5)
+        val second = store.putText(
+            "222222",
+            EvidenceSourceType.Memory,
+            MessagePrivacy.LocalOnly,
+        )
+        Thread.sleep(5)
+        val third = store.putText(
+            "333333",
+            EvidenceSourceType.Memory,
+            MessagePrivacy.LocalOnly,
+        )
+
+        assertNull(store.readBytes(first))
+        assertArrayEquals("222222".toByteArray(), store.readBytes(second))
+        assertArrayEquals("333333".toByteArray(), store.readBytes(third))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `putBytes rejects a single blob larger than the storage limit`() {
+        val store = newStore(maxTotalBytes = 5)
+        store.putText(
+            "too large",
+            EvidenceSourceType.Memory,
+            MessagePrivacy.LocalOnly,
+        )
     }
 
     @Test

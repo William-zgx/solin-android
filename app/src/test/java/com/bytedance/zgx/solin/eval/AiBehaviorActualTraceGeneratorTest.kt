@@ -2085,6 +2085,18 @@ class AiBehaviorActualTraceGeneratorTest {
             return 1
         }
 
+        override fun compareAndSetRunStateIfExpected(
+            runId: String,
+            expectedState: String,
+            state: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val run = runs[runId] ?: return 0
+            if (run.state != expectedState) return 0
+            runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
+            return 1
+        }
+
         override fun touchRun(runId: String, updatedAtMillis: Long): Int {
             val run = runs[runId] ?: return 0
             runs[runId] = run.copy(updatedAtMillis = updatedAtMillis)

@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -16,6 +17,7 @@ import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.resource.ThermalPressure
 import com.bytedance.zgx.solin.ui.ResourcePressureBadge
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -41,7 +43,13 @@ class SolinResourceIndicatorUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("resource_pressure_badge").assertIsDisplayed().performClick()
+        val badge = composeRule.onNodeWithTag("resource_pressure_badge").assertIsDisplayed()
+        val bounds = badge.fetchSemanticsNode().boundsInRoot
+        with(composeRule.density) {
+            assertTrue(bounds.width.toDp() >= 48.dp)
+            assertTrue(bounds.height.toDp() >= 48.dp)
+        }
+        badge.performClick()
 
         composeRule.onNodeWithTag("resource_pressure_panel").assertIsDisplayed()
         composeRule.onNodeWithText("App 内存").assertIsDisplayed()

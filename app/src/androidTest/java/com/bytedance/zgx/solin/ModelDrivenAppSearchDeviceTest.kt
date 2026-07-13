@@ -38,10 +38,12 @@ import org.junit.Test
 class ModelDrivenAppSearchDeviceTest {
     private val targetContext: Context = ApplicationProvider.getApplicationContext()
 
+    private fun findActionPlanningModelPath(): String? =
+        ModelRepository(targetContext).verifiedObservationActionModelPath()
+
     @Test
     fun installedActionModelBootstrapsAndReplansAppSearchFromObservation() {
-        val modelRepository = ModelRepository(targetContext)
-        val actionModelPath = modelRepository.verifiedObservationActionModelPath()
+        val actionModelPath = findActionPlanningModelPath()
         assumeTrue(
             "Skipping device test because no installed and verified observation action model is available.",
             actionModelPath != null,

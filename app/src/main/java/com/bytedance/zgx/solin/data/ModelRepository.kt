@@ -16,10 +16,15 @@ import com.bytedance.zgx.solin.RECOMMENDED_MODELS
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.isLocalDebugHost
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.json.JSONObject
+
+internal const val CUSTOM_MODEL_MAX_BYTES = 8L * 1024L * 1024L * 1024L
 
 data class ModelDownloadSource(
     val title: String,
@@ -61,6 +66,13 @@ data class ModelDownloadSource(
 
     fun hasExpectedSize(fileBytes: Long): Boolean =
         expectedBytes?.let { fileBytes == it } ?: (fileBytes > 0L)
+
+    internal fun maximumTransferBytes(): Long =
+        if (modelId != null) {
+            expectedBytes?.takeIf { it > 0L } ?: CUSTOM_MODEL_MAX_BYTES
+        } else {
+            minOf(expectedBytes?.takeIf { it > 0L } ?: CUSTOM_MODEL_MAX_BYTES, CUSTOM_MODEL_MAX_BYTES)
+        }
 
     fun verifiedSha256(file: File): Result<String?> =
         runCatching {
@@ -116,15 +128,46 @@ internal data class ImportedModelFile(
     val verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
 )
 
+internal class ModelTransferSizeLimitExceededException(
+    val maximumBytes: Long,
+) : IOException("模型文件超过 ${ModelCatalog.formatBytes(maximumBytes)} 上限")
+
+internal fun copyStreamWithByteLimit(
+    input: InputStream,
+    output: OutputStream,
+    maximumBytes: Long,
+    onBytesCopied: (Long) -> Unit = {},
+): Long {
+    require(maximumBytes > 0L) { "模型文件上限必须大于 0" }
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var copiedBytes = 0L
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        if (read == 0) continue
+        if (read.toLong() > maximumBytes - copiedBytes) {
+            throw ModelTransferSizeLimitExceededException(maximumBytes)
+        }
+        output.write(buffer, 0, read)
+        copiedBytes += read
+        onBytesCopied(copiedBytes)
+    }
+    return copiedBytes
+}
+
 internal fun importModelFileToModelDir(
     modelDir: File,
     displayName: String,
     sourceSizeBytes: Long,
     usableSpaceBytes: Long = modelDir.usableSpace,
+    maximumBytes: Long = CUSTOM_MODEL_MAX_BYTES,
     copyToTemp: (File) -> Unit,
 ): ImportedModelFile {
     require(ModelCatalog.isAcceptedModelName(displayName)) {
         "请选择 $MODEL_FILE_EXTENSION 模型文件"
+    }
+    if (sourceSizeBytes > maximumBytes) {
+        throw ModelTransferSizeLimitExceededException(maximumBytes)
     }
     if (sourceSizeBytes > 0L && !ModelCatalog.hasEnoughSpace(usableSpaceBytes, sourceSizeBytes)) {
         error("存储空间不足，导入需要 ${ModelCatalog.formatBytes(sourceSizeBytes)}")
@@ -139,6 +182,9 @@ internal fun importModelFileToModelDir(
     try {
         copyToTemp(tempTarget)
         check(tempTarget.length() > 0L) { "模型文件为空" }
+        if (tempTarget.length() > maximumBytes) {
+            throw ModelTransferSizeLimitExceededException(maximumBytes)
+        }
         val moved = runCatching {
             Files.move(
                 tempTarget.toPath(),
@@ -206,6 +252,17 @@ class ModelRepository(
             activeModelPath = activeModel?.path,
             installedModels = installedModelSummaries(),
         )
+    }
+
+    override fun verifyActiveModelPath(path: String): Boolean {
+        val active = activeInstalledModel() ?: return false
+        if (active.path != path) return false
+        val model = active.recommendedModelId?.let(::catalogRecommendedModel) ?: return File(path).isFile
+        val verified = currentFileMatchesRecommendedModel(File(path), model)
+        if (!verified) {
+            markRecommendedVerificationFailed(active)
+        }
+        return verified
     }
 
     override fun selectedRecommendedModel(): RecommendedModel =
@@ -306,8 +363,9 @@ class ModelRepository(
             modelDir = modelDir,
             displayName = displayName,
             sourceSizeBytes = sourceSize,
+            maximumBytes = CUSTOM_MODEL_MAX_BYTES,
         ) { tempTarget ->
-            copyUriToFile(uri, tempTarget, onProgress)
+            copyUriToFile(uri, tempTarget, CUSTOM_MODEL_MAX_BYTES, onProgress)
         }
         registerInstalledModel(
             path = imported.path,
@@ -396,7 +454,9 @@ class ModelRepository(
             val modelId = entity.recommendedModelId ?: return@forEach
             val model = catalogRecommendedModel(modelId) ?: return@forEach
             val wasVerifiedRecommended = entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
-            if (entity.hasVerifiedRecommendedEvidence(model) && hasCurrentVerifiedRecommendedFile(entity, model)) {
+            if (entity.hasVerifiedRecommendedEvidence(model) &&
+                hasCompleteRecommendedBundleShape(File(entity.path), model)
+            ) {
                 return@forEach
             }
             val file = File(entity.path)
@@ -445,29 +505,25 @@ class ModelRepository(
 
     private fun discoverRecommendedDownloadedModels() {
         val downloadDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return
-        val registeredPaths = modelDao.models()
-            .map { File(it.path).absolutePath }
-            .toSet()
+        val modelsByPath = modelDao.models()
+            .associateBy { File(it.path).absolutePath }
         RECOMMENDED_MODELS.forEach { model ->
             val file = File(downloadDir, model.fileName)
-            if (
-                file.exists() &&
-                modelDao.model(model.id) == null &&
-                file.absolutePath !in registeredPaths
-            ) {
-                modelDao.upsert(
-                    InstalledModelEntity(
-                        id = model.id,
-                        displayName = model.shortName,
-                        path = file.absolutePath,
-                        fileBytes = file.length().coerceAtLeast(0L),
-                        recommendedModelId = model.id,
-                        sourceRevision = model.sourceRevision,
-                        verifiedSha256 = null,
-                        verificationStatus = ModelVerificationStatus.LegacyUnverified.name,
-                    ),
-                )
+            if (!file.exists()) return@forEach
+            val existing = modelDao.model(model.id)
+            if (existing == null) {
+                val pathCollision = modelsByPath[file.absolutePath]
+                if (
+                    pathCollision != null &&
+                    !ModelCatalog.isCompleteRecommendedModel(file.length(), model)
+                ) {
+                    return@forEach
+                }
+                if (pathCollision != null && pathCollision.id != model.id) {
+                    modelDao.delete(pathCollision.id)
+                }
             }
+            reconcileDownloadedRecommendedModel(existing, file, model)?.let(modelDao::upsert)
         }
     }
 
@@ -497,20 +553,18 @@ class ModelRepository(
     private fun copyUriToFile(
         uri: Uri,
         target: File,
+        maximumBytes: Long,
         onProgress: (TransferProgress) -> Unit,
     ) {
         val total = resolveFileSize(uri)
+        if (total > maximumBytes) {
+            throw ModelTransferSizeLimitExceededException(maximumBytes)
+        }
         onProgress(TransferProgress(if (total > 0L) 0 else null, 0L, total))
         appContext.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var copied = 0L
                 var lastReported = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    copied += read
+                copyStreamWithByteLimit(input, output, maximumBytes) { copied ->
                     if (copied - lastReported >= 1_048_576L || copied == total) {
                         lastReported = copied
                         onProgress(
@@ -589,11 +643,16 @@ class ModelRepository(
         )
 
     private fun isCurrentActiveChatModel(entity: InstalledModelEntity): Boolean {
-        if (!File(entity.path).exists()) return false
-        val canActivate = installedModelCanBecomeCurrentActiveChatModel(
-            model = entity,
-            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
-        )
+        val file = File(entity.path)
+        if (!file.isFile) return false
+        val model = entity.recommendedModelId?.let(::catalogRecommendedModel)
+        val canActivate = when {
+            entity.recommendedModelId == null -> true
+            model == null -> false
+            else -> ModelCatalog.profileFor(model).supportsChatGeneration &&
+                entity.hasVerifiedRecommendedEvidence(model) &&
+                hasCompleteRecommendedBundleShape(file, model)
+        }
         if (!canActivate && entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name) {
             markRecommendedVerificationFailed(entity)
         }
@@ -638,8 +697,41 @@ class ModelRepository(
         model: RecommendedModel,
     ): Boolean {
         val file = File(entity.path)
-        return currentFileMatchesRecommendedModel(file, model)
+        return entity.hasVerifiedRecommendedEvidence(model) &&
+            currentFileMatchesRecommendedModel(file, model)
     }
+}
+
+internal fun reconcileDownloadedRecommendedModel(
+    existing: InstalledModelEntity?,
+    downloadedFile: File,
+    model: RecommendedModel,
+): InstalledModelEntity? {
+    if (!downloadedFile.isFile || !ModelCatalog.isCompleteRecommendedModel(downloadedFile.length(), model)) {
+        return null
+    }
+    if (existing != null) {
+        val existingFile = File(existing.path)
+        val existingIsComplete = existingFile.isFile &&
+            ModelCatalog.isCompleteRecommendedModel(existingFile.length(), model)
+        if (existingIsComplete) return null
+    }
+    return (existing ?: InstalledModelEntity(
+        id = model.id,
+        displayName = model.shortName,
+        path = downloadedFile.absolutePath,
+        fileBytes = downloadedFile.length(),
+        recommendedModelId = model.id,
+        sourceRevision = model.sourceRevision,
+        verifiedSha256 = null,
+        verificationStatus = ModelVerificationStatus.LegacyUnverified.name,
+    )).copy(
+        path = downloadedFile.absolutePath,
+        fileBytes = downloadedFile.length(),
+        sourceRevision = model.sourceRevision,
+        verifiedSha256 = null,
+        verificationStatus = ModelVerificationStatus.LegacyUnverified.name,
+    )
 }
 
 internal fun ModelDownloadSource.toPersistedJson(): JSONObject =
@@ -794,6 +886,17 @@ private fun InstalledModelEntity.hasVerifiedRecommendedEvidence(model: Recommend
 
 private fun catalogRecommendedModel(modelId: String): RecommendedModel? =
     RECOMMENDED_MODELS.firstOrNull { it.id == modelId }
+
+internal fun hasCompleteRecommendedBundleShape(
+    file: File,
+    model: RecommendedModel,
+): Boolean =
+    file.isFile &&
+        file.length() == model.byteSize &&
+        model.companionFiles.all { companion ->
+            val companionFile = ModelCatalog.recommendedModelCompanionFile(file, companion)
+            companionFile.isFile && companionFile.length() == companion.byteSize
+        }
 
 private fun currentFileMatchesVerifiedRecommendedModel(
     entity: InstalledModelEntity,

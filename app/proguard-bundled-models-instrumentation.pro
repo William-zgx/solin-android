@@ -1,0 +1,3 @@
+-keep class kotlin.** { *; }
+-keep class kotlinx.coroutines.** { *; }
+-keep class com.bytedance.zgx.solin.** { *; }

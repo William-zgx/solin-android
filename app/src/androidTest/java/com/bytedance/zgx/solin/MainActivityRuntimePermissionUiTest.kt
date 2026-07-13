@@ -41,7 +41,7 @@ class MainActivityRuntimePermissionUiTest {
 
             composeRule.sendPrompt("查联系人 Alice")
 
-            composeRule.waitForTag("runtime_permission_requirements")
+            composeRule.waitForTag("runtime_permission_requirements", timeoutMillis = 10_000)
             composeRule.onNodeWithText("查询联系人").assertIsDisplayed()
             composeRule.onNodeWithText("将按“Alice”查询联系人。").assertIsDisplayed()
             composeRule.onNodeWithTag("runtime_permission_requirements")
@@ -66,7 +66,7 @@ class MainActivityRuntimePermissionUiTest {
 
             composeRule.sendPrompt("查联系人 Alice")
 
-            composeRule.waitForTag("runtime_permission_requirements")
+            composeRule.waitForTag("runtime_permission_requirements", timeoutMillis = 10_000)
             composeRule.onNodeWithText("联系人权限：用于只读查询联系人摘要。")
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("action_confirm_button").performClick()

@@ -94,6 +94,41 @@ class MainActivitySharedIntentTest {
     }
 
     @Test
+    fun actionSendTextReadingAcrossActivityRecreateIsIngestedOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        CountingSharedContentProvider.resetCounters(context)
+        CountingSharedContentProvider.blockNextOpen(context)
+        resetMainActivityPersistentState(context, inferenceMode = InferenceMode.Local)
+
+        val launchIntent = Intent(Intent.ACTION_SEND).apply {
+            setClass(context, MainActivity::class.java)
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, CountingSharedContentProvider.textUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            try {
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    CountingSharedContentProvider.blockedOpenHasStarted(context)
+                }
+                scenario.recreate()
+            } finally {
+                CountingSharedContentProvider.releaseBlockedOpen(context)
+            }
+
+            composeRule.waitForTag("app_title")
+            composeRule.waitForTag("pending_shared_input_strip")
+
+            composeRule.onNodeWithTag("pending_shared_input_strip")
+                .assertIsDisplayed()
+            assertEquals(1, CountingSharedContentProvider.textOpenCount(context))
+            assertEquals(0, CountingSharedContentProvider.imageOpenCount(context))
+        }
+    }
+
+    @Test
     fun actionSendTextUsesProtectedSignalWhenActivityStartsInRemoteMode() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         resetMainActivityPersistentState(

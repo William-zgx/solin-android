@@ -4,8 +4,51 @@ import com.bytedance.zgx.solin.data.ScheduledTaskDao
 import com.bytedance.zgx.solin.data.ScheduledTaskEntity
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 class ReminderAlarmReceiverTest {
+    @Test
+    fun asyncDeliveryFinishesExactlyOnceAfterSuccessfulDelivery() {
+        val events = mutableListOf<String>()
+
+        ReminderAlarmReceiver().dispatchDelivery(
+            finish = { events += "finish" },
+            launch = { delivery -> runBlocking { delivery() } },
+            delivery = { events += "delivery" },
+        )
+
+        assertEquals(listOf("delivery", "finish"), events)
+    }
+
+    @Test
+    fun asyncDeliveryFinishesExactlyOnceWhenDeliveryFails() {
+        val events = mutableListOf<String>()
+
+        ReminderAlarmReceiver().dispatchDelivery(
+            finish = { events += "finish" },
+            launch = { delivery -> runBlocking { delivery() } },
+            delivery = {
+                events += "delivery"
+                throw IllegalStateException("database unavailable")
+            },
+        )
+
+        assertEquals(listOf("delivery", "finish"), events)
+    }
+
+    @Test
+    fun asyncDeliveryFinishesWhenIoDispatchCannotStart() {
+        var finishCount = 0
+
+        ReminderAlarmReceiver().dispatchDelivery(
+            finish = { finishCount += 1 },
+            launch = { throw IllegalStateException("dispatcher unavailable") },
+            delivery = { error("Delivery must not run when dispatch fails") },
+        )
+
+        assertEquals(1, finishCount)
+    }
+
     @Test
     fun deliveryMarksReminderRunningBeforeDelivered() {
         val dao = FakeScheduledTaskDao()

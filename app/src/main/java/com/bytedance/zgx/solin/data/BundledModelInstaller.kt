@@ -114,7 +114,7 @@ class AssetBundledModelInstaller(
         return modelRepository.currentState().installedModels.any { installed ->
             installed.recommendedModelId == modelId &&
                 installed.isUsable &&
-                ModelCatalog.hasCompleteRecommendedBundle(File(installed.path), model)
+                hasCompleteRecommendedBundleShape(File(installed.path), model)
         }
     }
 

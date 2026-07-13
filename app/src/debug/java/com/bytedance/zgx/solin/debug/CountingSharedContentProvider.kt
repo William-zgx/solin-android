@@ -12,6 +12,8 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class CountingSharedContentProvider : ContentProvider() {
@@ -38,9 +40,20 @@ class CountingSharedContentProvider : ContentProvider() {
                 Bundle.EMPTY
             }
 
+            METHOD_BLOCK_NEXT_OPEN -> {
+                blockNextOpenInProvider()
+                Bundle.EMPTY
+            }
+
+            METHOD_RELEASE_BLOCKED_OPEN -> {
+                releaseBlockedOpenInProvider()
+                Bundle.EMPTY
+            }
+
             METHOD_COUNTS -> Bundle().apply {
                 putInt(KEY_IMAGE_OPEN_COUNT, imageOpenCount.get())
                 putInt(KEY_TEXT_OPEN_COUNT, textOpenCount.get())
+                putBoolean(KEY_BLOCKED_OPEN_STARTED, blockedOpenStarted.getCount() == 0L)
             }
 
             else -> super.call(method, arg, extras)
@@ -102,6 +115,7 @@ class CountingSharedContentProvider : ContentProvider() {
         } else {
             textOpenCount.incrementAndGet()
         }
+        awaitBlockedOpenIfNeeded()
     }
 
     private fun payloadFor(uri: Uri): ByteArray =
@@ -134,9 +148,12 @@ class CountingSharedContentProvider : ContentProvider() {
     companion object {
         private const val AUTHORITY = "com.bytedance.zgx.solin.debug.sharedcontent"
         private const val METHOD_RESET_COUNTERS = "resetCounters"
+        private const val METHOD_BLOCK_NEXT_OPEN = "blockNextOpen"
+        private const val METHOD_RELEASE_BLOCKED_OPEN = "releaseBlockedOpen"
         private const val METHOD_COUNTS = "counts"
         private const val KEY_IMAGE_OPEN_COUNT = "imageOpenCount"
         private const val KEY_TEXT_OPEN_COUNT = "textOpenCount"
+        private const val KEY_BLOCKED_OPEN_STARTED = "blockedOpenStarted"
         private const val IMAGE_PATH = "image.png"
         private const val TEXT_PATH = "private-notes.txt"
         private val TEXT_BYTES = "PRIVATE_NOTES_SHOULD_NOT_BE_READ".toByteArray(Charsets.UTF_8)
@@ -144,6 +161,10 @@ class CountingSharedContentProvider : ContentProvider() {
         private var cachedTinyPng: ByteArray? = null
         private val imageOpenCount = AtomicInteger()
         private val textOpenCount = AtomicInteger()
+        private val blockLock = Any()
+        private var blockNextOpen = false
+        private var blockedOpenStarted = CountDownLatch(0)
+        private var blockedOpenRelease = CountDownLatch(0)
 
         val imageUri: Uri = Uri.parse("content://$AUTHORITY/$IMAGE_PATH")
         val textUri: Uri = Uri.parse("content://$AUTHORITY/$TEXT_PATH")
@@ -159,6 +180,17 @@ class CountingSharedContentProvider : ContentProvider() {
         fun textOpenCount(context: Context): Int =
             counts(context).getInt(KEY_TEXT_OPEN_COUNT)
 
+        fun blockNextOpen(context: Context) {
+            context.contentResolver.call(controlUri, METHOD_BLOCK_NEXT_OPEN, null, null)
+        }
+
+        fun releaseBlockedOpen(context: Context) {
+            context.contentResolver.call(controlUri, METHOD_RELEASE_BLOCKED_OPEN, null, null)
+        }
+
+        fun blockedOpenHasStarted(context: Context): Boolean =
+            counts(context).getBoolean(KEY_BLOCKED_OPEN_STARTED)
+
         private fun counts(context: Context): Bundle =
             requireNotNull(context.contentResolver.call(controlUri, METHOD_COUNTS, null, null)) {
                 "CountingSharedContentProvider did not return counts"
@@ -167,6 +199,37 @@ class CountingSharedContentProvider : ContentProvider() {
         private fun resetCountersInProvider() {
             imageOpenCount.set(0)
             textOpenCount.set(0)
+            synchronized(blockLock) {
+                blockNextOpen = false
+                blockedOpenStarted = CountDownLatch(0)
+                blockedOpenRelease = CountDownLatch(0)
+            }
+        }
+
+        private fun blockNextOpenInProvider() {
+            synchronized(blockLock) {
+                blockNextOpen = true
+                blockedOpenStarted = CountDownLatch(1)
+                blockedOpenRelease = CountDownLatch(1)
+            }
+        }
+
+        private fun releaseBlockedOpenInProvider() {
+            synchronized(blockLock) {
+                blockedOpenRelease.countDown()
+            }
+        }
+
+        private fun awaitBlockedOpenIfNeeded() {
+            val releaseLatch = synchronized(blockLock) {
+                if (!blockNextOpen) return
+                blockNextOpen = false
+                blockedOpenStarted.countDown()
+                blockedOpenRelease
+            }
+            check(releaseLatch.await(10, TimeUnit.SECONDS)) {
+                "Timed out waiting for the test to release the blocked content open."
+            }
         }
     }
 }

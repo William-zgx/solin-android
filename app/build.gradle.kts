@@ -255,6 +255,7 @@ android {
         create("bundledModels") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
+            proguardFiles("proguard-bundled-models-instrumentation.pro")
             buildConfigField("Boolean", "BUNDLED_MODELS_ENABLED", "true")
         }
     }
@@ -444,6 +445,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.litertlm.android)
     implementation(libs.localagents.rag)
+    implementation(libs.protobuf.javalite)
+    implementation(libs.sqlcipher.android)
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.chinese)
     implementation(libs.okhttp)

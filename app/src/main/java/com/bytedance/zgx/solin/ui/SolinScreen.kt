@@ -225,7 +225,7 @@ fun SolinScreen(
         uri?.let(onImportModel)
     }
     val listState = rememberLazyListState()
-    var input by rememberSaveable { mutableStateOf("") }
+    var input by rememberSaveable(state.activeSessionId) { mutableStateOf("") }
     var customModelUrl by rememberSaveable { mutableStateOf("") }
     var huggingFaceAccessTokenInput by remember { mutableStateOf("") }
     var showModelManager by rememberSaveable { mutableStateOf(false) }
@@ -1116,8 +1116,11 @@ private fun ChatEmptyState(
     onCancelDownload: () -> Unit,
     onSendPrompt: (String) -> Unit,
 ) {
+    val localModelIsLoading =
+        state.inferenceMode == InferenceMode.Local && state.modelPath != null && !state.isReady
     val readyTitle = when {
         state.isReady -> "想让 Solin 做什么？"
+        localModelIsLoading -> "正在校验并加载本地模型"
         else -> PRODUCT_HOME_TITLE_TEXT
     }
     val readyDescription = when {
@@ -1125,6 +1128,8 @@ private fun ChatEmptyState(
             "直接输入问题、整理线索，或先看看哪些内容会发送到远程。"
         state.isReady ->
             "直接输入问题、整理想法，或先看看哪些内容会留在本机。"
+        localModelIsLoading ->
+            "模型文件已找到，正在进行完整性校验和端侧初始化；完成后可离线问答。"
         else ->
             "先配置远程模型或下载本地模型；就绪前不会读取本地数据，也不会自动发送远程请求。"
     }
@@ -1391,6 +1396,18 @@ private fun QuickModelSetup(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
 ) {
+    val localModelIsLoading =
+        state.inferenceMode == InferenceMode.Local && state.modelPath != null && !state.isReady
+    val startupBannerTitle = if (localModelIsLoading) {
+        "正在校验并加载本地模型"
+    } else {
+        MODEL_STARTUP_BANNER_TITLE
+    }
+    val startupBannerDescription = if (localModelIsLoading) {
+        "模型文件已找到，正在进行完整性校验和端侧初始化；完成后可离线问答。"
+    } else {
+        MODEL_STARTUP_BANNER_DESCRIPTION
+    }
     val stackModelActionsForTextScale = LocalDensity.current.fontScale >= 1.25f
     @Composable
     fun DownloadModelButton(modifier: Modifier = Modifier) {
@@ -1454,7 +1471,7 @@ private fun QuickModelSetup(
                 RuntimeStatusBadge(state)
                 Text(
                     modifier = Modifier.weight(1f),
-                    text = MODEL_STARTUP_BANNER_TITLE,
+                    text = startupBannerTitle,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -1462,7 +1479,7 @@ private fun QuickModelSetup(
                 )
             }
             Text(
-                text = MODEL_STARTUP_BANNER_DESCRIPTION,
+                text = startupBannerDescription,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -5625,6 +5642,7 @@ private fun MessageBubble(
                         text = message.text.ifBlank { if (isStreaming) "正在思考..." else "..." },
                         isUser = isUser,
                         color = textColor,
+                        renderMarkdown = !isStreaming,
                     )
                 }
                 if (!isUser && !isStreaming && message.generationStats?.isUsable() == true) {
@@ -5653,8 +5671,9 @@ private fun MessageContent(
     text: String,
     isUser: Boolean,
     color: Color,
+    renderMarkdown: Boolean = true,
 ) {
-    if (isUser) {
+    if (isUser || !renderMarkdown) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodyLarge,

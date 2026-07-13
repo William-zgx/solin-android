@@ -40,31 +40,44 @@ class SharedPreferencesLocalDocumentStore(
         return existed
     }
 
+    internal fun validateForSecureMigration() {
+        prefs.all.values
+            .filterIsInstance<String>()
+            .forEach(::documentFromJsonStrict)
+    }
+
+    internal fun clearForSecureMigration(): Boolean =
+        prefs.edit().clear().commit() && prefs.all.isEmpty()
+
     private fun documentFromJson(value: String): LocalDocument? =
         runCatching {
-            val json = JSONObject(value)
-            LocalDocument(
-                domain = json.optString("domain", "default"),
-                id = json.getString("id"),
-                ownerId = json.optString("ownerId", ""),
-                title = json.optString("title", ""),
-                text = json.optString("text", ""),
-                sensitivity = json.optString("sensitivity", ""),
-                type = json.optString("type", ""),
-                sourceHash = json.optString("sourceHash", ""),
-                payloadJson = json.optString("payloadJson", "{}"),
-                searchText = json.optString("searchText", json.optString("text", "")),
-                createdAtMillis = json.optLong("createdAtMillis", 0L),
-                metadataJson = json.optString("metadataJson", "{}"),
-                privacy = runCatching {
-                    MessagePrivacy.valueOf(json.optString("privacy", MessagePrivacy.LocalOnly.name))
-                }.getOrDefault(MessagePrivacy.LocalOnly),
-                updatedAtMillis = json.optLong("updatedAtMillis", 0L),
-                expiresAtMillis = json.optNullableLong("expiresAtMillis"),
-                deletedAtMillis = json.optNullableLong("deletedAtMillis"),
-                schemaVersion = json.optInt("schemaVersion", LocalStorageSchemaVersions.CURRENT),
-            )
+            documentFromJsonStrict(value)
         }.getOrNull()
+
+    private fun documentFromJsonStrict(value: String): LocalDocument {
+        val json = JSONObject(value)
+        return LocalDocument(
+            domain = json.optString("domain", "default"),
+            id = json.getString("id"),
+            ownerId = json.optString("ownerId", ""),
+            title = json.optString("title", ""),
+            text = json.optString("text", ""),
+            sensitivity = json.optString("sensitivity", ""),
+            type = json.optString("type", ""),
+            sourceHash = json.optString("sourceHash", ""),
+            payloadJson = json.optString("payloadJson", "{}"),
+            searchText = json.optString("searchText", json.optString("text", "")),
+            createdAtMillis = json.optLong("createdAtMillis", 0L),
+            metadataJson = json.optString("metadataJson", "{}"),
+            privacy = MessagePrivacy.valueOf(
+                json.optString("privacy", MessagePrivacy.LocalOnly.name),
+            ),
+            updatedAtMillis = json.optLong("updatedAtMillis", 0L),
+            expiresAtMillis = json.optNullableLong("expiresAtMillis"),
+            deletedAtMillis = json.optNullableLong("deletedAtMillis"),
+            schemaVersion = json.optInt("schemaVersion", LocalStorageSchemaVersions.CURRENT),
+        )
+    }
 
     private fun LocalDocument.toJson(): JSONObject =
         JSONObject()
@@ -89,7 +102,7 @@ class SharedPreferencesLocalDocumentStore(
 
 class ZvecNativeLocalVectorIndex(
     rootDir: File,
-) : LocalVectorIndex {
+) : LocalVectorIndex, AutoCloseable {
     private val rootPath = rootDir.absolutePath
     private val nativeStore: ZvecNativeStore = openNativeStore(rootPath)
 
@@ -123,6 +136,10 @@ class ZvecNativeLocalVectorIndex(
                     lexicalScore = 0f,
                 )
             }
+
+    override fun close() {
+        nativeStore.close()
+    }
 
     private fun openNativeStore(path: String): ZvecNativeStore {
         val opened = runCatching { ZvecNativeStore.open(path) }.getOrNull()

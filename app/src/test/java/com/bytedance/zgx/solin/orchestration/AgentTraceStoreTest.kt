@@ -27,6 +27,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class AgentTraceStoreTest {
     @Test
@@ -44,6 +47,66 @@ class AgentTraceStoreTest {
         assertEquals("AssistantResponded", summary.type)
         assertTrue(summary.summary.contains("first answer"))
         assertTrue(summary.json.contains("textPreview"))
+    }
+
+    @Test
+    fun inMemoryStoreKeepsAllStepsAndSummariesUnderConcurrentAppends() {
+        val store = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val run = store.createRun("parallel trace")
+        val appendCount = 200
+        val start = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(8)
+        try {
+            repeat(appendCount) { index ->
+                executor.submit {
+                    start.await()
+                    store.appendStep(run.id, AgentStep.AssistantResponded("answer-$index"))
+                }
+            }
+            start.countDown()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
+        } finally {
+            executor.shutdownNow()
+        }
+
+        assertEquals(appendCount, store.steps(run.id).size)
+        val summaries = store.stepSummaries(run.id)
+        assertEquals(appendCount, summaries.size)
+        assertEquals((0 until appendCount).toList(), summaries.map { it.position })
+    }
+
+    @Test
+    fun roomStoreCompareAndSetStatePreservesLivePayloadAndRequiresExpectedPersistedState() {
+        var now = 2_000L
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { now++ },
+            runIdFactory = { "run-cas" },
+        )
+        val rawInput = "compare state with private continuation"
+        val run = store.createRun(rawInput, sessionId = "session-cas")
+
+        val transitioned = store.compareAndSetState(
+            runId = run.id,
+            expectedState = AgentRunState.Created,
+            state = AgentRunState.Planning,
+        )
+        val rejected = store.compareAndSetState(
+            runId = run.id,
+            expectedState = AgentRunState.Created,
+            state = AgentRunState.Failed,
+        )
+
+        assertEquals(AgentRunState.Planning, transitioned?.state)
+        assertEquals(rawInput, transitioned?.input)
+        assertEquals("session-cas", transitioned?.sessionId)
+        assertNull(rejected)
+        assertEquals(AgentRunState.Planning, store.run(run.id)?.state)
+        assertEquals(rawInput, store.run(run.id)?.input)
+        assertEquals("session-cas", store.run(run.id)?.sessionId)
+        assertFalse(RoomAgentTraceStore(traceDao = dao).run(run.id)?.input.orEmpty().contains(rawInput))
     }
 
     @Test
@@ -2048,6 +2111,28 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreFailsAwaitingUserAnswerAfterProcessRestart() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-awaiting-user-answer" },
+        )
+        val waitingRun = store.updateState(
+            store.createRun("ask me").id,
+            AgentRunState.AwaitingUserAnswer,
+        )
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.Failed && step.reason == "process restarted"
+        })
+    }
+
+    @Test
     fun roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -2651,6 +2736,18 @@ class AgentTraceStoreTest {
 
         override fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int {
             val run = runs[runId] ?: return 0
+            runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
+            return 1
+        }
+
+        override fun compareAndSetRunStateIfExpected(
+            runId: String,
+            expectedState: String,
+            state: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val run = runs[runId] ?: return 0
+            if (run.state != expectedState) return 0
             runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
             return 1
         }

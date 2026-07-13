@@ -5,10 +5,14 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import com.bytedance.zgx.solin.ModelCatalog
+import com.bytedance.zgx.solin.data.CUSTOM_MODEL_MAX_BYTES
 import com.bytedance.zgx.solin.data.ModelDownloadSource
+import com.bytedance.zgx.solin.data.ModelTransferSizeLimitExceededException
+import com.bytedance.zgx.solin.data.copyStreamWithByteLimit
 import com.bytedance.zgx.solin.isLocalDebugHost
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -32,6 +36,8 @@ class ModelDownloadService(
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
     private val directDownloadIds = AtomicLong(-1L)
     private val directDownloads = ConcurrentHashMap<Long, DownloadInfo>()
+    private val downloadMaximumBytes = ConcurrentHashMap<Long, Long>()
+    private val downloadTargets = ConcurrentHashMap<Long, File>()
     @Volatile
     private var preflightCancelled = false
 
@@ -45,7 +51,11 @@ class ModelDownloadService(
             ).getOrThrow()
             if (preflightCancelled) throw CancellationException("下载已取消")
             if (isLocalDebugModelDownloadUrl(preparedDownloadUrl.url)) {
-                return@runCatching downloadLocalDebugUrl(preparedDownloadUrl, targetFile)
+                return@runCatching downloadLocalDebugUrl(
+                    preparedDownloadUrl = preparedDownloadUrl,
+                    targetFile = targetFile,
+                    maximumBytes = source.maximumTransferBytes(),
+                )
             }
             val request = DownloadManager.Request(Uri.parse(preparedDownloadUrl.url))
                 .setTitle(source.title)
@@ -64,7 +74,10 @@ class ModelDownloadService(
             preparedDownloadUrl.authorizationHeader?.let { authorizationHeader ->
                 request.addRequestHeader("Authorization", authorizationHeader)
             }
-            downloadManager.enqueue(request)
+            downloadManager.enqueue(request).also { downloadId ->
+                downloadMaximumBytes[downloadId] = source.maximumTransferBytes()
+                downloadTargets[downloadId] = targetFile
+            }
         }.also {
             preflightCancelled = false
         }
@@ -79,6 +92,8 @@ class ModelDownloadService(
             directDownloads.remove(downloadId)
         } else if (downloadId > 0L) {
             downloadManager.remove(downloadId)
+            downloadTargets.remove(downloadId)?.delete()
+            downloadMaximumBytes.remove(downloadId)
         }
     }
 
@@ -93,17 +108,33 @@ class ModelDownloadService(
                 cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
             )
             val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-            return DownloadInfo(
+            val info = DownloadInfo(
                 status = status,
                 reason = reason,
                 downloadedBytes = downloaded,
                 totalBytes = total,
             )
+            val maximumBytes = downloadMaximumBytes[downloadId] ?: CUSTOM_MODEL_MAX_BYTES
+            val boundedInfo = enforceDownloadByteLimit(info, maximumBytes) {
+                downloadManager.remove(downloadId)
+                downloadTargets.remove(downloadId)?.delete()
+                downloadMaximumBytes.remove(downloadId)
+            }
+            if (boundedInfo !== info) return boundedInfo
+            if (status == DownloadManager.STATUS_SUCCESSFUL || status == DownloadManager.STATUS_FAILED) {
+                downloadTargets.remove(downloadId)
+                downloadMaximumBytes.remove(downloadId)
+            }
+            return info
         }
         return null
     }
 
-    private fun downloadLocalDebugUrl(preparedDownloadUrl: PreparedDownloadUrl, targetFile: File): Long {
+    private fun downloadLocalDebugUrl(
+        preparedDownloadUrl: PreparedDownloadUrl,
+        targetFile: File,
+        maximumBytes: Long,
+    ): Long {
         val downloadId = directDownloadIds.getAndDecrement()
         var downloadedBytes = 0L
         var totalBytes = -1L
@@ -127,23 +158,22 @@ class ModelDownloadService(
                 if (code !in 200..299) throw IOException("HTTP $code")
             }
             totalBytes = connection.contentLengthLong.takeIf { it > 0L } ?: -1L
+            if (totalBytes > maximumBytes) {
+                throw ModelTransferSizeLimitExceededException(maximumBytes)
+            }
             targetFile.parentFile?.mkdirs()
-            connection.getInputStream().use { input ->
-                targetFile.outputStream().use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read == -1) break
-                        output.write(buffer, 0, read)
-                        downloadedBytes += read
-                        directDownloads[downloadId] = DownloadInfo(
-                            status = DownloadManager.STATUS_RUNNING,
-                            reason = 0,
-                            downloadedBytes = downloadedBytes,
-                            totalBytes = totalBytes,
-                        )
-                    }
-                }
+            downloadStreamToFileWithByteLimit(
+                input = connection.getInputStream(),
+                targetFile = targetFile,
+                maximumBytes = maximumBytes,
+            ) { copiedBytes ->
+                downloadedBytes = copiedBytes
+                directDownloads[downloadId] = DownloadInfo(
+                    status = DownloadManager.STATUS_RUNNING,
+                    reason = 0,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                )
             }
             directDownloads[downloadId] = DownloadInfo(
                 status = DownloadManager.STATUS_SUCCESSFUL,
@@ -168,6 +198,43 @@ class ModelDownloadService(
         }
     }
 }
+
+internal fun downloadStreamToFileWithByteLimit(
+    input: InputStream,
+    targetFile: File,
+    maximumBytes: Long,
+    onBytesCopied: (Long) -> Unit = {},
+): Long =
+    try {
+        input.use {
+            targetFile.outputStream().use { output ->
+                copyStreamWithByteLimit(it, output, maximumBytes, onBytesCopied)
+            }
+        }
+    } catch (throwable: Throwable) {
+        targetFile.delete()
+        throw throwable
+    }
+
+internal fun enforceDownloadByteLimit(
+    info: DownloadInfo,
+    maximumBytes: Long,
+    onLimitExceeded: () -> Unit,
+): DownloadInfo {
+    if (!downloadExceedsByteLimit(info, maximumBytes)) return info
+    onLimitExceeded()
+    return info.copy(
+        status = DownloadManager.STATUS_FAILED,
+        reason = DownloadManager.ERROR_FILE_ERROR,
+    )
+}
+
+internal fun downloadExceedsByteLimit(
+    info: DownloadInfo,
+    maximumBytes: Long,
+): Boolean =
+    info.downloadedBytes > maximumBytes ||
+        (info.totalBytes > 0L && info.totalBytes > maximumBytes)
 
 internal fun isLocalDebugModelDownloadUrl(downloadUrl: String): Boolean =
     runCatching { URI(downloadUrl).host.isLocalDebugHost() }.getOrDefault(false)

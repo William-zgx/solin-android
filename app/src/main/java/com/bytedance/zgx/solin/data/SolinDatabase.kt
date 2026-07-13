@@ -19,6 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.memory.MemoryRecordSensitivity
 import com.bytedance.zgx.solin.memory.MemoryRecordSource
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Entity(tableName = "chat_sessions")
 data class ChatSessionEntity(
@@ -586,6 +587,37 @@ interface AgentTraceDao {
     @Query("UPDATE agent_runs SET state = :state, updatedAtMillis = :updatedAtMillis WHERE id = :runId")
     fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int
 
+    @Query(
+        """
+        UPDATE agent_runs
+        SET state = :state, updatedAtMillis = :updatedAtMillis
+        WHERE id = :runId AND state = :expectedState
+        """,
+    )
+    fun compareAndSetRunStateIfExpected(
+        runId: String,
+        expectedState: String,
+        state: String,
+        updatedAtMillis: Long,
+    ): Int
+
+    @Transaction
+    fun compareAndSetRunState(
+        runId: String,
+        expectedState: String,
+        state: String,
+        updatedAtMillis: Long,
+    ): AgentRunEntity? {
+        val current = run(runId) ?: return null
+        if (compareAndSetRunStateIfExpected(runId, expectedState, state, updatedAtMillis) != 1) {
+            return null
+        }
+        return current.copy(
+            state = state,
+            updatedAtMillis = updatedAtMillis,
+        )
+    }
+
     @Query("UPDATE agent_runs SET updatedAtMillis = :updatedAtMillis WHERE id = :runId")
     fun touchRun(runId: String, updatedAtMillis: Long): Int
 
@@ -594,6 +626,11 @@ interface AgentTraceDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertStep(step: AgentStepEntity)
+
+    @Transaction
+    fun insertNextStep(step: AgentStepEntity) {
+        insertStep(step.copy(position = nextStepPosition(step.runId)))
+    }
 
     @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY position ASC")
     fun steps(runId: String): List<AgentStepEntity>
@@ -1035,33 +1072,66 @@ abstract class SolinDatabase : RoomDatabase() {
 
         fun get(context: Context): SolinDatabase =
             INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    SolinDatabase::class.java,
-                    "solin.db",
-                )
-                    .addMigrations(
-                        MIGRATION_1_2,
-                        MIGRATION_2_3,
-                        MIGRATION_3_4,
-                        MIGRATION_4_5,
-                        MIGRATION_5_6,
-                        MIGRATION_6_7,
-                        MIGRATION_7_8,
-                        MIGRATION_8_9,
-                        MIGRATION_9_10,
-                        MIGRATION_10_11,
-                        MIGRATION_11_12,
-                        MIGRATION_12_13,
-                        MIGRATION_13_14,
-                        MIGRATION_14_15,
-                        MIGRATION_15_16,
-                        MIGRATION_16_17,
-                    )
-                    .allowMainThreadQueries()
-                    .build()
+                INSTANCE ?: createEncryptedDatabase(context.applicationContext)
                     .also { INSTANCE = it }
             }
+
+        internal fun closeForInstrumentation() {
+            synchronized(this) {
+                INSTANCE?.close()
+                INSTANCE = null
+            }
+        }
+
+        private fun createEncryptedDatabase(context: Context): SolinDatabase {
+            val databaseFile = context.getDatabasePath(DATABASE_NAME)
+            val plaintextDatabase = EncryptedDatabaseMigrator.isPlaintextSqlite(databaseFile)
+            val passphrase = LocalDatabaseKeyManager(context).loadOrCreatePassphrase(
+                allowCreate = !databaseFile.exists() || plaintextDatabase,
+            )
+            val factory = SupportOpenHelperFactory(passphrase.copyOf())
+            EncryptedDatabaseMigrator(
+                context = context,
+                databaseName = DATABASE_NAME,
+                passphrase = passphrase,
+                openCandidate = { candidateName, candidateFactory ->
+                    databaseBuilder(context, candidateName, candidateFactory).build()
+                },
+            ).ensureEncrypted()
+            return databaseBuilder(context, DATABASE_NAME, factory).build()
+        }
+
+        private fun databaseBuilder(
+            context: Context,
+            name: String,
+            factory: androidx.sqlite.db.SupportSQLiteOpenHelper.Factory,
+        ): RoomDatabase.Builder<SolinDatabase> =
+            Room.databaseBuilder(
+                context,
+                SolinDatabase::class.java,
+                name,
+            )
+                .openHelperFactory(factory)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                    MIGRATION_10_11,
+                    MIGRATION_11_12,
+                    MIGRATION_12_13,
+                    MIGRATION_13_14,
+                    MIGRATION_14_15,
+                    MIGRATION_15_16,
+                    MIGRATION_16_17,
+                )
+
+        private const val DATABASE_NAME = "solin.db"
     }
 }
 

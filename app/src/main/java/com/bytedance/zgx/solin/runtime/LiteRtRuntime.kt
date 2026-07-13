@@ -365,8 +365,11 @@ class RealLiteRtRuntime(
     }
 
     override fun stop() {
-        runCatching { conversation?.cancelProcess() }
+        stopWithResult()
     }
+
+    fun stopWithResult(): Result<Unit> =
+        runCatching { conversation?.cancelProcess() }
 
     override fun close() {
         conversation?.close()

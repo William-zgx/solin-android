@@ -538,6 +538,11 @@ Current status:
 
 - `SolinViewModel` emits structured logs for model load, message send, and tool execution.
 - `RemoteModelRepository` uses `solinW(TAG_REMOTE, ...)` for migration warnings.
+- Log facade is used across Agent loop, tool execution, and model runtime layers.
+
+Tests:
+
+- `SolinViewModelTest` exercises log-emitting code paths indirectly through ViewModel operations.
 
 ## Centralized Constants
 
@@ -555,6 +560,14 @@ Boundaries:
 - Prefer `SolinConstants.X.Y` over scattered `private const val`.
 - Each value carries KDoc explaining its purpose and units.
 
+Current status:
+
+- `SolinConstants` centralizes timeouts, retry counts, UI thresholds, and embedding parameters previously scattered across multiple files.
+
+Tests:
+
+- `AgentLoopRuntimeTest` validates behavior that depends on `SolinConstants.AgentLoop` values.
+
 ## Memory Controller
 
 Code:
@@ -570,6 +583,15 @@ Boundaries:
 
 - Returns `MemoryControllerResult` / `MemoryCommandResult` data classes; does not directly mutate UI state.
 - Runs on an injected `ioDispatcher`.
+
+Current status:
+
+- Memory controller handles `remember`/`forget` commands and coordinates semantic embedding runtime when available.
+
+Tests:
+
+- `MemoryRepositoryTest` covers memory persistence and retrieval that the controller orchestrates.
+- `SolinViewModelTest` exercises memory command flows through the ViewModel boundary.
 
 ## Evidence Encryption
 
@@ -588,6 +610,16 @@ Boundaries:
 - Encryption is enabled only when a valid `Context` is provided; test constructors pass `null` to disable.
 - Meta files include an `encrypted=true/false` line.
 
+Current status:
+
+- Evidence encryption protects agent trace and audit blobs stored on device.
+- Legacy plaintext migration ensures backward compatibility for existing installations.
+
+Tests:
+
+- `OnDeviceEvidenceBlobStoreTest`
+- `EvidenceBoundsTest`
+
 ## Network Security
 
 Code:
@@ -600,6 +632,20 @@ Responsibilities:
 - Enforce HTTPS for all outbound traffic by default (`cleartextTrafficPermitted="false"`).
 - Allow cleartext only for loopback addresses: localhost, 127.0.0.1, 10.0.2.2 (emulator), ::1.
 - Trust anchors: system certificates only.
+
+Boundaries:
+
+- Cleartext is limited to loopback for local development and emulator testing.
+- No user-installed certificate authorities are trusted.
+
+Current status:
+
+- Network security config is active in debug and release builds.
+- Remote model repositories and web search providers use HTTPS exclusively.
+
+Tests:
+
+- `RemoteModelRepositoryTest` validates HTTPS endpoint configuration.
 
 ## Regression Strategy
 

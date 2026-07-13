@@ -2,8 +2,10 @@ package com.bytedance.zgx.solin
 
 import android.Manifest
 import android.app.DownloadManager
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Looper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.solin.action.ActionDraft
@@ -72,9 +74,11 @@ import com.bytedance.zgx.solin.memory.explicitUserPreferenceForgetFrom
 import com.bytedance.zgx.solin.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.solin.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
+import com.bytedance.zgx.solin.multimodal.ShareIntentReader
 import com.bytedance.zgx.solin.multimodal.SharedAttachment
 import com.bytedance.zgx.solin.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.solin.multimodal.SharedInput
+import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.multimodal.toSharedEvidenceReceiptSummary
 import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
@@ -124,10 +128,13 @@ import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.util.ArrayDeque
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -145,11 +152,14 @@ private const val STALE_AGENT_RUN_STARTUP_REASON =
     "App restarted before this Agent step completed."
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
+private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON =
+    "ViewModel cleared before this Agent run completed."
 private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
 private const val REMOTE_SEND_RESTART_DISCARDED_TEXT =
     "上次远程发送确认因应用重启已失效，内容没有发送。请重新发起请求。"
 private const val REMOTE_TOOL_CONTINUATION_RESTART_DISCARDED_TEXT =
     "上次远程工具结果续写确认因应用重启已失效，工具结果没有发送到远程模型。请重新发起请求。"
+internal const val STREAMING_UI_UPDATE_INTERVAL_MILLIS = 75L
 private val CONTEXT_OVERFLOW_MARKERS = listOf(
     "context_length",
     "context length",
@@ -184,6 +194,42 @@ private data class PendingSharedInputRemoteSendRestore(
             pending.imageAttachments == draft.imageAttachments
 }
 
+internal class StreamingAssistantUpdateCoalescer(
+    private val publish: (String) -> Unit,
+    private val intervalMillis: Long = STREAMING_UI_UPDATE_INTERVAL_MILLIS,
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+) {
+    private var pendingText: String? = null
+    private var lastPublishedText: String? = null
+    private var lastPublishedAtMillis: Long? = null
+
+    fun update(text: String) {
+        pendingText = text
+        val now = nowMillis()
+        val lastPublishedAt = lastPublishedAtMillis
+        if (lastPublishedAt == null || now - lastPublishedAt >= intervalMillis) {
+            publishPending(now)
+        }
+    }
+
+    fun flush() {
+        publishPending(nowMillis())
+    }
+
+    fun discard() {
+        pendingText = null
+    }
+
+    private fun publishPending(now: Long) {
+        val text = pendingText ?: return
+        pendingText = null
+        if (text == lastPublishedText) return
+        publish(text)
+        lastPublishedText = text
+        lastPublishedAtMillis = now
+    }
+}
+
 class SolinViewModel(
     private val modelRepository: ModelRepositoryFacade,
     private val sessionRepository: SessionStore,
@@ -213,13 +259,21 @@ class SolinViewModel(
     private val remoteSendPendingStore: RemoteSendPendingStore,
     private val bundledModelInstaller: BundledModelInstaller,
     private val skipStartupModelRuntimeWork: Boolean = false,
+    private val deferPersistenceInitialization: Boolean = false,
 ) : ViewModel() {
     private val runtimeLock = Mutex()
+    private val persistenceActionMutex = Mutex()
+    private val persistenceInitialization = CompletableDeferred<Unit>()
+    private val sharedIntentIngestionLock = Any()
+    private val completedSharedIntentKeys = mutableSetOf<String>()
+    private val inFlightSharedIntentGenerations = mutableMapOf<String, Long>()
+    private var nextSharedIntentGeneration = 0L
     private var generationJob: Job? = null
     private var bundledModelInstallJob: Job? = null
     private var sessionRestoreJob: Job? = null
     private var sessionRestoreGeneration: Long = 0L
     private var activeGenerationRunId: String? = null
+    private var hasCleared = false
     private var downloadMonitorJob: Job? = null
     private var downloadPreflightJob: Job? = null
     private var activeDownloadId: Long? = null
@@ -248,18 +302,109 @@ class SolinViewModel(
     )
     private val backgroundTaskUseCases = BackgroundTaskUseCases(backgroundTaskScheduler)
 
-    private val _uiState = MutableStateFlow(createInitialState())
+    private val _uiState = MutableStateFlow(
+        if (deferPersistenceInitialization) {
+            ChatUiState(
+                statusText = "正在初始化本地数据",
+                isArm64Supported = isArm64Device(),
+            )
+        } else {
+            createInitialState()
+        },
+    )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    fun launchPersistenceWork(action: () -> Unit) {
+        viewModelScope.launch(ioDispatcher) {
+            persistenceActionMutex.withLock { action() }
+        }
+    }
+
+    fun enqueueSharedIntent(
+        consumptionKey: String,
+        intent: Intent,
+        readMode: SharedInputReadMode,
+        reader: ShareIntentReader,
+        allowPreviouslyConsumed: Boolean,
+    ) {
+        val generation = synchronized(sharedIntentIngestionLock) {
+            if (consumptionKey in inFlightSharedIntentGenerations) {
+                return
+            }
+            if (!allowPreviouslyConsumed && consumptionKey in completedSharedIntentKeys) {
+                return
+            }
+            if (allowPreviouslyConsumed) {
+                completedSharedIntentKeys.remove(consumptionKey)
+            }
+            (++nextSharedIntentGeneration).also { value ->
+                inFlightSharedIntentGenerations[consumptionKey] = value
+            }
+        }
+        val copiedIntent = Intent(intent)
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                val sharedInput = reader.read(copiedIntent, mode = readMode)
+                if (!isCurrentSharedIntentIngestion(consumptionKey, generation)) return@launch
+                persistenceActionMutex.withLock {
+                    if (!isCurrentSharedIntentIngestion(consumptionKey, generation)) {
+                        return@withLock
+                    }
+                    if (sharedInput == null) {
+                        clearSharedIntentIngestion(consumptionKey, generation)
+                    } else {
+                        ingestSharedInput(sharedInput)
+                        markSharedIntentIngestionCompleted(consumptionKey, generation)
+                    }
+                }
+            } catch (error: CancellationException) {
+                clearSharedIntentIngestion(consumptionKey, generation)
+                throw error
+            } catch (_: Throwable) {
+                clearSharedIntentIngestion(consumptionKey, generation)
+            }
+        }
+    }
+
+    suspend fun awaitPersistenceInitialization() {
+        persistenceInitialization.await()
+    }
+
+    init {
+        if (!deferPersistenceInitialization) {
+            persistenceInitialization.complete(Unit)
+        }
+    }
 
     fun restoreStartupState(skipModelRuntimeWork: Boolean = false) {
         if (startupRestored) return
         startupRestored = true
+        if (deferPersistenceInitialization) {
+            viewModelScope.launch(ioDispatcher) {
+                runCatching {
+                    _uiState.value = createInitialState()
+                    restoreStartupStateAfterInitialization(skipModelRuntimeWork)
+                    persistenceInitialization.complete(Unit)
+                }.onFailure { error ->
+                    persistenceInitialization.completeExceptionally(error)
+                    _uiState.update {
+                        it.copy(
+                            statusText = "本地数据初始化失败：${error.cleanMessage()}",
+                            isReady = false,
+                        )
+                    }
+                }
+            }
+            return
+        }
+        restoreStartupStateAfterInitialization(skipModelRuntimeWork)
+    }
 
+    private fun restoreStartupStateAfterInitialization(skipModelRuntimeWork: Boolean) {
         failClosedPendingRemoteSendOnStartup()
         recoverBackgroundTasksOnStartup()
         syncTaskStateMemories()
         refreshDeviceStatus()
-        rebuildMemoryIndex()
         _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
         verifyLegacyModelsOnStartup(skipModelRuntimeWork)
         failStaleAgentRunsOnStartup()
@@ -350,14 +495,9 @@ class SolinViewModel(
             }
             val modelState = modelRepository.currentState()
             updateModelState(modelState)
-            syncSemanticMemoryRuntime()
             _uiState.update {
                 it.copy(
                     showFirstRunSetup = false,
-                    semanticMemoryEnabled = currentSemanticMemoryEnabled(),
-                    semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
-                    semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
-                    semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
                     statusText = when {
                         result.hasFailures ->
                             "内置模型部分准备失败：${result.failedModelIds.joinToString()}"
@@ -1201,6 +1341,41 @@ class SolinViewModel(
         _uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Local,
+                isBusy = true,
+                isDownloading = false,
+                isReady = false,
+                statusText = "正在校验本地模型",
+                modelHealth = ModelHealth(
+                    profileId = it.activeModelProfileId(),
+                    state = ModelHealthState.Loading,
+                    backend = backendChoice,
+                ),
+            )
+        }
+
+        viewModelScope.launch(ioDispatcher) {
+            val verified = runCatching { modelRepository.verifyActiveModelPath(path) }
+                .getOrDefault(false)
+            if (!verified) {
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isReady = false,
+                        statusText = "模型校验失败，请重新下载或重新导入",
+                        modelHealth = ModelHealth(
+                            profileId = it.activeModelProfileId(),
+                            state = ModelHealthState.LoadFailed,
+                            backend = backendChoice,
+                            failureReason = "模型文件校验失败",
+                        ),
+                    )
+                }
+                return@launch
+            }
+
+        _uiState.update {
+            it.copy(
+                inferenceMode = InferenceMode.Local,
                 backend = backendChoice,
                 isBusy = true,
                 isDownloading = false,
@@ -1217,7 +1392,6 @@ class SolinViewModel(
             )
         }
 
-        viewModelScope.launch(ioDispatcher) {
             val runtimeCapabilities = localModelRuntimeCapabilitiesFor(_uiState.value)
             val loadStartMs = System.currentTimeMillis()
             val result = runCatching {
@@ -1252,6 +1426,7 @@ class SolinViewModel(
                             ),
                         )
                     }
+                    rebuildMemoryIndex()
                 },
                 onFailure = { throwable ->
                     solinE(TAG_MODEL, "loadModel: failed backend=${backendChoice.name}", throwable)
@@ -1290,6 +1465,7 @@ class SolinViewModel(
                                     ),
                                 )
                             }
+                        rebuildMemoryIndex()
                             return@launch
                         }
                         fallbackFailure = cpuResult.exceptionOrNull()
@@ -1405,10 +1581,10 @@ class SolinViewModel(
         // empty session is created immediately.
         resetRemoteSendDisclosureSuppression()
         val deletedSessionId = sessionRepository.activeSessionId
+        assistantOrchestrator.deleteRunsForSession(deletedSessionId)
         val messages = sessionRepository.deleteActiveSession() ?: return
         val activeSessionId = sessionRepository.activeSessionId
         val restoreGeneration = nextSessionRestoreGeneration()
-        assistantOrchestrator.deleteRunsForSession(deletedSessionId)
         _uiState.update {
             it.copy(
                 sessions = sessionRepository.summaries(),
@@ -1452,6 +1628,20 @@ class SolinViewModel(
         remoteSendConfirmed: Boolean = false,
         currentPromptEvidenceSummary: EvidenceReceiptSummary? = null,
     ) {
+        if (
+            dispatchPersistenceWorkIfNeeded {
+                sendMessageInternal(
+                    prompt = prompt,
+                    explicitMessagePrivacy = explicitMessagePrivacy,
+                    imageAttachments = imageAttachments,
+                    localImageAttachments = localImageAttachments,
+                    remoteSendConfirmed = remoteSendConfirmed,
+                    currentPromptEvidenceSummary = currentPromptEvidenceSummary,
+                )
+            }
+        ) {
+            return
+        }
         val trimmed = prompt.trim()
         if (trimmed.isNotEmpty() && _uiState.value.pendingConfirmation != null) {
             _uiState.update {
@@ -1687,6 +1877,7 @@ class SolinViewModel(
 
         val job = viewModelScope.launch(ioDispatcher) {
             var activeModelRunId: String? = null
+            var streamingAssistantUpdates: StreamingAssistantUpdateCoalescer? = null
             try {
                 val userMessage = ChatMessage(
                     role = MessageRole.User,
@@ -1973,6 +2164,10 @@ class SolinViewModel(
                         }
 
                         val partial = StringBuilder()
+                        val streamingUpdates = StreamingAssistantUpdateCoalescer(
+                            publish = { text -> _uiState.updateLastAssistant(text) },
+                        )
+                        streamingAssistantUpdates = streamingUpdates
                         var remoteToolObservation: AgentModelObservationResult? = null
                         var outputQualityDecision: GenerationQualityDecision? = null
                         if (useRemoteModel) {
@@ -2020,6 +2215,7 @@ class SolinViewModel(
                                                     modelId = remoteConfig.modelProfile().id,
                                                     backend = null,
                                                     parameters = _uiState.value.generationParameters,
+                                                    streamingUpdates = streamingUpdates,
                                                 )
                                                 if (decision !is GenerationQualityDecision.Continue) {
                                                     outputQualityDecision = decision
@@ -2029,6 +2225,7 @@ class SolinViewModel(
                                         }
 
                                         is RemoteChatEvent.ToolCall -> {
+                                            streamingUpdates.flush()
                                             val runId = route.runId ?: error("远程工具调用缺少 Agent run")
                                             remoteToolObservation =
                                                 assistantOrchestrator.observeModelToolRequest(runId, event.request)
@@ -2036,6 +2233,7 @@ class SolinViewModel(
                                         }
 
                                         is RemoteChatEvent.ToolCalls -> {
+                                            streamingUpdates.flush()
                                             val runId = route.runId ?: error("远程工具调用缺少 Agent run")
                                             remoteToolObservation =
                                                 assistantOrchestrator.observeModelToolRequests(runId, event.requests)
@@ -2050,7 +2248,11 @@ class SolinViewModel(
                                                 modelId = remoteConfig.modelProfile().id,
                                                 backend = null,
                                             )
-                                            applyOutputQualityDecisionToAssistant(partial, decision)
+                                            applyOutputQualityDecisionToAssistant(
+                                                partial = partial,
+                                                decision = decision,
+                                                streamingUpdates = streamingUpdates,
+                                            )
                                             outputQualityDecision = decision
                                             remoteRuntime.stop()
                                         }
@@ -2073,6 +2275,7 @@ class SolinViewModel(
                                         modelId = _uiState.value.activeModelProfileId(),
                                         backend = _uiState.value.backend,
                                         parameters = _uiState.value.generationParameters,
+                                        streamingUpdates = streamingUpdates,
                                     )
                                     if (decision !is GenerationQualityDecision.Continue) {
                                         outputQualityDecision = decision
@@ -2093,7 +2296,11 @@ class SolinViewModel(
                                 backend = if (useRemoteModel) null else _uiState.value.backend,
                             )
                             if (finalDecision !is GenerationQualityDecision.Continue) {
-                                applyOutputQualityDecisionToAssistant(partial, finalDecision)
+                                applyOutputQualityDecisionToAssistant(
+                                    partial = partial,
+                                    decision = finalDecision,
+                                    streamingUpdates = streamingUpdates,
+                                )
                                 outputQualityDecision = finalDecision
                             }
                         }
@@ -2106,6 +2313,7 @@ class SolinViewModel(
                             )
                             return@launch
                         }
+                        streamingUpdates.flush()
                         if (remoteToolObservation != null) {
                             val toolBatch =
                                 (remoteToolObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
@@ -2258,6 +2466,7 @@ class SolinViewModel(
                 }
             } catch (cancellation: CancellationException) {
                 solinD(TAG_LIFECYCLE, "generation: cancelled")
+                streamingAssistantUpdates?.flush()
                 cancelActiveGenerationRun(activeModelRunId)
                 if (_uiState.value.isGenerating) {
                     finishStoppedGeneration(activeModelRunId)
@@ -2273,6 +2482,7 @@ class SolinViewModel(
                 throw cancellation
             } catch (throwable: Throwable) {
                 solinE(TAG_MODEL, "generation: failed useRemoteModel=$useRemoteModel", throwable)
+                streamingAssistantUpdates?.flush()
                 val errorMessage = throwable.generationFailureMessage(useRemoteModel)
                 activeModelRunId?.let { runId ->
                     assistantOrchestrator.failModelGeneration(runId, errorMessage)
@@ -3025,6 +3235,7 @@ class SolinViewModel(
     }
 
     fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
+        if (dispatchPersistenceWorkIfNeeded { requestRecoveryActionConfirmation(action) }) return
         val state = _uiState.value
         if (state.pendingConfirmation != null) {
             _uiState.update {
@@ -3095,6 +3306,7 @@ class SolinViewModel(
     }
 
     fun confirmAgentConfirmation(confirmation: PendingAgentConfirmation) {
+        if (dispatchPersistenceWorkIfNeeded { confirmAgentConfirmation(confirmation) }) return
         val pendingConfirmation = _uiState.value.pendingConfirmation
         if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
             _uiState.update {
@@ -3559,6 +3771,7 @@ class SolinViewModel(
         pending: PendingExternalOutcomeConfirmation,
         outcome: AgentExternalOutcome,
     ) {
+        if (dispatchPersistenceWorkIfNeeded { recordExternalOutcome(pending, outcome) }) return
         val current = _uiState.value.pendingExternalOutcome
         if (current == null || current != pending) {
             _uiState.update {
@@ -3701,6 +3914,17 @@ class SolinViewModel(
         statusText: String,
         resultFor: (ToolRequest) -> ToolResult,
     ) {
+        if (
+            dispatchPersistenceWorkIfNeeded {
+                rejectAgentConfirmationWithFailure(
+                    confirmation = confirmation,
+                    statusText = statusText,
+                    resultFor = resultFor,
+                )
+            }
+        ) {
+            return
+        }
         val pendingConfirmation = _uiState.value.pendingConfirmation
         if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
             _uiState.update {
@@ -3818,6 +4042,7 @@ class SolinViewModel(
         }
         activeGenerationRunId = runId
         val job = viewModelScope.launch(ioDispatcher) {
+            var streamingAssistantUpdates: StreamingAssistantUpdateCoalescer? = null
             try {
                 if (useRemoteModel && responsePrivacy == MessagePrivacy.LocalOnly) {
                     runId?.let { id ->
@@ -3879,6 +4104,10 @@ class SolinViewModel(
                 }
 
                 val partial = StringBuilder()
+                val streamingUpdates = StreamingAssistantUpdateCoalescer(
+                    publish = { text -> _uiState.updateLastAssistant(text) },
+                )
+                streamingAssistantUpdates = streamingUpdates
                 var modelObservation: AgentModelObservationResult? = null
                 var outputQualityDecision: GenerationQualityDecision? = null
                 if (useRemoteModel) {
@@ -3952,6 +4181,7 @@ class SolinViewModel(
                                             modelId = remoteConfig.modelProfile().id,
                                             backend = null,
                                             parameters = _uiState.value.generationParameters,
+                                            streamingUpdates = streamingUpdates,
                                         )
                                         if (decision !is GenerationQualityDecision.Continue) {
                                             outputQualityDecision = decision
@@ -3961,6 +4191,7 @@ class SolinViewModel(
                                 }
 
                                 is RemoteChatEvent.ToolCall -> {
+                                    streamingUpdates.flush()
                                     val id = runId ?: error("远程工具调用缺少 Agent run")
                                     modelObservation =
                                         assistantOrchestrator.observeModelToolRequest(id, event.request)
@@ -3968,6 +4199,7 @@ class SolinViewModel(
                                 }
 
                                 is RemoteChatEvent.ToolCalls -> {
+                                    streamingUpdates.flush()
                                     val id = runId ?: error("远程工具调用缺少 Agent run")
                                     modelObservation =
                                         assistantOrchestrator.observeModelToolRequests(id, event.requests)
@@ -3982,7 +4214,11 @@ class SolinViewModel(
                                         modelId = remoteConfig.modelProfile().id,
                                         backend = null,
                                     )
-                                    applyOutputQualityDecisionToAssistant(partial, decision)
+                                    applyOutputQualityDecisionToAssistant(
+                                        partial = partial,
+                                        decision = decision,
+                                        streamingUpdates = streamingUpdates,
+                                    )
                                     outputQualityDecision = decision
                                     remoteRuntime.stop()
                                 }
@@ -4004,6 +4240,7 @@ class SolinViewModel(
                                 modelId = _uiState.value.activeModelProfileId(),
                                 backend = _uiState.value.backend,
                                 parameters = _uiState.value.generationParameters,
+                                streamingUpdates = streamingUpdates,
                             )
                             if (decision !is GenerationQualityDecision.Continue) {
                                 outputQualityDecision = decision
@@ -4024,7 +4261,11 @@ class SolinViewModel(
                         backend = if (useRemoteModel) null else _uiState.value.backend,
                     )
                     if (finalDecision !is GenerationQualityDecision.Continue) {
-                        applyOutputQualityDecisionToAssistant(partial, finalDecision)
+                        applyOutputQualityDecisionToAssistant(
+                            partial = partial,
+                            decision = finalDecision,
+                            streamingUpdates = streamingUpdates,
+                        )
                         outputQualityDecision = finalDecision
                     }
                 }
@@ -4077,6 +4318,7 @@ class SolinViewModel(
                     )
                     return@launch
                 }
+                streamingUpdates.flush()
                 if (modelObservation == null) {
                     if (partial.isBlank()) {
                         _uiState.updateLastAssistant("没有生成内容")
@@ -4182,11 +4424,13 @@ class SolinViewModel(
                 }
             } catch (cancellation: CancellationException) {
                 solinD(TAG_LIFECYCLE, "generation(tool-continuation): cancelled")
+                streamingAssistantUpdates?.flush()
                 cancelActiveGenerationRun(runId)
                 finishStoppedGeneration(runId)
                 throw cancellation
             } catch (throwable: Throwable) {
                 solinE(TAG_MODEL, "generation(tool-continuation): failed useRemoteModel=$useRemoteModel", throwable)
+                streamingAssistantUpdates?.flush()
                 val errorMessage = throwable.generationFailureMessage(useRemoteModel)
                 runId?.let { id ->
                     assistantOrchestrator.failModelGeneration(id, errorMessage)
@@ -4224,6 +4468,7 @@ class SolinViewModel(
     }
 
     fun dismissAgentConfirmation(confirmation: PendingAgentConfirmation? = _uiState.value.pendingConfirmation) {
+        if (dispatchPersistenceWorkIfNeeded { dismissAgentConfirmation(confirmation) }) return
         val pendingConfirmation = _uiState.value.pendingConfirmation
         if (confirmation == null || pendingConfirmation == null) {
             _uiState.update {
@@ -4430,12 +4675,28 @@ class SolinViewModel(
     }
 
     override fun onCleared() {
+        if (hasCleared) return
+        hasCleared = true
+        val runIds = activeRunIdsForTeardown()
+        activeGenerationRunId = null
+        generationJob?.cancel()
         downloadMonitorJob?.cancel()
         remoteRuntime.stop()
-        runtime.close()
-        assistantOrchestrator.close()
+        CoroutineScope(SupervisorJob() + ioDispatcher).launch {
+            runIds.forEach { runId ->
+                assistantOrchestrator.terminateRun(runId, VIEW_MODEL_CLEARED_AGENT_RUN_REASON)
+            }
+        }
         super.onCleared()
     }
+
+    private fun activeRunIdsForTeardown(): Set<String> =
+        buildSet {
+            activeGenerationRunId?.let(::add)
+            pendingRemoteContinuation?.runId?.let(::add)
+            _uiState.value.pendingConfirmation?.runId?.let(::add)
+            _uiState.value.pendingExternalOutcome?.runId?.let(::add)
+        }
 
     private fun beginModelDownload(source: ModelDownloadSource): Boolean {
         refreshDeviceStatus()
@@ -4856,6 +5117,7 @@ class SolinViewModel(
         modelId: String?,
         backend: BackendChoice?,
         parameters: GenerationParameters,
+        streamingUpdates: StreamingAssistantUpdateCoalescer,
     ): GenerationQualityDecision {
         val decision = outputQualityGuard.evaluate(
             accumulatedText = partial.toString(),
@@ -4867,9 +5129,13 @@ class SolinViewModel(
         )
         if (decision is GenerationQualityDecision.Continue) {
             partial.append(chunk)
-            _uiState.updateLastAssistant(partial.toString())
+            streamingUpdates.update(partial.toString())
         } else {
-            applyOutputQualityDecisionToAssistant(partial, decision)
+            applyOutputQualityDecisionToAssistant(
+                partial = partial,
+                decision = decision,
+                streamingUpdates = streamingUpdates,
+            )
         }
         return decision
     }
@@ -4877,10 +5143,12 @@ class SolinViewModel(
     private fun applyOutputQualityDecisionToAssistant(
         partial: StringBuilder,
         decision: GenerationQualityDecision,
+        streamingUpdates: StreamingAssistantUpdateCoalescer? = null,
     ) {
         val report = decision.reportOrNull() ?: return
         partial.clear()
         partial.append(report.safePrefix)
+        streamingUpdates?.discard()
         _uiState.updateLastAssistantLocalOnly(report.visibleAssistantText())
     }
 
@@ -5032,7 +5300,6 @@ class SolinViewModel(
         val showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed() && !hasUsableEndpoint
         memoryRepository.enabled = memoryEnabled
         syncTaskStateMemories(memoryEnabled = memoryEnabled)
-        syncSemanticMemoryRuntime()
         return ChatUiState(
             modelPath = modelState.activeModelPath,
             activeInstalledModelId = modelState.activeInstalledModelId,
@@ -5092,7 +5359,6 @@ class SolinViewModel(
         activeLocalCapabilityProfile()?.preferredLocalBackends.orEmpty()
 
     private fun updateModelState(modelState: ModelSelectionState) {
-        syncSemanticMemoryRuntime()
         _uiState.update {
             it.copy(
                 modelPath = modelState.activeModelPath,
@@ -5638,6 +5904,47 @@ class SolinViewModel(
 
     private fun isArm64Device(): Boolean =
         isArm64DeviceProvider()
+
+    private fun isCurrentSharedIntentIngestion(
+        consumptionKey: String,
+        generation: Long,
+    ): Boolean =
+        synchronized(sharedIntentIngestionLock) {
+            inFlightSharedIntentGenerations[consumptionKey] == generation
+        }
+
+    private fun markSharedIntentIngestionCompleted(
+        consumptionKey: String,
+        generation: Long,
+    ) {
+        synchronized(sharedIntentIngestionLock) {
+            if (inFlightSharedIntentGenerations[consumptionKey] != generation) return
+            inFlightSharedIntentGenerations.remove(consumptionKey)
+            completedSharedIntentKeys += consumptionKey
+        }
+    }
+
+    private fun clearSharedIntentIngestion(
+        consumptionKey: String,
+        generation: Long,
+    ) {
+        synchronized(sharedIntentIngestionLock) {
+            if (inFlightSharedIntentGenerations[consumptionKey] == generation) {
+                inFlightSharedIntentGenerations.remove(consumptionKey)
+            }
+        }
+    }
+
+    private fun dispatchPersistenceWorkIfNeeded(work: () -> Unit): Boolean {
+        if (
+            !deferPersistenceInitialization ||
+            Looper.myLooper() != Looper.getMainLooper()
+        ) {
+            return false
+        }
+        launchPersistenceWork(work)
+        return true
+    }
 
     private fun replaceActiveSessionMessages(
         messages: List<ChatMessage>,

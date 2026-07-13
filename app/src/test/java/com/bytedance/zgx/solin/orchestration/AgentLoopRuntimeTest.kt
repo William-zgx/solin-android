@@ -52,6 +52,7 @@ import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
+import kotlinx.coroutines.Job
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -60,6 +61,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentLoopRuntimeTest {
+    @Test
+    fun closeCancelsRegisteredModelGenerationJobs() {
+        val runtime = agentLoopRuntime(
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+        )
+        val generationJob = Job()
+        runtime.registerModelCallJob("run-close", generationJob)
+
+        runtime.close()
+
+        assertTrue(generationJob.isCancelled)
+        runtime.close()
+    }
+
+    @Test
+    fun deleteRunsForSessionCancelsNonTerminalRunsAndCleansDeviceControlState() {
+        val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        var deviceControlSessionFinishCount = 0
+        val runtime = agentLoopRuntime(
+            traceStore = traceStore,
+            deviceControlSessionFinisher = { deviceControlSessionFinishCount += 1 },
+        )
+        val sessionId = "session-delete"
+        val executingDeviceRun = traceStore.createRun("观察当前屏幕", sessionId)
+        traceStore.updateState(executingDeviceRun.id, AgentRunState.ExecutingTool)
+        traceStore.appendStep(
+            executingDeviceRun.id,
+            AgentStep.ToolRequested(
+                ToolRequest(toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN),
+                ActionDraft(
+                    functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                    title = "观察当前屏幕",
+                    summary = "观察当前屏幕内容。",
+                    parameters = emptyMap(),
+                ),
+            ),
+        )
+        val generatingRun = traceStore.createRun("普通问题", sessionId)
+        traceStore.updateState(generatingRun.id, AgentRunState.GeneratingAnswer)
+        val generationJob = Job()
+        runtime.registerModelCallJob(generatingRun.id, generationJob)
+        val keptRun = traceStore.createRun("保留会话", "session-keep")
+        traceStore.updateState(keptRun.id, AgentRunState.GeneratingAnswer)
+
+        val deletedCount = runtime.deleteRunsForSession(sessionId)
+
+        assertEquals(2, deletedCount)
+        assertNull(traceStore.run(executingDeviceRun.id))
+        assertNull(traceStore.run(generatingRun.id))
+        assertTrue(traceStore.run(keptRun.id) != null)
+        assertTrue(generationJob.isCancelled)
+        assertEquals(1, deviceControlSessionFinishCount)
+    }
+
     @Test
     fun pureChatInputPlansAnswerAndKeepsMemoryHits() {
         val memoryRepository = MemoryRepository()
@@ -10881,6 +10936,18 @@ class AgentLoopRuntimeTest {
 
         override fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int {
             val run = runs[runId] ?: return 0
+            runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
+            return 1
+        }
+
+        override fun compareAndSetRunStateIfExpected(
+            runId: String,
+            expectedState: String,
+            state: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val run = runs[runId] ?: return 0
+            if (run.state != expectedState) return 0
             runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
             return 1
         }

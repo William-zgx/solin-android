@@ -8,6 +8,21 @@ import org.junit.Test
 
 class AndroidManifestTest {
     @Test
+    fun applicationOwnsTheProcessWideDependencyContainer() {
+        val manifest = readManifest()
+        val application = readMainFile("java/com/bytedance/zgx/solin/SolinApplication.kt")
+        val activity = readMainFile("java/com/bytedance/zgx/solin/MainActivity.kt")
+
+        assertTrue(manifest.contains("""android:name=".SolinApplication""""))
+        assertTrue(application.contains("fun appContainerState("))
+        assertTrue(application.contains("CoroutineScope(SupervisorJob() + Dispatchers.IO)"))
+        assertTrue(activity.contains("(application as SolinApplication).appContainerState("))
+        assertTrue(activity.contains("(application as SolinApplication).readyAppContainer("))
+        assertFalse(activity.contains("SolinAppContainer("))
+        assertFalse(readMainFile("java/com/bytedance/zgx/solin/data/SolinDatabase.kt").contains(".allowMainThreadQueries()"))
+    }
+
+    @Test
     fun appDisplayNameCombinesChineseNameWithEnglishBrand() {
         val manifest = readManifest()
 

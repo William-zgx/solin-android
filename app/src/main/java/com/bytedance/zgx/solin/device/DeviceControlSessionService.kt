@@ -86,7 +86,7 @@ class DeviceControlSessionService : Service() {
             )
         }
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_solin)
             .setContentTitle("Solin正在操作手机")
             .setContentText(reason)
             .setStyle(Notification.BigTextStyle().bigText(reason))

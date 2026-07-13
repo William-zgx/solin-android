@@ -127,7 +127,7 @@ class RcPerfHarnessService : Service() {
             )
         }
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_solin)
             .setContentTitle("Solin正在采集 RC 性能")
             .setContentText("正在运行本地模型性能采集")
             .setOngoing(true)

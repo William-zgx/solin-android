@@ -20,6 +20,7 @@ import com.bytedance.zgx.solin.tool.ToolStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import com.bytedance.zgx.solin.background.AndroidBackgroundTaskScheduler
@@ -32,8 +33,6 @@ import com.bytedance.zgx.solin.data.FirstRunSetupRepository
 import com.bytedance.zgx.solin.data.GenerationParametersRepository
 import com.bytedance.zgx.solin.data.HuggingFaceAuthRepository
 import com.bytedance.zgx.solin.data.LegacyPrefsMigrator
-import com.bytedance.zgx.solin.data.LocalStorageMigrationStateDao
-import com.bytedance.zgx.solin.data.LocalStorageMigrationStateEntity
 import com.bytedance.zgx.solin.data.ModelRepository
 import com.bytedance.zgx.solin.data.SolinDatabase
 import com.bytedance.zgx.solin.data.PreferenceSettingsStore
@@ -58,8 +57,7 @@ import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.memory.RoomMemoryDeletionEventStore
 import com.bytedance.zgx.solin.memory.RoomMemoryEmbeddingStore
 import com.bytedance.zgx.solin.memory.RoomMemoryRecordStore
-import com.bytedance.zgx.solin.memory.ZvecMemoryEmbeddingStore
-import com.bytedance.zgx.solin.memory.ZvecMemoryRecordStore
+import com.bytedance.zgx.solin.memory.LegacyMemoryStorageRetirement
 import com.bytedance.zgx.solin.multimodal.AndroidCurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.orchestration.AgentHooks
@@ -94,8 +92,6 @@ import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
 import com.bytedance.zgx.solin.module.SolinModule
 import com.bytedance.zgx.solin.module.SolinModuleRegistryImpl
-import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
-import com.bytedance.zgx.solin.storage.ZvecNativeLocalVectorIndex
 import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
 import com.bytedance.zgx.solin.tool.RoutingToolExecutor
 import com.bytedance.zgx.solin.tool.BuiltInToolsModule
@@ -155,6 +151,7 @@ class SolinAppContainer(
     private val reminderNotificationHelper: ReminderNotificationHelper
     val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider
     private val actionPlanningRuntime: HybridActionPlanningRuntime
+    private val observationActionPlanningRuntime: HybridActionPlanningRuntime
     private val actionExecutor: ToolExecutor
     private val assistantOrchestrator: AssistantOrchestrator
     private val eventBus: SolinEventBus
@@ -163,8 +160,10 @@ class SolinAppContainer(
     private val systemContextContributors: List<SystemContextContributor>
     private val systemPromptBuilder: SystemPromptBuilder
     private val toolProgressPublisher: ToolProgressPublisher
+    private val containerScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     init {
+        evidenceBlobStore.gc()
         LegacyPrefsMigrator(appContext, database, settingsStore, secretStore).migrateIfNeeded()
 
         modelRepository = ModelRepository(
@@ -195,56 +194,22 @@ class SolinAppContainer(
         remoteRuntime = OkHttpRemoteChatRuntime()
         val roomMemoryRecordStore = RoomMemoryRecordStore(database.memoryRecordDao())
         val roomMemoryEmbeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao())
-        val migrationDao = database.localStorageMigrationStateDao()
-        val (
-            memoryRecordStore,
-            memoryEmbeddingStore,
-            memoryDeletionEventStore,
-        ) = runCatching {
-            val documents = SharedPreferencesLocalDocumentStore(appContext)
-            val recordStore = ZvecMemoryRecordStore(
-                documents = documents,
-                mirrorStore = roomMemoryRecordStore,
-            )
-            val vectors = ZvecNativeLocalVectorIndex(
-                rootDir = appContext.noBackupFilesDir
-                    .resolve("solin-zvec")
-                    .resolve("v1")
-                    .resolve("pm_vectors_v1"),
-            )
-            backfillRoomMemoryRecords(
-                source = roomMemoryRecordStore,
-                target = recordStore,
-                migrationDao = migrationDao,
-            )
-            Triple(
-                recordStore,
-                ZvecMemoryEmbeddingStore(
-                    documents = documents,
-                    vectors = vectors,
-                    mirrorStore = roomMemoryEmbeddingStore,
-                ),
-                RoomMemoryDeletionEventStore(
-                    dao = database.memoryDeletionEventDao(),
-                ),
-            )
-        }.getOrElse { error ->
-            recordMemoryMigrationFailure(migrationDao, error)
-            Triple(
-                roomMemoryRecordStore,
-                roomMemoryEmbeddingStore,
-                RoomMemoryDeletionEventStore(
-                    dao = database.memoryDeletionEventDao(),
-                    transactionDao = database.memoryDeletionTransactionDao(),
-                ),
-            )
-        }
+        val memoryDeletionEventStore = RoomMemoryDeletionEventStore(
+            dao = database.memoryDeletionEventDao(),
+            transactionDao = database.memoryDeletionTransactionDao(),
+        )
+        LegacyMemoryStorageRetirement(
+            context = appContext,
+            records = roomMemoryRecordStore,
+            embeddings = roomMemoryEmbeddingStore,
+            deletionEvents = memoryDeletionEventStore,
+        ).retireAfterSecureImport()
         memoryRepository = MemoryRepository(
             semanticRuntimeFactory = { modelPath ->
                 TfliteTextEmbeddingRuntimeFactory.create(appContext, modelPath)
             },
-            recordStore = memoryRecordStore,
-            embeddingStore = memoryEmbeddingStore,
+            recordStore = roomMemoryRecordStore,
+            embeddingStore = roomMemoryEmbeddingStore,
             deletionEventStore = memoryDeletionEventStore,
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
@@ -263,20 +228,8 @@ class SolinAppContainer(
             includeDeviceControlSurvivalRules = true,
         )
         toolProgressPublisher = DefaultToolProgressPublisher(eventBus = eventBus)
-        // App-wide coroutine scope for long-lived subscribers (telemetry fan-out, audit sinks).
-        // Tied to the container's lifecycle; cancellation happens via close().
-        val appScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-        telemetrySink.attachTo(eventBus, appScope)
-        // Wire audit repositories as event-bus subscribers. These are ADDITIVE to the direct
-        // record() calls still performed in AgentLoopRuntime (dual-write, Wave 4): once the bus
-        // path is verified the direct calls will be removed in a later cleanup wave.
-        val auditScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-        auditScope.launch {
-            eventBus.subscribe(SolinEvent.Audit.ToolAudited::class).collect { event ->
-                toolAuditRepository.record(event.toToolAuditEvent())
-            }
-        }
-        auditScope.launch {
+        telemetrySink.attachTo(eventBus, containerScope)
+        containerScope.launch {
             eventBus.subscribe(SolinEvent.Audit.RemoteSendAudited::class).collect { event ->
                 event.toRemoteSendAuditEvent()?.let(remoteSendAuditRepository::record)
             }
@@ -289,7 +242,7 @@ class SolinAppContainer(
         val observationActionToolRegistry = ToolRegistry.fromSupportedActions(
             MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES,
         )
-        val observationActionPlanningRuntime = HybridActionPlanningRuntime(
+        observationActionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
             toolRegistry = observationActionToolRegistry,
         )
@@ -386,85 +339,12 @@ class SolinAppContainer(
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
 
-    private fun backfillRoomMemoryRecords(
-        source: RoomMemoryRecordStore,
-        target: ZvecMemoryRecordStore,
-        migrationDao: LocalStorageMigrationStateDao,
-    ) {
-        val stateId = "room-memory-to-zvec"
-        val existing = migrationDao.state(stateId)
-        val sourceRecords = source.records().sortedBy { record -> record.id }
-        if (existing?.phase == "Completed" && (sourceRecords.isEmpty() || target.records().isNotEmpty())) {
-            return
-        }
-
-        val startedAtMillis = existing?.startedAtMillis ?: System.currentTimeMillis()
-        val checkpointId = existing?.lastId?.takeIf { existing.phase == "Running" }
-        migrationDao.upsert(
-            LocalStorageMigrationStateEntity(
-                id = stateId,
-                phase = "Running",
-                lastDomain = existing?.lastDomain,
-                lastId = checkpointId,
-                startedAtMillis = startedAtMillis,
-                completedAtMillis = null,
-                errorJson = null,
-                schemaVersion = 1,
-            ),
-        )
-
-        var lastId = checkpointId
-        sourceRecords
-            .filter { record -> checkpointId == null || record.id > checkpointId }
-            .forEach { record ->
-                target.upsert(record)
-                lastId = record.id
-                migrationDao.upsert(
-                    LocalStorageMigrationStateEntity(
-                        id = stateId,
-                        phase = "Running",
-                        lastDomain = "memory",
-                        lastId = record.id,
-                        startedAtMillis = startedAtMillis,
-                        completedAtMillis = null,
-                        errorJson = null,
-                        schemaVersion = 1,
-                    ),
-                )
-            }
-
-        migrationDao.upsert(
-            LocalStorageMigrationStateEntity(
-                id = stateId,
-                phase = "Completed",
-                lastDomain = "memory",
-                lastId = lastId,
-                startedAtMillis = startedAtMillis,
-                completedAtMillis = System.currentTimeMillis(),
-                errorJson = null,
-                schemaVersion = 1,
-            ),
-        )
-    }
-
-    private fun recordMemoryMigrationFailure(
-        migrationDao: LocalStorageMigrationStateDao,
-        error: Throwable,
-    ) {
-        migrationDao.upsert(
-            LocalStorageMigrationStateEntity(
-                id = "room-memory-to-zvec",
-                phase = "Failed",
-                lastDomain = null,
-                lastId = null,
-                startedAtMillis = System.currentTimeMillis(),
-                completedAtMillis = System.currentTimeMillis(),
-                errorJson = JSONObject()
-                    .put("message", error.message ?: error::class.java.name)
-                    .toString(),
-                schemaVersion = 1,
-            ),
-        )
+    fun close() {
+        containerScope.cancel()
+        remoteRuntime.stop()
+        localRuntime.close()
+        assistantOrchestrator.close()
+        observationActionPlanningRuntime.close()
     }
 
     private fun SolinEvent.Audit.ToolAudited.toToolAuditEvent(): ToolAuditEvent =
@@ -566,6 +446,7 @@ private class SolinViewModelFactory(
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+            deferPersistenceInitialization = true,
         ) as T
     }
 }

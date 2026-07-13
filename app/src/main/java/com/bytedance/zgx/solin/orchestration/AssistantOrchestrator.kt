@@ -70,6 +70,9 @@ interface AssistantRouter : AutoCloseable {
 
     fun cancelRun(runId: String, reason: String): AgentModelObservationResult?
 
+    fun terminateRun(runId: String, reason: String): AgentModelObservationResult? =
+        cancelRun(runId, reason)
+
     /**
      * Queue mid-run steering [messages] for [runId]. When the run is currently mid-model-stream,
      * the in-flight generation is cooperatively cancelled (tool execution is NEVER interrupted for
@@ -258,6 +261,9 @@ class AssistantOrchestrator(
     override fun cancelRun(runId: String, reason: String): AgentModelObservationResult? =
         agentLoopRuntime.cancelRun(runId, reason)
 
+    override fun terminateRun(runId: String, reason: String): AgentModelObservationResult? =
+        agentLoopRuntime.terminateRun(runId, reason)
+
     override fun steerRun(runId: String, messages: List<ChatMessage>): Boolean =
         agentLoopRuntime.steerRun(runId, messages)
 
@@ -400,7 +406,7 @@ class AssistantOrchestrator(
         agentLoopRuntime.publicWebEvidence(runId)
 
     override fun deleteRunsForSession(sessionId: String): Int =
-        traceStore.deleteRunsForSession(sessionId)
+        agentLoopRuntime.deleteRunsForSession(sessionId)
 
     override fun availableToolSpecs(): List<ToolSpec> =
         toolRegistry.specs()
@@ -414,6 +420,7 @@ class AssistantOrchestrator(
         }
 
     override fun close() {
+        agentLoopRuntime.close()
         (actionPlanningRuntime as? AutoCloseable)?.close()
     }
 

@@ -1,13 +1,16 @@
 package com.bytedance.zgx.solin.data
 
+import com.bytedance.zgx.solin.HIGH_QUALITY_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.MEMORY_EMBEDDING_MODEL_ID
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.RecommendedModelCompanionFile
 import com.bytedance.zgx.solin.SetupTier
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.RandomAccessFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -171,6 +174,48 @@ class ModelRepositoryTest {
     }
 
     @Test
+    fun recommendedE4bUsesItsExactSizeAsTransferLimit() {
+        val model = ModelCatalog.recommendedModelOrNull(HIGH_QUALITY_CHAT_MODEL_ID)
+        requireNotNull(model)
+
+        val source = ModelDownloadSource.recommended(model)
+
+        assertEquals(3_659_530_240L, source.maximumTransferBytes())
+        assertEquals(model.byteSize, source.maximumTransferBytes())
+        assertTrue(source.maximumTransferBytes() < CUSTOM_MODEL_MAX_BYTES)
+    }
+
+    @Test
+    fun customModelUsesEightGibAbsoluteTransferLimit() {
+        val source = createCustomModelDownloadSource(
+            "https://models.example.com/releases/custom.litertlm",
+        )
+        requireNotNull(source)
+
+        assertEquals(8L * 1024L * 1024L * 1024L, CUSTOM_MODEL_MAX_BYTES)
+        assertEquals(CUSTOM_MODEL_MAX_BYTES, source.maximumTransferBytes())
+    }
+
+    @Test
+    fun boundedStreamCopyRejectsUnknownSizeBeforeWritingPastLimit() {
+        val output = ByteArrayOutputStream()
+        val copiedProgress = mutableListOf<Long>()
+
+        val failure = runCatching {
+            copyStreamWithByteLimit(
+                input = ChunkedByteInputStream(ByteArray(6), chunkBytes = 2),
+                output = output,
+                maximumBytes = 5L,
+                onBytesCopied = copiedProgress::add,
+            )
+        }
+
+        assertTrue(failure.exceptionOrNull() is ModelTransferSizeLimitExceededException)
+        assertEquals(4, output.size())
+        assertEquals(listOf(2L, 4L), copiedProgress)
+    }
+
+    @Test
     fun currentRecommendedFileVerificationRejectsChangedBytesWithSameSizeAndTimestamp() {
         withTempModelDir { modelDir ->
             val primary = File(modelDir, "tiny-chat.litertlm").apply {
@@ -224,6 +269,104 @@ class ModelRepositoryTest {
             companion.writeText("bad-token", Charsets.UTF_8)
 
             assertFalse(currentFileMatchesRecommendedModel(primary, model))
+        }
+    }
+
+    @Test
+    fun completeRecommendedBundleShapeChecksSizesWithoutRehashingStableFiles() {
+        withTempModelDir { modelDir ->
+            val primary = File(modelDir, "tiny-memory.tflite").apply {
+                writeText("primary", Charsets.UTF_8)
+            }
+            val companion = File(modelDir, "tokenizer.model").apply {
+                writeText("tokenizer", Charsets.UTF_8)
+            }
+            val model = testRecommendedModel(
+                fileName = primary.name,
+                byteSize = primary.length(),
+                sha256Hex = "0".repeat(64),
+                capability = ModelCapability.MemoryEmbedding,
+                companionFiles = listOf(
+                    RecommendedModelCompanionFile(
+                        fileName = companion.name,
+                        byteSize = companion.length(),
+                        sha256Hex = "f".repeat(64),
+                        downloadUrl = "https://models.example.com/${companion.name}",
+                    ),
+                ),
+            )
+
+            assertTrue(hasCompleteRecommendedBundleShape(primary, model))
+            assertFalse(currentFileMatchesRecommendedModel(primary, model))
+
+            companion.writeText("short", Charsets.UTF_8)
+
+            assertFalse(hasCompleteRecommendedBundleShape(primary, model))
+        }
+    }
+
+    @Test
+    fun downloadedRecommendedModelReplacesStaleIncompleteDatabaseEntry() {
+        withTempModelDir { modelDir ->
+            val downloaded = File(modelDir, "tiny-chat.litertlm").apply {
+                writeText("complete")
+            }
+            val model = testRecommendedModel(
+                fileName = downloaded.name,
+                byteSize = downloaded.length(),
+                sha256Hex = ModelCatalog.sha256Hex(downloaded),
+            )
+            val stale = InstalledModelEntity(
+                id = model.id,
+                displayName = model.shortName,
+                path = File(modelDir, "missing.litertlm").absolutePath,
+                fileBytes = 0L,
+                recommendedModelId = model.id,
+                sourceRevision = "old-revision",
+                verifiedSha256 = "0".repeat(64),
+                verificationStatus = ModelVerificationStatus.FailedVerification.name,
+            )
+
+            val reconciled = reconcileDownloadedRecommendedModel(stale, downloaded, model)
+
+            requireNotNull(reconciled)
+            assertEquals(downloaded.absolutePath, reconciled.path)
+            assertEquals(downloaded.length(), reconciled.fileBytes)
+            assertEquals(model.sourceRevision, reconciled.sourceRevision)
+            assertNull(reconciled.verifiedSha256)
+            assertEquals(ModelVerificationStatus.LegacyUnverified.name, reconciled.verificationStatus)
+        }
+    }
+
+    @Test
+    fun downloadedRecommendedModelDoesNotReplaceCompleteExistingEntryOrAcceptPartialFile() {
+        withTempModelDir { modelDir ->
+            val downloaded = File(modelDir, "tiny-chat.litertlm").apply {
+                writeText("complete")
+            }
+            val existingFile = File(modelDir, "existing.litertlm").apply {
+                writeText("existing")
+            }
+            val model = testRecommendedModel(
+                fileName = downloaded.name,
+                byteSize = downloaded.length(),
+                sha256Hex = ModelCatalog.sha256Hex(downloaded),
+            )
+            val completeExisting = InstalledModelEntity(
+                id = model.id,
+                displayName = model.shortName,
+                path = existingFile.absolutePath,
+                fileBytes = model.byteSize,
+                recommendedModelId = model.id,
+                sourceRevision = model.sourceRevision,
+                verifiedSha256 = model.sha256Hex,
+                verificationStatus = ModelVerificationStatus.VerifiedRecommended.name,
+            )
+
+            assertNull(reconcileDownloadedRecommendedModel(completeExisting, downloaded, model))
+
+            downloaded.writeText("partial")
+            assertNull(reconcileDownloadedRecommendedModel(null, downloaded, model))
         }
     }
 
@@ -390,6 +533,57 @@ class ModelRepositoryTest {
     }
 
     @Test
+    fun importModelFileRejectsAdvertisedOversizeBeforeCopy() {
+        withTempModelDir { modelDir ->
+            var copyCalled = false
+
+            val failure = runCatching {
+                importModelFileToModelDir(
+                    modelDir = modelDir,
+                    displayName = "custom-model.litertlm",
+                    sourceSizeBytes = 6L,
+                    usableSpaceBytes = 10L,
+                    maximumBytes = 5L,
+                    copyToTemp = {
+                        copyCalled = true
+                    },
+                )
+            }
+
+            assertTrue(failure.exceptionOrNull() is ModelTransferSizeLimitExceededException)
+            assertFalse(copyCalled)
+            assertNoTemporaryModels(modelDir)
+            assertFalse(File(modelDir, "custom-model.litertlm").exists())
+        }
+    }
+
+    @Test
+    fun importModelFileRejectsFalseSmallSizeAndDeletesTmp() {
+        withTempModelDir { modelDir ->
+            val failure = runCatching {
+                importModelFileToModelDir(
+                    modelDir = modelDir,
+                    displayName = "custom-model.litertlm",
+                    sourceSizeBytes = 1L,
+                    usableSpaceBytes = 10L,
+                    maximumBytes = 5L,
+                    copyToTemp = { tempTarget ->
+                        ChunkedByteInputStream(ByteArray(6), chunkBytes = 2).use { input ->
+                            tempTarget.outputStream().use { output ->
+                                copyStreamWithByteLimit(input, output, maximumBytes = 5L)
+                            }
+                        }
+                    },
+                )
+            }
+
+            assertTrue(failure.exceptionOrNull() is ModelTransferSizeLimitExceededException)
+            assertNoTemporaryModels(modelDir)
+            assertFalse(File(modelDir, "custom-model.litertlm").exists())
+        }
+    }
+
+    @Test
     fun importModelFileRejectsEmptyCopiedFileAndDeletesTmp() {
         withTempModelDir { modelDir ->
             val failure = runCatching {
@@ -464,6 +658,28 @@ class ModelRepositoryTest {
             block(file)
         } finally {
             file.delete()
+        }
+    }
+
+    private class ChunkedByteInputStream(
+        private val bytes: ByteArray,
+        private val chunkBytes: Int,
+    ) : InputStream() {
+        private var position = 0
+
+        override fun read(): Int =
+            if (position >= bytes.size) {
+                -1
+            } else {
+                bytes[position++].toInt() and 0xff
+            }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            if (position >= bytes.size) return -1
+            val count = minOf(chunkBytes, length, bytes.size - position)
+            bytes.copyInto(buffer, offset, position, position + count)
+            position += count
+            return count
         }
     }
 

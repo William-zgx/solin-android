@@ -25,6 +25,8 @@ import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import java.util.UUID
 
@@ -83,6 +85,15 @@ interface AgentTraceStore {
     fun createRun(input: String, sessionId: String? = null): AgentRun
     fun run(runId: String): AgentRun?
     fun updateState(runId: String, state: AgentRunState): AgentRun
+    fun compareAndSetState(
+        runId: String,
+        expectedState: AgentRunState,
+        state: AgentRunState,
+    ): AgentRun? = synchronized(this) {
+        val current = run(runId) ?: return@synchronized null
+        if (current.state != expectedState) return@synchronized null
+        updateState(runId, state)
+    }
     fun appendStep(runId: String, step: AgentStep)
     fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry)
     fun verboseTrace(runId: String): List<VerboseTraceEntry>
@@ -103,12 +114,12 @@ class InMemoryAgentTraceStore(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : AgentTraceStore {
     private val nextRunId = AtomicLong(0L)
-    private val runs = linkedMapOf<String, AgentRun>()
-    private val runSteps = linkedMapOf<String, MutableList<AgentStep>>()
-    private val runStepSummaries = linkedMapOf<String, MutableList<AgentTraceStepSummary>>()
-    private val runVerboseTraces = linkedMapOf<String, MutableList<VerboseTraceEntry>>()
-    private val pendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
-    private val continuationCursors = linkedMapOf<String, AgentContinuationCursor>()
+    private val runs = ConcurrentHashMap<String, AgentRun>()
+    private val runSteps = ConcurrentHashMap<String, CopyOnWriteArrayList<AgentStep>>()
+    private val runStepSummaries = ConcurrentHashMap<String, CopyOnWriteArrayList<AgentTraceStepSummary>>()
+    private val runVerboseTraces = ConcurrentHashMap<String, CopyOnWriteArrayList<VerboseTraceEntry>>()
+    private val pendingConfirmations = ConcurrentHashMap<String, PendingToolConfirmationSnapshot>()
+    private val continuationCursors = ConcurrentHashMap<String, AgentContinuationCursor>()
 
     override fun createRun(input: String, sessionId: String?): AgentRun {
         val now = clockMillis()
@@ -121,9 +132,9 @@ class InMemoryAgentTraceStore(
             sessionId = sessionId,
         )
         runs[run.id] = run
-        runSteps[run.id] = mutableListOf()
-        runStepSummaries[run.id] = mutableListOf()
-        runVerboseTraces[run.id] = mutableListOf()
+        runSteps[run.id] = CopyOnWriteArrayList()
+        runStepSummaries[run.id] = CopyOnWriteArrayList()
+        runVerboseTraces[run.id] = CopyOnWriteArrayList()
         return run
     }
 
@@ -144,20 +155,46 @@ class InMemoryAgentTraceStore(
         return updated
     }
 
+    override fun compareAndSetState(
+        runId: String,
+        expectedState: AgentRunState,
+        state: AgentRunState,
+    ): AgentRun? {
+        var updated: AgentRun? = null
+        runs.compute(runId) { _, current ->
+            if (current == null || current.state != expectedState) {
+                current
+            } else {
+                current.copy(
+                    state = state,
+                    updatedAtMillis = clockMillis(),
+                ).also { next -> updated = next }
+            }
+        }
+        if (updated?.state?.isTerminal() == true) {
+            pendingConfirmations.remove(runId)
+            continuationCursors.remove(runId)
+        }
+        return updated
+    }
+
     override fun appendStep(runId: String, step: AgentStep) {
-        val steps = runSteps.getValue(runId)
-        runStepSummaries.getValue(runId).add(
-            step.toTraceStepSummary(
-                runId = runId,
-                position = steps.size,
-                createdAtMillis = clockMillis(),
-            ),
-        )
-        steps.add(step)
+        val steps = runSteps[runId] ?: error("Agent run not found: $runId")
+        val summaries = runStepSummaries[runId] ?: error("Agent run not found: $runId")
+        synchronized(steps) {
+            summaries.add(
+                step.toTraceStepSummary(
+                    runId = runId,
+                    position = steps.size,
+                    createdAtMillis = clockMillis(),
+                ),
+            )
+            steps.add(step)
+        }
     }
 
     override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
-        runVerboseTraces.getOrPut(runId) { mutableListOf() }.add(entry)
+        runVerboseTraces.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(entry)
     }
 
     override fun verboseTrace(runId: String): List<VerboseTraceEntry> =
@@ -267,12 +304,12 @@ class RoomAgentTraceStore(
     private val runIdFactory: () -> String = { "run-${UUID.randomUUID()}" },
     private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : AgentTraceStore {
-    private val liveRuns = linkedMapOf<String, AgentRun>()
-    private val liveSteps = linkedMapOf<String, MutableList<AgentStep>>()
-    private val liveVerboseTraces = linkedMapOf<String, MutableList<VerboseTraceEntry>>()
-    private val livePendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
-    private val liveNextActionInputs = linkedMapOf<String, String>()
-    private val liveContinuationCursors = linkedMapOf<String, AgentContinuationCursor>()
+    private val liveRuns = ConcurrentHashMap<String, AgentRun>()
+    private val liveSteps = ConcurrentHashMap<String, CopyOnWriteArrayList<AgentStep>>()
+    private val liveVerboseTraces = ConcurrentHashMap<String, CopyOnWriteArrayList<VerboseTraceEntry>>()
+    private val livePendingConfirmations = ConcurrentHashMap<String, PendingToolConfirmationSnapshot>()
+    private val liveNextActionInputs = ConcurrentHashMap<String, String>()
+    private val liveContinuationCursors = ConcurrentHashMap<String, AgentContinuationCursor>()
 
     override fun createRun(input: String, sessionId: String?): AgentRun {
         val now = clockMillis()
@@ -285,8 +322,8 @@ class RoomAgentTraceStore(
             sessionId = sessionId,
         )
         liveRuns[run.id] = run
-        liveSteps[run.id] = mutableListOf()
-        liveVerboseTraces[run.id] = mutableListOf()
+        liveSteps[run.id] = CopyOnWriteArrayList()
+        liveVerboseTraces[run.id] = CopyOnWriteArrayList()
         // Persist to Room, but never let a DB failure prevent the run from being
         // usable. The in-memory maps (liveRuns, liveSteps, etc.) are the source
         // of truth for the active run; the DB is a write-through cache for
@@ -342,6 +379,51 @@ class RoomAgentTraceStore(
             ?: error("Agent run not found: $runId")
     }
 
+    override fun compareAndSetState(
+        runId: String,
+        expectedState: AgentRunState,
+        state: AgentRunState,
+    ): AgentRun? {
+        val now = clockMillis()
+        val persistedUpdated = runCatching {
+            traceDao.compareAndSetRunState(
+                runId = runId,
+                expectedState = expectedState.name,
+                state = state.name,
+                updatedAtMillis = now,
+            )
+        }.getOrNull()
+        val updated = persistedUpdated?.let { persistedRun ->
+            liveRuns.compute(runId) { _, liveRun ->
+                liveRun?.copy(
+                    state = state,
+                    updatedAtMillis = now,
+                ) ?: persistedRun.toDomain()
+            } ?: persistedRun.toDomain()
+        } ?: run {
+            if (runCatching { traceDao.run(runId) }.getOrNull() != null) return null
+            var liveUpdated: AgentRun? = null
+            liveRuns.compute(runId) { _, current ->
+                if (current == null || current.state != expectedState) {
+                    current
+                } else {
+                    current.copy(
+                        state = state,
+                        updatedAtMillis = now,
+                    ).also { next -> liveUpdated = next }
+                }
+            }
+            liveUpdated ?: return null
+        }
+        if (state.isTerminal()) {
+            livePendingConfirmations.remove(runId)
+            liveNextActionInputs.remove(runId)
+            liveContinuationCursors.remove(runId)
+            runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
+        }
+        return updated
+    }
+
     override fun appendStep(runId: String, step: AgentStep) {
         val now = clockMillis()
         // DB operations are best-effort; the in-memory lists are the source of
@@ -349,18 +431,25 @@ class RoomAgentTraceStore(
         // createRun's upsert failed), we skip the DB write rather than throwing.
         val runExistsInDb = runCatching { traceDao.run(runId) != null }.getOrDefault(false)
         if (runExistsInDb) {
-            val position = runCatching { traceDao.nextStepPosition(runId) }.getOrDefault(0)
-            runCatching { traceDao.insertStep(step.toEntity(runId, position, now)) }
+            runCatching {
+                traceDao.insertNextStep(
+                    step.toEntity(
+                        runId = runId,
+                        position = 0,
+                        createdAtMillis = now,
+                    ),
+                )
+            }
             runCatching { traceDao.touchRun(runId, now) }
         }
         liveRuns[runId]?.let { liveRun ->
             liveRuns[runId] = liveRun.copy(updatedAtMillis = now)
         }
-        liveSteps.getOrPut(runId) { mutableListOf() }.add(step)
+        liveSteps.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(step)
     }
 
     override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
-        liveVerboseTraces.getOrPut(runId) { mutableListOf() }.add(entry)
+        liveVerboseTraces.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(entry)
     }
 
     override fun verboseTrace(runId: String): List<VerboseTraceEntry> =
@@ -627,7 +716,7 @@ class RoomAgentTraceStore(
     }
 
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
-        val steps = liveSteps.getOrPut(snapshot.run.id) { mutableListOf() }
+        val steps = liveSteps.computeIfAbsent(snapshot.run.id) { CopyOnWriteArrayList() }
         traceDao.steps(snapshot.run.id)
             .mapNotNull { entity -> entity.toRestoredToolRequestedOrNull() }
             .filterNot { step -> step.request.id == snapshot.request.id }
@@ -670,6 +759,7 @@ private fun AgentRunState.isStaleAfterProcessRestart(): Boolean =
         AgentRunState.RetryingTool,
         AgentRunState.Observing,
         AgentRunState.GeneratingAnswer,
+        AgentRunState.AwaitingUserAnswer,
     )
 
 private fun AgentRunState.isTerminal(): Boolean =
