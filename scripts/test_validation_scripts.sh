@@ -3167,6 +3167,9 @@ if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
 for required in (
     "runs-on: ubuntu-24.04-arm",
+    "accept-android-sdk-licenses: false",
+    "Accept Android SDK licenses",
+    "yes | sdkmanager --licenses >/dev/null",
     "Enable native ARM emulator KVM",
     'KERNEL=="kvm", GROUP="kvm", MODE="0666"',
     'test -r /dev/kvm',
@@ -3182,6 +3185,9 @@ if "java-version: \"21\"" not in verify_block:
     fail("verify must use JDK 21 for localagents-rag generated classes")
 for required in (
     "runs-on: ubuntu-24.04-arm",
+    "accept-android-sdk-licenses: false",
+    "Accept Android SDK licenses",
+    "yes | sdkmanager --licenses >/dev/null",
     "Enable native ARM emulator KVM",
     'REQUIRED_APIS="28 32 33 34 36"',
     "ALLOW_EMULATOR_INFRA_UNAVAILABLE=0",
