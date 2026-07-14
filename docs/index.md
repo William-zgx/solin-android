@@ -15,13 +15,19 @@ flowchart TD
     Need --> Brand["Check brand, listing, or policy facts"]
     Need --> Evidence["Record verification evidence"]
     Need --> Plans["Plan a future refactor"]
+    Need --> AgentStart["Coding agent onboarding"]
 
     Plans --> PlansDir["plans/"]
+    Plans --> Weaknesses["optimization_plan_weaknesses.md"]
+    AgentStart --> AgentsMd["../AGENTS.md"]
+    AgentStart --> Guidebook["../Guidebook.md"]
+    AgentStart --> Weaknesses
     Run --> Readme["README.md"]
     Explain --> Privacy["privacy_notice.md"]
     Architecture --> Core["agent_core_modules.md"]
     Architecture --> Harness["harness_architecture_improvements.md"]
     Architecture --> Routing["intent_routing_skill_arbitration.md"]
+    Architecture --> Weaknesses
     ScreenOps --> Core
     ScreenOps --> Phone["phone_acceptance.md"]
     Models --> Manifest["model_manifest.md"]
@@ -41,7 +47,10 @@ flowchart TD
 | Document | Role | Keep it focused on |
 | --- | --- | --- |
 | `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, how to build, where to go next |
+| `../AGENTS.md` | Coding-agent harness protocol | Must-read docs, code roots, non-negotiables, god objects, validation, Wave ownership |
+| `../Guidebook.md` | Short architecture index | Human/agent map into `docs/` and code packages |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
+| `optimization_plan_weaknesses.md` | Structural debt & Wave plan | Known weaknesses, thin-facade target, multi-agent file ownership, Wave metrics |
 | `ai_friendly_architecture_multi_agent_plan.md` | Architecture refactor plan | Multi-agent waves, target boundaries, verification gates |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_driven_app_control_multi_agent_plan.md` | Model-driven app control plan | Multi-agent development split, runtime observe-act contract, acceptance |
@@ -172,3 +181,5 @@ Four detailed migration plans:
 - Release evidence flow: `release_checklist.md`.
 - AI behavior evidence flow: `ai_behavior_eval_plan.md`.
 - Architecture refactor plans: docs/plans/
+- Structural debt waves & ownership: `optimization_plan_weaknesses.md`.
+- Coding-agent entry: `../AGENTS.md`, short map: `../Guidebook.md`.
