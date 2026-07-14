@@ -309,7 +309,10 @@ class CapabilityMatrixDocumentationTest {
     fun sensitiveDisclosuresHaveExplicitUiAndTestAnchors() {
         val anchorsByCapability = mapOf(
             "remote_model_send" to listOf(
-                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt", "remote_send_disclosure_sheet"),
+                SourceAnchor(
+                    "app/src/main/java/com/bytedance/zgx/solin/ui/components/RemoteSendDisclosureSheet.kt",
+                    "remote_send_disclosure_sheet",
+                ),
                 SourceAnchor("app/src/test/java/com/bytedance/zgx/solin/ui/SolinScreenDisplayTest.kt", "remoteSendDisclosureRowsNameDestinationAndProtectedData"),
             ),
             "voice_transcript_input" to listOf(
@@ -322,7 +325,10 @@ class CapabilityMatrixDocumentationTest {
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityAdaptiveUiTest.kt", "remote_attachment_protection_notice"),
             ),
             "confirmed_device_actions" to listOf(
-                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt", "action_confirm_button"),
+                SourceAnchor(
+                    "app/src/main/java/com/bytedance/zgx/solin/ui/components/ActionDraftSheet.kt",
+                    "action_confirm_button",
+                ),
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySkillUiTest.kt", "action_dismiss_button"),
             ),
             "contacts_calendar_reads" to listOf(
@@ -335,11 +341,17 @@ class CapabilityMatrixDocumentationTest {
             ),
             "usage_stats_foreground_app" to listOf(
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySpecialAccessUiTest.kt", "foregroundAppConfirmationShowsUsageAccessRequirementWithoutRuntimePermission"),
-                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt", "special_access_requirements"),
+                SourceAnchor(
+                    "app/src/main/java/com/bytedance/zgx/solin/ui/components/ActionDraftSheet.kt",
+                    "special_access_requirements",
+                ),
             ),
             "accessibility_current_screen_text" to listOf(
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySpecialAccessUiTest.kt", "currentScreenTextConfirmationShowsSpecialAccessRequirementWithoutRuntimePermission"),
-                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt", "special_access_requirements"),
+                SourceAnchor(
+                    "app/src/main/java/com/bytedance/zgx/solin/ui/components/ActionDraftSheet.kt",
+                    "special_access_requirements",
+                ),
             ),
             "media_projection_screenshot_ocr" to listOf(
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivitySkillUiTest.kt", "currentScreenshotOcrSkillShowsOneShotMediaProjectionConfirmation"),
