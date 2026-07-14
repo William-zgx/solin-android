@@ -25,6 +25,10 @@ internal fun resetMainActivityPersistentState(
     settingsStore.saveInferenceMode(inferenceMode)
     settingsStore.saveRemoteConfig(remoteModelConfig)
     settingsStore.saveActiveSessionId("")
+    // Clear model selection so later UI tests do not inherit a half-loaded local path
+    // (skip-startup instrumentation would leave isReady=false and change empty-state copy).
+    settingsStore.saveActiveInstalledModelId(null)
+    settingsStore.saveSelectedModelId(DEFAULT_CHAT_MODEL_ID)
     FirstRunSetupRepository(settingsStore).apply {
         markSetupDismissed()
         setMemoryEnabled(true)
@@ -39,6 +43,8 @@ internal fun resetMainActivityFreshInstallState(context: Context) {
     settingsStore.saveInferenceMode(InferenceMode.Local)
     settingsStore.saveRemoteConfig(RemoteModelConfig())
     settingsStore.saveActiveSessionId("")
+    settingsStore.saveActiveInstalledModelId(null)
+    settingsStore.saveSelectedModelId(DEFAULT_CHAT_MODEL_ID)
     settingsStore.clearSetupDismissed()
     FirstRunSetupRepository(settingsStore).setMemoryEnabled(true)
     resetTransientDatabaseState(context)
@@ -70,6 +76,10 @@ private val transientStateTables = listOf(
     "scheduled_tasks",
     "chat_messages",
     "chat_sessions",
+    // Model registry rows must not leak across instrumentation cases: a leftover
+    // active model path with skip-startup makes empty-state/banner copy switch to
+    // the "loading local model" branch and breaks smoke/first-run assertions.
+    "installed_models",
 )
 
 internal fun mainActivitySkipStartupIntent(context: Context): Intent =
