@@ -11,14 +11,11 @@ import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.checkPublicWebAnswerCitations
 import com.bytedance.zgx.solin.publicWebEvidencePackFromToolResultData
 import com.bytedance.zgx.solin.publicWebEvidencePacksFromToolResults
-import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
-import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.IntentRoutingDecision
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
-import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
 import com.bytedance.zgx.solin.audit.ToolAuditEvent
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
@@ -27,33 +24,22 @@ import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
-import com.bytedance.zgx.solin.plan.PlanItemStatus
-import com.bytedance.zgx.solin.plan.PlanSnapshot
 import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.undo.UndoEntry
 import com.bytedance.zgx.solin.undo.UndoPlan
-import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
-import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
-import com.bytedance.zgx.solin.skill.SkillModelOutputProgression
 import com.bytedance.zgx.solin.skill.SkillModelStepBinding
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.skill.SkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRunProgressor
 import com.bytedance.zgx.solin.skill.SkillStep
-import com.bytedance.zgx.solin.skill.SkillToolResultProgression
-import com.bytedance.zgx.solin.skill.authorizationContractHash
-import com.bytedance.zgx.solin.skill.validateStructure
-import com.bytedance.zgx.solin.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.orchestration.ToolErrorCode as OrchestrationToolErrorCode
-import com.bytedance.zgx.solin.tool.ToolCapability
-import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
@@ -69,8 +55,6 @@ import com.bytedance.zgx.solin.tool.isUserConfirmedCompletedExternalOutcome
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.solin.tool.rejected
 import com.bytedance.zgx.solin.tool.succeeded
-import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
-import com.bytedance.zgx.solin.tool.unverifiedExternalLaunchSummary
 import org.json.JSONArray
 import org.json.JSONObject
 import android.util.Log
@@ -86,12 +70,7 @@ import kotlinx.coroutines.launch
 
 private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
 private const val RUN_CANCELLED_REASON = "Agent run was cancelled by the user."
-private const val TOOL_STEP_BUDGET_EXCEEDED_REASON = "Agent run tool step budget exceeded."
-private const val OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON =
-    "Agent run observation decision budget exceeded."
-private const val DEVICE_CONTROL_FAILURE_RECOVERY_REASON = "Device control failure recovery checkpoint."
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
-private const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
 private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
 private const val TAG = "AgentLoopRuntime"
 private const val PUBLIC_EVIDENCE_CITATION_RETRY_REASON = "public_evidence_citation_retry"
@@ -187,6 +166,377 @@ class AgentLoopRuntime(
     private val installedCapabilityProfilesByRunId = java.util.concurrent.ConcurrentHashMap<String, List<ModelCapabilityProfile>>()
     private val profilesByRunId = java.util.concurrent.ConcurrentHashMap<String, AgentProfile>()
     private val scratchpad = com.bytedance.zgx.solin.memory.PerRunScratchpad()
+
+    private val runBudget = AgentRunBudget(
+        maxRunToolSteps = maxRunToolSteps,
+        maxObservationDecisions = maxObservationDecisions,
+        profilesByRunId = profilesByRunId,
+        toolRequestsFor = { runId -> toolRequestsFor(runId) },
+        observationDecidedCount = { runId ->
+            traceStore.steps(runId).count { step -> step is AgentStep.ObservationDecided }
+        },
+        sessionPlanStore = sessionPlanStore,
+    )
+    private val initialToolPlanner = InitialToolPlanner(
+        toolRegistry = toolRegistry,
+        skillRuntime = skillRuntime,
+        safetyPolicy = safetyPolicy,
+        actionPlanningRuntime = actionPlanningRuntime,
+        traceStore = traceStore,
+    )
+    private val toolPlanCoordinator = ToolPlanCoordinator(
+        toolRegistry = toolRegistry,
+        skillRuntime = skillRuntime,
+        skillProgressor = skillProgressor,
+        observationReplanner = observationReplanner,
+        actionPlanningRuntime = actionPlanningRuntime,
+        traceStore = traceStore,
+        safetyPolicy = safetyPolicy,
+        runBudget = runBudget,
+        host = object : ToolPlanCoordinator.Host {
+            override fun latestSkillPlan(runId: String): SkillPlan? =
+                this@AgentLoopRuntime.latestSkillPlan(runId)
+
+            override fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
+                this@AgentLoopRuntime.latestModelDrivenAppSearchSkillPlan(runId)
+
+            override fun invalidSkillPlanReason(skillPlan: SkillPlan?): String? =
+                initialToolPlanner.invalidSkillPlanReason(skillPlan)
+
+            override fun invalidSkillPlanRejection(request: ToolRequest, skillPlan: SkillPlan?): ToolResult? =
+                initialToolPlanner.invalidSkillPlanRejection(request, skillPlan)
+
+            override fun toolRequestsFor(runId: String): List<ToolRequest> =
+                this@AgentLoopRuntime.toolRequestsFor(runId)
+
+            override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
+                this@AgentLoopRuntime.toolRequestFor(runId, requestId)
+
+            override fun plannedSequentialSegmentCount(runId: String): Int =
+                this@AgentLoopRuntime.plannedSequentialSegmentCount(runId)
+
+            override fun nextSequentialSegmentInput(run: AgentRun, completedSegmentCount: Int): String? =
+                initialToolPlanner.nextSequentialSegmentInput(run, completedSegmentCount)
+
+            override fun hasMobileActionPlanningModel(
+                installedCapabilityProfiles: List<ModelCapabilityProfile>,
+            ): Boolean = initialToolPlanner.hasMobileActionPlanningModel(installedCapabilityProfiles)
+
+            override fun installedCapabilityProfiles(runId: String): List<ModelCapabilityProfile> =
+                installedCapabilityProfilesByRunId[runId].orEmpty()
+
+            override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> =
+                valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()
+
+            override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
+                plan.withConfirmationBypassForRun(runId)
+
+            override fun withLowRiskAppControlContinuationBypass(
+                runId: String,
+                plan: AgentPlan.UseTool,
+                skillPlan: SkillPlan?,
+            ): AgentPlan.UseTool = plan.withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
+
+            override fun auditRejectedTool(runId: String, result: ToolResult) =
+                this@AgentLoopRuntime.auditRejectedTool(runId, result)
+        },
+    )
+
+    private val toolObservationCoordinator = ToolObservationCoordinator(
+        toolRegistry = toolRegistry,
+        auditSink = auditSink,
+        eventBus = eventBus,
+        traceStore = traceStore,
+        toolPlanCoordinator = toolPlanCoordinator,
+        runBudget = runBudget,
+        maxToolRetryAttempts = maxToolRetryAttempts,
+        host = object : ToolObservationCoordinator.Host {
+            override val terminalRunStates: Set<AgentRunState>
+                get() = this@AgentLoopRuntime.terminalRunStates
+
+            override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
+                this@AgentLoopRuntime.toolRequestFor(runId, requestId)
+
+            override fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? =
+                this@AgentLoopRuntime.latestPlanToolBatch(runId)
+
+            override fun latestExecutableRequestId(runId: String): String? =
+                this@AgentLoopRuntime.latestExecutableRequestId(runId)
+
+            override fun continuationForToolObservation(
+                run: AgentRun,
+                request: ToolRequest?,
+                result: ToolResult,
+            ): ToolObservationContinuation? =
+                this@AgentLoopRuntime.continuationForToolObservation(run, request, result)
+
+            override fun redactedForTrace(result: ToolResult, request: ToolRequest?): ToolResult =
+                result.redactedForTrace(request)
+
+            override fun failObservationBudget(
+                runId: String,
+                result: ToolResult,
+                assistantMessage: String,
+                reason: String,
+            ): AgentObservationResult? =
+                this@AgentLoopRuntime.failObservationBudget(runId, result, assistantMessage, reason)
+
+            override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
+                this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
+
+            override fun parkForTakeOver(runId: String, prompt: String?, result: ToolResult) {
+                this@AgentLoopRuntime.parkForTakeOver(runId, prompt, result)
+            }
+
+            override fun shouldAwaitExternalOutcomeConfirmation(
+                runId: String,
+                request: ToolRequest,
+                result: ToolResult,
+            ): Boolean = this@AgentLoopRuntime.shouldAwaitExternalOutcomeConfirmation(runId, request, result)
+
+            override fun skillIdForRequest(runId: String, requestId: String): String? =
+                this@AgentLoopRuntime.skillIdForRequest(runId, requestId)
+
+            override fun clearEphemeralRunState(runId: String) {
+                this@AgentLoopRuntime.clearEphemeralRunState(runId)
+            }
+
+            override fun auditToolRequest(
+                runId: String,
+                request: ToolRequest,
+                eventType: ToolAuditEventType,
+                status: ToolStatus?,
+                summary: String,
+            ) {
+                this@AgentLoopRuntime.auditToolRequest(
+                    runId = runId,
+                    request = request,
+                    eventType = eventType,
+                    status = status,
+                    summary = summary,
+                )
+            }
+
+            override fun auditRejectedTool(runId: String, result: ToolResult) {
+                this@AgentLoopRuntime.auditRejectedTool(runId, result)
+            }
+
+            override fun auditToolEvent(
+                runId: String,
+                plan: AgentPlan.UseTool,
+                eventType: ToolAuditEventType,
+                status: ToolStatus?,
+                summary: String,
+            ) {
+                this@AgentLoopRuntime.auditToolEvent(runId, plan, eventType, status, summary)
+            }
+
+            override fun publishRunEnded(runId: String, finalText: String?) {
+                this@AgentLoopRuntime.publishRunEnded(runId, finalText = finalText)
+            }
+
+            override fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) {
+                this@AgentLoopRuntime.publishRunFailed(runId, code, message)
+            }
+
+            override fun markStepStart(stepType: String) {
+                this@AgentLoopRuntime.markStepStart(stepType)
+            }
+
+            override fun recordVerboseTrace(
+                runId: String,
+                thinkText: String?,
+                actionSummary: String?,
+                actionToolName: String?,
+                observationSummary: String?,
+            ) {
+                this@AgentLoopRuntime.recordVerboseTrace(
+                    runId = runId,
+                    thinkText = thinkText,
+                    actionSummary = actionSummary,
+                    actionToolName = actionToolName,
+                    observationSummary = observationSummary,
+                )
+            }
+
+            override fun safeRecordTelemetry(sample: MetricSample, label: String) {
+                this@AgentLoopRuntime.safeRecordTelemetry(sample, label)
+            }
+
+            override fun recordStepLatency(stepType: String, runId: String?) {
+                this@AgentLoopRuntime.recordStepLatency(stepType, runId)
+            }
+
+            override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
+                plan.withConfirmationBypassForRun(runId)
+
+            override fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
+                pendingConfirmationSupport.toPendingSnapshot(plan, run)
+
+            override fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult =
+                this@AgentLoopRuntime.failInitialPlanBudget(run, request)
+
+            override fun addScratchpadNote(runId: String, noteContent: String) {
+                runCatching { scratchpad.addNote(runId, noteContent) }
+                    .onFailure { Log.e(TAG, "Scratchpad note failed", it) }
+            }
+
+            override fun applyUndoBookkeeping(
+                runId: String,
+                request: ToolRequest,
+                safeResult: ToolResult,
+                observedStatus: ToolStatus,
+            ) {
+                runCatching {
+                    when (observedStatus) {
+                        ToolStatus.Succeeded -> {
+                            val policy = toolRegistry.undoPolicyFor(request.toolName)
+                            val undoPlan = policy?.planUndoAfter(request, safeResult)
+                            when (undoPlan) {
+                                is UndoPlan.CompensatingTool -> {
+                                    synchronized(undoStack) {
+                                        undoStack.clear()
+                                        val now = System.currentTimeMillis()
+                                        undoStack.push(
+                                            UndoEntry(
+                                                sourceRunId = runId,
+                                                sourceRequestId = request.id,
+                                                toolName = request.toolName,
+                                                plan = undoPlan,
+                                                availableUntilMillis = now + undoPlan.ttlMillis,
+                                                createdAtMillis = now,
+                                            ),
+                                        )
+                                    }
+                                    eventBus.publish(
+                                        SolinEvent.Agent.UndoPushed(
+                                            runId = runId,
+                                            sourceRequestId = request.id,
+                                            toolName = request.toolName,
+                                            summary = undoPlan.summary,
+                                            availableUntilMillis = System.currentTimeMillis() + undoPlan.ttlMillis,
+                                        ),
+                                    )
+                                }
+                                is UndoPlan.NotApplicable,
+                                is UndoPlan.ExternalHandoff,
+                                is UndoPlan.NotUndoable,
+                                null -> {
+                                    synchronized(undoStack) { undoStack.clear() }
+                                }
+                            }
+                        }
+                        ToolStatus.Failed,
+                        ToolStatus.Rejected,
+                        ToolStatus.Cancelled -> {
+                            synchronized(undoStack) { undoStack.clear() }
+                        }
+                    }
+                }.onFailure { throwable ->
+                    Log.e(TAG, "Undo bookkeeping failed; clearing stack safely", throwable)
+                    runCatching { synchronized(undoStack) { undoStack.clear() } }
+                }
+            }
+
+            override fun markToolDispatchStarted(requestId: String) {
+                toolDispatchStartedAtMillis[requestId] = System.currentTimeMillis()
+            }
+
+            override fun consumeToolDispatchLatencyMs(requestId: String): Long {
+                val toolStartMs = toolDispatchStartedAtMillis.remove(requestId)
+                return toolStartMs?.let { System.currentTimeMillis() - it } ?: 0L
+            }
+
+            override fun bumpAndGetTurnIndex(runId: String): Int =
+                runTurnIndex.compute(runId) { _, old -> (old ?: 0) + 1 }!!
+
+            override fun setRemoteToolScope(runId: String, scope: RemoteToolScope) {
+                remoteToolScopesByRunId[runId] = scope
+            }
+
+            override fun toOrchestrationErrorCode(code: ToolErrorCode?): OrchestrationToolErrorCode =
+                code.toOrchestrationErrorCode()
+
+            override fun publicEvidenceBatchResultOrFailure(
+                result: ToolResult,
+                request: ToolRequest,
+            ): ToolResult = result.publicEvidenceBatchResultOrFailure(request)
+
+            override fun publicEvidenceBatchAuditSummary(
+                successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
+            ): String = successfulPairs.publicEvidenceBatchAuditSummary()
+
+            override fun publicEvidenceBatchContinuationPrompt(
+                run: AgentRun,
+                observedPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
+                successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
+                gapPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
+            ): String? = this@AgentLoopRuntime.publicEvidenceBatchContinuationPrompt(
+                run = run,
+                observedPairs = observedPairs,
+                successfulPairs = successfulPairs,
+                gapPairs = gapPairs,
+            )
+        },
+    )
+
+    private val pendingConfirmationSupport = PendingConfirmationSupport(
+        toolRegistry = toolRegistry,
+        traceStore = traceStore,
+        initialToolPlanner = initialToolPlanner,
+        valueFreeCompletedStepFrontiersByRunId = valueFreeCompletedStepFrontiersByRunId,
+        host = object : PendingConfirmationSupport.Host {
+            override fun plannedSequentialSegmentCount(runId: String): Int =
+                this@AgentLoopRuntime.plannedSequentialSegmentCount(runId)
+
+            override fun auditRejectedTool(runId: String, result: ToolResult) =
+                this@AgentLoopRuntime.auditRejectedTool(runId, result)
+
+            override fun clearEphemeralRunState(runId: String) =
+                this@AgentLoopRuntime.clearEphemeralRunState(runId)
+        },
+    )
+
+    private val modelToolRequestCoordinator = ModelToolRequestCoordinator(
+        toolRegistry = toolRegistry,
+        skillRuntime = skillRuntime,
+        safetyPolicy = safetyPolicy,
+        traceStore = traceStore,
+        toolObservationCoordinator = toolObservationCoordinator,
+        runBudget = runBudget,
+        initialToolPlanner = initialToolPlanner,
+        host = object : ModelToolRequestCoordinator.Host {
+            override fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult? =
+                this@AgentLoopRuntime.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)
+
+            override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
+                this@AgentLoopRuntime.toolRequestFor(runId, requestId)
+
+            override fun toolRequestsFor(runId: String): List<ToolRequest> =
+                this@AgentLoopRuntime.toolRequestsFor(runId)
+
+            override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? =
+                this@AgentLoopRuntime.failRunBudget(runId, reason)
+
+            override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
+                plan.withConfirmationBypassForRun(runId)
+
+            override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
+                this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
+
+            override fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
+                pendingConfirmationSupport.toPendingSnapshot(plan, run)
+
+            override fun auditRejectedTool(runId: String, result: ToolResult) =
+                this@AgentLoopRuntime.auditRejectedTool(runId, result)
+
+            override fun clearEphemeralRunState(runId: String) =
+                this@AgentLoopRuntime.clearEphemeralRunState(runId)
+
+            override fun markStepStart(stepType: String) =
+                this@AgentLoopRuntime.markStepStart(stepType)
+        },
+    )
 
     // Wave 2 SolinEvent lifecycle bookkeeping. Tracks per-run wall-clock start time and turn index
     // so TurnStarted/TurnEnded/RunEnded events carry monotonic counters without disturbing the
@@ -342,16 +692,16 @@ class AgentLoopRuntime(
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
 
         val initialToolPlan = when (options.initialPlanningMode) {
-            InitialPlanningMode.RuleFirst -> planToolIfSupported(
+            InitialPlanningMode.RuleFirst -> initialToolPlanner.planToolIfSupported(
                 input = input,
                 installedCapabilityProfiles = installedCapabilityProfiles,
                 actionModelPath = actionModelPath,
             )
-            InitialPlanningMode.ModelFirstRemoteTools -> planLocalOnlySkillBeforeRemote(input)
+            InitialPlanningMode.ModelFirstRemoteTools -> initialToolPlanner.planLocalOnlySkillBeforeRemote(input)
         }
         when (initialToolPlan) {
             is AgentPlan.UseTool -> {
-                return requestToolConfirmation(createdRun, initialToolPlan)
+                return toolObservationCoordinator.requestToolConfirmation(createdRun, initialToolPlan)
             }
 
             is AgentPlan.RejectedTool -> {
@@ -375,7 +725,7 @@ class AgentLoopRuntime(
             }
 
             is AgentPlan.MissingModel -> {
-                return failMissingModelPlan(createdRun, initialToolPlan)
+                return toolObservationCoordinator.failMissingModelPlan(createdRun, initialToolPlan)
             }
 
             null -> Unit
@@ -420,7 +770,7 @@ class AgentLoopRuntime(
         traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(emptyList()))
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
         return when (
-            val plan = buildInitialToolPlan(
+            val plan = initialToolPlanner.buildInitialToolPlan(
                 request = recovery.request,
                 draft = recovery.draft,
                 plannedByModel = false,
@@ -428,8 +778,8 @@ class AgentLoopRuntime(
                 skillPlan = null,
             )
         ) {
-            is AgentPlan.UseTool -> requestToolConfirmation(createdRun, plan)
-            is AgentPlan.RejectedTool -> rejectToolPlan(createdRun, plan)
+            is AgentPlan.UseTool -> toolObservationCoordinator.requestToolConfirmation(createdRun, plan)
+            is AgentPlan.RejectedTool -> toolObservationCoordinator.rejectToolPlan(createdRun, plan)
             else -> null
         }
     }
@@ -911,76 +1261,12 @@ class AgentLoopRuntime(
         )
     }
 
-    private fun failNextPlanBudget(
-        runId: String,
-        request: ToolRequest,
-    ): NextObservationPlan {
-        val hintReason = augmentReasonWithStepBudgetHint(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
-        val rejected = request.rejected(hintReason)
-        traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
-        traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-        auditRejectedTool(runId, rejected)
-        traceStore.appendStep(runId, AgentStep.Failed(rejected.summary))
-        return NextObservationPlan.Rejected(rejected.summary)
-    }
-
-    private fun effectiveMaxToolSteps(runId: String): Int =
-        profilesByRunId[runId]?.effectiveMaxToolSteps() ?: maxRunToolSteps
-
-    private fun toolStepBudgetExceeded(runId: String): Boolean =
-        toolRequestsFor(runId).size >= effectiveMaxToolSteps(runId)
-
+    private fun effectiveMaxToolSteps(runId: String): Int = runBudget.effectiveMaxToolSteps(runId)
+    private fun toolStepBudgetExceeded(runId: String): Boolean = runBudget.toolStepBudgetExceeded(runId)
     private fun observationDecisionBudgetExceeded(runId: String): Boolean =
-        traceStore.steps(runId).count { step -> step is AgentStep.ObservationDecided } >= maxObservationDecisions
-
-    /**
-     * Wave 7 step-budget hint: when the tool step budget is exhausted, look up the current
-     * session plan (if present) and append up to 5 still-pending/in-progress items as a
-     * numbered hint so the assistant-facing failure message carries context about outstanding
-     * work. The base [reason] is returned unchanged when there is no plan or no pending items.
-     *
-     * Implementation uses concatenation with explicit \n characters (no Kotlin string templates
-     * at this call site for plan lines) per Wave 6 directive to avoid template pitfalls.
-     */
-    private fun augmentReasonWithStepBudgetHint(runId: String, reason: String): String {
-        if (reason != TOOL_STEP_BUDGET_EXCEEDED_REASON) return reason
-        return runCatching {
-            val store = sessionPlanStore ?: return@runCatching reason
-            val snap = store.get(runId) ?: return@runCatching reason
-            val pending = snap.items.filter { item ->
-                item.status == PlanItemStatus.PENDING || item.status == PlanItemStatus.IN_PROGRESS
-            }.take(5)
-            if (pending.isEmpty()) return@runCatching reason
-            val sb = StringBuilder(reason)
-            sb.append('\n')
-            sb.append('\n')
-            sb.append("Remaining plan (up to 5 pending steps):")
-            sb.append('\n')
-            pending.forEachIndexed { index, item ->
-                val marker = when (item.status) {
-                    PlanItemStatus.PENDING -> "[P]"
-                    PlanItemStatus.IN_PROGRESS -> "[>]"
-                    PlanItemStatus.DONE -> "[D]"
-                    PlanItemStatus.BLOCKED -> "[B]"
-                    PlanItemStatus.SKIPPED -> "[S]"
-                }
-                val lineNumber = index + 1
-                val note = item.note
-                sb.append(lineNumber).append(". ")
-                sb.append(marker).append(' ')
-                sb.append(item.title)
-                if (!note.isNullOrBlank()) {
-                    sb.append(" - ").append(note)
-                }
-                sb.append('\n')
-            }
-            sb.append("Use plan_write to mark completed items before continuing.")
-            sb.toString()
-        }.getOrElse { throwable ->
-            Log.e(TAG, "Failed to build step-budget plan hint", throwable)
-            reason
-        }
-    }
+        runBudget.observationDecisionBudgetExceeded(runId)
+    private fun augmentReasonWithStepBudgetHint(runId: String, reason: String): String =
+        runBudget.augmentReasonWithStepBudgetHint(runId, reason)
 
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
@@ -1073,7 +1359,7 @@ class AgentLoopRuntime(
             status = ToolStatus.Cancelled,
             summary = "User cancelled tool request before execution.",
         )
-        val observed = observeToolResultInternal(
+        val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = request.cancelled("用户取消了工具请求"),
             allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
@@ -1101,7 +1387,7 @@ class AgentLoopRuntime(
             status = null,
             summary = "User confirmed tool request, but execution was blocked before start.",
         )
-        val observed = observeToolResultInternal(
+        val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = result,
             allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
@@ -1158,7 +1444,7 @@ class AgentLoopRuntime(
                 "requiresLocalModel" to "true",
             ),
         )
-        val observed = observeToolResultInternal(
+        val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = syntheticResult,
             allowedStates = setOf(AgentRunState.AwaitingUserAnswer),
@@ -1194,7 +1480,7 @@ class AgentLoopRuntime(
                 "questionId" to questionId,
             ),
         )
-        val observed = observeToolResultInternal(
+        val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = syntheticResult,
             allowedStates = setOf(AgentRunState.AwaitingUserAnswer),
@@ -1204,11 +1490,14 @@ class AgentLoopRuntime(
     }
 
     fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =
-        observeToolResultInternal(
+        toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = result,
             allowedStates = setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool),
         )
+
+    fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? =
+        toolObservationCoordinator.observeToolResults(runId, results)
 
     fun recordExternalOutcome(
         runId: String,
@@ -1242,7 +1531,7 @@ class AgentLoopRuntime(
             summary = traceResult.summary,
         )
         val nextToolPlan = if (traceResult.isUserConfirmedCompletedExternalOutcome()) {
-            planNextToolAfterObservation(run, request, traceResult)
+            toolPlanCoordinator.planNextToolAfterObservation(run, request, traceResult)
         } else {
             NextObservationPlan.None
         }
@@ -1270,7 +1559,7 @@ class AgentLoopRuntime(
             state = finalState,
         ) ?: return null
         if (decision is AgentObservationDecision.PlanNextTool) {
-            appendToolPlanSteps(
+            toolObservationCoordinator.appendToolPlanSteps(
                 runId = runId,
                 plan = decision.plan,
             )
@@ -1280,7 +1569,7 @@ class AgentLoopRuntime(
             clearEphemeralRunState(runId)
         }
         if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
-            traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+            traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(decision.plan, updatedRun))
         }
         return AgentExternalOutcomeResult(
             run = updatedRun,
@@ -1314,7 +1603,7 @@ class AgentLoopRuntime(
         // step boundary was marked by the caller, with 0L fallback).
         recordStepLatency("model_generation", runId)
         val nextToolPlan = when {
-            text.isNotBlank() -> planNextToolAfterModelResult(
+            text.isNotBlank() -> toolPlanCoordinator.planNextToolAfterModelResult(
                 run = run,
                 text = text.trim(),
                 allowInlineToolCalls = allowInlineToolCalls,
@@ -1359,7 +1648,7 @@ class AgentLoopRuntime(
             state = finalState,
         ) ?: return null
         if (decision is AgentObservationDecision.PlanNextTool) {
-            appendToolPlanSteps(
+            toolObservationCoordinator.appendToolPlanSteps(
                 runId = runId,
                 plan = decision.plan,
             )
@@ -1420,7 +1709,7 @@ class AgentLoopRuntime(
             clearEphemeralRunState(runId)
         }
         if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
-            traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+            traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(decision.plan, updatedRun))
         }
         return AgentModelObservationResult(
             run = updatedRun,
@@ -1673,2109 +1962,27 @@ class AgentLoopRuntime(
         )
     }
 
-    fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
-        val run = traceStore.run(runId) ?: return null
-        if (run.state != AgentRunState.GeneratingAnswer) return null
-        if (observationDecisionBudgetExceeded(runId)) {
-            return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
-        }
-        if (toolStepBudgetExceeded(runId)) {
-            return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
-        }
-        rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejected ->
-            val updatedRun = traceStore.compareAndSetState(
-                runId = runId,
-                expectedState = AgentRunState.GeneratingAnswer,
-                state = AgentRunState.Failed,
-            ) ?: return null
-            traceStore.appendRejectedRoutingDecision(
-                runId = runId,
-                path = IntentRoutingPath.RemoteToolPlanning,
-                toolName = request.toolName,
-                reason = "remote_tool_not_exposed",
-            )
-            traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
-            traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-            auditRejectedTool(runId, rejected)
-            val decision = AgentObservationDecision.Fail(rejected.summary)
-            traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-            clearEphemeralRunState(runId)
-            return AgentModelObservationResult(
-                run = updatedRun,
-                decision = decision,
-                steps = traceStore.steps(runId),
-            )
-        }
-        if (toolRequestFor(runId, request.id) != null) {
-            val rejected = request.rejected("Model tool request id already exists: ${request.id}")
-            val updatedRun = traceStore.compareAndSetState(
-                runId = runId,
-                expectedState = AgentRunState.GeneratingAnswer,
-                state = AgentRunState.Failed,
-            ) ?: return null
-            traceStore.appendRejectedRoutingDecision(
-                runId = runId,
-                path = IntentRoutingPath.RemoteToolPlanning,
-                toolName = request.toolName,
-                reason = "duplicate_model_tool_request_id",
-            )
-            traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
-            traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-            auditRejectedTool(runId, rejected)
-            val decision = AgentObservationDecision.Fail(rejected.summary)
-            traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-            clearEphemeralRunState(runId)
-            return AgentModelObservationResult(
-                run = updatedRun,
-                decision = decision,
-                steps = traceStore.steps(runId),
-            )
-        }
-        val draft = draftForRemoteToolRequest(request)
-        val skillPlan = skillRuntime.plan(run.input, draft, request)
-        val plan = buildInitialToolPlan(
-            request = request,
-            draft = draft,
-            plannedByModel = true,
-            fallbackReason = "remote tool call",
-            skillPlan = skillPlan,
-        )
-        return when (plan) {
-            is AgentPlan.UseTool -> {
-                val effectivePlan = plan.withConfirmationBypassForRun(runId)
-                val decision = AgentObservationDecision.PlanNextTool(
-                    plan = effectivePlan,
-                    reason = "Remote model requested a tool call.",
-                )
-                val nextState = effectivePlan.nextExecutionState()
-                val updatedRun = traceStore.compareAndSetState(
-                    runId = runId,
-                    expectedState = AgentRunState.GeneratingAnswer,
-                    state = nextState,
-                ) ?: return null
-                appendToolPlanSteps(runId, effectivePlan)
-                // ask_user interception: park in AwaitingUserAnswer before ExecutingTool.
-                val parkedForAskUser = parkForAskUserIfNeeded(runId, effectivePlan)
-                traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-                if (!parkedForAskUser && effectivePlan.requiresUserConfirmation()) {
-                    traceStore.savePendingConfirmation(effectivePlan.toPendingSnapshot(updatedRun))
-                }
-                AgentModelObservationResult(
-                    run = updatedRun,
-                    decision = decision,
-                    steps = traceStore.steps(runId),
-                )
-            }
+    fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =
+        modelToolRequestCoordinator.observeModelToolRequest(runId, request)
 
-            is AgentPlan.RejectedTool -> {
-                val updatedRun = traceStore.compareAndSetState(
-                    runId = runId,
-                    expectedState = AgentRunState.GeneratingAnswer,
-                    state = AgentRunState.Failed,
-                ) ?: return null
-                traceStore.appendRejectedRoutingDecision(
-                    runId = runId,
-                    path = IntentRoutingPath.RemoteToolPlanning,
-                    toolName = request.toolName,
-                    reason = plan.result.summary.toRoutingReasonSlug(),
-                )
-                traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
-                traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
-                auditRejectedTool(runId, plan.result)
-                val decision = AgentObservationDecision.Fail(plan.result.summary)
-                traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-                clearEphemeralRunState(runId)
-                AgentModelObservationResult(
-                    run = updatedRun,
-                    decision = decision,
-                    steps = traceStore.steps(runId),
-                )
-            }
-
-            else -> null
-        }
-    }
-
-    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? {
-        if (requests.size == 1) return observeModelToolRequest(runId, requests.single())
-        val run = traceStore.run(runId) ?: return null
-        if (run.state != AgentRunState.GeneratingAnswer) return null
-        if (observationDecisionBudgetExceeded(runId)) {
-            return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
-        }
-        if (requests.isEmpty()) {
-            return rejectModelToolBatch(
-                runId = runId,
-                result = ToolRequest(
-                    id = "remote-tool-batch",
-                    toolName = "tool_batch",
-                    reason = "remote tool batch",
-                ).rejected("Remote model returned an empty tool batch."),
-            )
-        }
-        if (toolRequestsFor(runId).size + requests.size > effectiveMaxToolSteps(runId)) {
-            return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
-        }
-        requests.groupingBy { request -> request.id }
-            .eachCount()
-            .entries
-            .firstOrNull { (_, count) -> count > 1 }
-            ?.key
-            ?.let { duplicatedRequestId ->
-                return rejectModelToolBatch(
-                    runId = runId,
-                    result = requests.first().rejected(
-                        "Model tool request id appears multiple times in one batch: $duplicatedRequestId",
-                    ),
-                )
-            }
-        requests.firstOrNull { request -> toolRequestFor(runId, request.id) != null }
-            ?.let { existingRequest ->
-                return rejectModelToolBatch(
-                    runId = runId,
-                    result = existingRequest.rejected("Model tool request id already exists: ${existingRequest.id}"),
-                )
-            }
-
-        val plans = mutableListOf<AgentPlan.UseTool>()
-        requests.forEach { request ->
-            rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejection ->
-                return rejectModelToolBatch(runId = runId, result = rejection.withAttemptedToolNames(requests))
-            }
-            toolRegistry.validate(request)?.let { rejection ->
-                return rejectModelToolBatch(runId = runId, result = rejection.withAttemptedToolNames(requests))
-            }
-            val spec = toolRegistry.specFor(request.toolName) ?: return rejectModelToolBatch(
-                runId = runId,
-                result = request.rejected("Unknown tool: ${request.toolName}").withAttemptedToolNames(requests),
-            )
-            if (!spec.isEligibleForParallelBatch()) {
-                return rejectModelToolBatch(
-                    runId = runId,
-                    result = request.rejected(
-                        "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
-                    ).withAttemptedToolNames(requests),
-                )
-            }
-            val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
-            if (safetyDecision.outcome != SafetyOutcome.Allow) {
-                return rejectModelToolBatch(
-                    runId = runId,
-                    result = request.rejected(safetyDecision.reason).withAttemptedToolNames(requests),
-                    safetyDecision = safetyDecision,
-                )
-            }
-            plans += AgentPlan.UseTool(
-                request = request,
-                draft = draftForRemoteToolRequest(request).withSafetyDecision(safetyDecision),
-                plannedByModel = true,
-                fallbackReason = "remote tool batch",
-                skillRequest = null,
-                skillPlan = null,
-                safetyDecision = safetyDecision,
-            )
-        }
-
-        val decision = AgentObservationDecision.PlanToolBatch(
-            plans = plans,
-            reason = "Remote model requested ${plans.size} parallel public evidence tool calls.",
-        )
-        val updatedRun = traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = AgentRunState.GeneratingAnswer,
-            state = AgentRunState.ExecutingTool,
-        ) ?: return null
-        plans.forEach { plan -> appendToolPlanSteps(runId, plan) }
-        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        markStepStart("tool_execution")
-        return AgentModelObservationResult(
-            run = updatedRun,
-            decision = decision,
-            steps = traceStore.steps(runId),
-        )
-    }
-
-    fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? {
-        val run = traceStore.run(runId) ?: return null
-        if (run.state != AgentRunState.ExecutingTool) return null
-        val batchDecision = latestPlanToolBatch(runId) ?: return null
-        val plans = batchDecision.plans
-        val plannedIds = plans.mapTo(linkedSetOf()) { plan -> plan.request.id }
-        val resultIds = results.mapTo(linkedSetOf()) { result -> result.requestId }
-        if (results.size != resultIds.size || plannedIds != resultIds) return null
-        if (plans.any { plan ->
-                toolRegistry.specFor(plan.request.toolName)?.isEligibleForParallelBatch() != true
-            }
-        ) {
-            return null
-        }
-
-        val observingRun = traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = AgentRunState.ExecutingTool,
-            state = AgentRunState.Observing,
-        ) ?: return null
-        val resultsByRequestId = results.associateBy { result -> result.requestId }
-        val observedPairs = plans.map { plan ->
-            val rawResult = resultsByRequestId.getValue(plan.request.id)
-            val validatedResult = toolRegistry.validateResult(plan.request, rawResult) ?: rawResult
-            val publicResult = validatedResult.publicEvidenceBatchResultOrFailure(plan.request)
-            val traceResult = publicResult.redactedForTrace(plan.request)
-            traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
-            auditSink.record(
-                ToolAuditEvent(
-                    runId = runId,
-                    requestId = traceResult.requestId,
-                    toolName = plan.request.toolName,
-                    skillId = null,
-                    eventType = ToolAuditEventType.ToolObserved,
-                    status = traceResult.status,
-                    riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel,
-                    permissions = toolRegistry.specFor(plan.request.toolName)?.permissions.orEmpty(),
-                    summary = traceResult.auditSummaryForObservation(plan.request),
-                ),
-            )
-            // Proof-of-wiring: also publish onto SolinEventBus for the new seam.
-            eventBus.publish(
-                SolinEvent.Audit.ToolAudited(
-                    runId = runId,
-                    requestId = traceResult.requestId,
-                    toolName = plan.request.toolName,
-                    skillId = skillIdForRequest(runId, plan.request.id),
-                    eventType = ToolAuditEventType.ToolObserved.name,
-                    status = traceResult.status.name,
-                    riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel?.name,
-                    permissionsCsv = toolRegistry.specFor(plan.request.toolName)?.permissions
-                        ?.map { it.name }
-                        ?.sorted()
-                        ?.joinToString(separator = ",")
-                        .orEmpty(),
-                    summary = traceResult.auditSummaryForObservation(plan.request),
-                ),
-            )
-            plan to traceResult
-        }
-        val successfulPairs = observedPairs.filter { (_, result) -> result.status == ToolStatus.Succeeded }
-        val cancelledPair = observedPairs.firstOrNull { (_, result) -> result.status == ToolStatus.Cancelled }
-        val gapPairs = observedPairs.filter { (_, result) ->
-            result.status != ToolStatus.Succeeded && result.status != ToolStatus.Cancelled
-        }
-        val failedPair = gapPairs.firstOrNull()
-        val aggregatePair = cancelledPair ?: failedPair
-        val publicEvidenceSummary = successfulPairs.publicEvidenceBatchAuditSummary()
-        val assistantMessage = when {
-            cancelledPair != null -> "工具批量执行已取消：${cancelledPair.second.summary}"
-            failedPair != null && successfulPairs.isNotEmpty() ->
-                "工具批量执行部分失败：已获得 ${successfulPairs.size}/${observedPairs.size} 个公开只读工具结果；$publicEvidenceSummary；失败缺口：${failedPair.second.summary}"
-
-            failedPair != null -> "工具批量执行失败：${failedPair.second.summary}"
-            else -> "工具执行结果：已完成 ${observedPairs.size} 个公开只读工具调用；$publicEvidenceSummary。"
-        }
-        val aggregateStatus = when {
-            cancelledPair != null -> ToolStatus.Cancelled
-            successfulPairs.isNotEmpty() -> ToolStatus.Succeeded
-            failedPair != null -> failedPair.second.status
-            else -> ToolStatus.Succeeded
-        }
-        val aggregateResult = ToolResult(
-            requestId = "public-evidence-batch:${plannedIds.joinToString(",")}",
-            status = aggregateStatus,
-            summary = assistantMessage,
-            data = mapOf(
-                "toolName" to "public_evidence_batch",
-                "toolCount" to observedPairs.size.toString(),
-                "succeededToolCount" to successfulPairs.size.toString(),
-                "failedToolCount" to gapPairs.size.toString(),
-                "cancelledToolCount" to observedPairs
-                    .count { (_, result) -> result.status == ToolStatus.Cancelled }
-                    .toString(),
-            ),
-            error = if (aggregateStatus == ToolStatus.Succeeded) null else aggregatePair?.second?.error,
-            retryable = false,
-        )
-        traceStore.appendStep(runId, AgentStep.AssistantResponded(assistantMessage))
-        if (observationDecisionBudgetExceeded(runId)) {
-            return failObservationBudget(
-                runId = runId,
-                result = aggregateResult,
-                assistantMessage = assistantMessage,
-                reason = OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON,
-            )
-        }
-        val continuationPrompt = if (cancelledPair == null && successfulPairs.isNotEmpty()) {
-            publicEvidenceBatchContinuationPrompt(
-                run = run,
-                observedPairs = observedPairs,
-                successfulPairs = successfulPairs,
-                gapPairs = gapPairs,
-            )
-        } else {
-            null
-        }
-        val decision = when {
-            cancelledPair != null -> AgentObservationDecision.Cancel
-            successfulPairs.isNotEmpty() -> AgentObservationDecision.ContinueWithModel(
-                requiresLocalModel = false,
-                reason = if (gapPairs.isEmpty()) {
-                    "Parallel public evidence tools completed."
-                } else {
-                    "Parallel public evidence tools partially completed."
-                },
-            )
-
-            failedPair != null -> AgentObservationDecision.Fail(failedPair.second.summary)
-            else -> AgentObservationDecision.ContinueWithModel(
-                requiresLocalModel = false,
-                reason = "Parallel public evidence tools completed.",
-            )
-        }
-        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        val finalState = when (decision) {
-            is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
-            AgentObservationDecision.Cancel -> AgentRunState.Cancelled
-            else -> AgentRunState.Failed
-        }
-        val updatedRun = traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = observingRun.state,
-            state = finalState,
-        ) ?: return null
-        if (decision is AgentObservationDecision.ContinueWithModel) {
-            remoteToolScopesByRunId[runId] = RemoteToolScope.PublicEvidenceOnly
-            markStepStart("model_generation")
-        }
-        if (updatedRun.state in terminalRunStates) {
-            clearEphemeralRunState(runId)
-        }
-        return AgentObservationResult(
-            run = updatedRun,
-            result = aggregateResult,
-            assistantMessage = assistantMessage,
-            decision = decision,
-            recoveryAction = null,
-            continuationPromptForModel = continuationPrompt,
-            continuationRequiresLocalModel = false,
-            continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
-            retryRequest = null,
-            retryAttempt = 0,
-            steps = traceStore.steps(runId),
-        )
-    }
-
-    private fun rejectModelToolBatch(
-        runId: String,
-        result: ToolResult,
-        safetyDecision: SafetyDecision? = null,
-    ): AgentModelObservationResult? {
-        val updatedRun = traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = AgentRunState.GeneratingAnswer,
-            state = AgentRunState.Failed,
-        ) ?: return null
-        safetyDecision?.let { decision ->
-            traceStore.appendStep(runId, AgentStep.SafetyChecked(decision))
-        }
-        traceStore.appendRejectedRoutingDecision(
-            runId = runId,
-            path = IntentRoutingPath.RemoteToolPlanning,
-            toolName = result.data["toolName"]
-                ?: result.data["attemptedToolNames"]?.substringBefore(',')?.trim()?.takeIf { it.isNotBlank() }
-                ?: "tool_batch",
-            reason = result.summary.toRoutingReasonSlug(),
-        )
-        traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
-        traceStore.appendStep(runId, AgentStep.ToolRejected(result))
-        auditRejectedTool(runId, result)
-        val decision = AgentObservationDecision.Fail(result.summary)
-        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        clearEphemeralRunState(runId)
-        return AgentModelObservationResult(
-            run = updatedRun,
-            decision = decision,
-            steps = traceStore.steps(runId),
-        )
-    }
-
-    private fun observeToolResultInternal(
-        runId: String,
-        result: ToolResult,
-        allowedStates: Set<AgentRunState>,
-    ): AgentObservationResult? {
-        val run = traceStore.run(runId) ?: return null
-        if (run.state !in allowedStates) return null
-        if (run.state == AgentRunState.ExecutingTool && latestPlanToolBatch(runId) != null) {
-            return null
-        }
-        if (
-            run.state in setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool) &&
-            latestExecutableRequestId(runId) != result.requestId
-        ) {
-            return null
-        }
-        val request = toolRequestFor(runId, result.requestId) ?: return null
-        val safeResult = toolRegistry.validateResult(request, result) ?: result
-        val searchResultVerified = safeResult.isVerifiedSearchResult()
-        val observingRun = traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = run.state,
-            state = AgentRunState.Observing,
-        ) ?: return null
-        val continuation = continuationForToolObservation(run, request, safeResult)
-        val continuationPrompt = continuation?.prompt
-        val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false
-        val continuationRemoteToolScope =
-            continuation?.remoteToolScope ?: RemoteToolScope.PublicEvidenceOnly
-        val canPlanNextToolBeforeContinuation = continuation?.canPlanNextToolBeforeModel ?: false
-        val rawLocalPlanningResult = if (
-            result.requestId == request.id &&
-            request.canPlanLocalToolFromCurrentScreenObservation(run) &&
-            result.hasLocalObservationEvidenceForPlanning()
-        ) {
-            result
-        } else {
-            null
-        }
-        val observedResult = safeResult.redactedForTrace(request)
-        // Handle note: add to per-run scratchpad
-        if (request.toolName == MobileActionFunctions.NOTE) {
-            val noteContent = safeResult.data["noteContent"]
-            if (noteContent != null && noteContent.isNotBlank()) {
-                runCatching { scratchpad.addNote(runId, noteContent) }
-                    .onFailure { Log.e(TAG, "Scratchpad note failed", it) }
-            }
-        }
-        val shouldFinish = safeResult.data["shouldFinish"] == "true"
-        val finishMessage = safeResult.data["finishMessage"]
-        val shouldTakeOver = safeResult.data["shouldTakeOver"] == "true"
-        val takeOverPrompt = safeResult.data["takeOverPrompt"]
-        val localPlanningResult = if (
-            canPlanNextToolBeforeContinuation ||
-            rawLocalPlanningResult != null
-        ) {
-            rawLocalPlanningResult ?: safeResult
-        } else {
-            observedResult
-        }
-        val budgetExceeded = observationDecisionBudgetExceeded(runId)
-        val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
-        val retryRequest = if (retryAttempt > 0) request else null
-        traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
-        recordVerboseTrace(runId = runId, actionToolName = request.toolName, actionSummary = request.reason.ifBlank { request.toolName }, observationSummary = observedResult.summary.take(500))
-        // Wave 2 lifecycle: dual-write ToolSucceeded / ToolFailed based on observed status.
-        // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
-        // (ValidatingToolExecutor), so these are the terminal counterpart events.
-        when (observedResult.status) {
-            ToolStatus.Succeeded ->
-                eventBus.publish(
-                    SolinEvent.Agent.ToolSucceeded(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        summary = observedResult.summary,
-                    ),
-                )
-            ToolStatus.Failed ->
-                eventBus.publish(
-                    SolinEvent.Agent.ToolFailed(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        code = observedResult.error?.code.toOrchestrationErrorCode(),
-                        message = observedResult.error?.message ?: observedResult.summary,
-                        retryable = retryAttempt > 0,
-                    ),
-                )
-            ToolStatus.Rejected -> {
-                eventBus.publish(
-                    SolinEvent.Agent.ToolFailed(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        code = OrchestrationToolErrorCode.SafetyRejected,
-                        message = observedResult.error?.message ?: observedResult.summary,
-                        retryable = false,
-                    ),
-                )
-                // Wave 4 telemetry: count safety-policy rejections distinct from user-cancel / exec failures.
-                safeRecordTelemetry(
-                    MetricSample.CounterInc(
-                        name = TelemetryCounter.SafetyBlocks,
-                        runId = runId,
-                    ),
-                    "SafetyBlocks counter",
-                )
-            }
-            ToolStatus.Cancelled ->
-                eventBus.publish(
-                    SolinEvent.Agent.ToolFailed(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        code = OrchestrationToolErrorCode.Cancelled,
-                        message = observedResult.error?.message ?: observedResult.summary,
-                        retryable = false,
-                    ),
-                )
-        }
-        // Wave 7 undo bookkeeping: on Succeeded, consult the tool's UndoPolicy and push a
-        // compensating plan onto the undo stack. Non-succeeded terminal statuses clear the stack
-        // because the most recent action did not complete deterministically. Wrapped in runCatching
-        // per Wave 6 safety directive — undo bookkeeping must never crash the agent loop.
-        runCatching {
-            when (observedResult.status) {
-                ToolStatus.Succeeded -> {
-                    val policy = toolRegistry.undoPolicyFor(request.toolName)
-                    val undoPlan = policy?.planUndoAfter(request, safeResult)
-                    when (undoPlan) {
-                        is UndoPlan.CompensatingTool -> {
-                            synchronized(undoStack) {
-                                undoStack.clear()
-                                val now = System.currentTimeMillis()
-                                undoStack.push(
-                                    UndoEntry(
-                                        sourceRunId = runId,
-                                        sourceRequestId = request.id,
-                                        toolName = request.toolName,
-                                        plan = undoPlan,
-                                        availableUntilMillis = now + undoPlan.ttlMillis,
-                                        createdAtMillis = now,
-                                    ),
-                                )
-                            }
-                            eventBus.publish(
-                                SolinEvent.Agent.UndoPushed(
-                                    runId = runId,
-                                    sourceRequestId = request.id,
-                                    toolName = request.toolName,
-                                    summary = undoPlan.summary,
-                                    availableUntilMillis = System.currentTimeMillis() + undoPlan.ttlMillis,
-                                ),
-                            )
-                        }
-                        is UndoPlan.NotApplicable,
-                        is UndoPlan.ExternalHandoff,
-                        is UndoPlan.NotUndoable,
-                        null -> {
-                            // No compensating tool action — reset the stack since the prior
-                            // undo target is stale relative to the just-completed tool.
-                            synchronized(undoStack) { undoStack.clear() }
-                        }
-                    }
-                }
-                ToolStatus.Failed,
-                ToolStatus.Rejected,
-                ToolStatus.Cancelled -> {
-                    synchronized(undoStack) { undoStack.clear() }
-                }
-            }
-        }.onFailure { throwable ->
-            Log.e(TAG, "Undo bookkeeping failed; clearing stack safely", throwable)
-            runCatching { synchronized(undoStack) { undoStack.clear() } }
-        }
-        // Wave 4 telemetry: record ToolCompleted sample with wall-clock latency since
-        // ToolRequested was appended (0L fallback if no start marker exists, e.g. restored runs).
-        val toolStartMs = toolDispatchStartedAtMillis.remove(request.id)
-        val toolLatencyMs = toolStartMs?.let { System.currentTimeMillis() - it } ?: 0L
-        safeRecordTelemetry(
-            MetricSample.ToolCompleted(
-                toolName = request.toolName,
-                latencyMs = toolLatencyMs,
-                succeeded = observedResult.status == ToolStatus.Succeeded,
-                retryCount = retryAttempt,
-                requestId = request.id,
-                runId = runId,
-            ),
-            "ToolCompleted",
-        )
-        // Wave 4 telemetry: record step latency for tool_execution boundary.
-        recordStepLatency("tool_execution", runId)
-        recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
-        val spec = toolRegistry.specFor(request.toolName)
-        val riskLevel = spec?.riskLevel
-        val permissions = spec?.permissions.orEmpty()
-        val resolvedSkillId = skillIdForRequest(runId, observedResult.requestId)
-        val observationSummary = observedResult.auditSummaryForObservation(request)
-        auditSink.record(
-            ToolAuditEvent(
-                runId = runId,
-                requestId = observedResult.requestId,
-                toolName = request.toolName,
-                skillId = resolvedSkillId,
-                eventType = ToolAuditEventType.ToolObserved,
-                status = observedResult.status,
-                riskLevel = riskLevel,
-                permissions = permissions,
-                summary = observationSummary,
-            ),
-        )
-        eventBus.publish(
-            SolinEvent.Audit.ToolAudited(
-                runId = runId,
-                requestId = observedResult.requestId,
-                toolName = request.toolName,
-                skillId = resolvedSkillId,
-                eventType = ToolAuditEventType.ToolObserved.name,
-                status = observedResult.status.name,
-                riskLevel = riskLevel?.name,
-                permissionsCsv = permissions
-                    .map { it.name }
-                    .sorted()
-                    .joinToString(separator = ","),
-                summary = observationSummary,
-            ),
-        )
-        val recoveryAction = recoveryActionForObservation(request, observedResult)
-        val assistantMessage = messageForObservation(observedResult, retryAttempt, recoveryAction)
-        traceStore.appendStep(
-            runId,
-            AgentStep.AssistantResponded(
-                traceMessageForObservation(
-                    request = request,
-                    result = observedResult,
-                    retryAttempt = retryAttempt,
-                    recoveryAction = recoveryAction,
-                ),
-            ),
-        )
-        if (budgetExceeded) {
-            return failObservationBudget(
-                runId = runId,
-                result = observedResult,
-                assistantMessage = assistantMessage,
-                reason = OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON,
-            )
-        }
-        val nextToolPlan = if (
-            observedResult.status == ToolStatus.Succeeded &&
-            retryRequest == null
-        ) {
-            val deterministicPlan = planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, localPlanningResult)
-                ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, localPlanningResult)
-                ?: planNextCompositeSkillSegmentBeforeContinuation(run, continuation)
-            deterministicPlan ?: if (searchResultVerified) {
-                NextObservationPlan.None
-            } else if (
-                (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
-                canPlanNextToolAfterObservation(run, request, localPlanningResult)
-            ) {
-                planNextToolAfterObservation(run, request, localPlanningResult)
-            } else {
-                NextObservationPlan.None
-            }
-        } else if (
-            observedResult.status == ToolStatus.Failed &&
-            request.isDeviceControlTool() &&
-            !observedResult.isPermissionFailure() &&
-            !observedResult.isForegroundPackageGateFailure() &&
-            retryRequest == null
-        ) {
-            planModelDeviceControlRecoveryAfterFailure(run, request, localPlanningResult)
-                ?: planSafeDeviceControlRecoveryAfterFailure(run, request, observedResult)
-        } else {
-            NextObservationPlan.None
-        }
-        val decision = observationDecision(
-            request = request,
-            result = observedResult,
-            retryRequest = retryRequest,
-            retryAttempt = retryAttempt,
-            continuationPrompt = continuationPrompt,
-            continuationRequiresLocalModel = continuationRequiresLocalModel,
-            searchResultVerified = searchResultVerified,
-            nextToolPlan = nextToolPlan,
-        )
-        val effectiveDecision = when {
-            shouldFinish -> AgentObservationDecision.Complete
-            shouldTakeOver -> {
-                runCatching { parkForTakeOver(runId, takeOverPrompt, safeResult) }
-                AgentObservationDecision.Complete
-            }
-            else -> decision
-        }
-        when (effectiveDecision) {
-            is AgentObservationDecision.RetryTool -> traceStore.appendStep(
-                runId,
-                AgentStep.ToolRetryScheduled(
-                    request = effectiveDecision.request,
-                    attempt = effectiveDecision.attempt,
-                    reason = effectiveDecision.reason,
-                ),
-            )
-
-            is AgentObservationDecision.PlanNextTool -> appendToolPlanSteps(
-                runId = runId,
-                plan = effectiveDecision.plan,
-            )
-
-            else -> Unit
-        }
-        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        // Capture observation decision reasoning for verbose trace (optimization #8).
-        recordVerboseTrace(
-            runId = runId,
-            actionSummary = when (effectiveDecision) {
-                AgentObservationDecision.Complete -> "observation:complete"
-                is AgentObservationDecision.ContinueWithModel -> "observation:continue_with_model"
-                is AgentObservationDecision.RetryTool -> "observation:retry_tool(${effectiveDecision.attempt})"
-                is AgentObservationDecision.PlanNextTool -> "observation:plan_next_tool"
-                is AgentObservationDecision.PlanToolBatch -> "observation:plan_tool_batch"
-                is AgentObservationDecision.Fail -> "observation:fail"
-                AgentObservationDecision.Cancel -> "observation:cancel"
-            },
-            observationSummary = when (effectiveDecision) {
-                is AgentObservationDecision.ContinueWithModel -> effectiveDecision.reason
-                is AgentObservationDecision.RetryTool -> effectiveDecision.reason
-                is AgentObservationDecision.PlanNextTool -> effectiveDecision.reason
-                is AgentObservationDecision.Fail -> effectiveDecision.reason
-                else -> null
-            }?.take(500),
-        )
-        if (effectiveDecision is AgentObservationDecision.RetryTool) {
-            auditToolRequest(
-                runId = runId,
-                request = effectiveDecision.request,
-                eventType = ToolAuditEventType.ToolRetryScheduled,
-                status = ToolStatus.Failed,
-                summary = "Retry ${effectiveDecision.attempt} scheduled.",
-            )
-        }
-        val shouldAwaitExternalOutcome = shouldAwaitExternalOutcomeConfirmation(
-            runId = runId,
-            request = request,
-            result = observedResult,
-        )
-        val finalState = when (effectiveDecision) {
-            AgentObservationDecision.Complete ->
-                if (shouldAwaitExternalOutcome) {
-                    AgentRunState.AwaitingExternalOutcome
-                } else {
-                    AgentRunState.Completed
-                }
-
-            is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
-            is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
-            is AgentObservationDecision.PlanNextTool -> effectiveDecision.plan.nextExecutionState()
-            is AgentObservationDecision.PlanToolBatch -> AgentRunState.ExecutingTool
-            is AgentObservationDecision.Fail -> AgentRunState.Failed
-            AgentObservationDecision.Cancel -> AgentRunState.Cancelled
-        }
-        // ask_user interception for PlanNextTool decisions originating from observation
-        // (i.e. not the initial runOnce plan). Append UserQuestionAsked step + publish event
-        // + remember pending state BEFORE updating run state so subscribers see the step
-        // before the AwaitingUserAnswer state transition.
-        var parkedForAskUser = false
-        if (effectiveDecision is AgentObservationDecision.PlanNextTool &&
-            effectiveDecision.plan.nextExecutionState() == AgentRunState.AwaitingUserAnswer
-        ) {
-            parkedForAskUser = parkForAskUserIfNeeded(runId, effectiveDecision.plan)
-        }
-        val updatedRun = traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = observingRun.state,
-            state = finalState,
-        ) ?: return null
-        // Wave 2 lifecycle: publish terminal / transition events alongside trace. Note that
-        // TurnEnded requires tokensIn/tokensOut/ttft/duration which are known only when a model
-        // generation completes; that is published from observeModelResult (and via run budget
-        // fail paths here using zeros where unknown).
-        when (finalState) {
-            AgentRunState.Completed -> publishRunEnded(runId, finalText = assistantMessage)
-            AgentRunState.Failed -> {
-                val failureMessage = (effectiveDecision as? AgentObservationDecision.Fail)?.reason
-                    ?: observedResult.summary
-                publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), failureMessage)
-            }
-            AgentRunState.Cancelled ->
-                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
-            AgentRunState.GeneratingAnswer -> {
-                // Starting a new model turn — bump the turn counter and publish TurnStarted.
-                val nextTurn = runTurnIndex.compute(runId) { _, old -> (old ?: 0) + 1 }!!
-                eventBus.publish(
-                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
-                )
-                markStepStart("model_generation")
-            }
-            AgentRunState.RetryingTool -> markStepStart("tool_execution")
-            AgentRunState.ExecutingTool -> markStepStart("tool_execution")
-            else -> Unit
-        }
-        if (finalState in terminalRunStates) {
-            clearEphemeralRunState(runId)
-        }
-        if (decision is AgentObservationDecision.ContinueWithModel) {
-            remoteToolScopesByRunId[runId] = continuationRemoteToolScope
-        }
-        if (decision is AgentObservationDecision.PlanNextTool) {
-            val parkedForAskUser = decision.plan.nextExecutionState() == AgentRunState.AwaitingUserAnswer
-            if (!parkedForAskUser && decision.plan.requiresUserConfirmation()) {
-                traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
-            }
-        }
-        return AgentObservationResult(
-            run = updatedRun,
-            result = observedResult,
-            assistantMessage = assistantMessage,
-            decision = decision,
-            recoveryAction = recoveryAction,
-            continuationPromptForModel = continuationPrompt,
-            continuationRequiresLocalModel = continuationRequiresLocalModel,
-            continuationRemoteToolScope = continuationRemoteToolScope,
-            retryRequest = retryRequest,
-            retryAttempt = retryAttempt,
-            steps = traceStore.steps(runId),
-        )
-    }
-
-    private fun observationDecision(
-        request: ToolRequest,
-        result: ToolResult,
-        retryRequest: ToolRequest?,
-        retryAttempt: Int,
-        continuationPrompt: String?,
-        continuationRequiresLocalModel: Boolean,
-        searchResultVerified: Boolean,
-        nextToolPlan: NextObservationPlan,
-    ): AgentObservationDecision =
-        when {
-            retryRequest != null -> AgentObservationDecision.RetryTool(
-                request = retryRequest,
-                attempt = retryAttempt,
-                reason = result.summary,
-            )
-
-            nextToolPlan is NextObservationPlan.Planned ->
-                AgentObservationDecision.PlanNextTool(
-                    plan = nextToolPlan.plan,
-                    reason = result.summary,
-                )
-
-            nextToolPlan is NextObservationPlan.Rejected ->
-                AgentObservationDecision.Fail(nextToolPlan.reason)
-
-            searchResultVerified -> AgentObservationDecision.Complete
-
-            result.status == ToolStatus.Succeeded && continuationPrompt != null ->
-                AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = continuationRequiresLocalModel,
-                    reason = result.summary,
-                )
-
-            result.status == ToolStatus.Succeeded -> AgentObservationDecision.Complete
-            result.status == ToolStatus.Cancelled -> AgentObservationDecision.Cancel
-            else -> AgentObservationDecision.Fail(result.summary)
-        }
-
-    private fun planNextToolAfterObservation(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ): NextObservationPlan {
-        latestSkillPlan(run.id)?.let { skillPlan ->
-            invalidSkillPlanReason(skillPlan)?.let { reason ->
-                val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
-                    toolRequest.id
-                }
-                return rejectNextToolPlan(
-                    run.id,
-                    requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
-                )
-            }
-        }
-        planNextToolStepFromCurrentSkill(run, result)?.let { nextPlan ->
-            return nextPlan
-        }
-        val priorRequests = toolRequestsFor(run.id)
-        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
-        planNextToolFromContinuationCursor(run, request)?.let { nextPlan ->
-            return nextPlan
-        }
-        planNextCompositeSkillSegment(
-            runId = run.id,
-            input = nextSequentialSegmentInput(run, completedSegmentCount),
-        )?.let { nextPlan ->
-            return nextPlan
-        }
-        val replan = observationReplanner.planNext(
-            AgentObservationReplanContext(
-                run = run,
-                previousRequest = request,
-                observedResult = result,
-                priorRequests = priorRequests,
-                nextActionInput = traceStore.nextActionInput(run.id),
-                completedSegmentCount = completedSegmentCount,
-            ),
-        ) ?: return NextObservationPlan.None
-        if (
-            replan.plannedByModel &&
-            !hasMobileActionPlanningModel(
-                installedCapabilityProfiles = installedCapabilityProfilesByRunId[run.id].orEmpty(),
-            )
-        ) {
-            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
-        }
-        val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
-        return buildNextToolPlan(
-            runId = run.id,
-            request = replan.request,
-            draft = replan.draft,
-            plannedByModel = replan.plannedByModel,
-            fallbackReason = replan.fallbackReason,
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun planModelDeviceControlRecoveryAfterFailure(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ): NextObservationPlan? {
-        latestSkillPlan(run.id)?.let { skillPlan ->
-            if (
-                !skillPlan.isModelDrivenAppSearchSkill() &&
-                !(skillPlan.isSingleToolStepPlan() && latestModelDrivenAppSearchSkillPlan(run.id) != null)
-            ) {
-                return null
-            }
-        }
-        if (!result.hasLocalObservationEvidenceForPlanning()) return null
-        val priorRequests = toolRequestsFor(run.id)
-        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
-        val replan = observationReplanner.planNext(
-            AgentObservationReplanContext(
-                run = run,
-                previousRequest = request,
-                observedResult = result,
-                priorRequests = priorRequests,
-                nextActionInput = traceStore.nextActionInput(run.id),
-                completedSegmentCount = completedSegmentCount,
-            ),
-        ) ?: return null
-        if (
-            replan.plannedByModel &&
-            !hasMobileActionPlanningModel(
-                installedCapabilityProfiles = installedCapabilityProfilesByRunId[run.id].orEmpty(),
-            )
-        ) {
-            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
-        }
-        val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
-        return buildNextToolPlan(
-            runId = run.id,
-            request = replan.request,
-            draft = replan.draft,
-            plannedByModel = replan.plannedByModel,
-            fallbackReason = replan.fallbackReason,
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun planSafeDeviceControlRecoveryAfterFailure(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ): NextObservationPlan {
-        val recoveryCount = toolRequestsFor(run.id).count { prior ->
-            prior.reason == DEVICE_CONTROL_FAILURE_RECOVERY_REASON
-        }
-        if (recoveryCount >= 2) return NextObservationPlan.None
-        val failureKind = result.data["failureKind"].orEmpty()
-        if (failureKind == "permission_missing") return NextObservationPlan.None
-        val nextToolName = when (request.toolName) {
-            MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> MobileActionFunctions.UI_WAIT
-            MobileActionFunctions.UI_WAIT -> MobileActionFunctions.OBSERVE_CURRENT_SCREEN
-            else -> MobileActionFunctions.OBSERVE_CURRENT_SCREEN
-        }
-        val arguments = when (nextToolName) {
-            MobileActionFunctions.UI_WAIT -> mapOf("timeoutMillis" to "500")
-            else -> mapOf(
-                "maxTextChars" to "2000",
-                "maxNodes" to "50",
-            )
-        }
-        val title = when (nextToolName) {
-            MobileActionFunctions.UI_WAIT -> "等待屏幕稳定"
-            else -> "重新观察当前屏幕"
-        }
-        val draft = ActionDraft(
-            functionName = nextToolName,
-            title = title,
-            summary = "上一屏幕控制动作失败，将先$title 以便重新规划；不会读取截图像素或发送远程。",
-            parameters = arguments,
-        )
-        val recoveryRequest = ToolRequest(
-            toolName = nextToolName,
-            arguments = arguments,
-            reason = DEVICE_CONTROL_FAILURE_RECOVERY_REASON,
-        )
-        val skillPlan = skillRuntime.plan(run.input, draft, recoveryRequest)
-        return buildNextToolPlan(
-            runId = run.id,
-            request = recoveryRequest,
-            draft = draft,
-            plannedByModel = false,
-            fallbackReason = "device control failure recovery",
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun planNextToolFromContinuationCursor(
-        run: AgentRun,
-        request: ToolRequest,
-    ): NextObservationPlan? {
-        val cursor = traceStore.continuationCursor(run.id) ?: return null
-        if (cursor.sourceRequestId != request.id) return null
-        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
-        if (cursor.completedSegmentCount != completedSegmentCount) {
-            return rejectNextToolPlan(
-                run.id,
-                cursor.request.rejected("Restored continuation cursor does not match the Agent trace."),
-            )
-        }
-        return buildNextToolPlan(
-            runId = run.id,
-            request = cursor.request,
-            draft = cursor.draft,
-            plannedByModel = cursor.plannedByModel,
-            fallbackReason = cursor.fallbackReason,
-            skillPlan = cursor.skillPlan,
-        )
-    }
-
-    private fun recordContinuationCursorForUnverifiedExternalLaunch(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ) {
-        if (!result.isUnverifiedExternalLaunch()) return
-        val cursor = traceStore.continuationCursor(run.id) ?: return
-        if (cursor.sourceRequestId != request.id) return
-        if (cursor.completedSegmentCount != plannedSequentialSegmentCount(run.id)) return
-        val alreadyRecorded = traceStore.steps(run.id).any { step ->
-            step is AgentStep.ContinuationCursorRecorded &&
-                step.cursor.sourceRequestId == cursor.sourceRequestId
-        }
-        if (alreadyRecorded) return
-        traceStore.appendStep(run.id, AgentStep.ContinuationCursorRecorded(cursor))
-    }
-
-    private fun planNextOpenAppUiSearchStepAfterUnverifiedLaunch(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ): NextObservationPlan? {
-        if (!result.isUnverifiedExternalLaunch()) return null
-        if (!toolRegistry.isOpenAppLaunchTool(request.toolName)) return null
-        val skillPlan = latestSkillPlan(run.id) ?: return null
-        if (!skillPlan.manifest.continuesAfterUnverifiedOpenAppLaunch) return null
-        val requestBelongsToSkill = skillPlan.steps
-            .filterIsInstance<SkillStep.ToolStep>()
-            .any { step -> step.request.id == request.id && step.request.toolName == request.toolName }
-        if (!requestBelongsToSkill) return null
-        val nextPlan = planNextToolStepFromCurrentSkill(run, result) ?: return null
-        return nextPlan.takeIf { plan ->
-            plan !is NextObservationPlan.Planned || plan.plan.request.isLowRiskAppControlContinuationTool()
-        }
-    }
-
-    private fun planNextLowRiskAppControlSkillStepBeforeContinuation(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ): NextObservationPlan? {
-        if (!request.isLowRiskAppControlContinuationTool()) return null
-        val skillPlan = latestSkillPlan(run.id) ?: return null
-        if (!skillPlan.isLowRiskAppControlSkill()) return null
-        if (!skillPlan.hasToolStep(request)) return null
-        invalidSkillPlanReason(skillPlan)?.let { reason ->
-            val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
-                toolRequest.id
-            }
-            return rejectNextToolPlan(
-                run.id,
-                requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
-            )
-        }
-        val nextPlan = planNextToolStepFromCurrentSkill(run, result) ?: return null
-        return nextPlan.takeIf { plan ->
-            plan !is NextObservationPlan.Planned ||
-                plan.plan.request.isLowRiskAppControlContinuationTool() ||
-                plan.plan.requiresUserConfirmation()
-        }
-    }
-
-    private fun planNextCompositeSkillSegmentBeforeContinuation(
-        run: AgentRun,
-        continuation: ToolObservationContinuation?,
-    ): NextObservationPlan? {
-        if (continuation == null) return null
-        if (continuation.canPlanNextToolBeforeModel) return null
-        if (continuation.blocksSequentialTail) return null
-        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
-        return planNextCompositeSkillSegment(
-            runId = run.id,
-            input = nextSequentialSegmentInput(run, completedSegmentCount),
-        )
-    }
-
-    private fun canPlanNextToolAfterObservation(
-        run: AgentRun,
-        request: ToolRequest,
-        result: ToolResult,
-    ): Boolean {
-        if (!request.startsExternalActivity()) return true
-        return result.isUserConfirmedCompletedExternalOutcome() ||
-            (
-                request.isLowRiskDeviceActionConfirmationSkippable() &&
-                    traceStore.continuationCursor(run.id)?.sourceRequestId == request.id
-            )
-    }
-
-    private fun ToolRequest.startsExternalActivity(): Boolean =
-        toolRegistry.specFor(toolName)?.permissions?.contains(ToolPermission.StartsExternalActivity) == true
-
-    private fun ToolRequest.isDeviceControlTool(): Boolean =
-        toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
-
-    private fun ToolRequest.canPlanLocalToolFromCurrentScreenObservation(run: AgentRun): Boolean =
-        when (toolName) {
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> true
-
-            else -> isDeviceControlTool() &&
-                latestSkillPlan(run.id).allowsModelDrivenAppSearchLocalObservation(run.id)
-        }
-
-    private fun SkillPlan?.allowsModelDrivenAppSearchLocalObservation(runId: String): Boolean {
-        val plan = this ?: return true
-        return plan.isModelDrivenAppSearchSkill() ||
-            (plan.isSingleToolStepPlan() && latestModelDrivenAppSearchSkillPlan(runId) != null)
-    }
-
-    private fun ToolResult.hasLocalObservationEvidenceForPlanning(): Boolean =
-        listOf(
-            "screenObservationJson",
-            "beforeScreenObservationJson",
-            "afterScreenObservationJson",
-            "screenObservationDiffSummary",
-            "ocrBlocksJson",
-            "ocrText",
-            "screenText",
-        ).any { key -> data[key]?.isNotBlank() == true }
-
-    private fun ToolResult.isPermissionFailure(): Boolean =
-        error?.code == ToolErrorCode.PermissionDenied ||
-            data["failureKind"] == "permission_missing"
-
-    private fun ToolResult.isForegroundPackageGateFailure(): Boolean =
-        data["failureKind"] == "app_not_foreground"
-
-    private fun ToolResult.isVerifiedSearchResult(): Boolean =
-        data["searchVerificationStatus"] == "verified"
-
-    private fun planNextToolStepFromCurrentSkill(
-        run: AgentRun,
-        result: ToolResult,
-    ): NextObservationPlan? {
-        val skillPlan = latestSkillPlan(run.id) ?: return null
-        val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
-        return when (val progression = skillProgressor.nextToolAfterToolResult(
-            skillPlan = skillPlan,
-            requestedRequestIds = requestedRequestIds,
-            result = result,
-            satisfiedStepIds = valueFreeCompletedStepFrontiersByRunId[run.id].orEmpty(),
-        )) {
-            SkillToolResultProgression.None -> null
-            is SkillToolResultProgression.Rejected ->
-                rejectNextToolPlan(
-                    run.id,
-                    requestForSkillProgressionRejection(skillPlan, requestedRequestIds, progression.reason),
-                )
-            is SkillToolResultProgression.BoundTool ->
-                buildNextToolPlan(
-                    runId = run.id,
-                    request = progression.request,
-                    draft = progression.draft,
-                    plannedByModel = false,
-                    fallbackReason = "skill tool step",
-                    skillPlan = skillPlan,
-                )
-        }
-    }
-
-    private fun planNextToolAfterModelResult(
-        run: AgentRun,
-        text: String,
-        allowInlineToolCalls: Boolean = true,
-    ): NextObservationPlan {
-        val skillPlan = latestSkillPlan(run.id)
-            ?: return if (allowInlineToolCalls) {
-                planExplicitToolCallAfterModelResult(run, text)
-            } else {
-                NextObservationPlan.None
-            }
-        val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
-        invalidSkillPlanReason(skillPlan)?.let { reason ->
-            return rejectNextToolPlan(
-                run.id,
-                requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
-            )
-        }
-        return when (val progression = skillProgressor.nextToolAfterModelOutput(
-            skillPlan = skillPlan,
-            requestedRequestIds = requestedRequestIds,
-            modelOutput = text,
-        )) {
-            SkillModelOutputProgression.None -> NextObservationPlan.None
-            is SkillModelOutputProgression.Rejected ->
-                rejectNextToolPlan(
-                    run.id,
-                    requestForSkillProgressionRejection(skillPlan, requestedRequestIds, progression.reason),
-                )
-            is SkillModelOutputProgression.BoundTool ->
-                buildNextToolPlan(
-                    runId = run.id,
-                    request = progression.request,
-                    draft = progression.draft,
-                    plannedByModel = false,
-                    fallbackReason = "skill model step",
-                    skillPlan = skillPlan,
-                )
-        }
-    }
-
-    private fun planExplicitToolCallAfterModelResult(
-        run: AgentRun,
-        text: String,
-    ): NextObservationPlan {
-        val draft = when (val parsed = actionPlanningRuntime.parseModelToolOutput(text)) {
-            ModelToolOutputParseResult.None -> return NextObservationPlan.None
-            is ModelToolOutputParseResult.Parsed -> parsed.draft
-            is ModelToolOutputParseResult.Rejected -> {
-                val rejectedRequest = ToolRequest(
-                    toolName = parsed.toolName ?: "model_tool_call",
-                    reason = "local model tool call",
-                )
-                return rejectNextToolPlan(run.id, rejectedRequest.rejected(parsed.reason))
-            }
-        }
-        val request = ToolRequest(
-            toolName = draft.functionName,
-            arguments = draft.parameters,
-            reason = "local model tool call",
-            sensitivityReason = draft.sensitivityReason,
-        )
-        if (
-            request.requiresMobileActionProfileForInlineToolCall() &&
-            !hasMobileActionPlanningModel(installedCapabilityProfilesByRunId[run.id].orEmpty())
-        ) {
-            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
-        }
-        val skillPlan = skillRuntime.plan(run.input, draft, request)
-        return buildNextToolPlan(
-            runId = run.id,
-            request = request,
-            draft = draft,
-            plannedByModel = true,
-            fallbackReason = "local model tool call",
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun requestForSkillProgressionRejection(
-        skillPlan: SkillPlan,
-        requestedRequestIds: Set<String>,
-        reason: String,
-    ): ToolResult {
-        val rejectedRequest = skillPlan.steps
-            .filterIsInstance<SkillStep.ToolStep>()
-            .firstOrNull { step -> step.request.id !in requestedRequestIds }
-            ?.request
-            ?: ToolRequest(
-                toolName = skillPlan.manifest.requiredTools.firstOrNull().orEmpty().ifBlank { "skill" },
-                reason = skillPlan.request.reason,
-            )
-        return rejectedRequest.rejected(reason)
-    }
-
-    private fun buildNextToolPlan(
-        runId: String,
-        request: ToolRequest,
-        draft: ActionDraft,
-        plannedByModel: Boolean,
-        fallbackReason: String?,
-        skillPlan: SkillPlan?,
-    ): NextObservationPlan {
-        val currentToolRequests = toolRequestsFor(runId)
-        val maxSteps = effectiveMaxToolSteps(runId)
-        if (toolStepBudgetExceeded(runId)) {
-            return failNextPlanBudget(runId, request)
-        }
-        if (toolRequestFor(runId, request.id) != null) {
-            return rejectNextToolPlan(
-                runId,
-                request.rejected("Replanned tool request id already exists: ${request.id}"),
-            )
-        }
-        invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
-            return rejectNextToolPlan(runId, rejection)
-        }
-        val rejection = toolRegistry.validate(request)
-        if (rejection != null) {
-            return rejectNextToolPlan(runId, rejection)
-        }
-        val spec = toolRegistry.specFor(request.toolName) ?: run {
-            val rejected = request.rejected("Unknown tool: ${request.toolName}")
-            return rejectNextToolPlan(runId, rejected)
-        }
-        val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
-        if (safetyDecision.outcome == SafetyOutcome.Reject) {
-            val rejected = request.rejected(safetyDecision.reason)
-            traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
-            return rejectNextToolPlan(runId, rejected)
-        }
-        val plan = AgentPlan.UseTool(
-            request = request,
-            draft = draft.withSafetyDecision(safetyDecision),
-            plannedByModel = plannedByModel,
-            fallbackReason = fallbackReason,
-            skillRequest = skillPlan?.request,
-            skillPlan = skillPlan,
-            safetyDecision = safetyDecision,
-        ).withConfirmationBypassForRun(runId)
-            .withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
-        return NextObservationPlan.Planned(
-            plan,
-        )
-    }
-
-    private fun failMissingModelNextPlan(
-        runId: String,
-        plan: AgentPlan.MissingModel,
-    ): NextObservationPlan {
-        val reason = "Missing model capability ${plan.capability.name}."
-        traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
-        traceStore.appendStep(runId, AgentStep.Failed(reason))
-        return NextObservationPlan.Rejected(reason)
-    }
-
-    private fun rejectNextToolPlan(runId: String, result: ToolResult): NextObservationPlan {
-        traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
-        traceStore.appendStep(runId, AgentStep.ToolRejected(result))
-        auditRejectedTool(runId, result)
-        return NextObservationPlan.Rejected(result.summary)
-    }
-
-    private fun appendToolPlanSteps(
-        runId: String,
-        plan: AgentPlan.UseTool,
-    ) {
-        traceStore.run(runId)?.let { run ->
-            traceStore.appendStep(runId, AgentStep.IntentRouted(plan.toIntentRoutingDecision(run.input)))
-        }
-        traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
-        plan.skillRequest?.let { skillRequest ->
-            traceStore.appendStep(runId, AgentStep.SkillPlanned(skillRequest, plan.skillPlan))
-        }
-        traceStore.appendStep(runId, AgentStep.SafetyChecked(plan.safetyDecision))
-        traceStore.appendStep(runId, AgentStep.ToolRequested(plan.request, plan.draft))
-        // Wave 4 telemetry: record tool dispatch start for latency measurement, and
-        // bump the ToolCalls monotonic counter. ToolStarted events are still published by
-        // ToolProgressPublisher at actual executor entry; this counter is orchestration-side.
-        toolDispatchStartedAtMillis[plan.request.id] = System.currentTimeMillis()
-        safeRecordTelemetry(
-            MetricSample.CounterInc(
-                name = TelemetryCounter.ToolCalls,
-                runId = runId,
-            ),
-            "ToolCalls counter",
-        )
-        // Wave 2 lifecycle: dual-write ToolPlanned. ToolStarted is published by the
-        // ToolProgressPublisher wired into ValidatingToolExecutor once the tool handler
-        // actually begins executing; this event represents the planning decision only.
-        eventBus.publish(
-            SolinEvent.Agent.ToolPlanned(
-                runId = runId,
-                toolCallId = plan.request.id,
-                toolName = plan.request.toolName,
-                title = plan.draft.title,
-                reason = plan.request.reason,
-                requiresConfirmation = plan.requiresUserConfirmation(),
-            ),
-        )
-        auditToolEvent(runId, plan, ToolAuditEventType.ToolPlanned, null, plan.request.reason)
-        if (plan.requiresUserConfirmation()) {
-            traceStore.appendStep(runId, AgentStep.UserConfirmationRequested(plan.request, plan.draft))
-            auditToolEvent(
-                runId = runId,
-                plan = plan,
-                eventType = ToolAuditEventType.ConfirmationRequested,
-                status = null,
-                summary = plan.safetyDecision.reason,
-            )
-        }
-    }
-
-    private fun requestToolConfirmation(
-        run: AgentRun,
-        plan: AgentPlan.UseTool,
-    ): AgentLoopResult {
-        val effectivePlan = plan.withConfirmationBypassForRun(run.id)
-        if (toolStepBudgetExceeded(run.id)) {
-            return failInitialPlanBudget(run, effectivePlan.request)
-        }
-        appendToolPlanSteps(run.id, effectivePlan)
-        // ask_user interception: append UserQuestionAsked step + event + remember pending
-        // state so answerUserQuestion can correlate a reply. Safety has already been evaluated
-        // via buildInitialToolPlan and appended via appendToolPlanSteps above, satisfying the
-        // "after safety, before execution" requirement. nextExecutionState() returns
-        // AwaitingUserAnswer for ask_user so the state transition below parks the run without
-        // ever entering ExecutingTool (and thus without ever invoking the executor).
-        parkForAskUserIfNeeded(run.id, effectivePlan)
-        val waitingRun = traceStore.updateState(run.id, effectivePlan.nextExecutionState())
-        if (effectivePlan.requiresUserConfirmation()) {
-            traceStore.savePendingConfirmation(effectivePlan.toPendingSnapshot(waitingRun))
-        }
-        return AgentLoopResult(
-            run = waitingRun,
-            plan = effectivePlan,
-            steps = traceStore.steps(run.id),
-        )
-    }
-
-    private fun rejectToolPlan(
-        run: AgentRun,
-        plan: AgentPlan.RejectedTool,
-    ): AgentLoopResult {
-        traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
-        traceStore.appendStep(run.id, AgentStep.ToolRejected(plan.result))
-        auditRejectedTool(run.id, plan.result)
-        val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
-        clearEphemeralRunState(run.id)
-        return AgentLoopResult(
-            run = failedRun,
-            plan = plan,
-            steps = traceStore.steps(run.id),
-        )
-    }
-
-    private fun failMissingModelPlan(
-        run: AgentRun,
-        plan: AgentPlan.MissingModel,
-    ): AgentLoopResult {
-        val reason = "Missing model capability ${plan.capability.name}."
-        traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
-        traceStore.appendStep(run.id, AgentStep.Failed(reason))
-        val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
-        clearEphemeralRunState(run.id)
-        return AgentLoopResult(
-            run = failedRun,
-            plan = plan,
-            steps = traceStore.steps(run.id),
-        )
-    }
+    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? =
+        modelToolRequestCoordinator.observeModelToolRequests(runId, requests)
 
     fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? =
         traceStore.latestPendingConfirmation(sessionId)
-            ?.takeIf { snapshot -> restoredPendingConfirmationIsAuthorized(snapshot) }
-            ?.also { snapshot -> rememberValueFreeFrontier(snapshot) }
+            ?.takeIf { snapshot -> pendingConfirmationSupport.restoredPendingConfirmationIsAuthorized(snapshot) }
+            ?.also { snapshot -> pendingConfirmationSupport.rememberValueFreeFrontier(snapshot) }
 
     fun latestPendingExternalOutcome(sessionId: String? = null): PendingExternalOutcomeSnapshot? =
         traceStore.recentRunSummaries(limit = PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT, stepLimit = 0)
             .asSequence()
             .map { summary -> summary.run }
             .filter { run ->
-                run.state in pendingExternalOutcomeRestoreStates &&
+                run.state in pendingConfirmationSupport.pendingExternalOutcomeRestoreStates &&
                     (sessionId == null || run.sessionId == sessionId)
             }
-            .mapNotNull { run -> pendingExternalOutcomeSnapshotFor(run) }
+            .mapNotNull { run -> pendingConfirmationSupport.pendingExternalOutcomeSnapshotFor(run) }
             .firstOrNull()
-
-    private fun pendingExternalOutcomeSnapshotFor(run: AgentRun): PendingExternalOutcomeSnapshot? {
-        val steps = traceStore.stepSummaries(run.id)
-        val confirmedRequestIds = steps
-            .asSequence()
-            .filter { step -> step.type == "ExternalOutcomeConfirmed" }
-            .mapNotNull { step -> step.requestIdFromJson() }
-            .toSet()
-        val requestsById = steps
-            .asSequence()
-            .filter { step -> step.type == "ToolRequested" }
-            .mapNotNull { step -> step.restoredToolRequestSummaryOrNull() }
-            .associateBy { request -> request.requestId }
-        val observationEntry = steps
-            .withIndex()
-            .toList()
-            .asReversed()
-            .asSequence()
-            .filter { indexedStep -> indexedStep.value.type == "ToolObserved" }
-            .mapNotNull { indexedStep ->
-                indexedStep.value.restoredExternalObservationOrNull()?.let { observation ->
-                    indexedStep.index to observation
-                }
-            }
-            .firstOrNull { (_, observation) ->
-                observation.requestId !in confirmedRequestIds &&
-                    observation.result.isUnverifiedExternalLaunch()
-            } ?: return null
-        val laterToolRequested = steps
-            .drop(observationEntry.first + 1)
-            .any { step -> step.type == "ToolRequested" }
-        if (laterToolRequested) return null
-        val observation = observationEntry.second
-        val request = requestsById[observation.requestId] ?: return null
-        if (request.isLowRiskRestoredExternalOutcomePopupSkippable(observation.result, toolRegistry)) return null
-        val summary = if (observation.result.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
-            observation.result.summary
-        } else {
-            "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：${observation.result.summary}"
-        }
-        return PendingExternalOutcomeSnapshot(
-            runId = run.id,
-            requestId = observation.requestId,
-            toolName = request.toolName,
-            title = request.title,
-            summary = summary,
-        )
-    }
-
-    private fun rememberValueFreeFrontier(snapshot: PendingToolConfirmationSnapshot) {
-        val completedStepIds = snapshot.skillRunCheckpoint?.completedStepIds.orEmpty().toSet()
-        if (completedStepIds.isEmpty()) {
-            valueFreeCompletedStepFrontiersByRunId.remove(snapshot.run.id)
-        } else {
-            valueFreeCompletedStepFrontiersByRunId[snapshot.run.id] = completedStepIds
-        }
-    }
-
-    private fun restoredPendingConfirmationIsAuthorized(snapshot: PendingToolConfirmationSnapshot): Boolean {
-        val reason = invalidSkillPlanReason(snapshot.skillPlan)
-            ?: invalidSkillPlanReason(snapshot.continuationCursor?.skillPlan)
-            ?: return true
-        val rejection = snapshot.request.rejected(reason)
-        traceStore.appendStep(snapshot.run.id, AgentStep.ToolRejected(rejection))
-        auditRejectedTool(snapshot.run.id, rejection)
-        traceStore.clearPendingConfirmation(snapshot.run.id, snapshot.request.id)
-        traceStore.appendStep(snapshot.run.id, AgentStep.Failed(rejection.summary))
-        traceStore.updateState(snapshot.run.id, AgentRunState.Failed)
-        clearEphemeralRunState(snapshot.run.id)
-        return false
-    }
-
-    private fun AgentPlan.UseTool.toPendingSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
-        plannedSequentialSegmentCount(run.id).let { completedSegmentCount ->
-            val nextActionInput = run.input.explicitSequentialActionTextAt(completedSegmentCount)
-            PendingToolConfirmationSnapshot(
-                run = run,
-                request = request,
-                draft = draft,
-                skillId = skillRequest?.skillId,
-                skillPlan = skillPlan,
-                plannedByModel = plannedByModel,
-                fallbackReason = fallbackReason,
-                nextActionInput = nextActionInput,
-                continuationCursor = nextActionInput?.takeIf { traceStore is RoomAgentTraceStore }?.let { input ->
-                    persistableContinuationCursor(
-                        sourceRequestId = request.id,
-                        completedSegmentCount = completedSegmentCount,
-                        input = input,
-                    )
-                },
-                skillRunCheckpoint = skillPlan?.valueFreeCheckpointForPendingTool(
-                    runId = run.id,
-                    pendingRequest = request,
-                    toolRegistry = toolRegistry,
-                ),
-            )
-        }
-
-    private fun persistableContinuationCursor(
-        sourceRequestId: String,
-        completedSegmentCount: Int,
-        input: String,
-    ): AgentContinuationCursor? {
-        val plan = planInitialSequentialSegment(input, actionModelPath = null) as? AgentPlan.UseTool
-            ?: return null
-        if (plan.plannedByModel) return null
-        if (plan.skillPlan != null && !plan.skillPlan.isSingleToolStepPlan()) return null
-        if (plan.request.arguments.isNotEmpty() || plan.draft.parameters.isNotEmpty()) return null
-        if (plan.request.toolName != plan.draft.functionName) return null
-        return AgentContinuationCursor(
-            sourceRequestId = sourceRequestId,
-            completedSegmentCount = completedSegmentCount,
-            request = plan.request,
-            draft = plan.draft,
-            plannedByModel = false,
-            fallbackReason = plan.fallbackReason,
-            skillPlan = plan.skillPlan,
-        )
-    }
-
-    private sealed class NextObservationPlan {
-        data object None : NextObservationPlan()
-        data class Planned(
-            val plan: AgentPlan.UseTool,
-        ) : NextObservationPlan()
-
-        data class Rejected(
-            val reason: String,
-        ) : NextObservationPlan()
-    }
-
-    private fun planToolIfSupported(
-        input: String,
-        installedCapabilityProfiles: List<ModelCapabilityProfile>,
-        actionModelPath: String?,
-    ): AgentPlan? =
-        planToolForInput(
-            input = input,
-            installedCapabilityProfiles = installedCapabilityProfiles,
-            actionModelPath = actionModelPath,
-            allowDirectSkillPlan = true,
-            allowMultiStepSkillPlan = true,
-        ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
-            planInitialSequentialSegment(
-                input = firstActionInput,
-                installedCapabilityProfiles = installedCapabilityProfiles,
-                actionModelPath = actionModelPath,
-            )
-        }
-
-    private fun planLocalOnlySkillBeforeRemote(input: String): AgentPlan? {
-        val skillPlan = runCatching { skillRuntime.plan(input) }
-            .getOrElse { throwable ->
-                android.util.Log.w(
-                    "AgentLoopRuntime",
-                    "skillRuntime.plan failed, treating as no local-skill match: ${throwable.message}",
-                )
-                null
-            } ?: return null
-        return runCatching { buildInitialToolPlanFromSkill(skillPlan) }
-            .getOrElse { throwable ->
-                android.util.Log.w(
-                    "AgentLoopRuntime",
-                    "buildInitialToolPlanFromSkill failed, falling through to answer: ${throwable.message}",
-                )
-                null
-            }
-    }
-
-    private fun planInitialSequentialSegment(
-        input: String,
-        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
-        actionModelPath: String?,
-    ): AgentPlan? =
-        planCompositeSkillForInitialSequentialSegment(input)
-            ?: planToolForInput(
-                input = input,
-                installedCapabilityProfiles = installedCapabilityProfiles,
-                actionModelPath = actionModelPath,
-                allowDirectSkillPlan = false,
-                allowMultiStepSkillPlan = false,
-            )
-
-    private fun planCompositeSkillForInitialSequentialSegment(input: String): AgentPlan? {
-        val skillPlan = skillRuntime.plan(input) ?: return null
-        if (skillPlan.isSingleToolStepPlan()) return null
-        return buildInitialToolPlanFromSkill(skillPlan)
-    }
-
-    private fun nextSequentialSegmentInput(
-        run: AgentRun,
-        completedSegmentCount: Int,
-    ): String? =
-        traceStore.nextActionInput(run.id)?.immediateSequentialActionText()
-            ?: run.input.explicitSequentialActionTextAt(completedSegmentCount)
-
-    private fun planNextCompositeSkillSegment(
-        runId: String,
-        input: String?,
-    ): NextObservationPlan? {
-        val skillPlan = input?.let { segmentInput -> skillRuntime.plan(segmentInput) } ?: return null
-        if (skillPlan.isSingleToolStepPlan()) return null
-        val toolStep = skillPlan.steps.firstOrNull() as? SkillStep.ToolStep
-            ?: return null
-        if (toolStep.dependsOn.isNotEmpty()) return null
-        val validation = skillPlan.validateStructure(toolRegistry)
-        if (!validation.isValid) {
-            return rejectNextToolPlan(
-                runId,
-                toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}"),
-            )
-        }
-        return buildNextToolPlan(
-            runId = runId,
-            request = toolStep.request,
-            draft = toolStep.draft,
-            plannedByModel = false,
-            fallbackReason = "skill-first",
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun planToolForInput(
-        input: String,
-        installedCapabilityProfiles: List<ModelCapabilityProfile>,
-        actionModelPath: String?,
-        allowDirectSkillPlan: Boolean,
-        allowMultiStepSkillPlan: Boolean,
-    ): AgentPlan? {
-        if (allowDirectSkillPlan) {
-            skillRuntime.plan(input)?.let { skillPlan ->
-                if (!allowMultiStepSkillPlan && !skillPlan.isSingleToolStepPlan()) return null
-                return buildInitialToolPlanFromSkill(skillPlan)
-            }
-        }
-        val intent = actionPlanningRuntime.classifyIntent(input)
-        if (!intent.isAction || !intent.confidence.isActionableForAgentPlan()) return null
-        val result = actionPlanningRuntime.plan(input, actionModelPath)
-        if (
-            result.usedModel &&
-            !hasMobileActionPlanningModel(
-                installedCapabilityProfiles = installedCapabilityProfiles,
-            )
-        ) {
-            return AgentPlan.MissingModel(ModelCapability.MobileAction)
-        }
-        val draft = result.plan.draft
-        if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
-        if (!allowMultiStepSkillPlan && draft.functionName.requiresLocalModelBeforeSequentialTail()) return null
-        val request = ToolRequest(
-            toolName = draft.functionName,
-            arguments = draft.parameters,
-            reason = draft.summary,
-        )
-        val skillPlan = skillRuntime.plan(input, draft, request)
-        if (!allowMultiStepSkillPlan && skillPlan != null && !skillPlan.isSingleToolStepPlan()) return null
-        return buildInitialToolPlan(
-            request = request,
-            draft = draft,
-            plannedByModel = result.usedModel,
-            fallbackReason = result.fallbackReason,
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun hasMobileActionPlanningModel(
-        installedCapabilityProfiles: List<ModelCapabilityProfile>,
-    ): Boolean =
-        installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
-
-    private fun ToolRequest.requiresMobileActionProfileForInlineToolCall(): Boolean =
-        toolRegistry.specFor(toolName)?.isEligibleForParallelBatch() == false
-
-    private fun String.initialSequentialActionInput(): String? =
-        explicitSequentialActionTextAt(0)
-            ?.takeIf { explicitSequentialActionTextAt(1) != null }
-
-    private fun SkillPlan.isSingleToolStepPlan(): Boolean =
-        steps.singleOrNull() is SkillStep.ToolStep
-
-    private fun draftForRemoteToolRequest(request: ToolRequest): ActionDraft {
-        val spec = toolRegistry.specFor(request.toolName)
-        return ActionDraft(
-            functionName = request.toolName,
-            title = spec?.title ?: request.toolName,
-            summary = spec?.title?.let { title -> "$title · 远程模型请求" } ?: "远程模型请求执行 ${request.toolName}",
-            parameters = request.arguments,
-            requiresConfirmation = spec?.confirmationPolicy == com.bytedance.zgx.solin.tool.ConfirmationPolicy.Required,
-            sensitivityReason = request.sensitivityReason,
-        )
-    }
-
-    private fun buildInitialToolPlanFromSkill(skillPlan: SkillPlan): AgentPlan? {
-        val toolStep = skillPlan.steps.firstOrNull() as? SkillStep.ToolStep
-            ?: return null
-        if (toolStep.dependsOn.isNotEmpty()) return null
-        val validation = skillPlan.validateStructure(toolRegistry)
-        if (!validation.isValid) {
-            return AgentPlan.RejectedTool(
-                toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}"),
-            )
-        }
-        return buildInitialToolPlan(
-            request = toolStep.request,
-            draft = toolStep.draft,
-            plannedByModel = false,
-            fallbackReason = "skill-first",
-            skillPlan = skillPlan,
-        )
-    }
-
-    private fun buildInitialToolPlan(
-        request: ToolRequest,
-        draft: ActionDraft,
-        plannedByModel: Boolean,
-        fallbackReason: String?,
-        skillPlan: SkillPlan?,
-    ): AgentPlan {
-        invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
-            return AgentPlan.RejectedTool(rejection)
-        }
-        val rejection = toolRegistry.validate(request)
-        if (rejection != null) return AgentPlan.RejectedTool(rejection)
-        val spec = toolRegistry.specFor(request.toolName)
-            ?: return AgentPlan.RejectedTool(
-                request.rejected("Unknown tool: ${request.toolName}"),
-            )
-        val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
-        if (safetyDecision.outcome == SafetyOutcome.Reject) {
-            return AgentPlan.RejectedTool(request.rejected(safetyDecision.reason))
-        }
-        return AgentPlan.UseTool(
-            request = request,
-            draft = draft.withSafetyDecision(safetyDecision),
-            plannedByModel = plannedByModel,
-            fallbackReason = fallbackReason,
-            skillRequest = skillPlan?.request,
-            skillPlan = skillPlan,
-            safetyDecision = safetyDecision,
-        )
-    }
-
-    private fun invalidSkillPlanRejection(
-        request: ToolRequest,
-        skillPlan: SkillPlan?,
-    ): ToolResult? {
-        val reason = invalidSkillPlanReason(skillPlan) ?: return null
-        return request.rejected(reason)
-    }
-
-    private fun invalidSkillPlanReason(skillPlan: SkillPlan?): String? {
-        skillPlan ?: return null
-        unauthorizedSkillManifestReason(skillPlan)?.let { reason -> return reason }
-        val validation = skillPlan.validateStructure(toolRegistry)
-        return if (validation.isValid) {
-            null
-        } else {
-            "Invalid skill plan: ${validation.errors.joinToString()}"
-        }
-    }
-
-    private fun unauthorizedSkillManifestReason(skillPlan: SkillPlan): String? {
-        val currentManifest = skillRuntime.manifests()
-            .firstOrNull { manifest -> manifest.id == skillPlan.manifest.id }
-            ?: return "Skill manifest is not authorized by current runtime: ${skillPlan.manifest.id}"
-        if (currentManifest.version != skillPlan.manifest.version) {
-            return "Skill manifest version changed: ${skillPlan.manifest.id}"
-        }
-        if (currentManifest.authorizationContractHash() != skillPlan.manifest.authorizationContractHash()) {
-            return "Skill manifest changed: ${skillPlan.manifest.id}"
-        }
-        return null
-    }
-
-    private fun messageForObservation(
-        result: ToolResult,
-        retryAttempt: Int = 0,
-        recoveryAction: AgentRecoveryAction? = null,
-    ): String =
-        when (result.status) {
-            ToolStatus.Succeeded -> if (result.isUnverifiedExternalLaunch()) {
-                result.unverifiedExternalLaunchSummary()
-            } else {
-                buildString {
-                    append("工具执行结果：${result.summary}")
-                    recoveryAction?.recoveryHintForObservation()?.let { recoveryHint ->
-                        append("\n")
-                        append(recoveryHint)
-                    }
-                }
-            }
-            ToolStatus.Failed -> if (retryAttempt > 0) {
-                "工具执行失败，正在重试（第 $retryAttempt 次）：${result.summary}"
-            } else {
-                "工具执行失败：${result.summary}\n${result.recoveryGuidanceForFailure()}"
-            }
-            ToolStatus.Rejected -> "工具请求已拒绝：${result.summary}"
-            ToolStatus.Cancelled -> "工具执行已取消：${result.summary}"
-        }
-
-    private fun traceMessageForObservation(
-        request: ToolRequest,
-        result: ToolResult,
-        retryAttempt: Int,
-        recoveryAction: AgentRecoveryAction?,
-    ): String {
-        val metadata = result.reminderAuditMetadata(request.toolName)
-        return when {
-            result.isUnverifiedExternalLaunch() -> UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
-            metadata.isNotEmpty() -> buildString {
-                append("工具执行结果已记录，结果详情已隐藏。")
-                recoveryAction?.recoveryHintForObservation()?.let { recoveryHint ->
-                    append("\n")
-                    append(recoveryHint)
-                }
-            }
-            result.status == ToolStatus.Failed && retryAttempt > 0 ->
-                "工具执行失败，正在重试（第 $retryAttempt 次），错误详情已隐藏。"
-            result.status == ToolStatus.Failed ->
-                "工具执行失败，错误详情已隐藏。${result.traceRecoveryGuidanceForFailure()}"
-            result.status == ToolStatus.Rejected ->
-                "工具请求已拒绝，详情已隐藏。"
-            result.status == ToolStatus.Cancelled ->
-                "工具执行已取消，详情已隐藏。"
-            else ->
-                "工具执行结果已记录，结果详情已隐藏。"
-        }
-    }
-
-    private fun recoveryActionForObservation(
-        request: ToolRequest,
-        result: ToolResult,
-    ): AgentRecoveryAction? {
-        if (result.status != ToolStatus.Succeeded) return null
-        if (request.toolName != MobileActionFunctions.SCHEDULE_REMINDER) return null
-        val recoveryToolName = result.data["recoveryToolName"]?.takeIf { it.isNotBlank() } ?: return null
-        if (recoveryToolName != MobileActionFunctions.CANCEL_REMINDER) return null
-        val recoveryTaskId = result.data["recoveryTaskId"]?.takeIf { it.isSafeRecoveryTaskId() } ?: return null
-        val recoveryRequest = ToolRequest(
-            toolName = MobileActionFunctions.CANCEL_REMINDER,
-            arguments = mapOf("taskId" to recoveryTaskId),
-            reason = "撤销提醒任务：$recoveryTaskId",
-        )
-        return AgentRecoveryAction(
-            sourceRequestId = result.requestId,
-            sourceToolName = request.toolName,
-            request = recoveryRequest,
-            draft = ActionDraft(
-                functionName = MobileActionFunctions.CANCEL_REMINDER,
-                title = "撤销提醒",
-                summary = "将取消提醒任务：$recoveryTaskId",
-                parameters = recoveryRequest.arguments,
-                requiresConfirmation = true,
-            ),
-        )
-    }
-
-    private fun String.isSafeRecoveryTaskId(): Boolean =
-        matches(Regex("""task-[A-Za-z0-9_-]+"""))
-
-    private data class NormalizedReminderRecovery(
-        val taskId: String,
-        val request: ToolRequest,
-        val draft: ActionDraft,
-    )
-
-    private fun AgentRecoveryAction.normalizedReminderRecovery(): NormalizedReminderRecovery? {
-        if (sourceRequestId.isBlank()) return null
-        if (sourceToolName != MobileActionFunctions.SCHEDULE_REMINDER) return null
-        if (request.id.isBlank()) return null
-        if (request.toolName != MobileActionFunctions.CANCEL_REMINDER) return null
-        if (draft.functionName != MobileActionFunctions.CANCEL_REMINDER) return null
-        val taskId = request.arguments["taskId"]?.takeIf { it.isSafeRecoveryTaskId() } ?: return null
-        val arguments = mapOf("taskId" to taskId)
-        val normalizedRequest = request.copy(
-            toolName = MobileActionFunctions.CANCEL_REMINDER,
-            arguments = arguments,
-            reason = "撤销提醒任务：$taskId",
-        )
-        val normalizedDraft = ActionDraft(
-            functionName = MobileActionFunctions.CANCEL_REMINDER,
-            title = "撤销提醒",
-            summary = "将取消提醒任务：$taskId",
-            parameters = arguments,
-            requiresConfirmation = true,
-        )
-        return NormalizedReminderRecovery(
-            taskId = taskId,
-            request = normalizedRequest,
-            draft = normalizedDraft,
-        )
-    }
-
-    private fun AgentRecoveryAction.recoveryHintForObservation(): String? =
-        when (request.toolName) {
-            MobileActionFunctions.CANCEL_REMINDER ->
-                "如需撤销该提醒，请再次确认执行 ${request.toolName}，taskId=${request.arguments["taskId"]}。"
-
-            else -> null
-        }
-
-    private fun ToolResult.recoveryGuidanceForFailure(): String =
-        when (error?.code) {
-            ToolErrorCode.PermissionDenied ->
-                "下一步：请授权所需权限后重试，或改用不需要该权限的请求。"
-            ToolErrorCode.MissingArgument, ToolErrorCode.InvalidRequest, ToolErrorCode.InvalidResult ->
-                "下一步：请补充或改正必要信息后重试。"
-            ToolErrorCode.UnknownTool, ToolErrorCode.NoActivityFound ->
-                "下一步：请确认相关系统能力可用后重试，或换一种方式完成。"
-            ToolErrorCode.UserCancelled ->
-                "下一步：操作已取消；需要继续时请重新发起。"
-            ToolErrorCode.ExecutionFailed, null ->
-                if (retryable) {
-                    "下一步：自动重试次数已用尽；请稍后重试，或简化请求后再试。"
-                } else {
-                    "下一步：请调整请求后重试，或改用手动方式完成。"
-                }
-        }
-
-    private fun ToolResult.traceRecoveryGuidanceForFailure(): String =
-        when (error?.code) {
-            ToolErrorCode.PermissionDenied -> " 下一步：授权后重试。"
-            ToolErrorCode.MissingArgument, ToolErrorCode.InvalidRequest, ToolErrorCode.InvalidResult ->
-                " 下一步：补充必要信息后重试。"
-            ToolErrorCode.UnknownTool, ToolErrorCode.NoActivityFound ->
-                " 下一步：确认系统能力可用后重试。"
-            ToolErrorCode.UserCancelled -> " 下一步：需要继续时重新发起。"
-            ToolErrorCode.ExecutionFailed, null -> " 下一步：调整请求或稍后重试。"
-        }
-
-    private fun ToolResult.auditSummaryForObservation(request: ToolRequest): String {
-        val metadata = reminderAuditMetadata(request.toolName)
-        return when {
-            metadata.isNotEmpty() -> metadata.joinToString(separator = "; ")
-            isUnverifiedExternalLaunch() -> UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
-            summary.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX) -> EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
-            else -> TOOL_OBSERVATION_AUDIT_SUMMARY
-        }
-    }
-
-    private fun ToolResult.reminderAuditMetadata(toolName: String): List<String> {
-        if (toolName != MobileActionFunctions.SCHEDULE_REMINDER &&
-            toolName != MobileActionFunctions.CANCEL_REMINDER
-        ) {
-            return emptyList()
-        }
-        return listOfNotNull(
-            data["taskId"]?.takeIf { it.isSafeRecoveryTaskId() }?.let { "taskId=$it" },
-            data["taskStatus"]?.takeIf { it.matches(Regex("""[A-Za-z]+""")) }?.let { "taskStatus=$it" },
-            data["triggerAtMillis"]?.takeIf { it.matches(Regex("""\d+""")) }?.let { "triggerAtMillis=$it" },
-            data["recoveryToolName"]
-                ?.takeIf { it == MobileActionFunctions.CANCEL_REMINDER }
-                ?.let { "recoveryToolName=$it" },
-            data["recoveryTaskId"]?.takeIf { it.isSafeRecoveryTaskId() }?.let { "recoveryTaskId=$it" },
-        )
-    }
-
-    private fun nextRetryAttempt(runId: String, result: ToolResult): Int {
-        if (result.status != ToolStatus.Failed || !result.retryable) return 0
-        if (result.error?.code == ToolErrorCode.PermissionDenied) return 0
-        val request = requestForResult(runId, result) ?: return 0
-        if (!request.allowsAutomaticRetry()) return 0
-        val completedAttempts = traceStore.steps(runId)
-            .asSequence()
-            .filterIsInstance<AgentStep.ToolRetryScheduled>()
-            .count { step -> step.request.id == result.requestId }
-        if (completedAttempts >= maxToolRetryAttempts) return 0
-        return completedAttempts + 1
-    }
-
-    private fun requestForResult(runId: String, result: ToolResult): ToolRequest? =
-        traceStore.steps(runId)
-            .asSequence()
-            .mapNotNull { step ->
-                when (step) {
-                    is AgentStep.ToolRequested -> step.request
-                    is AgentStep.ToolRetryScheduled -> step.request
-                    else -> null
-                }
-            }
-            .lastOrNull { request -> request.id == result.requestId }
-
-    private fun ToolRequest.allowsAutomaticRetry(): Boolean {
-        val spec = toolRegistry.specFor(toolName) ?: return false
-        return spec.isEligibleForParallelBatch()
-    }
 
     private fun continuationForToolObservation(
         run: AgentRun,
@@ -3802,7 +2009,7 @@ class AgentLoopRuntime(
                     $clipboardText
                     """.trimIndent(),
                     requiresLocalModel = true,
-                    canPlanNextToolBeforeModel = request.canPlanLocalToolFromCurrentScreenObservation(run),
+                    canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run),
                 )
             }
 
@@ -3847,7 +2054,7 @@ class AgentLoopRuntime(
                     $screenObservationSection
                     """.trimIndent(),
                     requiresLocalModel = true,
-                    canPlanNextToolBeforeModel = request.canPlanLocalToolFromCurrentScreenObservation(run),
+                    canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run),
                 )
             }
 
@@ -4313,7 +2520,7 @@ class AgentLoopRuntime(
                 $localData
             """.trimIndent(),
             requiresLocalModel = true,
-            canPlanNextToolBeforeModel = request.canPlanLocalToolFromCurrentScreenObservation(run),
+            canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run),
         )
     }
 
@@ -4332,7 +2539,7 @@ class AgentLoopRuntime(
     ): ToolObservationContinuation? {
         request ?: return null
         val skillPlan = latestSkillPlan(run.id) ?: return null
-        if (invalidSkillPlanReason(skillPlan) != null) return null
+        if (initialToolPlanner.invalidSkillPlanReason(skillPlan) != null) return null
         val currentStepIndex = skillPlan.steps.indexOfFirst { step ->
             step is SkillStep.ToolStep && step.request.id == request.id
         }
@@ -4511,23 +2718,12 @@ class AgentLoopRuntime(
     private fun ToolRequest.isCheckpointedUiActionTool(): Boolean =
         toolRegistry.isCheckpointedUiActionTool(toolName)
 
-    private fun SkillPlan.isLowRiskAppControlSkill(): Boolean =
-        manifest.lowRiskAppControlEligible
-
-    private fun SkillPlan.isModelDrivenAppSearchSkill(): Boolean =
-        manifest.id == BuiltInSkillRuntime.MODEL_DRIVEN_CURRENT_APP_UI_SEARCH_SKILL ||
-            manifest.id == BuiltInSkillRuntime.MODEL_DRIVEN_OPEN_APP_UI_SEARCH_SKILL
-
     private fun SkillPlan.hasConfirmedToolStep(runId: String): Boolean {
         val stepRequestIds = toolStepRequestIds()
         return traceStore.steps(runId).any { step ->
             step is AgentStep.UserConfirmed && step.requestId in stepRequestIds
         }
     }
-
-    private fun SkillPlan.hasToolStep(request: ToolRequest): Boolean =
-        steps.filterIsInstance<SkillStep.ToolStep>()
-            .any { step -> step.request.id == request.id && step.request.toolName == request.toolName }
 
     private fun SkillPlan.requestedCheckpointedUiActionCount(runId: String): Int {
         val stepRequestIds = toolStepRequestIds()
@@ -4612,7 +2808,7 @@ class AgentLoopRuntime(
     private fun runUsedDeviceControlSession(runId: String): Boolean =
         toolRequestsFor(runId).any { request ->
             toolRegistry.startsDeviceControlSession(request.toolName) ||
-                request.isDeviceControlTool()
+                toolPlanCoordinator.isDeviceControlTool(request)
         }
 
     private data class AppControlSession(
@@ -4622,14 +2818,6 @@ class AgentLoopRuntime(
         val lowRisk: Boolean,
         val stepCount: Int,
         val checkpointRequired: Boolean,
-    )
-
-    private data class ToolObservationContinuation(
-        val prompt: String,
-        val requiresLocalModel: Boolean,
-        val remoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
-        val canPlanNextToolBeforeModel: Boolean = false,
-        val blocksSequentialTail: Boolean = false,
     )
 
     private data class PublicEvidencePromptBlock(
@@ -4663,11 +2851,6 @@ class AgentLoopRuntime(
     private companion object {
         const val RUN_DELETED_SESSION_REASON = "Session deleted before this Agent run completed."
     }
-
-    private val pendingExternalOutcomeRestoreStates = setOf(
-        AgentRunState.AwaitingExternalOutcome,
-        AgentRunState.Completed,
-    )
 
     // -----------------------------------------------------------------------
     // Wave 2 SolinEvent lifecycle helpers — dual-write alongside traceStore.
@@ -4720,13 +2903,6 @@ class AgentLoopRuntime(
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
         data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
             data["privacy"] == MessagePrivacy.LocalOnly.name
-
-    private fun ToolResult.withAttemptedToolNames(requests: List<ToolRequest>): ToolResult =
-        copy(
-            data = data + mapOf(
-                "attemptedToolNames" to requests.joinToString(",") { request -> request.toolName },
-            ),
-        )
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
         val toolName = request?.toolName ?: return this
@@ -4854,8 +3030,7 @@ class AgentLoopRuntime(
     }
 
     private fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
-        toolRequestsFor(runId)
-            .firstOrNull { request -> request.id == requestId }
+        toolRequestsFor(runId).firstOrNull { request -> request.id == requestId }
 
     private fun latestUnverifiedExternalResult(runId: String, requestId: String): ToolResult? =
         traceStore.steps(runId)
@@ -4868,7 +3043,7 @@ class AgentLoopRuntime(
             .asReversed()
             .asSequence()
             .filter { step -> step.type == "ToolObserved" }
-            .mapNotNull { step -> step.restoredUnverifiedExternalResultOrNull() }
+            .mapNotNull { step -> pendingConfirmationSupport.restoreUnverifiedExternalResult(step) }
             .firstOrNull { result -> result.requestId == requestId }
 
     private fun latestExternalOutcomeConfirmation(runId: String, requestId: String): AgentStep.ExternalOutcomeConfirmed? =
@@ -4904,7 +3079,7 @@ class AgentLoopRuntime(
                 liveRequests + traceStore.stepSummaries(runId)
                     .asSequence()
                     .filter { step -> step.type == "ToolRequested" }
-                    .mapNotNull { step -> step.restoredToolRequestOrNull() }
+                    .mapNotNull { step -> pendingConfirmationSupport.restoreToolRequest(step) }
                     .filterNot { request -> request.id in liveIds }
                     .toList()
             }
@@ -4980,9 +3155,7 @@ class AgentLoopRuntime(
     }
 
     private fun latestPendingToolRequest(runId: String): ToolRequest? =
-        traceStore.steps(runId)
-            .asReversed()
-            .asSequence()
+        traceStore.steps(runId).asReversed().asSequence()
             .mapNotNull { step -> (step as? AgentStep.UserConfirmationRequested)?.request }
             .firstOrNull()
 
@@ -4990,8 +3163,8 @@ class AgentLoopRuntime(
         val restoredSnapshot = traceStore.latestPendingConfirmation()
             ?.takeIf { snapshot -> snapshot.run.id == runId && snapshot.request.id == requestId }
         if (restoredSnapshot != null) {
-            if (!restoredPendingConfirmationIsAuthorized(restoredSnapshot)) return null
-            rememberValueFreeFrontier(restoredSnapshot)
+            if (!pendingConfirmationSupport.restoredPendingConfirmationIsAuthorized(restoredSnapshot)) return null
+            pendingConfirmationSupport.rememberValueFreeFrontier(restoredSnapshot)
         }
         val liveRequest = latestPendingToolRequest(runId)
             ?.takeIf { request -> request.id == requestId }
@@ -5013,9 +3186,7 @@ class AgentLoopRuntime(
             .firstOrNull()
 
     private fun latestObservationDecision(runId: String): AgentObservationDecision? =
-        traceStore.steps(runId)
-            .asReversed()
-            .asSequence()
+        traceStore.steps(runId).asReversed().asSequence()
             .mapNotNull { step -> (step as? AgentStep.ObservationDecided)?.decision }
             .firstOrNull()
 
@@ -5039,74 +3210,21 @@ class AgentLoopRuntime(
     }
 
     private fun latestSkillPlan(runId: String): SkillPlan? =
-        traceStore.steps(runId)
-            .asSequence()
+        traceStore.steps(runId).asSequence()
             .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
             .lastOrNull()
 
     private fun latestLowRiskAppControlSkillPlan(runId: String): SkillPlan? =
-        traceStore.steps(runId)
-            .asSequence()
+        traceStore.steps(runId).asSequence()
             .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
             .filter { plan -> plan.isLowRiskAppControlSkill() }
             .lastOrNull()
 
     private fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
-        traceStore.steps(runId)
-            .asSequence()
+        traceStore.steps(runId).asSequence()
             .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
             .filter { plan -> plan.isModelDrivenAppSearchSkill() }
             .lastOrNull()
-
-    private fun AgentTraceStepSummary.restoredToolRequestSummaryOrNull(): RestoredToolRequestSummary? {
-        val json = jsonObjectOrNull() ?: return null
-        val requestId = json.optString("requestId").takeIf { it.isNotBlank() } ?: return null
-        val toolName = json.optString("toolName").takeIf { it.isNotBlank() } ?: return null
-        val title = json.optString("draftTitle").takeIf { it.isNotBlank() } ?: toolName
-        return RestoredToolRequestSummary(
-            requestId = requestId,
-            toolName = toolName,
-            title = title,
-        )
-    }
-
-    private fun AgentTraceStepSummary.restoredToolRequestOrNull(): ToolRequest? =
-        restoredToolRequestSummaryOrNull()?.let { request ->
-            ToolRequest(
-                id = request.requestId,
-                toolName = request.toolName,
-                arguments = emptyMap(),
-                reason = "",
-            )
-        }
-
-    private fun AgentTraceStepSummary.restoredExternalObservationOrNull(): RestoredExternalObservation? {
-        val result = restoredUnverifiedExternalResultOrNull() ?: return null
-        return RestoredExternalObservation(
-            requestId = result.requestId,
-            result = result,
-        )
-    }
-
-    private fun AgentTraceStepSummary.restoredUnverifiedExternalResultOrNull(): ToolResult? {
-        val json = jsonObjectOrNull() ?: return null
-        if (json.optString("status") != ToolStatus.Succeeded.name) return null
-        val requestId = json.optString("requestId").takeIf { it.isNotBlank() } ?: return null
-        val metadata = json.optJSONObject("completionMetadata") ?: return null
-        val data = buildMap {
-            metadata.keys().forEach { key ->
-                val value = metadata.optString(key)
-                if (value.isNotBlank()) put(key, value)
-            }
-        }
-        val result = ToolResult(
-            requestId = requestId,
-            status = ToolStatus.Succeeded,
-            summary = UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX,
-            data = data,
-        )
-        return result.takeIf { it.isUnverifiedExternalLaunch() }
-    }
 
     private fun AgentTraceStepSummary.requestIdFromJson(): String? =
         jsonObjectOrNull()?.optString("requestId")?.takeIf { it.isNotBlank() }
@@ -5125,38 +3243,17 @@ class AgentLoopRuntime(
 
     private fun AgentTraceStepSummary.skillToolStepCountFromJson(): Int? {
         val json = jsonObjectOrNull() ?: return null
-        return json.optInt("toolStepCount", -1)
-            .takeIf { count -> count >= 0 }
-            ?: json.optInt("stepCount", -1).takeIf { count -> count >= 0 }
+        return json.optInt("toolStepCount", -1).takeIf { it >= 0 }
+            ?: json.optInt("stepCount", -1).takeIf { it >= 0 }
     }
 
     private fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
         runCatching { JSONObject(json) }.getOrNull()
 
-    private data class SummarySkillSegment(
-        val key: String,
-        val remainingToolSteps: Int,
-    ) {
+    private data class SummarySkillSegment(val key: String, val remainingToolSteps: Int) {
         fun afterTool(): SummarySkillSegment? =
             if (remainingToolSteps <= 1) null else copy(remainingToolSteps = remainingToolSteps - 1)
     }
-
-    private data class RestoredToolRequestSummary(
-        val requestId: String,
-        val toolName: String,
-        val title: String,
-    ) {
-        fun isLowRiskRestoredExternalOutcomePopupSkippable(
-            result: ToolResult,
-            toolRegistry: ToolRegistry,
-        ): Boolean =
-            toolRegistry.isLowRiskRestoredExternalOutcomePopupSkippable(toolName, result)
-    }
-
-    private data class RestoredExternalObservation(
-        val requestId: String,
-        val result: ToolResult,
-    )
 
     private val AgentExternalOutcome.metadataValue: String
         get() = when (this) {
@@ -5299,138 +3396,4 @@ class AgentLoopRuntime(
         trim().replace(auditWhitespaceRegex, " ").boundedPromptValue(maxLength)
 }
 
-fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
-    when (val planned = plan) {
-        is AgentPlan.Answer -> AssistantRoute.Chat(
-            runId = run.id,
-            promptForModel = planned.promptForModel,
-            memoryHits = planned.memoryHits,
-            deviceContext = planned.deviceContext,
-        )
-
-        is AgentPlan.UseTool -> AssistantRoute.Action(
-            runId = run.id,
-            toolRequest = planned.request,
-            draft = planned.draft,
-            plannedByModel = planned.plannedByModel,
-            fallbackReason = planned.fallbackReason,
-            skillId = planned.skillRequest?.skillId,
-            requiresUserConfirmation = planned.requiresUserConfirmation(),
-        )
-
-        is AgentPlan.RejectedTool -> AssistantRoute.ToolRejected(planned.result.summary)
-
-        is AgentPlan.MissingModel -> AssistantRoute.MissingModel(planned.capability)
-    }
-
-private fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
-    safetyDecision.outcome == SafetyOutcome.RequireConfirmation
-
-private fun AgentPlan.UseTool.toIntentRoutingDecision(input: String): IntentRoutingDecision {
-    val path = routingPath()
-    return IntentRoutingDecision(
-        input = input,
-        selectedPath = path,
-        selectedToolName = request.toolName,
-        selectedSkillId = skillRequest?.skillId,
-        priority = path.routingPriority(),
-        accepted = true,
-        confidence = ActionIntentConfidence.High,
-        rejectionReasons = emptyList(),
-        requiresConfirmation = requiresUserConfirmation(),
-    )
-}
-
-private fun AgentPlan.UseTool.routingPath(): IntentRoutingPath =
-    when (fallbackReason) {
-        "skill-first",
-        "skill model step" -> IntentRoutingPath.SkillFirst
-        "remote tool call",
-        "remote tool batch" -> IntentRoutingPath.RemoteToolPlanning
-        "local model tool call" -> IntentRoutingPath.ModelToolCall
-        else -> IntentRoutingPath.ActionPlanner
-    }
-
-private fun AgentTraceStore.appendRejectedRoutingDecision(
-    runId: String,
-    path: IntentRoutingPath,
-    toolName: String?,
-    reason: String,
-) {
-    val run = run(runId) ?: return
-    appendStep(
-        runId,
-        AgentStep.IntentRouted(
-            IntentRoutingDecision(
-                input = run.input,
-                selectedPath = path,
-                selectedToolName = toolName?.takeIf { it.isNotBlank() },
-                selectedSkillId = null,
-                priority = path.routingPriority(),
-                accepted = false,
-                confidence = ActionIntentConfidence.None,
-                rejectionReasons = listOf(reason.toRoutingReasonSlug()),
-                requiresConfirmation = null,
-            ),
-        ),
-    )
-}
-
-private fun IntentRoutingPath.routingPriority(): Int =
-    when (this) {
-        IntentRoutingPath.SkillFirst -> 100
-        IntentRoutingPath.ActionPlanner -> 80
-        IntentRoutingPath.RemoteToolPlanning -> 70
-        IntentRoutingPath.ModelToolCall -> 60
-        IntentRoutingPath.NoAction -> 0
-    }
-
-private fun String.toRoutingReasonSlug(): String =
-    lowercase()
-        .replace(Regex("[^a-z0-9]+"), "_")
-        .trim('_')
-        .ifBlank { "tool_rejected" }
-
-private fun ActionDraft.withSafetyDecision(safetyDecision: SafetyDecision): ActionDraft =
-    if (safetyDecision.outcome == SafetyOutcome.RequireConfirmation && !requiresConfirmation) {
-        copy(requiresConfirmation = true)
-    } else {
-        this
-    }
-
-private fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
-    when {
-        request.toolName == MobileActionFunctions.ASK_USER -> AgentRunState.AwaitingUserAnswer
-        requiresUserConfirmation() -> AgentRunState.AwaitingUserConfirmation
-        else -> AgentRunState.ExecutingTool
-    }
-
-/**
- * Parse the `choices` argument from a ToolRequest whose arguments map is `Map<String, String>`.
- * Accepts either a JSON-array string (the typical shape produced by model tool calls that
- * serialize structured args as JSON strings) or a single non-empty string treated as a single
- * choice. Returns an empty list when the argument is absent or unparseable.
- */
-private fun parseAskUserChoices(arguments: Map<String, String>): List<String> {
-    val raw = arguments["choices"]?.takeIf { it.isNotBlank() } ?: return emptyList()
-    return runCatching {
-        val arr = JSONArray(raw)
-        (0 until arr.length()).mapNotNull { idx ->
-            arr.optString(idx).takeIf { !it.isNullOrBlank() }
-        }
-    }.getOrElse {
-        // Fall back to treating a single non-JSON string as a singleton choice.
-        listOf(raw)
-    }
-}
-
 private val auditWhitespaceRegex = Regex("\\s+")
-
-/**
- * Rough token estimator used by compaction call sites that don't supply a model-specific one.
- * Reuses the LiteRt chars/4 heuristic (already imported) — accurate enough for preflight
- * compaction gating even against remote models (both over- and under-estimates are safe: the
- * compactor is conservative, and the post-send retry path catches actual overflows).
- */
-internal fun estimateTokensApproximate(messages: List<ChatMessage>): Int =
-    messages.sumOf { estimateLocalRuntimeTokens(it.text) } + messages.size * 4
