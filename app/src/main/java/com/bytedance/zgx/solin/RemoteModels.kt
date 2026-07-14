@@ -92,3 +92,20 @@ fun InferenceMode.label(): String =
         InferenceMode.Local -> "本地"
         InferenceMode.Remote -> "远程"
     }
+
+internal fun RemoteModelConfig.destinationHostLabel(): String {
+    val normalized = normalized()
+    val uri = runCatching { URI(normalized.baseUrl) }.getOrNull()
+    val host = uri?.host?.takeIf { it.isNotBlank() }
+        ?: normalized.baseUrl.ifBlank { "未配置" }
+    val port = uri?.port?.takeIf { it >= 0 }?.let { ":$it" }.orEmpty()
+    return "$host$port"
+}
+
+internal fun RemoteModelConfig.hasSameConnectivityTarget(other: RemoteModelConfig): Boolean {
+    val left = normalized()
+    val right = other.normalized()
+    return left.baseUrl == right.baseUrl &&
+        left.modelName == right.modelName &&
+        left.apiKey == right.apiKey
+}
