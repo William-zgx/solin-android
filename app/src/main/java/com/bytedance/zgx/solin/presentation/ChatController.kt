@@ -170,6 +170,7 @@ class ChatController internal constructor(
 ) {
     private var generationJob: Job? = null
     private var activeGenerationRunId: String? = null
+    private val generationStreams = GenerationStreamCoordinator()
     private var nextVoiceInputDraftId = 0L
 
     private val generationSupport = ChatGenerationSupport(
@@ -732,6 +733,7 @@ class ChatController internal constructor(
 
         val generationBlock: suspend CoroutineScope.() -> Unit = generation@{
             var activeModelRunId: String? = null
+            var activeStreamKey: GenerationStreamKey? = null
             var streamingAssistantUpdates: StreamingAssistantUpdateCoalescer? = null
             try {
                 val userMessage = ChatMessage(
@@ -940,6 +942,11 @@ class ChatController internal constructor(
                         }
                         activeModelRunId = route.runId
                         activeGenerationRunId = route.runId
+                        val streamKey = generationStreams.start(
+                            sessionId = stateBeforeSend.activeSessionId.orEmpty(),
+                            runId = route.runId,
+                        )
+                        activeStreamKey = streamKey
                         val responsePrivacy = if (
                             !useRemoteModel &&
                             (effectiveMessagePrivacy == MessagePrivacy.LocalOnly || route.memoryHits.isNotEmpty())
@@ -1050,7 +1057,11 @@ class ChatController internal constructor(
 
                         val partial = StringBuilder()
                         val streamingUpdates = StreamingAssistantUpdateCoalescer(
-                            publish = { text -> uiState.updateLastAssistant(text) },
+                            publish = { text ->
+                                if (generationStreams.isActive(streamKey)) {
+                                    uiState.updateLastAssistant(text)
+                                }
+                            },
                         )
                         streamingAssistantUpdates = streamingUpdates
                         var remoteToolObservation: AgentModelObservationResult? = null
@@ -1094,7 +1105,10 @@ class ChatController internal constructor(
                                     if (outputQualityDecision != null) return@collect
                                     when (event) {
                                         is RemoteChatEvent.TextDelta -> {
-                                            if (remoteToolObservation == null) {
+                                            if (
+                                                remoteToolObservation == null &&
+                                                generationStreams.acceptDelta(streamKey, event.text)
+                                            ) {
                                                 val decision = generationSupport.appendGuardedGenerationChunk(
                                                     partial = partial,
                                                     chunk = event.text,
@@ -1154,7 +1168,10 @@ class ChatController internal constructor(
                                 parameters = stateBeforeSend.generationParameters,
                                 imageAttachments = localImageAttachments,
                             ) { chunk ->
-                                if (outputQualityDecision == null) {
+                                if (
+                                    outputQualityDecision == null &&
+                                    generationStreams.acceptDelta(streamKey, chunk)
+                                ) {
                                     val decision = generationSupport.appendGuardedGenerationChunk(
                                         partial = partial,
                                         chunk = chunk,
@@ -1201,11 +1218,12 @@ class ChatController internal constructor(
                             return@generation
                         }
                         streamingUpdates.flush()
-                        if (remoteToolObservation != null) {
+                        generationStreams.complete(streamKey)
+                        val observation = remoteToolObservation
+                        if (observation != null) {
                             val toolBatch =
-                                (remoteToolObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
+                                (observation.decision as? AgentObservationDecision.PlanToolBatch)?.plans
                             if (toolBatch != null) {
-                                val observedForBatch = remoteToolObservation ?: error("远程批量工具调用缺少 Agent observation")
                                 val assistantText = buildString {
                                     if (partial.isNotBlank()) {
                                         append(partial)
@@ -1216,15 +1234,14 @@ class ChatController internal constructor(
                                 uiState.updateLastAssistantLocalOnly(assistantText)
                                 persistActiveSessionFromUi()
                                 executePublicEvidenceToolBatchAfterRunIsExecuting(
-                                    runId = observedForBatch.run.id,
+                                    runId = observation.run.id,
                                     plans = toolBatch,
                                 )
                                 return@generation
                             }
                             val nextToolPlan =
-                                (remoteToolObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+                                (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
                             if (nextToolPlan != null) {
-                                val observedForPlan = remoteToolObservation ?: error("远程工具调用缺少 Agent observation")
                                 val assistantText = buildString {
                                     if (partial.isNotBlank()) {
                                         append(partial)
@@ -1239,14 +1256,14 @@ class ChatController internal constructor(
                                 uiState.updateLastAssistantLocalOnly(assistantText)
                                 persistActiveSessionFromUi()
                                 handleNextToolPlan(
-                                    runId = observedForPlan.run.id,
+                                    runId = observation.run.id,
                                     plan = nextToolPlan,
                                     pendingStatusText = "动作草稿待确认 · 远程模型",
                                 )
                                 return@generation
                             }
                             uiState.updateLastAssistantLocalOnly(
-                                "无法准备这个动作：${(remoteToolObservation?.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
+                                "无法准备这个动作：${(observation.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
                             )
                             persistActiveSessionFromUi()
                             rebuildMemoryIndex()
@@ -1352,6 +1369,7 @@ class ChatController internal constructor(
                     }
                 }
             } catch (cancellation: CancellationException) {
+                activeStreamKey?.let(generationStreams::cancel)
                 solinD(TAG_LIFECYCLE, "generation: cancelled")
                 streamingAssistantUpdates?.flush()
                 cancelActiveGenerationRun(activeModelRunId)
@@ -1368,6 +1386,7 @@ class ChatController internal constructor(
                 }
                 throw cancellation
             } catch (throwable: Throwable) {
+                activeStreamKey?.let(generationStreams::fail)
                 solinE(TAG_MODEL, "generation: failed useRemoteModel=$useRemoteModel", throwable)
                 streamingAssistantUpdates?.flush()
                 val errorMessage = generationSupport.generationFailureMessage(throwable, useRemoteModel)

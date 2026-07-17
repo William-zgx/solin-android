@@ -10,6 +10,135 @@ import org.junit.Test
 
 class ToolExecutionBoundaryTest {
     @Test
+    fun executeRejectsUnknownToolBeforeExecutor() = runTest {
+        var calls = 0
+        val boundary = TimeoutToolExecutionBoundary(
+            executor = LambdaToolExecutor { request ->
+                calls += 1
+                request.succeeded("unexpected")
+            },
+            dispatcher = Dispatchers.Unconfined,
+            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(ToolRegistry(emptyList())),
+        )
+
+        val result = boundary.execute(ToolRequest(id = "unknown", toolName = "unknown"))
+
+        assertEquals(0, calls)
+        assertEquals(ToolStatus.Rejected, result.status)
+    }
+
+    @Test
+    fun executeRejectsMediumRiskToolWithoutRequiredConfirmationPolicy() = runTest {
+        var calls = 0
+        val registry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    ToolSpec(
+                        name = "medium",
+                        title = "medium",
+                        description = "medium",
+                        inputSchemaJson = """{"type":"object","additionalProperties":false}""",
+                        capability = ToolCapability.Extension,
+                        riskLevel = RiskLevel.MediumDraftOrNavigation,
+                        confirmationPolicy = ConfirmationPolicy.NotRequired,
+                    ),
+                )
+            },
+        )
+        val boundary = TimeoutToolExecutionBoundary(
+            executor = LambdaToolExecutor {
+                calls += 1
+                it.succeeded("unexpected")
+            },
+            dispatcher = Dispatchers.Unconfined,
+            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(registry),
+        )
+
+        val result = boundary.execute(ToolRequest(id = "medium", toolName = "medium"), userConfirmed = true)
+
+        assertEquals(0, calls)
+        assertEquals(ToolStatus.Rejected, result.status)
+    }
+
+    @Test
+    fun executeRequiresCurrentConfirmationAtFinalBoundary() = runTest {
+        val request = ToolRequest(id = "required", toolName = "required")
+        var calls = 0
+        val registry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    ToolSpec(
+                        name = "required",
+                        title = "required",
+                        description = "required",
+                        inputSchemaJson = """{"type":"object","additionalProperties":false}""",
+                        capability = ToolCapability.Extension,
+                        confirmationPolicy = ConfirmationPolicy.Required,
+                    ),
+                )
+            },
+        )
+        val boundary = TimeoutToolExecutionBoundary(
+            executor = LambdaToolExecutor {
+                calls += 1
+                it.succeeded("ok")
+            },
+            dispatcher = Dispatchers.Unconfined,
+            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(registry),
+        )
+
+        assertEquals(ToolStatus.Rejected, boundary.execute(request).status)
+        assertEquals(ToolStatus.Succeeded, boundary.execute(request, userConfirmed = true).status)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun batchRetryIsReauthorizedBeforeSecondExecution() = runTest {
+        val request = ToolRequest(id = "retry", toolName = "retry")
+        var authorizationCalls = 0
+        var executionCalls = 0
+        val boundary = TimeoutToolExecutionBoundary(
+            executor = LambdaToolExecutor {
+                executionCalls += 1
+                it.failed(ToolErrorCode.ExecutionFailed, "retry", retryable = true)
+            },
+            dispatcher = Dispatchers.Unconfined,
+            executionAuthorizer = ToolExecutionAuthorizer { authorizedRequest, _ ->
+                authorizationCalls += 1
+                if (authorizationCalls > 1) authorizedRequest.rejected("authorization changed") else null
+            },
+        )
+
+        val result = boundary.executeBatch(listOf(request)).single()
+
+        assertEquals(2, authorizationCalls)
+        assertEquals(1, executionCalls)
+        assertEquals(ToolStatus.Rejected, result.status)
+    }
+
+    @Test
+    fun batchAuthorizationRejectsAllRequestsBeforeExecution() = runTest {
+        val allowed = ToolRequest(id = "allowed", toolName = "allowed")
+        val blocked = ToolRequest(id = "blocked", toolName = "blocked")
+        var calls = 0
+        val boundary = TimeoutToolExecutionBoundary(
+            executor = LambdaToolExecutor {
+                calls += 1
+                it.succeeded("unexpected")
+            },
+            dispatcher = Dispatchers.Unconfined,
+            executionAuthorizer = ToolExecutionAuthorizer { authorizedRequest, _ ->
+                if (authorizedRequest.id == "blocked") authorizedRequest.rejected("blocked") else null
+            },
+        )
+
+        val results = boundary.executeBatch(listOf(allowed, blocked))
+
+        assertEquals(0, calls)
+        assertEquals(listOf(ToolStatus.Rejected, ToolStatus.Rejected), results.map { it.status })
+    }
+
+    @Test
     fun executeMapsExecutorExceptionsToRetryableFailure() = runTest {
         val request = ToolRequest(id = "request-1", toolName = "test_tool")
         val boundary = TimeoutToolExecutionBoundary(

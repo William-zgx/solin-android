@@ -36,8 +36,9 @@ Responsibilities:
 - Describe every device capability as a `ToolSpec`.
 - Validate tool names, arguments, permissions, risk, confirmation policy, and
   successful output data before the Agent observes a result.
-- Expose provider-owned tool sets through `ToolRegistry` so the Agent loop does
-  not keep parallel allowlists.
+- Expose provider-owned tool sets through a frozen module registry snapshot so the
+  Agent loop and execution boundary do not keep parallel allowlists or observe
+  late registration changes.
 
 Boundaries:
 
@@ -52,6 +53,12 @@ Current status:
   `cancel_reminder`, current-page and current-app UI search, open-app UI
   search, phone-control primitives, background tasks, sharing, OCR, and
   settings entry points.
+- `SolinModuleRegistry.freeze()` materializes tool providers, handlers, and Skill
+  sources once. It rejects duplicate tool specs, duplicate handlers, duplicate
+  Skill ids, handlers without a corresponding spec, and all post-freeze
+  registration.
+- `ToolRegistry` consumes that frozen snapshot and is the final source of tool
+  metadata for planning, authorization, execution, and Skill validation.
 - Input schemas reject unknown tools, unknown fields, missing required values,
   bad enums, regex mismatches, and numeric bounds failures. Output schemas are
   also enforced for successful `ToolResult.data`.
@@ -79,6 +86,7 @@ Current status:
 Tests:
 
 - `ToolRegistryTest`
+- `SolinModuleRegistryTest`
 - `ToolSchemaContractTest`
 - `RoutingAndValidatingToolExecutorTest`
 - `WebSearchProviderTest`
@@ -173,14 +181,18 @@ Code:
 Responsibilities:
 
 - Declare reusable, versioned task flows with `SkillManifest`.
-- Convert Skill steps into Tool Registry requests.
+- Convert Skill steps into requests against the frozen Tool Registry.
+- Build one manifest catalog from built-in and module-provided `SkillSource`
+  values, while exposing planners only for registered manifest ids.
 - Validate Skill structure, argument bindings, required tools, risk, and restore
   authorization before confirmation or execution.
 
 Boundaries:
 
 - Skills do not call Android APIs directly.
-- Skills do not define private tool names outside the registry.
+- Skills do not define private tool names outside the frozen registry.
+- External Skill Packages are declarative, read-only resources. They cannot ship
+  or execute Bash, Python, JavaScript, DEX, JAR, native libraries, or other code.
 - Private tool outputs cannot bind directly into later external tool arguments.
 
 Current status:
@@ -192,6 +204,14 @@ Current status:
   low-risk app-control eligibility, unverified launch continuation eligibility,
   background metadata, required tools, and canonical input schema. Display text
   and trigger examples do not authorize execution.
+- `CompositeSkillRuntime` merges module manifests into one discovery catalog,
+  rejects duplicate ids, and fails startup if a planner advertises an
+  unregistered Skill.
+- External Skill Packages use an allowlisted ZIP layout with bounded file count
+  and sizes. The loader validates raw-manifest Ed25519 signatures from trusted
+  publishers, frozen tool references, minimum app version, declared risk, and
+  SHA-256 for every payload resource before returning a `SkillSource`; failures
+  remove staging. Unknown privacy metadata fails closed as `LocalOnly`.
 - Declarative Skill plans support stable step ids, dependencies,
   tool-to-tool bindings, local model transform steps, and bounded progression.
 - `SkillRunProgressor` is the shared pure Kotlin boundary for structure
@@ -213,6 +233,8 @@ Current status:
 Tests:
 
 - `BuiltInSkillRuntimeTest`
+- `CompositeSkillRuntimeTest`
+- `ExternalSkillPackageTest`
 - `SkillRunExecutorTest`
 - `SkillRunProgressorTest`
 - `MainActivitySkillUiTest`
@@ -281,8 +303,10 @@ Code:
 
 Responsibilities:
 
-- Convert confirmed `ToolRequest` values into Android Intents, system sheets,
+- Convert authorized `ToolRequest` values into Android Intents, system sheets,
   scheduler calls, or special consent flows.
+- Re-authorize every execution and retry against the frozen `ToolRegistry` and
+  `SafetyPolicy`, with explicit user-confirmation context.
 - Return execution success, cancellation, rejection, or failure as structured
   `ToolResult` values.
 - Surface safe execution summaries to the UI while structured result details
@@ -291,7 +315,10 @@ Responsibilities:
 Boundaries:
 
 - Confirmation is required before Android execution, runtime permission prompts,
-  or special-access dependent tool execution.
+  or special-access dependent tool execution. Unknown or no-longer-registered
+  tools fail closed at the final execution boundary.
+- Batch authorization is atomic: if any request is rejected, no handler in the
+  batch starts.
 - Share sheets, drafts, app launches, and deep links prove only that the
   external UI opened unless the user later records the outcome.
 - Arbitrary Intent actions, activities, extras, non-HTTPS links, and
@@ -299,6 +326,12 @@ Boundaries:
 
 Current status:
 
+- `SafetyPolicyToolExecutionAuthorizer` is invoked immediately before each
+  handler attempt. Retries re-enter authorization, and confirmed requests carry
+  an explicit `userConfirmed=true` context rather than bypassing policy.
+- Generation streaming uses typed started/delta/completed/failed/cancelled
+  events keyed by session id, run id, and a monotonic generation token. Stale
+  events and all events after a terminal state are ignored before UI mutation.
 - Intent-backed tools cover settings, drafts, safe HTTPS deep links, app
   launchers, fixed app deep targets, camera launch, maps, email/calendar/contact
   drafts, and system sharing.
@@ -318,6 +351,8 @@ Current status:
 Tests:
 
 - `ActionExecutorTest`
+- `ToolExecutionBoundaryTest`
+- `GenerationStreamReducerTest`
 - `AgentRuntimePermissionPolicyTest`
 - `SolinViewModelTest`
 - `MainActivitySpecialAccessUiTest`

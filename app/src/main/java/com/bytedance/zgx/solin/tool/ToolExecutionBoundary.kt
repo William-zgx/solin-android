@@ -19,8 +19,14 @@ class TimeoutToolExecutionBoundary(
     private val publicEvidenceBatchRetryAttempts: Int =
         DEFAULT_PUBLIC_EVIDENCE_BATCH_RETRY_ATTEMPTS,
     private val publicEvidenceBatchRequestValidator: (ToolRequest) -> ToolResult? = { null },
+    private val executionAuthorizer: ToolExecutionAuthorizer? = null,
 ) {
-    suspend fun execute(request: ToolRequest): ToolResult =
+    suspend fun execute(request: ToolRequest, userConfirmed: Boolean = false): ToolResult {
+        executionAuthorizer?.authorize(request, userConfirmed)?.let { return it }
+        return executeInternal(request)
+    }
+
+    private suspend fun executeInternal(request: ToolRequest): ToolResult =
         withTimeoutOrNull(timeoutMillis) {
             withContext(dispatcher) {
                 runCatching {
@@ -56,13 +62,16 @@ class TimeoutToolExecutionBoundary(
      */
     suspend fun executeBatch(
         requests: List<ToolRequest>,
+        userConfirmed: Boolean = false,
         onRetry: suspend () -> Unit = {},
     ): List<ToolResult> {
         if (requests.isEmpty()) return emptyList()
 
         // Step 1: pre-validate the whole batch. Any rejection short-circuits execution.
         val rejectedByRequestId = requests.mapNotNull { request ->
-            publicEvidenceBatchRequestValidator(request)?.let { rejection -> request.id to rejection }
+            (executionAuthorizer?.authorize(request, userConfirmed)
+                ?: publicEvidenceBatchRequestValidator(request))
+                ?.let { rejection -> request.id to rejection }
         }.toMap()
         if (rejectedByRequestId.isNotEmpty()) {
             return requests.map { request ->
@@ -86,7 +95,18 @@ class TimeoutToolExecutionBoundary(
             }
             if (retryRequests.isEmpty()) return@repeat
             onRetry()
-            val retryResults = executeBatchInternal(retryRequests)
+            val retryRejections = retryRequests.mapNotNull { request ->
+                executionAuthorizer?.authorize(request, userConfirmed)?.let { rejection -> request.id to rejection }
+            }.toMap()
+            val retryResults = if (retryRejections.isEmpty()) {
+                executeBatchInternal(retryRequests)
+            } else {
+                retryRequests.map { request ->
+                    retryRejections[request.id] ?: request.rejected(
+                        "Tool batch retry rejected before execution because another request was not authorized.",
+                    )
+                }
+            }
             val retryById = resultsByRequestId(retryResults, retryRequests)
             results = requests.map { request ->
                 retryById[request.id] ?: resultsByRequestId(results, requests).getValue(request.id)
@@ -136,8 +156,9 @@ class TimeoutToolExecutionBoundary(
      */
     suspend fun executePublicEvidenceBatch(
         requests: List<ToolRequest>,
+        userConfirmed: Boolean = false,
         onRetry: suspend () -> Unit = {},
-    ): List<ToolResult> = executeBatch(requests, onRetry)
+    ): List<ToolResult> = executeBatch(requests, userConfirmed, onRetry)
 }
 
 private fun resultsByRequestId(

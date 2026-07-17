@@ -88,6 +88,12 @@ class AgentCoreDocumentationTest {
         assertTrue(agentCore.contains("SafetyPolicy"))
         assertTrue(agentCore.contains("AwaitingUserConfirmation"))
         assertTrue(agentCore.contains("AwaitingExternalOutcome"))
+        assertTrue(agentCore.contains("SolinModuleRegistry.freeze()"))
+        assertTrue(agentCore.contains("SafetyPolicyToolExecutionAuthorizer"))
+        assertTrue(agentCore.contains("session id, run id, and a monotonic generation token"))
+        assertTrue(agentCore.contains("External Skill Packages are declarative, read-only resources"))
+        assertTrue(agentCore.contains("Ed25519"))
+        assertTrue(agentCore.contains("Unknown privacy metadata fails closed as `LocalOnly`"))
 
         assertTrue(privacy.contains("LocalOnly"))
         assertTrue(privacy.contains("requiresLocalModel=true"))

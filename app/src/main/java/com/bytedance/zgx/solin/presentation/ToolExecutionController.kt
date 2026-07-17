@@ -36,6 +36,7 @@ import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.runtimePermissionDenialSummary
 import com.bytedance.zgx.solin.specialAccessDenialSummary
+import com.bytedance.zgx.solin.tool.SafetyPolicyToolExecutionAuthorizer
 import com.bytedance.zgx.solin.tool.TimeoutToolExecutionBoundary
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolExecutor
@@ -93,6 +94,7 @@ class ToolExecutionController(
         executor = actionExecutor,
         dispatcher = ioDispatcher,
         publicEvidenceBatchRequestValidator = toolRegistry::validatePublicEvidenceBatchRequest,
+        executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(toolRegistry),
     )
 
     fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
@@ -232,17 +234,20 @@ class ToolExecutionController(
         launchToolExecutionAfterRunIsExecuting(
             confirmation = pendingConfirmation,
             request = request,
+            userConfirmed = true,
         )
     }
 
     private fun launchToolExecutionAfterRunIsExecuting(
         confirmation: PendingAgentConfirmation,
         request: ToolRequest,
+        userConfirmed: Boolean,
     ) {
         launchToolGenerationJob(confirmation.runId) {
             executeToolRequestAfterRunIsExecuting(
                 confirmation = confirmation,
                 request = request,
+                userConfirmed = userConfirmed,
             )
         }
     }
@@ -250,8 +255,9 @@ class ToolExecutionController(
     suspend fun executeToolRequestAfterRunIsExecuting(
         confirmation: PendingAgentConfirmation,
         request: ToolRequest,
+        userConfirmed: Boolean = false,
     ) {
-        var result = executeToolWithBoundary(request)
+        var result = executeToolWithBoundary(request, userConfirmed)
         var observation = confirmation.runId?.let { runId ->
             assistantOrchestrator.observeToolResult(runId, result)
         }
@@ -271,7 +277,7 @@ class ToolExecutionController(
             uiState.update {
                 it.copy(statusText = "工具重试中")
             }
-            result = executeToolWithBoundary(retryRequest)
+            result = executeToolWithBoundary(retryRequest, userConfirmed)
             observation = confirmation.runId?.let { runId ->
                 assistantOrchestrator.observeToolResult(runId, result)
             }
@@ -400,10 +406,13 @@ class ToolExecutionController(
         }
     }
 
-    private suspend fun executeToolWithBoundary(request: ToolRequest): ToolResult {
+    private suspend fun executeToolWithBoundary(
+        request: ToolRequest,
+        userConfirmed: Boolean,
+    ): ToolResult {
         solinD(TAG_TOOL, "executeTool: start tool=${request.toolName}")
         val startMs = System.currentTimeMillis()
-        val result = toolExecutionBoundary.execute(request)
+        val result = toolExecutionBoundary.execute(request, userConfirmed)
         val durationMs = System.currentTimeMillis() - startMs
         val success = result.error == null
         solinD(
@@ -624,6 +633,7 @@ class ToolExecutionController(
             launchToolExecutionAfterRunIsExecuting(
                 confirmation = confirmation,
                 request = plan.request,
+                userConfirmed = false,
             )
             return
         }

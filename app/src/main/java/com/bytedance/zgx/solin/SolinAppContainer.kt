@@ -103,6 +103,8 @@ import com.bytedance.zgx.solin.mcp.McpServerRegistry
 import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
+import com.bytedance.zgx.solin.skill.CompositeSkillRuntime
+import com.bytedance.zgx.solin.module.FrozenSolinModuleRegistry
 import com.bytedance.zgx.solin.module.SolinModule
 import com.bytedance.zgx.solin.module.SolinModuleRegistryImpl
 import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
@@ -133,7 +135,7 @@ class SolinAppContainer(
     private val settingsStore = PreferenceSettingsStore(appContext)
     private val secretStore = EncryptedSecretStore(appContext)
     val sessionPlanStore: SessionPlanStore = SessionPlanStore()
-    private val moduleRegistry: SolinModuleRegistryImpl = run {
+    private val moduleRegistry: FrozenSolinModuleRegistry = run {
         val reg = SolinModuleRegistryImpl()
         val mcpClient = if (enableMcp) McpClient(McpServerRegistry(appContext)) else null
         val mcpModule = mcpClient?.let { McpModule(it) }
@@ -149,7 +151,7 @@ class SolinAppContainer(
             "SolinAppContainer",
             "Loaded ${modules.size} SolinModules: ${modules.map { it.moduleId }}",
         )
-        reg
+        reg.freeze()
     }
     val evidenceBlobStore: EvidenceBlobStore = OnDeviceEvidenceBlobStore(appContext)
 
@@ -319,14 +321,19 @@ class SolinAppContainer(
             toolRegistry = toolRegistry,
             toolAuditSink = toolAuditRepository,
             traceStore = RoomAgentTraceStore(database.agentTraceDao()),
-            skillRuntime = BuiltInSkillRuntime(
-                appSearchPlanningModeProvider = {
-                    if (modelRepository.verifiedObservationActionModelPath() != null) {
-                        AppSearchPlanningMode.ModelDrivenBootstrap
-                    } else {
-                        AppSearchPlanningMode.StaticSkill
-                    }
-                },
+            skillRuntime = CompositeSkillRuntime(
+                sources = moduleRegistry.skillSources,
+                planners = listOf(
+                    BuiltInSkillRuntime(
+                        appSearchPlanningModeProvider = {
+                            if (modelRepository.verifiedObservationActionModelPath() != null) {
+                                AppSearchPlanningMode.ModelDrivenBootstrap
+                            } else {
+                                AppSearchPlanningMode.StaticSkill
+                            }
+                        },
+                    ),
+                ),
             ),
             observationReplanner = CompositeAgentObservationReplanner(
                 ModelObservationReplanner(

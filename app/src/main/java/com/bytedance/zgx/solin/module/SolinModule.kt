@@ -25,6 +25,12 @@ interface SolinModuleRegistry {
     fun addSkillSource(source: SkillSource)
 }
 
+data class FrozenSolinModuleRegistry(
+    val toolProviders: List<ToolProvider>,
+    val toolHandlers: Map<String, ToolHandler>,
+    val skillSources: List<SkillSource>,
+)
+
 /**
  * Receives a ToolRequest and returns a ToolResult, or null to fall through to
  * the default built-in executor. Wire-up into ToolExecutor is deferred.
