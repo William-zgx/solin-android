@@ -9,8 +9,11 @@ import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.PendingToolConfirmationSnapshot
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AgentStep
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
+import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.orchestration.RUN_PLACEMENT_TRACE_SCHEMA_VERSION
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryRecordSensitivity
 import com.bytedance.zgx.solin.safety.SafetyOutcome
@@ -24,6 +27,7 @@ import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolResultContinuationPolicy
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolStatus
+import org.json.JSONObject
 
 enum class AgentEvalConfirmationExpectation {
     None,
@@ -57,6 +61,8 @@ data class AgentBehaviorEvalCase(
     val expectedRoutingToolName: String? = null,
     val expectedRoutingSkillId: String? = null,
     val expectedRoutingRejectionReason: String? = null,
+    val expectedPlacement: RunPlacement? = null,
+    val expectedPlacementReason: PlacementReasonCode? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Agent behavior eval id must not be blank" }
@@ -66,6 +72,9 @@ data class AgentBehaviorEvalCase(
         requireOptionalRoutingField(expectedRoutingToolName, "Expected routing tool name")
         requireOptionalRoutingField(expectedRoutingSkillId, "Expected routing skill id")
         requireOptionalRoutingField(expectedRoutingRejectionReason, "Expected routing rejection reason")
+        require(expectedPlacementReason == null || expectedPlacement != null) {
+            "Expected placement reason requires an expected placement"
+        }
         requirePrivacyBoundary(privacy, localOnly, remoteEligible, label = "eval cases")
         if (expectedConfirmation == AgentEvalConfirmationExpectation.FailClosed) {
             require(allowedFailureModes.isNotEmpty()) { "Fail-closed eval cases must declare allowed failure modes" }
@@ -87,6 +96,8 @@ data class AgentBehaviorActualTrace(
     val routingToolName: String? = null,
     val routingSkillId: String? = null,
     val routingRejectionReason: String? = null,
+    val actualPlacement: RunPlacement? = null,
+    val actualPlacementReason: PlacementReasonCode? = null,
 ) {
     init {
         require(caseId.isNotBlank()) { "Agent behavior trace case id must not be blank" }
@@ -96,6 +107,9 @@ data class AgentBehaviorActualTrace(
         requireOptionalRoutingField(routingToolName, "Routing tool name")
         requireOptionalRoutingField(routingSkillId, "Routing skill id")
         requireOptionalRoutingField(routingRejectionReason, "Routing rejection reason")
+        require((actualPlacement == null) == (actualPlacementReason == null)) {
+            "Actual placement and reason must be present together"
+        }
         requirePrivacyBoundary(privacy, localOnly, remoteEligible, label = "traces")
     }
 }
@@ -133,6 +147,189 @@ private fun requirePrivacyBoundary(
     }
 }
 
+internal data class AgentBehaviorPlacementTrace(
+    val placement: RunPlacement,
+    val reason: PlacementReasonCode,
+)
+
+private sealed interface PlacementTraceEvent {
+    val index: Int
+
+    data class Selected(
+        override val index: Int,
+        val runId: String,
+        val placement: RunPlacement,
+        val reason: PlacementReasonCode,
+        val remoteProfileRevision: String?,
+    ) : PlacementTraceEvent
+
+    data class Receipt(
+        override val index: Int,
+        val destination: RunDataDestination,
+        val currentPromptPrivacy: String,
+    ) : PlacementTraceEvent
+
+    data class Invocation(
+        override val index: Int,
+        val runId: String,
+        val placement: RunPlacement,
+        val attempt: Int,
+        val remoteProfileRevision: String?,
+    ) : PlacementTraceEvent
+}
+
+internal fun List<AgentStep>.reconcilePlacementTrace(runId: String): AgentBehaviorPlacementTrace? {
+    val events = mapIndexedNotNull { index, step -> step.toPlacementTraceEvent(index) }
+    val selections = events.filterIsInstance<PlacementTraceEvent.Selected>()
+    val receipts = events.filterIsInstance<PlacementTraceEvent.Receipt>()
+    val invocations = events.filterIsInstance<PlacementTraceEvent.Invocation>()
+    receipts.forEach { receipt ->
+        if (receipt.destination == RunDataDestination.Remote) {
+            require(receipt.currentPromptPrivacy == MessagePrivacy.RemoteEligible.name) {
+                "LocalOnly or unknown privacy cannot use a remote receipt"
+            }
+        }
+    }
+    if (invocations.isEmpty()) {
+        require(!(selections.isNotEmpty() && receipts.isNotEmpty())) {
+            "Placement receipt is missing runtime invocation"
+        }
+        return null
+    }
+
+    val selected = selections.singleOrNull()
+        ?: throw IllegalArgumentException("Runtime invocation requires exactly one placement selection")
+    require(selected.runId == runId) { "Placement selection runId mismatch" }
+
+    val dispatchEvents = events.filter { event ->
+        event is PlacementTraceEvent.Receipt || event is PlacementTraceEvent.Invocation
+    }
+    require(dispatchEvents.isNotEmpty() && dispatchEvents.size % 2 == 0) {
+        "Runtime invocation requires receipt/invocation pairs"
+    }
+    require(selected.index < dispatchEvents.first().index) {
+        "Placement selection must precede runtime dispatch"
+    }
+
+    dispatchEvents.chunked(2).forEachIndexed { pairIndex, pair ->
+        val receipt = pair[0] as? PlacementTraceEvent.Receipt
+            ?: throw IllegalArgumentException("Dispatch attempt must record receipt before invocation")
+        val invocation = pair[1] as? PlacementTraceEvent.Invocation
+            ?: throw IllegalArgumentException("Dispatch attempt is missing runtime invocation")
+        require(invocation.runId == runId) { "Runtime invocation runId mismatch" }
+        require(invocation.attempt == pairIndex + 1) { "Runtime invocation attempts must be sequential" }
+        require(invocation.placement == selected.placement) { "Placement and invocation mismatch" }
+        require(receipt.destination.name == invocation.placement.name) { "Receipt and invocation mismatch" }
+        require(invocation.remoteProfileRevision == selected.remoteProfileRevision) {
+            "Placement and invocation revision mismatch"
+        }
+    }
+
+    return AgentBehaviorPlacementTrace(
+        placement = invocations.first().placement,
+        reason = selected.reason,
+    )
+}
+
+private fun AgentStep.toPlacementTraceEvent(index: Int): PlacementTraceEvent? = when (this) {
+    is AgentStep.PlacementSelected -> PlacementTraceEvent.Selected(
+        index = index,
+        runId = binding.runId,
+        placement = binding.placement,
+        reason = binding.primaryReason,
+        remoteProfileRevision = binding.remoteProfileRevision,
+    )
+    is AgentStep.RunDataReceiptRecorded -> PlacementTraceEvent.Receipt(
+        index = index,
+        destination = receipt.destination,
+        currentPromptPrivacy = receipt.currentPromptPrivacy,
+    )
+    is AgentStep.ModelRuntimeInvocationStarted -> PlacementTraceEvent.Invocation(
+        index = index,
+        runId = invocation.runId,
+        placement = invocation.placement,
+        attempt = invocation.attempt,
+        remoteProfileRevision = invocation.remoteProfileRevision,
+    )
+    is AgentStep.RestoredSummary -> restoredPlacementTraceEvent(index)
+    else -> null
+}
+
+private fun AgentStep.RestoredSummary.restoredPlacementTraceEvent(index: Int): PlacementTraceEvent? =
+    when (persistedType) {
+        "PlacementSelected" -> parsePersistedPlacementEvent(index, json)
+        "RunDataReceiptRecorded" -> parsePersistedReceiptEvent(index, json)
+        "ModelRuntimeInvocationStarted" -> parsePersistedInvocationEvent(index, json)
+        else -> null
+    }
+
+private fun parsePersistedPlacementEvent(index: Int, rawJson: String): PlacementTraceEvent.Selected =
+    parsePlacementTraceJson("placement selection", rawJson) { json ->
+        json.requireTraceType("PlacementSelected")
+        require(json.getInt("schemaVersion") == RUN_PLACEMENT_TRACE_SCHEMA_VERSION) {
+            "Unsupported placement trace schema"
+        }
+        PlacementTraceEvent.Selected(
+            index = index,
+            runId = json.getString("runId"),
+            placement = RunPlacement.valueOf(json.getString("placement")),
+            reason = PlacementReasonCode.valueOf(json.getString("primaryReason")),
+            remoteProfileRevision = json.nullableString("remoteProfileRevision"),
+        )
+    }
+
+private fun parsePersistedReceiptEvent(index: Int, rawJson: String): PlacementTraceEvent.Receipt =
+    parsePlacementTraceJson("run data receipt", rawJson) { json ->
+        json.requireTraceType("RunDataReceiptRecorded")
+        PlacementTraceEvent.Receipt(
+            index = index,
+            destination = RunDataDestination.valueOf(json.getString("destination")),
+            currentPromptPrivacy = json.getString("currentPromptPrivacy"),
+        )
+    }
+
+private fun parsePersistedInvocationEvent(index: Int, rawJson: String): PlacementTraceEvent.Invocation =
+    parsePlacementTraceJson("runtime invocation", rawJson) { json ->
+        json.requireTraceType("ModelRuntimeInvocationStarted")
+        require(json.getInt("schemaVersion") == RUN_PLACEMENT_TRACE_SCHEMA_VERSION) {
+            "Unsupported invocation trace schema"
+        }
+        PlacementTraceEvent.Invocation(
+            index = index,
+            runId = json.getString("runId"),
+            placement = RunPlacement.valueOf(json.getString("placement")),
+            attempt = json.getInt("attempt"),
+            remoteProfileRevision = json.nullableString("remoteProfileRevision"),
+        )
+    }
+
+private inline fun <T> parsePlacementTraceJson(
+    label: String,
+    rawJson: String,
+    parse: (JSONObject) -> T,
+): T = runCatching { parse(JSONObject(rawJson)) }
+    .getOrElse { cause -> throw IllegalArgumentException("Invalid persisted $label trace", cause) }
+
+private fun JSONObject.nullableString(name: String): String? {
+    require(has(name)) { "Missing $name" }
+    return if (isNull(name)) null else getString(name)
+}
+
+private fun JSONObject.requireTraceType(expected: String) {
+    require(getString("type") == expected) { "Unexpected trace type" }
+}
+
+private fun AgentBehaviorActualTrace.withPlacement(
+    placementTrace: AgentBehaviorPlacementTrace?,
+): AgentBehaviorActualTrace = if (placementTrace == null) {
+    this
+} else {
+    copy(
+        actualPlacement = placementTrace.placement,
+        actualPlacementReason = placementTrace.reason,
+    )
+}
+
 enum class AgentBehaviorTraceDiffStatus {
     Matched,
     MissingActual,
@@ -165,6 +362,10 @@ data class AgentBehaviorPlanningTraceDiff(
     val actualRoutingSkillId: String? = null,
     val expectedRoutingRejectionReason: String? = null,
     val actualRoutingRejectionReason: String? = null,
+    val expectedPlacement: RunPlacement? = null,
+    val actualPlacement: RunPlacement? = null,
+    val expectedPlacementReason: PlacementReasonCode? = null,
+    val actualPlacementReason: PlacementReasonCode? = null,
 ) {
     val toolsMatch: Boolean = expectedTools == actualTools
     val confirmationMatches: Boolean = expectedConfirmation == actualConfirmation
@@ -202,9 +403,15 @@ data class AgentBehaviorPlanningTraceDiff(
             routingToolNameMatches &&
             routingSkillIdMatches &&
             routingRejectionReasonMatches
+    val placementMatches: Boolean =
+        expectedPlacement == null || expectedPlacement == actualPlacement
+    val placementReasonMatches: Boolean =
+        expectedPlacementReason == null || expectedPlacementReason == actualPlacementReason
+    val placementExpectationMatches: Boolean = placementMatches && placementReasonMatches
     val allowedFailureSafetyMatches: Boolean =
         allowedFailureModeMatches &&
             routingExpectationMatches &&
+            placementExpectationMatches &&
             safetyBoundaryMatches &&
             failClosedInvariantMatches
     val status: AgentBehaviorTraceDiffStatus = when {
@@ -212,12 +419,16 @@ data class AgentBehaviorPlanningTraceDiff(
             actualRiskLevel == null ||
             actualPrivacy == null ||
             actualLocalOnly == null ||
-            actualRemoteEligible == null -> AgentBehaviorTraceDiffStatus.MissingActual
+            actualRemoteEligible == null ||
+            (expectedPlacement != null && actualPlacement == null) ||
+            (expectedPlacementReason != null && actualPlacementReason == null) ->
+            AgentBehaviorTraceDiffStatus.MissingActual
         allowedFailureSafetyMatches -> AgentBehaviorTraceDiffStatus.AllowedFailure
         toolsMatch &&
             confirmationMatches &&
             actualFailureModeAccepted &&
             routingExpectationMatches &&
+            placementExpectationMatches &&
             safetyBoundaryMatches -> AgentBehaviorTraceDiffStatus.Matched
         else -> AgentBehaviorTraceDiffStatus.Mismatch
     }
@@ -249,6 +460,10 @@ fun AgentBehaviorEvalCase.diffAgainst(actual: AgentBehaviorActualTrace?): AgentB
         actualRoutingSkillId = actual?.routingSkillId,
         expectedRoutingRejectionReason = expectedRoutingRejectionReason,
         actualRoutingRejectionReason = actual?.routingRejectionReason,
+        expectedPlacement = expectedPlacement,
+        actualPlacement = actual?.actualPlacement,
+        expectedPlacementReason = expectedPlacementReason,
+        actualPlacementReason = actual?.actualPlacementReason,
     )
 
 class AgentBehaviorTraceProjector(
@@ -261,10 +476,9 @@ class AgentBehaviorTraceProjector(
         MobileActionFunctions.UI_WAIT,
     )
 
-    fun project(result: AgentLoopResult): AgentBehaviorActualTrace =
-        rejectedToolStepTrace(result)
-            ?:
-        when (val plan = result.plan) {
+    fun project(result: AgentLoopResult): AgentBehaviorActualTrace {
+        val trace = rejectedToolStepTrace(result)
+            ?: when (val plan = result.plan) {
             is AgentPlan.Answer -> requestedToolStepTrace(result)
                 ?: noToolTrace(result, failureMode = null)
 
@@ -279,6 +493,8 @@ class AgentBehaviorTraceProjector(
                 ?.takeIf { trace -> result.hasObservedToolHistory() || trace.hasRicherToolHistoryThan(plan) }
                 ?: toolTrace(result, plan)
         }
+        return trace.withPlacement(result.steps.reconcilePlacementTrace(result.run.id))
+    }
 
     fun projectRestoredPendingConfirmation(
         snapshot: PendingToolConfirmationSnapshot,
@@ -316,7 +532,7 @@ class AgentBehaviorTraceProjector(
             routingToolName = routingTrace?.toolName,
             routingSkillId = routingTrace?.skillId,
             routingRejectionReason = routingTrace?.rejectionReason,
-        )
+        ).withPlacement(steps.reconcilePlacementTrace(snapshot.run.id))
     }
 
     private fun rejectedToolStepTrace(result: AgentLoopResult): AgentBehaviorActualTrace? {
@@ -717,8 +933,7 @@ class AgentBehaviorTraceProjector(
     private fun RunDataReceipt.toNoToolTracePrivacy(memoryHits: List<MemoryHit>): MessagePrivacy =
         if (
             memoryHits.any { hit -> hit.privacy == MessagePrivacy.LocalOnly } ||
-            destination == RunDataDestination.Local ||
-            currentPromptPrivacy == MessagePrivacy.LocalOnly.name ||
+            currentPromptPrivacy != MessagePrivacy.RemoteEligible.name ||
             localOnlyHistoryFilteredCount > 0 ||
             memoryContextIncluded ||
             localOnlyEvidenceCardCount > 0 ||

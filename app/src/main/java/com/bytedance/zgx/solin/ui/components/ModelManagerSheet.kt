@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -41,8 +42,11 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.bytedance.zgx.solin.AdaptiveInferenceRollout
 import com.bytedance.zgx.solin.BackendChoice
+import com.bytedance.zgx.solin.BuildConfig
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
@@ -95,6 +99,9 @@ internal fun ModelManagerSheet(
     onDismiss: () -> Unit,
 ) {
     var selectedTab by rememberSaveable(initialSelectedTab) { mutableStateOf(initialSelectedTab) }
+    val autoSelectable = AdaptiveInferenceRollout.parse(
+        BuildConfig.ADAPTIVE_INFERENCE_ROLLOUT_STAGE,
+    ).autoSelectable
     val tabs = listOf("当前", "模型", "远程", "高级", "隐私")
     val sheetTitle = if (selectedTab == MODEL_MANAGER_PRIVACY_TAB_INDEX) "隐私说明" else "模型管理"
     Column(
@@ -164,6 +171,7 @@ internal fun ModelManagerSheet(
                 onLoadModel = onLoadModel,
                 onInferenceModeSelected = onInferenceModeSelected,
                 onBackendSelected = onBackendSelected,
+                autoSelectable = autoSelectable,
             )
 
             1 -> ModelInventoryPanel(
@@ -185,7 +193,6 @@ internal fun ModelManagerSheet(
 
             2 -> RemoteModelPanel(
                 state = state,
-                onInferenceModeSelected = onInferenceModeSelected,
                 onRemoteModelConfigChanged = onRemoteModelConfigChanged,
                 onTestRemoteModelConnectivity = onTestRemoteModelConnectivity,
             )
@@ -240,6 +247,7 @@ internal fun CurrentModelPanel(
     onLoadModel: () -> Unit,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
+    autoSelectable: Boolean,
 ) {
     val activeModel = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }
     val usingRemote = state.inferenceMode == InferenceMode.Remote
@@ -252,10 +260,10 @@ internal fun CurrentModelPanel(
                 subtitle = state.statusText,
             )
             Text(
-                text = if (usingRemote) {
-                    state.remoteModelConfig.modelName.ifBlank { "未配置远程模型" }
-                } else {
-                    activeModel?.displayName ?: "未选择"
+                text = when (state.inferenceMode) {
+                    InferenceMode.Local -> activeModel?.displayName ?: "未选择本地模型"
+                    InferenceMode.Auto -> "按请求评估本地与远程候选"
+                    InferenceMode.Remote -> state.remoteModelConfig.modelName.ifBlank { "未配置远程模型" }
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
@@ -269,21 +277,21 @@ internal fun CurrentModelPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BackendChip(
-                    modifier = Modifier.testTag("inference_local_chip"),
-                    label = InferenceMode.Local.label(),
-                    selected = state.inferenceMode == InferenceMode.Local,
-                    enabled = !state.isBusy,
-                    onClick = { onInferenceModeSelected(InferenceMode.Local) },
-                )
-                BackendChip(
-                    modifier = Modifier.testTag("inference_remote_chip"),
-                    label = InferenceMode.Remote.label(),
-                    selected = usingRemote,
-                    enabled = !state.isBusy,
-                    onClick = { onInferenceModeSelected(InferenceMode.Remote) },
-                )
+                selectableInferencePreferences(autoSelectable).forEach { preference ->
+                    BackendChip(
+                        modifier = Modifier.testTag("inference_${preference.name.lowercase()}_chip"),
+                        label = preference.label(),
+                        selected = state.inferenceMode == preference,
+                        enabled = !state.isBusy,
+                        onClick = { onInferenceModeSelected(preference) },
+                    )
+                }
             }
+            Text(
+                text = inferencePreferenceDescription(state.inferenceMode),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (!usingRemote) {
                 LocalTokenLimitBlock(state.localMaxTotalTokens)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -327,7 +335,6 @@ internal fun CurrentModelPanel(
 @Composable
 internal fun RemoteModelPanel(
     state: ChatUiState,
-    onInferenceModeSelected: (InferenceMode) -> Unit,
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
     onTestRemoteModelConnectivity: () -> Unit,
 ) {
@@ -336,29 +343,10 @@ internal fun RemoteModelPanel(
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SectionTitle(
-                    modifier = Modifier.weight(1f),
-                    text = "远程模型",
-                    subtitle = REMOTE_MODE_DISCLOSURE_TEXT,
-                )
-                val remoteSwitchEnabled = !state.isBusy &&
-                    (config.isConfigured || state.inferenceMode == InferenceMode.Remote)
-                Switch(
-                    modifier = Modifier.testTag("remote_mode_switch"),
-                    checked = state.inferenceMode == InferenceMode.Remote,
-                    enabled = remoteSwitchEnabled,
-                    onCheckedChange = {
-                        onInferenceModeSelected(
-                            if (it) InferenceMode.Remote else InferenceMode.Local,
-                        )
-                    },
-                )
-            }
+            SectionTitle(
+                text = "远程模型候选",
+                subtitle = REMOTE_MODE_DISCLOSURE_TEXT,
+            )
             OutlinedTextField(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -420,6 +408,45 @@ internal fun RemoteModelPanel(
                     },
                 )
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_tool_calls_input_row"),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "支持工具调用",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Switch(
+                    modifier = Modifier.testTag("remote_tool_calls_switch"),
+                    checked = config.supportsToolCalls,
+                    enabled = !state.isBusy,
+                    onCheckedChange = {
+                        onRemoteModelConfigChanged(config.copy(supportsToolCalls = it))
+                    },
+                )
+            }
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_context_window_input"),
+                value = config.contextWindowTokens?.toString().orEmpty(),
+                onValueChange = { raw ->
+                    val parsed = parseRemoteContextWindowTokens(raw)
+                    if (raw.isBlank() || parsed != null) {
+                        onRemoteModelConfigChanged(config.copy(contextWindowTokens = parsed))
+                    }
+                },
+                enabled = !state.isBusy,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                label = { Text("上下文窗口（tokens）") },
+                supportingText = { Text("填写正整数；留空表示能力未知。") },
+            )
             Text(
                 text = remoteConfigStatusText(config),
                 style = MaterialTheme.typography.bodySmall,
@@ -470,7 +497,26 @@ internal fun RemoteModelConfig.hasAnySavedValue(): Boolean =
         modelName.isNotBlank() ||
         apiKey.isNotBlank() ||
         supportsVisionInput ||
+        supportsToolCalls ||
+        contextWindowTokens != null ||
         connectivityStatus != RemoteModelConnectivityStatus.Unknown
+
+internal fun selectableInferencePreferences(autoSelectable: Boolean): List<InferenceMode> =
+    if (autoSelectable) {
+        listOf(InferenceMode.Local, InferenceMode.Auto, InferenceMode.Remote)
+    } else {
+        listOf(InferenceMode.Local, InferenceMode.Remote)
+    }
+
+internal fun inferencePreferenceDescription(preference: InferenceMode): String =
+    when (preference) {
+        InferenceMode.Local -> "只用手机模型；本地模型不可用时明确失败。"
+        InferenceMode.Auto -> "在允许远程的请求中按任务和设备状态选择；需要你显式选择并完成远程披露。"
+        InferenceMode.Remote -> "强制使用已配置远端；仅本机数据仍会阻断。"
+    }
+
+internal fun parseRemoteContextWindowTokens(raw: String): Int? =
+    raw.trim().toIntOrNull()?.takeIf { it > 0 }
 
 internal fun remoteConfigStatusText(config: RemoteModelConfig): String =
     when {
@@ -484,7 +530,7 @@ internal fun remoteConfigStatusText(config: RemoteModelConfig): String =
             "非本机 HTTP 地址不可用；请使用 HTTPS 或本机调试地址；连接状态：${config.connectivityStatus.label}。"
 
         else ->
-            "填写 HTTP(S) 服务地址和模型名后可切换远程模型；连接状态：${config.connectivityStatus.label}。"
+            "填写 HTTP(S) 服务地址和模型名后可选择远程偏好；连接状态：${config.connectivityStatus.label}。"
     }
 
 @Composable
@@ -659,4 +705,3 @@ internal fun ParameterSlider(
         )
     }
 }
-

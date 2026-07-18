@@ -77,6 +77,7 @@ import com.bytedance.zgx.solin.orchestration.AgentRun
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
+import com.bytedance.zgx.solin.orchestration.AgentStep
 import com.bytedance.zgx.solin.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.solin.orchestration.AgentTraceStepSummary
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
@@ -85,6 +86,7 @@ import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.ModelOutputQualityTrace
+import com.bytedance.zgx.solin.orchestration.ModelRuntimeInvocation
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
@@ -139,6 +141,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8109,11 +8112,115 @@ class SolinViewModelTest {
         advanceUntilIdle()
 
         assertEquals(5, assistantRouter.recentTraceRunLimit)
-        assertEquals(8, assistantRouter.recentTraceStepLimit)
+        assertEquals(Int.MAX_VALUE, assistantRouter.recentTraceStepLimit)
         val traceRun = viewModel.uiState.value.agentTraceRuns.single()
         assertEquals("run-1", traceRun.id)
         assertEquals(AgentRunState.Completed, traceRun.state)
         assertEquals("Requested confirmation for open_wifi_settings.", traceRun.steps.single().summary)
+    }
+
+    @Test
+    fun auditTraceShowsInvocationBackedPlacementReasonAndConsistencyAfterLongRun() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            recentTraceRuns = listOf(
+                placementTraceRunSummary(
+                    selectedPlacement = RunPlacement.Remote,
+                    receiptDestination = RunDataDestination.Remote,
+                    receiptPrivacy = MessagePrivacy.RemoteEligible,
+                    invocationPlacement = RunPlacement.Remote,
+                    trailingStepCount = 12,
+                ),
+            ),
+        )
+        val viewModel = createViewModel(assistantRouter = assistantRouter)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val traceRun = viewModel.uiState.value.agentTraceRuns.single()
+        val placementStep = traceRun.steps.single { step -> step.type == "ActualPlacement" }
+
+        assertEquals(Int.MAX_VALUE, assistantRouter.recentTraceStepLimit)
+        assertTrue(traceRun.steps.size <= 9)
+        assertTrue(placementStep.summary.contains("Remote"))
+        assertTrue(placementStep.summary.contains("AUTO_COMPLEX_REMOTE"))
+        assertTrue(placementStep.summary.contains("consistent"))
+        assertEquals("Remote", traceRun.runDataReceipt?.destination)
+    }
+
+    @Test
+    fun auditTraceFailsClosedForMismatchOrLocalOnlyRemoteInvocation() = runTest(dispatcher) {
+        val invalidRuns = listOf(
+            placementTraceRunSummary(
+                selectedPlacement = RunPlacement.Remote,
+                receiptDestination = RunDataDestination.Local,
+                receiptPrivacy = MessagePrivacy.RemoteEligible,
+                invocationPlacement = RunPlacement.Remote,
+            ),
+            placementTraceRunSummary(
+                selectedPlacement = RunPlacement.Remote,
+                receiptDestination = RunDataDestination.Remote,
+                receiptPrivacy = MessagePrivacy.LocalOnly,
+                invocationPlacement = RunPlacement.Remote,
+            ),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = FakeAssistantRouter(recentTraceRuns = invalidRuns),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val traceRuns = viewModel.uiState.value.agentTraceRuns
+
+        assertEquals(2, traceRuns.size)
+        traceRuns.forEach { traceRun ->
+            assertTrue(traceRun.steps.none { step -> step.type == "ActualPlacement" })
+            assertTrue(traceRun.steps.any { step -> step.type == "PlacementTraceFailClosed" })
+            assertEquals("Unknown", traceRun.runDataReceipt?.destination)
+        }
+    }
+
+    @Test
+    fun auditTraceDoesNotInferActualPlacementFromReceiptOnly() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            assistantRouter = FakeAssistantRouter(
+                recentTraceRuns = listOf(
+                    receiptOnlyTraceRunSummary(
+                        destination = RunDataDestination.Remote,
+                        privacy = MessagePrivacy.RemoteEligible.name,
+                    ),
+                ),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val traceRun = viewModel.uiState.value.agentTraceRuns.single()
+
+        assertTrue(traceRun.steps.none { step -> step.type == "ActualPlacement" })
+        assertTrue(traceRun.steps.any { step -> step.type == "ActualPlacementUnavailable" })
+        assertEquals("Unknown", traceRun.runDataReceipt?.destination)
+    }
+
+    @Test
+    fun auditTraceFailsClosedForReceiptOnlyRemoteLocalOnlyOrUnknownPrivacy() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            assistantRouter = FakeAssistantRouter(
+                recentTraceRuns = listOf(MessagePrivacy.LocalOnly.name, "Unknown").map { privacy ->
+                    receiptOnlyTraceRunSummary(
+                        destination = RunDataDestination.Remote,
+                        privacy = privacy,
+                    )
+                },
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.uiState.value.agentTraceRuns.forEach { traceRun ->
+            assertTrue(traceRun.steps.any { step -> step.type == "PlacementTraceFailClosed" })
+            assertTrue(traceRun.steps.none { step -> step.type == "ActualPlacement" })
+            assertEquals("Unknown", traceRun.runDataReceipt?.destination)
+        }
     }
 
     @Test
@@ -8719,6 +8826,98 @@ class SolinViewModelTest {
                 ),
             ),
         )
+
+    private fun placementTraceRunSummary(
+        selectedPlacement: RunPlacement,
+        receiptDestination: RunDataDestination,
+        receiptPrivacy: MessagePrivacy,
+        invocationPlacement: RunPlacement,
+        trailingStepCount: Int = 0,
+    ): AgentTraceRunSummary {
+        val store = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val run = store.createRun("[redacted]", sessionId = "session")
+        val remoteRevision = "00000000-0000-0000-0000-000000000001"
+        store.appendStep(
+            run.id,
+            AgentStep.PlacementSelected(
+                RunPlacementBinding(
+                    runId = run.id,
+                    policyVersion = 1,
+                    preference = InferenceMode.Auto,
+                    placement = selectedPlacement,
+                    primaryReason = if (selectedPlacement == RunPlacement.Remote) {
+                        PlacementReasonCode.AUTO_COMPLEX_REMOTE
+                    } else {
+                        PlacementReasonCode.AUTO_SIMPLE_LOCAL
+                    },
+                    complexity = com.bytedance.zgx.solin.orchestration.RequestComplexity.Complex,
+                    resourceBand = StableResourceBand.Normal,
+                    localState = com.bytedance.zgx.solin.orchestration.CandidateState.Eligible,
+                    remoteState = com.bytedance.zgx.solin.orchestration.CandidateState.Eligible,
+                    remoteProfileRevision = remoteRevision.takeIf { selectedPlacement == RunPlacement.Remote },
+                    bootCount = 1L,
+                    boundAtElapsedRealtimeMillis = 1_000L,
+                ),
+            ),
+        )
+        store.appendStep(
+            run.id,
+            AgentStep.RunDataReceiptRecorded(
+                RunDataReceipt(
+                    destination = receiptDestination,
+                    currentPromptPrivacy = receiptPrivacy.name,
+                ),
+            ),
+        )
+        store.appendStep(
+            run.id,
+            AgentStep.ModelRuntimeInvocationStarted(
+                ModelRuntimeInvocation(
+                    runId = run.id,
+                    placement = invocationPlacement,
+                    attempt = 1,
+                    remoteProfileRevision = remoteRevision.takeIf { invocationPlacement == RunPlacement.Remote },
+                ),
+            ),
+        )
+        repeat(trailingStepCount) { index ->
+            store.appendStep(run.id, AgentStep.AssistantResponded("step-$index"))
+        }
+        return store.recentRunSummaries(limit = 1, stepLimit = Int.MAX_VALUE).single()
+    }
+
+    private fun receiptOnlyTraceRunSummary(
+        destination: RunDataDestination,
+        privacy: String,
+    ): AgentTraceRunSummary {
+        val store = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val run = store.createRun("[redacted]", sessionId = "session")
+        store.appendStep(
+            run.id,
+            AgentStep.RunDataReceiptRecorded(
+                RunDataReceipt(
+                    destination = destination,
+                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                ),
+            ),
+        )
+        val summary = store.recentRunSummaries(limit = 1, stepLimit = Int.MAX_VALUE).single()
+        val steps = summary.steps.map { step ->
+            if (step.type == "RunDataReceiptRecorded") {
+                step.copy(
+                    json = JSONObject(step.json)
+                        .put("currentPromptPrivacy", privacy)
+                        .toString(),
+                )
+            } else {
+                step
+            }
+        }
+        return summary.copy(
+            steps = steps,
+            runDataReceiptStep = steps.single { step -> step.type == "RunDataReceiptRecorded" },
+        )
+    }
 
     private fun MemoryRecordStore.hasRecord(id: String, type: MemoryRecordType): Boolean =
         records().any { record -> record.id == id && record.type == type }

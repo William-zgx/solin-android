@@ -7,6 +7,12 @@ import org.junit.Test
 
 class AdaptiveInferenceRolloutTest {
     @Test
+    fun debugBuildEnablesExplicitAutoOptIn() {
+        assertEquals("opt_in", BuildConfig.ADAPTIVE_INFERENCE_ROLLOUT_STAGE)
+        assertTrue(AdaptiveInferenceRollout.parse(BuildConfig.ADAPTIVE_INFERENCE_ROLLOUT_STAGE).autoSelectable)
+    }
+
+    @Test
     fun parsesEveryStageAndFailsClosedForBlankOrUnknownValues() {
         assertEquals(AdaptiveInferenceRollout.Off, AdaptiveInferenceRollout.parse(null))
         assertEquals(AdaptiveInferenceRollout.Off, AdaptiveInferenceRollout.parse(""))

@@ -1,9 +1,12 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.eval.AgentBehaviorTraceProjector
 import com.bytedance.zgx.solin.resource.ThermalPressure
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -184,6 +187,274 @@ class RunDataReceiptTraceTest {
     }
 
     @Test
+    fun behaviorTraceUsesInvocationAsActualPlacementAndSelectedReason() {
+        val runId = "actual-placement"
+        val binding = testBinding(runId = runId, placement = RunPlacement.Remote)
+
+        val trace = AgentBehaviorTraceProjector().project(
+            answerResult(
+                runId = runId,
+                steps = listOf(
+                    AgentStep.PlacementSelected(binding),
+                    AgentStep.RunDataReceiptRecorded(
+                        RunDataReceipt(
+                            destination = RunDataDestination.Remote,
+                            currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                        ),
+                    ),
+                    AgentStep.ModelRuntimeInvocationStarted(
+                        ModelRuntimeInvocation(
+                            runId = runId,
+                            placement = RunPlacement.Remote,
+                            attempt = 1,
+                            remoteProfileRevision = TEST_REMOTE_REVISION,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(RunPlacement.Remote, trace.actualPlacement)
+        assertEquals(PlacementReasonCode.AUTO_COMPLEX_REMOTE, trace.actualPlacementReason)
+    }
+
+    @Test
+    fun behaviorTraceRejectsAnyPlacementReceiptInvocationMismatch() {
+        val runId = "mismatched-placement"
+        val binding = testBinding(runId = runId, placement = RunPlacement.Remote)
+        val mismatchedPairs = listOf(
+            RunDataDestination.Local to ModelRuntimeInvocation(
+                runId = runId,
+                placement = RunPlacement.Remote,
+                attempt = 1,
+                remoteProfileRevision = TEST_REMOTE_REVISION,
+            ),
+            RunDataDestination.Local to ModelRuntimeInvocation(
+                runId = runId,
+                placement = RunPlacement.Local,
+                attempt = 1,
+                remoteProfileRevision = null,
+            ),
+        )
+
+        mismatchedPairs.forEach { (destination, invocation) ->
+            val failure = runCatching {
+                AgentBehaviorTraceProjector().project(
+                    answerResult(
+                        runId = runId,
+                        steps = listOf(
+                            AgentStep.PlacementSelected(binding),
+                            AgentStep.RunDataReceiptRecorded(
+                                RunDataReceipt(
+                                    destination = destination,
+                                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                                ),
+                            ),
+                            AgentStep.ModelRuntimeInvocationStarted(invocation),
+                        ),
+                    ),
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalArgumentException)
+        }
+    }
+
+    @Test
+    fun behaviorTraceRejectsLocalOnlyRemoteInvocation() {
+        val runId = "local-only-remote"
+        val binding = testBinding(runId = runId, placement = RunPlacement.Remote)
+
+        val failure = runCatching {
+            AgentBehaviorTraceProjector().project(
+                answerResult(
+                    runId = runId,
+                    steps = listOf(
+                        AgentStep.PlacementSelected(binding),
+                        AgentStep.RunDataReceiptRecorded(
+                            RunDataReceipt(
+                                destination = RunDataDestination.Remote,
+                                currentPromptPrivacy = MessagePrivacy.LocalOnly.name,
+                            ),
+                        ),
+                        AgentStep.ModelRuntimeInvocationStarted(
+                            ModelRuntimeInvocation(
+                                runId = runId,
+                                placement = RunPlacement.Remote,
+                                attempt = 1,
+                                remoteProfileRevision = TEST_REMOTE_REVISION,
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
+    fun behaviorTraceReadsPersistedInvocationAndDoesNotInferFromReceiptOnly() {
+        val store = InMemoryAgentTraceStore(clockMillis = { 1L })
+        val run = store.createRun("[redacted]", sessionId = "session")
+        val binding = testBinding(runId = run.id, placement = RunPlacement.Local)
+        store.appendStep(run.id, AgentStep.PlacementSelected(binding))
+        store.appendStep(
+            run.id,
+            AgentStep.RunDataReceiptRecorded(
+                RunDataReceipt(
+                    destination = RunDataDestination.Local,
+                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                ),
+            ),
+        )
+        val receiptOnly = AgentBehaviorTraceProjector().project(
+            answerResult(
+                runId = "receipt-only",
+                steps = listOf(
+                    AgentStep.RunDataReceiptRecorded(
+                        RunDataReceipt(
+                            destination = RunDataDestination.Remote,
+                            currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        store.appendStep(
+            run.id,
+            AgentStep.ModelRuntimeInvocationStarted(
+                ModelRuntimeInvocation(
+                    runId = run.id,
+                    placement = RunPlacement.Local,
+                    attempt = 1,
+                    remoteProfileRevision = null,
+                ),
+            ),
+        )
+        val restoredSteps = store.stepSummaries(run.id).map { step ->
+            AgentStep.RestoredSummary(
+                persistedType = step.type,
+                summary = step.summary,
+                json = step.json,
+            )
+        }
+
+        val restoredTrace = AgentBehaviorTraceProjector().project(
+            answerResult(runId = run.id, steps = restoredSteps),
+        )
+
+        assertNull(receiptOnly.actualPlacement)
+        assertEquals(RunPlacement.Local, restoredTrace.actualPlacement)
+        assertEquals(PlacementReasonCode.AUTO_SIMPLE_LOCAL, restoredTrace.actualPlacementReason)
+        assertEquals(MessagePrivacy.RemoteEligible, restoredTrace.privacy)
+    }
+
+    @Test
+    fun behaviorTraceRejectsReceiptOnlyRemoteLocalOnlyOrUnknownPrivacy() {
+        listOf(MessagePrivacy.LocalOnly.name, "Unknown").forEach { privacy ->
+            val failure = runCatching {
+                AgentBehaviorTraceProjector().project(
+                    answerResult(
+                        runId = "receipt-only-$privacy",
+                        steps = listOf(
+                            AgentStep.RunDataReceiptRecorded(
+                                RunDataReceipt(
+                                    destination = RunDataDestination.Remote,
+                                    currentPromptPrivacy = privacy,
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            }.exceptionOrNull()
+
+            assertTrue("Remote receipt with $privacy privacy must fail closed", failure is IllegalArgumentException)
+        }
+    }
+
+    @Test
+    fun behaviorTraceTreatsUnknownLocalReceiptPrivacyAsLocalOnly() {
+        val trace = AgentBehaviorTraceProjector().project(
+            answerResult(
+                runId = "local-unknown-privacy",
+                steps = listOf(
+                    AgentStep.RunDataReceiptRecorded(
+                        RunDataReceipt(
+                            destination = RunDataDestination.Local,
+                            currentPromptPrivacy = "Unknown",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(MessagePrivacy.LocalOnly, trace.privacy)
+        assertNull(trace.actualPlacement)
+    }
+
+    @Test
+    fun behaviorTraceRejectsIncompleteOrUnknownPersistedPlacementTrace() {
+        val runId = "invalid-persisted-placement"
+        val binding = testBinding(runId = runId, placement = RunPlacement.Local)
+        val incompleteFailure = runCatching {
+            AgentBehaviorTraceProjector().project(
+                answerResult(
+                    runId = runId,
+                    steps = listOf(
+                        AgentStep.PlacementSelected(binding),
+                        AgentStep.RunDataReceiptRecorded(
+                            RunDataReceipt(
+                                destination = RunDataDestination.Local,
+                                currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+        val store = InMemoryAgentTraceStore(clockMillis = { 1L })
+        val run = store.createRun("[redacted]", sessionId = "session")
+        val persistedBinding = testBinding(runId = run.id, placement = RunPlacement.Local)
+        store.appendStep(run.id, AgentStep.PlacementSelected(persistedBinding))
+        store.appendStep(
+            run.id,
+            AgentStep.RunDataReceiptRecorded(
+                RunDataReceipt(
+                    destination = RunDataDestination.Local,
+                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                ),
+            ),
+        )
+        store.appendStep(
+            run.id,
+            AgentStep.ModelRuntimeInvocationStarted(
+                ModelRuntimeInvocation(
+                    runId = run.id,
+                    placement = RunPlacement.Local,
+                    attempt = 1,
+                    remoteProfileRevision = null,
+                ),
+            ),
+        )
+        val restoredSteps = store.stepSummaries(run.id).map { step ->
+            val json = JSONObject(step.json)
+            if (step.type == "ModelRuntimeInvocationStarted") json.put("schemaVersion", 999)
+            AgentStep.RestoredSummary(
+                persistedType = step.type,
+                summary = step.summary,
+                json = json.toString(),
+            )
+        }
+        val schemaFailure = runCatching {
+            AgentBehaviorTraceProjector().project(answerResult(runId = run.id, steps = restoredSteps))
+        }.exceptionOrNull()
+
+        assertTrue(incompleteFailure is IllegalArgumentException)
+        assertTrue(schemaFailure is IllegalArgumentException)
+    }
+
+    @Test
     fun shadowPlacementIsBestEffortAndNeverCreatesDispatchTrace() {
         val delegate = InMemoryAgentTraceStore(clockMillis = { 1L })
         val run = delegate.createRun("[redacted]", sessionId = "session")
@@ -226,4 +497,22 @@ class RunDataReceiptTraceTest {
                 remoteState = remoteState,
             ),
         )
+
+    private fun answerResult(
+        runId: String,
+        steps: List<AgentStep>,
+    ): AgentLoopResult = AgentLoopResult(
+        run = AgentRun(
+            id = runId,
+            input = "[redacted]",
+            state = AgentRunState.Completed,
+            createdAtMillis = 1L,
+            updatedAtMillis = 1L,
+        ),
+        plan = AgentPlan.Answer(
+            promptForModel = "[redacted]",
+            memoryHits = emptyList(),
+        ),
+        steps = steps,
+    )
 }

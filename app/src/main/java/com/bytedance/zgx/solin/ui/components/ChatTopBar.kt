@@ -45,7 +45,12 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.R
+import com.bytedance.zgx.solin.label
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
+import com.bytedance.zgx.solin.ui.activePlacementDisplayText
+import com.bytedance.zgx.solin.ui.inferencePreferenceDisplayText
 import com.bytedance.zgx.solin.ui.PRODUCT_POSITIONING_SHORT_TEXT
 import com.bytedance.zgx.solin.ui.ResourcePressureOverlay
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
@@ -59,6 +64,8 @@ internal fun ChatTopBar(
     onOpenSessions: () -> Unit,
     onOpenBackgroundTasks: () -> Unit,
     onCreateSession: () -> Unit,
+    activeRunPlacement: RunPlacement?,
+    activeRunPlacementReason: PlacementReasonCode?,
 ) {
     val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -132,10 +139,12 @@ internal fun ChatTopBar(
                 CompactModelStatusChip(
                     modifier = Modifier.widthIn(
                         min = if (compactTopBar) 58.dp else 96.dp,
-                        max = if (compactTopBar) 78.dp else 148.dp,
+                        max = if (compactTopBar) 96.dp else 148.dp,
                     ),
                     state = state,
                     compact = compactTopBar,
+                    activeRunPlacement = activeRunPlacement,
+                    activeRunPlacementReason = activeRunPlacementReason,
                     onClick = onOpenModelManager,
                 )
                 TopActionButton(
@@ -208,19 +217,21 @@ internal fun CompactModelStatusChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    activeRunPlacement: RunPlacement? = null,
+    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     val active = state.isReady && !state.isBusy
     val semanticColors = LocalSolinColors.current
     val container = when {
-        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.remoteContainer
-        active -> semanticColors.localContainer
         state.isBusy || state.isDownloading -> semanticColors.busyContainer
+        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.remoteContainer
+        active && activeRunPlacement == RunPlacement.Local -> semanticColors.localContainer
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val content = when {
-        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.onRemoteContainer
-        active -> semanticColors.onLocalContainer
         state.isBusy || state.isDownloading -> semanticColors.onBusyContainer
+        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.onRemoteContainer
+        active && activeRunPlacement == RunPlacement.Local -> semanticColors.onLocalContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -230,7 +241,11 @@ internal fun CompactModelStatusChip(
             .testTag("top_model_button")
             .semantics {
                 contentDescription = "模型管理"
-                stateDescription = compactModelStatus(state)
+                stateDescription = compactModelStatus(
+                    state = state,
+                    activeRunPlacement = activeRunPlacement,
+                    activeRunPlacementReason = activeRunPlacementReason,
+                )
             },
         shape = CircleShape,
         color = container,
@@ -248,7 +263,11 @@ internal fun CompactModelStatusChip(
                     .background(content),
             )
             Text(
-                text = if (compact) compactModelStatusShort(state) else compactModelStatus(state),
+                text = if (compact) {
+                    compactModelStatusShort(state, activeRunPlacement, activeRunPlacementReason)
+                } else {
+                    compactModelStatus(state, activeRunPlacement, activeRunPlacementReason)
+                },
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = content,
@@ -332,28 +351,35 @@ internal fun TopActionButton(
 }
 
 @Composable
-internal fun RuntimeStatusBadge(state: ChatUiState) {
+internal fun RuntimeStatusBadge(
+    state: ChatUiState,
+    activeRunPlacement: RunPlacement? = null,
+    activeRunPlacementReason: PlacementReasonCode? = null,
+) {
     val active = state.isReady && !state.isBusy
     val label = when {
         state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
         state.isBusy -> "处理中"
-        state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程可用"
-        state.isReady -> "离线可用"
-        state.inferenceMode == InferenceMode.Remote -> "待配置"
+        activeRunPlacement == RunPlacement.Remote -> "本次远程"
+        activeRunPlacement == RunPlacement.Local -> "本次本地"
+        activeRunPlacementReason != null -> "本次已阻断"
+        state.inferenceMode == InferenceMode.Remote -> "远程偏好"
+        state.inferenceMode == InferenceMode.Auto -> "自动偏好"
+        state.isReady -> "本地偏好"
         state.modelPath != null -> "可加载"
         else -> "待准备"
     }
     val semanticColors = LocalSolinColors.current
     val container = when {
-        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.remoteContainer
-        active -> semanticColors.localContainer
         state.isBusy || state.isDownloading -> semanticColors.busyContainer
+        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.remoteContainer
+        active && activeRunPlacement == RunPlacement.Local -> semanticColors.localContainer
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val content = when {
-        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.onRemoteContainer
-        active -> semanticColors.onLocalContainer
         state.isBusy || state.isDownloading -> semanticColors.onBusyContainer
+        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.onRemoteContainer
+        active && activeRunPlacement == RunPlacement.Local -> semanticColors.onLocalContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -384,33 +410,24 @@ internal fun RuntimeStatusBadge(state: ChatUiState) {
     }
 }
 
-private fun compactModelStatus(state: ChatUiState): String {
-    val ready = when {
-        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
-        state.isBusy -> state.statusText
-        state.isReady -> "可用"
-        state.inferenceMode == InferenceMode.Remote -> "待配置"
-        state.modelPath != null -> "待加载"
-        else -> "待准备"
-    }
-    if (state.inferenceMode == InferenceMode.Remote) {
-        val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
-        return "$modelName · $ready"
-    }
-    val modelName = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
-        ?: state.selectedRecommendedModel.shortName
-    return "$modelName · ${state.backend.name} · $ready"
+private fun compactModelStatus(
+    state: ChatUiState,
+    activeRunPlacement: RunPlacement?,
+    activeRunPlacementReason: PlacementReasonCode?,
+): String = listOfNotNull(
+    inferencePreferenceDisplayText(state.inferenceMode),
+    activePlacementDisplayText(activeRunPlacement, activeRunPlacementReason),
+).joinToString(separator = "；")
+
+internal fun compactModelStatusShort(
+    state: ChatUiState,
+    activeRunPlacement: RunPlacement?,
+    activeRunPlacementReason: PlacementReasonCode?,
+): String = when {
+    state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+    activeRunPlacement == RunPlacement.Remote -> "${state.inferenceMode.label()}→远程"
+    activeRunPlacement == RunPlacement.Local -> "${state.inferenceMode.label()}→本地"
+    activeRunPlacementReason != null -> "${state.inferenceMode.label()}·阻断"
+    state.isBusy -> "${state.inferenceMode.label()}·处理中"
+    else -> "${state.inferenceMode.label()}偏好"
 }
-
-private fun compactModelStatusShort(state: ChatUiState): String =
-    when {
-        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
-        state.isBusy -> "处理中"
-        state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程"
-        state.inferenceMode == InferenceMode.Remote -> "待配置"
-        state.isReady -> "本地"
-        state.modelPath != null -> "待加载"
-        else -> "待准备"
-    }
-
-

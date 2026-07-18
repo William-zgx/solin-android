@@ -1,7 +1,8 @@
 package com.bytedance.zgx.solin.eval
 
-import com.bytedance.zgx.solin.ModelCapability
+import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.ActionPlanningResult
@@ -44,11 +45,15 @@ import com.bytedance.zgx.solin.orchestration.AgentStep
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.ModelOutputQualityTrace
+import com.bytedance.zgx.solin.orchestration.ModelRuntimeInvocation
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.SequentialActionObservationReplanner
+import com.bytedance.zgx.solin.orchestration.testBinding
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.skill.SkillManifest
@@ -64,6 +69,7 @@ import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -151,6 +157,92 @@ class AiBehaviorActualTraceGeneratorTest {
         assertTrue(!evidence.trace.toString().contains("站起来活动一下"))
     }
 
+    @Test
+    fun placementFixtureContractMatchesInvocationBackedActualTrace() {
+        val rows = categories.flatMap(::loadFixtureRows)
+        val placementRows = rows.filter { row -> row.has("expectedPlacement") || row.has("expectedPlacementReason") }
+
+        placementRows.forEach { row ->
+            assertTrue(row.has("expectedPlacement"))
+            assertTrue(row.has("expectedPlacementReason"))
+            RunPlacement.valueOf(row.getString("expectedPlacement"))
+            PlacementReasonCode.valueOf(row.getString("expectedPlacementReason"))
+        }
+
+        assertEquals(remoteInvocationCaseIds, placementRows.map { row -> row.getString("id") }.toSet())
+        placementRows.forEach { row ->
+            val actual = collectActualTrace(row)
+            assertEquals(row.getString("expectedPlacement"), actual.getString("actualPlacement"))
+            assertEquals(row.getString("expectedPlacementReason"), actual.getString("actualPlacementReason"))
+        }
+        val remoteImagePreview = rows.single { row -> row.getString("id") == "privacy_remote_image_preview" }
+        val remoteImageTrace = collectActualTrace(remoteImagePreview)
+
+        assertFalse(remoteImagePreview.has("expectedPlacement"))
+        assertFalse(remoteImagePreview.has("expectedPlacementReason"))
+        assertFalse(remoteImageTrace.has("actualPlacement"))
+        assertFalse(remoteImageTrace.has("actualPlacementReason"))
+        assertTrue(loadFixtureRows("restart_recovery").none { row -> row.has("expectedPlacement") })
+        assertTrue(loadFixtureRows("runtime_failure").none { row -> row.has("expectedPlacement") })
+    }
+
+    @Test
+    fun placementFieldsSerializeOnlyInvocationBackedActualTrace() {
+        val baseTrace = AgentBehaviorActualTrace(
+            caseId = "placement-json",
+            input = "[redacted]",
+            actualConfirmation = AgentEvalConfirmationExpectation.None,
+            actualRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.RemoteEligible,
+            localOnly = false,
+            remoteEligible = true,
+        )
+
+        val withoutInvocation = JSONObject().putPlacementFields(baseTrace)
+        val withInvocation = JSONObject().putPlacementFields(
+            baseTrace.copy(
+                actualPlacement = RunPlacement.Remote,
+                actualPlacementReason = PlacementReasonCode.USER_FORCED_REMOTE,
+            ),
+        )
+
+        assertTrue(!withoutInvocation.has("actualPlacement"))
+        assertTrue(!withoutInvocation.has("actualPlacementReason"))
+        assertEquals("Remote", withInvocation.getString("actualPlacement"))
+        assertEquals("USER_FORCED_REMOTE", withInvocation.getString("actualPlacementReason"))
+    }
+
+    @Test
+    fun placementExpectationReportsMissingActualAndRejectsMismatch() {
+        val evalCase = AgentBehaviorEvalCase(
+            id = "placement-diff",
+            input = "远程模式下比较天气",
+            expectedConfirmation = AgentEvalConfirmationExpectation.None,
+            expectedRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.RemoteEligible,
+            localOnly = false,
+            remoteEligible = true,
+            expectedPlacement = RunPlacement.Remote,
+            expectedPlacementReason = PlacementReasonCode.USER_FORCED_REMOTE,
+        )
+        val actualWithoutInvocation = AgentBehaviorActualTrace(
+            caseId = evalCase.id,
+            input = evalCase.input,
+            actualConfirmation = AgentEvalConfirmationExpectation.None,
+            actualRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.RemoteEligible,
+            localOnly = false,
+            remoteEligible = true,
+        )
+        val mismatchedInvocation = actualWithoutInvocation.copy(
+            actualPlacement = RunPlacement.Local,
+            actualPlacementReason = PlacementReasonCode.USER_FORCED_LOCAL,
+        )
+
+        assertEquals(AgentBehaviorTraceDiffStatus.MissingActual, evalCase.diffAgainst(actualWithoutInvocation).status)
+        assertEquals(AgentBehaviorTraceDiffStatus.Mismatch, evalCase.diffAgainst(mismatchedInvocation).status)
+    }
+
     private fun collectActualTrace(fixture: JSONObject): JSONObject {
         if (fixture.getString("id") == "recovery_confirmation_no_auto_execute") {
             return collectRestoredConfirmationNoAutoExecuteTrace(fixture)
@@ -194,6 +286,7 @@ class AiBehaviorActualTraceGeneratorTest {
             memoryEnabled = shouldEnableMemory(fixture),
             options = runOptionsFor(fixture),
         )
+        recordFixtureInvocationEvidence(fixture, traceStore, initialResult.run.id)
         recordRuntimeEvidence(fixture, runtime, initialResult)
         val result = traceStore.run(initialResult.run.id)
             ?.let { run ->
@@ -216,6 +309,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -265,6 +359,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -527,6 +622,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -657,6 +753,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -684,16 +781,18 @@ class AiBehaviorActualTraceGeneratorTest {
 
     private fun collectPublicEvidenceBatchTrace(fixture: JSONObject): JSONObject {
         val input = fixture.getString("input")
+        val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RuleActionRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = traceStore,
         )
         val result = runtime.runOnce(
             input = "普通远程公开问题",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
+        recordFixtureInvocationEvidence(fixture, traceStore, result.run.id)
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
@@ -738,6 +837,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -870,6 +970,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -945,6 +1046,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -1065,6 +1167,7 @@ class AiBehaviorActualTraceGeneratorTest {
                 .put("remoteEligible", trace.remoteEligible)
                 .put("failureMode", trace.failureMode ?: "")
                 .putRoutingFields(trace)
+                .putPlacementFields(trace)
                 .putTraceProvenance(),
         )
     }
@@ -1122,6 +1225,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
+            .putPlacementFields(trace)
             .putTraceProvenance()
     }
 
@@ -1166,6 +1270,39 @@ class AiBehaviorActualTraceGeneratorTest {
         } else {
             AgentRunOptions()
         }
+
+    private fun recordFixtureInvocationEvidence(
+        fixture: JSONObject,
+        traceStore: InMemoryAgentTraceStore,
+        runId: String,
+    ) {
+        if (fixture.getString("id") !in remoteInvocationCaseIds) return
+        val binding = testBinding(runId = runId, placement = RunPlacement.Remote).copy(
+            preference = InferenceMode.Remote,
+            primaryReason = PlacementReasonCode.USER_FORCED_REMOTE,
+        )
+        traceStore.appendStep(runId, AgentStep.PlacementSelected(binding))
+        traceStore.appendStep(
+            runId,
+            AgentStep.RunDataReceiptRecorded(
+                RunDataReceipt(
+                    destination = RunDataDestination.Remote,
+                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
+                ),
+            ),
+        )
+        traceStore.appendStep(
+            runId,
+            AgentStep.ModelRuntimeInvocationStarted(
+                ModelRuntimeInvocation(
+                    runId = runId,
+                    placement = RunPlacement.Remote,
+                    attempt = 1,
+                    remoteProfileRevision = binding.remoteProfileRevision,
+                ),
+            ),
+        )
+    }
 
     private fun recordRuntimeEvidence(
         fixture: JSONObject,
@@ -1595,6 +1732,11 @@ class AiBehaviorActualTraceGeneratorTest {
         "sequence_search_then_share",
     )
 
+    private val remoteInvocationCaseIds = setOf(
+        "privacy_public_weather_allowed",
+        "privacy_public_weather_batch_allowed",
+    )
+
     private fun JSONArray.toStringList(): List<String> =
         (0 until length()).map { index -> getString(index) }
 
@@ -1656,6 +1798,12 @@ class AiBehaviorActualTraceGeneratorTest {
         trace.routingToolName?.let { toolName -> put("routingToolName", toolName) }
         trace.routingSkillId?.let { skillId -> put("routingSkillId", skillId) }
         trace.routingRejectionReason?.let { reason -> put("routingRejectionReason", reason) }
+        return this
+    }
+
+    private fun JSONObject.putPlacementFields(trace: AgentBehaviorActualTrace): JSONObject {
+        trace.actualPlacement?.let { placement -> put("actualPlacement", placement.name) }
+        trace.actualPlacementReason?.let { reason -> put("actualPlacementReason", reason.name) }
         return this
     }
 

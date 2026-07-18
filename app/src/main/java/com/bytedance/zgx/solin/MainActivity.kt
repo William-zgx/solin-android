@@ -382,6 +382,8 @@ class MainActivity : ComponentActivity() {
                     onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
                     onStopGeneration = { viewModel.launchPersistenceWork(viewModel::stopGeneration) },
                     resourceSampler = { appContainer.sampleSystemResources() },
+                    activeRunPlacement = state.activeRunPlacement,
+                    activeRunPlacementReason = state.activeRunPlacementReason,
         )
     }
 

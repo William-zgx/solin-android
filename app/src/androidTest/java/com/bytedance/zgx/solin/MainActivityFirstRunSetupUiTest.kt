@@ -38,11 +38,10 @@ class MainActivityFirstRunSetupUiTest {
                 .assertIsDisplayed()
             composeRule.waitForText("模型未就绪", timeoutMillis = 10_000)
             composeRule.waitForText("配置远程模型", timeoutMillis = 10_000)
-
-            val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
-            if (!setupVisible) {
-                return@use
-            }
+            composeRule.waitForTag("first_run_setup_panel", timeoutMillis = 10_000)
+            composeRule.onNodeWithTag("first_run_setup_panel")
+                .performScrollTo()
+                .assertIsDisplayed()
 
             composeRule.onNodeWithTag("first_run_model_chat-e2b")
                 .performScrollTo()
@@ -55,7 +54,7 @@ class MainActivityFirstRunSetupUiTest {
                 .performScrollTo()
                 .performClick()
 
-            composeRule.waitForTagGone("first_run_download_button")
+            composeRule.waitForTagGone("first_run_setup_panel")
             composeRule.onNodeWithTag("model_startup_banner")
                 .performScrollTo()
                 .assertIsDisplayed()
@@ -76,12 +75,6 @@ class MainActivityFirstRunSetupUiTest {
             onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
     }
-
-    private fun ComposeTestRule.waitForOptionalText(text: String, timeoutMillis: Long): Boolean =
-        runCatching {
-            waitForText(text, timeoutMillis = timeoutMillis)
-            true
-        }.getOrDefault(false)
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

@@ -103,13 +103,12 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("quick_remote_config_button").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onNodeWithText("远程模型").assertIsDisplayed()
+        composeRule.onNodeWithText("远程模型候选").assertIsDisplayed()
         composeRule.waitForTag("remote_base_url_input")
-        composeRule.onNodeWithTag("remote_mode_switch").assertIsNotEnabled()
         composeRule.onNodeWithTag("remote_connectivity_test_button")
             .performScrollTo()
             .assertIsNotEnabled()
-        composeRule.waitForText("填写 HTTP(S) 服务地址和模型名后可切换远程模型", substring = true)
+        composeRule.waitForText("填写 HTTP(S) 服务地址和模型名后可选择远程偏好", substring = true)
         composeRule.assertTagAbsent("remote_mode_disclosure_sheet")
     }
 

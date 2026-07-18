@@ -21,20 +21,29 @@ import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.capability.CapabilityMatrix
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.components.ACTION_SUMMARY_COLLAPSE_CHARS
 import com.bytedance.zgx.solin.ui.components.actionDataBoundaryDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionParameterDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionTextDisplay
+import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
+import com.bytedance.zgx.solin.ui.components.hasAnySavedValue
+import com.bytedance.zgx.solin.ui.components.inferencePreferenceDescription
 import com.bytedance.zgx.solin.ui.components.memoryEvidenceDisplayText
 import com.bytedance.zgx.solin.ui.components.modelPathGuidanceRows
+import com.bytedance.zgx.solin.ui.components.parseRemoteContextWindowTokens
 import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
 import com.bytedance.zgx.solin.ui.components.publicWebSourceDisplayText
 import com.bytedance.zgx.solin.ui.components.remoteModeDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.components.remoteSendDisclosureCanSuppressForSession
 import com.bytedance.zgx.solin.ui.components.remoteSendDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.components.runTimelineItemDisplayText
+import com.bytedance.zgx.solin.ui.components.selectableInferencePreferences
 import com.bytedance.zgx.solin.ui.components.semanticMemoryIndexStatusText
+import com.bytedance.zgx.solin.ui.components.shouldShowFirstRunSetupPanel
 import com.bytedance.zgx.solin.ui.components.trustDeletionBoundaryText
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -301,6 +310,198 @@ class SolinScreenDisplayTest {
 
         assertContainsAll(status, "remote-test-model", "远程")
         assertContainsNone(status, "上下文")
+    }
+
+    @Test
+    fun remotePreferenceStatusDoesNotReuseLocalLoadState() {
+        val status = currentModelStatus(
+            ChatUiState(
+                inferenceMode = InferenceMode.Remote,
+                remoteModelConfig = RemoteModelConfig(modelName = "remote-test-model"),
+                modelPath = "/tmp/local-model.litertlm",
+                statusText = "远程模型未配置",
+            ),
+        )
+
+        assertContainsAll(status, "偏好：远程", "远程模型未配置")
+        assertContainsNone(status, "待加载")
+    }
+
+    @Test
+    fun modelManagerPreferenceOptionsRespectRolloutVisibility() {
+        assertEquals(
+            listOf(InferenceMode.Local, InferenceMode.Remote),
+            selectableInferencePreferences(autoSelectable = false),
+        )
+        assertEquals(
+            listOf(InferenceMode.Local, InferenceMode.Auto, InferenceMode.Remote),
+            selectableInferencePreferences(autoSelectable = true),
+        )
+        assertContainsAll(
+            inferencePreferenceDescription(InferenceMode.Local),
+            "只用手机模型",
+            "不可用时明确失败",
+        )
+        assertContainsAll(
+            inferencePreferenceDescription(InferenceMode.Auto),
+            "允许远程",
+            "任务和设备状态",
+            "显式选择",
+        )
+        assertContainsAll(
+            inferencePreferenceDescription(InferenceMode.Remote),
+            "强制使用",
+            "仅本机数据仍会阻断",
+        )
+    }
+
+    @Test
+    fun remoteCapabilityFieldsParsePositiveContextAndCountAsSavedConfig() {
+        assertEquals(8_192, parseRemoteContextWindowTokens("8192"))
+        assertEquals(null, parseRemoteContextWindowTokens(""))
+        assertEquals(null, parseRemoteContextWindowTokens("0"))
+        assertEquals(null, parseRemoteContextWindowTokens("-1"))
+        assertEquals(null, parseRemoteContextWindowTokens("not-a-number"))
+
+        assertFalse(RemoteModelConfig().hasAnySavedValue())
+        assertTrue(RemoteModelConfig(supportsToolCalls = true).hasAnySavedValue())
+        assertTrue(RemoteModelConfig(contextWindowTokens = 8_192).hasAnySavedValue())
+    }
+
+    @Test
+    fun firstRunSetupVisibilityUsesExplicitStateFlag() {
+        assertFalse(ChatUiState(showFirstRunSetup = false).shouldShowFirstRunSetupPanel())
+        assertTrue(ChatUiState(showFirstRunSetup = true).shouldShowFirstRunSetupPanel())
+    }
+
+    @Test
+    fun autoStatusShowsPreferenceWithoutClaimingAnActualPlacement() {
+        val status = currentModelStatus(
+            ChatUiState(
+                inferenceMode = InferenceMode.Auto,
+                remoteModelConfig = RemoteModelConfig(modelName = "remote-candidate"),
+            ),
+        )
+
+        assertContainsAll(status, "偏好：自动", "按请求评估")
+        assertContainsNone(status, "本次使用本地模型", "本次使用远程模型")
+    }
+
+    @Test
+    fun attachmentNoticeUsesActualPlacementWhenAvailableAndPreferenceOtherwise() {
+        assertEquals(
+            AUTO_ATTACHMENT_PROTECTION_NOTICE,
+            attachmentProtectionNotice(InferenceMode.Auto, null, null),
+        )
+        assertEquals(
+            ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE,
+            attachmentProtectionNotice(
+                preference = InferenceMode.Auto,
+                actualPlacement = RunPlacement.Remote,
+                actualReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+            ),
+        )
+        assertEquals(
+            null,
+            attachmentProtectionNotice(
+                preference = InferenceMode.Remote,
+                actualPlacement = RunPlacement.Local,
+                actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
+            ),
+        )
+    }
+
+    @Test
+    fun placementDisplaySeparatesPreferenceFromActualRun() {
+        assertEquals("偏好：自动", inferencePreferenceDisplayText(InferenceMode.Auto))
+        assertEquals(null, activePlacementDisplayText(null, null))
+        assertEquals(
+            "本次使用本地模型：任务较轻，手机状态正常。",
+            activePlacementDisplayText(
+                placement = RunPlacement.Local,
+                reason = PlacementReasonCode.AUTO_SIMPLE_LOCAL,
+            ),
+        )
+        assertEquals(
+            "本次使用远程模型：任务较复杂，且远程连接已验证。",
+            activePlacementDisplayText(
+                placement = RunPlacement.Remote,
+                reason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+            ),
+        )
+        assertEquals(
+            "无法执行：没有同时满足隐私、能力和可用性要求的模型。",
+            activePlacementDisplayText(
+                placement = null,
+                reason = PlacementReasonCode.NO_ELIGIBLE_TARGET,
+            ),
+        )
+    }
+
+    @Test
+    fun compactBusyStatusKeepsPreferenceAndActualPlacementVisible() {
+        val busyAuto = ChatUiState(
+            inferenceMode = InferenceMode.Auto,
+            isBusy = true,
+        )
+
+        assertEquals(
+            "自动→本地",
+            compactModelStatusShort(
+                state = busyAuto,
+                activeRunPlacement = RunPlacement.Local,
+                activeRunPlacementReason = PlacementReasonCode.AUTO_SIMPLE_LOCAL,
+            ),
+        )
+        assertEquals(
+            "自动→远程",
+            compactModelStatusShort(
+                state = busyAuto,
+                activeRunPlacement = RunPlacement.Remote,
+                activeRunPlacementReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+            ),
+        )
+        assertEquals("自动·处理中", compactModelStatusShort(busyAuto, null, null))
+    }
+
+    @Test
+    fun placementDisplayDoesNotExposeConnectionDetailsOrInferActualFromPreference() {
+        val text = buildList {
+            InferenceMode.entries.forEach { add(inferencePreferenceDisplayText(it)) }
+            add(AUTO_ATTACHMENT_PROTECTION_NOTICE)
+            add(ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE)
+            PlacementReasonCode.entries.forEach { reason ->
+                listOf(null, RunPlacement.Local, RunPlacement.Remote).forEach { placement ->
+                    activePlacementDisplayText(placement, reason)?.let(::add)
+                }
+            }
+        }.joinToString("\n")
+
+        assertContainsNone(
+            text,
+            "https://",
+            "http://",
+            "127.0.0.1",
+            "10.0.2.2",
+            "localhost",
+            "endpoint",
+            "revision",
+        )
+        assertEquals(null, activePlacementDisplayText(null, null))
+    }
+
+    @Test
+    fun mainActivityPassesActualRunPlacementIntoSolinScreen() {
+        val source = listOf(
+            File("src/main/java/com/bytedance/zgx/solin/MainActivity.kt"),
+            File("app/src/main/java/com/bytedance/zgx/solin/MainActivity.kt"),
+        ).first { it.isFile }.readText()
+
+        assertContainsAll(
+            source,
+            "activeRunPlacement = state.activeRunPlacement",
+            "activeRunPlacementReason = state.activeRunPlacementReason",
+        )
     }
 
     @Test

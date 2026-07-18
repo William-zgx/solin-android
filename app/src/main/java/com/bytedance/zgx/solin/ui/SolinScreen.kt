@@ -127,6 +127,8 @@ import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 import java.util.Locale
@@ -192,6 +194,8 @@ fun SolinScreen(
     onVoiceInputConsumed: (Long) -> Unit,
     onStopGeneration: () -> Unit,
     resourceSampler: (suspend () -> SystemResourceSnapshot?)? = null,
+    activeRunPlacement: RunPlacement? = null,
+    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     val pickModel = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImportModel)
@@ -250,6 +254,8 @@ fun SolinScreen(
                         showBackgroundTasks = true
                     },
                     onCreateSession = onCreateSession,
+                    activeRunPlacement = activeRunPlacement,
+                    activeRunPlacementReason = activeRunPlacementReason,
                 )
 
                 Box(
@@ -276,6 +282,11 @@ fun SolinScreen(
                             onDownloadModel = onDownloadModel,
                             onCancelDownload = onCancelDownload,
                             onSendPrompt = onSendMessage,
+                            onSetupModelToggled = onSetupModelToggled,
+                            onDownloadSetupModels = onDownloadSetupModels,
+                            onSkipFirstRunSetup = onSkipFirstRunSetup,
+                            activeRunPlacement = activeRunPlacement,
+                            activeRunPlacementReason = activeRunPlacementReason,
                         )
                     } else {
                         LazyColumn(
@@ -364,6 +375,8 @@ fun SolinScreen(
                         }
                     },
                     onStopGeneration = onStopGeneration,
+                    activeRunPlacement = activeRunPlacement,
+                    activeRunPlacementReason = activeRunPlacementReason,
                 )
             }
 
@@ -569,27 +582,99 @@ private fun String.userFacingPrivacyLabel(): String =
         .replace("RemoteEligible", "可远程发送")
         .replace("LocalOnly", "仅本机")
 
+internal fun inferencePreferenceDisplayText(preference: InferenceMode): String =
+    "偏好：${preference.label()}"
+
+internal fun activePlacementDisplayText(
+    placement: RunPlacement?,
+    reason: PlacementReasonCode?,
+): String? = when (placement) {
+    RunPlacement.Local -> when (reason) {
+        PlacementReasonCode.USER_FORCED_LOCAL -> "本次使用本地模型：你选择了本地偏好。"
+        PlacementReasonCode.PRIVACY_REQUIRES_LOCAL -> "本次使用本地模型：内容仅限本地处理。"
+        PlacementReasonCode.REMOTE_NOT_AUTHORIZED -> "本次使用本地模型：自动模式尚未获得远程授权。"
+        PlacementReasonCode.REMOTE_NOT_CONFIGURED -> "本次使用本地模型：远程模型尚未配置。"
+        PlacementReasonCode.REMOTE_CONNECTIVITY_UNAVAILABLE -> "本次使用本地模型：远程连接当前不可用。"
+        PlacementReasonCode.REMOTE_STATUS_STALE -> "本次使用本地模型：远程连接状态需要重新验证。"
+        PlacementReasonCode.REMOTE_CAPABILITY_MISMATCH -> "本次使用本地模型：远程模型能力不满足本次请求。"
+        PlacementReasonCode.REMOTE_OVERLOADED -> "本次使用本地模型：远程模型当前繁忙。"
+        PlacementReasonCode.AUTO_SIMPLE_LOCAL -> "本次使用本地模型：任务较轻，手机状态正常。"
+        PlacementReasonCode.AUTO_IMAGE_LOCAL -> "本次使用本地模型：图片可在本机处理，避免发送到远程。"
+        PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED ->
+            "本次使用本地模型：后续内容需要留在本机。"
+        PlacementReasonCode.MODEL_EXECUTION_FAILED -> "本地模型执行失败。"
+        else -> "本次使用本地模型。"
+    }
+
+    RunPlacement.Remote -> when (reason) {
+        PlacementReasonCode.USER_FORCED_REMOTE -> "本次使用远程模型：你选择了远程偏好。"
+        PlacementReasonCode.LOCAL_MODEL_UNAVAILABLE -> "本次使用远程模型：本地模型当前不可用。"
+        PlacementReasonCode.LOCAL_RESOURCE_BLOCKED -> "本次使用远程模型：手机资源暂不适合本地运行。"
+        PlacementReasonCode.LOCAL_CAPABILITY_MISMATCH -> "本次使用远程模型：本地模型能力不满足本次请求。"
+        PlacementReasonCode.AUTO_COMPLEX_REMOTE -> "本次使用远程模型：任务较复杂，且远程连接已验证。"
+        PlacementReasonCode.AUTO_RESOURCE_REMOTE -> "本次使用远程模型：手机资源压力较高，且远程连接已验证。"
+        PlacementReasonCode.MODEL_EXECUTION_FAILED -> "远程模型执行失败。"
+        else -> "本次使用远程模型。"
+    }
+
+    null -> when (reason) {
+        null -> null
+        PlacementReasonCode.PRIVACY_REQUIRES_LOCAL ->
+            "无法执行：内容只能在本地处理，但本地模型当前不可用。"
+        PlacementReasonCode.LOCAL_MODEL_UNAVAILABLE -> "无法执行：本地模型当前不可用。"
+        PlacementReasonCode.LOCAL_RESOURCE_BLOCKED -> "无法执行：手机资源暂不适合本地运行。"
+        PlacementReasonCode.LOCAL_CAPABILITY_MISMATCH -> "无法执行：本地模型能力不满足本次请求。"
+        PlacementReasonCode.REMOTE_NOT_AUTHORIZED -> "无法执行：尚未获得远程模型授权。"
+        PlacementReasonCode.REMOTE_NOT_CONFIGURED -> "无法执行：远程模型尚未配置。"
+        PlacementReasonCode.REMOTE_CONNECTIVITY_UNAVAILABLE -> "无法执行：远程连接当前不可用。"
+        PlacementReasonCode.REMOTE_STATUS_STALE -> "无法执行：远程连接状态需要重新验证。"
+        PlacementReasonCode.REMOTE_CAPABILITY_MISMATCH -> "无法执行：远程模型能力不满足本次请求。"
+        PlacementReasonCode.REMOTE_OVERLOADED -> "无法执行：远程模型当前繁忙。"
+        PlacementReasonCode.NO_ELIGIBLE_TARGET ->
+            "无法执行：没有同时满足隐私、能力和可用性要求的模型。"
+        PlacementReasonCode.PLACEMENT_DECISION_MISSING -> "无法执行：本次运行位置尚未确定。"
+        PlacementReasonCode.PLACEMENT_NOT_RESTORABLE -> "无法继续：本次运行位置无法安全恢复。"
+        PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED ->
+            "无法继续远程生成：后续内容需要留在本机。"
+        PlacementReasonCode.MODEL_EXECUTION_FAILED -> "模型执行失败。"
+        else -> "无法执行：没有可用的运行位置。"
+    }
+}
+
 internal fun currentModelStatus(state: ChatUiState): String {
-    if (state.inferenceMode == InferenceMode.Remote) {
-        val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
-        val ready = when {
+    val ready = if (state.inferenceMode == InferenceMode.Remote) {
+        when {
             state.isBusy -> state.statusText
             state.isReady -> "已就绪"
             else -> state.statusText
         }
-        return "$modelName · 远程 · $ready"
+    } else {
+        when {
+            state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+            state.isBusy -> state.statusText
+            state.isReady -> "已就绪"
+            state.modelPath != null -> "待加载"
+            else -> state.statusText
+        }
     }
-    val modelName = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
-        ?: state.selectedRecommendedModel.shortName
-    val ready = when {
-        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
-        state.isBusy -> state.statusText
-        state.isReady -> "已就绪"
-        state.modelPath != null -> "待加载"
-        else -> state.statusText
+    return when (state.inferenceMode) {
+        InferenceMode.Local -> {
+            val modelName = state.installedModels
+                .firstOrNull { it.id == state.activeInstalledModelId }
+                ?.displayName
+                ?: state.selectedRecommendedModel.shortName
+            "${inferencePreferenceDisplayText(state.inferenceMode)} · 本地候选：$modelName · " +
+                "${state.backend.name} · ${LocalModelTokenLimits.compactDisplayText(state.localMaxTotalTokens)} · $ready"
+        }
+
+        InferenceMode.Auto ->
+            "${inferencePreferenceDisplayText(state.inferenceMode)} · 本地与远程候选按请求评估 · $ready"
+
+        InferenceMode.Remote -> {
+            val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
+            "${inferencePreferenceDisplayText(state.inferenceMode)} · 远程候选：$modelName · $ready"
+        }
     }
-    return "$modelName · ${state.backend.name} · " +
-        "${LocalModelTokenLimits.compactDisplayText(state.localMaxTotalTokens)} · $ready"
 }
 
 internal fun modelHealthDisplayText(state: ChatUiState): String {
@@ -789,6 +874,12 @@ internal fun ProgressBlock(state: ChatUiState) {
 internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
     "远程模式：图片发送前会确认；非图片附件、分享文本和 OCR 不会自动发送。"
 
+internal const val AUTO_ATTACHMENT_PROTECTION_NOTICE =
+    "自动偏好：本次位置会在发送时决定；如使用远程，图片发送前会确认，其他附件不会自动发送。"
+
+internal const val ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE =
+    "本次使用远程模型：图片发送前会确认；非图片附件、分享文本和 OCR 不会自动发送。"
+
 internal const val PRODUCT_POSITIONING_TEXT =
     "隐私优先的随身 AI 助手：可下载或导入本地模型，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界和权限。"
 
@@ -913,6 +1004,8 @@ private fun Composer(
     onClearPendingSharedInput: (Long) -> Unit,
     onSend: () -> Unit,
     onStopGeneration: () -> Unit,
+    activeRunPlacement: RunPlacement?,
+    activeRunPlacementReason: PlacementReasonCode?,
 ) {
     val inputEnabled = !state.isBusy
     val attachmentEnabled = !state.isBusy
@@ -931,6 +1024,11 @@ private fun Composer(
     val showCompactStatus = state.isBusy ||
         state.statusText.isVoiceStatusText() ||
         state.statusText.isAgentExecutionOutcomeStatusText()
+    val attachmentNotice = attachmentProtectionNotice(
+        preference = state.inferenceMode,
+        actualPlacement = activeRunPlacement,
+        actualReason = activeRunPlacementReason,
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -958,8 +1056,8 @@ private fun Composer(
             )
             VoiceInputPrivacyNotice()
         }
-        if (state.inferenceMode == InferenceMode.Remote) {
-            RemoteAttachmentProtectionNotice()
+        if (attachmentNotice != null) {
+            AttachmentProtectionNotice(attachmentNotice)
         }
         state.pendingSharedInputDraft?.let { draft ->
             PendingSharedInputStrip(
@@ -988,7 +1086,11 @@ private fun Composer(
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     ComposerAttachmentButton(
-                        remoteMode = state.inferenceMode == InferenceMode.Remote,
+                        contentDescription = attachmentContentDescription(
+                            preference = state.inferenceMode,
+                            actualPlacement = activeRunPlacement,
+                            actualReason = activeRunPlacementReason,
+                        ),
                         enabled = attachmentEnabled,
                         onClick = onPickSharedAttachment,
                     )
@@ -1017,7 +1119,11 @@ private fun Composer(
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     ComposerAttachmentButton(
-                        remoteMode = state.inferenceMode == InferenceMode.Remote,
+                        contentDescription = attachmentContentDescription(
+                            preference = state.inferenceMode,
+                            actualPlacement = activeRunPlacement,
+                            actualReason = activeRunPlacementReason,
+                        ),
                         enabled = attachmentEnabled,
                         onClick = onPickSharedAttachment,
                     )
@@ -1093,7 +1199,7 @@ private fun VoiceInputPermissionDisclosureDialog(
 
 @Composable
 private fun ComposerAttachmentButton(
-    remoteMode: Boolean,
+    contentDescription: String,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
@@ -1101,11 +1207,7 @@ private fun ComposerAttachmentButton(
         modifier = Modifier
             .testTag("composer_attachment_button")
             .semantics {
-                contentDescription = if (remoteMode) {
-                    "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR"
-                } else {
-                    "选择附件"
-                }
+                this.contentDescription = contentDescription
             },
         enabled = enabled,
         onClick = onClick,
@@ -1245,7 +1347,7 @@ private fun ComposerSendButton(
 }
 
 @Composable
-private fun RemoteAttachmentProtectionNotice() {
+private fun AttachmentProtectionNotice(notice: String) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1255,13 +1357,40 @@ private fun RemoteAttachmentProtectionNotice() {
     ) {
         Text(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-            text = REMOTE_ATTACHMENT_PROTECTION_NOTICE,
+            text = notice,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+internal fun attachmentProtectionNotice(
+    preference: InferenceMode,
+    actualPlacement: RunPlacement?,
+    actualReason: PlacementReasonCode?,
+): String? = when {
+    actualPlacement == RunPlacement.Remote -> ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE
+    actualPlacement == RunPlacement.Local || actualReason != null -> null
+    preference == InferenceMode.Remote -> REMOTE_ATTACHMENT_PROTECTION_NOTICE
+    preference == InferenceMode.Auto -> AUTO_ATTACHMENT_PROTECTION_NOTICE
+    else -> null
+}
+
+private fun attachmentContentDescription(
+    preference: InferenceMode,
+    actualPlacement: RunPlacement?,
+    actualReason: PlacementReasonCode?,
+): String = when {
+    actualPlacement == RunPlacement.Remote ->
+        "选择附件；本次使用远程模型，逐次确认后发送图片，其他附件不读取正文或 OCR"
+    actualPlacement == RunPlacement.Local || actualReason != null -> "选择附件"
+    preference == InferenceMode.Remote ->
+        "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR"
+    preference == InferenceMode.Auto ->
+        "选择附件；自动偏好会在发送时决定位置，使用远程时逐次确认图片"
+    else -> "选择附件"
 }
 
 @Composable

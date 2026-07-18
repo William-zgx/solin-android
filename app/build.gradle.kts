@@ -201,7 +201,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "HUGGING_FACE_OAUTH_CLIENT_ID", "\"$huggingFaceOAuthClientId\"")
         buildConfigField("Boolean", "BUNDLED_MODELS_ENABLED", "false")
-        // S4 ships foundation only. Execution stays off until S5 and S6 are integrated.
+        // Release-like variants stay off; the debug build opts in below for explicit testing.
         buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
         // RC perf collection entry points are gated off by default. Only the dedicated
         // rcPerfRelease variant flips this to true, so the production release never exposes the
@@ -228,6 +228,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

@@ -6,12 +6,18 @@ import com.bytedance.zgx.solin.AuditEventSummary
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.audit.ToolAuditLog
+import com.bytedance.zgx.solin.eval.AgentBehaviorPlacementTrace
+import com.bytedance.zgx.solin.eval.reconcilePlacementTrace
 import com.bytedance.zgx.solin.orchestration.AgentTraceRunSummary
+import com.bytedance.zgx.solin.orchestration.AgentStep
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONArray
 import org.json.JSONObject
+
+private const val AUDIT_VISIBLE_TRACE_STEP_LIMIT = 8
+private const val AUDIT_FULL_TRACE_STEP_LIMIT = Int.MAX_VALUE
 
 /**
  * Owns audit-event and agent-trace list loading for Trust / background UI surfaces.
@@ -56,33 +62,58 @@ class AuditUiController(
 
     fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> =
         runCatching {
-            assistantOrchestrator.recentTraceRuns(limit = 5, stepLimit = 8)
+            assistantOrchestrator.recentTraceRuns(limit = 5, stepLimit = AUDIT_FULL_TRACE_STEP_LIMIT)
                 .map { run -> run.toUiSummary() }
         }.getOrDefault(emptyList())
 
-    private fun AgentTraceRunSummary.toUiSummary(): AgentTraceRunUiSummary =
-        AgentTraceRunUiSummary(
+    private fun AgentTraceRunSummary.toUiSummary(): AgentTraceRunUiSummary {
+        val placement = auditPlacementProjection()
+        val placementStep = placement.toUiStep(run.updatedAtMillis)
+        return AgentTraceRunUiSummary(
             id = run.id,
             state = run.state,
             updatedAtMillis = run.updatedAtMillis,
-            steps = steps.map { step ->
+            steps = steps.takeLast(AUDIT_VISIBLE_TRACE_STEP_LIMIT).map { step ->
                 AgentTraceStepUiSummary(
                     type = step.type,
                     summary = step.summary,
                     createdAtMillis = step.createdAtMillis,
-                    runDataReceipt = step.runDataReceiptUiSummaryOrNull(),
+                    runDataReceipt = step.runDataReceiptUiSummaryOrNull(placement),
                 )
-            },
-            runDataReceipt = runDataReceiptStep?.runDataReceiptUiSummaryOrNull()
-                ?: steps.lastOrNull { step -> step.type == "RunDataReceiptRecorded" }?.runDataReceiptUiSummaryOrNull(),
+            } + listOfNotNull(placementStep),
+            runDataReceipt = runDataReceiptStep?.runDataReceiptUiSummaryOrNull(placement)
+                ?: steps.lastOrNull { step -> step.type == "RunDataReceiptRecorded" }
+                    ?.runDataReceiptUiSummaryOrNull(placement),
         )
+    }
 
-    private fun com.bytedance.zgx.solin.orchestration.AgentTraceStepSummary.runDataReceiptUiSummaryOrNull():
-        RunDataReceiptUiSummary? {
+    private fun AgentTraceRunSummary.auditPlacementProjection(): AuditPlacementProjection {
+        val hasPlacementEvidence = steps.any { step -> step.type in PLACEMENT_TRACE_TYPES }
+        val reconciled = runCatching {
+            steps.map { step ->
+                AgentStep.RestoredSummary(
+                    persistedType = step.type,
+                    summary = step.summary,
+                    json = step.json,
+                )
+            }.reconcilePlacementTrace(run.id)
+        }
+        val placementTrace = reconciled.getOrNull()
+        return when {
+            reconciled.isFailure -> AuditPlacementProjection.FailClosed
+            placementTrace != null -> AuditPlacementProjection.Consistent(placementTrace)
+            hasPlacementEvidence -> AuditPlacementProjection.Unavailable
+            else -> AuditPlacementProjection.Absent
+        }
+    }
+
+    private fun com.bytedance.zgx.solin.orchestration.AgentTraceStepSummary.runDataReceiptUiSummaryOrNull(
+        placement: AuditPlacementProjection,
+    ): RunDataReceiptUiSummary? {
         if (type != "RunDataReceiptRecorded") return null
         val json = runCatching { JSONObject(json) }.getOrNull() ?: return null
         return RunDataReceiptUiSummary(
-            destination = json.optString("destination"),
+            destination = placement.trustedDestination,
             currentPromptPrivacy = json.optString("currentPromptPrivacy"),
             remoteHistoryCount = json.optInt("remoteHistoryCount"),
             localOnlyHistoryFilteredCount = json.optInt("localOnlyHistoryFilteredCount"),
@@ -120,3 +151,39 @@ class AuditUiController(
         }
     }
 }
+
+private sealed interface AuditPlacementProjection {
+    val trustedDestination: String
+        get() = (this as? Consistent)?.trace?.placement?.name ?: "Unknown"
+
+    fun toUiStep(createdAtMillis: Long): AgentTraceStepUiSummary? = when (this) {
+        is Consistent -> AgentTraceStepUiSummary(
+            type = "ActualPlacement",
+            summary = "Actual runtime placement: ${trace.placement.name}; " +
+                "reason=${trace.reason.name}; trace=consistent.",
+            createdAtMillis = createdAtMillis,
+        )
+        FailClosed -> AgentTraceStepUiSummary(
+            type = "PlacementTraceFailClosed",
+            summary = "Placement trace invalid; actual runtime placement withheld (fail closed).",
+            createdAtMillis = createdAtMillis,
+        )
+        Unavailable -> AgentTraceStepUiSummary(
+            type = "ActualPlacementUnavailable",
+            summary = "Actual runtime placement unavailable: no invocation evidence.",
+            createdAtMillis = createdAtMillis,
+        )
+        Absent -> null
+    }
+
+    data class Consistent(val trace: AgentBehaviorPlacementTrace) : AuditPlacementProjection
+    data object FailClosed : AuditPlacementProjection
+    data object Unavailable : AuditPlacementProjection
+    data object Absent : AuditPlacementProjection
+}
+
+private val PLACEMENT_TRACE_TYPES = setOf(
+    "PlacementSelected",
+    "RunDataReceiptRecorded",
+    "ModelRuntimeInvocationStarted",
+)

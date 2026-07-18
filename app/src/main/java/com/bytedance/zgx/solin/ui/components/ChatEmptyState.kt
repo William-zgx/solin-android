@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.DeviceCheck
 import com.bytedance.zgx.solin.ui.HOME_CAPABILITY_PILLS
 import com.bytedance.zgx.solin.ui.HOME_VALUE_PROPOSITIONS
@@ -45,9 +47,14 @@ internal fun ChatEmptyState(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onSendPrompt: (String) -> Unit,
+    onSetupModelToggled: (String, Boolean) -> Unit,
+    onDownloadSetupModels: () -> Unit,
+    onSkipFirstRunSetup: () -> Unit,
+    activeRunPlacement: RunPlacement?,
+    activeRunPlacementReason: PlacementReasonCode?,
 ) {
     val localModelIsLoading =
-        state.inferenceMode == InferenceMode.Local && state.modelPath != null && !state.isReady
+        state.inferenceMode != InferenceMode.Remote && state.modelPath != null && !state.isReady
     val readyTitle = when {
         state.isReady -> "想让 Solin 做什么？"
         localModelIsLoading -> "正在校验并加载本地模型"
@@ -55,9 +62,11 @@ internal fun ChatEmptyState(
     }
     val readyDescription = when {
         state.inferenceMode == InferenceMode.Remote && state.isReady ->
-            "直接输入问题、整理线索，或先看看哪些内容会发送到远程。"
+            "当前偏好为远程；直接输入问题，或先看看哪些内容允许发送到远程。"
+        state.inferenceMode == InferenceMode.Auto && state.isReady ->
+            "当前偏好为自动；本次运行位置会在发送时按隐私、能力和可用性评估。"
         state.isReady ->
-            "直接输入问题、整理想法，或先看看哪些内容会留在本机。"
+            "当前偏好为本地；直接输入问题，或先看看哪些内容会留在本机。"
         localModelIsLoading ->
             "模型文件已找到，正在进行完整性校验和端侧初始化；完成后可离线问答。"
         else ->
@@ -70,6 +79,16 @@ internal fun ChatEmptyState(
             .padding(start = 18.dp, top = 14.dp, end = 18.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (state.shouldShowFirstRunSetupPanel()) {
+            FirstRunSetupPanel(
+                state = state,
+                onSetupModelToggled = onSetupModelToggled,
+                onDownloadSetupModels = onDownloadSetupModels,
+                onSkip = onSkipFirstRunSetup,
+                activeRunPlacement = activeRunPlacement,
+                activeRunPlacementReason = activeRunPlacementReason,
+            )
+        }
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
@@ -103,7 +122,7 @@ internal fun ChatEmptyState(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.isReady) {
-                    StatusSummaryRow(state)
+                    StatusSummaryRow(state, activeRunPlacement, activeRunPlacementReason)
                     PromptSuggestionList(
                         enabled = !state.isBusy,
                         onSendPrompt = onSendPrompt,
@@ -116,6 +135,8 @@ internal fun ChatEmptyState(
                         onPickModel = onPickModel,
                         onDownloadModel = onDownloadModel,
                         onCancelDownload = onCancelDownload,
+                        activeRunPlacement = activeRunPlacement,
+                        activeRunPlacementReason = activeRunPlacementReason,
                     )
                     HomeCapabilityPills()
                 }
@@ -145,6 +166,8 @@ internal fun ChatEmptyState(
         }
     }
 }
+
+internal fun ChatUiState.shouldShowFirstRunSetupPanel(): Boolean = showFirstRunSetup
 
 @Composable
 internal fun HomePositioningPanel() {
@@ -247,4 +270,3 @@ internal fun PromptSuggestionList(
         }
     }
 }
-

@@ -31,12 +31,16 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ModelCatalog
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_DESCRIPTION
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_TITLE
 import com.bytedance.zgx.solin.ui.MODEL_STARTUP_BANNER_DESCRIPTION
 import com.bytedance.zgx.solin.ui.MODEL_STARTUP_BANNER_TITLE
 import com.bytedance.zgx.solin.ui.ProgressBlock
+import com.bytedance.zgx.solin.ui.activePlacementDisplayText
 import com.bytedance.zgx.solin.ui.capabilityLabel
+import com.bytedance.zgx.solin.ui.currentModelStatus
 
 @Composable
 internal fun FirstRunSetupPanel(
@@ -44,9 +48,13 @@ internal fun FirstRunSetupPanel(
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
     onSkip: () -> Unit,
+    activeRunPlacement: RunPlacement? = null,
+    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("first_run_setup_panel"),
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.90f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f)),
@@ -58,6 +66,11 @@ internal fun FirstRunSetupPanel(
             SectionTitle(
                 text = LOCAL_SETUP_PANEL_TITLE,
                 subtitle = LOCAL_SETUP_PANEL_DESCRIPTION,
+            )
+            StatusSummaryRow(
+                state = state,
+                activeRunPlacement = activeRunPlacement,
+                activeRunPlacementReason = activeRunPlacementReason,
             )
             state.basicSetupModels.forEach { model ->
                 val selected = model.id in state.setupSelectedModelIds
@@ -128,25 +141,26 @@ internal fun FirstRunSetupPanel(
 }
 
 @Composable
-internal fun StatusSummaryRow(state: ChatUiState) {
-    val modelName = if (state.inferenceMode == InferenceMode.Remote) {
-        state.remoteModelConfig.modelName.ifBlank { "远程模型" }
-    } else {
-        state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
-            ?: state.selectedRecommendedModel.shortName
-    }
+internal fun StatusSummaryRow(
+    state: ChatUiState,
+    activeRunPlacement: RunPlacement? = null,
+    activeRunPlacementReason: PlacementReasonCode? = null,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RuntimeStatusBadge(state)
+        RuntimeStatusBadge(state, activeRunPlacement, activeRunPlacementReason)
         Text(
             modifier = Modifier.weight(1f),
-            text = modelName,
+            text = listOfNotNull(
+                currentModelStatus(state),
+                activePlacementDisplayText(activeRunPlacement, activeRunPlacementReason),
+            ).joinToString(separator = "\n"),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -160,9 +174,11 @@ internal fun QuickModelSetup(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    activeRunPlacement: RunPlacement? = null,
+    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     val localModelIsLoading =
-        state.inferenceMode == InferenceMode.Local && state.modelPath != null && !state.isReady
+        state.inferenceMode != InferenceMode.Remote && state.modelPath != null && !state.isReady
     val startupBannerTitle = if (localModelIsLoading) {
         "正在校验并加载本地模型"
     } else {
@@ -233,7 +249,7 @@ internal fun QuickModelSetup(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                RuntimeStatusBadge(state)
+                RuntimeStatusBadge(state, activeRunPlacement, activeRunPlacementReason)
                 Text(
                     modifier = Modifier.weight(1f),
                     text = startupBannerTitle,
@@ -322,4 +338,3 @@ internal fun QuickModelSetup(
         }
     }
 }
-
