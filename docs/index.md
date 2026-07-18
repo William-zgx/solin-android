@@ -15,10 +15,12 @@ flowchart TD
     Need --> Brand["Check brand, listing, or policy facts"]
     Need --> Evidence["Record verification evidence"]
     Need --> Plans["Plan a future refactor"]
+    Need --> Specs["Specify future product behavior"]
     Need --> AgentStart["Coding agent onboarding"]
 
     Plans --> PlansDir["plans/"]
     Plans --> Weaknesses["optimization_plan_weaknesses.md"]
+    Specs --> SpecsDir["specs/"]
     AgentStart --> AgentsMd["../AGENTS.md"]
     AgentStart --> Guidebook["../Guidebook.md"]
     AgentStart --> Weaknesses
@@ -66,6 +68,7 @@ flowchart TD
 | `validation_report.md` | Append-only evidence log | Dated commands, results, artifacts, and known gaps |
 | `ai_behavior_eval_plan.md` | AI behavior evidence plan | Fixture taxonomy, actual-trace contract, and release-gate behavior-eval rules |
 | `docs/plans/*.md` | Future refactor plans | Detailed multi-step migration plans for data layer, ViewModel, UI state, and screen composables |
+| `docs/specs/*/{brainstorm,research,spec}.md` | Proposed feature specifications | Decisions, current-state research, and acceptance contracts; not current product facts until implemented |
 
 JSON files in `docs/` are machine-readable records or capability matrices. They
 are inputs to verifier scripts and should stay structured rather than become
@@ -181,5 +184,6 @@ Four detailed migration plans:
 - Release evidence flow: `release_checklist.md`.
 - AI behavior evidence flow: `ai_behavior_eval_plan.md`.
 - Architecture refactor plans: docs/plans/
+- Proposed feature specifications: docs/specs/
 - Structural debt waves & ownership: `optimization_plan_weaknesses.md`.
 - Coding-agent entry: `../AGENTS.md`, short map: `../Guidebook.md`.
