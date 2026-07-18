@@ -64,6 +64,8 @@ internal interface ChatServingCall {
 }
 
 internal interface ChatPlacementRuntime : PreparedChatBindingStore {
+    fun activeBinding(runId: String): ActiveRunPlacementPermit?
+
     suspend fun dispatch(
         prepared: PreparedChatRun,
         receipt: RunDataReceipt,
@@ -79,6 +81,9 @@ internal class S3ChatPlacementRuntime(
     private val dispatcher: ModelRuntimeDispatcher,
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : ChatPlacementRuntime {
+    override fun activeBinding(runId: String): ActiveRunPlacementPermit? =
+        bindingStore.activeBinding(runId)
+
     override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit? =
         (bindingStore.bindAndReserve(binding) as? BindAndReserveResult.Bound)?.permit
 
@@ -115,7 +120,7 @@ private fun ChatServingCall.asRunningModelCall(): RunningModelRuntimeCall<Unit> 
 internal class PreparedChatExecution(
     val userPrompt: String,
     val route: AssistantRoute.Chat,
-    stateBeforeSend: ChatUiState,
+    val stateBeforeSend: ChatUiState,
     val effectiveMessagePrivacy: MessagePrivacy,
     val remoteConfig: RemoteModelConfig,
     val remoteHistory: List<ChatMessage>,
@@ -127,8 +132,7 @@ internal class PreparedChatExecution(
     val remoteSendConfirmed: Boolean,
 ) {
     @Volatile
-    var stateBeforeSend: ChatUiState = stateBeforeSend
-        private set
+    private var confirmedLocalMessages: List<ChatMessage> = emptyList()
 
     @Volatile
     private var promptOverride: String? = null
@@ -139,12 +143,15 @@ internal class PreparedChatExecution(
     val routeForDispatch: AssistantRoute.Chat
         get() = promptOverride?.let { route.copy(promptForModel = it) } ?: route
 
+    val stateBeforeDispatch: ChatUiState
+        get() = stateBeforeSend.copy(messages = stateBeforeSend.messages + confirmedLocalMessages)
+
     fun overridePrompt(prompt: String) {
         promptOverride = prompt
     }
 
-    fun refreshStateBeforeSend(state: ChatUiState) {
-        stateBeforeSend = state
+    fun preserveConfirmedLocalMessages(messages: List<ChatMessage>) {
+        confirmedLocalMessages = messages.filter { message -> message.privacy == MessagePrivacy.LocalOnly }
     }
 
     override fun toString(): String =

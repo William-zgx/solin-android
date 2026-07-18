@@ -2,9 +2,13 @@ package com.bytedance.zgx.solin.multimodal
 
 import com.bytedance.zgx.solin.ChatImageAttachment
 import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.InferenceMode
+import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.LocalImageAttachment
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlanner
 import com.bytedance.zgx.solin.orchestration.toPromptPrivacySegments
@@ -105,7 +109,7 @@ class SharedInputTest {
     }
 
     @Test
-    fun destinationNeutralImageRetainsBothRepresentationsWithStablePrivacy() {
+    fun autoPassesBothDestinationNeutralImageRepresentationsToPlacement() {
         val attachment = imageAttachment(
             remoteImageAttachment = remotePngAttachment(),
             localImageAttachment = localPngAttachment(),
@@ -145,17 +149,64 @@ class SharedInputTest {
 
         support.sendPendingSharedInput()
 
-        assertEquals(0, sentRemoteImages)
+        assertEquals(1, sentRemoteImages)
         assertEquals(1, sentLocalImages)
     }
 
     @Test
-    fun manualRemoteCannotSendDraftThatRequiresLocalModel() {
-        val attachment = imageAttachment(localImageAttachment = localPngAttachment())
+    fun manualModesKeepTheirExistingImageRepresentation() {
+        val attachment = imageAttachment(
+            remoteImageAttachment = remotePngAttachment(),
+            localImageAttachment = localPngAttachment(),
+        )
         val input = SharedInput(
             text = "",
             attachments = listOf(attachment),
             sourcePrivacy = sharedInputSourcePrivacyFor("", listOf(attachment)),
+        )
+
+        listOf(
+            InferenceMode.Local to (0 to 1),
+            InferenceMode.Remote to (1 to 0),
+        ).forEach { (mode, expectedCounts) ->
+            val state = MutableStateFlow(readyVisionState(mode))
+            var sentRemoteImages = 0
+            var sentLocalImages = 0
+            val support = ChatSharedInputSupport(
+                uiState = state,
+                replaceActiveSessionMessages = { _, _ -> },
+                isGenerationActive = { false },
+                allocateVoiceInputDraftId = { 1L },
+                sendMessageInternal = { _, _, remoteImages, localImages, _ ->
+                    sentRemoteImages = remoteImages.size
+                    sentLocalImages = localImages.size
+                },
+            )
+
+            support.stageSharedInput(input)
+            support.sendPendingSharedInput()
+
+            assertEquals("$mode remote image count", expectedCounts.first, sentRemoteImages)
+            assertEquals("$mode local image count", expectedCounts.second, sentLocalImages)
+        }
+    }
+
+    @Test
+    fun manualRemoteCannotSendDraftThatRequiresLocalModel() {
+        val attachment = imageAttachment(
+            remoteImageAttachment = remotePngAttachment(),
+            localImageAttachment = localPngAttachment(),
+        )
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(attachment),
+            sourcePrivacy = listOf(
+                SharedInputSourcePrivacy(
+                    source = SharedInputSource.Image,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                ),
+            ),
         )
         val state = MutableStateFlow(
             ChatUiState(
@@ -173,6 +224,8 @@ class SharedInputTest {
         )
 
         support.stageSharedInput(input)
+        assertEquals(1, requireNotNull(state.value.pendingSharedInputDraft).imageAttachments.size)
+        assertTrue(requireNotNull(state.value.pendingSharedInputDraft).requiresLocalModel)
         state.value = state.value.copy(inferenceMode = InferenceMode.Remote)
         support.sendPendingSharedInput()
 
@@ -1632,6 +1685,27 @@ class SharedInputTest {
             bytes = bytes,
             sizeBytes = bytes.size.toLong(),
         )
+
+    private fun readyVisionState(inferenceMode: InferenceMode): ChatUiState = ChatUiState(
+        inferenceMode = inferenceMode,
+        isReady = true,
+        activeInstalledModelId = DEFAULT_CHAT_MODEL_ID,
+        installedModels = listOf(
+            InstalledModelSummary(
+                id = DEFAULT_CHAT_MODEL_ID,
+                displayName = "local vision",
+                path = "/local/model.litertlm",
+                fileBytes = 1L,
+                recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+                verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            ),
+        ),
+        remoteModelConfig = RemoteModelConfig(
+            baseUrl = "https://example.com/v1",
+            modelName = "remote vision",
+            supportsVisionInput = true,
+        ),
+    )
 
     private fun officeZip(vararg entries: Pair<String, String>): ByteArray {
         val output = ByteArrayOutputStream()

@@ -384,6 +384,7 @@ class SolinViewModel internal constructor(
         loadPeriodicCheckPolicy = ::loadPeriodicCheckPolicy,
         loadLongTermMemories = ::loadLongTermMemories,
         activeSessionId = { sessionRepository.activeSessionId },
+        activeRunPlacement = chatPlacementRuntime::activeBinding,
     )
 
     private val modelLoadController = ModelLoadController(
@@ -1139,7 +1140,6 @@ class SolinViewModel internal constructor(
         val runIds = chatController.cancelGenerationForTeardown()
         modelLoadController.close()
         sessionController.close()
-        remoteRuntime.stop()
         CoroutineScope(SupervisorJob() + ioDispatcher).launch {
             runIds.forEach { runId ->
                 assistantOrchestrator.terminateRun(runId, VIEW_MODEL_CLEARED_AGENT_RUN_REASON)

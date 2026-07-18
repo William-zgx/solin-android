@@ -5,7 +5,6 @@ import com.bytedance.zgx.solin.AuditEventSummary
 import com.bytedance.zgx.solin.BackgroundTaskSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
-import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LongTermMemorySummary
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
@@ -21,6 +20,7 @@ import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
 import com.bytedance.zgx.solin.matchesExecution
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
+import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentObservationResult
@@ -29,6 +29,8 @@ import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolution
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
@@ -85,6 +87,7 @@ class ToolExecutionController(
     private val loadPeriodicCheckPolicy: () -> PeriodicCheckPolicySummary,
     private val loadLongTermMemories: () -> List<LongTermMemorySummary>,
     private val activeSessionId: () -> String,
+    private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null },
 ) {
     private val toolExecutionBoundary = TimeoutToolExecutionBoundary(
         executor = actionExecutor,
@@ -296,18 +299,32 @@ class ToolExecutionController(
             return
         }
         observation?.continuationPromptForModel?.let { continuationPrompt ->
-            if (observation.continuationRequiresLocalModel &&
-                uiState.value.inferenceMode == InferenceMode.Remote
-            ) {
+            val continuationResolution = resolveBoundToolContinuation(
+                runId = observation.run.id,
+                observationPrivacy = observationPrivacy,
+                requiresLocalModel = observation.continuationRequiresLocalModel,
+                activeRunPlacement = activeRunPlacement,
+            )
+            if (continuationResolution is BoundRunContinuationResolution.Blocked) {
                 val protectedContentName = request.protectedContinuationContentName()
+                val privacyBlocked = continuationResolution.reason ==
+                    PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
                 assistantOrchestrator.failModelGeneration(
                     observation.run.id,
-                    "工具结果需要本地模型续写，未发送到远程模型",
+                    if (privacyBlocked) {
+                        "工具结果需要本地模型续写，未发送到远程模型"
+                    } else {
+                        "运行绑定不可恢复，已停止工具结果续写"
+                    },
                 )
                 replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
-                        text = "已读取${protectedContentName}。当前为远程模型模式，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请切换到本地模型后重试，或手动粘贴你愿意发送的内容。",
+                        text = if (privacyBlocked) {
+                            "已读取${protectedContentName}。当前运行绑定到远程模型，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请重新发起一个本地运行，或手动粘贴你愿意发送的内容。"
+                        } else {
+                            "本次运行的模型绑定不可恢复，已停止工具结果续写。请重新发起请求。"
+                        },
                         privacy = MessagePrivacy.LocalOnly,
                     ),
                     true,
@@ -322,7 +339,11 @@ class ToolExecutionController(
                         agentTraceRuns = loadAgentTraceRuns(),
                         activeRunTimeline = activeRunTimelineFor(confirmation.runId),
                         activePublicWebEvidence = publicWebEvidence,
-                        statusText = "已保护${protectedContentName}",
+                        statusText = if (privacyBlocked) {
+                            "已保护${protectedContentName}"
+                        } else {
+                            "运行绑定不可恢复"
+                        },
                     )
                 }
                 return
@@ -464,17 +485,31 @@ class ToolExecutionController(
             return
         }
         observation.continuationPromptForModel?.let { continuationPrompt ->
-            if (observation.continuationRequiresLocalModel &&
-                uiState.value.inferenceMode == InferenceMode.Remote
-            ) {
+            val continuationResolution = resolveBoundToolContinuation(
+                runId = observation.run.id,
+                observationPrivacy = observationPrivacy,
+                requiresLocalModel = observation.continuationRequiresLocalModel,
+                activeRunPlacement = activeRunPlacement,
+            )
+            if (continuationResolution is BoundRunContinuationResolution.Blocked) {
+                val privacyBlocked = continuationResolution.reason ==
+                    PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
                 assistantOrchestrator.failModelGeneration(
                     observation.run.id,
-                    "批量工具结果需要本地模型续写，未发送到远程模型",
+                    if (privacyBlocked) {
+                        "批量工具结果需要本地模型续写，未发送到远程模型"
+                    } else {
+                        "运行绑定不可恢复，已停止批量工具结果续写"
+                    },
                 )
                 replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
-                        text = "批量工具结果包含仅本地内容。当前为远程模型模式，我不会把它发送到远程模型。",
+                        text = if (privacyBlocked) {
+                            "批量工具结果包含仅本地内容。当前运行绑定到远程模型，我不会把它发送到远程模型。"
+                        } else {
+                            "本次运行的模型绑定不可恢复，已停止批量工具结果续写。请重新发起请求。"
+                        },
                         privacy = MessagePrivacy.LocalOnly,
                     ),
                     true,
@@ -489,7 +524,11 @@ class ToolExecutionController(
                         agentTraceRuns = loadAgentTraceRuns(),
                         activeRunTimeline = activeRunTimelineFor(runId),
                         activePublicWebEvidence = publicWebEvidence,
-                        statusText = "已保护批量工具结果",
+                        statusText = if (privacyBlocked) {
+                            "已保护批量工具结果"
+                        } else {
+                            "运行绑定不可恢复"
+                        },
                     )
                 }
                 return

@@ -4,7 +4,6 @@ import com.bytedance.zgx.solin.AgentTraceRunUiSummary
 import com.bytedance.zgx.solin.AuditEventSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
-import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
@@ -18,13 +17,21 @@ import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
 import com.bytedance.zgx.solin.modelProfile
+import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolution
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolver
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlanner
+import com.bytedance.zgx.solin.orchestration.PromptPrivacySegment
+import com.bytedance.zgx.solin.orchestration.PromptSegmentSource
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.runtime.GenerationQualityDecision
 import com.bytedance.zgx.solin.runtime.GenerationRuntimeKind
@@ -35,6 +42,28 @@ import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+
+internal fun resolveBoundToolContinuation(
+    runId: String?,
+    observationPrivacy: MessagePrivacy?,
+    requiresLocalModel: Boolean?,
+    activeRunPlacement: (String) -> ActiveRunPlacementPermit?,
+): BoundRunContinuationResolution {
+    val permit = runId
+        ?.takeIf(String::isNotBlank)
+        ?.let { id -> runCatching { activeRunPlacement(id) }.getOrNull() }
+        ?.takeIf { candidate -> candidate.binding.runId == runId }
+    val privacyPlan = PromptPrivacyPlanner.build(
+        listOf(
+            PromptPrivacySegment(
+                source = PromptSegmentSource.ToolObservation,
+                privacy = observationPrivacy,
+                requiresLocalModel = requiresLocalModel,
+            ),
+        ),
+    )
+    return BoundRunContinuationResolver.resolve(permit, privacyPlan)
+}
 
 /**
  * Owns post-tool-observation model continuation (local + remote tool-result re-entry).
@@ -68,6 +97,7 @@ internal class ChatToolContinuationSupport(
     private val loadAgentTraceRuns: () -> List<AgentTraceRunUiSummary>,
     private val activeRunTimelineFor: (String?) -> List<RunTimelineItemUiSummary>,
     private val activePublicWebEvidenceFor: (String?) -> List<PublicWebEvidencePack>,
+    private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null },
 ) {
     fun continueAfterToolObservation(
         runId: String?,
@@ -77,7 +107,54 @@ internal class ChatToolContinuationSupport(
         remoteSendConfirmed: Boolean = false,
     ) {
         val stateAtStart = uiState.value
-        val useRemoteModel = stateAtStart.inferenceMode == InferenceMode.Remote
+        val continuationResolution = resolveBoundToolContinuation(
+            runId = runId,
+            observationPrivacy = responsePrivacy,
+            requiresLocalModel = responsePrivacy == MessagePrivacy.LocalOnly,
+            activeRunPlacement = activeRunPlacement,
+        )
+        if (continuationResolution is BoundRunContinuationResolution.Blocked) {
+            val privacyBlocked =
+                continuationResolution.reason == PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
+            runId?.let { id ->
+                assistantOrchestrator.failModelGeneration(
+                    id,
+                    if (privacyBlocked) {
+                        "工具结果需要本地模型续写，未发送到远程模型"
+                    } else {
+                        "运行绑定不可恢复，已停止工具结果续写"
+                    },
+                )
+            }
+            uiState.updateLastAssistantLocalOnly(
+                if (privacyBlocked) {
+                    "工具结果包含仅本地内容。当前运行绑定到远程模型，我不会把它发送到远程模型。"
+                } else {
+                    "本次运行的模型绑定不可恢复，已停止工具结果续写。请重新发起请求。"
+                },
+            )
+            persistActiveSessionFromUi()
+            rebuildMemoryIndex()
+            uiState.update {
+                it.copy(
+                    isBusy = false,
+                    isGenerating = false,
+                    pendingConfirmation = null,
+                    pendingRemoteSendDisclosure = null,
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    activeRunTimeline = activeRunTimelineFor(runId),
+                    statusText = if (privacyBlocked) {
+                        "已保护工具结果"
+                    } else {
+                        "运行绑定不可恢复"
+                    },
+                )
+            }
+            return
+        }
+        val continuationPermit =
+            (continuationResolution as BoundRunContinuationResolution.Dispatch).permit
+        val useRemoteModel = continuationPermit.binding.placement == RunPlacement.Remote
         val remoteConfig = stateAtStart.remoteModelConfig
         var remoteHistory: List<ChatMessage> =
             remoteSendSupport.remoteHistoryForRemoteSend(stateAtStart.messages.dropLast(1))
@@ -152,26 +229,6 @@ internal class ChatToolContinuationSupport(
         launchGenerationJob(runId) {
             var streamingAssistantUpdates: StreamingAssistantUpdateCoalescer? = null
             try {
-                if (useRemoteModel && responsePrivacy == MessagePrivacy.LocalOnly) {
-                    runId?.let { id ->
-                        assistantOrchestrator.failModelGeneration(id, "工具结果包含仅本地内容，未发送到远程模型")
-                    }
-                    uiState.updateLastAssistant("工具结果包含仅本地内容。当前为远程模型模式，我不会把它发送到远程模型。")
-                    persistActiveSessionFromUi()
-                    rebuildMemoryIndex()
-                    uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isGenerating = false,
-                            isReady = remoteConfig.isConfigured,
-                            pendingConfirmation = null,
-                            agentTraceRuns = loadAgentTraceRuns(),
-                            activeRunTimeline = activeRunTimelineFor(runId),
-                            statusText = "已保护工具结果",
-                        )
-                    }
-                    return@launchGenerationJob
-                }
                 if (!useRemoteModel && !runtime.isLoaded) {
                     runId?.let { id ->
                         assistantOrchestrator.failModelGeneration(id, "本地模型尚未就绪")

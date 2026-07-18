@@ -16,6 +16,40 @@ private val PENDING_EXTERNAL_OUTCOME_RESTORE_STATES = setOf(
     AgentRunState.Completed,
 )
 
+internal sealed interface PendingConfirmationPlacementResolution {
+    data class Ready(val permit: ActiveRunPlacementPermit) : PendingConfirmationPlacementResolution
+
+    data class Blocked(
+        val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE,
+    ) : PendingConfirmationPlacementResolution
+}
+
+/**
+ * Fail-closed placement gate for a model-backed pending confirmation restored from durable state.
+ * Callers must not reconstruct a target from the current inference preference.
+ */
+internal object PendingConfirmationPlacementResolver {
+    fun resolve(
+        bindingStore: RunPlacementBindingStore,
+        runId: String,
+        context: RunPlacementRecoveryContext,
+    ): PendingConfirmationPlacementResolution {
+        val candidate = runCatching { bindingStore.inspectForRecovery(runId, context) }
+            .getOrNull() as? RecoveryInspection.ContinuationCandidate
+            ?: return PendingConfirmationPlacementResolution.Blocked()
+        val active = runCatching { bindingStore.activeBinding(runId) }.getOrNull()
+        val permit = when {
+            active == null -> runCatching { bindingStore.activate(candidate) }.getOrNull()
+            active.binding == candidate.binding -> active
+            else -> null
+        }
+        return permit
+            ?.takeIf { it.binding == candidate.binding && it.binding.dispatchState == ModelDispatchState.Idle }
+            ?.let(PendingConfirmationPlacementResolution::Ready)
+            ?: PendingConfirmationPlacementResolution.Blocked()
+    }
+}
+
 /**
  * Pending confirmation / external-outcome restore helpers for [AgentLoopRuntime].
  *

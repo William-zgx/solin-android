@@ -7,6 +7,15 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolution
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolver
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlanner
+import com.bytedance.zgx.solin.orchestration.PromptPrivacySegment
+import com.bytedance.zgx.solin.orchestration.PromptSegmentSource
+import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.orchestration.testBinding
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
@@ -31,6 +40,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RemoteChatRuntimeTest {
+    @Test
+    fun boundRemoteContinuationBlocksNewLocalOnlyObservationBeforeAnyFallback() {
+        val permit = ActiveRunPlacementPermit.detached(
+            testBinding("run-local-only-continuation", RunPlacement.Remote),
+        )
+        val initialPlan = PromptPrivacyPlanner.build(
+            listOf(
+                PromptPrivacySegment(
+                    source = PromptSegmentSource.CurrentInput,
+                    privacy = MessagePrivacy.RemoteEligible,
+                    requiresLocalModel = false,
+                ),
+            ),
+        )
+        val tightenedPlan = PromptPrivacyPlanner.append(
+            initialPlan,
+            listOf(
+                PromptPrivacySegment(
+                    source = PromptSegmentSource.ToolObservation,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                ),
+            ),
+        )
+        val invocations = FakeBoundContinuationInvocations()
+
+        invocations.dispatch(BoundRunContinuationResolver.resolve(permit, initialPlan))
+        val blocked = BoundRunContinuationResolver.resolve(permit, tightenedPlan)
+        invocations.dispatch(blocked)
+
+        assertEquals(
+            PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED,
+            (blocked as BoundRunContinuationResolution.Blocked).reason,
+        )
+        assertEquals(1, invocations.remote)
+        assertEquals(0, invocations.local)
+    }
+
     @Test
     fun buildChatCompletionBody_requestsStreamingResponsesAndLimitsHistory() {
         val history = (0 until 25).map { index ->
@@ -747,6 +794,22 @@ class RemoteChatRuntimeTest {
             val call = BlockingCall(request)
             created.complete(call)
             return call
+        }
+    }
+
+    /** Test-only seam; S6 hotspot wiring must apply this gate before invoking either runtime. */
+    private class FakeBoundContinuationInvocations {
+        var local: Int = 0
+            private set
+        var remote: Int = 0
+            private set
+
+        fun dispatch(resolution: BoundRunContinuationResolution) {
+            val dispatch = resolution as? BoundRunContinuationResolution.Dispatch ?: return
+            when (dispatch.permit.binding.placement) {
+                RunPlacement.Local -> local++
+                RunPlacement.Remote -> remote++
+            }
         }
     }
 

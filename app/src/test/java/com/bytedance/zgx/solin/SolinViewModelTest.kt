@@ -130,6 +130,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -828,13 +829,14 @@ class SolinViewModelTest {
     @Test
     fun knownRemoteConnectivityFailureBlocksSendBeforeRuntime() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
+        val remoteStore = configuredRemoteStore()
+        remoteStore.recordConnectivity(
+            configuredRemoteModel(),
+            RemoteModelConnectivityStatus.Unreachable,
+        )
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(
-                config = configuredRemoteModel().copy(
-                    connectivityStatus = RemoteModelConnectivityStatus.AuthenticationFailed,
-                ),
-            ),
+            remoteStore = remoteStore,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -844,10 +846,12 @@ class SolinViewModelTest {
 
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-        assertEquals("远程连接不可用", viewModel.uiState.value.statusText)
-        val audit = viewModel.uiState.value.remoteSendAuditEvents.single()
-        assertEquals("已拦截，未发送", audit.decisionLabel)
-        assertEquals("model-a", audit.modelName)
+        assertEquals("没有可用的模型执行目标", viewModel.uiState.value.statusText)
+        assertEquals(
+            PlacementReasonCode.REMOTE_CONNECTIVITY_UNAVAILABLE,
+            viewModel.uiState.value.activeRunPlacementReason,
+        )
+        assertTrue(viewModel.uiState.value.remoteSendAuditEvents.isEmpty())
     }
 
     @Test
@@ -974,11 +978,13 @@ class SolinViewModelTest {
             ),
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
+        val placementRuntime = FakeChatPlacementRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             memoryRepository = memoryRepository,
             assistantRouter = assistantRouter,
+            chatPlacementRuntime = placementRuntime,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -988,8 +994,7 @@ class SolinViewModelTest {
 
         assertEquals(false, assistantRouter.lastRouteMemoryEnabled)
         assertEquals(null, assistantRouter.lastRouteDeviceContext)
-        val receipt = requireNotNull(assistantRouter.lastRecordedRunDataReceipt)
-        assertEquals("run-remote-memory-boundary", assistantRouter.lastRecordedRunDataReceiptRunId)
+        val receipt = placementRuntime.receipts.single()
         assertEquals(RunDataDestination.Remote, receipt.destination)
         assertEquals(MessagePrivacy.RemoteEligible.name, receipt.currentPromptPrivacy)
         assertEquals(false, receipt.memoryContextIncluded)
@@ -2571,10 +2576,12 @@ class SolinViewModelTest {
                 memoryHits = emptyList(),
             ),
         )
+        val placementRuntime = FakeChatPlacementRuntime()
         val viewModel = createViewModel(
             runtime = FakeLiteRtRuntime(localResponse = "本地回复：PDF 摘要"),
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             assistantRouter = assistantRouter,
+            chatPlacementRuntime = placementRuntime,
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -2594,8 +2601,7 @@ class SolinViewModelTest {
         viewModel.sendPendingSharedInput("总结这份扫描件")
         advanceUntilIdle()
 
-        val receipt = requireNotNull(assistantRouter.lastRecordedRunDataReceipt)
-        assertEquals("run-local-pdf-ocr-truncated", assistantRouter.lastRecordedRunDataReceiptRunId)
+        val receipt = placementRuntime.receipts.single()
         assertEquals(RunDataDestination.Local, receipt.destination)
         assertEquals(MessagePrivacy.LocalOnly.name, receipt.currentPromptPrivacy)
         assertEquals(1, receipt.evidenceCardCount)
@@ -3987,9 +3993,9 @@ class SolinViewModelTest {
 
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
-        assertEquals("已保护工具结果", viewModel.uiState.value.statusText)
+        assertEquals("已保护本地工具结果", viewModel.uiState.value.statusText)
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
-        assertTrue(sessionStore.messages.last().text.contains("不会把它发送到远程模型"))
+        assertTrue(sessionStore.messages.last().text.contains("不会自动发送本地工具结果到远程模型"))
     }
 
     @Test
@@ -4631,6 +4637,224 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun stopGenerationUsesBoundRemoteAfterPreferenceProjectionChanges() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime()
+        val remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true)
+        val placementRuntime = FakeChatPlacementRuntime()
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            chatPlacementRuntime = placementRuntime,
+            assistantRouter = FakeAssistantRouter(
+                routeResult = AssistantRoute.Chat(
+                    runId = "run-bound-remote-stop",
+                    promptForModel = "remote prompt",
+                    memoryHits = emptyList(),
+                ),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("remote prompt")
+        advanceUntilIdle()
+
+        forceInferenceMode(viewModel, InferenceMode.Local)
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+
+        assertEquals(0, localRuntime.stopCallCount)
+        assertEquals(1, remoteRuntime.stopCallCount)
+        assertEquals(listOf("run-bound-remote-stop"), placementRuntime.stoppedRunIds)
+    }
+
+    @Test
+    fun remoteServingFailureNeverFallsBackToLocalRuntime() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime()
+        val remoteRuntime = RecordingRemoteChatRuntime(failure = IOException("remote failed"))
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("remote only")
+        advanceUntilIdle()
+
+        assertEquals(1, remoteRuntime.calls.size)
+        assertTrue(localRuntime.prompts.isEmpty())
+    }
+
+    @Test
+    fun oneBoundChatRunInvokesExactlyOneServingRuntime() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val localViewModel = createViewModel(
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        localViewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        localViewModel.sendMessage("local only")
+        advanceUntilIdle()
+
+        assertEquals(1, localRuntime.prompts.size)
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun missingPlacementBindingInvokesNeitherServingRuntime() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            chatPlacementRuntime = FakeChatPlacementRuntime(rejectBinding = true),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("must fail closed")
+        advanceUntilIdle()
+
+        assertTrue(localRuntime.prompts.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, viewModel.uiState.value.activeRunPlacementReason)
+    }
+
+    @Test
+    fun sessionSwitchAbortsAwaitingDisclosureBinding() = runTest(dispatcher) {
+        val placementRuntime = FakeChatPlacementRuntime()
+        val viewModel = createViewModel(
+            remoteStore = configuredRemoteStore(),
+            chatPlacementRuntime = placementRuntime,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+        viewModel.sendMessage("remote pending")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        viewModel.createNewSession()
+        advanceUntilIdle()
+
+        assertEquals(1, placementRuntime.abortCount)
+        assertNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+    }
+
+    @Test
+    fun disclosureResumeBecomesBusyBeforeRemoteRuntimeCompletes() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true),
+            remoteStore = configuredRemoteStore(),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+        viewModel.sendMessage("remote pending")
+        advanceUntilIdle()
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isBusy)
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun stopBeforePreparedServingAwaitNeverStartsRuntime() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            chatPlacementRuntime = FakeChatPlacementRuntime(stopBeforeAwait = true),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("must never start")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun failedDispatchDoesNotRecordSensitiveSendAsSent() = runTest(dispatcher) {
+        val auditStore = FakeRemoteSendAuditStore()
+        val viewModel = createViewModel(
+            remoteStore = configuredRemoteStore(),
+            chatPlacementRuntime = FakeChatPlacementRuntime(
+                dispatchFailure = IllegalStateException("claim failed"),
+            ),
+            remoteSendAuditStore = auditStore,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("我的手机号是 13800138000")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        viewModel.confirmRemoteSendWithMasking()
+        advanceUntilIdle()
+
+        assertTrue(auditStore.recentRemoteSends().isEmpty())
+    }
+
+    @Test
+    fun preparedInitialDispatchPublishesOneReceiptThroughPlacementClaim() = runTest(dispatcher) {
+        val placementRuntime = FakeChatPlacementRuntime()
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            remoteStore = configuredRemoteStore(),
+            chatPlacementRuntime = placementRuntime,
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("one receipt")
+        advanceUntilIdle()
+
+        assertEquals(1, placementRuntime.receipts.size)
+        assertNull(assistantRouter.lastRecordedRunDataReceipt)
+    }
+
+    @Test
+    fun disclosureConfirmationUsesFrozenGenerationParameters() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val frozen = GenerationParameters(temperature = 0.2f, topP = 0.8f, topK = 20)
+        val changed = GenerationParameters(temperature = 1.1f, topP = 0.4f, topK = 80)
+        val viewModel = createViewModel(
+            generationStore = FakeGenerationParametersStore(frozen),
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+        viewModel.sendMessage("frozen parameters")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        viewModel.updateGenerationParameters(changed)
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(frozen, remoteRuntime.calls.single().parameters)
+    }
+
+    @Test
     fun onClearedTerminatesActiveRunOnlyOnce() = runTest(dispatcher) {
         val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -4658,7 +4882,8 @@ class SolinViewModelTest {
         assertEquals(1, assistantRouter.terminateRunCallCount)
         assertEquals("run-clear", assistantRouter.lastTerminatedRunId)
         assertTrue(assistantRouter.lastTerminatedRunReason.orEmpty().contains("ViewModel cleared"))
-        assertEquals(1, remoteRuntime.stopCallCount)
+        assertEquals(1, localRuntime.stopCallCount)
+        assertEquals(0, remoteRuntime.stopCallCount)
     }
 
     @Test
@@ -8121,14 +8346,36 @@ class SolinViewModelTest {
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
 
-    private class FakeChatPlacementRuntime : ChatPlacementRuntime {
+    private class FakeChatPlacementRuntime(
+        private val rejectBinding: Boolean = false,
+        private val stopBeforeAwait: Boolean = false,
+        private val dispatchFailure: Throwable? = null,
+    ) : ChatPlacementRuntime {
         var dispatchCount: Int = 0
             private set
+        var abortCount: Int = 0
+            private set
+        val stoppedRunIds = mutableListOf<String>()
+        val receipts = mutableListOf<RunDataReceipt>()
+        private val activeCalls = mutableMapOf<String, ChatServingCall>()
+        private val permits = mutableMapOf<String, ActiveRunPlacementPermit>()
 
-        override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit =
-            ActiveRunPlacementPermit.detached(binding)
+        override fun activeBinding(runId: String): ActiveRunPlacementPermit? = permits[runId]
 
-        override fun abort(permit: ActiveRunPlacementPermit) = Unit
+        override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit? =
+            if (rejectBinding) {
+                null
+            } else {
+                ActiveRunPlacementPermit.detached(binding).also { permit ->
+                    permits[binding.runId] = permit
+                }
+            }
+
+        override fun abort(permit: ActiveRunPlacementPermit) {
+            abortCount += 1
+            permits.remove(permit.binding.runId)
+            activeCalls.remove(permit.binding.runId)?.stop()
+        }
 
         override suspend fun dispatch(
             prepared: PreparedChatRun,
@@ -8137,13 +8384,37 @@ class SolinViewModelTest {
             remote: ChatServingCall,
         ) {
             dispatchCount += 1
-            when (prepared.placement) {
-                RunPlacement.Local -> local.await()
-                RunPlacement.Remote -> remote.await()
+            receipts += receipt
+            dispatchFailure?.let { throw it }
+            activeCalls[prepared.runId] = when (prepared.placement) {
+                RunPlacement.Local -> local
+                RunPlacement.Remote -> remote
+            }
+            if (stopBeforeAwait) activeCalls.getValue(prepared.runId).stop()
+            try {
+                when (prepared.placement) {
+                    RunPlacement.Local -> local.await()
+                    RunPlacement.Remote -> remote.await()
+                }
+            } finally {
+                activeCalls.remove(prepared.runId)
             }
         }
 
-        override fun stop(runId: String, state: AgentRunState): Boolean = true
+        override fun stop(runId: String, state: AgentRunState): Boolean {
+            val active = activeCalls.remove(runId) ?: return false
+            permits.remove(runId)
+            stoppedRunIds += runId
+            active.stop()
+            return true
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun forceInferenceMode(viewModel: SolinViewModel, mode: InferenceMode) {
+        val field = SolinViewModel::class.java.getDeclaredField("_uiState").apply { isAccessible = true }
+        val state = field.get(viewModel) as MutableStateFlow<ChatUiState>
+        state.value = state.value.copy(inferenceMode = mode)
     }
 
     private fun invokeOnCleared(viewModel: SolinViewModel) {
@@ -8407,6 +8678,7 @@ class SolinViewModelTest {
     private data class RemoteCall(
         val prompt: String,
         val history: List<ChatMessage>,
+        val parameters: GenerationParameters,
         val tools: List<ToolSpec> = emptyList(),
         val imageAttachments: List<ChatImageAttachment> = emptyList(),
     )
@@ -8474,7 +8746,7 @@ class SolinViewModelTest {
             config: RemoteModelConfig,
             imageAttachments: List<ChatImageAttachment>,
         ): Flow<String> {
-            calls += RemoteCall(prompt, history, imageAttachments = imageAttachments)
+            calls += RemoteCall(prompt, history, parameters, imageAttachments = imageAttachments)
             failure?.let { throwable ->
                 return flow { throw throwable }
             }
@@ -8493,7 +8765,7 @@ class SolinViewModelTest {
             imageAttachments: List<ChatImageAttachment>,
         ): Flow<RemoteChatEvent> {
             val callIndex = calls.size
-            calls += RemoteCall(prompt, history, tools, imageAttachments)
+            calls += RemoteCall(prompt, history, parameters, tools, imageAttachments)
             failure?.let { throwable ->
                 return flow { throw throwable }
             }
@@ -9467,8 +9739,9 @@ class SolinViewModelTest {
         override fun loadPendingDownloadSource(): ModelDownloadSource? = pendingDownloadSource
     }
 
-    private class FakeGenerationParametersStore : GenerationParametersStore {
-        private var parameters = GenerationParameters()
+    private class FakeGenerationParametersStore(
+        private var parameters: GenerationParameters = GenerationParameters(),
+    ) : GenerationParametersStore {
         private var backend = BackendChoice.CPU
 
         override fun load(): GenerationParameters = parameters

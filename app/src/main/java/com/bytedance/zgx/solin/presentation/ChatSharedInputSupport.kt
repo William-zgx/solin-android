@@ -337,12 +337,11 @@ internal class ChatSharedInputSupport(
             return
         }
         val cleanedInstruction = userInstruction.trim()
-        val useRemoteModel = state.inferenceMode == InferenceMode.Remote
         sendMessageInternal(
             message,
             draft.privacy,
-            if (useRemoteModel) draft.imageAttachments else emptyList(),
-            if (useRemoteModel) emptyList() else draft.localImageAttachments,
+            if (state.inferenceMode == InferenceMode.Local) emptyList() else draft.imageAttachments,
+            if (state.inferenceMode == InferenceMode.Remote) emptyList() else draft.localImageAttachments,
             draft.evidenceReceiptSummary,
         )
         val pending = uiState.value.pendingRemoteSendDisclosure

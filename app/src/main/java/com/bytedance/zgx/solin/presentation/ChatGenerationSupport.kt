@@ -19,7 +19,16 @@ import com.bytedance.zgx.solin.logging.solinW
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
+import com.bytedance.zgx.solin.orchestration.AgentRunState
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolution
+import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolver
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlan
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
+import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.orchestration.RunPlacementBindingStore
+import com.bytedance.zgx.solin.orchestration.RuntimeStopHandle
+import com.bytedance.zgx.solin.orchestration.TerminalizeRunResult
 import com.bytedance.zgx.solin.runtime.AdaptiveGenerationPolicy
 import com.bytedance.zgx.solin.runtime.AdaptiveGenerationPolicyInput
 import com.bytedance.zgx.solin.runtime.GenerationQualityDecision
@@ -45,6 +54,47 @@ private val CONTEXT_OVERFLOW_MARKERS = listOf(
     "上下文过长",
     "context_overflow",
 )
+
+/** Active-binding gate shared by context/citation/quality retries. */
+internal object BoundGenerationAttemptResolver {
+    fun resolve(
+        bindingStore: RunPlacementBindingStore,
+        runId: String,
+        privacyPlan: PromptPrivacyPlan,
+    ): BoundRunContinuationResolution = BoundRunContinuationResolver.resolve(
+        permit = runCatching { bindingStore.activeBinding(runId) }.getOrNull(),
+        privacyPlan = privacyPlan,
+    )
+}
+
+internal sealed interface BoundGenerationStopResolution {
+    data class Resolved(
+        val placement: RunPlacement,
+        val stopHandle: RuntimeStopHandle?,
+    ) : BoundGenerationStopResolution
+
+    data class Blocked(
+        val reason: PlacementReasonCode = PlacementReasonCode.PLACEMENT_NOT_RESTORABLE,
+    ) : BoundGenerationStopResolution
+}
+
+/** Terminalizes the bound run and returns its registered runtime target/handle without reading UI preference. */
+internal object BoundGenerationStopResolver {
+    fun resolve(
+        bindingStore: RunPlacementBindingStore,
+        runId: String,
+        state: AgentRunState,
+        updatedAtMillis: Long,
+    ): BoundGenerationStopResolution {
+        val terminalized = runCatching {
+            bindingStore.terminalizeRun(runId, state, updatedAtMillis)
+        }.getOrNull() as? TerminalizeRunResult.Terminalized
+            ?: return BoundGenerationStopResolution.Blocked()
+        val placement = terminalized.placement
+            ?: return BoundGenerationStopResolution.Blocked()
+        return BoundGenerationStopResolution.Resolved(placement, terminalized.stopHandle)
+    }
+}
 
 /**
  * Owns local/remote generation streaming, output-quality guard application, stop cleanup,
