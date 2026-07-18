@@ -81,7 +81,27 @@ data class RunPlacementBinding(
 
 internal class ActiveRunPlacementEntry(
     @Volatile var binding: RunPlacementBinding,
-)
+) {
+    var runtimeEntry: RuntimeInvocationEntry = RuntimeInvocationEntry.Ready
+}
+
+internal sealed interface RuntimeInvocationEntry {
+    object Ready : RuntimeInvocationEntry
+
+    data class Claimed(val invocation: ModelRuntimeInvocation) : RuntimeInvocationEntry
+
+    data class Running(
+        val invocation: ModelRuntimeInvocation,
+        val stopHandle: RuntimeStopHandle,
+    ) : RuntimeInvocationEntry
+
+    object Terminal : RuntimeInvocationEntry
+}
+
+/** A synchronous, idempotent, non-blocking, no-throw request to stop one registered runtime call. */
+fun interface RuntimeStopHandle {
+    fun stop()
+}
 
 class ActiveRunPlacementPermit internal constructor(
     internal val entry: ActiveRunPlacementEntry,
@@ -167,7 +187,10 @@ sealed interface ClaimInvocationResult {
 }
 
 sealed interface TerminalizeRunResult {
-    data class Terminalized(val placement: RunPlacement?) : TerminalizeRunResult
+    data class Terminalized(
+        val placement: RunPlacement?,
+        val stopHandle: RuntimeStopHandle? = null,
+    ) : TerminalizeRunResult
 
     object Rejected : TerminalizeRunResult
 }

@@ -10,6 +10,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class RunPlacementBindingStoreTest {
     @Test
@@ -62,6 +64,87 @@ class RunPlacementBindingStoreTest {
         )
         assertNull(dao.binding("run-stopped-before-bind"))
         assertNull(store.activeBinding("run-stopped-before-bind"))
+    }
+
+    @Test
+    fun terminalizationInPostCommitGapPreventsStaleBindingPublication() = runTest {
+        val dao = FakeRunPlacementBindingDao()
+        val store = store(dao)
+        assertTrue(store.createCriticalRun(testRun("run-bind-publish-race")))
+        val committed = CountDownLatch(1)
+        val releaseBind = CountDownLatch(1)
+        dao.afterBindCommitted = {
+            committed.countDown()
+            check(releaseBind.await(5, TimeUnit.SECONDS))
+        }
+
+        val bind = async(Dispatchers.Default) {
+            store.bindAndReserve(testBinding("run-bind-publish-race"))
+        }
+        try {
+            assertTrue(committed.await(5, TimeUnit.SECONDS))
+            val terminalized = async(Dispatchers.Default) {
+                store.terminalizeRun(
+                    "run-bind-publish-race",
+                    AgentRunState.Cancelled,
+                    2_000L,
+                )
+            }.await()
+            assertTrue(terminalized is TerminalizeRunResult.Terminalized)
+        } finally {
+            releaseBind.countDown()
+        }
+
+        assertTrue(bind.await() is BindAndReserveResult.Rejected)
+        assertNull(store.activeBinding("run-bind-publish-race"))
+        assertEquals("Cancelled", dao.run("run-bind-publish-race")?.state)
+        assertEquals("Terminal", dao.binding("run-bind-publish-race")?.dispatchState)
+    }
+
+    @Test
+    fun terminalizationDuringActivationCannotLeaveAnIdlePublishedPermit() = runTest {
+        val dao = FakeRunPlacementBindingDao()
+        val first = store(dao)
+        assertTrue(first.createCriticalRun(testRun("run-activate-publish-race")))
+        val initialPermit = (first.bindAndReserve(
+            testBinding("run-activate-publish-race", RunPlacement.Remote),
+        ) as BindAndReserveResult.Bound).permit
+        val invocation = (first.claimForDispatch(initialPermit, testReceipt(RunPlacement.Remote)) as
+            ClaimInvocationResult.Started).invocation
+        assertTrue(first.finishInvocation(invocation))
+        makePendingRecoveryEligible(dao, "run-activate-publish-race")
+
+        val restarted = store(dao)
+        val candidate = restarted.inspectForRecovery(
+            "run-activate-publish-race",
+            validRecoveryContext(),
+        ) as RecoveryInspection.ContinuationCandidate
+        val snapshotRead = CountDownLatch(1)
+        val releaseActivation = CountDownLatch(1)
+        dao.afterRecoverySnapshot = {
+            snapshotRead.countDown()
+            check(releaseActivation.await(5, TimeUnit.SECONDS))
+        }
+        val activation = async(Dispatchers.Default) { restarted.activate(candidate) }
+        try {
+            assertTrue(snapshotRead.await(5, TimeUnit.SECONDS))
+            val terminalized = async(Dispatchers.Default) {
+                restarted.terminalizeRun(
+                    "run-activate-publish-race",
+                    AgentRunState.Cancelled,
+                    3_000L,
+                )
+            }
+            releaseActivation.countDown()
+            assertTrue(terminalized.await() is TerminalizeRunResult.Terminalized)
+        } finally {
+            releaseActivation.countDown()
+        }
+
+        val permit = activation.await()
+        assertEquals(ModelDispatchState.Terminal, permit?.binding?.dispatchState)
+        assertEquals(ModelDispatchState.Terminal, restarted.activeBinding("run-activate-publish-race")?.binding?.dispatchState)
+        assertEquals("Cancelled", dao.run("run-activate-publish-race")?.state)
     }
 
     @Test

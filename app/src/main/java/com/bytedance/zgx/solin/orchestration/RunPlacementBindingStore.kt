@@ -33,6 +33,17 @@ interface RunPlacementBindingStore {
         receipt: RunDataReceipt,
     ): ClaimInvocationResult
 
+    /**
+     * Atomically publishes the handle returned by [start] for a claimed invocation. [start] must
+     * be short and non-blocking, must not re-enter this store or its dispatcher, and may throw only
+     * before producing external side effects.
+     */
+    fun <T> startInvocation(
+        permit: ActiveRunPlacementPermit,
+        invocation: ModelRuntimeInvocation,
+        start: () -> RunningModelRuntimeCall<T>,
+    ): RunningModelRuntimeCall<T>?
+
     fun finishInvocation(invocation: ModelRuntimeInvocation): Boolean
 }
 
@@ -43,6 +54,7 @@ class RoomRunPlacementBindingStore(
 ) : RunPlacementBindingStore {
     private val storeToken = Any()
     private val activeBindings = ConcurrentHashMap<String, ActiveRunPlacementPermit>()
+    private val lifecycleLocks = ConcurrentHashMap<String, Any>()
 
     override fun createCriticalRun(run: AgentRun): Boolean = runCatching {
         dao.insertRunStrict(
@@ -63,12 +75,14 @@ class RoomRunPlacementBindingStore(
         updatedAtMillis: Long,
     ): TerminalizeRunResult {
         if (!state.isTerminalPlacementRunState()) return TerminalizeRunResult.Rejected
-        val permit = activeBindings[runId]
-        return if (permit == null) {
-            terminalizePersisted(runId, state, updatedAtMillis, permit = null)
-        } else {
-            synchronized(permit.entry) {
-                terminalizePersisted(runId, state, updatedAtMillis, permit)
+        return synchronized(lifecycleLock(runId)) {
+            val permit = activeBindings[runId]
+            if (permit == null) {
+                terminalizePersisted(runId, state, updatedAtMillis, permit = null)
+            } else {
+                synchronized(permit.entry) {
+                    terminalizePersisted(runId, state, updatedAtMillis, permit)
+                }
             }
         }
     }
@@ -86,14 +100,17 @@ class RoomRunPlacementBindingStore(
                 updatedAtMillis = updatedAtMillis,
             )
         }.getOrNull() ?: return TerminalizeRunResult.Rejected
+        val stopHandle = permit?.entry?.runtimeEntry
+            ?.let { runtime -> (runtime as? RuntimeInvocationEntry.Running)?.stopHandle }
         permit?.let { active ->
             active.entry.binding = active.binding.copy(dispatchState = ModelDispatchState.Terminal)
+            active.entry.runtimeEntry = RuntimeInvocationEntry.Terminal
         }
         if (!result.targetStateMatched) return TerminalizeRunResult.Rejected
         val placement = result.binding?.placement?.let { raw ->
             runCatching { RunPlacement.valueOf(raw) }.getOrNull()
         }
-        return TerminalizeRunResult.Terminalized(placement)
+        return TerminalizeRunResult.Terminalized(placement, stopHandle)
     }
 
     override fun bindAndReserve(binding: RunPlacementBinding): BindAndReserveResult {
@@ -111,11 +128,17 @@ class RoomRunPlacementBindingStore(
         }.getOrNull()?.toDomainOrNull() ?: return BindAndReserveResult.Rejected()
         if (persisted != binding) return BindAndReserveResult.Rejected()
 
-        val permit = ActiveRunPlacementPermit(ActiveRunPlacementEntry(binding), storeToken)
-        if (activeBindings.putIfAbsent(binding.runId, permit) != null) {
-            return BindAndReserveResult.Rejected()
+        return synchronized(lifecycleLock(binding.runId)) {
+            if (activeBindings.containsKey(binding.runId) || !isDurablyPublishable(binding)) {
+                return@synchronized BindAndReserveResult.Rejected()
+            }
+            val permit = ActiveRunPlacementPermit(ActiveRunPlacementEntry(binding), storeToken)
+            if (activeBindings.putIfAbsent(binding.runId, permit) != null) {
+                BindAndReserveResult.Rejected()
+            } else {
+                BindAndReserveResult.Bound(permit)
+            }
         }
-        return BindAndReserveResult.Bound(permit)
     }
 
     override fun activeBinding(runId: String): ActiveRunPlacementPermit? =
@@ -184,13 +207,15 @@ class RoomRunPlacementBindingStore(
 
     override fun activate(candidate: RecoveryInspection.ContinuationCandidate): ActiveRunPlacementPermit? {
         if (candidate.storeToken !== storeToken) return null
-        val freshContext = runCatching(currentRecoveryContext).getOrNull() ?: return null
-        val current = inspectForRecovery(candidate.binding.runId, freshContext)
-            as? RecoveryInspection.ContinuationCandidate
-            ?: return null
-        if (current.binding != candidate.binding) return null
-        val permit = ActiveRunPlacementPermit(ActiveRunPlacementEntry(current.binding), storeToken)
-        return if (activeBindings.putIfAbsent(current.binding.runId, permit) == null) permit else null
+        return synchronized(lifecycleLock(candidate.binding.runId)) {
+            val freshContext = runCatching(currentRecoveryContext).getOrNull() ?: return@synchronized null
+            val current = inspectForRecovery(candidate.binding.runId, freshContext)
+                as? RecoveryInspection.ContinuationCandidate
+                ?: return@synchronized null
+            if (current.binding != candidate.binding) return@synchronized null
+            val permit = ActiveRunPlacementPermit(ActiveRunPlacementEntry(current.binding), storeToken)
+            if (activeBindings.putIfAbsent(current.binding.runId, permit) == null) permit else null
+        }
     }
 
     override fun claimForDispatch(
@@ -250,7 +275,36 @@ class RoomRunPlacementBindingStore(
             return ClaimInvocationResult.Rejected()
         }
         permit.entry.binding = persisted
+        permit.entry.runtimeEntry = RuntimeInvocationEntry.Claimed(invocation)
         return ClaimInvocationResult.Started(invocation)
+    }
+
+    override fun <T> startInvocation(
+        permit: ActiveRunPlacementPermit,
+        invocation: ModelRuntimeInvocation,
+        start: () -> RunningModelRuntimeCall<T>,
+    ): RunningModelRuntimeCall<T>? {
+        if (!owns(permit)) return null
+        return synchronized(permit.entry) {
+            val claimed = permit.entry.runtimeEntry as? RuntimeInvocationEntry.Claimed
+                ?: return@synchronized null
+            val current = permit.binding
+            if (
+                claimed.invocation != invocation ||
+                current.dispatchState != ModelDispatchState.Started ||
+                current.placement != invocation.placement ||
+                current.attempt != invocation.attempt ||
+                current.remoteProfileRevision != invocation.remoteProfileRevision
+            ) {
+                return@synchronized null
+            }
+            val call = ExactlyOnceRunningModelRuntimeCall(start())
+            check(permit.entry.runtimeEntry == claimed) {
+                "Runtime starter must not re-enter placement lifecycle"
+            }
+            permit.entry.runtimeEntry = RuntimeInvocationEntry.Running(invocation, call)
+            call
+        }
     }
 
     override fun finishInvocation(invocation: ModelRuntimeInvocation): Boolean {
@@ -272,6 +326,11 @@ class RoomRunPlacementBindingStore(
             current.attempt == invocation.attempt &&
             current.remoteProfileRevision == invocation.remoteProfileRevision
         ) {
+            permit.entry.runtimeEntry = if (current.dispatchState == ModelDispatchState.Terminal) {
+                RuntimeInvocationEntry.Terminal
+            } else {
+                RuntimeInvocationEntry.Ready
+            }
             return true
         }
         if (
@@ -298,6 +357,11 @@ class RoomRunPlacementBindingStore(
             persisted.remoteProfileRevision == invocation.remoteProfileRevision
         ) {
             permit.entry.binding = persisted
+            permit.entry.runtimeEntry = if (persisted.dispatchState == ModelDispatchState.Terminal) {
+                RuntimeInvocationEntry.Terminal
+            } else {
+                RuntimeInvocationEntry.Ready
+            }
             return true
         }
         return false
@@ -305,6 +369,16 @@ class RoomRunPlacementBindingStore(
 
     private fun owns(permit: ActiveRunPlacementPermit): Boolean =
         permit.activationToken === storeToken && activeBindings[permit.binding.runId] === permit
+
+    private fun lifecycleLock(runId: String): Any = lifecycleLocks.computeIfAbsent(runId) { Any() }
+
+    private fun isDurablyPublishable(binding: RunPlacementBinding): Boolean = runCatching {
+        val snapshot = dao.recoverySnapshot(binding.runId) ?: return@runCatching false
+        val runState = AgentRunState.valueOf(snapshot.run.state)
+        !runState.isTerminalPlacementRunState() &&
+            snapshot.binding.toDomainOrNull() == binding &&
+            snapshot.steps.haveConsistentPlacementTrace(binding)
+    }.getOrDefault(false)
 
     private fun RunPlacementBinding.hasCurrentDispatchSnapshot(
         context: RunPlacementRecoveryContext,

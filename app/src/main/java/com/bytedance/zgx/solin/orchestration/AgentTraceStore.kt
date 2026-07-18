@@ -488,27 +488,29 @@ class RoomAgentTraceStore(
     }
 
     override fun appendStep(runId: String, step: AgentStep) {
-        val now = clockMillis()
-        // DB operations are best-effort; the in-memory lists are the source of
-        // truth for active runs. If the run doesn't exist in the DB (e.g.
-        // createRun's upsert failed), we skip the DB write rather than throwing.
-        val runExistsInDb = runCatching { traceDao.run(runId) != null }.getOrDefault(false)
-        if (runExistsInDb) {
-            runCatching {
-                traceDao.insertNextStep(
-                    step.toTraceEntity(
-                        runId = runId,
-                        position = 0,
-                        createdAtMillis = now,
-                    ),
-                )
+        val steps = liveSteps.computeIfAbsent(runId) { CopyOnWriteArrayList() }
+        synchronized(steps) {
+            val now = clockMillis()
+            // Keep persistence and live publication in one per-run order. Otherwise two
+            // concurrent appends can persist A,B but publish B,A and duplicate B when merged.
+            val runExistsInDb = runCatching { traceDao.run(runId) != null }.getOrDefault(false)
+            if (runExistsInDb) {
+                runCatching {
+                    traceDao.insertNextStep(
+                        step.toTraceEntity(
+                            runId = runId,
+                            position = 0,
+                            createdAtMillis = now,
+                        ),
+                    )
+                }
+                runCatching { traceDao.touchRun(runId, now) }
             }
-            runCatching { traceDao.touchRun(runId, now) }
+            liveRuns[runId]?.let { liveRun ->
+                liveRuns[runId] = liveRun.copy(updatedAtMillis = now)
+            }
+            steps.add(LiveStepEntry(step, now))
         }
-        liveRuns[runId]?.let { liveRun ->
-            liveRuns[runId] = liveRun.copy(updatedAtMillis = now)
-        }
-        liveSteps.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(LiveStepEntry(step, now))
     }
 
     override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
@@ -523,7 +525,7 @@ class RoomAgentTraceStore(
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
         mergedStepEntries(runId).mapIndexed { index, entry ->
-            entry.persisted?.toSummary()
+            entry.persisted?.copy(position = index)?.toSummary()
                 ?: entry.step.toTraceEntity(
                     runId = runId,
                     position = index,
@@ -843,20 +845,43 @@ class RoomAgentTraceStore(
 
     private fun mergedStepEntries(runId: String): List<MergedStepEntry> {
         val persisted = runCatching { traceDao.steps(runId) }.getOrDefault(emptyList())
-        val unmatchedLive = liveSteps[runId]?.toMutableList().orEmpty().toMutableList()
-        val merged = persisted.map { entity ->
-            val liveIndex = unmatchedLive.indexOfFirst { entry -> entry.matchesPersisted(runId, entity) }
+        val unmatchedLive = liveSteps[runId]
+            ?.mapIndexed { sequence, entry -> IndexedLiveStepEntry(sequence, entry) }
+            .orEmpty()
+            .toMutableList()
+        val merged = mutableListOf<MergedStepEntry>()
+        persisted.forEach { entity ->
+            val liveIndex = unmatchedLive.indexOfFirst { indexed ->
+                indexed.entry.matchesPersisted(runId, entity)
+            }
             if (liveIndex >= 0) {
                 val live = unmatchedLive.removeAt(liveIndex)
-                MergedStepEntry(live.step, entity, live.createdAtMillis)
+                val earlierLive = unmatchedLive
+                    .filter { indexed -> indexed.sequence < live.sequence }
+                    .sortedBy { indexed -> indexed.sequence }
+                unmatchedLive.removeAll(earlierLive.toSet())
+                merged += earlierLive.map { indexed -> indexed.entry.toMergedStepEntry() }
+                merged += MergedStepEntry(live.entry.step, entity, live.entry.createdAtMillis)
             } else {
-                MergedStepEntry(entity.toRestoredStep(), entity, entity.createdAtMillis)
+                merged += MergedStepEntry(entity.toRestoredStep(), entity, entity.createdAtMillis)
             }
         }
-        return merged + unmatchedLive.map { live ->
-            MergedStepEntry(live.step, persisted = null, createdAtMillis = live.createdAtMillis)
-        }
+        merged += unmatchedLive
+            .sortedBy { indexed -> indexed.sequence }
+            .map { indexed -> indexed.entry.toMergedStepEntry() }
+        return merged
     }
+
+    private data class IndexedLiveStepEntry(
+        val sequence: Int,
+        val entry: LiveStepEntry,
+    )
+
+    private fun LiveStepEntry.toMergedStepEntry(): MergedStepEntry = MergedStepEntry(
+        step = step,
+        persisted = null,
+        createdAtMillis = createdAtMillis,
+    )
 
     private fun LiveStepEntry.matchesPersisted(runId: String, entity: AgentStepEntity): Boolean = runCatching {
         when (val liveStep = step) {

@@ -67,10 +67,10 @@ internal class ChatRemoteSendSupport(
         Boolean,
     ) -> ChatUiState,
     private val onResumeSendAfterDisclosure: (
-        prompt: String,
-        messagePrivacy: MessagePrivacy,
-        imageAttachments: List<ChatImageAttachment>,
+        pending: PendingRemoteSendDisclosure,
+        promptOverride: String?,
     ) -> Unit,
+    private val onDiscardPreparedSend: (runId: String) -> Unit,
     private val onResumeContinuationAfterDisclosure: (
         runId: String?,
         promptForModel: String,
@@ -144,11 +144,7 @@ internal class ChatRemoteSendSupport(
             )
             return
         }
-        onResumeSendAfterDisclosure(
-            pending.prompt,
-            pending.messagePrivacy,
-            pending.imageAttachments,
-        )
+        onResumeSendAfterDisclosure(pending, null)
     }
 
     /**
@@ -177,11 +173,7 @@ internal class ChatRemoteSendSupport(
                 it
             }
         }
-        onResumeSendAfterDisclosure(
-            pending.maskedPrompt,
-            pending.messagePrivacy,
-            pending.imageAttachments,
-        )
+        onResumeSendAfterDisclosure(pending, pending.maskedPrompt)
     }
 
     /**
@@ -208,11 +200,7 @@ internal class ChatRemoteSendSupport(
                 it
             }
         }
-        onResumeSendAfterDisclosure(
-            pending.prompt,
-            pending.messagePrivacy,
-            pending.imageAttachments,
-        )
+        onResumeSendAfterDisclosure(pending, null)
     }
 
     /** Appends a LocalOnly assistant note recording a remote-send privacy decision (never sent). */
@@ -257,7 +245,8 @@ internal class ChatRemoteSendSupport(
                 localOnlyHistoryFilteredCount = pending.localOnlyHistoryFilteredCount,
                 imageAttachmentCount = pending.imageAttachmentCount,
                 protectedSourceCount = pending.protectedSourceCount,
-                runId = runId,
+                runId = runId ?: pending.runId,
+                remoteProfileRevision = pending.remoteProfileRevision,
             ),
         )
     }
@@ -354,6 +343,9 @@ internal class ChatRemoteSendSupport(
         }
         val continuation = pendingRemoteContinuation
         pendingRemoteContinuation = null
+        if (continuation == null && pending?.kind == RemoteSendDisclosureKind.CurrentInput) {
+            pending.runId?.let(onDiscardPreparedSend)
+        }
         remoteSendPendingStore.clearPendingRemoteSend()
         if (continuation != null) {
             val reason = "用户取消远程工具结果续写，工具结果未发送到远程模型。"

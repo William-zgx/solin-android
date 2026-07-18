@@ -13,6 +13,8 @@ import com.bytedance.zgx.solin.memory.MemoryRecordType
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.AgentRunState
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.tool.ToolRequest
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -292,6 +294,8 @@ enum class RemoteSendDisclosurePolicy {
 
 data class PendingRemoteSendDisclosure(
     val kind: RemoteSendDisclosureKind = RemoteSendDisclosureKind.CurrentInput,
+    val runId: String? = null,
+    val remoteProfileRevision: String? = null,
     val prompt: String,
     val messagePrivacy: MessagePrivacy,
     val remoteHost: String,
@@ -355,6 +359,7 @@ data class PendingRemoteSendMarker(
     val imageAttachmentCount: Int,
     val protectedSourceCount: Int,
     val runId: String? = null,
+    val remoteProfileRevision: String? = null,
     val createdAtMillis: Long = System.currentTimeMillis(),
 )
 
@@ -435,6 +440,9 @@ data class ChatUiState(
     val pendingExternalOutcome: PendingExternalOutcomeConfirmation? = null,
     val latestRecoveryAction: AgentRecoveryAction? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
+    val activeRunPlacement: RunPlacement? = null,
+    val activeRunPlacementReason: PlacementReasonCode? = null,
+    val activePlacementPolicyVersion: Int? = null,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
     val backend: BackendChoice = BackendChoice.GPU,
     val generationParameters: GenerationParameters = GenerationParameters(),

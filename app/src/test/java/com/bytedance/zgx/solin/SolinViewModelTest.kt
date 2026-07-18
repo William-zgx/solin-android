@@ -76,6 +76,7 @@ import com.bytedance.zgx.solin.orchestration.AgentRunEvent
 import com.bytedance.zgx.solin.orchestration.AgentRun
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
+import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.solin.orchestration.AgentTraceStepSummary
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
@@ -84,10 +85,19 @@ import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.ModelOutputQualityTrace
+import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.PendingExternalOutcomeSnapshot
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
+import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
+import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
+import com.bytedance.zgx.solin.presentation.ChatServingCall
+import com.bytedance.zgx.solin.resource.StableResourceBand
+import com.bytedance.zgx.solin.resource.StableResourceState
+import com.bytedance.zgx.solin.resource.ThermalPressure
 import com.bytedance.zgx.solin.runtime.LocalModelRequest
 import com.bytedance.zgx.solin.runtime.LocalModelRuntimeCapabilities
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
@@ -140,6 +150,8 @@ import org.junit.Test
 private const val TEST_IMAGE_DATA_URL = "data:image/png;base64,AA=="
 private const val TEST_LOCAL_MODEL_PATH = "/tmp/model.litertlm"
 private const val TEST_MEMORY_EMBEDDING_MODEL_PATH = "/verified/memory.litertlm"
+private const val TEST_REMOTE_REVISION = "00000000-0000-0000-0000-000000000001"
+private const val TEST_REMOTE_REVISION_2 = "00000000-0000-0000-0000-000000000002"
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SolinViewModelTest {
@@ -176,6 +188,28 @@ class SolinViewModelTest {
             sessionStore.messages.map { it.privacy },
         )
         assertTrue(sessionStore.messages.first().text.contains("私密输入"))
+    }
+
+    @Test
+    fun initialChatRouteFailureIsFailClosedBeforeAnyServingRuntime() = runTest(dispatcher) {
+        val runtime = FakeLiteRtRuntime()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            runtime = runtime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("route failed")),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(runtime.prompts.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.activeRunPlacement)
+        assertEquals(PlacementReasonCode.PLACEMENT_DECISION_MISSING, viewModel.uiState.value.activeRunPlacementReason)
     }
 
     @Test
@@ -223,6 +257,49 @@ class SolinViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, pendingStore.pending)
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+    }
+
+    @Test
+    fun remoteDisclosureConfirmsTheBoundRunWithoutRoutingAgain() = runTest(dispatcher) {
+        val router = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-bound-remote",
+                promptForModel = "普通远程问题",
+                memoryHits = emptyList(),
+            ),
+        )
+        val placementRuntime = FakeChatPlacementRuntime()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            assistantRouter = router,
+            chatPlacementRuntime = placementRuntime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(
+                configuredRemoteModel().copy(profileRevision = TEST_REMOTE_REVISION),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val pending = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("run-bound-remote", pending.runId)
+        assertEquals(TEST_REMOTE_REVISION, pending.remoteProfileRevision)
+        assertEquals(1, router.routeCallCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(RunPlacement.Remote, viewModel.uiState.value.activeRunPlacement)
+        assertEquals(PlacementReasonCode.USER_FORCED_REMOTE, viewModel.uiState.value.activeRunPlacementReason)
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(1, router.routeCallCount)
+        assertEquals(1, placementRuntime.dispatchCount)
         assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
     }
 
@@ -519,7 +596,7 @@ class SolinViewModelTest {
 
             assertEquals(InferenceMode.Local, remoteStore.loadMode())
             assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
-            assertEquals("revision-2", remoteStore.loadConfig().profileRevision)
+            assertEquals(TEST_REMOTE_REVISION_2, remoteStore.loadConfig().profileRevision)
         } finally {
             allowAutoSave.countDown()
             executor.shutdownNow()
@@ -564,7 +641,7 @@ class SolinViewModelTest {
 
             assertEquals(InferenceMode.Local, remoteStore.loadMode())
             assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
-            assertEquals("revision-2", remoteStore.loadConfig().profileRevision)
+            assertEquals(TEST_REMOTE_REVISION_2, remoteStore.loadConfig().profileRevision)
         } finally {
             allowConfirmProjection.countDown()
             executor.shutdownNow()
@@ -1732,12 +1809,12 @@ class SolinViewModelTest {
             "我的手机号是 13800138000，帮我总结一下",
             "AWS key AKIA1234567890ABCDEF 帮我分析",
             "client_secret = superSecret123 帮我检查",
-        ).forEach { sensitivePrompt ->
+        ).forEachIndexed { index, sensitivePrompt ->
             viewModel.sendMessage(sensitivePrompt)
             advanceUntilIdle()
 
             assertTrue(remoteRuntime.calls.isEmpty())
-            assertEquals(0, assistantRouter.routeCallCount)
+            assertEquals(index + 1, assistantRouter.routeCallCount)
             assertEquals("敏感内容待确认", viewModel.uiState.value.statusText)
             val disclosure = viewModel.uiState.value.pendingRemoteSendDisclosure
             assertNotNull(disclosure)
@@ -2407,7 +2484,7 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun localModePromptDoesNotEnterLaterRemoteHistoryByDefault() = runTest(dispatcher) {
+    fun explicitLocalOnlyPromptDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
         val localRuntime = FakeLiteRtRuntime(localResponse = "本地回复：普通本地回答")
@@ -2422,7 +2499,7 @@ class SolinViewModelTest {
         viewModel.restoreStartupState()
         advanceUntilIdle()
 
-        viewModel.sendMessage("本地普通问题")
+        viewModel.sendMessage("本地普通问题", messagePrivacy = MessagePrivacy.LocalOnly)
         advanceUntilIdle()
 
         assertEquals(
@@ -7988,6 +8065,7 @@ class SolinViewModelTest {
         ioDispatcher: CoroutineDispatcher = dispatcher,
         requireRemoteSendDisclosure: Boolean = false,
         adaptiveInferenceRollout: AdaptiveInferenceRollout = AdaptiveInferenceRollout.Off,
+        chatPlacementRuntime: ChatPlacementRuntime = FakeChatPlacementRuntime(),
         remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
         huggingFaceAuthStore: HuggingFaceAuthStore = FakeHuggingFaceAuthStore(),
         remoteSendAuditStore: FakeRemoteSendAuditStore = FakeRemoteSendAuditStore(),
@@ -8023,6 +8101,18 @@ class SolinViewModelTest {
             ioDispatcher = ioDispatcher,
             requireRemoteSendDisclosure = requireRemoteSendDisclosure,
             adaptiveInferenceRollout = adaptiveInferenceRollout,
+            chatPlacementRuntime = chatPlacementRuntime,
+            stableResourceStateProvider = {
+                StableResourceState(
+                    band = StableResourceBand.Normal,
+                    stableLowMemory = false,
+                    latestLowMemory = false,
+                    localHardBlocked = false,
+                    thermalPressure = ThermalPressure.Normal,
+                )
+            },
+            bootCountProvider = { 1L },
+            elapsedRealtimeMillis = { 10L },
             remoteConnectivityProbe = remoteConnectivityProbe,
             remoteSendAuditSink = remoteSendAuditStore,
             remoteSendAuditLog = remoteSendAuditStore,
@@ -8030,6 +8120,31 @@ class SolinViewModelTest {
             bundledModelInstaller = bundledModelInstaller,
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
+
+    private class FakeChatPlacementRuntime : ChatPlacementRuntime {
+        var dispatchCount: Int = 0
+            private set
+
+        override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit =
+            ActiveRunPlacementPermit.detached(binding)
+
+        override fun abort(permit: ActiveRunPlacementPermit) = Unit
+
+        override suspend fun dispatch(
+            prepared: PreparedChatRun,
+            receipt: RunDataReceipt,
+            local: ChatServingCall,
+            remote: ChatServingCall,
+        ) {
+            dispatchCount += 1
+            when (prepared.placement) {
+                RunPlacement.Local -> local.await()
+                RunPlacement.Remote -> remote.await()
+            }
+        }
+
+        override fun stop(runId: String, state: AgentRunState): Boolean = true
+    }
 
     private fun invokeOnCleared(viewModel: SolinViewModel) {
         SolinViewModel::class.java.getDeclaredMethod("onCleared").apply {
@@ -8278,7 +8393,7 @@ class SolinViewModelTest {
             // Vision-capable test model: supportsVisionInput now defaults to false (fail-closed),
             // so image-sending tests must opt in explicitly.
             supportsVisionInput = true,
-            profileRevision = "revision-1",
+            profileRevision = TEST_REMOTE_REVISION,
         )
 
     private fun configuredRemoteStore(
@@ -8665,7 +8780,7 @@ class SolinViewModelTest {
             routeFailure?.let { throw it }
             val route = routeResult ?:
                 AssistantRoute.Chat(
-                    runId = null,
+                    runId = "run-route-$routeCallCount",
                     promptForModel = input,
                     memoryHits = emptyList(),
                     deviceContext = deviceContext,
@@ -9408,7 +9523,11 @@ class SolinViewModelTest {
             val revisionChanged = this.config.profileRevision.isBlank() ||
                 !requested.hasSameConnectivityTarget(this.config)
             this.config = requested.copy(
-                profileRevision = if (revisionChanged) "revision-${nextRevision++}" else this.config.profileRevision,
+                profileRevision = if (revisionChanged) {
+                    "00000000-0000-0000-0000-${nextRevision++.toString().padStart(12, '0')}"
+                } else {
+                    this.config.profileRevision
+                },
                 connectivityStatus = RemoteModelConnectivityStatus.Unknown,
             )
             if (revisionChanged) connectivitySnapshot = null

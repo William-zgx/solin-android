@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.bytedance.zgx.solin.action.ActionExecutor
@@ -70,7 +71,10 @@ import com.bytedance.zgx.solin.orchestration.DefaultToolProgressPublisher
 import com.bytedance.zgx.solin.orchestration.InMemoryTelemetrySink
 import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
+import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
 import com.bytedance.zgx.solin.orchestration.NoOpAgentHooks
+import com.bytedance.zgx.solin.orchestration.RoomRunPlacementBindingStore
+import com.bytedance.zgx.solin.orchestration.RunPlacementRecoveryContext
 import com.bytedance.zgx.solin.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.SequentialActionObservationReplanner
 import com.bytedance.zgx.solin.orchestration.SolinEvent
@@ -91,6 +95,8 @@ import com.bytedance.zgx.solin.resource.StableResourceSnapshotAggregator
 import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.resource.SystemResourceMonitor
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
+import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
+import com.bytedance.zgx.solin.presentation.S3ChatPlacementRuntime
 import com.bytedance.zgx.solin.mcp.McpClient
 import com.bytedance.zgx.solin.mcp.McpModule
 import com.bytedance.zgx.solin.mcp.McpServerRegistry
@@ -152,6 +158,7 @@ class SolinAppContainer(
     private val sessionRepository: SessionRepository
     private val generationParametersRepository: GenerationParametersRepository
     private val remoteModelRepository: RemoteModelRepository
+    private val chatPlacementRuntime: ChatPlacementRuntime
     private val remoteConnectivityRefreshCoordinator: RemoteConnectivityRefreshCoordinator
     private val huggingFaceAuthRepository: HuggingFaceAuthRepository
     private val firstRunSetupRepository: FirstRunSetupRepository
@@ -191,6 +198,20 @@ class SolinAppContainer(
         sessionRepository = SessionRepository(database.sessionDao(), settingsStore)
         generationParametersRepository = GenerationParametersRepository(settingsStore)
         remoteModelRepository = RemoteModelRepository(settingsStore, secretStore, appContext)
+        val placementStore = RoomRunPlacementBindingStore(
+            dao = database.runPlacementBindingDao(),
+            currentRecoveryContext = {
+                RunPlacementRecoveryContext(
+                    bootCount = currentBootCount(),
+                    elapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+                    remoteProfileRevision = remoteModelRepository.loadConfig().profileRevision,
+                )
+            },
+        )
+        chatPlacementRuntime = S3ChatPlacementRuntime(
+            bindingStore = placementStore,
+            dispatcher = ModelRuntimeDispatcher(placementStore),
+        )
         remoteConnectivityRefreshCoordinator = RemoteConnectivityRefreshCoordinator(
             remoteModelStore = remoteModelRepository,
             probe = OkHttpRemoteModelConnectivityProbe(),
@@ -355,6 +376,10 @@ class SolinAppContainer(
             remoteSendPendingStore = settingsStore,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
+            chatPlacementRuntime = chatPlacementRuntime,
+            stableResourceStateProvider = ::currentStableResourceState,
+            bootCountProvider = ::currentBootCount,
+            elapsedRealtimeMillis = SystemClock::elapsedRealtime,
             isArm64DeviceProvider = {
                 Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
             },
@@ -366,6 +391,9 @@ class SolinAppContainer(
 
     internal fun currentStableResourceState(): StableResourceState =
         stableResourceSnapshotAggregator.current()
+
+    private fun currentBootCount(): Long =
+        Settings.Global.getInt(appContext.contentResolver, Settings.Global.BOOT_COUNT, -1).toLong()
 
     fun close() {
         containerScope.cancel()
@@ -446,6 +474,10 @@ private class SolinViewModelFactory(
     private val remoteSendPendingStore: RemoteSendPendingStore,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
+    private val chatPlacementRuntime: ChatPlacementRuntime,
+    private val stableResourceStateProvider: () -> StableResourceState,
+    private val bootCountProvider: () -> Long,
+    private val elapsedRealtimeMillis: () -> Long,
     private val isArm64DeviceProvider: () -> Boolean,
     private val skipStartupModelRuntimeWork: Boolean,
 ) : ViewModelProvider.Factory {
@@ -476,6 +508,10 @@ private class SolinViewModelFactory(
             remoteSendPendingStore = remoteSendPendingStore,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
+            chatPlacementRuntime = chatPlacementRuntime,
+            stableResourceStateProvider = stableResourceStateProvider,
+            bootCountProvider = bootCountProvider,
+            elapsedRealtimeMillis = elapsedRealtimeMillis,
             isArm64DeviceProvider = isArm64DeviceProvider,
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
             deferPersistenceInitialization = true,

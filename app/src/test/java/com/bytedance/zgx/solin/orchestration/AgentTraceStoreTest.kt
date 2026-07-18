@@ -27,9 +27,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.lang.management.ManagementFactory
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class AgentTraceStoreTest {
     @Test
@@ -188,6 +190,105 @@ class AgentTraceStoreTest {
         assertEquals(AgentStep.AssistantResponded("done"), steps.last())
         assertEquals(AgentRunState.Cancelled, store.run(run.id)?.state)
         assertEquals(rawPrompt, store.run(run.id)?.input)
+    }
+
+    @Test
+    fun roomStoreKeepsLiveOrderWhenAnEarlierStepFailsToPersist() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+            runIdFactory = { "run-partial-step-persistence" },
+        )
+        val run = store.createRun("private prompt")
+        dao.failNextStepInsert = true
+
+        store.appendStep(run.id, AgentStep.AssistantResponded("first"))
+        store.appendStep(run.id, AgentStep.AssistantResponded("second"))
+
+        val persisted = dao.steps(run.id)
+        assertEquals(1, persisted.size)
+        assertEquals(0, persisted.single().position)
+        assertTrue(persisted.single().json.contains("second"))
+        assertEquals(
+            listOf(
+                AgentStep.AssistantResponded("first"),
+                AgentStep.AssistantResponded("second"),
+            ),
+            store.steps(run.id),
+        )
+        val summaries = store.stepSummaries(run.id)
+        assertEquals(listOf(0, 1), summaries.map { it.position })
+        assertTrue(summaries[0].json.contains("first"))
+        assertTrue(summaries[1].json.contains("second"))
+    }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun roomStoreSerializesPersistenceAndLivePublicationForConcurrentAppends() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+            runIdFactory = { "run-concurrent-step-order" },
+        )
+        val run = store.createRun("private prompt")
+        val firstPersisted = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val secondPersisted = CountDownLatch(1)
+        dao.afterStepInserted = { entity ->
+            when {
+                entity.json.contains("first") -> {
+                    firstPersisted.countDown()
+                    check(releaseFirst.await(5, TimeUnit.SECONDS))
+                }
+                entity.json.contains("second") -> secondPersisted.countDown()
+            }
+        }
+        val firstFailure = AtomicReference<Throwable>()
+        val secondFailure = AtomicReference<Throwable>()
+        val firstThread = Thread({
+            runCatching {
+                store.appendStep(run.id, AgentStep.AssistantResponded("first"))
+            }.onFailure(firstFailure::set)
+        }, "trace-append-first")
+        val secondStarted = CountDownLatch(1)
+        val secondThread = Thread({
+            secondStarted.countDown()
+            runCatching {
+                store.appendStep(run.id, AgentStep.AssistantResponded("second"))
+            }.onFailure(secondFailure::set)
+        }, "trace-append-second")
+
+        firstThread.start()
+        assertTrue(firstPersisted.await(5, TimeUnit.SECONDS))
+        secondThread.start()
+        assertTrue(secondStarted.await(5, TimeUnit.SECONDS))
+        val threadMxBean = ManagementFactory.getThreadMXBean()
+        val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (
+            secondPersisted.count > 0L &&
+            threadMxBean.getThreadInfo(secondThread.id)?.lockOwnerId != firstThread.id &&
+            System.nanoTime() < deadlineNanos
+        ) {
+            Thread.yield()
+        }
+        val secondPersistedBeforeRelease = secondPersisted.count == 0L
+
+        releaseFirst.countDown()
+        firstThread.join(TimeUnit.SECONDS.toMillis(5))
+        secondThread.join(TimeUnit.SECONDS.toMillis(5))
+
+        firstFailure.get()?.let { throw AssertionError("first append failed", it) }
+        secondFailure.get()?.let { throw AssertionError("second append failed", it) }
+        assertFalse(firstThread.isAlive)
+        assertFalse(secondThread.isAlive)
+        assertFalse(secondPersistedBeforeRelease)
+        assertEquals(
+            listOf("first", "second"),
+            store.steps(run.id).map { step -> (step as AgentStep.AssistantResponded).text },
+        )
+        assertEquals(listOf(0, 1), store.stepSummaries(run.id).map { summary -> summary.position })
     }
 
     @Test
@@ -2766,6 +2867,8 @@ class AgentTraceStoreTest {
         private val steps = mutableListOf<AgentStepEntity>()
         private val pendingConfirmations = linkedMapOf<String, PendingAgentConfirmationEntity>()
         private val skillRunCheckpoints = linkedMapOf<Pair<String, String>, AgentSkillRunCheckpointEntity>()
+        var failNextStepInsert = false
+        var afterStepInserted: ((AgentStepEntity) -> Unit)? = null
 
         override fun run(runId: String): AgentRunEntity? =
             runs[runId]
@@ -2828,10 +2931,15 @@ class AgentTraceStoreTest {
                 ?: 0
 
         override fun insertStep(step: AgentStepEntity) {
+            if (failNextStepInsert) {
+                failNextStepInsert = false
+                error("injected step insert failure")
+            }
             steps.removeAll { existing ->
                 existing.runId == step.runId && existing.position == step.position
             }
             steps += step
+            afterStepInserted?.invoke(step)
         }
 
         override fun steps(runId: String): List<AgentStepEntity> =

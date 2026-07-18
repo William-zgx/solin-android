@@ -23,10 +23,10 @@ T01、T02 已分别完成。剩余逻辑任务按编译与事务边界合并为 
 | Slice | 原任务 | 内容 | 状态 |
 |---|---|---|---|
 | S1 | T03–T05 | 复杂度、稳定资源窗口与纯 placement policy；冻结 4,096 输出阈值和 Emergency/Shutdown 硬阻断 | 已完成 |
-| S2 | T06–T07 | `PromptPrivacyPlan` 与 shared input/routing/observation/steer 传播 | 已完成，审查中 |
-| S3 | T08–T09 | Room binding、CAS dispatcher、placement/invocation/receipt trace 与 shadow trace 合同 | 待实施 |
-| S4 | T10 foundation | rollout、Auto 授权、revision 校验、app-scoped monitor/probe wiring；保持执行开关 Off | 待实施 |
-| S5 | T11–T12 | prepared run 与首次 `privacy→decide→bind→disclose→dispatch`；执行开关继续 Off | 待实施 |
+| S2 | T06–T07 | `PromptPrivacyPlan` 与 shared input/routing/observation/steer 传播 | 已完成 |
+| S3 | T08–T09 | Room binding、CAS dispatcher、placement/invocation/receipt trace 与 shadow trace 合同 | 已完成，最终门禁中 |
+| S4 | T10 foundation | rollout、Auto 授权、revision 校验、app-scoped monitor/probe wiring；保持执行开关 Off | 已完成 |
+| S5 | T11–T12 | prepared run 与首次 `privacy→decide→bind→disclose→dispatch`；执行开关继续 Off | 实施中 |
 | S6 | T13 | 续写、retry、stop/cancel、受限恢复只读 binding；整 run 验证后才允许 debug opt-in | 待实施 |
 | S7 | T14 | 三态配置与 actual placement/reason UI | 待实施 |
 | S8 | T15 | Audit/eval 从 invocation 读取实际目标并完成三方对账 | 待实施 |

@@ -88,6 +88,7 @@ import com.bytedance.zgx.solin.presentation.AuditUiController
 import com.bytedance.zgx.solin.presentation.AutoInferenceAuthorizationCoordinator
 import com.bytedance.zgx.solin.presentation.BackgroundTaskController
 import com.bytedance.zgx.solin.presentation.ChatController
+import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.ModelLoadController
 import com.bytedance.zgx.solin.presentation.SessionController
 import com.bytedance.zgx.solin.presentation.ToolExecutionController
@@ -125,6 +126,7 @@ import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
+import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.safety.SafetyOutcome
@@ -198,7 +200,7 @@ class StreamingAssistantUpdateCoalescer(
     }
 }
 
-class SolinViewModel(
+class SolinViewModel internal constructor(
     private val modelRepository: ModelRepositoryFacade,
     private val sessionRepository: SessionStore,
     private val generationParametersRepository: GenerationParametersStore,
@@ -220,6 +222,10 @@ class SolinViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requireRemoteSendDisclosure: Boolean = true,
     private val adaptiveInferenceRollout: AdaptiveInferenceRollout = AdaptiveInferenceRollout.Off,
+    private val chatPlacementRuntime: ChatPlacementRuntime,
+    private val stableResourceStateProvider: () -> StableResourceState,
+    private val bootCountProvider: () -> Long,
+    private val elapsedRealtimeMillis: () -> Long,
     private val remoteConnectivityProbe: RemoteModelConnectivityProbe? = null,
     private val injectedRemoteConnectivityRefreshCoordinator: RemoteConnectivityRefreshCoordinator? = null,
     private val outputQualityGuard: ModelOutputQualityGuard = ModelOutputQualityGuard(),
@@ -305,6 +311,13 @@ class SolinViewModel(
         ioDispatcher = ioDispatcher,
         runtimeLock = runtimeLock,
         requireRemoteSendDisclosure = requireRemoteSendDisclosure,
+        adaptiveInferenceRollout = adaptiveInferenceRollout,
+        chatPlacementRuntime = chatPlacementRuntime,
+        stableResourceStateProvider = stableResourceStateProvider,
+        bootCountProvider = bootCountProvider,
+        elapsedRealtimeMillis = elapsedRealtimeMillis,
+        currentRemoteConfig = remoteModelRepository::loadConfig,
+        remoteConnectivity = remoteModelRepository::currentConnectivity,
         executeToolRequestAfterRunIsExecutingCallback = { confirmation, request ->
             toolExecutionController.executeToolRequestAfterRunIsExecuting(confirmation, request)
         },

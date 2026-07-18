@@ -1,22 +1,29 @@
 package com.bytedance.zgx.solin.orchestration
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class ModelRuntimeDispatcherTest {
     @Test
     fun concurrentDispatchHasOneClaimAndCallbackRunsOnlyAfterReceiptAndInvocationCommit() = runTest {
         val fixture = fixture("run-race", RunPlacement.Remote)
         var callbackCount = 0
-        val adapters = ModelRuntimeAdapters<Unit>(
+        val adapters = testRuntimeAdapters<Unit>(
             local = { error("local must not run") },
             remote = { invocation ->
                 assertEquals(
@@ -45,7 +52,7 @@ class ModelRuntimeDispatcherTest {
     fun repeatedSamePlacementDispatchIncrementsAttemptOneThenTwo() = runTest {
         val fixture = fixture("run-attempts", RunPlacement.Local)
         val attempts = mutableListOf<Int>()
-        val adapters = ModelRuntimeAdapters<Unit>(
+        val adapters = testRuntimeAdapters<Unit>(
             local = { invocation -> attempts += invocation.attempt },
             remote = { error("remote must not run") },
         )
@@ -63,7 +70,7 @@ class ModelRuntimeDispatcherTest {
         val fixture = fixture("run-no-fallback", RunPlacement.Remote)
         var localCalls = 0
         var remoteCalls = 0
-        val adapters = ModelRuntimeAdapters<Unit>(
+        val adapters = testRuntimeAdapters<Unit>(
             local = { localCalls++ },
             remote = {
                 remoteCalls++
@@ -84,7 +91,7 @@ class ModelRuntimeDispatcherTest {
     fun missingActiveOrCrossDestinationReceiptInvokesNeitherAdapter() = runTest {
         val fixture = fixture("run-gate", RunPlacement.Remote)
         var calls = 0
-        val adapters = ModelRuntimeAdapters<Unit>(
+        val adapters = testRuntimeAdapters<Unit>(
             local = { calls++ },
             remote = { calls++ },
         )
@@ -121,7 +128,7 @@ class ModelRuntimeDispatcherTest {
                 fixture.dispatcher.dispatch(
                     fixture.permit,
                     testReceipt(RunPlacement.Local),
-                    ModelRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
+                    testRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
                 )
             }
 
@@ -138,7 +145,7 @@ class ModelRuntimeDispatcherTest {
         val fixture = fixture("run-finish", RunPlacement.Local)
         fixture.dao.failFinish = true
         var calls = 0
-        val adapters = ModelRuntimeAdapters<Unit>(
+        val adapters = testRuntimeAdapters<Unit>(
             local = { calls++ },
             remote = { error("remote must not run") },
         )
@@ -171,7 +178,7 @@ class ModelRuntimeDispatcherTest {
                 fixture.dispatcher.dispatch(
                     fixture.permit,
                     testReceipt(RunPlacement.Local),
-                    ModelRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
+                    testRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
                 )
             }.isFailure,
         )
@@ -192,7 +199,7 @@ class ModelRuntimeDispatcherTest {
                 fixture.dispatcher.dispatch(
                     fixture.permit,
                     testReceipt(RunPlacement.Remote),
-                    ModelRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
+                    testRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
                 )
             }.isFailure,
         )
@@ -201,24 +208,55 @@ class ModelRuntimeDispatcherTest {
     }
 
     @Test
-    fun stopTerminalizesThenCallsOnlyTheBoundRuntime() {
+    fun stopAfterRuntimeStartCallsOnlyTheBoundHandle() = runTest {
         listOf(RunPlacement.Local, RunPlacement.Remote).forEach { placement ->
             val fixture = fixture("run-stop-${placement.name.lowercase()}", placement)
+            val started = CountDownLatch(1)
+            val stopped = CompletableDeferred<Unit>()
+            var localStarts = 0
+            var remoteStarts = 0
             var localStops = 0
             var remoteStops = 0
+            val adapters = ModelRuntimeAdapters(
+                local = {
+                    localStarts++
+                    started.countDown()
+                    TestRunningCall(
+                        awaitBlock = { stopped.await() },
+                        stopBlock = {
+                            localStops++
+                            stopped.complete(Unit)
+                        },
+                    )
+                },
+                remote = {
+                    remoteStarts++
+                    started.countDown()
+                    TestRunningCall(
+                        awaitBlock = { stopped.await() },
+                        stopBlock = {
+                            remoteStops++
+                            stopped.complete(Unit)
+                        },
+                    )
+                },
+            )
+            val dispatch = async(Dispatchers.Default) {
+                fixture.dispatcher.dispatch(fixture.permit, testReceipt(placement), adapters)
+            }
+            assertTrue(started.await(5, TimeUnit.SECONDS))
 
             assertTrue(
                 fixture.dispatcher.stop(
                     runId = fixture.permit.binding.runId,
                     state = AgentRunState.Cancelled,
                     updatedAtMillis = 2_000L,
-                    stops = ModelRuntimeStops(
-                        local = { localStops++ },
-                        remote = { remoteStops++ },
-                    ),
                 ),
             )
+            dispatch.await()
 
+            assertEquals(if (placement == RunPlacement.Local) 1 else 0, localStarts)
+            assertEquals(if (placement == RunPlacement.Remote) 1 else 0, remoteStarts)
             assertEquals(if (placement == RunPlacement.Local) 1 else 0, localStops)
             assertEquals(if (placement == RunPlacement.Remote) 1 else 0, remoteStops)
             assertEquals("Cancelled", fixture.dao.run(fixture.permit.binding.runId)?.state)
@@ -227,7 +265,269 @@ class ModelRuntimeDispatcherTest {
     }
 
     @Test
-    fun stopWithoutBindingCallsNeitherRuntimeAndTerminalStateMismatchIsRejected() {
+    fun runtimeAwaitAndStopHandleExecuteOutsidePlacementLocks() = runTest {
+        val fixture = fixture("run-lock-free-handle", RunPlacement.Local)
+        val awaitEntered = CountDownLatch(1)
+        val stopEntered = CountDownLatch(1)
+        val releaseAwait = CountDownLatch(1)
+        val reentryExecutor = Executors.newSingleThreadExecutor()
+        val dispatch = async(Dispatchers.Default) {
+            fixture.dispatcher.dispatch(
+                fixture.permit,
+                testReceipt(RunPlacement.Local),
+                ModelRuntimeAdapters(
+                    local = {
+                        TestRunningCall(
+                            awaitBlock = {
+                                awaitEntered.countDown()
+                                check(releaseAwait.await(5, TimeUnit.SECONDS))
+                            },
+                            stopBlock = {
+                                val reentry = reentryExecutor.submit<TerminalizeRunResult> {
+                                    fixture.store.terminalizeRun(
+                                        "run-lock-free-handle",
+                                        AgentRunState.Cancelled,
+                                        3_000L,
+                                    )
+                                }
+                                assertTrue(reentry.get(5, TimeUnit.SECONDS) is TerminalizeRunResult.Terminalized)
+                                stopEntered.countDown()
+                                releaseAwait.countDown()
+                            },
+                        )
+                    },
+                    remote = { error("remote must not start") },
+                ),
+            )
+        }
+        try {
+            assertTrue(awaitEntered.await(5, TimeUnit.SECONDS))
+            val stop = async(Dispatchers.Default) {
+                fixture.dispatcher.stop(
+                    "run-lock-free-handle",
+                    AgentRunState.Cancelled,
+                    2_000L,
+                )
+            }
+            assertTrue(stopEntered.await(5, TimeUnit.SECONDS))
+            assertTrue(stop.await())
+        } finally {
+            releaseAwait.countDown()
+            reentryExecutor.shutdownNow()
+        }
+
+        dispatch.await()
+        assertEquals("Terminal", fixture.dao.binding("run-lock-free-handle")?.dispatchState)
+    }
+
+    @Test
+    fun stopBlocksUntilSynchronousStartPublishesTheExactHandle() = runTest {
+        val fixture = fixture("run-start-wins", RunPlacement.Local)
+        val startEntered = CountDownLatch(1)
+        val releaseStart = CountDownLatch(1)
+        val startReturned = AtomicBoolean(false)
+        val stopped = CompletableDeferred<Unit>()
+        val stopCount = AtomicInteger(0)
+        val stopResult = AtomicReference<Boolean>()
+        val stopFailure = AtomicReference<Throwable>()
+        val sentinel = TestRunningCall(
+            awaitBlock = { stopped.await() },
+            stopBlock = {
+                assertTrue(startReturned.get())
+                stopCount.incrementAndGet()
+                stopped.complete(Unit)
+            },
+        )
+        val dispatch = async(Dispatchers.Default) {
+            fixture.dispatcher.dispatch(
+                fixture.permit,
+                testReceipt(RunPlacement.Local),
+                ModelRuntimeAdapters(
+                    local = {
+                        startEntered.countDown()
+                        check(releaseStart.await(5, TimeUnit.SECONDS))
+                        startReturned.set(true)
+                        sentinel
+                    },
+                    remote = { error("remote must not start") },
+                ),
+            )
+        }
+        assertTrue(startEntered.await(5, TimeUnit.SECONDS))
+
+        val stopThread = Thread({
+            runCatching {
+                fixture.dispatcher.stop("run-start-wins", AgentRunState.Cancelled, 2_000L)
+            }.onSuccess(stopResult::set).onFailure(stopFailure::set)
+        }, "run-start-wins-stop")
+        try {
+            stopThread.start()
+            val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (
+                stopThread.state != Thread.State.BLOCKED &&
+                stopThread.isAlive &&
+                System.nanoTime() < deadlineNanos
+            ) {
+                Thread.yield()
+            }
+            assertEquals(Thread.State.BLOCKED, stopThread.state)
+        } finally {
+            releaseStart.countDown()
+            stopThread.join(TimeUnit.SECONDS.toMillis(5))
+        }
+
+        stopFailure.get()?.let { throw AssertionError("stop failed", it) }
+        assertFalse(stopThread.isAlive)
+        assertTrue(stopResult.get())
+        dispatch.await()
+        assertEquals(1, stopCount.get())
+        assertEquals("Terminal", fixture.dao.binding("run-start-wins")?.dispatchState)
+    }
+
+    @Test
+    fun cancellingDispatchStopsTheRunningHandleExactlyOnceThenFinishes() = runTest {
+        val fixture = fixture("run-cancel-running", RunPlacement.Local)
+        val started = CountDownLatch(1)
+        val stopCount = AtomicInteger(0)
+        val dispatch = async(Dispatchers.Default) {
+            fixture.dispatcher.dispatch(
+                fixture.permit,
+                testReceipt(RunPlacement.Local),
+                ModelRuntimeAdapters(
+                    local = {
+                        started.countDown()
+                        TestRunningCall(
+                            awaitBlock = { awaitCancellation() },
+                            stopBlock = {
+                                assertEquals("Started", fixture.dao.binding("run-cancel-running")?.dispatchState)
+                                stopCount.incrementAndGet()
+                            },
+                        )
+                    },
+                    remote = { error("remote must not start") },
+                ),
+            )
+        }
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+
+        dispatch.cancel()
+        assertTrue(runCatching { dispatch.await() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertEquals(1, stopCount.get())
+        assertEquals("Idle", fixture.dao.binding("run-cancel-running")?.dispatchState)
+
+        assertTrue(
+            fixture.dispatcher.stop(
+                "run-cancel-running",
+                AgentRunState.Cancelled,
+                2_000L,
+            ),
+        )
+        assertEquals(1, stopCount.get())
+        assertEquals("Terminal", fixture.dao.binding("run-cancel-running")?.dispatchState)
+    }
+
+    @Test
+    fun concurrentCancellationAndExplicitStopStopTheSameHandleExactlyOnce() = runTest {
+        val fixture = fixture("run-cancel-stop-race", RunPlacement.Local)
+        val started = CountDownLatch(1)
+        val stopCount = AtomicInteger(0)
+        val dispatch = async(Dispatchers.Default) {
+            fixture.dispatcher.dispatch(
+                fixture.permit,
+                testReceipt(RunPlacement.Local),
+                ModelRuntimeAdapters(
+                    local = {
+                        started.countDown()
+                        TestRunningCall(
+                            awaitBlock = { awaitCancellation() },
+                            stopBlock = { stopCount.incrementAndGet() },
+                        )
+                    },
+                    remote = { error("remote must not start") },
+                ),
+            )
+        }
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        val racersReady = CountDownLatch(2)
+        val race = CountDownLatch(1)
+        val cancellation = async(Dispatchers.Default) {
+            racersReady.countDown()
+            check(race.await(5, TimeUnit.SECONDS))
+            dispatch.cancel()
+            runCatching { dispatch.await() }.exceptionOrNull()
+        }
+        val explicitStop = async(Dispatchers.Default) {
+            racersReady.countDown()
+            check(race.await(5, TimeUnit.SECONDS))
+            fixture.dispatcher.stop("run-cancel-stop-race", AgentRunState.Cancelled, 2_000L)
+        }
+        assertTrue(racersReady.await(5, TimeUnit.SECONDS))
+        race.countDown()
+
+        assertTrue(cancellation.await() is kotlinx.coroutines.CancellationException)
+        assertTrue(explicitStop.await())
+        assertEquals(1, stopCount.get())
+        assertEquals("Terminal", fixture.dao.binding("run-cancel-stop-race")?.dispatchState)
+    }
+
+    @Test
+    fun synchronousStartFailureFinishesClaimAndPermitsRetry() = runTest {
+        val fixture = fixture("run-start-failure", RunPlacement.Local)
+        val registrationFailure = IllegalStateException("runtime registration failed")
+
+        val result = runCatching {
+            fixture.dispatcher.dispatch(
+                fixture.permit,
+                testReceipt(RunPlacement.Local),
+                ModelRuntimeAdapters<Unit>(
+                    local = { throw registrationFailure },
+                    remote = { error("remote must not start") },
+                ),
+            )
+        }
+
+        assertSame(registrationFailure, result.exceptionOrNull())
+        assertEquals("Idle", fixture.dao.binding("run-start-failure")?.dispatchState)
+        assertTrue(fixture.permit.entry.runtimeEntry === RuntimeInvocationEntry.Ready)
+
+        var retryStarts = 0
+        fixture.dispatcher.dispatch(
+            fixture.permit,
+            testReceipt(RunPlacement.Local),
+            testRuntimeAdapters(
+                local = { retryStarts++ },
+                remote = { error("remote must not start") },
+            ),
+        )
+        assertEquals(1, retryStarts)
+        assertEquals(2, fixture.dao.binding("run-start-failure")?.attempt)
+    }
+
+    @Test
+    fun synchronousStartFailureSuppressesFinishCasFailure() = runTest {
+        val fixture = fixture("run-start-finish-failure", RunPlacement.Local)
+        fixture.dao.failFinish = true
+        val registrationFailure = IllegalStateException("runtime registration failed")
+
+        val result = runCatching {
+            fixture.dispatcher.dispatch(
+                fixture.permit,
+                testReceipt(RunPlacement.Local),
+                ModelRuntimeAdapters<Unit>(
+                    local = { throw registrationFailure },
+                    remote = { error("remote must not start") },
+                ),
+            )
+        }
+
+        assertSame(registrationFailure, result.exceptionOrNull())
+        assertEquals(1, registrationFailure.suppressed.size)
+        assertTrue(registrationFailure.suppressed.single() is PlacementDispatchException)
+        assertEquals("Started", fixture.dao.binding("run-start-finish-failure")?.dispatchState)
+    }
+
+    @Test
+    fun stopWithoutBindingTerminalizesAndTerminalStateMismatchIsRejected() {
         val dao = FakeRunPlacementBindingDao()
         val store = RoomRunPlacementBindingStore(
             dao = dao,
@@ -237,15 +537,58 @@ class ModelRuntimeDispatcherTest {
         )
         assertTrue(store.createCriticalRun(AgentRun("run-pre-bind-stop", "secret", AgentRunState.Created, 1L, 1L)))
         val dispatcher = ModelRuntimeDispatcher(store)
-        var localStops = 0
-        var remoteStops = 0
-        val stops = ModelRuntimeStops(local = { localStops++ }, remote = { remoteStops++ })
-
-        assertTrue(dispatcher.stop("run-pre-bind-stop", AgentRunState.Cancelled, 2_000L, stops))
-        assertFalse(dispatcher.stop("run-pre-bind-stop", AgentRunState.Completed, 3_000L, stops))
-        assertEquals(0, localStops)
-        assertEquals(0, remoteStops)
+        assertTrue(dispatcher.stop("run-pre-bind-stop", AgentRunState.Cancelled, 2_000L))
+        assertFalse(dispatcher.stop("run-pre-bind-stop", AgentRunState.Completed, 3_000L))
         assertEquals("Cancelled", dao.run("run-pre-bind-stop")?.state)
+    }
+
+    @Test
+    fun stopAfterClaimButBeforeRuntimeEntryPreventsTheAdapterForever() = runTest {
+        val fixture = fixture("run-stop-before-entry", RunPlacement.Local)
+        val claimed = CountDownLatch(1)
+        val releaseClaim = CountDownLatch(1)
+        val dispatcher = ModelRuntimeDispatcher(
+            ClaimBarrierBindingStore(
+                delegate = fixture.store,
+                claimed = claimed,
+                releaseClaim = releaseClaim,
+            ),
+        )
+        var adapterStarts = 0
+        val dispatch = async(Dispatchers.Default) {
+            runCatching {
+                dispatcher.dispatch(
+                    fixture.permit,
+                    testReceipt(RunPlacement.Local),
+                    ModelRuntimeAdapters(
+                        local = {
+                            adapterStarts++
+                            TestRunningCall(awaitBlock = { Unit })
+                        },
+                        remote = {
+                            adapterStarts++
+                            TestRunningCall(awaitBlock = { Unit })
+                        },
+                    ),
+                )
+            }
+        }
+        try {
+            assertTrue(claimed.await(5, TimeUnit.SECONDS))
+            assertTrue(
+                dispatcher.stop(
+                    runId = "run-stop-before-entry",
+                    state = AgentRunState.Cancelled,
+                    updatedAtMillis = 2_000L,
+                ),
+            )
+        } finally {
+            releaseClaim.countDown()
+        }
+
+        assertTrue(dispatch.await().isFailure)
+        assertEquals(0, adapterStarts)
+        assertEquals("Terminal", fixture.dao.binding("run-stop-before-entry")?.dispatchState)
     }
 
     @Test
@@ -258,7 +601,7 @@ class ModelRuntimeDispatcherTest {
                 fixture.dispatcher.dispatch(
                     fixture.permit,
                     testReceipt(RunPlacement.Local),
-                    ModelRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
+                    testRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
                 )
             }.isSuccess
         }
@@ -293,7 +636,7 @@ class ModelRuntimeDispatcherTest {
                 fixture.dispatcher.dispatch(
                     fixture.permit,
                     testReceipt(RunPlacement.Local),
-                    ModelRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
+                    testRuntimeAdapters(local = { calls++ }, remote = { calls++ }),
                 )
             }
         }
@@ -311,7 +654,7 @@ class ModelRuntimeDispatcherTest {
         fixture.dispatcher.dispatch(
             fixture.permit,
             testReceipt(RunPlacement.Local),
-            ModelRuntimeAdapters(
+            testRuntimeAdapters(
                 local = {
                     assertTrue(
                         fixture.store.terminalizeRun(
@@ -370,4 +713,39 @@ class ModelRuntimeDispatcherTest {
     private class MutableRecoveryContext(
         var value: RunPlacementRecoveryContext,
     )
+
+    private fun <T> testRuntimeAdapters(
+        local: suspend (ModelRuntimeInvocation) -> T,
+        remote: suspend (ModelRuntimeInvocation) -> T,
+    ): ModelRuntimeAdapters<T> = ModelRuntimeAdapters(
+        local = { invocation -> TestRunningCall(awaitBlock = { local(invocation) }) },
+        remote = { invocation -> TestRunningCall(awaitBlock = { remote(invocation) }) },
+    )
+
+    private class TestRunningCall<T>(
+        private val awaitBlock: suspend () -> T,
+        private val stopBlock: () -> Unit = {},
+    ) : RunningModelRuntimeCall<T> {
+        override suspend fun await(): T = awaitBlock()
+
+        override fun stop() = stopBlock()
+    }
+
+    private class ClaimBarrierBindingStore(
+        private val delegate: RunPlacementBindingStore,
+        private val claimed: CountDownLatch,
+        private val releaseClaim: CountDownLatch,
+    ) : RunPlacementBindingStore by delegate {
+        override fun claimForDispatch(
+            permit: ActiveRunPlacementPermit,
+            receipt: RunDataReceipt,
+        ): ClaimInvocationResult {
+            val result = delegate.claimForDispatch(permit, receipt)
+            if (result is ClaimInvocationResult.Started) {
+                claimed.countDown()
+                check(releaseClaim.await(5, TimeUnit.SECONDS))
+            }
+            return result
+        }
+    }
 }

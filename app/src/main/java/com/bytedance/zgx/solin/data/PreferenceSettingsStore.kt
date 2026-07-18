@@ -173,6 +173,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
                 .put("imageAttachmentCount", marker.imageAttachmentCount)
                 .put("protectedSourceCount", marker.protectedSourceCount)
                 .put("runId", marker.runId.orEmpty())
+                .put("remoteProfileRevision", marker.remoteProfileRevision.orEmpty())
                 .put("createdAtMillis", marker.createdAtMillis)
                 .toString(),
         )
@@ -192,6 +193,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
                 imageAttachmentCount = json.optInt("imageAttachmentCount"),
                 protectedSourceCount = json.optInt("protectedSourceCount"),
                 runId = json.optString("runId").takeIf { it.isNotBlank() },
+                remoteProfileRevision = json.optString("remoteProfileRevision").takeIf { it.isNotBlank() },
                 createdAtMillis = json.optLong("createdAtMillis"),
             )
         }.getOrNull()

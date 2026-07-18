@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentRunPlacementBindingEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.solin.data.RunPlacementRecoverySnapshotEntity
 import com.bytedance.zgx.solin.data.RunPlacementTerminalizationEntity
 import com.bytedance.zgx.solin.data.RunPlacementBindingDao
 import com.bytedance.zgx.solin.resource.StableResourceBand
@@ -60,6 +61,8 @@ internal class FakeRunPlacementBindingDao : RunPlacementBindingDao() {
 
     var failStepType: String? = null
     var failFinish = false
+    var afterBindCommitted: (() -> Unit)? = null
+    var afterRecoverySnapshot: (() -> Unit)? = null
     var beforeClaimTransaction: (() -> Unit)? = null
     var beforeTerminalizeTransaction: (() -> Unit)? = null
     var afterTerminalizedInsideTransaction: (() -> Unit)? = null
@@ -147,13 +150,23 @@ internal class FakeRunPlacementBindingDao : RunPlacementBindingDao() {
     override fun pendingConfirmation(runId: String): PendingAgentConfirmationEntity? =
         pendingConfirmations[runId]
 
-    @Synchronized
     override fun bindAndReserveTransaction(
         binding: AgentRunPlacementBindingEntity,
         placementStep: AgentStepEntity,
-    ): AgentRunPlacementBindingEntity = rollbackOnFailure {
-        super.bindAndReserveTransaction(binding, placementStep)
+    ): AgentRunPlacementBindingEntity {
+        val persisted = synchronized(this) {
+            rollbackOnFailure {
+                super.bindAndReserveTransaction(binding, placementStep)
+            }
+        }
+        afterBindCommitted?.invoke()
+        return persisted
     }
+
+    override fun recoverySnapshot(runId: String): RunPlacementRecoverySnapshotEntity? =
+        super.recoverySnapshot(runId).also { snapshot ->
+            if (snapshot != null) afterRecoverySnapshot?.invoke()
+        }
 
     override fun claimAndRecordTransaction(
         runId: String,
