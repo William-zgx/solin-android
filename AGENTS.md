@@ -102,6 +102,32 @@ structural PR.
 Contract changes (`ToolRequest`, `ToolResult`, `AgentPlan`, `SkillPlan`,
 `ChatUiState`) require explicit coordination — freeze first, then implement.
 
+## Isolated-worktree parallelism
+
+- Parallelize implementation by the dependency DAG, not by task-list order.
+  Development may run concurrently; integration must still follow dependency
+  order.
+- Every writing agent owns one branch and one isolated worktree. A worktree has
+  one writer, and a file or hotspot has one owner per integration wave.
+- Freeze shared contracts before parallel implementation. Changes to shared
+  DTOs, persistence schemas, public interfaces, or lifecycle semantics require
+  an explicit contract owner and integration order.
+- Serialize hotspot integration (`SolinViewModel.kt`, `SolinScreen.kt`,
+  `AgentLoopRuntime.kt`, shared models, and database schema), even when
+  surrounding work is parallel.
+- Keep the primary worktree integration-only while parallel branches are
+  active. Integrate small semantic commits in dependency order; do not merge
+  unrelated branch history.
+- Specification and quality reviews may run concurrently after a branch
+  commit. The integrator resolves disagreements and owns the final gate.
+- Run focused tests in each worktree. Run full Gradle, privacy, and release
+  validation once on the integrated branch, unless a branch changes build
+  infrastructure or a safety-critical boundary.
+- Prefer reusing existing agents for follow-up work and retire stale preparation
+  tasks so agent/thread limits do not become the bottleneck.
+- If isolated worktrees are unavailable, fall back to one implementation writer
+  instead of allowing concurrent writes in a shared checkout.
+
 ## Validation (mandatory for meaningful changes)
 
 Local quick path:

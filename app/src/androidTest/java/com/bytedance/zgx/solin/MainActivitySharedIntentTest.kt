@@ -20,6 +20,8 @@ import com.bytedance.zgx.solin.debug.CountingSharedContentProvider
 import com.bytedance.zgx.solin.multimodal.ImageTextExtractor
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
 import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
+import com.bytedance.zgx.solin.multimodal.SharedInputSource
+import com.bytedance.zgx.solin.multimodal.SharedInputSourcePrivacy
 import com.bytedance.zgx.solin.multimodal.SharedTextPreview
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -149,9 +151,9 @@ class MainActivitySharedIntentTest {
 
         ActivityScenario.launch<MainActivity>(launchIntent).use {
             composeRule.waitForTag("app_title")
-            composeRule.waitForText("不会读取或自动发送分享文本", substring = true)
+            composeRule.waitForText("只在本机处理，不会自动发送", substring = true)
 
-            composeRule.onNodeWithText("不会读取或自动发送分享文本", substring = true)
+            composeRule.onNodeWithText("只在本机处理，不会自动发送", substring = true)
                 .assertIsDisplayed()
             composeRule.assertTextAbsent(protectedText)
         }
@@ -189,7 +191,7 @@ class MainActivitySharedIntentTest {
     }
 
     @Test
-    fun actionSendImageInUnconfiguredRemoteModeShowsConfigNoticeWithoutReadingImage() {
+    fun actionSendImageInUnconfiguredRemoteModeReadsLocallyButDoesNotSend() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         CountingSharedContentProvider.resetCounters(context)
         resetMainActivityPersistentState(context, inferenceMode = InferenceMode.Remote)
@@ -211,13 +213,13 @@ class MainActivitySharedIntentTest {
             composeRule.assertTagAbsent("pending_shared_input_strip")
             composeRule.assertTextAbsent("counting-image.png")
             composeRule.assertTextAbsent("data:image")
-            assertEquals(0, CountingSharedContentProvider.imageOpenCount(context))
+            assertEquals(1, CountingSharedContentProvider.imageOpenCount(context))
             assertEquals(0, CountingSharedContentProvider.textOpenCount(context))
         }
     }
 
     @Test
-    fun actionSendImageInRemoteModeWithVisionDisabledShowsUnsupportedNoticeWithoutReadingImage() {
+    fun actionSendImageInRemoteModeWithVisionDisabledReadsLocallyButDoesNotSend() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         CountingSharedContentProvider.resetCounters(context)
         val remoteWithoutVision = ReadyRemoteModelConfig.copy(supportsVisionInput = false)
@@ -245,12 +247,12 @@ class MainActivitySharedIntentTest {
             composeRule.waitForTag("app_title")
             composeRule.waitForText("当前远程模型未启用图片输入能力", substring = true)
 
-            composeRule.onNodeWithText("未读取、OCR 或发送图片", substring = true)
+            composeRule.onNodeWithText("未执行 OCR 或发送图片", substring = true)
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("pending_shared_input_strip")
             composeRule.assertTextAbsent("counting-image.png")
             composeRule.assertTextAbsent("data:image")
-            assertEquals(0, CountingSharedContentProvider.imageOpenCount(context))
+            assertEquals(1, CountingSharedContentProvider.imageOpenCount(context))
             assertEquals(0, CountingSharedContentProvider.textOpenCount(context))
         }
     }
@@ -301,6 +303,43 @@ class MainActivitySharedIntentTest {
         assertFalse(prompt.contains("counting-image.png"))
         assertFalse(prompt.contains("private-notes.txt"))
         assertFalse(prompt.contains("PRIVATE_NOTES_SHOULD_NOT_BE_READ"))
+    }
+
+    @Test
+    fun destinationNeutralReaderUsesOneReadAndStableImagePrivacyAcrossInferenceModes() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+        InferenceMode.entries.forEach { inferenceMode ->
+            CountingSharedContentProvider.resetCounters(context)
+            val readMode = sharedInputReadModeFor(
+                inferenceMode = inferenceMode,
+                localSupportsVisionInput = inferenceMode == InferenceMode.Local,
+            )
+            val sharedInput = ShareIntentReader(
+                context = context,
+                imageTextExtractor = CountingImageTextExtractor(),
+            ).readUris(
+                uris = listOf(CountingSharedContentProvider.imageUri),
+                intentMimeType = "image/png",
+                mode = readMode,
+            )
+
+            assertEquals(SharedInputReadMode.DestinationNeutralVision, readMode)
+            requireNotNull(sharedInput)
+            assertEquals(
+                listOf(
+                    SharedInputSourcePrivacy(
+                        SharedInputSource.Image,
+                        MessagePrivacy.RemoteEligible,
+                        false,
+                    ),
+                ),
+                sharedInput.sourcePrivacy,
+            )
+            assertNotNull(sharedInput.attachments.single().imageAttachment)
+            assertNotNull(sharedInput.attachments.single().localImageAttachment)
+            assertEquals(1, CountingSharedContentProvider.imageOpenCount(context))
+        }
     }
 
     @Test

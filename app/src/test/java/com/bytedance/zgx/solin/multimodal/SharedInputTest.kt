@@ -1,12 +1,19 @@
 package com.bytedance.zgx.solin.multimodal
 
 import com.bytedance.zgx.solin.ChatImageAttachment
+import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LocalImageAttachment
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
+import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlanner
+import com.bytedance.zgx.solin.orchestration.toPromptPrivacySegments
+import com.bytedance.zgx.solin.presentation.ChatSharedInputSupport
 import java.io.ByteArrayOutputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -21,6 +28,157 @@ class SharedInputTest {
         const val MIME_TEXT = "text/plain"
         const val MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         const val IMAGE_DATA_URL = "data:image/png;base64,AA=="
+    }
+
+    @Test
+    fun legacySharedInputMetadataFailsClosed() {
+        val input = SharedInput(text = "legacy", attachments = emptyList())
+
+        val plan = PromptPrivacyPlanner.build(input.toPromptPrivacySegments())
+
+        assertTrue(input.sourcePrivacy.isEmpty())
+        assertEquals(MessagePrivacy.LocalOnly, plan.aggregatePrivacy)
+        assertTrue(plan.requiresLocalModel)
+    }
+
+    @Test
+    fun sharedPayloadPrivacyComesFromReadSourceNotInferencePreference() {
+        val localImage = imageAttachment(localImageAttachment = localPngAttachment())
+        val remoteImage = imageAttachment(remoteImageAttachment = remotePngAttachment())
+        val ocrDocument = documentAttachment(
+            mimeType = MIME_PDF,
+            displayName = "scan.pdf",
+            textPreview = preview("local OCR", source = SharedTextPreviewSource.PdfImageOcr),
+        )
+
+        val localMetadata = sharedInputSourcePrivacyFor(
+            text = "local shared text",
+            attachments = listOf(localImage, ocrDocument),
+        )
+        val remoteMetadata = sharedInputSourcePrivacyFor(
+            text = "",
+            attachments = listOf(remoteImage),
+        )
+
+        assertEquals(
+            listOf(
+                SharedInputSource.Text,
+                SharedInputSource.Image,
+                SharedInputSource.ScreenOcr,
+            ),
+            localMetadata.map { it.source },
+        )
+        assertTrue(localMetadata.all {
+            it.privacy == MessagePrivacy.LocalOnly && it.requiresLocalModel == true
+        })
+        assertEquals(
+            listOf(SharedInputSourcePrivacy(SharedInputSource.Image, MessagePrivacy.RemoteEligible, false)),
+            remoteMetadata,
+        )
+    }
+
+    @Test
+    fun autoStagesLocalImageWithCompleteFailClosedPrivacyMetadata() {
+        val attachment = imageAttachment(localImageAttachment = localPngAttachment())
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(attachment),
+            sourcePrivacy = sharedInputSourcePrivacyFor("", listOf(attachment)),
+        )
+        val state = MutableStateFlow(ChatUiState(inferenceMode = InferenceMode.Auto))
+        val support = ChatSharedInputSupport(
+            uiState = state,
+            replaceActiveSessionMessages = { _, _ -> },
+            isGenerationActive = { false },
+            allocateVoiceInputDraftId = { 1L },
+            sendMessageInternal = { _, _, _, _, _ -> },
+        )
+
+        support.stageSharedInput(input)
+
+        val draft = requireNotNull(state.value.pendingSharedInputDraft)
+        assertEquals(MessagePrivacy.LocalOnly, draft.privacy)
+        assertTrue(draft.requiresLocalModel)
+        assertEquals(0, draft.optionalHistoryFilteredCount)
+        assertEquals(1, draft.localImageAttachments.size)
+        assertTrue(draft.imageAttachments.isEmpty())
+    }
+
+    @Test
+    fun destinationNeutralImageRetainsBothRepresentationsWithStablePrivacy() {
+        val attachment = imageAttachment(
+            remoteImageAttachment = remotePngAttachment(),
+            localImageAttachment = localPngAttachment(),
+        )
+        val metadata = sharedInputSourcePrivacyFor("", listOf(attachment))
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(attachment),
+            sourcePrivacy = metadata,
+        )
+        val state = MutableStateFlow(ChatUiState(inferenceMode = InferenceMode.Auto, isReady = true))
+        var sentRemoteImages = 0
+        var sentLocalImages = 0
+        val support = ChatSharedInputSupport(
+            uiState = state,
+            replaceActiveSessionMessages = { _, _ -> },
+            isGenerationActive = { false },
+            allocateVoiceInputDraftId = { 1L },
+            sendMessageInternal = { _, _, remoteImages, localImages, _ ->
+                sentRemoteImages = remoteImages.size
+                sentLocalImages = localImages.size
+            },
+        )
+
+        support.stageSharedInput(input)
+
+        assertEquals(
+            listOf(SharedInputSourcePrivacy(SharedInputSource.Image, MessagePrivacy.RemoteEligible, false)),
+            metadata,
+        )
+        val draft = requireNotNull(state.value.pendingSharedInputDraft)
+        assertEquals(MessagePrivacy.RemoteEligible, draft.privacy)
+        assertFalse(draft.requiresLocalModel)
+        assertEquals(1, draft.imageAttachments.size)
+        assertEquals(1, draft.localImageAttachments.size)
+        assertEquals(0, input.toSharedEvidenceReceiptSummary().localOnlyEvidenceCardCount)
+
+        support.sendPendingSharedInput()
+
+        assertEquals(0, sentRemoteImages)
+        assertEquals(1, sentLocalImages)
+    }
+
+    @Test
+    fun manualRemoteCannotSendDraftThatRequiresLocalModel() {
+        val attachment = imageAttachment(localImageAttachment = localPngAttachment())
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(attachment),
+            sourcePrivacy = sharedInputSourcePrivacyFor("", listOf(attachment)),
+        )
+        val state = MutableStateFlow(
+            ChatUiState(
+                inferenceMode = InferenceMode.Auto,
+                isReady = true,
+            ),
+        )
+        var sendCount = 0
+        val support = ChatSharedInputSupport(
+            uiState = state,
+            replaceActiveSessionMessages = { _, _ -> },
+            isGenerationActive = { false },
+            allocateVoiceInputDraftId = { 1L },
+            sendMessageInternal = { _, _, _, _, _ -> sendCount += 1 },
+        )
+
+        support.stageSharedInput(input)
+        state.value = state.value.copy(inferenceMode = InferenceMode.Remote)
+        support.sendPendingSharedInput()
+
+        assertEquals(0, sendCount)
+        assertNotNull(state.value.pendingSharedInputDraft)
+        assertEquals("此内容仅限本地处理", state.value.statusText)
     }
 
     @Test

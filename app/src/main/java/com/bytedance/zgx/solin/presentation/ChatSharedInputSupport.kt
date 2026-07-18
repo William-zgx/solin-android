@@ -17,6 +17,8 @@ import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.multimodal.SharedInput
 import com.bytedance.zgx.solin.multimodal.toSharedEvidenceReceiptSummary
+import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlanner
+import com.bytedance.zgx.solin.orchestration.toPromptPrivacySegments
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -133,19 +135,9 @@ internal class ChatSharedInputSupport(
     private fun stageSharedInputDraft(sharedInput: SharedInput, statusText: String) {
         if (sharedInput.isEmpty) return
         pendingSharedInputRemoteSendRestore = null
-        val imageAttachments = if (uiState.value.inferenceMode == InferenceMode.Remote) {
-            sharedInput.remoteImageAttachments()
-        } else {
-            emptyList()
-        }
-        val localImageAttachments = if (
-            uiState.value.inferenceMode == InferenceMode.Local &&
-            uiState.value.activeLocalModelSupportsVisionInput
-        ) {
-            sharedInput.localImageAttachments()
-        } else {
-            emptyList()
-        }
+        val imageAttachments = sharedInput.remoteImageAttachments()
+        val localImageAttachments = sharedInput.localImageAttachments()
+        val privacyPlan = PromptPrivacyPlanner.build(sharedInput.toPromptPrivacySegments())
         val prompt = if (imageAttachments.isNotEmpty()) {
             sharedInput.toRemoteVisionPrompt()
         } else if (localImageAttachments.isNotEmpty()) {
@@ -162,11 +154,9 @@ internal class ChatSharedInputSupport(
                     summary = sharedInput.composerSummary(),
                     imageAttachments = imageAttachments,
                     localImageAttachments = localImageAttachments,
-                    privacy = if (imageAttachments.isNotEmpty()) {
-                        MessagePrivacy.RemoteEligible
-                    } else {
-                        MessagePrivacy.LocalOnly
-                    },
+                    privacy = privacyPlan.aggregatePrivacy,
+                    requiresLocalModel = privacyPlan.requiresLocalModel,
+                    optionalHistoryFilteredCount = privacyPlan.optionalHistoryFilteredCount,
                     evidenceReceiptSummary = sharedInput.toSharedEvidenceReceiptSummary(),
                 ),
                 statusText = statusText,
@@ -178,7 +168,7 @@ internal class ChatSharedInputSupport(
         replaceActiveSessionMessages(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
-                text = "已接收分享内容。当前已切换远程模型，主动选择的图片只会在逐次确认后发送给远程视觉模型，疑似敏感内容也会逐次确认；不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、JSON/XML/YAML 文本摘录、OCR 摘录或非图片附件元数据。",
+                text = "已接收分享内容。当前已切换远程模型，主动选择的图片只会在逐次确认后发送给远程视觉模型，疑似敏感内容也会逐次确认；分享文本、RTF/PDF/Office 文档摘录、JSON/XML/YAML 文本摘录、OCR 摘录和非图片附件元数据只在本机处理，不会自动发送。",
                 privacy = MessagePrivacy.LocalOnly,
             ),
             true,
@@ -194,7 +184,7 @@ internal class ChatSharedInputSupport(
             if (alreadyStaged) {
                 append("我没有发送这次分享内容，图片不会被自动 OCR，也不会发送到远程模型。")
             } else {
-                append("我没有读取、OCR 或发送这次分享内容。")
+                append("我没有发送这次分享内容；本机读取的内容不会上传，图片不会被自动 OCR。")
             }
             append("远程模式只会在远程模型配置完成、切换到远程模型且你确认发送后，把主动选择的图片发送给远程视觉模型。")
         }
@@ -225,7 +215,7 @@ internal class ChatSharedInputSupport(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = buildString {
-                    append("当前远程模型未启用图片输入能力，未读取、OCR 或发送图片；请配置并切换支持视觉的远程模型后重新选择图片。")
+                    append("当前远程模型未启用图片输入能力，未执行 OCR 或发送图片；请配置并切换支持视觉的远程模型后重新选择图片。")
                     if (protectedSourceCount > 0) {
                         append("本次分享中的其他内容也未读取或发送。")
                     }
@@ -246,7 +236,7 @@ internal class ChatSharedInputSupport(
         replaceActiveSessionMessages(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
-                text = "当前本地模型不支持图片输入，未读取、OCR 或发送图片；请切换到已校验且支持视觉的本地模型后重新选择图片。",
+                text = "当前本地模型不支持图片输入，未交给模型、OCR 或发送图片；请切换到已校验且支持视觉的本地模型后重新选择图片。",
                 privacy = MessagePrivacy.LocalOnly,
             ),
             true,
@@ -300,6 +290,10 @@ internal class ChatSharedInputSupport(
             return
         }
         if (state.isBusy || isGenerationActive()) return
+        if (draft.requiresLocalModel && state.inferenceMode == InferenceMode.Remote) {
+            uiState.update { it.copy(statusText = "此内容仅限本地处理") }
+            return
+        }
         // An unconfigured remote model is a "no model" situation, not a
         // "vision unsupported" one. Surface the unconfigured guidance first so the
         // fail-closed supportsVisionInput=false default does not mask it.
@@ -343,11 +337,12 @@ internal class ChatSharedInputSupport(
             return
         }
         val cleanedInstruction = userInstruction.trim()
+        val useRemoteModel = state.inferenceMode == InferenceMode.Remote
         sendMessageInternal(
             message,
             draft.privacy,
-            draft.imageAttachments,
-            draft.localImageAttachments,
+            if (useRemoteModel) draft.imageAttachments else emptyList(),
+            if (useRemoteModel) emptyList() else draft.localImageAttachments,
             draft.evidenceReceiptSummary,
         )
         val pending = uiState.value.pendingRemoteSendDisclosure

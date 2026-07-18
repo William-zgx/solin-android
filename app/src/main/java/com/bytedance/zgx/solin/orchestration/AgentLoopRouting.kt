@@ -1,14 +1,25 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.ChatMessage
+import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.multimodal.SharedInput
+import com.bytedance.zgx.solin.multimodal.SharedInputSource
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.IntentRoutingDecision
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.device.DeviceContextSnapshot
+import com.bytedance.zgx.solin.evidence.EvidenceCard
+import com.bytedance.zgx.solin.evidence.EvidenceSourceType
+import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
+import com.bytedance.zgx.solin.tool.ToolResult
+import com.bytedance.zgx.solin.tool.ToolResultContinuationPolicy
+import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 
 fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
@@ -144,3 +155,119 @@ internal fun parseAskUserChoices(arguments: Map<String, String>): List<String> {
  */
 internal fun estimateTokensApproximate(messages: List<ChatMessage>): Int =
     messages.sumOf { estimateLocalRuntimeTokens(it.text) } + messages.size * 4
+
+internal fun SharedInput.toPromptPrivacySegments(): List<PromptPrivacySegment> =
+    sourcePrivacy.map { metadata ->
+        PromptPrivacySegment(
+            source = when (metadata.source) {
+                SharedInputSource.Text -> PromptSegmentSource.CurrentInput
+                SharedInputSource.Image -> PromptSegmentSource.Image
+                SharedInputSource.File -> PromptSegmentSource.File
+                SharedInputSource.ScreenOcr -> PromptSegmentSource.ScreenOcr
+            },
+            privacy = metadata.privacy,
+            requiresLocalModel = metadata.requiresLocalModel,
+        )
+    }
+
+internal fun ChatMessage.toPromptPrivacySegment(
+    source: PromptSegmentSource,
+    optionalHistory: Boolean = false,
+): PromptPrivacySegment = PromptPrivacySegment(
+    source = source,
+    privacy = privacy,
+    requiresLocalModel = privacy == MessagePrivacy.LocalOnly,
+    optionalHistory = optionalHistory,
+)
+
+internal fun Iterable<ChatMessage>.toPromptPrivacySegments(
+    source: PromptSegmentSource,
+    optionalHistory: Boolean = false,
+): List<PromptPrivacySegment> =
+    map { message -> message.toPromptPrivacySegment(source, optionalHistory) }
+
+internal fun PendingMessagesDrain.toPromptPrivacySegments(): List<PromptPrivacySegment> =
+    steer.toPromptPrivacySegments(PromptSegmentSource.Steer) +
+        queued.toPromptPrivacySegments(PromptSegmentSource.QueuedInput)
+
+internal fun MemoryHit.toPromptPrivacySegment(): PromptPrivacySegment = PromptPrivacySegment(
+    source = PromptSegmentSource.Memory,
+    privacy = privacy,
+    requiresLocalModel = privacy == MessagePrivacy.LocalOnly,
+)
+
+internal fun DeviceContextSnapshot.toPromptPrivacySegment(): PromptPrivacySegment = PromptPrivacySegment(
+    source = PromptSegmentSource.DeviceContext,
+    privacy = MessagePrivacy.LocalOnly,
+    requiresLocalModel = true,
+)
+
+internal fun EvidenceCard.toPromptPrivacySegment(): PromptPrivacySegment = PromptPrivacySegment(
+    source = when (sourceType) {
+        EvidenceSourceType.UserPrompt -> PromptSegmentSource.CurrentInput
+        EvidenceSourceType.Memory -> PromptSegmentSource.Memory
+        EvidenceSourceType.DeviceContext -> PromptSegmentSource.DeviceContext
+        EvidenceSourceType.ToolResult -> PromptSegmentSource.ToolObservation
+        EvidenceSourceType.OcrText -> PromptSegmentSource.ScreenOcr
+        EvidenceSourceType.FilePreview -> PromptSegmentSource.File
+        EvidenceSourceType.ImageAttachment -> PromptSegmentSource.Image
+        EvidenceSourceType.PublicWeb,
+        EvidenceSourceType.ProtectedSource -> PromptSegmentSource.Evidence
+    },
+    privacy = privacy,
+    requiresLocalModel = requiresLocalModel,
+)
+
+internal fun ToolResult.toPromptPrivacySegment(spec: ToolSpec?): PromptPrivacySegment {
+    val isRemoteEligible =
+        status == ToolStatus.Succeeded &&
+            spec?.resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence &&
+            spec.privateOutputKeys.isEmpty() &&
+            data["privacy"] == MessagePrivacy.RemoteEligible.name &&
+            data["requiresLocalModel"] == false.toString() &&
+            !containsProtectedObservationPayload() &&
+            overflowRefs.all { ref -> ref.privacy == MessagePrivacy.RemoteEligible }
+    return PromptPrivacySegment(
+        source = PromptSegmentSource.ToolObservation,
+        privacy = if (isRemoteEligible) MessagePrivacy.RemoteEligible else MessagePrivacy.LocalOnly,
+        requiresLocalModel = !isRemoteEligible,
+    )
+}
+
+private fun ToolResult.containsProtectedObservationPayload(): Boolean =
+    data.any { (key, value) ->
+        key.isProtectedObservationKey() || PROTECTED_OBSERVATION_FIELD_PATTERN.containsMatchIn(value)
+    }
+
+private fun String.isProtectedObservationKey(): Boolean {
+    val normalized = lowercase()
+    return normalized.contains("screen") ||
+        normalized.startsWith("ocr") ||
+        normalized.startsWith("beforeobservation") ||
+        normalized.startsWith("afterobservation") ||
+        normalized.startsWith("beforenode") ||
+        normalized.startsWith("afternode") ||
+        normalized.startsWith("beforeactionable") ||
+        normalized.startsWith("afteractionable") ||
+        normalized.startsWith("beforetext") ||
+        normalized.startsWith("aftertext") ||
+        normalized in PROTECTED_OBSERVATION_KEYS
+}
+
+private val PROTECTED_OBSERVATION_KEYS = setOf(
+    "verificationSummary",
+    "searchVerificationStatus",
+    "searchVerificationEvidence",
+    "uiActionOutcome",
+    "uiActionOutcomeReason",
+    "appSearchProgressStage",
+).mapTo(mutableSetOf()) { it.lowercase() }
+
+private val PROTECTED_OBSERVATION_FIELD_PATTERN = Regex(
+    pattern = """(?i)[\"']?(?:screen\w*|ocr\w*|before(?:observation|node|actionable|text)\w*|after(?:observation|node|actionable|text)\w*|verificationSummary|searchVerification\w*|uiActionOutcome\w*|appSearchProgressStage)[\"']?\s*[:=]""",
+)
+
+internal fun AssistantRoute.Chat.toContextPrivacySegments(): List<PromptPrivacySegment> = buildList {
+    memoryHits.mapTo(this) { hit -> hit.toPromptPrivacySegment() }
+    deviceContext?.let { context -> add(context.toPromptPrivacySegment()) }
+}

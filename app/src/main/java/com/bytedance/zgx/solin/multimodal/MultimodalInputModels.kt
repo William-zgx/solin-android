@@ -23,6 +23,7 @@ data class SharedInput(
     val attachments: List<SharedAttachment>,
     val protectedSourceCount: Int = 0,
     val protectedImageSourceCount: Int = 0,
+    val sourcePrivacy: List<SharedInputSourcePrivacy> = emptyList(),
 ) {
     val isEmpty: Boolean
         get() = text.toBoundedSharedText().text.isBlank() &&
@@ -149,6 +150,19 @@ data class SharedInput(
     }
 }
 
+enum class SharedInputSource {
+    Text,
+    Image,
+    File,
+    ScreenOcr,
+}
+
+data class SharedInputSourcePrivacy(
+    val source: SharedInputSource,
+    val privacy: MessagePrivacy?,
+    val requiresLocalModel: Boolean?,
+)
+
 fun SharedInput.toSharedEvidenceReceiptSummary(): EvidenceReceiptSummary {
     val sharedText = text.toBoundedSharedText()
     return buildList {
@@ -193,7 +207,7 @@ fun SharedInput.toSharedEvidenceReceiptSummary(): EvidenceReceiptSummary {
                     ),
                 )
             }
-            if (attachment.localImageAttachment != null) {
+            if (attachment.localImageAttachment != null && attachment.imageAttachment == null) {
                 add(
                     EvidenceCard(
                         id = "shared-local-image:$index",

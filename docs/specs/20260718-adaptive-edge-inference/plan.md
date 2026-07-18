@@ -15,7 +15,7 @@
 3. placement 只约束用户可见 Chat serving runtime；embedding、规则分类、action planning 等本地辅助路径不计入 placement。
 4. disclosure 前先完成 route、privacy plan、placement 和持久绑定；确认只恢复同一个 prepared run，不重新 route 或重新决策。配置 revision 变化立即使 prepared run 失效。
 5. binding 使用独立 Room 表和事务，不从旧 `InferenceMode`、receipt 或通用 `RestoredSummary` 猜测。旧进行中 run 没有 binding 时 fail closed。
-6. rollout 使用单一有序值 `off / shadow / opt_in / visible`，避免两个布尔开关形成非法组合。release-like 变体默认 `off`，debug 默认 `opt_in`，仍由用户显式选择 Auto 并确认披露。
+6. rollout 使用单一有序值 `off / shadow / opt_in / visible`，避免两个布尔开关形成非法组合。S4、S5 所有变体保持 `off`；只有 S6 完成首次调用、续写、retry、stop/cancel 和恢复的整 run 绑定验证后，debug 才可改为 `opt_in`。release-like 变体继续默认 `off`，且仍由用户显式选择 Auto 并确认披露。
 7. 不向 `SolinViewModel.kt`、`SolinScreen.kt` 或 `AgentLoopRuntime.kt` 堆放策略与状态机；分别提取 policy、privacy planner、resource aggregator、binding store、dispatcher 和 prepared-run coordinator。
 
 ## 文件结构
@@ -399,7 +399,7 @@ object ModelPlacementPolicy {
 }
 ```
 
-`RequestComplexityAggregator` 固定 70% 本地 context、Medium/High reasoning、多步计划/工具循环、高输出预算四类硬信号；缺必要 token/profile 信息返回 Unknown。`StableResourceSnapshotAggregator` 只保留最近 10 秒最多 3 个带 elapsed time 的样本，样本少于 2 个返回 Unknown；至少 2 个样本时需要 2 个 Hot 才为 Hot、需要 2 个 Warm-or-Hot 才为 Warm；Hot 降档保持 15 秒。`SystemResourceMonitor` 将 Android thermal 映射为 Unknown/Normal/Warm/Severe/Critical，Severe/Critical 样本进入 Hot，但单样本仍不淘汰本地。
+`RequestComplexityAggregator` 固定 70% 本地 context、Medium/High reasoning、多步计划/工具循环、显式请求输出预算至少 4,096 tokens 四类硬信号；当前 2,048 默认输出预留不触发复杂度，调用方没有显式预算时传 Unknown。缺必要 token/profile 信息返回 Unknown。`StableResourceSnapshotAggregator` 只保留最近 10 秒最多 3 个带 elapsed time 的样本，样本少于 2 个返回 Unknown；至少 2 个样本时需要 2 个 Hot 才为 Hot、需要 2 个 Warm-or-Hot 才为 Warm；Hot 降档保持 15 秒。`SystemResourceMonitor` 保留完整 Android thermal 语义：Unknown/Normal/Warm/Severe/Critical/Emergency/Shutdown；Severe/Critical 样本进入 Hot，但单样本仍不淘汰本地，Emergency/Shutdown 作为独立硬阻断输入交给 placement policy。
 
 - [ ] **Step 4: 验证测试通过**
 

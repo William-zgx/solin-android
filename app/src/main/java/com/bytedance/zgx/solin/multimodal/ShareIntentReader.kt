@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.OpenableColumns
 import com.bytedance.zgx.solin.ChatImageAttachment
 import com.bytedance.zgx.solin.LocalImageAttachment
+import com.bytedance.zgx.solin.MessagePrivacy
 import java.io.InputStream
 import java.util.Base64
 
@@ -100,12 +101,17 @@ class ShareIntentReader(
                 text = "",
                 attachments = imageAttachments,
                 protectedSourceCount = protectedSourceCount,
+                sourcePrivacy = sharedInputSourcePrivacyFor("", imageAttachments),
             ).takeUnless { it.isEmpty }
         }
         val attachments = uris
             .take(MAX_SHARED_ATTACHMENTS)
             .map { uri -> uri.toSharedAttachment(intentMimeType, mode) }
-        return SharedInput(text = text, attachments = attachments)
+        return SharedInput(
+            text = text,
+            attachments = attachments,
+            sourcePrivacy = sharedInputSourcePrivacyFor(text, attachments),
+        )
             .takeUnless { it.isEmpty }
     }
 
@@ -158,12 +164,23 @@ class ShareIntentReader(
         } else {
             null
         }
-        val imageAttachment = if (mode == SharedInputReadMode.RemoteVision && kind == SharedAttachmentKind.Image) {
+        val neutralImageAttachments = if (
+            mode == SharedInputReadMode.DestinationNeutralVision && kind == SharedAttachmentKind.Image
+        ) {
+            toDestinationNeutralImageAttachments(resolvedMimeType, metadata.sizeBytes)
+        } else {
+            null
+        }
+        val imageAttachment = neutralImageAttachments?.first ?: if (
+            mode == SharedInputReadMode.RemoteVision && kind == SharedAttachmentKind.Image
+        ) {
             toRemoteImageAttachment(resolvedMimeType, metadata.sizeBytes)
         } else {
             null
         }
-        val localImageAttachment = if (mode == SharedInputReadMode.LocalVision && kind == SharedAttachmentKind.Image) {
+        val localImageAttachment = neutralImageAttachments?.second ?: if (
+            mode == SharedInputReadMode.LocalVision && kind == SharedAttachmentKind.Image
+        ) {
             toLocalImageAttachment(resolvedMimeType, metadata.sizeBytes)
         } else {
             null
@@ -177,6 +194,34 @@ class ShareIntentReader(
             imageAttachment = imageAttachment,
             localImageAttachment = localImageAttachment,
         )
+    }
+
+    private fun Uri.toDestinationNeutralImageAttachments(
+        mimeType: String?,
+        sizeBytes: Long?,
+    ): Pair<ChatImageAttachment, LocalImageAttachment>? {
+        val normalizedMimeType = mimeType.normalizedMediaType()
+            ?.takeIf { mediaType -> mediaType.startsWith("image/") }
+            ?: return null
+        if (sizeBytes != null && sizeBytes > MAX_LOCAL_IMAGE_BYTES) return null
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(this)?.use { input ->
+                input.readBoundedImageBytes(maxBytes = MAX_LOCAL_IMAGE_BYTES)
+            }
+        }.getOrNull() ?: return null
+        if (bytes.isEmpty() || !remoteImageBytesMatchDeclaredMimeType(normalizedMimeType, bytes)) return null
+        val compactedBytes = bytes.compactedImageBytesForVision() ?: return null
+        val outputMimeType = if (compactedBytes !== bytes) "image/jpeg" else normalizedMimeType
+        val remoteAttachment = ChatImageAttachment(
+            mimeType = outputMimeType,
+            dataUrl = "data:$outputMimeType;base64,${Base64.getEncoder().encodeToString(compactedBytes)}",
+        )
+        val localAttachment = LocalImageAttachment(
+            mimeType = outputMimeType,
+            bytes = compactedBytes,
+            sizeBytes = compactedBytes.size.toLong(),
+        )
+        return remoteAttachment to localAttachment
     }
 
     private fun Uri.toRemoteVisionImageAttachment(intentMimeType: String?): SharedAttachment? {
@@ -300,6 +345,57 @@ class ShareIntentReader(
     }
 }
 
+internal fun sharedInputSourcePrivacyFor(
+    text: String,
+    attachments: List<SharedAttachment>,
+): List<SharedInputSourcePrivacy> = buildList {
+    if (text.isNotBlank()) {
+        add(
+            SharedInputSourcePrivacy(
+                source = SharedInputSource.Text,
+                privacy = MessagePrivacy.LocalOnly,
+                requiresLocalModel = true,
+            ),
+        )
+    }
+    attachments.forEach { attachment ->
+        when {
+            attachment.imageAttachment != null && attachment.textPreview == null -> add(
+                SharedInputSourcePrivacy(
+                    source = SharedInputSource.Image,
+                    privacy = MessagePrivacy.RemoteEligible,
+                    requiresLocalModel = false,
+                ),
+            )
+
+            attachment.localImageAttachment != null || attachment.imageAttachment != null -> add(
+                SharedInputSourcePrivacy(
+                    source = SharedInputSource.Image,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                ),
+            )
+
+            attachment.textPreview?.source == SharedTextPreviewSource.PdfImageOcr ||
+                attachment.textPreview?.source == SharedTextPreviewSource.ImageOcr -> add(
+                SharedInputSourcePrivacy(
+                    source = SharedInputSource.ScreenOcr,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                ),
+            )
+
+            else -> add(
+                SharedInputSourcePrivacy(
+                    source = SharedInputSource.File,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                ),
+            )
+        }
+    }
+}
+
 internal fun readSharedAttachmentTextPreview(
     mimeType: String?,
     kind: SharedAttachmentKind,
@@ -336,13 +432,16 @@ internal fun readSharedAttachmentTextPreview(
 enum class SharedInputReadMode {
     LocalPrompt,
     LocalVision,
+    DestinationNeutralVision,
     ProtectedSignal,
     RemoteVision,
     RemoteVisionUnsupportedSignal,
 }
 
 private val SharedInputReadMode.canReadLocalContent: Boolean
-    get() = this == SharedInputReadMode.LocalPrompt || this == SharedInputReadMode.LocalVision
+    get() = this == SharedInputReadMode.LocalPrompt ||
+        this == SharedInputReadMode.LocalVision ||
+        this == SharedInputReadMode.DestinationNeutralVision
 
 internal fun isProtectedRemoteImageSource(
     resolverMimeType: String?,

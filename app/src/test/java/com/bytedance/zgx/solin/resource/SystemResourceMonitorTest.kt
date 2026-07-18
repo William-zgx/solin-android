@@ -1,6 +1,9 @@
 package com.bytedance.zgx.solin.resource
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SystemResourceMonitorTest {
@@ -46,6 +49,63 @@ class SystemResourceMonitorTest {
         assertEquals(ResourcePressure.Hot, hot.pressure)
         assertEquals(90, hot.pressurePercent)
     }
+
+    @Test
+    fun nativeThermalMappingPreservesEveryAndroidBand() {
+        assertEquals(ThermalPressure.Unknown, mapThermalPressure(apiLevel = 28, nativeStatus = 0))
+        assertEquals(ThermalPressure.Unknown, mapThermalPressure(apiLevel = 29, nativeStatus = null))
+        assertEquals(ThermalPressure.Normal, mapThermalPressure(apiLevel = 29, nativeStatus = 0))
+        assertEquals(ThermalPressure.Normal, mapThermalPressure(apiLevel = 29, nativeStatus = 1))
+        assertEquals(ThermalPressure.Warm, mapThermalPressure(apiLevel = 29, nativeStatus = 2))
+        assertEquals(ThermalPressure.Severe, mapThermalPressure(apiLevel = 29, nativeStatus = 3))
+        assertEquals(ThermalPressure.Critical, mapThermalPressure(apiLevel = 29, nativeStatus = 4))
+        assertEquals(ThermalPressure.Emergency, mapThermalPressure(apiLevel = 29, nativeStatus = 5))
+        assertEquals(ThermalPressure.Shutdown, mapThermalPressure(apiLevel = 29, nativeStatus = 6))
+        assertEquals(ThermalPressure.Unknown, mapThermalPressure(apiLevel = 29, nativeStatus = 7))
+    }
+
+    @Test
+    fun severeAndAboveCountAsHotButOnlyEmergencyAndShutdownHardBlock() {
+        listOf(
+            ThermalPressure.Hot,
+            ThermalPressure.Severe,
+            ThermalPressure.Critical,
+            ThermalPressure.Emergency,
+            ThermalPressure.Shutdown,
+        ).forEach { thermal ->
+            val snapshot = snapshot(thermal)
+            assertEquals(ResourcePressure.Hot, snapshot.pressure)
+            assertEquals(90, snapshot.pressurePercent)
+        }
+
+        assertFalse(snapshot(ThermalPressure.Hot).localHardBlocked)
+        assertFalse(snapshot(ThermalPressure.Severe).localHardBlocked)
+        assertFalse(snapshot(ThermalPressure.Critical).localHardBlocked)
+        assertTrue(snapshot(ThermalPressure.Emergency).localHardBlocked)
+        assertTrue(snapshot(ThermalPressure.Shutdown).localHardBlocked)
+    }
+
+    @Test
+    fun procStatReaderFailureOnlyProducesNullCpuSample() {
+        val sampler = AppCpuSampler(
+            procStatReader = { error("proc unavailable") },
+            elapsedRealtimeMillis = { 1_000L },
+            processors = 1,
+            ticksPerSecond = 100L,
+        )
+
+        assertNull(sampler.sample())
+    }
+
+    private fun snapshot(thermal: ThermalPressure): SystemResourceSnapshot = SystemResourceSnapshot(
+        appPssBytes = 128L * 1024L * 1024L,
+        javaHeapBytes = 64L * 1024L * 1024L,
+        nativeHeapBytes = 32L * 1024L * 1024L,
+        availableRamBytes = 1_024L * 1024L * 1024L,
+        lowMemory = false,
+        appCpuPercent = null,
+        thermalPressure = thermal,
+    )
 
     private fun procStatLine(
         comm: String,

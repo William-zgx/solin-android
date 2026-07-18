@@ -223,6 +223,8 @@ data class SharedInputDraft(
     val imageAttachments: List<ChatImageAttachment> = emptyList(),
     val localImageAttachments: List<LocalImageAttachment> = emptyList(),
     val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val requiresLocalModel: Boolean = true,
+    val optionalHistoryFilteredCount: Int = 0,
     val evidenceReceiptSummary: EvidenceReceiptSummary = EvidenceReceiptSummary(
         evidenceCardCount = 0,
         localOnlyEvidenceCardCount = 0,
@@ -230,7 +232,13 @@ data class SharedInputDraft(
         lowQualityEvidenceCardCount = 0,
         sourceTypes = emptyList(),
     ),
-)
+) {
+    init {
+        require(optionalHistoryFilteredCount >= 0) {
+            "optionalHistoryFilteredCount must be >= 0"
+        }
+    }
+}
 
 data class PendingAgentConfirmation(
     val runId: String?,

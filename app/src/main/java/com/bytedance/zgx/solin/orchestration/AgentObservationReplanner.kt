@@ -26,6 +26,7 @@ import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
+import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
@@ -398,7 +399,7 @@ private fun AgentObservationReplanContext.shouldRejectNonLocalObservationTool(
     draft: ActionDraft,
     toolRegistry: ToolRegistry,
 ): Boolean {
-    if (!observedResult.hasLocalOnlyObservationEvidence()) return false
+    if (!observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))) return false
     if (draft.functionName !in MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES) return true
     return toolRegistry.specFor(draft.functionName)?.capability != ToolCapability.DeviceControl
 }
@@ -586,21 +587,10 @@ private fun ToolResult.hasEvidenceSupportingRepeatTarget(normalizedTarget: Strin
     return hasCurrentTargetEvidence(normalizedTarget, toolName)
 }
 
-private fun ToolResult.hasLocalOnlyObservationEvidence(): Boolean =
-    data["privacy"] == MessagePrivacy.LocalOnly.name ||
-        data["requiresLocalModel"] == true.toString() ||
-        data["ocrText"]?.isNotBlank() == true ||
-        data["ocrBlocksJson"]?.isNotBlank() == true ||
-        data["screenText"]?.isNotBlank() == true ||
-        localObservationJsonKeys.any { key -> data[key].isLocalOnlyObservationJson() }
-
-private fun String?.isLocalOnlyObservationJson(): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            val json = JSONObject(rawJson)
-            json.optString("privacyLevel") == MessagePrivacy.LocalOnly.name
-        }.getOrDefault(false)
-    } ?: false
+private fun ToolResult.hasLocalOnlyObservationEvidence(spec: ToolSpec?): Boolean =
+    PromptPrivacyPlanner.build(listOf(toPromptPrivacySegment(spec))).let { plan ->
+        plan.aggregatePrivacy == MessagePrivacy.LocalOnly || plan.requiresLocalModel
+    }
 
 private fun String?.hasPositiveScreenChangeSignal(): Boolean =
     this?.contains(Regex("""\bchanged\s*=\s*true\b""", RegexOption.IGNORE_CASE)) == true
@@ -915,7 +905,7 @@ internal fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: 
     val observationSummary = observedResult.summary.safeObservationPromptText()
     val observationDiagnostics = observedResult.observationDiagnosticsPrompt()
     val localObservationEvidence = observedResult.localObservationEvidencePrompt(intentPreview)
-    val localOnlyAllowedTools = observedResult.localOnlyObservationAllowedToolsPrompt(toolRegistry)
+    val localOnlyAllowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val priorRequestDetails = priorRequests.priorRequestDetailsPrompt()
     val appSearchProgress = AppSearchProgressEvidence.fromData(observedResult.data).toPromptText()
     return """
@@ -1011,7 +1001,7 @@ internal fun String.compressForObservationModelContext(
 private fun AgentObservationReplanContext.minimalObservationModelPrompt(toolRegistry: ToolRegistry): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
         .safeObservationPromptText(maxLength = 120)
-    val localOnlyAllowedTools = observedResult.localOnlyObservationAllowedToolsPrompt(toolRegistry)
+    val localOnlyAllowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val localEvidence = observedResult.localObservationEvidencePrompt(intentPreview)
     val targetShortlists = localEvidence.targetShortlistSummariesForPrompt()
     val targetEvidence = localEvidence.targetEvidenceSummariesForPrompt()
@@ -1388,8 +1378,8 @@ private fun ToolResult.localObservationEvidencePrompt(intentPreview: String): St
         .safeObservationPromptText(maxLength = MAX_LOCAL_EVIDENCE_CHARS)
     }
 
-private fun ToolResult.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String =
-    if (!hasLocalOnlyObservationEvidence()) {
+private fun AgentObservationReplanContext.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String =
+    if (!observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))) {
         "not_applicable"
     } else {
         MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES

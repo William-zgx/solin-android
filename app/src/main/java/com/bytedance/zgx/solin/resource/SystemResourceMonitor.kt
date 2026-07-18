@@ -28,6 +28,10 @@ enum class ThermalPressure(val label: String) {
     Normal("正常"),
     Warm("偏热"),
     Hot("过热"),
+    Severe("严重"),
+    Critical("临界"),
+    Emergency("紧急"),
+    Shutdown("关机"),
 }
 
 data class SystemResourceSnapshot(
@@ -50,7 +54,12 @@ data class SystemResourceSnapshot(
                 else -> 20
             }
             val thermalPercent = when (thermalPressure) {
-                ThermalPressure.Hot -> 90
+                ThermalPressure.Hot,
+                ThermalPressure.Severe,
+                ThermalPressure.Critical,
+                ThermalPressure.Emergency,
+                ThermalPressure.Shutdown,
+                -> 90
                 ThermalPressure.Warm -> 70
                 ThermalPressure.Normal,
                 ThermalPressure.Unknown,
@@ -58,6 +67,10 @@ data class SystemResourceSnapshot(
             }
             return maxOf(memoryPressure, appCpuPercent ?: 0, thermalPercent).coerceIn(0, 100)
         }
+
+    val localHardBlocked: Boolean
+        get() = thermalPressure == ThermalPressure.Emergency ||
+            thermalPressure == ThermalPressure.Shutdown
 
     val pressure: ResourcePressure
         get() = when {
@@ -77,7 +90,12 @@ class SystemResourceMonitor(
     private val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
     private val processors = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
     private val ticksPerSecond = readClockTicksPerSecond()
-    private var previousCpuSample: CpuTickSample? = null
+    private val cpuSampler = AppCpuSampler(
+        procStatReader = procStatReader,
+        elapsedRealtimeMillis = elapsedRealtimeMillis,
+        processors = processors,
+        ticksPerSecond = ticksPerSecond,
+    )
 
     fun sample(): SystemResourceSnapshot? = runCatching {
         val memoryInfo = Debug.MemoryInfo()
@@ -92,16 +110,37 @@ class SystemResourceMonitor(
             nativeHeapBytes = Debug.getNativeHeapAllocatedSize(),
             availableRamBytes = systemMemory.availMem,
             lowMemory = systemMemory.lowMemory,
-            appCpuPercent = sampleCpuPercent(),
+            appCpuPercent = cpuSampler.sample(),
             thermalPressure = thermalPressure(),
         )
     }.getOrNull()
 
-    private fun sampleCpuPercent(): Int? {
-        val ticks = parseProcStatCpuTicks(procStatReader() ?: return null) ?: return null
+    private fun thermalPressure(): ThermalPressure {
+        val status = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            powerManager?.currentThermalStatus
+        } else {
+            null
+        }
+        return mapThermalPressure(Build.VERSION.SDK_INT, status)
+    }
+}
+
+internal class AppCpuSampler(
+    private val procStatReader: () -> String?,
+    private val elapsedRealtimeMillis: () -> Long,
+    private val processors: Int,
+    private val ticksPerSecond: Long,
+) {
+    private var previousCpuSample: CpuTickSample? = null
+
+    @Synchronized
+    fun sample(): Int? {
+        val statLine = runCatching(procStatReader).getOrNull() ?: return null
+        val ticks = parseProcStatCpuTicks(statLine) ?: return null
+        val elapsedRealtime = runCatching(elapsedRealtimeMillis).getOrNull() ?: return null
         val current = CpuTickSample(
             totalTicks = ticks,
-            elapsedRealtimeMillis = elapsedRealtimeMillis(),
+            elapsedRealtimeMillis = elapsedRealtime,
         )
         val percent = calculateAppCpuPercent(
             previous = previousCpuSample,
@@ -112,17 +151,23 @@ class SystemResourceMonitor(
         previousCpuSample = current
         return percent
     }
+}
 
-    private fun thermalPressure(): ThermalPressure {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return ThermalPressure.Unknown
-        val status = powerManager?.currentThermalStatus ?: return ThermalPressure.Unknown
-        return when (status) {
-            PowerManager.THERMAL_STATUS_NONE,
-            PowerManager.THERMAL_STATUS_LIGHT,
-            -> ThermalPressure.Normal
-            PowerManager.THERMAL_STATUS_MODERATE -> ThermalPressure.Warm
-            else -> ThermalPressure.Hot
-        }
+internal fun mapThermalPressure(
+    apiLevel: Int,
+    nativeStatus: Int?,
+): ThermalPressure {
+    if (apiLevel < Build.VERSION_CODES.Q || nativeStatus == null) return ThermalPressure.Unknown
+    return when (nativeStatus) {
+        PowerManager.THERMAL_STATUS_NONE,
+        PowerManager.THERMAL_STATUS_LIGHT,
+        -> ThermalPressure.Normal
+        PowerManager.THERMAL_STATUS_MODERATE -> ThermalPressure.Warm
+        PowerManager.THERMAL_STATUS_SEVERE -> ThermalPressure.Severe
+        PowerManager.THERMAL_STATUS_CRITICAL -> ThermalPressure.Critical
+        PowerManager.THERMAL_STATUS_EMERGENCY -> ThermalPressure.Emergency
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> ThermalPressure.Shutdown
+        else -> ThermalPressure.Unknown
     }
 }
 

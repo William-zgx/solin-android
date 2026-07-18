@@ -61,6 +61,8 @@ import com.bytedance.zgx.solin.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.solin.multimodal.SharedAttachment
 import com.bytedance.zgx.solin.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.solin.multimodal.SharedInput
+import com.bytedance.zgx.solin.multimodal.SharedInputSource
+import com.bytedance.zgx.solin.multimodal.SharedInputSourcePrivacy
 import com.bytedance.zgx.solin.multimodal.SharedTextPreview
 import com.bytedance.zgx.solin.multimodal.SharedTextPreviewSource
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
@@ -1776,7 +1778,7 @@ class SolinViewModelTest {
         assertEquals(MessageRole.Assistant, notice.role)
         assertEquals(MessagePrivacy.LocalOnly, notice.privacy)
         assertTrue(notice.text.contains("配置远程模型地址和模型名"))
-        assertTrue(notice.text.contains("没有读取、OCR 或发送"))
+        assertTrue(notice.text.contains("没有发送这次分享内容"))
         assertTrue(notice.text.contains("确认发送"))
         assertFalse(notice.text.contains("1"))
         assertFalse(notice.text.contains("data:image"))
@@ -1977,6 +1979,7 @@ class SolinViewModelTest {
         assertEquals("screen.png · 图片", draft.summary)
         assertEquals(MessagePrivacy.RemoteEligible, draft.privacy)
         assertEquals(TEST_IMAGE_DATA_URL, draft.imageAttachments.single().dataUrl)
+        assertEquals(1, draft.localImageAttachments.size)
 
         viewModel.sendPendingSharedInput("描述这张图")
         advanceUntilIdle()
@@ -2118,7 +2121,7 @@ class SolinViewModelTest {
         assertEquals(MessageRole.Assistant, message.role)
         assertEquals(MessagePrivacy.LocalOnly, message.privacy)
         assertTrue(message.text.contains("未启用图片输入能力"))
-        assertTrue(message.text.contains("未读取、OCR 或发送图片"))
+        assertTrue(message.text.contains("未执行 OCR 或发送图片"))
         assertFalse(message.text.contains("screen.png"))
         assertFalse(message.text.contains("data:image/png"))
         assertEquals("当前远程模型不支持图片输入", viewModel.uiState.value.statusText)
@@ -7917,6 +7920,18 @@ class SolinViewModelTest {
                         mimeType = mimeType,
                         dataUrl = dataUrl,
                     ),
+                    localImageAttachment = LocalImageAttachment(
+                        mimeType = mimeType,
+                        bytes = byteArrayOf(0),
+                        sizeBytes = 1,
+                    ),
+                ),
+            ),
+            sourcePrivacy = listOf(
+                SharedInputSourcePrivacy(
+                    source = SharedInputSource.Image,
+                    privacy = MessagePrivacy.RemoteEligible,
+                    requiresLocalModel = false,
                 ),
             ),
         )
@@ -8053,7 +8068,7 @@ class SolinViewModelTest {
         forbiddenText.forEach { forbidden ->
             assertFalse("Protected share notice leaked `$forbidden`", message.text.contains(forbidden))
         }
-        assertTrue(message.text.contains("不会读取或自动发送分享文本"))
+        assertTrue(message.text.contains("只在本机处理，不会自动发送"))
         assertTrue(message.text.contains("附件元数据"))
         assertTrue(message.text.contains("JSON/XML/YAML 文本摘录"))
         assertEquals("已保护分享内容", statusText)

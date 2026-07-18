@@ -22,6 +22,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class AgentObservationReplannerTest {
     @Test
@@ -382,6 +383,62 @@ class AgentObservationReplannerTest {
         assertNull(replan)
         assertTrue(runtime.lastInput.orEmpty().contains("LocalOnly observation evidence"))
         assertTrue(runtime.lastInput.orEmpty().contains("Do not output web_search"))
+    }
+
+    @Test
+    fun modelReplannerTreatsMissingOrMalformedObservationPrivacyAsLocalOnly() {
+        val missingPrivacy = JSONObject(screenObservationJson()).apply {
+            remove("privacyLevel")
+        }.toString()
+
+        listOf(missingPrivacy, "{malformed").forEachIndexed { index, observationJson ->
+            val runtime = RecordingModelActionRuntime(
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                parameters = mapOf("query" to "continue"),
+            )
+            val registry = ToolRegistry(
+                ToolProvider {
+                    listOf(specFor(toolName = MobileActionFunctions.WEB_SEARCH)) +
+                        localOnlyAllowedToolSpecs()
+                },
+            )
+            val replanner = ModelObservationReplanner(
+                actionPlanningRuntime = runtime,
+                actionModelPathProvider = { "/tmp/action-model.litertlm" },
+                toolRegistry = registry,
+            )
+            val previousRequest = ToolRequest(
+                id = "privacy-$index",
+                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            )
+
+            val replan = replanner.planNext(
+                AgentObservationReplanContext(
+                    run = AgentRun(
+                        id = "run-privacy-$index",
+                        input = "continue",
+                        state = AgentRunState.Observing,
+                        createdAtMillis = 1L,
+                        updatedAtMillis = 1L,
+                    ),
+                    previousRequest = previousRequest,
+                    observedResult = ToolResult(
+                        requestId = previousRequest.id,
+                        status = ToolStatus.Succeeded,
+                        summary = "observed",
+                        data = mapOf(
+                            "privacy" to "RemoteEligible",
+                            "requiresLocalModel" to "false",
+                            "screenObservationJson" to observationJson,
+                        ),
+                    ),
+                    priorRequests = listOf(previousRequest),
+                ),
+            )
+
+            assertNull(replan)
+            assertTrue(runtime.lastInput.orEmpty().contains("Do not output web_search"))
+        }
     }
 
     @Test

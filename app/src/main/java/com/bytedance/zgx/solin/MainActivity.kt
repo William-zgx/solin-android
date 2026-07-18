@@ -490,8 +490,6 @@ class MainActivity : ComponentActivity() {
         sharedInputReadModeFor(
             inferenceMode = viewModel.uiState.value.inferenceMode,
             localSupportsVisionInput = viewModel.uiState.value.activeLocalModelSupportsVisionInput,
-            remoteConfigured = viewModel.uiState.value.remoteModelConfig.isConfigured,
-            remoteSupportsVisionInput = viewModel.uiState.value.remoteModelConfig.modelProfile().supportsVisionInput,
         )
 
     private fun startVoiceInput() {
@@ -840,17 +838,11 @@ class MainActivity : ComponentActivity() {
 }
 
 internal fun sharedInputReadModeFor(
+    @Suppress("UNUSED_PARAMETER")
     inferenceMode: InferenceMode,
+    @Suppress("UNUSED_PARAMETER")
     localSupportsVisionInput: Boolean = false,
-    remoteConfigured: Boolean,
-    remoteSupportsVisionInput: Boolean,
-): SharedInputReadMode =
-    when {
-        inferenceMode != InferenceMode.Remote && localSupportsVisionInput -> SharedInputReadMode.LocalVision
-        inferenceMode != InferenceMode.Remote -> SharedInputReadMode.LocalPrompt
-        remoteConfigured && remoteSupportsVisionInput -> SharedInputReadMode.RemoteVision
-        else -> SharedInputReadMode.RemoteVisionUnsupportedSignal
-    }
+): SharedInputReadMode = SharedInputReadMode.DestinationNeutralVision
 
 internal class VoiceInputSessionGate {
     var activeSessionId: Long = 0L
