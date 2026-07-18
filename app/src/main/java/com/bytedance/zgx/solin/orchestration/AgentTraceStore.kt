@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.audit.ToolAuditSummaryRedactor
 import com.bytedance.zgx.solin.data.AgentSkillRunCheckpointEntity
@@ -7,6 +8,7 @@ import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.AgentTraceDao
 import com.bytedance.zgx.solin.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.skill.SkillBackgroundExecution
 import com.bytedance.zgx.solin.skill.SkillBackgroundWork
 import com.bytedance.zgx.solin.skill.SkillManifest
@@ -304,8 +306,19 @@ class RoomAgentTraceStore(
     private val runIdFactory: () -> String = { "run-${UUID.randomUUID()}" },
     private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : AgentTraceStore {
+    private data class LiveStepEntry(
+        val step: AgentStep,
+        val createdAtMillis: Long,
+    )
+
+    private data class MergedStepEntry(
+        val step: AgentStep,
+        val persisted: AgentStepEntity?,
+        val createdAtMillis: Long,
+    )
+
     private val liveRuns = ConcurrentHashMap<String, AgentRun>()
-    private val liveSteps = ConcurrentHashMap<String, CopyOnWriteArrayList<AgentStep>>()
+    private val liveSteps = ConcurrentHashMap<String, CopyOnWriteArrayList<LiveStepEntry>>()
     private val liveVerboseTraces = ConcurrentHashMap<String, CopyOnWriteArrayList<VerboseTraceEntry>>()
     private val livePendingConfirmations = ConcurrentHashMap<String, PendingToolConfirmationSnapshot>()
     private val liveNextActionInputs = ConcurrentHashMap<String, String>()
@@ -321,27 +334,45 @@ class RoomAgentTraceStore(
             updatedAtMillis = now,
             sessionId = sessionId,
         )
-        liveRuns[run.id] = run
-        liveSteps[run.id] = CopyOnWriteArrayList()
-        liveVerboseTraces[run.id] = CopyOnWriteArrayList()
         // Persist to Room, but never let a DB failure prevent the run from being
         // usable. The in-memory maps (liveRuns, liveSteps, etc.) are the source
         // of truth for the active run; the DB is a write-through cache for
         // observability. If the DB is unavailable (e.g. fresh test install,
         // tables cleared), the run still proceeds in-memory.
-        runCatching { traceDao.upsertRun(run.toEntity()) }
+        val insertResult = runCatching { traceDao.insertRunIfAbsent(run.toEntity()) }
             .onFailure { throwable ->
                 android.util.Log.w(
                     "RoomAgentTraceStore",
-                    "upsertRun failed for ${run.id}, continuing in-memory: ${throwable.message}",
+                    "insertRun failed for ${run.id}, continuing in-memory: ${throwable.message}",
                 )
             }
+        check(insertResult.getOrNull() != -1L) { "Duplicate agent run id: ${run.id}" }
+        liveRuns[run.id] = run
+        liveSteps[run.id] = CopyOnWriteArrayList()
+        liveVerboseTraces[run.id] = CopyOnWriteArrayList()
         return run
     }
 
-    override fun run(runId: String): AgentRun? =
-        liveRuns[runId]
-            ?: traceDao.run(runId)?.toDomain()
+    override fun run(runId: String): AgentRun? {
+        val live = liveRuns[runId]
+        val persisted = runCatching { traceDao.run(runId)?.toDomain() }.getOrNull()
+        return when {
+            persisted == null -> live
+            live == null -> {
+                liveRuns[runId] = persisted
+                persisted
+            }
+            persisted.state.isTerminal() || persisted.updatedAtMillis > live.updatedAtMillis -> {
+                val merged = live.copy(
+                    state = persisted.state,
+                    updatedAtMillis = maxOf(live.updatedAtMillis, persisted.updatedAtMillis),
+                )
+                liveRuns[runId] = merged
+                merged
+            }
+            else -> live
+        }
+    }
 
     override fun updateState(runId: String, state: AgentRunState): AgentRun {
         val now = clockMillis()
@@ -351,8 +382,22 @@ class RoomAgentTraceStore(
         val updatedRows = runCatching { traceDao.updateRunState(runId, state.name, now) }
             .getOrDefault(0)
         if (updatedRows == 0) {
-            liveRuns[runId]?.let { run ->
-                runCatching { traceDao.upsertRun(run.copy(state = state, updatedAtMillis = now).toEntity()) }
+            val existing = runCatching { traceDao.run(runId)?.toDomain() }.getOrNull()
+            if (existing?.state?.isTerminal() == true) {
+                return projectPersistedTerminal(runId, existing)
+            }
+            if (existing == null) {
+                liveRuns[runId]?.let { run ->
+                    runCatching {
+                        traceDao.insertRunIfAbsent(run.copy(state = state, updatedAtMillis = now).toEntity())
+                    }
+                }
+            } else {
+                runCatching { traceDao.updateRunState(runId, state.name, now) }
+            }
+            val afterFallback = runCatching { traceDao.run(runId)?.toDomain() }.getOrNull()
+            if (afterFallback?.state?.isTerminal() == true) {
+                return projectPersistedTerminal(runId, afterFallback)
             }
         }
         liveRuns[runId]?.let { liveRun ->
@@ -377,6 +422,24 @@ class RoomAgentTraceStore(
         }
         return traceDao.run(runId)?.toDomain()
             ?: error("Agent run not found: $runId")
+    }
+
+    private fun projectPersistedTerminal(
+        runId: String,
+        persisted: AgentRun,
+    ): AgentRun {
+        val projected = liveRuns[runId]?.let { live ->
+            live.copy(
+                state = persisted.state,
+                updatedAtMillis = maxOf(live.updatedAtMillis, persisted.updatedAtMillis),
+            )
+        } ?: persisted
+        liveRuns[runId] = projected
+        livePendingConfirmations.remove(runId)
+        liveNextActionInputs.remove(runId)
+        liveContinuationCursors.remove(runId)
+        runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
+        return projected
     }
 
     override fun compareAndSetState(
@@ -433,7 +496,7 @@ class RoomAgentTraceStore(
         if (runExistsInDb) {
             runCatching {
                 traceDao.insertNextStep(
-                    step.toEntity(
+                    step.toTraceEntity(
                         runId = runId,
                         position = 0,
                         createdAtMillis = now,
@@ -445,7 +508,7 @@ class RoomAgentTraceStore(
         liveRuns[runId]?.let { liveRun ->
             liveRuns[runId] = liveRun.copy(updatedAtMillis = now)
         }
-        liveSteps.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(step)
+        liveSteps.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(LiveStepEntry(step, now))
     }
 
     override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
@@ -456,11 +519,17 @@ class RoomAgentTraceStore(
         liveVerboseTraces[runId]?.toList().orEmpty()
 
     override fun steps(runId: String): List<AgentStep> =
-        liveSteps[runId]?.toList()
-            ?: traceDao.steps(runId).map { entity -> entity.toRestoredStep() }
+        mergedStepEntries(runId).map { entry -> entry.step }
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
-        traceDao.steps(runId).map { entity -> entity.toSummary() }
+        mergedStepEntries(runId).mapIndexed { index, entry ->
+            entry.persisted?.toSummary()
+                ?: entry.step.toTraceEntity(
+                    runId = runId,
+                    position = index,
+                    createdAtMillis = entry.createdAtMillis,
+                ).toSummary()
+        }
 
     override fun recentRunSummaries(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
         if (limit <= 0) return emptyList()
@@ -718,19 +787,31 @@ class RoomAgentTraceStore(
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
         val steps = liveSteps.computeIfAbsent(snapshot.run.id) { CopyOnWriteArrayList() }
         traceDao.steps(snapshot.run.id)
-            .mapNotNull { entity -> entity.toRestoredToolRequestedOrNull() }
-            .filterNot { step -> step.request.id == snapshot.request.id }
-            .forEach { restored ->
-                if (steps.none { step -> step is AgentStep.ToolRequested && step.request.id == restored.request.id }) {
-                    steps += restored
+            .mapNotNull { entity -> entity.toRestoredToolRequestedOrNull()?.let { restored -> entity to restored } }
+            .filterNot { (_, step) -> step.request.id == snapshot.request.id }
+            .forEach { (entity, restored) ->
+                if (steps.none { entry ->
+                        val step = entry.step
+                        step is AgentStep.ToolRequested && step.request.id == restored.request.id
+                    }
+                ) {
+                    steps += LiveStepEntry(restored, entity.createdAtMillis)
                 }
             }
         snapshot.skillPlan?.let { plan ->
-            if (steps.none { step -> step is AgentStep.SkillPlanned && step.request.id == plan.request.id }) {
-                val toolIndex = steps.indexOfFirst { step ->
+            if (steps.none { entry ->
+                    val step = entry.step
+                    step is AgentStep.SkillPlanned && step.request.id == plan.request.id
+                }
+            ) {
+                val toolIndex = steps.indexOfFirst { entry ->
+                    val step = entry.step
                     step is AgentStep.ToolRequested && step.request.id == snapshot.request.id
                 }
-                val skillStep = AgentStep.SkillPlanned(plan.request, plan)
+                val skillStep = LiveStepEntry(
+                    AgentStep.SkillPlanned(plan.request, plan),
+                    snapshot.run.updatedAtMillis,
+                )
                 if (toolIndex >= 0) {
                     steps.add(toolIndex, skillStep)
                 } else {
@@ -738,16 +819,56 @@ class RoomAgentTraceStore(
                 }
             }
         }
-        if (steps.none { step -> step is AgentStep.ToolRequested && step.request.id == snapshot.request.id }) {
-            steps += AgentStep.ToolRequested(snapshot.request, snapshot.draft)
+        if (steps.none { entry ->
+                val step = entry.step
+                step is AgentStep.ToolRequested && step.request.id == snapshot.request.id
+            }
+        ) {
+            steps += LiveStepEntry(
+                AgentStep.ToolRequested(snapshot.request, snapshot.draft),
+                snapshot.run.updatedAtMillis,
+            )
         }
-        if (steps.none { step ->
+        if (steps.none { entry ->
+                val step = entry.step
                 step is AgentStep.UserConfirmationRequested && step.request.id == snapshot.request.id
             }
         ) {
-            steps += AgentStep.UserConfirmationRequested(snapshot.request, snapshot.draft)
+            steps += LiveStepEntry(
+                AgentStep.UserConfirmationRequested(snapshot.request, snapshot.draft),
+                snapshot.run.updatedAtMillis,
+            )
         }
     }
+
+    private fun mergedStepEntries(runId: String): List<MergedStepEntry> {
+        val persisted = runCatching { traceDao.steps(runId) }.getOrDefault(emptyList())
+        val unmatchedLive = liveSteps[runId]?.toMutableList().orEmpty().toMutableList()
+        val merged = persisted.map { entity ->
+            val liveIndex = unmatchedLive.indexOfFirst { entry -> entry.matchesPersisted(runId, entity) }
+            if (liveIndex >= 0) {
+                val live = unmatchedLive.removeAt(liveIndex)
+                MergedStepEntry(live.step, entity, live.createdAtMillis)
+            } else {
+                MergedStepEntry(entity.toRestoredStep(), entity, entity.createdAtMillis)
+            }
+        }
+        return merged + unmatchedLive.map { live ->
+            MergedStepEntry(live.step, persisted = null, createdAtMillis = live.createdAtMillis)
+        }
+    }
+
+    private fun LiveStepEntry.matchesPersisted(runId: String, entity: AgentStepEntity): Boolean = runCatching {
+        when (val liveStep = step) {
+            is AgentStep.ToolRequested ->
+                entity.type == "ToolRequested" &&
+                    JSONObject(entity.json).optString("requestId") == liveStep.request.id
+            else -> {
+                val liveEntity = liveStep.toTraceEntity(runId, entity.position, entity.createdAtMillis)
+                liveEntity.type == entity.type && liveEntity.json == entity.json
+            }
+        }
+    }.getOrDefault(false)
 }
 
 private fun AgentRunState.isStaleAfterProcessRestart(): Boolean =
@@ -789,7 +910,7 @@ private fun AgentRunEntity.toDomain(): AgentRun =
         sessionId = sessionId,
     )
 
-private fun AgentStep.toEntity(runId: String, position: Int, createdAtMillis: Long): AgentStepEntity {
+internal fun AgentStep.toTraceEntity(runId: String, position: Int, createdAtMillis: Long): AgentStepEntity {
     val summary = toTraceStepSummary(runId, position, createdAtMillis)
     return AgentStepEntity(
         runId = summary.runId,
@@ -801,7 +922,7 @@ private fun AgentStep.toEntity(runId: String, position: Int, createdAtMillis: Lo
     )
 }
 
-private fun AgentStep.toTraceStepSummary(
+internal fun AgentStep.toTraceStepSummary(
     runId: String,
     position: Int,
     createdAtMillis: Long,
@@ -812,7 +933,7 @@ private fun AgentStep.toTraceStepSummary(
         position = position,
         type = type,
         summary = traceSummary(),
-        json = traceJson(type).toString(),
+        json = traceJson(type, runId).toString(),
         createdAtMillis = createdAtMillis,
     )
 }
@@ -1397,12 +1518,65 @@ private fun JSONArray.toStringList(): List<String> =
         }
     }
 
+private val allowedProtectedContentTypes = setOf(
+    "本地记忆",
+    "设备上下文",
+    "LocalOnly 历史",
+    "受保护分享源",
+    "非图片附件",
+    "LocalOnly 输入证据",
+    "截断输入证据",
+    "本地工具结果",
+)
+
+private val allowedDeletableRecordTypes = setOf("对话消息", "Agent 轨迹", "显式记忆")
+
+private val allowedOutputQualityIssues = setOf(
+    "RepetitionLoop",
+    "MalformedOutput",
+    "EmptyOutput",
+    "FormatViolation",
+    "LengthExceeded",
+    "UnsafeOrPolicyViolation",
+)
+
+private val allowedOutputQualityActions = setOf(
+    "Continue",
+    "StopAndKeepPrefix",
+    "StopAndReplaceWithNotice",
+    "RetrySuggested",
+    "FailClosed",
+)
+
+private fun String.safeMessagePrivacyName(): String =
+    runCatching { MessagePrivacy.valueOf(this).name }.getOrDefault(MessagePrivacy.LocalOnly.name)
+
+private fun List<String>.safeEvidenceSourceTypes(): List<String> {
+    val allowed = EvidenceSourceType.entries.mapTo(hashSetOf()) { it.name }
+    return filter { it in allowed }.distinct()
+}
+
+private fun List<String>.safeProtectedContentTypes(): List<String> =
+    filter { it in allowedProtectedContentTypes }.distinct()
+
+private fun List<String>.safeDeletableRecordTypes(): List<String> =
+    filter { it in allowedDeletableRecordTypes }.distinct()
+
+private fun String?.safeOutputQualityIssue(): Any =
+    takeIf { it in allowedOutputQualityIssues } ?: JSONObject.NULL
+
+private fun String?.safeOutputQualityAction(): Any =
+    takeIf { it in allowedOutputQualityActions } ?: JSONObject.NULL
+
 private fun AgentStep.traceType(): String =
     when (this) {
         is AgentStep.ContextLoaded -> "ContextLoaded"
         is AgentStep.ModelPlanned -> "ModelPlanned"
         is AgentStep.IntentRouted -> "IntentRouted"
         is AgentStep.RemoteToolsExposed -> "RemoteToolsExposed"
+        is AgentStep.PlacementSelected -> "PlacementSelected"
+        is AgentStep.ModelRuntimeInvocationStarted -> "ModelRuntimeInvocationStarted"
+        is AgentStep.ShadowPlacementEvaluated -> "ShadowPlacementEvaluated"
         is AgentStep.RunDataReceiptRecorded -> "RunDataReceiptRecorded"
         is AgentStep.ModelOutputQualityGuardTriggered -> "ModelOutputQualityGuardTriggered"
         is AgentStep.ToolRequested -> "ToolRequested"
@@ -1438,6 +1612,9 @@ private fun AgentStep.traceSummary(): String =
                 " (accepted=${decision.accepted})."
         is AgentStep.RemoteToolsExposed ->
             "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
+        is AgentStep.PlacementSelected -> "Serving placement selected."
+        is AgentStep.ModelRuntimeInvocationStarted -> "Serving runtime invocation started."
+        is AgentStep.ShadowPlacementEvaluated -> "Shadow placement evaluated."
         is AgentStep.RunDataReceiptRecorded ->
             "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
                 "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
@@ -1491,7 +1668,7 @@ private fun AgentObservationDecision.traceSummary(): String =
         AgentObservationDecision.Cancel -> "Observation cancelled."
     }
 
-private fun AgentStep.traceJson(type: String): JSONObject {
+private fun AgentStep.traceJson(type: String, runId: String): JSONObject {
     val json = JSONObject().put("type", type)
     when (this) {
         is AgentStep.ContextLoaded -> json
@@ -1517,9 +1694,41 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("scope", scope.name)
             .put("toolNames", toolNames.sorted())
 
+        is AgentStep.PlacementSelected -> json
+            .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+            .put("runId", runId)
+            .put("policyVersion", binding.policyVersion)
+            .put("preference", binding.preference.name)
+            .put("placement", binding.placement.name)
+            .put("primaryReason", binding.primaryReason.name)
+            .put("complexity", binding.complexity.name)
+            .put("resourceBand", binding.resourceBand.name)
+            .put("localState", binding.localState.name)
+            .put("remoteState", binding.remoteState.name)
+            .put("remoteProfileRevision", binding.remoteProfileRevision ?: JSONObject.NULL)
+
+        is AgentStep.ModelRuntimeInvocationStarted -> json
+            .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+            .put("runId", runId)
+            .put("placement", invocation.placement.name)
+            .put("attempt", invocation.attempt)
+            .put("remoteProfileRevision", invocation.remoteProfileRevision ?: JSONObject.NULL)
+
+        is AgentStep.ShadowPlacementEvaluated -> json
+            .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+            .put("runId", runId)
+            .put("policyVersion", trace.policyVersion)
+            .put("preference", trace.preference.name)
+            .put("placement", trace.placement?.name ?: JSONObject.NULL)
+            .put("primaryReason", trace.primaryReason.name)
+            .put("complexity", trace.complexity.name)
+            .put("resourceBand", trace.resourceBand.name)
+            .put("localState", trace.localState.name)
+            .put("remoteState", trace.remoteState.name)
+
         is AgentStep.RunDataReceiptRecorded -> json
             .put("destination", receipt.destination.name)
-            .put("currentPromptPrivacy", receipt.currentPromptPrivacy)
+            .put("currentPromptPrivacy", receipt.currentPromptPrivacy.safeMessagePrivacyName())
             .put("remoteHistoryCount", receipt.remoteHistoryCount)
             .put("localOnlyHistoryFilteredCount", receipt.localOnlyHistoryFilteredCount)
             .put("memoryHitCount", receipt.memoryHitCount)
@@ -1533,14 +1742,14 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("localOnlyEvidenceCardCount", receipt.localOnlyEvidenceCardCount)
             .put("truncatedEvidenceCardCount", receipt.truncatedEvidenceCardCount)
             .put("lowQualityEvidenceCardCount", receipt.lowQualityEvidenceCardCount)
-            .put("evidenceSourceTypes", receipt.evidenceSourceTypes.toJsonArray())
+            .put("evidenceSourceTypes", receipt.evidenceSourceTypes.safeEvidenceSourceTypes().toJsonArray())
             .put("rawContentPersisted", receipt.rawContentPersisted)
-            .put("protectedContentTypes", receipt.protectedContentTypes.toJsonArray())
-            .put("deletableRecordTypes", receipt.deletableRecordTypes.toJsonArray())
+            .put("protectedContentTypes", receipt.protectedContentTypes.safeProtectedContentTypes().toJsonArray())
+            .put("deletableRecordTypes", receipt.deletableRecordTypes.safeDeletableRecordTypes().toJsonArray())
             .put("outputQualityGuardTriggered", receipt.outputQualityGuardTriggered)
-            .put("outputQualityIssue", receipt.outputQualityIssue)
-            .put("outputQualityRule", receipt.outputQualityRule)
-            .put("outputQualityAction", receipt.outputQualityAction)
+            .put("outputQualityIssue", receipt.outputQualityIssue.safeOutputQualityIssue())
+            .put("outputQualityRule", JSONObject.NULL)
+            .put("outputQualityAction", receipt.outputQualityAction.safeOutputQualityAction())
             .put("outputQualityStopped", receipt.outputQualityStopped)
             .put("outputQualityKeptPrefix", receipt.outputQualityKeptPrefix)
 

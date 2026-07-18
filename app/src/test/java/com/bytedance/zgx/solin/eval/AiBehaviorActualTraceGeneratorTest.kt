@@ -2075,12 +2075,15 @@ class AiBehaviorActualTraceGeneratorTest {
                 .filter { run -> run.sessionId == sessionId }
                 .map { run -> run.id }
 
-        override fun upsertRun(run: AgentRunEntity) {
+        override fun insertRunIfAbsent(run: AgentRunEntity): Long {
+            if (run.id in runs) return -1L
             runs[run.id] = run
+            return 1L
         }
 
         override fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int {
             val run = runs[runId] ?: return 0
+            if (run.state in setOf("Completed", "Cancelled", "Failed")) return 0
             runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
             return 1
         }
@@ -2092,6 +2095,7 @@ class AiBehaviorActualTraceGeneratorTest {
             updatedAtMillis: Long,
         ): Int {
             val run = runs[runId] ?: return 0
+            if (run.state in setOf("Completed", "Cancelled", "Failed")) return 0
             if (run.state != expectedState) return 0
             runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
             return 1

@@ -165,6 +165,35 @@ data class AgentRunEntity(
     val sessionId: String? = null,
 )
 
+@Entity(
+    tableName = "agent_run_placement_bindings",
+    foreignKeys = [
+        ForeignKey(
+            entity = AgentRunEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["runId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class AgentRunPlacementBindingEntity(
+    @PrimaryKey val runId: String,
+    val schemaVersion: Int,
+    val policyVersion: Int,
+    val preference: String,
+    val placement: String,
+    val primaryReason: String,
+    val complexity: String,
+    val resourceBand: String,
+    val localState: String,
+    val remoteState: String,
+    val remoteProfileRevision: String?,
+    val bootCount: Long,
+    val boundAtElapsedRealtimeMillis: Long,
+    val dispatchState: String,
+    val attempt: Int,
+)
+
 @Entity(tableName = "agent_steps", primaryKeys = ["runId", "position"])
 data class AgentStepEntity(
     val runId: String,
@@ -570,6 +599,164 @@ abstract class MemoryDeletionTransactionDao {
     }
 }
 
+data class RunPlacementRecoverySnapshotEntity(
+    val run: AgentRunEntity,
+    val binding: AgentRunPlacementBindingEntity,
+    val steps: List<AgentStepEntity>,
+    val pendingConfirmation: PendingAgentConfirmationEntity?,
+)
+
+data class RunPlacementTerminalizationEntity(
+    val targetStateMatched: Boolean,
+    val binding: AgentRunPlacementBindingEntity?,
+)
+
+@Dao
+abstract class RunPlacementBindingDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract fun insertRunStrict(run: AgentRunEntity)
+
+    @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
+    abstract fun run(runId: String): AgentRunEntity?
+
+    @Query(
+        """
+        UPDATE agent_runs
+        SET state = :state, updatedAtMillis = :updatedAtMillis
+        WHERE id = :runId AND state NOT IN ('Completed', 'Cancelled', 'Failed')
+        """,
+    )
+    abstract fun updateRunTerminal(runId: String, state: String, updatedAtMillis: Long): Int
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract fun insertBindingStrict(binding: AgentRunPlacementBindingEntity)
+
+    @Query("SELECT * FROM agent_run_placement_bindings WHERE runId = :runId LIMIT 1")
+    abstract fun binding(runId: String): AgentRunPlacementBindingEntity?
+
+    @Query(
+        """
+        UPDATE agent_run_placement_bindings
+        SET dispatchState = 'Started', attempt = attempt + 1
+        WHERE runId = :runId
+          AND placement = :placement
+          AND attempt = :expectedAttempt
+          AND dispatchState IN ('Pending', 'Idle')
+        """,
+    )
+    abstract fun compareAndSetStarted(runId: String, placement: String, expectedAttempt: Int): Int
+
+    @Query(
+        """
+        UPDATE agent_run_placement_bindings
+        SET dispatchState = 'Idle'
+        WHERE runId = :runId
+          AND placement = :placement
+          AND attempt = :attempt
+          AND dispatchState = 'Started'
+        """,
+    )
+    abstract fun compareAndSetIdle(
+        runId: String,
+        placement: String,
+        attempt: Int,
+    ): Int
+
+    @Query(
+        """
+        UPDATE agent_run_placement_bindings
+        SET dispatchState = 'Terminal'
+        WHERE runId = :runId AND dispatchState != 'Terminal'
+        """,
+    )
+    abstract fun markBindingTerminal(runId: String): Int
+
+    @Query("SELECT COALESCE(MAX(position) + 1, 0) FROM agent_steps WHERE runId = :runId")
+    abstract fun nextStepPosition(runId: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract fun insertStepStrict(step: AgentStepEntity)
+
+    @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY position ASC")
+    abstract fun steps(runId: String): List<AgentStepEntity>
+
+    @Query("SELECT * FROM pending_agent_confirmations WHERE runId = :runId LIMIT 1")
+    abstract fun pendingConfirmation(runId: String): PendingAgentConfirmationEntity?
+
+    @Transaction
+    open fun bindAndReserveTransaction(
+        binding: AgentRunPlacementBindingEntity,
+        placementStep: AgentStepEntity,
+    ): AgentRunPlacementBindingEntity {
+        val parent = run(binding.runId) ?: error("Binding parent run is missing")
+        check(parent.state !in TERMINAL_AGENT_RUN_STATES) { "Terminal run cannot be bound" }
+        insertBindingStrict(binding)
+        appendStepStrict(placementStep)
+        return binding(binding.runId) ?: error("Binding disappeared during transaction")
+    }
+
+    @Transaction
+    open fun claimAndRecordTransaction(
+        runId: String,
+        placement: String,
+        expectedAttempt: Int,
+        receiptStep: AgentStepEntity,
+        invocationStep: AgentStepEntity,
+    ): AgentRunPlacementBindingEntity? {
+        val parent = run(runId) ?: return null
+        if (parent.state in TERMINAL_AGENT_RUN_STATES) return null
+        if (compareAndSetStarted(runId, placement, expectedAttempt) != 1) return null
+        appendStepStrict(receiptStep)
+        appendStepStrict(invocationStep)
+        return binding(runId) ?: error("Binding disappeared during claim transaction")
+    }
+
+    @Transaction
+    open fun terminalizeTransaction(
+        runId: String,
+        state: String,
+        updatedAtMillis: Long,
+    ): RunPlacementTerminalizationEntity? {
+        if (state !in TERMINAL_AGENT_RUN_STATES) return null
+        val parent = run(runId) ?: return null
+        val currentBinding = binding(runId)
+        if (currentBinding != null && currentBinding.dispatchState != "Terminal") {
+            check(markBindingTerminal(runId) == 1) {
+                "Placement terminalization lost inside transaction"
+            }
+        }
+        if (parent.state !in TERMINAL_AGENT_RUN_STATES) {
+            check(updateRunTerminal(runId, state, updatedAtMillis) == 1) {
+                "Run terminal update lost after placement terminalization"
+            }
+        }
+        return RunPlacementTerminalizationEntity(
+            targetStateMatched = parent.state !in TERMINAL_AGENT_RUN_STATES || parent.state == state,
+            binding = currentBinding?.copy(dispatchState = "Terminal"),
+        )
+    }
+
+    @Transaction
+    open fun recoverySnapshot(runId: String): RunPlacementRecoverySnapshotEntity? {
+        val run = run(runId) ?: return null
+        val binding = binding(runId) ?: return null
+        return RunPlacementRecoverySnapshotEntity(
+            run = run,
+            binding = binding,
+            steps = steps(runId),
+            pendingConfirmation = pendingConfirmation(runId),
+        )
+    }
+
+    private fun appendStepStrict(step: AgentStepEntity) {
+        insertStepStrict(step.copy(position = nextStepPosition(step.runId)))
+    }
+
+    private companion object {
+        val TERMINAL_AGENT_RUN_STATES = setOf("Completed", "Cancelled", "Failed")
+    }
+}
+
 @Dao
 interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
@@ -581,17 +768,25 @@ interface AgentTraceDao {
     @Query("SELECT id FROM agent_runs WHERE sessionId = :sessionId")
     fun runIdsForSession(sessionId: String): List<String>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsertRun(run: AgentRunEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertRunIfAbsent(run: AgentRunEntity): Long
 
-    @Query("UPDATE agent_runs SET state = :state, updatedAtMillis = :updatedAtMillis WHERE id = :runId")
+    @Query(
+        """
+        UPDATE agent_runs
+        SET state = :state, updatedAtMillis = :updatedAtMillis
+        WHERE id = :runId AND state NOT IN ('Completed', 'Cancelled', 'Failed')
+        """,
+    )
     fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int
 
     @Query(
         """
         UPDATE agent_runs
         SET state = :state, updatedAtMillis = :updatedAtMillis
-        WHERE id = :runId AND state = :expectedState
+        WHERE id = :runId
+          AND state = :expectedState
+          AND state NOT IN ('Completed', 'Cancelled', 'Failed')
         """,
     )
     fun compareAndSetRunStateIfExpected(
@@ -723,12 +918,13 @@ interface AgentTraceDao {
         MemoryRecordEntity::class,
         MemoryEmbeddingEntity::class,
         AgentRunEntity::class,
+        AgentRunPlacementBindingEntity::class,
         AgentStepEntity::class,
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
         LocalStorageMigrationStateEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class SolinDatabase : RoomDatabase() {
@@ -743,6 +939,7 @@ abstract class SolinDatabase : RoomDatabase() {
     abstract fun memoryDeletionEventDao(): MemoryDeletionEventDao
     abstract fun memoryDeletionTransactionDao(): MemoryDeletionTransactionDao
     abstract fun agentTraceDao(): AgentTraceDao
+    abstract fun runPlacementBindingDao(): RunPlacementBindingDao
     abstract fun localStorageMigrationStateDao(): LocalStorageMigrationStateDao
 
     companion object {
@@ -1070,6 +1267,34 @@ abstract class SolinDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_run_placement_bindings` (
+                        `runId` TEXT NOT NULL,
+                        `schemaVersion` INTEGER NOT NULL,
+                        `policyVersion` INTEGER NOT NULL,
+                        `preference` TEXT NOT NULL,
+                        `placement` TEXT NOT NULL,
+                        `primaryReason` TEXT NOT NULL,
+                        `complexity` TEXT NOT NULL,
+                        `resourceBand` TEXT NOT NULL,
+                        `localState` TEXT NOT NULL,
+                        `remoteState` TEXT NOT NULL,
+                        `remoteProfileRevision` TEXT,
+                        `bootCount` INTEGER NOT NULL,
+                        `boundAtElapsedRealtimeMillis` INTEGER NOT NULL,
+                        `dispatchState` TEXT NOT NULL,
+                        `attempt` INTEGER NOT NULL,
+                        PRIMARY KEY(`runId`),
+                        FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): SolinDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: createEncryptedDatabase(context.applicationContext)
@@ -1129,6 +1354,7 @@ abstract class SolinDatabase : RoomDatabase() {
                     MIGRATION_14_15,
                     MIGRATION_15_16,
                     MIGRATION_16_17,
+                    MIGRATION_17_18,
                 )
 
         private const val DATABASE_NAME = "solin.db"

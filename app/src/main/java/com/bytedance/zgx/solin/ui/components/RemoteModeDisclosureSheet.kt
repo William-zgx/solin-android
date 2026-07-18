@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -19,6 +20,7 @@ import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 @Composable
 internal fun RemoteModeDisclosureSheet(
     disclosure: PendingRemoteModeDisclosure,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     TrustSheetSurface(
@@ -26,15 +28,21 @@ internal fun RemoteModeDisclosureSheet(
         accentColor = LocalSolinColors.current.remote,
     ) {
         SectionTitle(
-            text = "已切换到远程模型",
-            subtitle = "远程模式提醒只在切换时展示；普通发送不会逐条弹窗，疑似敏感内容仍会单独确认。",
+            text = "远程模型说明",
+            subtitle = "请确认当前远程目标与数据范围；普通发送不会逐条弹窗，疑似敏感内容仍会单独确认。",
         )
         RemoteModeDisclosureRows(disclosure)
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onDismiss,
+        ) {
+            Text("关闭")
+        }
         Button(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("remote_mode_confirm_button"),
-            onClick = onDismiss,
+            onClick = onConfirm,
         ) {
             SolinGlyph(
                 kind = SolinGlyphKind.Spark,
@@ -42,7 +50,7 @@ internal fun RemoteModeDisclosureSheet(
                 tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("知道了")
+            Text("确认")
         }
     }
 }

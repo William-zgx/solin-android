@@ -30,24 +30,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.bytedance.zgx.solin.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.solin.device.SolinAccessibilityService
 import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
-import com.bytedance.zgx.solin.resource.SystemResourceMonitor
 import com.bytedance.zgx.solin.ui.SolinScreen
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -76,9 +78,6 @@ class MainActivity : ComponentActivity() {
     private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private val voiceInputSessions = VoiceInputSessionGate()
-    private val systemResourceMonitor: SystemResourceMonitor by lazy {
-        SystemResourceMonitor(applicationContext)
-    }
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grantResults ->
@@ -236,6 +235,10 @@ class MainActivity : ComponentActivity() {
                     }
                     restorePendingSpecialAccessRequirement(savedInstanceState)
                     handleSharedIntent(intent, allowPreviouslyConsumed = false)
+                    lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        viewModel.refreshRemoteModelConnectivityIfStale()
+                        awaitCancellation()
+                    }
                 }
         }
     }
@@ -340,6 +343,11 @@ class MainActivity : ComponentActivity() {
                     onOpenRecoveryAction = { action ->
                         viewModel.launchPersistenceWork { viewModel.requestRecoveryActionConfirmation(action) }
                     },
+                    onConfirmRemoteModeDisclosure = { disclosure ->
+                        viewModel.launchPersistenceWork {
+                            viewModel.confirmRemoteModeDisclosure(disclosure)
+                        }
+                    },
                     onDismissRemoteModeDisclosure = {
                         viewModel.launchPersistenceWork(viewModel::dismissRemoteModeDisclosure)
                     },
@@ -373,7 +381,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
                     onStopGeneration = { viewModel.launchPersistenceWork(viewModel::stopGeneration) },
-                    resourceSampler = { systemResourceMonitor.sample() },
+                    resourceSampler = { appContainer.sampleSystemResources() },
         )
     }
 

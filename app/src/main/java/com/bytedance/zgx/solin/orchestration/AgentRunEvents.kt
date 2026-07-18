@@ -381,6 +381,9 @@ object AgentStepRunEventAdapter {
 
             is AgentStep.IntentRouted,
             is AgentStep.RemoteToolsExposed,
+            is AgentStep.PlacementSelected,
+            is AgentStep.ModelRuntimeInvocationStarted,
+            is AgentStep.ShadowPlacementEvaluated,
             is AgentStep.RunDataReceiptRecorded,
             is AgentStep.SafetyChecked,
             is AgentStep.UserConfirmed,

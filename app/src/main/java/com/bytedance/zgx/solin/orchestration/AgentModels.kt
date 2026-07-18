@@ -172,6 +172,18 @@ sealed class AgentStep {
         val toolNames: List<String>,
     ) : AgentStep()
 
+    data class PlacementSelected(
+        val binding: RunPlacementBinding,
+    ) : AgentStep()
+
+    data class ModelRuntimeInvocationStarted(
+        val invocation: ModelRuntimeInvocation,
+    ) : AgentStep()
+
+    data class ShadowPlacementEvaluated(
+        val trace: ShadowPlacementTrace,
+    ) : AgentStep()
+
     data class RunDataReceiptRecorded(
         val receipt: RunDataReceipt,
     ) : AgentStep()

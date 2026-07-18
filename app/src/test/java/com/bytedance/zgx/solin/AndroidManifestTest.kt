@@ -23,6 +23,38 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun adaptiveFoundationReusesOneAppScopedResourceSamplerAndDistinctDisclosureActions() {
+        val container = readMainFile("java/com/bytedance/zgx/solin/SolinAppContainer.kt")
+        val activity = readMainFile("java/com/bytedance/zgx/solin/MainActivity.kt")
+        val overlay = readMainFile("java/com/bytedance/zgx/solin/ui/ResourcePressureOverlay.kt")
+        val screen = readMainFile("java/com/bytedance/zgx/solin/ui/SolinScreen.kt")
+        val disclosure = readMainFile("java/com/bytedance/zgx/solin/ui/components/RemoteModeDisclosureSheet.kt")
+
+        assertEquals(1, Regex(Regex.escape("SystemResourceMonitor(")).findAll(container).count())
+        assertEquals(1, Regex(Regex.escape("StableResourceSnapshotAggregator(")).findAll(container).count())
+        assertTrue(container.contains("fun sampleSystemResources()"))
+        assertTrue(container.contains("stableResourceSnapshotAggregator.record(it)"))
+        assertTrue(container.contains("fun currentStableResourceState()"))
+        assertFalse(activity.contains("SystemResourceMonitor("))
+        assertTrue(activity.contains("appContainer.sampleSystemResources()"))
+        val persistenceReady = activity.indexOf("viewModel.awaitPersistenceInitialization()")
+        val lifecycleStarted = activity.indexOf("repeatOnLifecycle(Lifecycle.State.STARTED)")
+        val firstConnectivityRefresh = activity.indexOf(
+            "viewModel.refreshRemoteModelConnectivityIfStale()",
+        )
+        assertTrue(persistenceReady >= 0)
+        assertTrue(lifecycleStarted > persistenceReady)
+        assertTrue(firstConnectivityRefresh > lifecycleStarted)
+        assertEquals(
+            1,
+            Regex(Regex.escape("delay(SYSTEM_RESOURCE_SAMPLE_INTERVAL_MS)")).findAll(overlay).count(),
+        )
+        assertTrue(screen.contains("onConfirmRemoteModeDisclosure"))
+        assertTrue(disclosure.contains("onClick = onConfirm"))
+        assertTrue(disclosure.contains("onDismiss: () -> Unit"))
+    }
+
+    @Test
     fun appDisplayNameCombinesChineseNameWithEnglishBrand() {
         val manifest = readManifest()
 

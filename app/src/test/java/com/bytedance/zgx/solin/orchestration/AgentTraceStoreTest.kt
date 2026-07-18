@@ -161,6 +161,60 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreMergesCriticalDaoTraceAndTerminalStateIntoLiveReads() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+            runIdFactory = { "run-critical-merge" },
+        )
+        val rawPrompt = "private live prompt"
+        val run = store.createRun(rawPrompt)
+        dao.insertNextStep(
+            AgentStep.PlacementSelected(testBinding(run.id)).toTraceEntity(
+                runId = run.id,
+                position = 0,
+                createdAtMillis = 2_001L,
+            ),
+        )
+        store.appendStep(run.id, AgentStep.AssistantResponded("done"))
+        assertEquals(1, dao.updateRunState(run.id, AgentRunState.Cancelled.name, 3_000L))
+
+        val steps = store.steps(run.id)
+        val summaries = store.stepSummaries(run.id)
+
+        assertEquals(listOf("PlacementSelected", "AssistantResponded"), summaries.map { it.type })
+        assertEquals("PlacementSelected", (steps.first() as AgentStep.RestoredSummary).persistedType)
+        assertEquals(AgentStep.AssistantResponded("done"), steps.last())
+        assertEquals(AgentRunState.Cancelled, store.run(run.id)?.state)
+        assertEquals(rawPrompt, store.run(run.id)?.input)
+    }
+
+    @Test
+    fun roomStoreNeverOverwritesThePersistedFirstTerminalState() {
+        var now = 2_000L
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { now++ },
+            runIdFactory = { "run-first-terminal" },
+        )
+        val rawPrompt = "private terminal prompt"
+        val run = store.createRun(rawPrompt)
+        dao.forceRunState(run.id, AgentRunState.Cancelled, 3_000L)
+
+        val nonTerminalAttempt = store.updateState(run.id, AgentRunState.GeneratingAnswer)
+        val differentTerminalAttempt = store.updateState(run.id, AgentRunState.Completed)
+
+        assertEquals(AgentRunState.Cancelled, nonTerminalAttempt.state)
+        assertEquals(AgentRunState.Cancelled, differentTerminalAttempt.state)
+        assertEquals(rawPrompt, nonTerminalAttempt.input)
+        assertEquals(rawPrompt, differentTerminalAttempt.input)
+        assertEquals(AgentRunState.Cancelled.name, dao.run(run.id)?.state)
+        assertEquals(3_000L, dao.run(run.id)?.updatedAtMillis)
+    }
+
+    @Test
     fun roomStorePersistsIntentRoutingDecisionWithoutRawInput() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -2730,14 +2784,22 @@ class AgentTraceStoreTest {
                 .filter { run -> run.sessionId == sessionId }
                 .map { run -> run.id }
 
-        override fun upsertRun(run: AgentRunEntity) {
+        override fun insertRunIfAbsent(run: AgentRunEntity): Long {
+            if (run.id in runs) return -1L
             runs[run.id] = run
+            return 1L
         }
 
         override fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int {
             val run = runs[runId] ?: return 0
+            if (run.state in setOf("Completed", "Cancelled", "Failed")) return 0
             runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
             return 1
+        }
+
+        fun forceRunState(runId: String, state: AgentRunState, updatedAtMillis: Long) {
+            val run = runs.getValue(runId)
+            runs[runId] = run.copy(state = state.name, updatedAtMillis = updatedAtMillis)
         }
 
         override fun compareAndSetRunStateIfExpected(
@@ -2747,6 +2809,7 @@ class AgentTraceStoreTest {
             updatedAtMillis: Long,
         ): Int {
             val run = runs[runId] ?: return 0
+            if (run.state in setOf("Completed", "Cancelled", "Failed")) return 0
             if (run.state != expectedState) return 0
             runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
             return 1

@@ -15,7 +15,6 @@ import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.destinationHostLabel
-import com.bytedance.zgx.solin.hasSameConnectivityTarget
 import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.data.BundledModelInstaller
@@ -35,9 +34,10 @@ import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
-import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
+import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import java.io.File
 import java.util.ArrayDeque
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -57,7 +57,7 @@ import kotlinx.coroutines.withContext
  * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 2 Track C2). The ViewModel keeps
  * thin public wrappers and owns chat-side pending-remote state machines via callbacks.
  */
-class ModelLoadController(
+internal class ModelLoadController(
     private val modelRepository: ModelRepositoryFacade,
     private val downloadService: ModelDownloadClient,
     private val runtime: LiteRtRuntime,
@@ -67,7 +67,7 @@ class ModelLoadController(
     private val generationParametersRepository: GenerationParametersStore,
     private val sessionRepository: SessionStore,
     private val bundledModelInstaller: BundledModelInstaller,
-    private val remoteConnectivityProbe: RemoteModelConnectivityProbe,
+    private val remoteConnectivityRefreshCoordinator: RemoteConnectivityRefreshCoordinator,
     private val semanticMemoryRuntimeController: SemanticMemoryRuntimeController?,
     private val ioDispatcher: CoroutineDispatcher,
     private val scope: CoroutineScope,
@@ -75,6 +75,7 @@ class ModelLoadController(
     private val runtimeLock: Mutex,
     private val isArm64DeviceProvider: () -> Boolean,
     private val skipStartupModelRuntimeWork: Boolean,
+    private val autoInferenceAuthorizationCoordinator: AutoInferenceAuthorizationCoordinator,
     private val clearPendingRemoteState: () -> Unit,
     private val resetRemoteSendDisclosureSuppression: () -> Unit,
     private val rebuildMemoryIndex: () -> Unit,
@@ -85,12 +86,12 @@ class ModelLoadController(
     private var activeDownloadId: Long? = null
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
     private var setupDownloadInProgress = false
-    private var remoteConnectivityProbeJob: Job? = null
+    private var remoteConnectivityUiJob: Job? = null
 
     fun close() {
         downloadMonitorJob?.cancel()
         downloadPreflightJob?.cancel()
-        remoteConnectivityProbeJob?.cancel()
+        remoteConnectivityUiJob?.cancel()
         bundledModelInstallJob?.cancel()
     }
 
@@ -176,26 +177,30 @@ class ModelLoadController(
             uiState.update { it.copy(statusText = "截图验证远程配置无效") }
             return
         }
-        remoteModelRepository.saveConfigWithoutApiKey(config)
-            .fold(
-                onSuccess = { normalized ->
-                    firstRunSetupRepository.markSetupDismissed()
-                    remoteModelRepository.saveMode(InferenceMode.Remote)
-                    uiState.update {
-                        it.copy(
-                            remoteModelConfig = normalized,
-                            inferenceMode = InferenceMode.Remote,
-                            showFirstRunSetup = false,
-                        )
-                    }
-                    updateRemoteReadiness("远程模型")
-                },
-                onFailure = { throwable ->
-                    uiState.update {
-                        it.copy(statusText = "截图验证远程配置保存失败：${throwable.cleanMessage()}")
-                    }
-                },
-            )
+        autoInferenceAuthorizationCoordinator.mutateRemoteConfig(
+            block = { remoteModelRepository.saveConfigWithoutApiKey(config) },
+            project = { result ->
+                result.fold(
+                    onSuccess = { normalized ->
+                        firstRunSetupRepository.markSetupDismissed()
+                        remoteModelRepository.saveMode(InferenceMode.Remote)
+                        uiState.update {
+                            it.copy(
+                                remoteModelConfig = normalized,
+                                inferenceMode = InferenceMode.Remote,
+                                showFirstRunSetup = false,
+                            )
+                        }
+                        updateRemoteReadiness("远程模型")
+                    },
+                    onFailure = { throwable ->
+                        uiState.update {
+                            it.copy(statusText = "截图验证远程配置保存失败：${throwable.cleanMessage()}")
+                        }
+                    },
+                )
+            },
+        )
     }
 
 
@@ -438,54 +443,66 @@ class ModelLoadController(
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (uiState.value.isBusy) return
         clearPendingRemoteState()
-        remoteConnectivityProbeJob?.cancel()
+        remoteConnectivityUiJob?.cancel()
         // Trust boundary changed (remote destination/credential): never let a prior
         // session-scoped "don't ask again" carry over to a new remote endpoint.
         resetRemoteSendDisclosureSuppression()
         val previousConfig = uiState.value.remoteModelConfig
-        val requestedConfig = config.normalized()
-        val configToSave = requestedConfig.copy(
-            connectivityStatus = if (requestedConfig.hasSameConnectivityTarget(previousConfig)) {
-                requestedConfig.connectivityStatus
-            } else {
-                RemoteModelConnectivityStatus.Unknown
+        val configToSave = config.normalized()
+        autoInferenceAuthorizationCoordinator.mutateRemoteConfig(
+            block = { remoteModelRepository.saveConfig(configToSave) },
+            project = { result ->
+                result.fold(
+                    onSuccess = { normalized ->
+                        val persistedMode = remoteModelRepository.loadMode()
+                        uiState.update {
+                            it.copy(
+                                remoteModelConfig = normalized,
+                                inferenceMode = persistedMode,
+                                pendingRemoteModeDisclosure = null,
+                                pendingRemoteSendDisclosure = null,
+                                isReady = if (persistedMode == InferenceMode.Local) {
+                                    runtime.isLoaded
+                                } else {
+                                    it.isReady
+                                },
+                                showFirstRunSetup = if (normalized.isConfigured) false else it.showFirstRunSetup,
+                                statusText = if (
+                                    it.inferenceMode == InferenceMode.Auto &&
+                                    persistedMode == InferenceMode.Local
+                                ) {
+                                    "远程配置已更新，自动模式已关闭"
+                                } else {
+                                    it.statusText
+                                },
+                            )
+                        }
+                        if (normalized.isConfigured) {
+                            firstRunSetupRepository.markSetupDismissed()
+                            refreshRemoteConnectivityIfStale()
+                        }
+                        if (persistedMode == InferenceMode.Remote) {
+                            updateRemoteReadiness("远程模型")
+                        }
+                    },
+                    onFailure = { throwable ->
+                        uiState.update {
+                            it.copy(
+                                remoteModelConfig = previousConfig,
+                                pendingRemoteModeDisclosure = null,
+                                pendingRemoteSendDisclosure = null,
+                                statusText = "远程配置保存失败：${throwable.cleanMessage()}",
+                            )
+                        }
+                    },
+                )
             },
         )
-        remoteModelRepository.saveConfig(configToSave)
-            .fold(
-                onSuccess = { normalized ->
-                    uiState.update {
-                        it.copy(
-                            remoteModelConfig = normalized,
-                            pendingRemoteModeDisclosure = null,
-                            pendingRemoteSendDisclosure = null,
-                            showFirstRunSetup = if (normalized.isConfigured) false else it.showFirstRunSetup,
-                        )
-                    }
-                    if (normalized.isConfigured) {
-                        firstRunSetupRepository.markSetupDismissed()
-                    }
-                    if (uiState.value.inferenceMode == InferenceMode.Remote) {
-                        updateRemoteReadiness("远程模型")
-                    }
-                },
-                onFailure = { throwable ->
-                    uiState.update {
-                        it.copy(
-                            remoteModelConfig = configToSave,
-                            statusText = "远程配置保存失败（已临时生效）：${throwable.cleanMessage()}",
-                        )
-                    }
-                    if (uiState.value.inferenceMode == InferenceMode.Remote) {
-                        updateRemoteReadiness("远程模型")
-                    }
-                },
-            )
     }
 
     fun testRemoteModelConnectivity() {
         if (uiState.value.isBusy) return
-        val config = uiState.value.remoteModelConfig.normalized()
+        val config = remoteModelRepository.loadConfig().normalized()
         if (!config.isConfigured) {
             uiState.update {
                 it.copy(
@@ -495,35 +512,48 @@ class ModelLoadController(
             }
             return
         }
-        remoteConnectivityProbeJob?.cancel()
-        val checkingConfig = config.copy(connectivityStatus = RemoteModelConnectivityStatus.Checking)
-        uiState.update {
-            it.copy(
-                remoteModelConfig = checkingConfig,
-                statusText = "正在测试远程连接",
-            )
-        }
-        remoteConnectivityProbeJob = scope.launch(ioDispatcher) {
-            val status = remoteConnectivityProbe.check(config)
-            val currentConfig = uiState.value.remoteModelConfig
-            if (!currentConfig.hasSameConnectivityTarget(config)) return@launch
-            val updatedConfig = currentConfig.copy(connectivityStatus = status)
-            remoteModelRepository.saveConfig(updatedConfig)
-                .fold(
-                    onSuccess = { normalized ->
-                        uiState.update {
-                            it.copy(
-                                remoteModelConfig = normalized,
-                                statusText = "远程连接${status.label}",
-                            )
-                        }
-                    },
-                    onFailure = { throwable ->
-                        uiState.update {
-                            it.copy(statusText = "远程连接状态保存失败：${throwable.cleanMessage()}")
-                        }
-                    },
+        observeRemoteConnectivity(config, force = true, announce = true)
+    }
+
+    fun refreshRemoteConnectivityIfStale() {
+        val config = remoteModelRepository.loadConfig().normalized()
+        if (!config.isConfigured || config.profileRevision.isBlank()) return
+        observeRemoteConnectivity(config, force = false, announce = false)
+    }
+
+    private fun observeRemoteConnectivity(
+        config: RemoteModelConfig,
+        force: Boolean,
+        announce: Boolean,
+    ) {
+        val revision = config.profileRevision
+        if (announce) {
+            uiState.update {
+                it.copy(
+                    remoteModelConfig = config.copy(
+                        connectivityStatus = RemoteModelConnectivityStatus.Checking,
+                    ),
+                    statusText = "正在测试远程连接",
                 )
+            }
+        }
+        val refresh = remoteConnectivityRefreshCoordinator.refresh(config, force)
+        remoteConnectivityUiJob?.cancel()
+        remoteConnectivityUiJob = scope.launch(ioDispatcher) {
+            val snapshot = try {
+                refresh.await()
+            } catch (cancelled: CancellationException) {
+                return@launch
+            }
+            val currentConfig = remoteModelRepository.loadConfig().normalized()
+            if (currentConfig.profileRevision != revision) return@launch
+            val status = snapshot?.status ?: RemoteModelConnectivityStatus.Unknown
+            uiState.update {
+                it.copy(
+                    remoteModelConfig = currentConfig.copy(connectivityStatus = status),
+                    statusText = if (announce) "远程连接${status.label}" else it.statusText,
+                )
+            }
         }
     }
 
@@ -1234,6 +1264,9 @@ class ModelLoadController(
             )
         }
     }
+
+    fun remoteModeDisclosure(): PendingRemoteModeDisclosure =
+        buildRemoteModeDisclosure(remoteModelRepository.loadConfig())
 
     private fun buildRemoteModeDisclosure(config: RemoteModelConfig): PendingRemoteModeDisclosure {
         val normalized = config.normalized()

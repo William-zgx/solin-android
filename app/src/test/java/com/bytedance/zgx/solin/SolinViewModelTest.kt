@@ -113,6 +113,7 @@ import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CoroutineDispatcher
@@ -374,6 +375,200 @@ class SolinViewModelTest {
         viewModel.selectInferenceMode(InferenceMode.Remote)
         advanceUntilIdle()
         assertNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+    }
+
+    @Test
+    fun offRolloutDowngradesPersistedAutoToLocalOnStartup() = runTest(dispatcher) {
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Auto,
+            config = configuredRemoteModel(),
+        )
+
+        val viewModel = createViewModel(remoteStore = remoteStore)
+
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+    }
+
+    @Test
+    fun selectingAutoWaitsForSameRevisionConfirmationAndKeepsLocalRuntimeLoaded() =
+        runTest(dispatcher) {
+            val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+            val remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Local,
+                config = configuredRemoteModel(),
+            )
+            val viewModel = createViewModel(
+                runtime = runtime,
+                remoteStore = remoteStore,
+                adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+            )
+
+            viewModel.selectInferenceMode(InferenceMode.Auto)
+
+            val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+            assertEquals(InferenceMode.Local, remoteStore.loadMode())
+            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+            assertEquals(0, runtime.closeCallCount)
+            assertTrue(runtime.isLoaded)
+
+            viewModel.confirmRemoteModeDisclosure(disclosure)
+            advanceUntilIdle()
+
+            assertEquals(InferenceMode.Auto, remoteStore.loadMode())
+            assertEquals(InferenceMode.Auto, viewModel.uiState.value.inferenceMode)
+            assertEquals(0, runtime.closeCallCount)
+            assertTrue(runtime.isLoaded)
+        }
+
+    @Test
+    fun cancellingAutoDisclosureDoesNotChangePersistedPreference() = runTest(dispatcher) {
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel(),
+        )
+        val viewModel = createViewModel(
+            remoteStore = remoteStore,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+        )
+
+        viewModel.selectInferenceMode(InferenceMode.Auto)
+        viewModel.dismissRemoteModeDisclosure()
+
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+    }
+
+    @Test
+    fun remoteConfigRevisionChangeInvalidatesPendingAutoAuthorization() = runTest(dispatcher) {
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel(),
+        )
+        val viewModel = createViewModel(
+            remoteStore = remoteStore,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+        )
+
+        viewModel.selectInferenceMode(InferenceMode.Auto)
+        val staleDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        viewModel.updateRemoteModelConfig(configuredRemoteModel().copy(modelName = "model-b"))
+        advanceUntilIdle()
+        viewModel.confirmRemoteModeDisclosure(staleDisclosure)
+
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+    }
+
+    @Test
+    fun blankRemoteRevisionCannotAuthorizeAuto() = runTest(dispatcher) {
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel().copy(profileRevision = ""),
+        )
+        val viewModel = createViewModel(
+            remoteStore = remoteStore,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+        )
+
+        viewModel.selectInferenceMode(InferenceMode.Auto)
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        viewModel.confirmRemoteModeDisclosure(disclosure)
+
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+    }
+
+    @Test
+    fun remoteRevisionChangeAfterAutoValidationSerializesAndRevokesAuto() {
+        val autoSaveEntered = CountDownLatch(1)
+        val allowAutoSave = CountDownLatch(1)
+        val configSaveEntered = CountDownLatch(1)
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel(),
+            beforeAutoModeSave = {
+                autoSaveEntered.countDown()
+                check(allowAutoSave.await(5, TimeUnit.SECONDS))
+            },
+            beforeConfigSave = configSaveEntered::countDown,
+        )
+        val viewModel = createViewModel(
+            remoteStore = remoteStore,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+        )
+        viewModel.selectInferenceMode(InferenceMode.Auto)
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        val executor = Executors.newFixedThreadPool(2)
+
+        try {
+            val confirm = executor.submit { viewModel.confirmRemoteModeDisclosure(disclosure) }
+            assertTrue(autoSaveEntered.await(5, TimeUnit.SECONDS))
+            val update = executor.submit {
+                viewModel.updateRemoteModelConfig(
+                    configuredRemoteModel().copy(modelName = "model-after-confirm"),
+                )
+            }
+
+            assertFalse(configSaveEntered.await(200, TimeUnit.MILLISECONDS))
+            allowAutoSave.countDown()
+            confirm.get(5, TimeUnit.SECONDS)
+            update.get(5, TimeUnit.SECONDS)
+
+            assertEquals(InferenceMode.Local, remoteStore.loadMode())
+            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+            assertEquals("revision-2", remoteStore.loadConfig().profileRevision)
+        } finally {
+            allowAutoSave.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun configUpdateCannotProjectLocalBeforeConfirmedAutoProjectsItsUi() {
+        val confirmReadyToProject = CountDownLatch(1)
+        val allowConfirmProjection = CountDownLatch(1)
+        val configSaveEntered = CountDownLatch(1)
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel(),
+            afterAutoModeSaveBeforeConfigLoadReturns = {
+                confirmReadyToProject.countDown()
+                check(allowConfirmProjection.await(5, TimeUnit.SECONDS))
+            },
+            beforeConfigSave = configSaveEntered::countDown,
+        )
+        val viewModel = createViewModel(
+            remoteStore = remoteStore,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+        )
+        viewModel.selectInferenceMode(InferenceMode.Auto)
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        val executor = Executors.newFixedThreadPool(2)
+
+        try {
+            val confirm = executor.submit { viewModel.confirmRemoteModeDisclosure(disclosure) }
+            assertTrue(confirmReadyToProject.await(5, TimeUnit.SECONDS))
+            val update = executor.submit {
+                viewModel.updateRemoteModelConfig(
+                    configuredRemoteModel().copy(modelName = "model-after-ui-barrier"),
+                )
+            }
+
+            assertFalse(configSaveEntered.await(200, TimeUnit.MILLISECONDS))
+            allowConfirmProjection.countDown()
+            confirm.get(5, TimeUnit.SECONDS)
+            update.get(5, TimeUnit.SECONDS)
+
+            assertEquals(InferenceMode.Local, remoteStore.loadMode())
+            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+            assertEquals("revision-2", remoteStore.loadConfig().profileRevision)
+        } finally {
+            allowConfirmProjection.countDown()
+            executor.shutdownNow()
+        }
     }
 
     @Test
@@ -7792,6 +7987,7 @@ class SolinViewModelTest {
         assistantRouter: AssistantRouter = FakeAssistantRouter(),
         ioDispatcher: CoroutineDispatcher = dispatcher,
         requireRemoteSendDisclosure: Boolean = false,
+        adaptiveInferenceRollout: AdaptiveInferenceRollout = AdaptiveInferenceRollout.Off,
         remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
         huggingFaceAuthStore: HuggingFaceAuthStore = FakeHuggingFaceAuthStore(),
         remoteSendAuditStore: FakeRemoteSendAuditStore = FakeRemoteSendAuditStore(),
@@ -7826,6 +8022,7 @@ class SolinViewModelTest {
             isArm64DeviceProvider = { true },
             ioDispatcher = ioDispatcher,
             requireRemoteSendDisclosure = requireRemoteSendDisclosure,
+            adaptiveInferenceRollout = adaptiveInferenceRollout,
             remoteConnectivityProbe = remoteConnectivityProbe,
             remoteSendAuditSink = remoteSendAuditStore,
             remoteSendAuditLog = remoteSendAuditStore,
@@ -8081,6 +8278,7 @@ class SolinViewModelTest {
             // Vision-capable test model: supportsVisionInput now defaults to false (fail-closed),
             // so image-sending tests must opt in explicitly.
             supportsVisionInput = true,
+            profileRevision = "revision-1",
         )
 
     private fun configuredRemoteStore(
@@ -9180,19 +9378,62 @@ class SolinViewModelTest {
     private class FakeRemoteModelStore(
         private var mode: InferenceMode = InferenceMode.Local,
         private var config: RemoteModelConfig = RemoteModelConfig(),
+        private val beforeAutoModeSave: () -> Unit = {},
+        private val afterAutoModeSaveBeforeConfigLoadReturns: () -> Unit = {},
+        private val beforeConfigSave: () -> Unit = {},
     ) : RemoteModelStore {
+        private var nextRevision: Int = 2
+        private var connectivitySnapshot: RemoteConnectivitySnapshot? = null
+        private val blockNextConfigLoadAfterAutoSave = AtomicBoolean(false)
+
         override fun loadMode(): InferenceMode = mode
 
         override fun saveMode(mode: InferenceMode): InferenceMode {
+            if (mode == InferenceMode.Auto) beforeAutoModeSave()
             this.mode = mode
+            if (mode == InferenceMode.Auto) blockNextConfigLoadAfterAutoSave.set(true)
             return mode
         }
 
-        override fun loadConfig(): RemoteModelConfig = config
+        override fun loadConfig(): RemoteModelConfig {
+            if (blockNextConfigLoadAfterAutoSave.compareAndSet(true, false)) {
+                afterAutoModeSaveBeforeConfigLoadReturns()
+            }
+            return config
+        }
 
         override fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> {
-            this.config = config.normalized()
+            beforeConfigSave()
+            val requested = config.normalized()
+            val revisionChanged = this.config.profileRevision.isBlank() ||
+                !requested.hasSameConnectivityTarget(this.config)
+            this.config = requested.copy(
+                profileRevision = if (revisionChanged) "revision-${nextRevision++}" else this.config.profileRevision,
+                connectivityStatus = RemoteModelConnectivityStatus.Unknown,
+            )
+            if (revisionChanged) connectivitySnapshot = null
             return Result.success(this.config)
+        }
+
+        override fun recordConnectivity(
+            config: RemoteModelConfig,
+            status: RemoteModelConnectivityStatus,
+        ) {
+            if (config.profileRevision.isBlank() || config.profileRevision != this.config.profileRevision) return
+            connectivitySnapshot = RemoteConnectivitySnapshot(
+                configRevision = config.profileRevision,
+                status = status,
+                checkedAtElapsedRealtimeMs = 1_000L,
+            )
+            this.config = this.config.copy(connectivityStatus = status)
+        }
+
+        override fun currentConnectivity(config: RemoteModelConfig): RemoteConnectivitySnapshot? =
+            connectivitySnapshot?.takeIf { it.configRevision == config.profileRevision }
+
+        override fun invalidateConnectivity() {
+            connectivitySnapshot = null
+            config = config.copy(connectivityStatus = RemoteModelConnectivityStatus.Unknown)
         }
     }
 

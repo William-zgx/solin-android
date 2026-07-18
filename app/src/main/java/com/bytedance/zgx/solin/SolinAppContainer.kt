@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.bytedance.zgx.solin.action.ActionExecutor
@@ -80,10 +81,16 @@ import com.bytedance.zgx.solin.orchestration.SystemPromptBuilder
 import com.bytedance.zgx.solin.orchestration.TelemetrySink
 import com.bytedance.zgx.solin.orchestration.attachTo
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime
+import com.bytedance.zgx.solin.runtime.OkHttpRemoteModelConnectivityProbe
+import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.TfliteTextEmbeddingRuntimeFactory
+import com.bytedance.zgx.solin.resource.StableResourceSnapshotAggregator
+import com.bytedance.zgx.solin.resource.StableResourceState
+import com.bytedance.zgx.solin.resource.SystemResourceMonitor
+import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.mcp.McpClient
 import com.bytedance.zgx.solin.mcp.McpModule
 import com.bytedance.zgx.solin.mcp.McpServerRegistry
@@ -109,6 +116,13 @@ class SolinAppContainer(
     private val enableMcp: Boolean = false,
 ) {
     private val appContext = context.applicationContext
+    private val adaptiveInferenceRollout = AdaptiveInferenceRollout.parse(
+        BuildConfig.ADAPTIVE_INFERENCE_ROLLOUT_STAGE,
+    )
+    private val stableResourceSnapshotAggregator = StableResourceSnapshotAggregator(
+        elapsedRealtimeMillis = SystemClock::elapsedRealtime,
+    )
+    private val systemResourceMonitor = SystemResourceMonitor(appContext)
     private val database = SolinDatabase.get(appContext)
     private val settingsStore = PreferenceSettingsStore(appContext)
     private val secretStore = EncryptedSecretStore(appContext)
@@ -138,6 +152,7 @@ class SolinAppContainer(
     private val sessionRepository: SessionRepository
     private val generationParametersRepository: GenerationParametersRepository
     private val remoteModelRepository: RemoteModelRepository
+    private val remoteConnectivityRefreshCoordinator: RemoteConnectivityRefreshCoordinator
     private val huggingFaceAuthRepository: HuggingFaceAuthRepository
     private val firstRunSetupRepository: FirstRunSetupRepository
     private val downloadService: ModelDownloadService
@@ -176,6 +191,11 @@ class SolinAppContainer(
         sessionRepository = SessionRepository(database.sessionDao(), settingsStore)
         generationParametersRepository = GenerationParametersRepository(settingsStore)
         remoteModelRepository = RemoteModelRepository(settingsStore, secretStore, appContext)
+        remoteConnectivityRefreshCoordinator = RemoteConnectivityRefreshCoordinator(
+            remoteModelStore = remoteModelRepository,
+            probe = OkHttpRemoteModelConnectivityProbe(),
+            scope = containerScope,
+        )
         huggingFaceAuthRepository = HuggingFaceAuthRepository(secretStore)
         firstRunSetupRepository = FirstRunSetupRepository(settingsStore)
         downloadService = ModelDownloadService(
@@ -320,6 +340,8 @@ class SolinAppContainer(
             sessionRepository = sessionRepository,
             generationParametersRepository = generationParametersRepository,
             remoteModelRepository = remoteModelRepository,
+            remoteConnectivityRefreshCoordinator = remoteConnectivityRefreshCoordinator,
+            adaptiveInferenceRollout = adaptiveInferenceRollout,
             huggingFaceAuthRepository = huggingFaceAuthRepository,
             firstRunSetupRepository = firstRunSetupRepository,
             downloadService = downloadService,
@@ -338,6 +360,12 @@ class SolinAppContainer(
             },
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
+
+    internal fun sampleSystemResources(): SystemResourceSnapshot? =
+        systemResourceMonitor.sample()?.also { stableResourceSnapshotAggregator.record(it) }
+
+    internal fun currentStableResourceState(): StableResourceState =
+        stableResourceSnapshotAggregator.current()
 
     fun close() {
         containerScope.cancel()
@@ -403,6 +431,8 @@ private class SolinViewModelFactory(
     private val sessionRepository: SessionRepository,
     private val generationParametersRepository: GenerationParametersRepository,
     private val remoteModelRepository: RemoteModelRepository,
+    private val remoteConnectivityRefreshCoordinator: RemoteConnectivityRefreshCoordinator,
+    private val adaptiveInferenceRollout: AdaptiveInferenceRollout,
     private val huggingFaceAuthRepository: HuggingFaceAuthRepository,
     private val firstRunSetupRepository: FirstRunSetupRepository,
     private val downloadService: ModelDownloadService,
@@ -430,6 +460,8 @@ private class SolinViewModelFactory(
             sessionRepository = sessionRepository,
             generationParametersRepository = generationParametersRepository,
             remoteModelRepository = remoteModelRepository,
+            adaptiveInferenceRollout = adaptiveInferenceRollout,
+            injectedRemoteConnectivityRefreshCoordinator = remoteConnectivityRefreshCoordinator,
             huggingFaceAuthStore = huggingFaceAuthRepository,
             firstRunSetupRepository = firstRunSetupRepository,
             downloadService = downloadService,

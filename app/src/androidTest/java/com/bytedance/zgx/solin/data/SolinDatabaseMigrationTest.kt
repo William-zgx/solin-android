@@ -56,6 +56,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -333,6 +334,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -383,12 +385,13 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
 
         try {
-            database.agentTraceDao().upsertRun(
+            database.agentTraceDao().insertRunIfAbsent(
                 AgentRunEntity(
                     id = "run-1",
                     input = "hello",
@@ -445,12 +448,13 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
 
         try {
-            database.agentTraceDao().upsertRun(
+            database.agentTraceDao().insertRunIfAbsent(
                 AgentRunEntity(
                     id = "run-1",
                     input = "open wifi",
@@ -561,6 +565,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -602,6 +607,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -668,6 +674,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -752,6 +759,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -802,6 +810,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -854,6 +863,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -921,6 +931,7 @@ class SolinDatabaseMigrationTest {
                 SolinDatabase.MIGRATION_14_15,
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -958,6 +969,7 @@ class SolinDatabaseMigrationTest {
             .addMigrations(
                 SolinDatabase.MIGRATION_15_16,
                 SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -1004,7 +1016,10 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(SolinDatabase.MIGRATION_16_17)
+            .addMigrations(
+                SolinDatabase.MIGRATION_16_17,
+                SolinDatabase.MIGRATION_17_18,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -1049,6 +1064,75 @@ class SolinDatabaseMigrationTest {
                 assertTrue(cursor.isNull(5))
                 assertEquals(1, cursor.getInt(6))
             }
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration17To18CreatesPlacementBindingsWithoutBackfillAndCascadesWithRun() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion17Schema(db)
+            db.execSQL(
+                """
+                INSERT INTO agent_runs(id, input, state, createdAtMillis, updatedAtMillis, sessionId)
+                VALUES('legacy-run', '[redacted]', 'Created', 1, 1, NULL)
+                """.trimIndent(),
+            )
+            db.version = 17
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            SolinDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(SolinDatabase.MIGRATION_17_18)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            assertTrue(database.runPlacementBindingsTableExists())
+            assertNull(database.runPlacementBindingDao().binding("legacy-run"))
+
+            database.runPlacementBindingDao().insertRunStrict(
+                AgentRunEntity(
+                    id = "bound-run",
+                    input = "[redacted]",
+                    state = "Created",
+                    createdAtMillis = 2L,
+                    updatedAtMillis = 2L,
+                ),
+            )
+            database.runPlacementBindingDao().insertBindingStrict(
+                AgentRunPlacementBindingEntity(
+                    runId = "bound-run",
+                    schemaVersion = 1,
+                    policyVersion = 1,
+                    preference = "Auto",
+                    placement = "Local",
+                    primaryReason = "AUTO_SIMPLE_LOCAL",
+                    complexity = "Simple",
+                    resourceBand = "Normal",
+                    localState = "Eligible",
+                    remoteState = "NotConfigured",
+                    remoteProfileRevision = null,
+                    bootCount = 1L,
+                    boundAtElapsedRealtimeMillis = 100L,
+                    dispatchState = "Pending",
+                    attempt = 0,
+                ),
+            )
+            database.openHelper.writableDatabase.execSQL(
+                "DELETE FROM agent_runs WHERE id = 'bound-run'",
+            )
+
+            assertNull(database.runPlacementBindingDao().binding("bound-run"))
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -1192,6 +1276,14 @@ class SolinDatabaseMigrationTest {
             """.trimIndent(),
         ).use { cursor ->
             return !cursor.moveToNext()
+        }
+    }
+
+    private fun SolinDatabase.runPlacementBindingsTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_run_placement_bindings'",
+        ).use { cursor ->
+            return cursor.moveToNext()
         }
     }
 
@@ -1516,6 +1608,25 @@ class SolinDatabaseMigrationTest {
                 `recordSensitivity` TEXT NOT NULL,
                 `conflictKey` TEXT,
                 `deletedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
+    }
+
+    private fun createVersion17Schema(db: SQLiteDatabase) {
+        createVersion16Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `local_storage_migration_state` (
+                `id` TEXT NOT NULL,
+                `phase` TEXT NOT NULL,
+                `lastDomain` TEXT,
+                `lastId` TEXT,
+                `startedAtMillis` INTEGER NOT NULL,
+                `completedAtMillis` INTEGER,
+                `errorJson` TEXT,
+                `schemaVersion` INTEGER NOT NULL,
                 PRIMARY KEY(`id`)
             )
             """.trimIndent(),

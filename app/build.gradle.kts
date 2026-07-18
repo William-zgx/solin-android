@@ -201,6 +201,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "HUGGING_FACE_OAUTH_CLIENT_ID", "\"$huggingFaceOAuthClientId\"")
         buildConfigField("Boolean", "BUNDLED_MODELS_ENABLED", "false")
+        // S4 ships foundation only. Execution stays off until S5 and S6 are integrated.
+        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
         // RC perf collection entry points are gated off by default. Only the dedicated
         // rcPerfRelease variant flips this to true, so the production release never exposes the
         // harness receiver/activity/service.

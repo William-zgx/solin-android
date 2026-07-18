@@ -115,6 +115,7 @@ import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
+import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
@@ -173,6 +174,9 @@ fun SolinScreen(
     onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
     onDismissRemoteModeDisclosure: () -> Unit,
+    onConfirmRemoteModeDisclosure: (PendingRemoteModeDisclosure) -> Unit = {
+        onDismissRemoteModeDisclosure()
+    },
     onConfirmRemoteSendDisclosure: (Boolean) -> Unit,
     onConfirmRemoteSendWithMasking: () -> Unit,
     onConfirmRemoteSendDespiteSensitive: () -> Unit,
@@ -450,6 +454,7 @@ fun SolinScreen(
                 ) {
                     RemoteModeDisclosureSheet(
                         disclosure = disclosure,
+                        onConfirm = { onConfirmRemoteModeDisclosure(disclosure) },
                         onDismiss = onDismissRemoteModeDisclosure,
                     )
                 }
