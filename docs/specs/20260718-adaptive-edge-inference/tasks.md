@@ -2,9 +2,9 @@
 
 日期：2026-07-18
 
-状态：实施中
+状态：阶段一代码已集成；设备与发布验收待完成
 
-依据：[spec.md](spec.md) · [plan.md](plan.md)
+依据：[spec.md](spec.md) · [plan.md](plan.md) · 当前事实：[status.md](status.md)
 
 ## 分派约束
 
@@ -18,19 +18,19 @@
 
 ## 加速执行切片
 
-T01、T02 已分别完成。剩余逻辑任务按编译与事务边界合并为 9 个写入切片；本节覆盖下方原始任务的“逐任务提交”约束，原表继续作为需求与验收追踪。
+T01–T16 的代码已经按编译与事务边界合并为 9 个写入切片；本节覆盖下方原始任务的“逐任务提交”约束，原表继续作为需求与验收追踪。connected、JDK 21 完整回归和 release 证据仍按各切片状态保留为 pending。
 
 | Slice | 原任务 | 内容 | 状态 |
 |---|---|---|---|
 | S1 | T03–T05 | 复杂度、稳定资源窗口与纯 placement policy；冻结 4,096 输出阈值和 Emergency/Shutdown 硬阻断 | 已完成 |
 | S2 | T06–T07 | `PromptPrivacyPlan` 与 shared input/routing/observation/steer 传播 | 已完成 |
-| S3 | T08–T09 | Room binding、CAS dispatcher、placement/invocation/receipt trace 与 shadow trace 合同 | 已完成，最终门禁中 |
-| S4 | T10 foundation | rollout、Auto 授权、revision 校验、app-scoped monitor/probe wiring；保持执行开关 Off | 已完成 |
-| S5 | T11–T12 | prepared run 与首次 `privacy→decide→bind→disclose→dispatch`；执行开关继续 Off | 实施中 |
-| S6 | T13 | 续写、retry、stop/cancel、受限恢复只读 binding；整 run 验证后才允许 debug opt-in | 待实施 |
-| S7 | T14 | 三态配置与 actual placement/reason UI | 待实施 |
-| S8 | T15 | Audit/eval 从 invocation 读取实际目标并完成三方对账 | 待实施 |
-| S9 | T16 | 脚本、事实文档、全量验证与证据状态 | 待实施 |
+| S3 | T08–T09 | Room binding、CAS dispatcher、placement/invocation/receipt trace 与 shadow trace 合同 | 已完成；connected 迁移证据 pending |
+| S4 | T10 foundation | rollout、Auto 授权、revision 校验、app-scoped monitor/probe wiring | 已完成 |
+| S5 | T11–T12 | prepared run 与首次 `privacy→decide→bind→disclose→dispatch` | 已完成；竞态回归通过 |
+| S6 | T13 | 续写、retry、stop/cancel、受限恢复只读 binding | 已完成；continuation audit 双审通过 |
+| S7 | T14 | 三态配置与 actual placement/reason UI | 已集成；debug opt-in、release-like Off；设备 instrumentation pending |
+| S8 | T15 | Audit/eval 从 invocation 读取实际目标并完成三方对账 | 已完成 |
+| S9 | T16 | 脚本、事实文档、全量验证与证据状态 | 代码已完成；本地门禁通过，JDK21/设备/release 证据 pending |
 
 集成顺序固定为 `S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9`；开发可在独立 worktree 中提前并行，但不得绕过前置接口和合并顺序。每个切片内部仍按 TDD 小步完成，只做一次实现交接和一次并行双审汇总。
 
@@ -47,9 +47,9 @@ T01、T02 已分别完成。剩余逻辑任务按编译与事务边界合并为 
 | T07 | 把独立隐私计划传播到共享输入、Agent loop routing 和 observation replanning，移除由 preference 推断隐私的逻辑。 | `ChatSharedInputSupport.kt`; `AgentLoopRouting.kt`; `AgentObservationReplanner.kt`; `AgentLoopRoutingTest.kt`; `AgentObservationReplannerTest.kt` | T06 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.AgentLoopRoutingTest' --tests 'com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest'`；Auto 不改变隐私标签，任一必需 LocalOnly segment 远端调用数为 0。 |
 | T08 | 建立不可变 `BoundRunPlacement`、binding store 与 Room 持久化/CAS；数据库迁移 fail closed。 | `RunPlacementBinding.kt`; `RunPlacementBindingStore.kt`; `SolinDatabase.kt`; `AgentModels.kt`; `RunPlacementBindingStoreTest.kt`; `SolinDatabaseMigrationTest.kt` | T05 | JVM binding 测试通过；`SolinDatabaseMigrationTest` 位于 `androidTest`，使用 `connectedDebugAndroidTest`，无设备时诚实标记 pending；同 run 不可换 placement，缺失/损坏/旧 binding 不可恢复，17→18 迁移通过。 |
 | T09 | 实现唯一 runtime dispatcher、attempt 计数和无敏感数据的 placement/invocation trace，禁止 local+remote 双发。 | `ModelRuntimeDispatcher.kt`; `AssistantOrchestrator.kt`; `AgentTraceStore.kt`; `ModelRuntimeDispatcherTest.kt`; `RunDataReceiptTraceTest.kt` | T08 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcherTest' --tests 'com.bytedance.zgx.solin.orchestration.RunDataReceiptTraceTest'`；并发 CAS 仅一个 invocation，placement=invocation=receipt，敏感 fixture 不出现在 trace。 |
-| T10 | 增加 off/shadow/opt-in rollout、Auto 首次披露授权、配置 revision 校验和 app-scoped 资源/连接刷新 wiring；release 默认 off。 | `AdaptiveInferenceRollout.kt`; `app/build.gradle.kts`; `SolinAppContainer.kt`; `MainActivity.kt`; `ModelLoadController.kt`; `RemoteModeDisclosureSheet.kt`; `AdaptiveInferenceRolloutTest.kt` | T02,T04,T09 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.AdaptiveInferenceRolloutTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest' && ./gradlew :app:compileDebugKotlin`；未知 stage=off，release Auto 不可选，revision 变化使旧授权失效。 |
-| T11 | 实现 `PreparedChatRunCoordinator`，一次性完成 privacy/requirements/snapshot/decision/binding；披露恢复同一个 prepared run。 | `PreparedChatRunCoordinator.kt`; `ChatRemoteSendSupport.kt`; `AgentRunOptions.kt`; `PreparedChatRunCoordinatorTest.kt` | T07,T10 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.presentation.PreparedChatRunCoordinatorTest'`；Blocked 零 runtime 调用，披露期间 preference/config 改动不会把确认复用到新目标。 |
-| T12 | 把初始 Chat 发送改为 prepare→bind→disclose→dispatch，并让 UI state 暴露实际 placement/reason；不得扩张大 ViewModel/Screen。 | `ChatController.kt`; `ChatControllerHelpers.kt`; `ChatModels.kt`; `SolinViewModel.kt`; `PreparedChatRunCoordinatorTest.kt`; `SolinViewModelTest.kt` | T11 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.presentation.PreparedChatRunCoordinatorTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest'`；Auto Simple/Complex/Hot 路由正确，route exception 为 Blocked，单 run 只命中一个 runtime。 |
+| T10 | 增加 off/shadow/opt-in rollout、Auto 首次披露授权、配置 revision 校验和 app-scoped 资源/连接刷新 wiring；release 默认 off。 | `AdaptiveInferenceRollout.kt`; `app/build.gradle.kts`; `SolinAppContainer.kt`; `MainActivity.kt`; `ModelLoadController.kt`; `RemoteModeDisclosureSheet.kt`; `AdaptiveInferenceRolloutTest.kt` | T02,T04,T09 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.AdaptiveInferenceRolloutTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest' && ./gradlew :app:compileDebugKotlin`；未知 stage=off，release Auto 不可选，revision 变化使旧授权失效。 |
+| T11 | 实现 `PreparedChatRunCoordinator`，一次性完成 privacy/requirements/snapshot/decision/binding；披露恢复同一个 prepared run。 | `PreparedChatRunCoordinator.kt`; `ChatRemoteSendSupport.kt`; `AgentRunOptions.kt`; `PreparedChatRunCoordinatorTest.kt` | T07,T10 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.PreparedChatRunCoordinatorTest'`；Blocked 零 runtime 调用，披露期间 preference/config 改动不会把确认复用到新目标。 |
+| T12 | 把初始 Chat 发送改为 prepare→bind→disclose→dispatch，并让 UI state 暴露实际 placement/reason；不得扩张大 ViewModel/Screen。 | `ChatController.kt`; `ChatControllerHelpers.kt`; `ChatModels.kt`; `SolinViewModel.kt`; `PreparedChatRunCoordinatorTest.kt`; `SolinViewModelTest.kt` | T11 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.PreparedChatRunCoordinatorTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest'`；Auto Simple/Complex/Hot 路由正确，route exception 为 Blocked，单 run 只命中一个 runtime。 |
 | T13 | 让工具续写、context/citation retry、stop/cancel 和确认恢复只读 binding；Remote 收到 LocalOnly observation 立即失败且不 fallback。 | `ChatToolContinuationSupport.kt`; `ToolExecutionController.kt`; `ChatGenerationSupport.kt`; `ChatController.kt`; `PendingConfirmationSupport.kt`; `RunPlacementRecoveryTest.kt`; `RemoteChatRuntimeTest.kt`; `SolinViewModelTest.kt` | T12 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.orchestration.RunPlacementRecoveryTest' --tests 'com.bytedance.zgx.solin.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.solin.SolinViewModelTest'`；切换 preference 不改变续写/停止目标，同目标 retry placement 不变，缺 binding fail closed。 |
 | T14 | 完成三态模型配置和实际位置解释 UI；偏好、候选状态与本次执行事实分开展示。 | `ModelManagerSheet.kt`; `ChatTopBar.kt`; `ChatEmptyState.kt`; `FirstRunSetupPanel.kt`; `SolinScreen.kt`; `SolinScreenDisplayTest.kt`; `MainActivityAdaptiveUiTest.kt` | T12 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.ui.SolinScreenDisplayTest' && ./gradlew :app:compileDebugKotlin`；三态文案和 Auto→Local/Remote/Blocked 解释正确，UI 不展示 endpoint/IP/revision。真机测试命令记录为待人工执行。 |
 | T15 | 让 Audit/行为评测从 invocation 读取 actual placement，并校验 placement、invocation、receipt 三方一致。 | `AuditUiController.kt`; `AgentBehaviorEvalModels.kt`; `AiBehaviorActualTraceGeneratorTest.kt`; `RunDataReceiptTraceTest.kt`; `privacy_boundary.jsonl`; `restart_recovery.jsonl`; `runtime_failure.jsonl` | T09,T13,T14 | `./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest' --tests 'com.bytedance.zgx.solin.orchestration.RunDataReceiptTraceTest'`；错配 fixture 失败，LocalOnly remote invocation 失败，实际 target 不再从 preference 推断。 |

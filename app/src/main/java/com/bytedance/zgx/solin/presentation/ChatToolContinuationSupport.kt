@@ -98,6 +98,8 @@ internal class ChatToolContinuationSupport(
     private val activeRunTimelineFor: (String?) -> List<RunTimelineItemUiSummary>,
     private val activePublicWebEvidenceFor: (String?) -> List<PublicWebEvidencePack>,
     private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null },
+    private val onRemoteServingStarted: (String?) -> Unit = {},
+    private val discardDeferredRemoteSend: (String?) -> Unit = {},
 ) {
     fun continueAfterToolObservation(
         runId: String?,
@@ -114,6 +116,7 @@ internal class ChatToolContinuationSupport(
             activeRunPlacement = activeRunPlacement,
         )
         if (continuationResolution is BoundRunContinuationResolution.Blocked) {
+            discardDeferredRemoteSend(runId)
             val privacyBlocked =
                 continuationResolution.reason == PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
             runId?.let { id ->
@@ -163,6 +166,7 @@ internal class ChatToolContinuationSupport(
             remoteConfig.isConfigured &&
             remoteConfig.hasKnownConnectivityFailure
         ) {
+            discardDeferredRemoteSend(runId)
             runId?.let { id ->
                 assistantOrchestrator.failModelGeneration(id, "远程连接状态为${remoteConfig.connectivityStatus.label}")
             }
@@ -213,7 +217,7 @@ internal class ChatToolContinuationSupport(
                 remoteHistory = remoteHistory,
                 imageAttachments = emptyList(),
                 stateBeforeSend = stateAtStart,
-            )
+            ).copy(runId = runId)
             remoteSendSupport.savePendingRemoteSendMarker(disclosure, runId = runId)
             uiState.update {
                 it.copy(
@@ -328,13 +332,15 @@ internal class ChatToolContinuationSupport(
                         history = remoteHistory,
                         tokenBudget = remoteTokenBudget,
                     ) { historyToSend ->
-                        remoteRuntime.sendWithTools(
+                        val events = remoteRuntime.sendWithTools(
                             prompt = promptForModel,
                             history = historyToSend,
                             parameters = uiState.value.generationParameters,
                             config = remoteConfig,
                             tools = remoteTools,
-                        ).collect { event ->
+                        )
+                        events.collect { event ->
+                            onRemoteServingStarted(runId)
                             if (outputQualityDecision != null) return@collect
                             when (event) {
                                 is RemoteChatEvent.TextDelta -> {
@@ -621,6 +627,8 @@ internal class ChatToolContinuationSupport(
                         },
                     )
                 }
+            } finally {
+                discardDeferredRemoteSend(runId)
             }
         }
     }

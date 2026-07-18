@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PROFILE_FILE="${MODEL_CAPABILITY_PROFILES_FILE:-docs/model_capability_profiles.json}"
+SOURCE_DIR="${MODEL_CAPABILITY_SOURCE_DIR:-app/src/main/java/com/bytedance/zgx/solin}"
 REPORT_FILE=""
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-model-capability}}"
 ORIGINAL_ARGS=("$@")
@@ -21,6 +22,9 @@ failed_target_for_reason() {
     profile-*|customLocalTemplates-*|remoteOpenAiCompatibleTemplates-*)
       printf 'model-capability-profile-entry'
       ;;
+    adaptive-source-*|remote-capability-*|remote-profile-*|connectivity-*)
+      printf 'adaptive-inference-source-contract'
+      ;;
     *)
       printf 'model-capability-profiles'
       ;;
@@ -31,6 +35,10 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --report)
       REPORT_FILE="${2:?missing report path}"
+      shift 2
+      ;;
+    --source-dir)
+      SOURCE_DIR="${2:?missing source directory}"
       shift 2
       ;;
     *)
@@ -64,6 +72,7 @@ write_report() {
       printf 'modelCapabilityProfilesSha256=%s\n' "$(sha256_or_empty "$PROFILE_FILE")"
       printf 'profileFile=%s\n' "$PROFILE_FILE"
       printf 'profileSha256=%s\n' "$(sha256_or_empty "$PROFILE_FILE")"
+      printf 'sourceDir=%s\n' "$SOURCE_DIR"
       printf 'profileVersion=%s\n' "$(report_value "$metrics_file" profileVersion)"
       printf 'contractTest=%s\n' "$(report_value "$metrics_file" contractTest)"
       printf 'privacyBoundaryContainsLocalOnly=%s\n' "$(report_value "$metrics_file" privacyBoundaryContainsLocalOnly)"
@@ -76,6 +85,8 @@ write_report() {
       printf 'memoryEmbeddingProfileCount=%s\n' "$(report_value "$metrics_file" memoryEmbeddingProfileCount)"
       printf 'mobileActionProfileCount=%s\n' "$(report_value "$metrics_file" mobileActionProfileCount)"
       printf 'stableLocalChatProfileCount=%s\n' "$(report_value "$metrics_file" stableLocalChatProfileCount)"
+      printf 'remoteCapabilityProfilePersistence=%s\n' "$(report_value "$metrics_file" remoteCapabilityProfilePersistence)"
+      printf 'connectivitySnapshotMemoryOnly=%s\n' "$(report_value "$metrics_file" connectivitySnapshotMemoryOnly)"
     } > "$REPORT_FILE"
   fi
 }
@@ -89,13 +100,14 @@ fi
 validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
-if ! python3 - "$PROFILE_FILE" > "$validation_output" <<'PY'
+if ! python3 - "$PROFILE_FILE" "$SOURCE_DIR" > "$validation_output" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
 profile_path = Path(sys.argv[1])
+source_dir = Path(sys.argv[2])
 
 try:
     document = json.loads(profile_path.read_text(encoding="utf-8"))
@@ -104,6 +116,73 @@ except Exception:
     sys.exit(1)
 
 failures = []
+
+required_source_files = {
+    "remoteModels": source_dir / "RemoteModels.kt",
+    "preferenceSettingsStore": source_dir / "data" / "PreferenceSettingsStore.kt",
+    "remoteModelRepository": source_dir / "data" / "RemoteModelRepository.kt",
+    "stores": source_dir / "data" / "Stores.kt",
+}
+source_text = {}
+for name, path in required_source_files.items():
+    if not path.is_file():
+        failures.append(f"adaptive-source-file-missing:{name}")
+        source_text[name] = ""
+    else:
+        source_text[name] = path.read_text(encoding="utf-8")
+
+preference_source = source_text["preferenceSettingsStore"]
+repository_source = source_text["remoteModelRepository"]
+remote_models_source = source_text["remoteModels"]
+stores_source = source_text["stores"]
+
+capability_persistence_markers = [
+    "supportsVisionInput = readBoolean(Keys.REMOTE_SUPPORTS_VISION_INPUT",
+    "supportsToolCalls = readBoolean(Keys.REMOTE_SUPPORTS_TOOL_CALLS",
+    "contextWindowTokens = readInt(Keys.REMOTE_CONTEXT_WINDOW_TOKENS",
+    "profileRevision = readString(Keys.REMOTE_PROFILE_REVISION",
+    "prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT] = normalized.supportsVisionInput",
+    "prefs[Keys.REMOTE_SUPPORTS_TOOL_CALLS] = normalized.supportsToolCalls",
+    "prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS] = value",
+    "prefs[Keys.REMOTE_PROFILE_REVISION] = normalized.profileRevision",
+]
+missing_persistence_markers = [
+    marker for marker in capability_persistence_markers
+    if marker not in preference_source
+]
+for marker in missing_persistence_markers:
+    if "PROFILE_REVISION" in marker:
+        failures.append("remote-profile-revision-persistence-missing")
+    else:
+        failures.append("remote-capability-persistence-missing")
+remote_capability_profile_persistence = not missing_persistence_markers
+
+connectivity_status_assignment = re.search(
+    r"prefs\s*\[\s*Keys\.REMOTE_CONNECTIVITY_STATUS\s*\]\s*=",
+    preference_source,
+) is not None
+settings_store_contract = stores_source.partition("interface SettingsStore")[2].partition("interface SecretStore")[0]
+connectivity_snapshot_memory_only = all(
+    (
+        "connectivityStatus = RemoteModelConnectivityStatus.Unknown" in preference_source,
+        "prefs.remove(Keys.REMOTE_CONNECTIVITY_STATUS)" in preference_source,
+        not connectivity_status_assignment,
+        "private var connectivitySnapshot: RemoteConnectivitySnapshot? = null" in repository_source,
+        "data class RemoteConnectivitySnapshot(" in remote_models_source,
+        "Connectivity" not in settings_store_contract,
+        re.search(r"PREF_[A-Z0-9_]*CONNECTIVITY", repository_source) is None,
+    )
+)
+if connectivity_status_assignment:
+    failures.append("connectivity-status-persisted")
+if "connectivityStatus = RemoteModelConnectivityStatus.Unknown" not in preference_source:
+    failures.append("connectivity-status-restored-from-disk")
+if "prefs.remove(Keys.REMOTE_CONNECTIVITY_STATUS)" not in preference_source:
+    failures.append("connectivity-status-legacy-key-not-cleared")
+if "private var connectivitySnapshot: RemoteConnectivitySnapshot? = null" not in repository_source:
+    failures.append("connectivity-snapshot-not-memory-only")
+if "Connectivity" in settings_store_contract or re.search(r"PREF_[A-Z0-9_]*CONNECTIVITY", repository_source):
+    failures.append("connectivity-snapshot-persistence-contract-present")
 
 allowed_backend_kinds = {"LocalLiteRt", "RemoteOpenAiCompatible"}
 allowed_capabilities = {"Chat", "MemoryEmbedding", "MobileAction"}
@@ -323,6 +402,8 @@ metrics = {
     "memoryEmbeddingProfileCount": 0,
     "mobileActionProfileCount": 0,
     "stableLocalChatProfileCount": 0,
+    "remoteCapabilityProfilePersistence": str(remote_capability_profile_persistence).lower(),
+    "connectivitySnapshotMemoryOnly": str(connectivity_snapshot_memory_only).lower(),
 }
 
 seen_ids = set()

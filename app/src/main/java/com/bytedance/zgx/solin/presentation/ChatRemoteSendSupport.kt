@@ -77,6 +77,7 @@ internal class ChatRemoteSendSupport(
         responsePrivacy: MessagePrivacy,
         remoteToolScope: RemoteToolScope,
     ) -> Unit,
+    private val deferRemoteSendAuditNote: (runId: String?, note: String) -> Boolean = { _, _ -> false },
 ) {
     private var pendingRemoteContinuation: PendingRemoteContinuation? = null
 
@@ -158,10 +159,9 @@ internal class ChatRemoteSendSupport(
         // Masked sends are never applicable to tool-result continuations (no user prompt).
         if (pendingRemoteContinuation != null) return
         val maskedCategories = pending.sensitiveHitCategories.joinToString("、")
-        appendRemoteSendAuditNote(
-            "已对疑似敏感内容打码后发送到远程模型" +
-                if (maskedCategories.isNotBlank()) "（$maskedCategories）。" else "。",
-        )
+        val note = "已对疑似敏感内容打码后发送到远程模型" +
+            if (maskedCategories.isNotBlank()) "（$maskedCategories）。" else "。"
+        if (!deferRemoteSendAuditNote(pending.runId, note)) appendRemoteSendAuditNote(note)
         recordRemoteSendDecision(RemoteSendDecision.MaskedSend, pending)
         remoteSendPendingStore.clearPendingRemoteSend()
         val sharedInputRestore = takeSharedInputRestoreMatching(pending)
@@ -185,10 +185,9 @@ internal class ChatRemoteSendSupport(
         if (!pending.requiresSensitiveConsent) return
         if (pendingRemoteContinuation != null) return
         val hitCategories = pending.sensitiveHitCategories.joinToString("、")
-        appendRemoteSendAuditNote(
-            "用户确认在含疑似敏感内容的情况下仍原样发送到远程模型" +
-                if (hitCategories.isNotBlank()) "（$hitCategories）。" else "。",
-        )
+        val note = "用户确认在含疑似敏感内容的情况下仍原样发送到远程模型" +
+            if (hitCategories.isNotBlank()) "（$hitCategories）。" else "。"
+        if (!deferRemoteSendAuditNote(pending.runId, note)) appendRemoteSendAuditNote(note)
         recordRemoteSendDecision(RemoteSendDecision.SentAnyway, pending)
         remoteSendPendingStore.clearPendingRemoteSend()
         val sharedInputRestore = takeSharedInputRestoreMatching(pending)

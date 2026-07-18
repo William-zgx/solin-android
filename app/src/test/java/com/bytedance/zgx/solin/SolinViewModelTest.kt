@@ -126,6 +126,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CoroutineDispatcher
@@ -139,6 +140,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.json.JSONObject
@@ -4775,6 +4777,34 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun stopImmediatelyAfterDisclosureConfirmationNeverStartsPreparedRuntime() = runTest(dispatcher) {
+        val resumeDispatcher = StandardTestDispatcher(testScheduler)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val auditStore = FakeRemoteSendAuditStore()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            remoteSendAuditStore = auditStore,
+            requireRemoteSendDisclosure = true,
+            ioDispatcher = resumeDispatcher,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+        viewModel.sendMessage("stop before resume")
+        advanceUntilIdle()
+
+        viewModel.confirmRemoteSendDisclosure()
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(auditStore.recentRemoteSends().isEmpty())
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertFalse(viewModel.uiState.value.isGenerating)
+    }
+
+    @Test
     fun stopBeforePreparedServingAwaitNeverStartsRuntime() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
@@ -4811,6 +4841,66 @@ class SolinViewModelTest {
         advanceUntilIdle()
 
         assertTrue(auditStore.recentRemoteSends().isEmpty())
+        assertFalse(viewModel.uiState.value.messages.any { message -> message.text.contains("打码后发送") })
+    }
+
+    @Test
+    fun staleRevisionDoesNotPersistSendAnywayAuditOrNote() = runTest(dispatcher) {
+        val remoteStore = configuredRemoteStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val auditStore = FakeRemoteSendAuditStore()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = remoteStore,
+            remoteSendAuditStore = auditStore,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("我的手机号是 13800138000")
+        advanceUntilIdle()
+
+        remoteStore.saveConfig(configuredRemoteModel().copy(modelName = "model-b"))
+        viewModel.confirmRemoteSendDespiteSensitive()
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(auditStore.recentRemoteSends().isEmpty())
+        assertFalse(viewModel.uiState.value.messages.any { message -> message.text.contains("仍原样发送") })
+    }
+
+    @Test
+    fun sensitiveAuditAndLocalNoteWaitForFirstRemoteEvent() = runTest(dispatcher) {
+        listOf(true, false).forEach { maskBeforeSend ->
+            val remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true)
+            val auditStore = FakeRemoteSendAuditStore()
+            val viewModel = createViewModel(
+                remoteRuntime = remoteRuntime,
+                remoteStore = configuredRemoteStore(),
+                remoteSendAuditStore = auditStore,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+            viewModel.sendMessage("我的手机号是 13800138000")
+            advanceUntilIdle()
+
+            if (maskBeforeSend) {
+                viewModel.confirmRemoteSendWithMasking()
+            } else {
+                viewModel.confirmRemoteSendDespiteSensitive()
+            }
+            runCurrent()
+
+            assertEquals(1, remoteRuntime.calls.size)
+            assertTrue(auditStore.recentRemoteSends().isEmpty())
+            assertFalse(
+                viewModel.uiState.value.messages.any { message ->
+                    message.text.contains("打码后发送") || message.text.contains("仍原样发送")
+                },
+            )
+
+            viewModel.stopGeneration()
+            advanceUntilIdle()
+        }
     }
 
     @Test
@@ -5198,6 +5288,122 @@ class SolinViewModelTest {
         assertEquals("北京今天气温 26 度。[S1]", sessionStore.messages.last().text)
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
         assertEquals("就绪 · 远程", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun confirmedRemoteContinuationCommitsAuditAfterFirstRemoteEvent() = runTest(dispatcher) {
+        val runId = "run-remote-tool-continuation-audit"
+        val requests = publicWeatherBatchRequests()
+        val secondCallGate = CompletableDeferred<Unit>()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = runId,
+                promptForModel = "北京和上海今天温差多少？",
+                memoryHits = emptyList(),
+            ),
+            modelToolBatchObservation = publicEvidenceBatchModelObservation(runId, requests),
+            toolBatchObservation = publicEvidenceBatchToolObservation(runId),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            eventBatches = listOf(
+                listOf(RemoteChatEvent.ToolCalls(requests)),
+                listOf(
+                    RemoteChatEvent.TextDelta("已综合"),
+                    RemoteChatEvent.TextDelta("两地天气。"),
+                ),
+            ),
+            eventBatchStartGates = listOf(null, secondCallGate),
+        )
+        val auditStore = FakeRemoteSendAuditStore()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            assistantRouter = assistantRouter,
+            actionExecutor = RecordingToolExecutor(),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            remoteSendAuditStore = auditStore,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("北京和上海今天温差多少？")
+        advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+        val continuationDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(RemoteSendDisclosureKind.ToolResultContinuation, continuationDisclosure.kind)
+        assertEquals(runId, continuationDisclosure.runId)
+        assertEquals(1, auditStore.recentRemoteSends().size)
+
+        viewModel.confirmRemoteSendDisclosure()
+        runCurrent()
+
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals(1, auditStore.recentRemoteSends().size)
+
+        secondCallGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, auditStore.recentRemoteSends().size)
+    }
+
+    @Test
+    fun failedOrCancelledRemoteContinuationDiscardsDeferredAudit() = runTest(dispatcher) {
+        listOf(false, true).forEach { failSecondCall ->
+            val runId = "run-continuation-discard-$failSecondCall"
+            val requests = publicWeatherBatchRequests()
+            val secondCallGate = CompletableDeferred<Unit>()
+            val assistantRouter = FakeAssistantRouter(
+                routeResult = AssistantRoute.Chat(
+                    runId = runId,
+                    promptForModel = "北京和上海今天温差多少？",
+                    memoryHits = emptyList(),
+                ),
+                modelToolBatchObservation = publicEvidenceBatchModelObservation(runId, requests),
+                toolBatchObservation = publicEvidenceBatchToolObservation(runId),
+            )
+            val remoteRuntime = RecordingRemoteChatRuntime(
+                eventBatches = listOf(
+                    listOf(RemoteChatEvent.ToolCalls(requests)),
+                    listOf(RemoteChatEvent.TextDelta("不应提交审计")),
+                ),
+                eventBatchStartGates = listOf(null, secondCallGate),
+                eventBatchFailures = if (failSecondCall) {
+                    mapOf(1 to IOException("continuation failed"))
+                } else {
+                    emptyMap()
+                },
+            )
+            val auditStore = FakeRemoteSendAuditStore()
+            val viewModel = createViewModel(
+                remoteRuntime = remoteRuntime,
+                remoteStore = configuredRemoteStore(),
+                assistantRouter = assistantRouter,
+                actionExecutor = RecordingToolExecutor(),
+                modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+                remoteSendAuditStore = auditStore,
+                requireRemoteSendDisclosure = true,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+            viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+            viewModel.sendMessage("北京和上海今天温差多少？")
+            advanceUntilIdle()
+            viewModel.confirmRemoteSendDisclosure()
+            advanceUntilIdle()
+            assertEquals(1, auditStore.recentRemoteSends().size)
+
+            viewModel.confirmRemoteSendDisclosure()
+            runCurrent()
+            assertEquals(1, auditStore.recentRemoteSends().size)
+            if (!failSecondCall) viewModel.stopGeneration()
+            secondCallGate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(1, auditStore.recentRemoteSends().size)
+        }
     }
 
     @Test
@@ -8931,6 +9137,8 @@ class SolinViewModelTest {
     private class RecordingRemoteChatRuntime(
         private val events: List<RemoteChatEvent> = listOf(RemoteChatEvent.TextDelta("远程回复")),
         private val eventBatches: List<List<RemoteChatEvent>> = emptyList(),
+        private val eventBatchStartGates: List<CompletableDeferred<Unit>?> = emptyList(),
+        private val eventBatchFailures: Map<Int, Throwable> = emptyMap(),
         var failure: Throwable? = null,
         private val hangDuringSend: Boolean = false,
     ) : RemoteChatRuntime {
@@ -8972,6 +9180,15 @@ class SolinViewModelTest {
                 return flow { awaitCancellation() }
             }
             val eventsForCall = eventBatches.getOrNull(callIndex) ?: events
+            val startGate = eventBatchStartGates.getOrNull(callIndex)
+            val callFailure = eventBatchFailures[callIndex]
+            if (startGate != null || callFailure != null) {
+                return flow {
+                    startGate?.await()
+                    callFailure?.let { throw it }
+                    eventsForCall.forEach { event -> emit(event) }
+                }
+            }
             return flowOf(*eventsForCall.toTypedArray())
         }
 

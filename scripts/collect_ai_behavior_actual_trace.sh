@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/ai-behavior-actual-trace}"
+FIXTURE_DIR="${AI_BEHAVIOR_FIXTURE_DIR:-app/src/test/resources/ai_behavior_eval}"
 ACTUAL_TRACE_FILE="${AI_BEHAVIOR_ACTUAL_TRACE_FILE:-${ARTIFACT_DIR}/ai-behavior-actual-trace.jsonl}"
 TRACE_DIFF_FILE="${TRACE_DIFF_FILE:-${ARTIFACT_DIR}/ai-behavior-planning-trace-diff.jsonl}"
 EVAL_REPORT_FILE="${EVAL_REPORT_FILE:-${ARTIFACT_DIR}/ai-behavior-eval.properties}"
@@ -46,6 +47,7 @@ write_report() {
     printf 'evalRequireActualTrace=%s\n' "$(report_value "$EVAL_REPORT_FILE" requireActualTrace)"
     printf 'evalRequireRuntimeTraceSource=%s\n' "$(report_value "$EVAL_REPORT_FILE" requireRuntimeTraceSource)"
     printf 'evalRequireAgentLoopRuntimeTraceSource=%s\n' "$(report_value "$EVAL_REPORT_FILE" requireAgentLoopRuntimeTraceSource)"
+    printf 'evalRequirePlacementReconciliation=%s\n' "$(report_value "$EVAL_REPORT_FILE" requirePlacementReconciliation)"
     printf 'evalRejectAllowedFailures=%s\n' "$(report_value "$EVAL_REPORT_FILE" rejectAllowedFailures)"
     printf 'publicReleaseContext=%s\n' "$PUBLIC_RELEASE_CONTEXT"
     printf 'rejectAllowedFailures=%s\n' "$REJECT_ALLOWED_FAILURES"
@@ -77,12 +79,14 @@ if [[ ! -s "$ACTUAL_TRACE_FILE" ]]; then
 fi
 
 VERIFY_ARGS=(
+  --dir "$FIXTURE_DIR"
   --require-boundary-map
   --actual-trace "$ACTUAL_TRACE_FILE"
   --trace-diff "$TRACE_DIFF_FILE"
   --require-actual-trace
   --require-runtime-trace-source
   --require-agent-loop-runtime-trace-source
+  --require-placement-reconciliation
   --report "$EVAL_REPORT_FILE"
 )
 if [[ "$REJECT_ALLOWED_FAILURES" == "1" ]]; then

@@ -16,6 +16,7 @@ REQUIRE_ACTUAL_TRACE=0
 REQUIRE_RUNTIME_TRACE_SOURCE=0
 REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE=0
 REJECT_ALLOWED_FAILURES=0
+REQUIRE_PLACEMENT_RECONCILIATION=0
 ACTUAL_TRACE_MAX_AGE_DAYS="${AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS:-30}"
 ORIGINAL_ARGS=("$@")
 SOLIN_SCRIPT_COMMAND="$0"
@@ -81,6 +82,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --reject-allowed-failures)
       REJECT_ALLOWED_FAILURES=1
+      shift
+      ;;
+    --require-placement-reconciliation)
+      REQUIRE_PLACEMENT_RECONCILIATION=1
       shift
       ;;
     *)
@@ -176,6 +181,10 @@ write_report() {
       printf 'requireRuntimeTraceSource=%s\n' "$REQUIRE_RUNTIME_TRACE_SOURCE"
       printf 'requireAgentLoopRuntimeTraceSource=%s\n' "$REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE"
       printf 'rejectAllowedFailures=%s\n' "$REJECT_ALLOWED_FAILURES"
+      printf 'requirePlacementReconciliation=%s\n' "$REQUIRE_PLACEMENT_RECONCILIATION"
+      printf 'placementExpectationCount=%s\n' "$(report_value "$metrics_file" placementExpectationCount)"
+      printf 'placementReconciledCount=%s\n' "$(report_value "$metrics_file" placementReconciledCount)"
+      printf 'placementMismatchCount=%s\n' "$(report_value "$metrics_file" placementMismatchCount)"
       printf 'actualTraceMaxAgeDays=%s\n' "$ACTUAL_TRACE_MAX_AGE_DAYS"
       printf 'requiredCategories=%s\n' "$(IFS=,; echo "${REQUIRED_CATEGORIES[*]}")"
       for index in "${!metric_keys[@]}"; do
@@ -196,7 +205,7 @@ trap 'rm -f "$validation_output"' EXIT
 
 if ! python3 - "$FIXTURE_DIR" "$CAPABILITY_MATRIX_FILE" "$ACTION_MODELS_FILE" "$FIXTURE_DIR_SHA256" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
   "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE" "$REJECT_ALLOWED_FAILURES" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
-  "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
+  "$REQUIRE_PLACEMENT_RECONCILIATION" "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
 import collections
 import datetime
 import json
@@ -224,7 +233,8 @@ except ValueError:
 if actual_trace_max_age_days <= 0:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
-required = sys.argv[14:]
+require_placement_reconciliation = sys.argv[14] == "1"
+required = sys.argv[15:]
 
 if not capability_matrix_path.is_file():
     print("reason=capability-matrix-missing")
@@ -287,6 +297,7 @@ remote_eligible_case_count = 0
 allowed_failure_mode_count = 0
 observed_failure_modes = set()
 eval_cases = []
+placement_expectation_count = 0
 
 allowed_confirmations = {
     "none",
@@ -327,6 +338,8 @@ allowed_routing_paths = {
     "model_tool_call",
     "no_action",
 }
+allowed_placements = {"Local", "Remote", "Blocked"}
+placement_reason_pattern = re.compile(r"^[A-Z][A-Z0-9_]*$")
 failure_mode_pattern = re.compile(r"^[a-z0-9][a-z0-9_:-]*$")
 required_boundary_entries = capability_matrix.get("requiredBehaviorEvalBoundaries", [])
 if not isinstance(required_boundary_entries, list):
@@ -462,6 +475,20 @@ for category in required:
         if expected_routing_rejection_reason and not re.match(r"^[a-z0-9][a-z0-9_.-]*$", expected_routing_rejection_reason):
             print(f"reason=invalid-field:{category}:{line_number}:expectedRoutingRejectionReason")
             sys.exit(1)
+        expected_placement = str(row.get("expectedPlacement", "")).strip()
+        expected_placement_reason = str(row.get("expectedPlacementReason", "")).strip()
+        if bool(expected_placement) != bool(expected_placement_reason):
+            missing_field = "expectedPlacementReason" if expected_placement else "expectedPlacement"
+            print(f"reason=missing-field:{category}:{line_number}:{missing_field}")
+            sys.exit(1)
+        if expected_placement:
+            if expected_placement not in allowed_placements:
+                print(f"reason=invalid-field:{category}:{line_number}:expectedPlacement")
+                sys.exit(1)
+            if not placement_reason_pattern.fullmatch(expected_placement_reason):
+                print(f"reason=invalid-field:{category}:{line_number}:expectedPlacementReason")
+                sys.exit(1)
+            placement_expectation_count += 1
         if row["category"] != category:
             print(f"reason=category-mismatch:{category}:{line_number}:{row['category']}")
             sys.exit(1)
@@ -522,6 +549,8 @@ for category in required:
                 "expectedRoutingToolName": expected_routing_tool_name,
                 "expectedRoutingSkillId": expected_routing_skill_id,
                 "expectedRoutingRejectionReason": expected_routing_rejection_reason,
+                "expectedPlacement": expected_placement,
+                "expectedPlacementReason": expected_placement_reason,
             }
         )
         rows.append(row)
@@ -669,6 +698,63 @@ def load_actual_traces():
         ):
             print(f"reason=actual-trace-remote-confirmation-privacy-mismatch:{line_number}")
             sys.exit(1)
+        placement_values = {}
+        for field in (
+            "placementSelected",
+            "actualPlacementReason",
+            "invocationPlacement",
+            "receiptDestination",
+        ):
+            value = row.get(field, "")
+            if value is None:
+                value = ""
+            if not isinstance(value, str):
+                print(f"reason=invalid-actual-trace:{line_number}:{field}")
+                sys.exit(1)
+            placement_values[field] = value.strip()
+        placement_selected = placement_values["placementSelected"]
+        actual_placement_reason = placement_values["actualPlacementReason"]
+        invocation_placement = placement_values["invocationPlacement"]
+        receipt_destination = placement_values["receiptDestination"]
+        expected_placement_case = case_by_id.get(case_id)
+        expects_placement = bool(
+            expected_placement_case and expected_placement_case["expectedPlacement"]
+        )
+        has_placement_trace = any(placement_values.values())
+        if has_placement_trace or (require_placement_reconciliation and expects_placement):
+            for field, value in (
+                ("placementSelected", placement_selected),
+                ("actualPlacementReason", actual_placement_reason),
+            ):
+                if not value:
+                    print(f"reason=invalid-actual-trace:{line_number}:{field}")
+                    sys.exit(1)
+            if placement_selected not in allowed_placements:
+                print(f"reason=invalid-actual-trace:{line_number}:placementSelected")
+                sys.exit(1)
+            if not placement_reason_pattern.fullmatch(actual_placement_reason):
+                print(f"reason=invalid-actual-trace:{line_number}:actualPlacementReason")
+                sys.exit(1)
+            if placement_selected == "Blocked":
+                if invocation_placement or receipt_destination:
+                    print(f"reason=actual-trace-blocked-serving-invocation:{line_number}")
+                    sys.exit(1)
+            else:
+                if invocation_placement not in {"Local", "Remote"}:
+                    print(f"reason=invalid-actual-trace:{line_number}:invocationPlacement")
+                    sys.exit(1)
+                if receipt_destination not in {"Local", "Remote"}:
+                    print(f"reason=invalid-actual-trace:{line_number}:receiptDestination")
+                    sys.exit(1)
+                if placement_selected != invocation_placement:
+                    print(f"reason=actual-trace-placement-invocation-mismatch:{line_number}")
+                    sys.exit(1)
+                if invocation_placement != receipt_destination:
+                    print(f"reason=actual-trace-invocation-receipt-mismatch:{line_number}")
+                    sys.exit(1)
+                if local_only and invocation_placement == "Remote":
+                    print(f"reason=actual-trace-localonly-remote-invocation:{line_number}")
+                    sys.exit(1)
         failure_mode = row.get("failureMode", "")
         if failure_mode is None:
             failure_mode = ""
@@ -725,6 +811,10 @@ def load_actual_traces():
                 "routingToolName": routing_tool_name,
                 "routingSkillId": routing_skill_id,
                 "routingRejectionReason": routing_rejection_reason,
+                "placementSelected": placement_selected,
+                "actualPlacementReason": actual_placement_reason,
+                "invocationPlacement": invocation_placement,
+                "receiptDestination": receipt_destination,
                 "traceSource": trace_source,
                 "traceRecordedAt": trace_recorded_at if isinstance(trace_recorded_at, str) else "",
                 "matched": False,
@@ -754,6 +844,8 @@ for trace in actual_traces:
 trace_diff_rows = []
 trace_diff_counts = collections.Counter()
 actual_trace_missing_required_failure_mode_count = 0
+placement_reconciled_count = 0
+placement_mismatch_count = 0
 for case in eval_cases:
     actual = actual_by_case_id.get(case["caseId"])
     if actual is None and not require_actual_trace:
@@ -772,6 +864,10 @@ for case in eval_cases:
     actual_routing_tool_name = actual["routingToolName"] if actual is not None else ""
     actual_routing_skill_id = actual["routingSkillId"] if actual is not None else ""
     actual_routing_rejection_reason = actual["routingRejectionReason"] if actual is not None else ""
+    placement_selected = actual["placementSelected"] if actual is not None else ""
+    actual_placement_reason = actual["actualPlacementReason"] if actual is not None else ""
+    invocation_placement = actual["invocationPlacement"] if actual is not None else ""
+    receipt_destination = actual["receiptDestination"] if actual is not None else ""
     actual_trace_source = actual["traceSource"] if actual is not None else ""
     actual_trace_recorded_at = actual["traceRecordedAt"] if actual is not None else ""
     tools_match = case["expectedTools"] == actual_tools
@@ -820,6 +916,27 @@ for case in eval_cases:
         routing_skill_id_match and
         routing_rejection_reason_match
     )
+    if not case["expectedPlacement"]:
+        placement_reconciliation_match = True
+    elif case["expectedPlacement"] == "Blocked":
+        placement_reconciliation_match = (
+            placement_selected == "Blocked" and
+            not invocation_placement and
+            not receipt_destination and
+            actual_placement_reason == case["expectedPlacementReason"]
+        )
+    else:
+        placement_reconciliation_match = (
+            placement_selected == case["expectedPlacement"] and
+            invocation_placement == case["expectedPlacement"] and
+            receipt_destination == case["expectedPlacement"] and
+            actual_placement_reason == case["expectedPlacementReason"]
+        )
+    if case["expectedPlacement"] and actual is not None:
+        if placement_reconciliation_match:
+            placement_reconciled_count += 1
+        else:
+            placement_mismatch_count += 1
     required_failure_mode_match = (
         not require_actual_trace or
         case["expectedConfirmation"] != "fail_closed" or
@@ -838,6 +955,7 @@ for case in eval_cases:
         safety_boundary_match and
         actual_failure_mode_accepted and
         routing_expectation_match and
+        placement_reconciliation_match and
         required_failure_mode_match
     )
     allowed_failure_match = (
@@ -845,6 +963,7 @@ for case in eval_cases:
         case["expectedConfirmation"] != "fail_closed" and
         allowed_failure_mode_match and
         routing_expectation_match and
+        placement_reconciliation_match and
         safety_boundary_match and
         fail_closed_invariant_match
     )
@@ -885,6 +1004,12 @@ for case in eval_cases:
             "actualRoutingSkillId": actual_routing_skill_id,
             "expectedRoutingRejectionReason": case["expectedRoutingRejectionReason"],
             "actualRoutingRejectionReason": actual_routing_rejection_reason,
+            "expectedPlacement": case["expectedPlacement"],
+            "expectedPlacementReason": case["expectedPlacementReason"],
+            "placementSelected": placement_selected,
+            "actualPlacementReason": actual_placement_reason,
+            "invocationPlacement": invocation_placement,
+            "receiptDestination": receipt_destination,
             "actualTraceSource": actual_trace_source,
             "actualTraceRecordedAt": actual_trace_recorded_at,
             "toolsMatch": tools_match,
@@ -900,6 +1025,7 @@ for case in eval_cases:
             "routingSkillIdMatches": bool(routing_skill_id_match),
             "routingRejectionReasonMatches": bool(routing_rejection_reason_match),
             "routingExpectationMatches": bool(routing_expectation_match),
+            "placementReconciliationMatches": bool(placement_reconciliation_match),
             "requiredFailureModeMatches": bool(required_failure_mode_match),
             "allowedFailureSafetyMatches": bool(allowed_failure_match),
             "safetyBoundaryMatches": bool(safety_boundary_match),
@@ -969,7 +1095,16 @@ def emit_metrics(reason=""):
     print(f"actualTraceSourceBreakdown={encode_counter(actual_trace_source_counts)}")
     print(f"actualTraceNonAgentLoopRuntimeSourceCount={actual_trace_non_agent_loop_runtime_source_count}")
     print(f"actualTraceNewestRecordedAt={actual_trace_newest_recorded_at}")
+    print(f"placementExpectationCount={placement_expectation_count}")
+    print(f"placementReconciledCount={placement_reconciled_count}")
+    print(f"placementMismatchCount={placement_mismatch_count}")
 
+if require_placement_reconciliation and placement_expectation_count == 0:
+    emit_metrics("placement-expectations-missing")
+    sys.exit(1)
+if require_placement_reconciliation and not require_actual_trace:
+    emit_metrics("placement-reconciliation-requires-actual-trace")
+    sys.exit(1)
 if require_boundary_map and not mvp_counts:
     emit_metrics("missing-mvp-scenarios")
     sys.exit(1)

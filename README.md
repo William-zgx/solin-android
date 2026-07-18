@@ -272,6 +272,9 @@ scripts/           Local, device, release, and evidence helpers
 - Bundled-model lab package: `docs/bundled_model_package.md`
 - Device/manual acceptance: `docs/phone_acceptance.md`
 - Release readiness: `docs/release_readiness.md`
+- Adaptive edge inference phase-one status:
+  [`status.md`](docs/specs/20260718-adaptive-edge-inference/status.md) —
+  implementation in progress; not released.
 - Documentation index: `docs/index.md`
 
 ## Contributing

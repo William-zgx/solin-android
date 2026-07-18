@@ -1538,6 +1538,7 @@ release_gate_ai_contract=(
   REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1
   REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1
   REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1
+  REQUIRE_AI_BEHAVIOR_PLACEMENT_RECONCILIATION=1
   VERIFY_AI_BEHAVIOR_EVAL=1
   --require-boundary-map
 )
@@ -1547,6 +1548,9 @@ done
 assert_file_contains_text \
   scripts/collect_ai_behavior_actual_trace.sh \
   --require-agent-loop-runtime-trace-source
+assert_file_contains_text \
+  scripts/collect_ai_behavior_actual_trace.sh \
+  --require-placement-reconciliation
 
 assert_report_contains docs/perf_baseline_template.properties "artifactSchema=PerfBaseline/v1"
 assert_report_contains docs/perf_baseline_template.properties "target=perf-baseline-record"
@@ -2016,6 +2020,12 @@ with out.open("w", encoding="utf-8") as handle:
                 "traceSource": "agent_loop_runtime",
                 "fixtureDirSha256": fixture_dir_sha256,
             }
+            if row.get("expectedPlacement"):
+                trace["placementSelected"] = row["expectedPlacement"]
+                trace["actualPlacementReason"] = row["expectedPlacementReason"]
+                if row["expectedPlacement"] != "Blocked":
+                    trace["invocationPlacement"] = row["expectedPlacement"]
+                    trace["receiptDestination"] = row["expectedPlacement"]
             if row.get("expectedRoutingPath"):
                 trace["routingPath"] = row["expectedRoutingPath"]
                 if row.get("expectedRoutingToolName"):
@@ -2035,6 +2045,198 @@ with out.open("w", encoding="utf-8") as handle:
             handle.write(json.dumps(trace, ensure_ascii=False, sort_keys=True) + "\n")
 PY
 AI_ACTUAL_TRACE_SHA="$(shasum -a 256 "$AI_ACTUAL_TRACE" | awk '{print $1}')"
+
+AI_PLACEMENT_FIXTURE_DIR="$TMP_DIR/ai-behavior-placement-fixtures"
+mkdir -p "$AI_PLACEMENT_FIXTURE_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_PLACEMENT_FIXTURE_DIR/"
+python3 - "$AI_PLACEMENT_FIXTURE_DIR/privacy_boundary.jsonl" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["expectedPlacement"] = "Local"
+rows[0]["expectedPlacementReason"] = "LOCAL_ONLY"
+rows[2]["expectedPlacement"] = "Local"
+rows[2]["expectedPlacementReason"] = "MANUAL_LOCAL"
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+AI_PLACEMENT_FIXTURE_SHA="$(fixture_dir_sha256 "$AI_PLACEMENT_FIXTURE_DIR")"
+AI_PLACEMENT_EXPECTATION_COUNT="$(python3 - "$AI_PLACEMENT_FIXTURE_DIR" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+count = 0
+for fixture_path in Path(sys.argv[1]).glob("*.jsonl"):
+    count += sum(
+        1
+        for line in fixture_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and json.loads(line).get("expectedPlacement")
+    )
+print(count)
+PY
+)"
+expect_failure \
+  "AI behavior placement reconciliation requires an actual trace" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
+    --require-boundary-map \
+    --require-placement-reconciliation \
+    --report "$ARTIFACT_DIR/ai-behavior-placement-pending.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-pending.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-pending.properties" "reason=placement-reconciliation-requires-actual-trace"
+
+AI_PLACEMENT_ACTUAL_TRACE="$TMP_DIR/ai-behavior-placement-actual-trace.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_PLACEMENT_ACTUAL_TRACE" "$AI_PLACEMENT_FIXTURE_SHA" "$AI_PLACEMENT_FIXTURE_DIR" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+fixture_sha = sys.argv[3]
+fixture_dir = Path(sys.argv[4])
+placement_expectations = {}
+for fixture_path in fixture_dir.glob("*.jsonl"):
+    for line in fixture_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        fixture = json.loads(line)
+        if fixture.get("expectedPlacement"):
+            placement_expectations[fixture["id"]] = (
+                fixture["expectedPlacement"],
+                fixture["expectedPlacementReason"],
+            )
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    row["fixtureDirSha256"] = fixture_sha
+    expectation = placement_expectations.get(row["caseId"])
+    if expectation:
+        placement, reason = expectation
+        row.update(
+            placementSelected=placement,
+            actualPlacementReason=reason,
+        )
+        if placement != "Blocked":
+            row.update(invocationPlacement=placement, receiptDestination=placement)
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_success \
+  "AI behavior eval reconciles placement selection invocation and receipt" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_PLACEMENT_ACTUAL_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-placement-matched.jsonl" \
+    --require-actual-trace \
+    --require-placement-reconciliation \
+    --report "$ARTIFACT_DIR/ai-behavior-placement-matched.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-matched.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-matched.properties" "requirePlacementReconciliation=1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-matched.properties" "placementExpectationCount=$AI_PLACEMENT_EXPECTATION_COUNT"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-matched.properties" "placementReconciledCount=$AI_PLACEMENT_EXPECTATION_COUNT"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-placement-matched.jsonl" '"placementReconciliationMatches": true'
+
+AI_PLACEMENT_EXPECTED_MISMATCH="$TMP_DIR/ai-behavior-placement-expected-mismatch.jsonl"
+python3 - "$AI_PLACEMENT_ACTUAL_TRACE" "$AI_PLACEMENT_EXPECTED_MISMATCH" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+rows = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["caseId"] == "privacy_public_weather_allowed":
+        row["placementSelected"] = "Remote"
+        row["invocationPlacement"] = "Remote"
+        row["receiptDestination"] = "Remote"
+Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects expected placement and invocation mismatch" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_PLACEMENT_EXPECTED_MISMATCH" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-placement-expected-mismatch.jsonl" \
+    --require-actual-trace \
+    --require-placement-reconciliation \
+    --report "$ARTIFACT_DIR/ai-behavior-placement-expected-mismatch.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-placement-expected-mismatch.properties" "reason=trace-diff-mismatch"
+
+AI_PLACEMENT_RECEIPT_MISMATCH="$TMP_DIR/ai-behavior-placement-receipt-mismatch.jsonl"
+python3 - "$AI_PLACEMENT_ACTUAL_TRACE" "$AI_PLACEMENT_RECEIPT_MISMATCH" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+rows = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["caseId"] == "privacy_screen_text_remote_block":
+        row["receiptDestination"] = "Remote"
+Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects invocation and receipt mismatch" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_PLACEMENT_RECEIPT_MISMATCH" \
+    --require-actual-trace \
+    --require-placement-reconciliation \
+    --report "$ARTIFACT_DIR/ai-behavior-placement-receipt-mismatch.properties"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-placement-receipt-mismatch.properties" "reason=actual-trace-invocation-receipt-mismatch:"
+
+AI_PLACEMENT_LOCALONLY_REMOTE="$TMP_DIR/ai-behavior-placement-localonly-remote.jsonl"
+python3 - "$AI_PLACEMENT_ACTUAL_TRACE" "$AI_PLACEMENT_LOCALONLY_REMOTE" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+rows = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["caseId"] == "privacy_screen_text_remote_block":
+        row["placementSelected"] = "Remote"
+        row["invocationPlacement"] = "Remote"
+        row["receiptDestination"] = "Remote"
+Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects LocalOnly remote invocation" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_PLACEMENT_LOCALONLY_REMOTE" \
+    --require-actual-trace \
+    --require-placement-reconciliation \
+    --report "$ARTIFACT_DIR/ai-behavior-placement-localonly-remote.properties"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-placement-localonly-remote.properties" "reason=actual-trace-localonly-remote-invocation:"
+expect_failure \
+  "AI behavior eval rejects LocalOnly remote serving fields even without placement reconciliation mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_PLACEMENT_LOCALONLY_REMOTE" \
+    --require-actual-trace \
+    --report "$ARTIFACT_DIR/ai-behavior-placement-localonly-remote-unflagged.properties"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-placement-localonly-remote-unflagged.properties" "reason=actual-trace-localonly-remote-invocation:"
+
 AI_ACTUAL_TRACE_BAD_FIXTURE_SHA="$TMP_DIR/ai-behavior-actual-trace-bad-fixture-sha.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_BAD_FIXTURE_SHA" <<'PY'
 import json
@@ -2715,7 +2917,8 @@ expect_success \
   "AI behavior actual trace collector records runtime trace evidence" \
   env ARTIFACT_DIR="$AI_COLLECTOR_DIR" \
   GRADLE_CMD="$FAKE_GRADLE" \
-  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_ACTUAL_TRACE" \
+  AI_BEHAVIOR_FIXTURE_DIR="$AI_PLACEMENT_FIXTURE_DIR" \
+  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_PLACEMENT_ACTUAL_TRACE" \
   scripts/collect_ai_behavior_actual_trace.sh
 grep -q -- ":app:testDebugUnitTest --tests com.bytedance.zgx.solin.eval.AiBehaviorActualTraceGeneratorTest" "$FAKE_GRADLE_LOG" ||
   fail "AI behavior actual trace collector must run the generator test"
@@ -2732,8 +2935,8 @@ assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffFile=$AI_COLLECTOR_DIFF"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffSha256=$(shasum -a 256 "$AI_COLLECTOR_DIFF" | awk '{print $1}')"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalReportFile=$AI_COLLECTOR_EVAL"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalReportSha256=$(shasum -a 256 "$AI_COLLECTOR_EVAL" | awk '{print $1}')"
-assert_report_contains "$AI_COLLECTOR_REPORT" "evalFixtureDir=app/src/test/resources/ai_behavior_eval"
-assert_report_contains "$AI_COLLECTOR_REPORT" "evalFixtureDirSha256=$AI_BEHAVIOR_FIXTURE_DIR_SHA"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalFixtureDir=$AI_PLACEMENT_FIXTURE_DIR"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalFixtureDirSha256=$AI_PLACEMENT_FIXTURE_SHA"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalCapabilityMatrixFile=$AI_BEHAVIOR_CAPABILITY_MATRIX_FILE"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalCapabilityMatrixSha256=$AI_BEHAVIOR_CAPABILITY_MATRIX_SHA"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalActionModelsFile=$AI_BEHAVIOR_ACTION_MODELS_FILE"
@@ -2741,6 +2944,7 @@ assert_report_contains "$AI_COLLECTOR_REPORT" "evalActionModelsSha256=$AI_BEHAVI
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireActualTrace=1"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireRuntimeTraceSource=1"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireAgentLoopRuntimeTraceSource=1"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequirePlacementReconciliation=1"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRejectAllowedFailures=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "publicReleaseContext=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "rejectAllowedFailures=0"
@@ -2759,7 +2963,8 @@ expect_success \
   "AI behavior actual trace collector supports public strict allowed-failure rejection" \
   env ARTIFACT_DIR="$AI_STRICT_COLLECTOR_DIR" \
   GRADLE_CMD="$FAKE_GRADLE" \
-  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_ACTUAL_TRACE" \
+  AI_BEHAVIOR_FIXTURE_DIR="$AI_PLACEMENT_FIXTURE_DIR" \
+  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_PLACEMENT_ACTUAL_TRACE" \
   AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1 \
   scripts/collect_ai_behavior_actual_trace.sh
 assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "status=passed"
@@ -2769,7 +2974,7 @@ assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-eval.properties" "r
 assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-eval.properties" "traceDiffAllowedFailureCount=0"
 
 AI_MIXED_SOURCE_TRACE="$TMP_DIR/ai-behavior-actual-trace-mixed-source.jsonl"
-python3 - "$AI_ACTUAL_TRACE" "$AI_MIXED_SOURCE_TRACE" <<'PY'
+python3 - "$AI_PLACEMENT_ACTUAL_TRACE" "$AI_MIXED_SOURCE_TRACE" <<'PY'
 import json
 import pathlib
 import sys
@@ -2788,6 +2993,7 @@ expect_failure \
   "AI behavior actual trace collector rejects mixed non-agent-loop trace provenance" \
   env ARTIFACT_DIR="$AI_MIXED_COLLECTOR_DIR" \
   GRADLE_CMD="$FAKE_GRADLE" \
+  AI_BEHAVIOR_FIXTURE_DIR="$AI_PLACEMENT_FIXTURE_DIR" \
   FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_MIXED_SOURCE_TRACE" \
   scripts/collect_ai_behavior_actual_trace.sh
 assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "status=failed"
@@ -2797,7 +3003,7 @@ assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-eval.properties" "ac
 assert_report_contains_text "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "actualTraceSourceBreakdown="
 
 AI_BAD_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad.jsonl"
-python3 - "$AI_ACTUAL_TRACE" "$AI_BAD_ACTUAL_TRACE" <<'PY'
+python3 - "$AI_PLACEMENT_ACTUAL_TRACE" "$AI_BAD_ACTUAL_TRACE" <<'PY'
 import json
 import pathlib
 import sys
@@ -2818,6 +3024,7 @@ AI_TRACE_DIFF_MISMATCH="$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.jsonl"
 expect_failure \
   "AI behavior eval rejects mismatched required planning trace diff" \
   scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_PLACEMENT_FIXTURE_DIR" \
     --require-boundary-map \
     --actual-trace "$AI_BAD_ACTUAL_TRACE" \
     --trace-diff "$AI_TRACE_DIFF_MISMATCH" \
@@ -2833,6 +3040,7 @@ expect_failure \
   "AI behavior actual trace collector rejects mismatched runtime trace evidence" \
   env ARTIFACT_DIR="$AI_COLLECTOR_MISMATCH_DIR" \
   GRADLE_CMD="$FAKE_GRADLE" \
+  AI_BEHAVIOR_FIXTURE_DIR="$AI_PLACEMENT_FIXTURE_DIR" \
   FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_BAD_ACTUAL_TRACE" \
   scripts/collect_ai_behavior_actual_trace.sh
 AI_COLLECTOR_MISMATCH_REPORT="$AI_COLLECTOR_MISMATCH_DIR/ai-behavior-actual-trace-collection.properties"
@@ -2941,6 +3149,56 @@ for RELEASE_PREFLIGHT_VERIFIER in \
   done
 done
 
+ADAPTIVE_SERVING_SAFE_SOURCE="$TMP_DIR/adaptive-serving-safe"
+ADAPTIVE_SERVING_BAD_SOURCE="$TMP_DIR/adaptive-serving-bad"
+mkdir -p "$ADAPTIVE_SERVING_SAFE_SOURCE" "$ADAPTIVE_SERVING_BAD_SOURCE"
+cat > "$ADAPTIVE_SERVING_SAFE_SOURCE/ChatController.kt" <<'ADAPTIVE_SERVING_SAFE'
+class ChatController {
+    fun dispatch(binding: RunPlacementBinding) {
+        val runtime = if (binding.placement == RunPlacement.Remote) remoteRuntime else localRuntime
+        runtime.send()
+    }
+}
+ADAPTIVE_SERVING_SAFE
+cat > "$ADAPTIVE_SERVING_BAD_SOURCE/ChatController.kt" <<'ADAPTIVE_SERVING_BAD'
+class ChatController {
+    fun dispatch(binding: RunPlacementBinding, state: ChatUiState) {
+        val auditOnly = binding.placement
+        val routeRemote = state.inferenceMode == InferenceMode.Remote
+        if (routeRemote) {
+            remoteChatRuntime.send()
+        } else {
+            localChatRuntime.send()
+        }
+    }
+}
+ADAPTIVE_SERVING_BAD
+
+ADAPTIVE_SERVING_SEPARATE_FUNCTION_SOURCE="$TMP_DIR/adaptive-serving-separate-function"
+mkdir -p "$ADAPTIVE_SERVING_SEPARATE_FUNCTION_SOURCE"
+cat > "$ADAPTIVE_SERVING_SEPARATE_FUNCTION_SOURCE/ChatController.kt" <<'ADAPTIVE_SERVING_SEPARATE_FUNCTION'
+class ChatController {
+    fun showReadiness(binding: RunPlacementBinding, state: ChatUiState) {
+        val auditOnly = binding.placement
+        if (state.inferenceMode == InferenceMode.Remote) {
+            showRemoteReadiness()
+        }
+    }
+
+    fun stopBoundRun() {
+        chatPlacementRuntime.stop("run-1")
+    }
+}
+ADAPTIVE_SERVING_SEPARATE_FUNCTION
+
+CAPABILITY_MATRIX_DEFAULT_SOURCE_REPORT="$ARTIFACT_DIR/capability-matrix-default-serving-source.properties"
+scripts/verify_capability_matrix.sh --report "$CAPABILITY_MATRIX_DEFAULT_SOURCE_REPORT" >/dev/null 2>&1 || true
+assert_report_contains "$CAPABILITY_MATRIX_DEFAULT_SOURCE_REPORT" \
+  "servingSourceDir=app/src/main/java/com/bytedance/zgx/solin"
+if grep -q '^servingSourceContract=not-run$' "$CAPABILITY_MATRIX_DEFAULT_SOURCE_REPORT"; then
+  fail "capability matrix verifier must inspect serving source by default"
+fi
+
 CAPABILITY_MATRIX_SHA="$(shasum -a 256 docs/capability_matrix.json | awk '{print $1}')"
 expect_success \
   "capability matrix verifier accepts checked-in capability surface" \
@@ -2961,6 +3219,142 @@ assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "sensitiveDi
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "requiredBehaviorBoundaryCount=1"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "localEvidenceRemoteEligibleCount=0"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "missingSensitiveDisclosureIds="
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "adaptiveInferenceRolloutDefaultStage=off"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "releaseLikeRolloutOff=true"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "servingSourceContract=passed"
+
+ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG_GRADLE="$TMP_DIR/adaptive-rollout-get-by-name-debug.gradle.kts"
+cat > "$ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG_GRADLE" <<'ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG'
+android {
+    defaultConfig {
+        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
+    }
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
+        }
+        release {}
+        create("rcPerfRelease") {
+            initWith(getByName("release"))
+        }
+        create("bundledModels") {
+            initWith(getByName("release"))
+        }
+    }
+}
+ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG
+expect_success \
+  "capability matrix verifier accepts getByName debug opt-in with release-like variants off" \
+  scripts/verify_capability_matrix.sh \
+    --gradle-file "$ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG_GRADLE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-rollout-get-by-name-debug.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-get-by-name-debug.properties" \
+  "releaseLikeRolloutOff=true"
+
+ADAPTIVE_ROLLOUT_UNKNOWN_GRADLE="$TMP_DIR/adaptive-rollout-unknown.gradle.kts"
+sed 's/\\"off\\"/\\"future_stage\\"/' app/build.gradle.kts > "$ADAPTIVE_ROLLOUT_UNKNOWN_GRADLE"
+expect_failure \
+  "capability matrix verifier rejects unknown adaptive inference rollout stage" \
+  scripts/verify_capability_matrix.sh \
+    --gradle-file "$ADAPTIVE_ROLLOUT_UNKNOWN_GRADLE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-rollout-unknown.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-unknown.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-rollout-unknown.properties" "adaptive-rollout-stage-invalid:future_stage"
+
+ADAPTIVE_ROLLOUT_RELEASE_ENABLED_GRADLE="$TMP_DIR/adaptive-rollout-release-enabled.gradle.kts"
+cat > "$ADAPTIVE_ROLLOUT_RELEASE_ENABLED_GRADLE" <<'ADAPTIVE_ROLLOUT_RELEASE_ENABLED'
+android {
+    defaultConfig {
+        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
+    }
+    buildTypes {
+        debug {
+            buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
+        }
+        release {
+            buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
+        }
+    }
+}
+ADAPTIVE_ROLLOUT_RELEASE_ENABLED
+expect_failure \
+  "capability matrix verifier rejects release-like adaptive inference rollout" \
+  scripts/verify_capability_matrix.sh \
+    --gradle-file "$ADAPTIVE_ROLLOUT_RELEASE_ENABLED_GRADLE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties" "release-like-rollout-not-off:release"
+
+ADAPTIVE_ROLLOUT_DYNAMIC_GRADLE="$TMP_DIR/adaptive-rollout-dynamic.gradle.kts"
+cat > "$ADAPTIVE_ROLLOUT_DYNAMIC_GRADLE" <<'ADAPTIVE_ROLLOUT_DYNAMIC'
+val configuredRolloutStage = "\"off\""
+android {
+    defaultConfig {
+        buildConfigField(
+            "String",
+            "ADAPTIVE_INFERENCE_ROLLOUT_STAGE",
+            configuredRolloutStage,
+        )
+    }
+}
+ADAPTIVE_ROLLOUT_DYNAMIC
+expect_failure \
+  "capability matrix verifier rejects dynamic adaptive rollout declarations" \
+  scripts/verify_capability_matrix.sh \
+    --gradle-file "$ADAPTIVE_ROLLOUT_DYNAMIC_GRADLE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-rollout-dynamic.properties"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-rollout-dynamic.properties" \
+  "adaptive-rollout-stage-unreadable"
+
+ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG_GRADLE="$TMP_DIR/adaptive-rollout-release-inherits-debug.gradle.kts"
+cat > "$ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG_GRADLE" <<'ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG'
+android {
+    defaultConfig {
+        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
+    }
+    buildTypes {
+        debug {
+            buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
+        }
+        release {
+            initWith(getByName("debug"))
+        }
+    }
+}
+ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG
+expect_failure \
+  "capability matrix verifier rejects release inheriting an enabled debug rollout" \
+  scripts/verify_capability_matrix.sh \
+    --gradle-file "$ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG_GRADLE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-rollout-release-inherits-debug.properties"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-rollout-release-inherits-debug.properties" \
+  "release-like-rollout-not-off:release"
+
+expect_success \
+  "capability matrix verifier accepts serving target from bound placement" \
+  scripts/verify_capability_matrix.sh \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-serving-safe.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-serving-safe.properties" "servingSourceContract=passed"
+expect_success \
+  "capability matrix verifier does not cross function boundaries from preference checks" \
+  scripts/verify_capability_matrix.sh \
+    --serving-source-dir "$ADAPTIVE_SERVING_SEPARATE_FUNCTION_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-serving-separate-function.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-serving-separate-function.properties" \
+  "servingSourceContract=passed"
+expect_failure \
+  "capability matrix verifier rejects serving target inferred from inference preference" \
+  scripts/verify_capability_matrix.sh \
+    --serving-source-dir "$ADAPTIVE_SERVING_BAD_SOURCE" \
+    --report "$ARTIFACT_DIR/capability-matrix-serving-bad.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-serving-bad.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-serving-bad.properties" "serving-target-derived-from-inference-mode:ChatController.kt"
 
 CAPABILITY_MATRIX_BAD_LOCAL_REMOTE="$TMP_DIR/capability-matrix-bad-local-remote.json"
 python3 - docs/capability_matrix.json "$CAPABILITY_MATRIX_BAD_LOCAL_REMOTE" <<'PY'
@@ -2979,6 +3373,7 @@ expect_failure \
   "capability matrix verifier rejects LocalEvidence remote eligibility drift" \
   scripts/verify_capability_matrix.sh \
     --file "$CAPABILITY_MATRIX_BAD_LOCAL_REMOTE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
     --report "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties"
 assert_release_verifier_report_schema \
   "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties" \
@@ -3005,10 +3400,12 @@ expect_failure \
   "capability matrix verifier rejects missing required sensitive disclosure" \
   scripts/verify_capability_matrix.sh \
     --file "$CAPABILITY_MATRIX_BAD_DISCLOSURE" \
+    --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
     --report "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties" "missingSensitiveDisclosureIds=media_projection_screenshot_ocr"
 assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties" "sensitive-disclosure-required-missing:media_projection_screenshot_ocr"
+export ADAPTIVE_SERVING_SOURCE_DIR="$ADAPTIVE_SERVING_SAFE_SOURCE"
 
 MODEL_CAPABILITY_PROFILES_SHA="$(shasum -a 256 docs/model_capability_profiles.json | awk '{print $1}')"
 expect_success \
@@ -3032,6 +3429,34 @@ assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "rem
 assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "memoryEmbeddingProfileCount=1"
 assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "mobileActionProfileCount=1"
 assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "stableLocalChatProfileCount=2"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "remoteCapabilityProfilePersistence=true"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "connectivitySnapshotMemoryOnly=true"
+
+MODEL_CAPABILITY_BAD_SOURCE="$TMP_DIR/model-capability-bad-source"
+mkdir -p "$MODEL_CAPABILITY_BAD_SOURCE/data"
+cp app/src/main/java/com/bytedance/zgx/solin/RemoteModels.kt "$MODEL_CAPABILITY_BAD_SOURCE/RemoteModels.kt"
+cp app/src/main/java/com/bytedance/zgx/solin/data/PreferenceSettingsStore.kt "$MODEL_CAPABILITY_BAD_SOURCE/data/PreferenceSettingsStore.kt"
+cp app/src/main/java/com/bytedance/zgx/solin/data/RemoteModelRepository.kt "$MODEL_CAPABILITY_BAD_SOURCE/data/RemoteModelRepository.kt"
+cp app/src/main/java/com/bytedance/zgx/solin/data/Stores.kt "$MODEL_CAPABILITY_BAD_SOURCE/data/Stores.kt"
+python3 - "$MODEL_CAPABILITY_BAD_SOURCE/data/PreferenceSettingsStore.kt" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+source = source.replace(
+    "prefs.remove(Keys.REMOTE_CONNECTIVITY_STATUS)",
+    "prefs[Keys.REMOTE_CONNECTIVITY_STATUS] = normalized.connectivityStatus.name",
+)
+path.write_text(source, encoding="utf-8")
+PY
+expect_failure \
+  "model capability verifier rejects persisted connectivity snapshot state" \
+  scripts/verify_model_capability_profiles.sh \
+    --source-dir "$MODEL_CAPABILITY_BAD_SOURCE" \
+    --report "$ARTIFACT_DIR/model-capability-persisted-connectivity.properties"
+assert_report_contains "$ARTIFACT_DIR/model-capability-persisted-connectivity.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/model-capability-persisted-connectivity.properties" "connectivity-status-persisted"
 
 MODEL_MEMORY_MULTIMODAL_REPORT="$ARTIFACT_DIR/model-memory-multimodal-local-gates.properties"
 MODEL_MEMORY_MULTIMODAL_PROFILE_REPORT="$ARTIFACT_DIR/model-memory-multimodal-profile.properties"
@@ -8023,6 +8448,77 @@ expect_success \
 assert_report_contains "$ARTIFACT_DIR/privacy.properties" "status=passed"
 assert_release_verifier_report_schema "$ARTIFACT_DIR/privacy.properties" "PrivacyScanReport/v1" "privacy-security"
 assert_report_contains "$ARTIFACT_DIR/privacy.properties" "scanTarget1Path=$SAFE_PRIVACY_DIR"
+
+SAFE_PLACEMENT_TRACE_DIR="$TMP_DIR/privacy-placement-trace-safe"
+mkdir -p "$SAFE_PLACEMENT_TRACE_DIR"
+cat > "$SAFE_PLACEMENT_TRACE_DIR/placement-trace.jsonl" <<'SAFE_PLACEMENT_TRACE'
+{"type":"PlacementSelected","schemaVersion":1,"runId":"run-1","placement":"Local","primaryReason":"MANUAL_LOCAL"}
+{"type":"ModelRuntimeInvocationStarted","schemaVersion":1,"runId":"run-1","placement":"Local","attempt":1}
+{"type":"RunDataReceiptRecorded","destination":"Local","currentPromptPrivacy":"LocalOnly","remoteHistoryCount":0,"localOnlyHistoryFilteredCount":1,"rawContentPersisted":false}
+SAFE_PLACEMENT_TRACE
+expect_success \
+  "privacy scan accepts metadata-only placement and invocation trace" \
+  scripts/privacy_scan.sh \
+    --report "$ARTIFACT_DIR/privacy-placement-trace-safe.properties" \
+    "$SAFE_PLACEMENT_TRACE_DIR"
+assert_report_contains "$ARTIFACT_DIR/privacy-placement-trace-safe.properties" "status=passed"
+
+for trace_sensitive_field in endpoint token prompt note; do
+  UNSAFE_PLACEMENT_TRACE_DIR="$TMP_DIR/privacy-placement-trace-$trace_sensitive_field"
+  mkdir -p "$UNSAFE_PLACEMENT_TRACE_DIR"
+  cat > "$UNSAFE_PLACEMENT_TRACE_DIR/placement-trace.jsonl" <<UNSAFE_PLACEMENT_TRACE
+{"type":"ModelRuntimeInvocationStarted","schemaVersion":1,"runId":"run-1","placement":"Remote","$trace_sensitive_field":"must-not-be-recorded"}
+UNSAFE_PLACEMENT_TRACE
+  expect_failure \
+    "privacy scan rejects $trace_sensitive_field in placement invocation trace" \
+    scripts/privacy_scan.sh \
+      --report "$ARTIFACT_DIR/privacy-placement-trace-$trace_sensitive_field.properties" \
+      "$UNSAFE_PLACEMENT_TRACE_DIR"
+  assert_report_contains "$ARTIFACT_DIR/privacy-placement-trace-$trace_sensitive_field.properties" "status=failed"
+  assert_report_contains "$ARTIFACT_DIR/privacy-placement-trace-$trace_sensitive_field.properties" "reason=placement-trace-sensitive-field"
+  if grep -q 'must-not-be-recorded' <<<"$LAST_OUTPUT" ||
+    grep -q 'must-not-be-recorded' "$ARTIFACT_DIR/privacy-placement-trace-$trace_sensitive_field.properties"; then
+    fail "privacy scan placement trace finding must redact $trace_sensitive_field value"
+  fi
+done
+
+UNSAFE_RECEIPT_TRACE_DIR="$TMP_DIR/privacy-receipt-trace-unknown-field"
+mkdir -p "$UNSAFE_RECEIPT_TRACE_DIR"
+cat > "$UNSAFE_RECEIPT_TRACE_DIR/receipt-trace.jsonl" <<'UNSAFE_RECEIPT_TRACE'
+{"type":"RunDataReceiptRecorded","destination":"Remote","currentPromptPrivacy":"PublicEvidence","rawContentPersisted":false,"note":"stable-looking-private-metadata"}
+UNSAFE_RECEIPT_TRACE
+expect_failure \
+  "privacy scan rejects non-whitelisted receipt metadata" \
+  scripts/privacy_scan.sh \
+    --report "$ARTIFACT_DIR/privacy-receipt-trace-unknown-field.properties" \
+    "$UNSAFE_RECEIPT_TRACE_DIR"
+assert_report_contains "$ARTIFACT_DIR/privacy-receipt-trace-unknown-field.properties" "reason=placement-trace-sensitive-field"
+
+UNSAFE_PLACEMENT_KOTLIN_DIR="$TMP_DIR/privacy-placement-kotlin-unknown-field"
+mkdir -p "$UNSAFE_PLACEMENT_KOTLIN_DIR"
+cat > "$UNSAFE_PLACEMENT_KOTLIN_DIR/TraceWriter.kt" <<'UNSAFE_PLACEMENT_KOTLIN'
+fun traceJson(step: AgentStep, json: JSONObject, dynamicField: String): JSONObject =
+    when (step) {
+        is AgentStep.ModelRuntimeInvocationStarted -> json
+            .put("schemaVersion", 1)
+            .put("runId", "run-1")
+            .put("placement", "Remote")
+            .put("attempt", 1)
+            .put("note", "must-not-be-recorded")
+            .put(dynamicField, "must-not-be-recorded")
+    }
+UNSAFE_PLACEMENT_KOTLIN
+expect_failure \
+  "privacy scan rejects non-whitelisted and dynamic Kotlin trace fields" \
+  scripts/privacy_scan.sh \
+    --report "$ARTIFACT_DIR/privacy-placement-kotlin-unknown-field.properties" \
+    "$UNSAFE_PLACEMENT_KOTLIN_DIR"
+assert_report_contains "$ARTIFACT_DIR/privacy-placement-kotlin-unknown-field.properties" "reason=placement-trace-sensitive-field"
+if grep -q 'must-not-be-recorded' <<<"$LAST_OUTPUT" ||
+  grep -q 'must-not-be-recorded' "$ARTIFACT_DIR/privacy-placement-kotlin-unknown-field.properties"; then
+  fail "privacy scan Kotlin trace findings must redact field values"
+fi
+
 expect_success \
   "privacy scan binds file target sha" \
   scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy-file.properties" "$SAFE_PRIVACY_FILE"
@@ -8999,6 +9495,8 @@ PRIVACY_GATE_TARGET="$TMP_DIR/privacy-gate-scan-target"
 mkdir -p "$PRIVACY_GATE_TARGET"
 PRIVACY_GATE_SECRET="$PRIVACY_GATE_TARGET/privacy-scan-gate-secret.tmp"
 printf 'token=sk-%s\n' "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" > "$PRIVACY_GATE_SECRET"
+export AI_BEHAVIOR_FIXTURE_DIR="$AI_PLACEMENT_FIXTURE_DIR"
+export AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_PLACEMENT_ACTUAL_TRACE"
 expect_success \
   "release gate passed report has evidence schema" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-gate-passed-schema" \
@@ -9102,6 +9600,8 @@ expect_failure \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "verifyPerfBaseline=1"
+assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "requireAiBehaviorActualTrace=1"
+assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "requireAiBehaviorPlacementReconciliation=1"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "failedTarget=perf-baseline"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "failedReason=PERF_BASELINE_FILE-not-set"
 assert_release_gate_report_schema "$ARTIFACT_DIR/release-missing-perf/release-gate.properties"
@@ -9121,6 +9621,8 @@ assert_release_gate_child_report_bound \
   "passed"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/ai-behavior-eval.properties" \
   "traceDiffFile=$ARTIFACT_DIR/release-missing-perf/ai-behavior-planning-trace-diff.jsonl"
+assert_report_contains "$ARTIFACT_DIR/release-missing-perf/ai-behavior-eval.properties" \
+  "requirePlacementReconciliation=1"
 [[ -s "$ARTIFACT_DIR/release-missing-perf/ai-behavior-planning-trace-diff.jsonl" ]] ||
   fail "release gate must preserve AI behavior planning trace diff"
 expect_failure \
@@ -9130,6 +9632,7 @@ expect_failure \
   RELEASE_APK="$SAFE_APK" \
   RELEASE_AAB="$TMP_DIR/missing.aab" \
   VERIFY_CONTRACT_TESTS=0 \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE= \
   REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-actual-required/ai-behavior-eval.properties" "status=failed"
@@ -9144,9 +9647,11 @@ expect_failure \
   RELEASE_APK="$SAFE_APK" \
   RELEASE_AAB="$TMP_DIR/missing.aab" \
   VERIFY_CONTRACT_TESTS=0 \
+  AI_BEHAVIOR_FIXTURE_DIR=app/src/test/resources/ai_behavior_eval \
   AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_ACTUAL_TRACE_MISSING_SOURCE" \
   REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
   REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1 \
+  REQUIRE_AI_BEHAVIOR_PLACEMENT_RECONCILIATION=0 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/ai-behavior-eval.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/ai-behavior-eval.properties" "reason=invalid-actual-trace:1:traceSource"
@@ -9159,7 +9664,7 @@ expect_failure \
   RELEASE_APK="$SAFE_APK" \
   RELEASE_AAB="$TMP_DIR/missing.aab" \
   VERIFY_CONTRACT_TESTS=0 \
-  AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_ACTUAL_TRACE_MIXED_SOURCE" \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_MIXED_SOURCE_TRACE" \
   REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
   REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1 \
   scripts/verify_release_gate.sh
@@ -9182,6 +9687,7 @@ expect_failure \
   REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
   REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1 \
   REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1 \
+  REQUIRE_AI_BEHAVIOR_PLACEMENT_RECONCILIATION=0 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/ai-behavior-eval.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/ai-behavior-eval.properties" "reason=trace-diff-allowed-failure"
@@ -9198,6 +9704,7 @@ expect_failure \
   RELEASE_AAB="$TMP_DIR/missing.aab" \
   PUBLIC_RELEASE=1 \
   VERIFY_AI_BEHAVIOR_EVAL=0 \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE= \
   EXPECTED_SIGNING_CERT_SHA256="$DEBUG_SIGNED_AAB_CERT_SHA" \
   VERIFY_CONTRACT_TESTS=0 \
   scripts/verify_release_gate.sh
@@ -9205,6 +9712,7 @@ assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behav
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behavior-eval.properties" "reason=actual-trace-file-missing"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "verifyAiBehaviorEval=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorActualTrace=1"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorPlacementReconciliation=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorAgentLoopRuntimeTraceSource=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorNoAllowedFailures=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "failedTarget=ai-behavior-eval"

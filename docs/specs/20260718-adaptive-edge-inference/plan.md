@@ -1,5 +1,7 @@
 # 自适应端云推理第一阶段 Implementation Plan
 
+当前已合并事实：[status.md](status.md)（本文件保留实施目标与验收步骤）
+
 **Goal:** 在现有 Android 应用和手工远程模型配置之上，交付隐私优先、可解释、run 级不可变的 Local / Auto / Remote 推理放置，并保证同一 run 永不跨本地与远端双发。
 
 **Architecture:** 保留现有 `InferenceMode` 存储键和 Local/Remote 兼容值，把它明确收敛为“用户偏好”并增加 Auto；新增独立 `RunPlacement` 作为实际执行位置。纯 `ModelPlacementPolicy` 只读取聚合隐私、能力、复杂度、稳定资源和新鲜连接信号；`agent_run_placement_bindings` 作为 canonical run binding，统一 dispatcher 在真正调用 runtime 前原子 claim，并把 placement、invocation 和 receipt 写入现有 Agent trace。

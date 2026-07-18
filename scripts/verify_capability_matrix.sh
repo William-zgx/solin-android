@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 CAPABILITY_MATRIX_FILE="${CAPABILITY_MATRIX_FILE:-docs/capability_matrix.json}"
+GRADLE_FILE="${ADAPTIVE_INFERENCE_GRADLE_FILE:-app/build.gradle.kts}"
+SERVING_SOURCE_DIR="${ADAPTIVE_SERVING_SOURCE_DIR:-app/src/main/java/com/bytedance/zgx/solin}"
 REPORT_FILE=""
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-trust-privacy}}"
 ORIGINAL_ARGS=("$@")
@@ -24,6 +26,12 @@ failed_target_for_reason() {
     privacy-*|remote-eligible-*|local-evidence-*)
       printf 'capability-boundary'
       ;;
+    adaptive-rollout-*|release-like-rollout-*)
+      printf 'adaptive-inference-rollout'
+      ;;
+    serving-*)
+      printf 'adaptive-serving-source'
+      ;;
     *)
       printf 'capability-matrix'
       ;;
@@ -38,6 +46,14 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --report)
       REPORT_FILE="${2:?missing report path}"
+      shift 2
+      ;;
+    --gradle-file)
+      GRADLE_FILE="${2:?missing Gradle file path}"
+      shift 2
+      ;;
+    --serving-source-dir)
+      SERVING_SOURCE_DIR="${2:?missing serving source directory}"
       shift 2
       ;;
     *)
@@ -69,6 +85,9 @@ write_report() {
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'capabilityMatrixFile=%s\n' "$CAPABILITY_MATRIX_FILE"
       printf 'capabilityMatrixSha256=%s\n' "$(sha256_or_empty "$CAPABILITY_MATRIX_FILE")"
+      printf 'adaptiveInferenceGradleFile=%s\n' "$GRADLE_FILE"
+      printf 'adaptiveInferenceGradleSha256=%s\n' "$(sha256_or_empty "$GRADLE_FILE")"
+      printf 'servingSourceDir=%s\n' "$SERVING_SOURCE_DIR"
       printf 'matrixVersion=%s\n' "$(report_value "$metrics_file" matrixVersion)"
       printf 'scenarioCount=%s\n' "$(report_value "$metrics_file" scenarioCount)"
       printf 'productCapabilityCount=%s\n' "$(report_value "$metrics_file" productCapabilityCount)"
@@ -80,6 +99,9 @@ write_report() {
       printf 'publicEvidenceNoConfirmationCount=%s\n' "$(report_value "$metrics_file" publicEvidenceNoConfirmationCount)"
       printf 'requiredSensitiveDisclosureIds=%s\n' "$(report_value "$metrics_file" requiredSensitiveDisclosureIds)"
       printf 'missingSensitiveDisclosureIds=%s\n' "$(report_value "$metrics_file" missingSensitiveDisclosureIds)"
+      printf 'adaptiveInferenceRolloutDefaultStage=%s\n' "$(report_value "$metrics_file" adaptiveInferenceRolloutDefaultStage)"
+      printf 'releaseLikeRolloutOff=%s\n' "$(report_value "$metrics_file" releaseLikeRolloutOff)"
+      printf 'servingSourceContract=%s\n' "$(report_value "$metrics_file" servingSourceContract)"
     } > "$REPORT_FILE"
   fi
 }
@@ -93,13 +115,15 @@ fi
 validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
-if ! python3 - "$CAPABILITY_MATRIX_FILE" > "$validation_output" <<'PY'
+if ! python3 - "$CAPABILITY_MATRIX_FILE" "$GRADLE_FILE" "$SERVING_SOURCE_DIR" > "$validation_output" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
 matrix_path = Path(sys.argv[1])
+gradle_path = Path(sys.argv[2])
+serving_source_arg = sys.argv[3]
 
 try:
     matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
@@ -132,6 +156,210 @@ allowed_confirmations = {
     "Required",
     "SecondConfirmation",
 }
+
+rollout_default_stage = ""
+release_like_rollout_off = False
+serving_source_contract = "not-run"
+
+
+def block_spans(source, pattern):
+    spans = []
+    for match in re.finditer(pattern, source):
+        brace = source.find("{", match.start(), match.end() + 1)
+        if brace < 0:
+            continue
+        depth = 0
+        for index in range(brace, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append((match, brace, index + 1))
+                    break
+    return spans
+
+
+if not gradle_path.is_file():
+    failures.append("adaptive-rollout-gradle-file-missing")
+else:
+    gradle_source = gradle_path.read_text(encoding="utf-8")
+    rollout_pattern = re.compile(
+        r'buildConfigField\(\s*"String"\s*,\s*"ADAPTIVE_INFERENCE_ROLLOUT_STAGE"\s*,\s*"\\"([^"\\]+)\\""\s*\)'
+    )
+    rollout_call_pattern = re.compile(
+        r'buildConfigField\(\s*"String"\s*,\s*"ADAPTIVE_INFERENCE_ROLLOUT_STAGE"\s*,[\s\S]*?\)'
+    )
+    rollout_matches = list(rollout_pattern.finditer(gradle_source))
+    rollout_calls = list(rollout_call_pattern.finditer(gradle_source))
+    allowed_rollout_stages = {"off", "shadow", "opt_in", "visible"}
+    default_spans = block_spans(gradle_source, r"\bdefaultConfig\s*\{")
+    debug_spans = block_spans(
+        gradle_source,
+        r'(?:\bdebug|getByName\(\s*"debug"\s*\))\s*\{',
+    )
+    release_spans = block_spans(gradle_source, r"\brelease\s*\{")
+    created_spans = block_spans(gradle_source, r'\bcreate\(\s*"(?P<name>[^"]+)"\s*\)\s*\{')
+
+    def within(index, spans):
+        return next((span for span in spans if span[1] <= index < span[2]), None)
+
+    def span_matches(span):
+        return [match for match in rollout_matches if span[1] <= match.start() < span[2]]
+
+    def inherits(body, build_type):
+        return re.search(
+            rf'initWith\(\s*(?:(?:buildTypes\.)?getByName\(\s*"{re.escape(build_type)}"\s*\)|{re.escape(build_type)})\s*\)',
+            body,
+        ) is not None
+
+    for call in rollout_calls:
+        if rollout_pattern.fullmatch(call.group(0)) is None:
+            failures.append("adaptive-rollout-stage-unreadable")
+    if gradle_source.count('"ADAPTIVE_INFERENCE_ROLLOUT_STAGE"') != len(rollout_calls):
+        failures.append("adaptive-rollout-stage-unreadable")
+
+    default_matches = [match for match in rollout_matches if within(match.start(), default_spans)]
+    if len(default_matches) != 1:
+        failures.append("adaptive-rollout-default-stage-missing")
+    else:
+        rollout_default_stage = default_matches[0].group(1)
+        if rollout_default_stage != "off":
+            failures.append(f"adaptive-rollout-default-not-off:{rollout_default_stage}")
+
+    for match in rollout_matches:
+        stage = match.group(1)
+        if stage not in allowed_rollout_stages:
+            failures.append(f"adaptive-rollout-stage-invalid:{stage}")
+            continue
+        if stage == "off" or within(match.start(), debug_spans):
+            continue
+        direct_release = within(match.start(), release_spans)
+        created = within(match.start(), created_spans)
+        if direct_release:
+            failures.append("release-like-rollout-not-off:release")
+        elif created:
+            name = created[0].group("name")
+            body = gradle_source[created[1]:created[2]]
+            if "release" in name.lower() or 'initWith(getByName("release"))' in body:
+                failures.append(f"release-like-rollout-not-off:{name}")
+            else:
+                failures.append(f"adaptive-rollout-non-debug-enabled:{name}")
+        elif within(match.start(), default_spans):
+            pass
+        else:
+            failures.append("adaptive-rollout-non-debug-enabled:unknown")
+
+    release_like_spans = [("release", span) for span in release_spans]
+    for span in created_spans:
+        name = span[0].group("name")
+        body = gradle_source[span[1]:span[2]]
+        release_like = "release" in name.lower() or inherits(body, "release")
+        if release_like:
+            release_like_spans.append((name, span))
+        elif inherits(body, "debug") and not any(match.group(1) == "off" for match in span_matches(span)):
+            failures.append(f"adaptive-rollout-non-debug-enabled:{name}")
+
+    for name, span in release_like_spans:
+        body = gradle_source[span[1]:span[2]]
+        if inherits(body, "debug") and not any(match.group(1) == "off" for match in span_matches(span)):
+            failures.append(f"release-like-rollout-not-off:{name}")
+
+    release_like_rollout_off = (
+        rollout_default_stage == "off" and
+        not any(
+            reason.startswith(("adaptive-rollout-stage-unreadable", "release-like-rollout-not-off:"))
+            for reason in failures
+        )
+    )
+
+serving_source_dir = Path(serving_source_arg)
+if not serving_source_dir.is_dir():
+    failures.append("serving-source-dir-missing")
+    serving_source_contract = "failed"
+else:
+    serving_names = {
+        "ChatController.kt",
+        "ChatGenerationSupport.kt",
+        "ChatToolContinuationSupport.kt",
+        "ToolExecutionController.kt",
+        "PendingConfirmationSupport.kt",
+        "ChatRemoteSendSupport.kt",
+        "ModelRuntimeDispatcher.kt",
+    }
+    kotlin_files = sorted(serving_source_dir.rglob("*.kt"))
+    selected_files = [path for path in kotlin_files if path.name in serving_names] or kotlin_files
+    if not selected_files:
+        failures.append("serving-source-files-missing")
+        serving_source_contract = "failed"
+    else:
+        combined_source = "\n".join(path.read_text(encoding="utf-8") for path in selected_files)
+        if not re.search(
+            r"\b(?:binding|permit|invocation)(?:\.decision)?\.placement\b|\.placement\s*==\s*RunPlacement\.",
+            combined_source,
+        ):
+            failures.append("serving-bound-placement-read-missing")
+
+        serving_signal = re.compile(
+            r"\b(?:remoteChatRuntime|localChatRuntime|remoteRuntime|modelRuntimeDispatcher|chatPlacementRuntime)\b"
+            r"|\bRunDataDestination\.(?:Remote|Local)\b"
+            r"|\.(?:sendWithTools|send|dispatch|stop)\s*\("
+        )
+        target_name = re.compile(
+            r"^(?:useRemoteModel|actualTarget|receiptDestination|destination|runtimeTarget|selectedRuntime|modelRuntime|runtime)$"
+        )
+        assignment = re.compile(r"\b(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\n;]+)")
+
+        def condition_controls_serving(source, token):
+            condition = rf"\b(?:if|when)\s*\([^)]*\b{re.escape(token)}\b[^)]*\)"
+            for span in block_spans(source, condition + r"\s*\{"):
+                if serving_signal.search(source[span[1]:span[2]]):
+                    return True
+            inline = re.compile(
+                condition + rf"[ \t]*(?:\n[ \t]*)?(?:{serving_signal.pattern})"
+            )
+            return inline.search(source) is not None
+
+        for path in selected_files:
+            source = path.read_text(encoding="utf-8")
+            if "inferenceMode" not in source:
+                continue
+            tainted = {"inferenceMode"}
+            assignments = list(assignment.finditer(source))
+            changed = True
+            while changed:
+                changed = False
+                for match in assignments:
+                    name, expression = match.groups()
+                    if name in tainted:
+                        continue
+                    if any(re.search(rf"\b{re.escape(token)}\b", expression) for token in tainted):
+                        tainted.add(name)
+                        changed = True
+
+            derived_target = False
+            for match in assignments:
+                name, expression = match.groups()
+                depends_on_preference = any(
+                    re.search(rf"\b{re.escape(token)}\b", expression)
+                    for token in tainted
+                )
+                if depends_on_preference and (target_name.fullmatch(name) or serving_signal.search(expression)):
+                    derived_target = True
+                    break
+
+            if not derived_target:
+                for token in tainted:
+                    if condition_controls_serving(source, token):
+                        derived_target = True
+                        break
+
+            if derived_target:
+                failures.append(f"serving-target-derived-from-inference-mode:{path.name}")
+
+        serving_source_contract = "failed" if any(
+            reason.startswith("serving-") for reason in failures
+        ) else "passed"
 
 
 def is_non_empty_string(value):
@@ -284,6 +512,9 @@ print(f"localEvidenceRemoteEligibleCount={local_evidence_remote_count}")
 print(f"publicEvidenceNoConfirmationCount={public_no_confirmation_count}")
 print(f"requiredSensitiveDisclosureIds={','.join(required_disclosure_ids)}")
 print(f"missingSensitiveDisclosureIds={','.join(missing_disclosures)}")
+print(f"adaptiveInferenceRolloutDefaultStage={rollout_default_stage}")
+print(f"releaseLikeRolloutOff={str(release_like_rollout_off).lower()}")
+print(f"servingSourceContract={serving_source_contract}")
 
 if failures:
     print("reason=" + ",".join(failures))

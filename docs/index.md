@@ -16,11 +16,13 @@ flowchart TD
     Need --> Evidence["Record verification evidence"]
     Need --> Plans["Plan a future refactor"]
     Need --> Specs["Specify future product behavior"]
+    Need --> Adaptive["Check adaptive edge inference status"]
     Need --> AgentStart["Coding agent onboarding"]
 
     Plans --> PlansDir["plans/"]
     Plans --> Weaknesses["optimization_plan_weaknesses.md"]
     Specs --> SpecsDir["specs/"]
+    Adaptive --> AdaptiveStatus["specs/20260718-adaptive-edge-inference/status.md"]
     AgentStart --> AgentsMd["../AGENTS.md"]
     AgentStart --> Guidebook["../Guidebook.md"]
     AgentStart --> Weaknesses
@@ -68,7 +70,8 @@ flowchart TD
 | `validation_report.md` | Append-only evidence log | Dated commands, results, artifacts, and known gaps |
 | `ai_behavior_eval_plan.md` | AI behavior evidence plan | Fixture taxonomy, actual-trace contract, and release-gate behavior-eval rules |
 | `docs/plans/*.md` | Future refactor plans | Detailed multi-step migration plans for data layer, ViewModel, UI state, and screen composables |
-| `docs/specs/*/{brainstorm,research,spec}.md` | Proposed feature specifications | Decisions, current-state research, and acceptance contracts; not current product facts until implemented |
+| [`specs/20260718-adaptive-edge-inference/status.md`](specs/20260718-adaptive-edge-inference/status.md) | Adaptive edge inference current fact | Merged phase-one behavior, build-type rollout matrix, unfinished verification, and pending evidence |
+| `docs/specs/*/{brainstorm,research,spec,plan,tasks}.md` | Feature design and delivery records | Decisions, historical research, target contracts, plans, and task tracking; not current product facts by themselves |
 
 JSON files in `docs/` are machine-readable records or capability matrices. They
 are inputs to verifier scripts and should stay structured rather than become
@@ -80,6 +83,12 @@ bootstrap rules live in `agent_core_modules.md` and
 and the `verifySearchQuery` / `expectedPackageName` / `expectedAppName` result
 guards live in `phone_acceptance.md`; dated command evidence belongs in
 `validation_report.md`.
+
+Adaptive edge inference facts are owned by
+[`status.md`](specs/20260718-adaptive-edge-inference/status.md). It separates
+merged behavior from build-type rollout, pending device evidence, and release
+approval. Do not treat the target `spec.md` as proof that Auto is release-enabled
+or published.
 
 ## Recent Architecture Improvements (2026-07)
 
@@ -185,5 +194,6 @@ Four detailed migration plans:
 - AI behavior evidence flow: `ai_behavior_eval_plan.md`.
 - Architecture refactor plans: docs/plans/
 - Proposed feature specifications: docs/specs/
+- Adaptive edge inference current status: `specs/20260718-adaptive-edge-inference/status.md`.
 - Structural debt waves & ownership: `optimization_plan_weaknesses.md`.
 - Coding-agent entry: `../AGENTS.md`, short map: `../Guidebook.md`.

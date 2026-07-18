@@ -254,6 +254,9 @@ scripts/           本地、设备、发布和证据辅助脚本
 - bundled-model 实验室包：`docs/bundled_model_package.md`
 - 设备/手工验收：`docs/phone_acceptance.md`
 - 发布就绪状态：`docs/release_readiness.md`
+- 自适应端云推理阶段一状态：
+  [`status.md`](docs/specs/20260718-adaptive-edge-inference/status.md) —
+  实施中，尚未发布。
 - 文档索引：`docs/index.md`
 
 ## 贡献
