@@ -226,11 +226,9 @@ class LegacyPrefsMigrator(
                 topK = prefs.getInt("generation_top_k", GenerationParameters.DEFAULT_TOP_K),
             ),
         )
-        runCatching {
-            settingsStore.saveInferenceMode(
-                com.bytedance.zgx.solin.InferenceMode.valueOf(prefs.getString("inference_mode", "").orEmpty()),
-            )
-        }
+        settingsStore.saveInferenceMode(
+            decodeInferenceMode(prefs.getString("inference_mode", null)),
+        )
         runCatching {
             settingsStore.saveBackend(
                 com.bytedance.zgx.solin.BackendChoice.valueOf(prefs.getString("backend", "").orEmpty()),

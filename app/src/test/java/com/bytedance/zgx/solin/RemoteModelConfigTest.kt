@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,6 +31,17 @@ class RemoteModelConfigTest {
         ).normalized()
 
         assertFalse(config.supportsVisionInput)
+    }
+
+    @Test
+    fun capabilityDefaultsFailClosedAndContextWindowNormalizes() {
+        val defaults = RemoteModelConfig()
+
+        assertFalse(defaults.supportsToolCalls)
+        assertNull(defaults.contextWindowTokens)
+        assertNull(RemoteModelConfig(contextWindowTokens = 0).normalized().contextWindowTokens)
+        assertNull(RemoteModelConfig(contextWindowTokens = -1).normalized().contextWindowTokens)
+        assertEquals(8_192, RemoteModelConfig(contextWindowTokens = 8_192).normalized().contextWindowTokens)
     }
 
     @Test
@@ -104,5 +116,48 @@ class RemoteModelConfigTest {
         assertTrue(profile.remoteEligible)
         assertTrue(profile.requiresRemoteSendConfirmation)
         assertFalse(profile.supportsVisionInput)
+    }
+
+    @Test
+    fun modelProfileProjectsContextWithoutInventingToolFeature() {
+        val profile = RemoteModelConfig(
+            modelName = "model-a",
+            supportsToolCalls = true,
+            contextWindowTokens = 16_384,
+        ).modelProfile()
+
+        assertEquals(16_384, profile.tokenBudget)
+        assertEquals(setOf(ModelFeature.TextGeneration), profile.features)
+    }
+
+    @Test
+    fun connectivitySnapshotUsesHalfOpenElapsedRealtimeWindow() {
+        val snapshot = RemoteConnectivitySnapshot(
+            configRevision = "revision-1",
+            status = RemoteModelConnectivityStatus.Reachable,
+            checkedAtElapsedRealtimeMs = 10_000L,
+        )
+
+        assertFalse(snapshot.isFresh(9_999L))
+        assertTrue(snapshot.isFresh(10_000L))
+        assertTrue(snapshot.isFresh(69_999L))
+        assertFalse(snapshot.isFresh(70_000L))
+    }
+
+    @Test
+    fun connectivityTargetIncludesCapabilityDeclarations() {
+        val config = RemoteModelConfig(
+            baseUrl = "https://api.example.com/v1",
+            modelName = "model-a",
+            apiKey = "secret",
+            supportsVisionInput = false,
+            supportsToolCalls = false,
+            contextWindowTokens = 8_192,
+        )
+
+        assertTrue(config.hasSameConnectivityTarget(config.copy()))
+        assertFalse(config.hasSameConnectivityTarget(config.copy(supportsVisionInput = true)))
+        assertFalse(config.hasSameConnectivityTarget(config.copy(supportsToolCalls = true)))
+        assertFalse(config.hasSameConnectivityTarget(config.copy(contextWindowTokens = 16_384)))
     }
 }

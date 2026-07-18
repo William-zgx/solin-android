@@ -7,7 +7,9 @@ import com.bytedance.zgx.solin.ChatSessionSummary
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.PendingRemoteSendMarker
+import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import java.io.File
 
 interface SessionStore {
@@ -78,7 +80,10 @@ interface RemoteModelStore {
     fun loadConfig(): RemoteModelConfig
     fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>
     fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> =
-        saveConfig(config.copy(apiKey = ""))
+        Result.failure(UnsupportedOperationException("Saving remote config without an API key is unsupported"))
+    fun recordConnectivity(config: RemoteModelConfig, status: RemoteModelConnectivityStatus) = Unit
+    fun currentConnectivity(config: RemoteModelConfig): RemoteConnectivitySnapshot? = null
+    fun invalidateConnectivity() = Unit
 }
 
 interface RemoteSendPendingStore {

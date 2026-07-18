@@ -4,6 +4,7 @@ import java.net.URI
 
 enum class InferenceMode {
     Local,
+    Auto,
     Remote,
 }
 
@@ -22,6 +23,9 @@ data class RemoteModelConfig(
     // Fail-closed: only enable vision when the model is explicitly declared vision-capable.
     // Defaulting to false prevents sending images to a remote model whose capability is unknown.
     val supportsVisionInput: Boolean = false,
+    val supportsToolCalls: Boolean = false,
+    val contextWindowTokens: Int? = null,
+    val profileRevision: String = "",
     val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown,
 ) {
     val isConfigured: Boolean
@@ -42,6 +46,9 @@ data class RemoteModelConfig(
             modelName = modelName.trim(),
             apiKey = apiKey.trim(),
             supportsVisionInput = supportsVisionInput,
+            supportsToolCalls = supportsToolCalls,
+            contextWindowTokens = contextWindowTokens?.takeIf { it > 0 },
+            profileRevision = profileRevision.trim(),
             connectivityStatus = if (connectivityStatus == RemoteModelConnectivityStatus.Checking) {
                 RemoteModelConnectivityStatus.Unknown
             } else {
@@ -62,6 +69,16 @@ data class RemoteModelConfig(
         runCatching { URI(baseUrl.trim()) }.getOrNull()
 }
 
+data class RemoteConnectivitySnapshot(
+    val configRevision: String,
+    val status: RemoteModelConnectivityStatus,
+    val checkedAtElapsedRealtimeMs: Long,
+    val ttlMs: Long = 60_000L,
+) {
+    fun isFresh(nowElapsedRealtimeMs: Long): Boolean =
+        nowElapsedRealtimeMs - checkedAtElapsedRealtimeMs in 0 until ttlMs
+}
+
 fun RemoteModelConfig.modelProfile(): ModelProfile =
     normalized().let { normalized ->
         ModelCatalog.remoteVisionProfile.copy(
@@ -77,6 +94,7 @@ fun RemoteModelConfig.modelProfile(): ModelProfile =
             } else {
                 setOf(ModelFeature.TextGeneration)
             },
+            tokenBudget = normalized.contextWindowTokens,
         )
     }
 
@@ -90,6 +108,7 @@ internal fun String?.isLocalDebugHost(): Boolean =
 fun InferenceMode.label(): String =
     when (this) {
         InferenceMode.Local -> "本地"
+        InferenceMode.Auto -> "自动"
         InferenceMode.Remote -> "远程"
     }
 
@@ -107,5 +126,8 @@ internal fun RemoteModelConfig.hasSameConnectivityTarget(other: RemoteModelConfi
     val right = other.normalized()
     return left.baseUrl == right.baseUrl &&
         left.modelName == right.modelName &&
-        left.apiKey == right.apiKey
+        left.apiKey == right.apiKey &&
+        left.supportsVisionInput == right.supportsVisionInput &&
+        left.supportsToolCalls == right.supportsToolCalls &&
+        left.contextWindowTokens == right.contextWindowTokens
 }

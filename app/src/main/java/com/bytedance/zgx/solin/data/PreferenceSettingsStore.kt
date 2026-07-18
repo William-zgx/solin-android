@@ -21,6 +21,9 @@ import org.json.JSONObject
 
 private val Context.solinDataStore by preferencesDataStore(name = "solin_settings")
 
+internal fun decodeInferenceMode(raw: String?): InferenceMode =
+    runCatching { InferenceMode.valueOf(raw.orEmpty()) }.getOrDefault(InferenceMode.Local)
+
 /**
  * Known ISP violation: this class implements three interfaces
  * ([SettingsStore], [ActiveSessionStore], [RemoteSendPendingStore]) that each
@@ -92,9 +95,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
     }
 
     override fun loadInferenceMode(): InferenceMode =
-        runCatching {
-            InferenceMode.valueOf(readString(Keys.INFERENCE_MODE, InferenceMode.Local.name))
-        }.getOrDefault(InferenceMode.Local)
+        decodeInferenceMode(readString(Keys.INFERENCE_MODE, InferenceMode.Local.name))
 
     override fun saveInferenceMode(mode: InferenceMode): InferenceMode {
         writeString(Keys.INFERENCE_MODE, mode.name)
@@ -137,11 +138,10 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
             modelName = readString(Keys.REMOTE_MODEL_NAME, ""),
             apiKey = apiKey,
             supportsVisionInput = readBoolean(Keys.REMOTE_SUPPORTS_VISION_INPUT, false),
-            connectivityStatus = runCatching {
-                RemoteModelConnectivityStatus.valueOf(
-                    readString(Keys.REMOTE_CONNECTIVITY_STATUS, RemoteModelConnectivityStatus.Unknown.name),
-                )
-            }.getOrDefault(RemoteModelConnectivityStatus.Unknown),
+            supportsToolCalls = readBoolean(Keys.REMOTE_SUPPORTS_TOOL_CALLS, false),
+            contextWindowTokens = readInt(Keys.REMOTE_CONTEXT_WINDOW_TOKENS, 0).takeIf { it > 0 },
+            profileRevision = readString(Keys.REMOTE_PROFILE_REVISION, ""),
+            connectivityStatus = RemoteModelConnectivityStatus.Unknown,
         ).normalized()
 
     override fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig {
@@ -151,10 +151,15 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
                 prefs[Keys.REMOTE_BASE_URL] = normalized.baseUrl
                 prefs[Keys.REMOTE_MODEL_NAME] = normalized.modelName
                 prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT] = normalized.supportsVisionInput
-                prefs[Keys.REMOTE_CONNECTIVITY_STATUS] = normalized.connectivityStatus.name
+                prefs[Keys.REMOTE_SUPPORTS_TOOL_CALLS] = normalized.supportsToolCalls
+                normalized.contextWindowTokens?.let { value ->
+                    prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS] = value
+                } ?: prefs.remove(Keys.REMOTE_CONTEXT_WINDOW_TOKENS)
+                prefs[Keys.REMOTE_PROFILE_REVISION] = normalized.profileRevision
+                prefs.remove(Keys.REMOTE_CONNECTIVITY_STATUS)
             }
         }
-        return normalized
+        return normalized.copy(connectivityStatus = RemoteModelConnectivityStatus.Unknown)
     }
 
     override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) {
@@ -241,6 +246,9 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val REMOTE_BASE_URL = stringPreferencesKey("remote_model_base_url")
         val REMOTE_MODEL_NAME = stringPreferencesKey("remote_model_name")
         val REMOTE_SUPPORTS_VISION_INPUT = booleanPreferencesKey("remote_model_supports_vision_input")
+        val REMOTE_SUPPORTS_TOOL_CALLS = booleanPreferencesKey("remote_model_supports_tool_calls")
+        val REMOTE_CONTEXT_WINDOW_TOKENS = intPreferencesKey("remote_model_context_window_tokens")
+        val REMOTE_PROFILE_REVISION = stringPreferencesKey("remote_model_profile_revision")
         val REMOTE_CONNECTIVITY_STATUS = stringPreferencesKey("remote_model_connectivity_status")
         val PENDING_REMOTE_SEND_MARKER = stringPreferencesKey("pending_remote_send_marker")
         val ACTIVE_SESSION_ID = stringPreferencesKey("active_session_id")
