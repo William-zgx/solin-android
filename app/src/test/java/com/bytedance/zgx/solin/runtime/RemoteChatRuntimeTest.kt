@@ -36,6 +36,7 @@ import okio.Timeout
 import kotlin.reflect.KClass
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -104,6 +105,47 @@ class RemoteChatRuntimeTest {
         )
         assertEquals("history-5", messages.getJSONObject(1).getString("content"))
         assertEquals("你好", messages.getJSONObject(21).getString("content"))
+    }
+
+    @Test
+    fun buildChatCompletionBody_keepsSamplingParametersForGenericOpenAiCompatibleModels() {
+        val body = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+        )
+
+        assertTrue(body.has("temperature"))
+        assertTrue(body.has("top_p"))
+    }
+
+    @Test
+    fun buildChatCompletionBody_omitsSamplingParametersForKimiThinkingModels() {
+        val body = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.moonshot.cn/v1", "kimi-k2.5"),
+        )
+
+        assertFalse(body.has("temperature"))
+        assertFalse(body.has("top_p"))
+        assertFalse(body.has("reasoning_effort"))
+    }
+
+    @Test
+    fun buildChatCompletionBody_addsK3ReasoningEffort() {
+        val body = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.moonshot.ai/v1", "kimi-k3"),
+        )
+
+        assertEquals("max", body.getString("reasoning_effort"))
+        assertFalse(body.has("temperature"))
+        assertFalse(body.has("top_p"))
     }
 
     @Test
@@ -478,6 +520,38 @@ class RemoteChatRuntimeTest {
             val requestBody = request.body!!.utf8()
             assertContainsAll(requestBody, """"stream":true""", "可发送历史")
             assertContainsNone(requestBody, "仅本地历史")
+        }
+    }
+
+    @Test
+    fun sendAddsV1ChatCompletionsWhenBaseUrlIsServiceRoot() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "text/event-stream")
+                    .body(
+                        """
+                        data: {"choices":[{"delta":{"content":"好"}}]}
+
+                        data: [DONE]
+
+                        """.trimIndent(),
+                    )
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+
+            val chunks = runtime.send(
+                prompt = "你好",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig(server.url("/").toString().trimEnd('/'), "model-a"),
+            ).toList()
+
+            assertEquals("好", chunks.joinToString(separator = ""))
+            assertEquals("/v1/chat/completions", server.takeRequest().target)
         }
     }
 

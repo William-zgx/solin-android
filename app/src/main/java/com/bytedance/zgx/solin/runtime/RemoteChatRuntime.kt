@@ -280,8 +280,6 @@ internal fun buildChatCompletionBody(
     return JSONObject()
         .put("model", config.modelName)
         .put("stream", true)
-        .put("temperature", parameters.temperature.toDouble())
-        .put("top_p", parameters.topP.toDouble())
         .put(
             "messages",
             JSONArray()
@@ -293,6 +291,13 @@ internal fun buildChatCompletionBody(
                 .appendHistory(history)
                 .put(userMessageJson(prompt, imageAttachments)),
         ).apply {
+            if (config.modelName.equals("kimi-k3", ignoreCase = true)) {
+                put("reasoning_effort", "max")
+            }
+            if (!config.modelName.startsWith("kimi-", ignoreCase = true)) {
+                put("temperature", parameters.temperature.toDouble())
+                put("top_p", parameters.topP.toDouble())
+            }
             if (tools.isNotEmpty()) {
                 put("tools", tools.toOpenAiToolsJson())
                 put("tool_choice", "auto")
@@ -620,13 +625,6 @@ private fun JSONArray.appendHistory(history: List<ChatMessage>): JSONArray {
         }
     return this
 }
-
-private fun RemoteModelConfig.chatCompletionsUrl(): String =
-    if (baseUrl.endsWith("/chat/completions")) {
-        baseUrl
-    } else {
-        "$baseUrl/chat/completions"
-    }
 
 private fun Credential.hasAuthorization(): Boolean = when (this) {
     is Credential.ApiKey -> apiKey.isNotBlank()

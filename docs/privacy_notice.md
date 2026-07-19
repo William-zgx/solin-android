@@ -65,9 +65,10 @@ status.
 
 Remote model mode sends requests only after the user-configured
 OpenAI-compatible chat endpoint exists and the active backend is switched to
-remote. Solin accepts a base URL and appends `/chat/completions` unless
-the configured URL already points at that endpoint. "OpenAI-compatible" means
-the request and response shape; it does not imply OpenAI operates the endpoint.
+remote. Solin accepts a service root, `/v1` base URL, or full chat endpoint and
+normalizes it to the matching OpenAI-compatible `/v1/chat/completions` request
+path when needed. "OpenAI-compatible" means the request and response shape; it
+does not imply OpenAI operates the endpoint.
 
 A remote request can include the current user prompt, selected model name,
 generation parameters, and prior chat messages whose privacy is

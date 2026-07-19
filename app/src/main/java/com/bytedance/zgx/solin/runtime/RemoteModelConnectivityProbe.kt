@@ -144,13 +144,3 @@ class RemoteConnectivityRefreshCoordinator(
         val deferred: Deferred<RemoteConnectivitySnapshot?>,
     )
 }
-
-private fun RemoteModelConfig.modelsUrl(): String =
-    baseUrl.trimEnd('/').let { normalizedBaseUrl ->
-        when {
-            normalizedBaseUrl.endsWith("/models") -> normalizedBaseUrl
-            normalizedBaseUrl.endsWith("/chat/completions") ->
-                normalizedBaseUrl.removeSuffix("/chat/completions") + "/models"
-            else -> "$normalizedBaseUrl/models"
-        }
-    }

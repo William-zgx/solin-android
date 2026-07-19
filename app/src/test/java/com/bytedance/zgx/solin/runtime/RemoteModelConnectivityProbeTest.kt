@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.runtime
 
+import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteModelConfig
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
@@ -13,11 +14,38 @@ import okhttp3.Callback
 import okhttp3.Request
 import okhttp3.Response
 import okio.Timeout
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.reflect.KClass
 
 class RemoteModelConnectivityProbeTest {
+    @Test
+    fun checkAddsV1ModelsWhenBaseUrlIsServiceRoot() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .body("""{"data":[]}""")
+                    .build(),
+            )
+            server.start()
+            val probe = OkHttpRemoteModelConnectivityProbe()
+
+            val status = probe.check(
+                RemoteModelConfig(
+                    baseUrl = server.url("/").toString().trimEnd('/'),
+                    modelName = "model-a",
+                ),
+            )
+
+            assertEquals(RemoteModelConnectivityStatus.Reachable, status)
+            assertEquals("/v1/models", server.takeRequest().target)
+        }
+    }
+
     @Test
     fun coroutineCancellationCancelsTheInFlightHttpCall() = runBlocking {
         val call = BlockingCall()
