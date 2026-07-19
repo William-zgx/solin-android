@@ -18,6 +18,7 @@ SKIP_INSTALL="${SKIP_INSTALL:-0}"
 REQUIRE_SOLIN_ACCESSIBILITY="${REQUIRE_SOLIN_ACCESSIBILITY:-0}"
 RESET_APP_DATA_AFTER_TESTS="${RESET_APP_DATA_AFTER_TESTS:-0}"
 KEEP_DEVICE_AWAKE_FOR_TESTS="${KEEP_DEVICE_AWAKE_FOR_TESTS:-1}"
+DEVICE_TEST_SCREEN_OFF_TIMEOUT_MILLIS="${DEVICE_TEST_SCREEN_OFF_TIMEOUT_MILLIS:-1800000}"
 ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS="${ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS:-1}"
 MIUI_BACKGROUND_ACTIVITY_START_OP="${MIUI_BACKGROUND_ACTIVITY_START_OP:-10021}"
 PREPARE_RUNTIME_PERMISSION_DIALOG_TESTS="${PREPARE_RUNTIME_PERMISSION_DIALOG_TESTS:-1}"
@@ -56,6 +57,8 @@ MIUI_BACKGROUND_ACTIVITY_STARTS_RESTORED=0
 DEVICE_AWAKE_PREPARED=0
 DEVICE_AWAKE_RESTORED=0
 DEVICE_STAY_ON_WHILE_PLUGGED_IN_RESTORE=""
+DEVICE_SCREEN_OFF_TIMEOUT_RESTORE=""
+DEVICE_SCREEN_OFF_TIMEOUT_PREPARED=0
 RUNTIME_PERMISSION_DIALOG_TESTS_PREPARED=0
 RUNTIME_PERMISSION_DIALOG_TESTS_RESTORED=0
 READ_CONTACTS_PERMISSION_RESTORE_STATE=""
@@ -222,8 +225,11 @@ write_verification_report() {
     echo "require_solin_accessibility=$REQUIRE_SOLIN_ACCESSIBILITY"
     echo "reset_app_data_after_tests=$RESET_APP_DATA_AFTER_TESTS"
     echo "keep_device_awake_for_tests=$KEEP_DEVICE_AWAKE_FOR_TESTS"
+    echo "device_test_screen_off_timeout_millis=$DEVICE_TEST_SCREEN_OFF_TIMEOUT_MILLIS"
     echo "device_awake_prepared=$DEVICE_AWAKE_PREPARED"
     echo "device_awake_restored=$DEVICE_AWAKE_RESTORED"
+    echo "device_screen_off_timeout_prepared=$DEVICE_SCREEN_OFF_TIMEOUT_PREPARED"
+    echo "device_screen_off_timeout_restore=$DEVICE_SCREEN_OFF_TIMEOUT_RESTORE"
     echo "allow_miui_background_activity_starts=$ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS"
     echo "miui_background_activity_start_op=$MIUI_BACKGROUND_ACTIVITY_START_OP"
     echo "miui_background_activity_starts_prepared=$MIUI_BACKGROUND_ACTIVITY_STARTS_PREPARED"
@@ -531,10 +537,21 @@ prepare_device_awake_state() {
   if [[ "$KEEP_DEVICE_AWAKE_FOR_TESTS" != "1" ]] || ! selected_device_is_available; then
     return
   fi
+  if [[ "$DEVICE_AWAKE_PREPARED" == "1" ]]; then
+    return
+  fi
 
   DEVICE_STAY_ON_WHILE_PLUGGED_IN_RESTORE="$(
     "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings get global stay_on_while_plugged_in 2>/dev/null | tr -d '\r'
   )"
+  DEVICE_SCREEN_OFF_TIMEOUT_RESTORE="$(
+    "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings get system screen_off_timeout 2>/dev/null | tr -d '\r'
+  )"
+  if [[ "$DEVICE_TEST_SCREEN_OFF_TIMEOUT_MILLIS" =~ ^[0-9]+$ &&
+    "$DEVICE_TEST_SCREEN_OFF_TIMEOUT_MILLIS" -gt 0 ]]; then
+    "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings put system screen_off_timeout \
+      "$DEVICE_TEST_SCREEN_OFF_TIMEOUT_MILLIS" >/dev/null 2>&1 && DEVICE_SCREEN_OFF_TIMEOUT_PREPARED=1
+  fi
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power suppress-ambient-display solin-device-tests true >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power wakeup 0 >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
@@ -554,6 +571,14 @@ restore_device_awake_state() {
   else
     "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings put global stay_on_while_plugged_in \
       "$DEVICE_STAY_ON_WHILE_PLUGGED_IN_RESTORE" >/dev/null 2>&1 || true
+  fi
+  if [[ "$DEVICE_SCREEN_OFF_TIMEOUT_PREPARED" == "1" ]]; then
+    if [[ -z "$DEVICE_SCREEN_OFF_TIMEOUT_RESTORE" || "$DEVICE_SCREEN_OFF_TIMEOUT_RESTORE" == "null" ]]; then
+      "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings delete system screen_off_timeout >/dev/null 2>&1 || true
+    else
+      "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings put system screen_off_timeout \
+        "$DEVICE_SCREEN_OFF_TIMEOUT_RESTORE" >/dev/null 2>&1 || true
+    fi
   fi
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power suppress-ambient-display solin-device-tests false >/dev/null 2>&1 || true
   DEVICE_AWAKE_RESTORED=1
@@ -694,6 +719,7 @@ fi
 if [[ "$CLEAN_DEVICE" == "1" ]]; then
   "${ADB[@]}" uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
 fi
+prepare_device_awake_state
 if [[ "$SKIP_BUILD" == "1" ]]; then
   if [[ "$SKIP_INSTALL" != "1" && ( ! -f "$APP_APK" || ! -f "$ANDROID_TEST_APK" ) ]]; then
     fail_with_reason build skipped-build-apk-missing \

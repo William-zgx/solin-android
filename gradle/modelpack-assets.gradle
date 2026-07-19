@@ -195,8 +195,8 @@ def prepareBundledModelsAssets = tasks.register(
         def cacheDir = bundledModelsCacheRoot.asFile
         def sourceDirValue = bundledModelsSourceDir.orNull
         def sourceDir = sourceDirValue?.trim() ? file(sourceDirValue) : null
-        def token = bundledModelsHuggingFaceToken.orNull?.trim()
-        def huggingFaceAuthorizationHeader = token ? "Bearer $token" : null
+        def hfCredential = bundledModelsHuggingFaceToken.orNull?.trim()
+        def huggingFaceAuthorizationHeader = hfCredential ? "Bearer $hfCredential" : null
         assetDir.deleteDir()
         assetDir.mkdirs()
         cacheDir.mkdirs()

@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin
 
 import android.content.Context
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -12,8 +13,10 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import com.bytedance.zgx.solin.data.ModelRepository
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -29,13 +32,14 @@ class LocalModelChatDialogueDeviceTest {
     private fun findChatModelPath(): String? =
         ModelRepository(targetContext).currentState()
             .installedModels
-            .firstOrNull { model ->
+            .filter { model ->
                 val recommended = model.recommendedModelId
                     ?.let(ModelCatalog::recommendedModelOrNull)
                 model.verificationStatus == com.bytedance.zgx.solin.data.ModelVerificationStatus.VerifiedRecommended &&
                     recommended != null &&
                     ModelCatalog.profileFor(recommended).supportsChatGeneration
             }
+            .minByOrNull { model -> model.fileBytes }
             ?.path
 
     @Test
@@ -48,7 +52,9 @@ class LocalModelChatDialogueDeviceTest {
         val modelFile = File(requireNotNull(chatModelPath))
         assertTrue("Model file must exist: ${modelFile.absolutePath}", modelFile.isFile)
         assertTrue("Model file must be readable: ${modelFile.absolutePath}", modelFile.canRead())
+        Log.i(TAG, "Using chat model ${modelFile.name} bytes=${modelFile.length()}")
 
+        Log.i(TAG, "Initializing chat engine")
         val engine = Engine(
             EngineConfig(
                 modelPath = requireNotNull(chatModelPath),
@@ -57,6 +63,7 @@ class LocalModelChatDialogueDeviceTest {
             ),
         )
         engine.initialize()
+        Log.i(TAG, "Chat engine initialized")
         try {
             val conversation = engine.createConversation(
                 ConversationConfig(
@@ -64,15 +71,16 @@ class LocalModelChatDialogueDeviceTest {
                         "你是 Solin，一个运行在 Android 设备上的本地 AI 助手。用中文简洁回答。",
                     ),
                     samplerConfig = SamplerConfig(
-                        topK = 64,
-                        topP = 0.95,
-                        temperature = 0.7,
+                        topK = 16,
+                        topP = 0.8,
+                        temperature = 0.2,
+                        seed = 1,
                     ),
                 ),
             )
             try {
                 // Test 1: Simple greeting
-                val greetingResponse = sendMessage(conversation, "你好，请用一句话介绍你自己。")
+                val greetingResponse = sendMessage(conversation, "用不超过10个字介绍你自己。")
                 assertNotNull("Greeting should produce a response", greetingResponse)
                 assertTrue(
                     "Greeting response should be non-empty. Got: '$greetingResponse'",
@@ -80,7 +88,7 @@ class LocalModelChatDialogueDeviceTest {
                 )
 
                 // Test 2: Multi-turn dialogue (context should be preserved)
-                val followUpResponse = sendMessage(conversation, "我刚才问了你什么？")
+                val followUpResponse = sendMessage(conversation, "刚才的问题主题？八字内回答。")
                 assertNotNull("Follow-up should produce a response", followUpResponse)
                 assertTrue(
                     "Follow-up response should be non-empty. Got: '$followUpResponse'",
@@ -115,7 +123,9 @@ class LocalModelChatDialogueDeviceTest {
                 cacheDir = targetContext.cacheDir.absolutePath,
             ),
         )
+        Log.i(TAG, "Initializing tool-query engine")
         engine.initialize()
+        Log.i(TAG, "Tool-query engine initialized")
         try {
             val conversation = engine.createConversation(
                 ConversationConfig(
@@ -126,11 +136,12 @@ class LocalModelChatDialogueDeviceTest {
                         topK = 32,
                         topP = 0.9,
                         temperature = 0.5,
+                        seed = 1,
                     ),
                 ),
             )
             try {
-                val response = sendMessage(conversation, "帮我打开设置")
+                val response = sendMessage(conversation, "打开设置")
                 assertNotNull("Tool query should produce a response", response)
                 assertTrue(
                     "Tool query response should be non-empty. Got: '$response'",
@@ -149,12 +160,30 @@ class LocalModelChatDialogueDeviceTest {
         text: String,
     ): String {
         val output = StringBuilder()
-        runBlocking {
-            conversation.sendMessageAsync(text).collect { message ->
-                output.append(message.textContent())
+        Log.i(TAG, "sendMessage start: ${text.take(40)}")
+        try {
+            runBlocking {
+                withTimeout(RESPONSE_TIMEOUT_MILLIS) {
+                    conversation.sendMessageAsync(text).collect { message ->
+                        output.append(message.textContent())
+                    }
+                }
             }
+        } catch (timeout: TimeoutCancellationException) {
+            runCatching { conversation.cancelProcess() }
+            Log.e(TAG, "sendMessage timeout after ${RESPONSE_TIMEOUT_MILLIS}ms: ${text.take(40)}")
+            throw AssertionError(
+                "Local model response timed out after ${RESPONSE_TIMEOUT_MILLIS}ms for prompt: '${text.take(40)}'",
+                timeout,
+            )
         }
+        Log.i(TAG, "sendMessage finished chars=${output.length}: ${text.take(40)}")
         return output.toString()
+    }
+
+    private companion object {
+        const val TAG = "LocalModelChatTest"
+        const val RESPONSE_TIMEOUT_MILLIS = 240_000L
     }
 }
 

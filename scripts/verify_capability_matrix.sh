@@ -101,6 +101,7 @@ write_report() {
       printf 'missingSensitiveDisclosureIds=%s\n' "$(report_value "$metrics_file" missingSensitiveDisclosureIds)"
       printf 'adaptiveInferenceRolloutDefaultStage=%s\n' "$(report_value "$metrics_file" adaptiveInferenceRolloutDefaultStage)"
       printf 'releaseLikeRolloutOff=%s\n' "$(report_value "$metrics_file" releaseLikeRolloutOff)"
+      printf 'releaseLikeRolloutSelectable=%s\n' "$(report_value "$metrics_file" releaseLikeRolloutSelectable)"
       printf 'servingSourceContract=%s\n' "$(report_value "$metrics_file" servingSourceContract)"
     } > "$REPORT_FILE"
   fi
@@ -159,6 +160,7 @@ allowed_confirmations = {
 
 rollout_default_stage = ""
 release_like_rollout_off = False
+release_like_rollout_selectable = False
 serving_source_contract = "not-run"
 
 
@@ -224,31 +226,11 @@ else:
         failures.append("adaptive-rollout-default-stage-missing")
     else:
         rollout_default_stage = default_matches[0].group(1)
-        if rollout_default_stage != "off":
-            failures.append(f"adaptive-rollout-default-not-off:{rollout_default_stage}")
 
     for match in rollout_matches:
         stage = match.group(1)
         if stage not in allowed_rollout_stages:
             failures.append(f"adaptive-rollout-stage-invalid:{stage}")
-            continue
-        if stage == "off" or within(match.start(), debug_spans):
-            continue
-        direct_release = within(match.start(), release_spans)
-        created = within(match.start(), created_spans)
-        if direct_release:
-            failures.append("release-like-rollout-not-off:release")
-        elif created:
-            name = created[0].group("name")
-            body = gradle_source[created[1]:created[2]]
-            if "release" in name.lower() or 'initWith(getByName("release"))' in body:
-                failures.append(f"release-like-rollout-not-off:{name}")
-            else:
-                failures.append(f"adaptive-rollout-non-debug-enabled:{name}")
-        elif within(match.start(), default_spans):
-            pass
-        else:
-            failures.append("adaptive-rollout-non-debug-enabled:unknown")
 
     release_like_spans = [("release", span) for span in release_spans]
     for span in created_spans:
@@ -257,21 +239,31 @@ else:
         release_like = "release" in name.lower() or inherits(body, "release")
         if release_like:
             release_like_spans.append((name, span))
-        elif inherits(body, "debug") and not any(match.group(1) == "off" for match in span_matches(span)):
-            failures.append(f"adaptive-rollout-non-debug-enabled:{name}")
 
-    for name, span in release_like_spans:
+    debug_matches = [match.group(1) for span in debug_spans for match in span_matches(span)]
+    release_matches = [match.group(1) for span in release_spans for match in span_matches(span)]
+
+    def effective_stage(name, span):
+        direct = [match.group(1) for match in span_matches(span)]
+        if direct:
+            return direct[-1]
         body = gradle_source[span[1]:span[2]]
-        if inherits(body, "debug") and not any(match.group(1) == "off" for match in span_matches(span)):
-            failures.append(f"release-like-rollout-not-off:{name}")
+        if name != "release" and inherits(body, "release") and release_matches:
+            return release_matches[-1]
+        if inherits(body, "debug") and debug_matches:
+            return debug_matches[-1]
+        return rollout_default_stage
 
-    release_like_rollout_off = (
-        rollout_default_stage == "off" and
-        not any(
-            reason.startswith(("adaptive-rollout-stage-unreadable", "release-like-rollout-not-off:"))
-            for reason in failures
-        )
+    release_like_stages = [effective_stage(name, span) for name, span in release_like_spans]
+    release_like_rollout_off = bool(release_like_stages) and all(
+        stage == "off" for stage in release_like_stages
     )
+    release_like_rollout_selectable = bool(release_like_stages) and all(
+        stage in {"opt_in", "visible"} for stage in release_like_stages
+    )
+    for (name, _), stage in zip(release_like_spans, release_like_stages):
+        if stage not in {"opt_in", "visible"}:
+            failures.append(f"release-like-rollout-not-selectable:{name}:{stage}")
 
 serving_source_dir = Path(serving_source_arg)
 if not serving_source_dir.is_dir():
@@ -514,6 +506,7 @@ print(f"requiredSensitiveDisclosureIds={','.join(required_disclosure_ids)}")
 print(f"missingSensitiveDisclosureIds={','.join(missing_disclosures)}")
 print(f"adaptiveInferenceRolloutDefaultStage={rollout_default_stage}")
 print(f"releaseLikeRolloutOff={str(release_like_rollout_off).lower()}")
+print(f"releaseLikeRolloutSelectable={str(release_like_rollout_selectable).lower()}")
 print(f"servingSourceContract={serving_source_contract}")
 
 if failures:

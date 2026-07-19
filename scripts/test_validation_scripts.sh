@@ -135,6 +135,27 @@ case "${1:-}" in
         printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n'
         printf '/dev/block 5000000 1000 %s 1%% /data\n' "${FAKE_DATA_FREE_KB:-4000000}"
         ;;
+      settings\ get\ global\ stay_on_while_plugged_in)
+        echo "${FAKE_STAY_ON_WHILE_PLUGGED_IN:-0}"
+        ;;
+      settings\ get\ system\ screen_off_timeout)
+        echo "${FAKE_SCREEN_OFF_TIMEOUT:-120000}"
+        ;;
+      settings\ put\ global\ stay_on_while_plugged_in\ *|settings\ put\ system\ screen_off_timeout\ *)
+        echo "OK"
+        ;;
+      settings\ delete\ global\ stay_on_while_plugged_in|settings\ delete\ system\ screen_off_timeout)
+        echo "OK"
+        ;;
+      cmd\ power\ suppress-ambient-display\ *|cmd\ power\ wakeup\ *|cmd\ statusbar\ collapse)
+        echo "OK"
+        ;;
+      svc\ power\ stayon\ *|wm\ dismiss-keyguard)
+        echo "OK"
+        ;;
+      cmd\ appops\ get\ *|cmd\ appops\ set\ *)
+        echo "OK"
+        ;;
       am\ instrument\ -w\ -r*)
         if [[ -n "${FAKE_INSTRUMENTATION_SLEEP_SECONDS:-}" ]]; then
           sleep "$FAKE_INSTRUMENTATION_SLEEP_SECONDS"
@@ -3219,15 +3240,16 @@ assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "sensitiveDi
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "requiredBehaviorBoundaryCount=1"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "localEvidenceRemoteEligibleCount=0"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "missingSensitiveDisclosureIds="
-assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "adaptiveInferenceRolloutDefaultStage=off"
-assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "releaseLikeRolloutOff=true"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "adaptiveInferenceRolloutDefaultStage=opt_in"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "releaseLikeRolloutOff=false"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "releaseLikeRolloutSelectable=true"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "servingSourceContract=passed"
 
 ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG_GRADLE="$TMP_DIR/adaptive-rollout-get-by-name-debug.gradle.kts"
 cat > "$ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG_GRADLE" <<'ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG'
 android {
     defaultConfig {
-        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
+        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
     }
     buildTypes {
         getByName("debug") {
@@ -3244,16 +3266,16 @@ android {
 }
 ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG
 expect_success \
-  "capability matrix verifier accepts getByName debug opt-in with release-like variants off" \
+  "capability matrix verifier accepts getByName debug opt-in with release-like variants selectable" \
   scripts/verify_capability_matrix.sh \
     --gradle-file "$ADAPTIVE_ROLLOUT_GET_BY_NAME_DEBUG_GRADLE" \
     --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
     --report "$ARTIFACT_DIR/capability-matrix-rollout-get-by-name-debug.properties"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-get-by-name-debug.properties" \
-  "releaseLikeRolloutOff=true"
+  "releaseLikeRolloutSelectable=true"
 
 ADAPTIVE_ROLLOUT_UNKNOWN_GRADLE="$TMP_DIR/adaptive-rollout-unknown.gradle.kts"
-sed 's/\\"off\\"/\\"future_stage\\"/' app/build.gradle.kts > "$ADAPTIVE_ROLLOUT_UNKNOWN_GRADLE"
+perl -0pe 's/"\\"opt_in\\""/"\\"future_stage\\""/' app/build.gradle.kts > "$ADAPTIVE_ROLLOUT_UNKNOWN_GRADLE"
 expect_failure \
   "capability matrix verifier rejects unknown adaptive inference rollout stage" \
   scripts/verify_capability_matrix.sh \
@@ -3279,14 +3301,15 @@ android {
     }
 }
 ADAPTIVE_ROLLOUT_RELEASE_ENABLED
-expect_failure \
-  "capability matrix verifier rejects release-like adaptive inference rollout" \
+expect_success \
+  "capability matrix verifier accepts explicit release adaptive inference rollout" \
   scripts/verify_capability_matrix.sh \
     --gradle-file "$ADAPTIVE_ROLLOUT_RELEASE_ENABLED_GRADLE" \
     --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
     --report "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties"
-assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties" "status=failed"
-assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties" "release-like-rollout-not-off:release"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-release-enabled.properties" \
+  "releaseLikeRolloutSelectable=true"
 
 ADAPTIVE_ROLLOUT_DYNAMIC_GRADLE="$TMP_DIR/adaptive-rollout-dynamic.gradle.kts"
 cat > "$ADAPTIVE_ROLLOUT_DYNAMIC_GRADLE" <<'ADAPTIVE_ROLLOUT_DYNAMIC'
@@ -3326,14 +3349,14 @@ android {
     }
 }
 ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG
-expect_failure \
-  "capability matrix verifier rejects release inheriting an enabled debug rollout" \
+expect_success \
+  "capability matrix verifier accepts release inheriting an enabled debug rollout" \
   scripts/verify_capability_matrix.sh \
     --gradle-file "$ADAPTIVE_ROLLOUT_RELEASE_INHERITS_DEBUG_GRADLE" \
     --serving-source-dir "$ADAPTIVE_SERVING_SAFE_SOURCE" \
     --report "$ARTIFACT_DIR/capability-matrix-rollout-release-inherits-debug.properties"
-assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-rollout-release-inherits-debug.properties" \
-  "release-like-rollout-not-off:release"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-rollout-release-inherits-debug.properties" \
+  "releaseLikeRolloutSelectable=true"
 
 expect_success \
   "capability matrix verifier accepts serving target from bound placement" \

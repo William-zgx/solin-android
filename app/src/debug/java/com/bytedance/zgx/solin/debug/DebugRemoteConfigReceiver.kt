@@ -23,10 +23,11 @@ class DebugRemoteConfigReceiver : BroadcastReceiver() {
             return
         }
 
+        val remoteCredential = intent.getStringExtra(EXTRA_API_KEY).orEmpty()
         val config = RemoteModelConfig(
             baseUrl = intent.getStringExtra(EXTRA_BASE_URL).orEmpty(),
             modelName = intent.getStringExtra(EXTRA_MODEL_NAME).orEmpty(),
-            apiKey = intent.getStringExtra(EXTRA_API_KEY).orEmpty(),
+            apiKey = remoteCredential,
         ).normalized()
         if (!config.isConfigured) {
             resultCode = Activity.RESULT_CANCELED

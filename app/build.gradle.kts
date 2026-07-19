@@ -201,8 +201,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "HUGGING_FACE_OAUTH_CLIENT_ID", "\"$huggingFaceOAuthClientId\"")
         buildConfigField("Boolean", "BUNDLED_MODELS_ENABLED", "false")
-        // Release-like variants stay off; the debug build opts in below for explicit testing.
-        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"off\"")
+        buildConfigField("String", "ADAPTIVE_INFERENCE_ROLLOUT_STAGE", "\"opt_in\"")
         // RC perf collection entry points are gated off by default. Only the dedicated
         // rcPerfRelease variant flips this to true, so the production release never exposes the
         // harness receiver/activity/service.

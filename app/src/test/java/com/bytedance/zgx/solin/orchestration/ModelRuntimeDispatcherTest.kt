@@ -22,6 +22,8 @@ class ModelRuntimeDispatcherTest {
     @Test
     fun concurrentDispatchHasOneClaimAndCallbackRunsOnlyAfterReceiptAndInvocationCommit() = runTest {
         val fixture = fixture("run-race", RunPlacement.Remote)
+        val runtimeEntered = CompletableDeferred<Unit>()
+        val releaseRuntime = CompletableDeferred<Unit>()
         var callbackCount = 0
         val adapters = testRuntimeAdapters<Unit>(
             local = { error("local must not run") },
@@ -31,21 +33,24 @@ class ModelRuntimeDispatcherTest {
                     fixture.dao.steps(invocation.runId).map { it.type },
                 )
                 callbackCount++
+                runtimeEntered.complete(Unit)
+                releaseRuntime.await()
             },
         )
 
-        val results = listOf(
-            async(Dispatchers.Default) {
-                runCatching { fixture.dispatcher.dispatch(fixture.permit, testReceipt(RunPlacement.Remote), adapters) }
-            },
-            async(Dispatchers.Default) {
-                runCatching { fixture.dispatcher.dispatch(fixture.permit, testReceipt(RunPlacement.Remote), adapters) }
-            },
-        ).awaitAll()
+        val first = async(Dispatchers.Default) {
+            runCatching { fixture.dispatcher.dispatch(fixture.permit, testReceipt(RunPlacement.Remote), adapters) }
+        }
+        runtimeEntered.await()
+        val second = runCatching {
+            fixture.dispatcher.dispatch(fixture.permit, testReceipt(RunPlacement.Remote), adapters)
+        }
 
-        assertEquals(1, results.count { it.isSuccess })
+        assertTrue(second.isFailure)
         assertEquals(1, callbackCount)
         assertEquals(1, fixture.dao.steps("run-race").count { it.type == "ModelRuntimeInvocationStarted" })
+        releaseRuntime.complete(Unit)
+        assertTrue(first.await().isSuccess)
     }
 
     @Test

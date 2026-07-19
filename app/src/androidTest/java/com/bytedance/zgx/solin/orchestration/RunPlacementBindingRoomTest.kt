@@ -13,6 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -136,7 +137,7 @@ class RunPlacementBindingRoomTest {
         val executor = Executors.newFixedThreadPool(2)
         try {
             val claims = List(2) {
-                executor.submit {
+                executor.submit(Callable {
                     ready.countDown()
                     check(start.await(5, TimeUnit.SECONDS))
                     dao.claimAndRecordTransaction(
@@ -146,7 +147,7 @@ class RunPlacementBindingRoomTest {
                         receiptStep = receiptStep(run.id),
                         invocationStep = invocationStep(run.id),
                     )
-                }
+                })
             }
             assertTrue(ready.await(5, TimeUnit.SECONDS))
             start.countDown()

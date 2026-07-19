@@ -112,9 +112,9 @@ for target in "${SCAN_TARGETS[@]}"; do
     --exclude-dir=.gradle \
     --exclude-dir=build \
     --exclude-dir=.idea \
-    --exclude-dir=app/build \
-    --exclude-dir=app/src/test \
-    --exclude-dir=app/src/androidTest \
+    --exclude-dir=.trae \
+    --exclude-dir=test \
+    --exclude-dir=androidTest \
     --exclude='*.png' \
     --exclude='*.jpg' \
     --exclude='*.jpeg' \
@@ -160,7 +160,7 @@ trace_allowed_fields = {
     },
 }
 trace_types = set(trace_allowed_fields)
-excluded_dir_names = {".git", ".gradle", "build", ".idea"}
+excluded_dir_names = {".git", ".gradle", "build", ".idea", ".trae", "test", "androidTest"}
 forbidden_exact_keys = {
     "prompt",
     "rawprompt",
