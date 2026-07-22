@@ -41,9 +41,14 @@ where the code can identify it. Examples include clipboard-derived messages,
 shared-input excerpts, OCR excerpts, current-screen Accessibility text,
 local memory-control status turns, and local action turns.
 
-If a chat-message row is inserted without an explicit privacy value, the local
-database defaults that row to `LocalOnly`. These local records are not a cloud
-sync source in this codebase.
+If a chat message is created without an explicit privacy value, the
+`ChatMessage` domain model defaults that message to `RemoteEligible`. The
+database column default is `LocalOnly`, but the persistence layer always
+writes the domain model's value, so the effective default for newly created
+messages is `RemoteEligible`. Code paths that handle privacy-sensitive
+content (clipboard, OCR, Accessibility screen text, shared-input excerpts,
+local action turns) explicitly set `LocalOnly`. These local records are not
+a cloud sync source in this codebase.
 
 Remote model API keys and Hugging Face read tokens are stored separately in
 Android Keystore-backed encrypted preferences. Clearing the relevant field
@@ -54,12 +59,14 @@ local app storage into Android cloud backup or app-data sync.
 
 ### Evidence Encryption
 
-On-device evidence blobs are encrypted at rest using AES/CBC/PKCS5Padding.
-The encryption key is stored in AndroidKeyStore under the alias
-`solin_evidence_key`. Each blob has a random 16-byte IV prepended to the
-ciphertext. Legacy plaintext blobs are automatically migrated to encrypted
-format on next write. Evidence meta files record `encrypted=true/false`
-status.
+On-device evidence blobs are encrypted at rest using AES/GCM/NoPadding
+(authenticated encryption). The encryption key is stored in AndroidKeyStore
+under the alias `solin_evidence_aes_gcm_v1`. Each blob has a random 12-byte
+GCM nonce prepended to the ciphertext, followed by the 16-byte GCM
+authentication tag. Legacy plaintext and AES/CBC/PKCS5Padding blobs (key
+alias `solin_evidence_key`) remain readable and are automatically migrated to
+the GCM format on next write. Evidence meta files record
+`encrypted=true/false` status.
 
 ## Remote Model Mode
 
@@ -222,8 +229,10 @@ after writes and keeps only the most recent 500 audit events.
 
 `RemoteSendAuditEvent` does NOT contain the raw user prompt.
 `RemoteSendAuditRepository.record()` never persists raw prompts. Audit records
-contain: timestamp, model used, token counts, privacy level, error codes —
-never message content.
+contain: timestamp, send decision, model name, sensitive safety categories,
+image count, remote history message count, and a redacted summary (capped at
+200 characters) — never message content, token counts, privacy level, or
+error codes.
 
 Agent trace and pending confirmation recovery are narrower than a full
 execution replay. Pending rows persist only allowlisted request arguments,

@@ -83,7 +83,7 @@ flowchart TD
 ## Validation
 
 - [ ] `scripts/verify_local.sh` passes on a clean checkout.
-- [ ] Unit test suite: 1637 tests pass, 0 failures.
+- [ ] Unit test suite: ~1911 tests pass, 0 failures.
 - [ ] Emulator regression passes on prepared arm64 AVDs, including API 28, 32, 33, 34, and 36, or the release record explains why emulator validation was unavailable.
 - [ ] `scripts/check_emulator_api_matrix.sh` and, when needed, `scripts/prepare_emulator_api_matrix.sh` produce readiness evidence before API-matrix regression.
 - [ ] At least one physical `arm64-v8a` device passes `scripts/install_and_test_device.sh` against the final signed release APK. Emulator serials are rejected as physical-device evidence.

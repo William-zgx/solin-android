@@ -5,7 +5,7 @@ evidence; it does not close device, performance, signing, store, legal,
 privacy, or release-owner blockers by itself.
 
 - Roadmap source date: `2026-06-29`
-- Dashboard refreshed: `2026-07-08`
+- Dashboard refreshed: `2026-07-22`
 - Close rule: a blocker is closed only by linked evidence with owner/date/SHA-256, or by explicit release-owner risk acceptance recorded in the release record.
 - Final authority: `PUBLIC_RELEASE=1 ... scripts/verify_release_gate.sh`
 
@@ -36,17 +36,17 @@ Resolved in commit `4ad758e`. All items below are DONE / GREEN.
 | Architecture | ModelRepository dependency inversion | DONE |
 | Architecture | SolinViewModel code deduplication | DONE |
 
-## Future Work (PLANNED)
+## Future Work
 
-Planned items tracked under `docs/plans/`:
+Items tracked under `docs/plans/`:
 
 | Area | Item | Status |
 | --- | --- | --- |
-| Architecture | AgentLoopRuntime split into multi-component + typed event bus | PLANNED |
-| Data layer | Data layer suspend migration (9 interfaces, 18 methods) | PLANNED |
-| ViewModel | ViewModel split into 8 controllers | PLANNED |
-| UiState | UiState split into 10 sub-states | PLANNED |
-| UI | SolinScreen composable split (91 → 12 components) | PLANNED |
+| Architecture | AgentLoopRuntime split into multi-component + typed event bus | PLANNED (no plan file yet; incremental extraction via `orchestration/` collaborators) |
+| Data layer | Data layer suspend migration (9 interfaces, 18 methods) | NOT STARTED — `docs/plans/data-layer-suspend-migration.md` |
+| ViewModel | ViewModel split into 19 files (8 named controllers) | COMPLETED — `docs/plans/viewmodel-split.md` |
+| UiState | UiState split into 10 sub-states | NOT DOING — `docs/plans/uistate-split.md` |
+| UI | SolinScreen composable split (~6,300 → ~1,600 lines, 17 leaf components) | COMPLETED — `docs/plans/solin-screen-split.md` |
 
 ## Evidence That Does Not Close Release Blockers
 

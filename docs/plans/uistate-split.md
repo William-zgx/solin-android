@@ -1,5 +1,13 @@
 # ChatUiState 拆分实施计划
 
+> **状态: 明确不做**（见 `docs/optimization_plan_weaknesses.md` §21）
+>
+> `ChatUiState` 仍为单体 data class（~68 字段）。原因：`_uiState.update` 仍有数百处调用，
+> 全拆需同步改 Screen 观察与全部控制器，回归面过大。后续可按 download/voice **增量**嵌套类型再做，
+> 不在本结构债战役范围。
+>
+> **原计划如下**（保留供参考）：
+
 > **目标**: 将单体 `ChatUiState`（60+ 字段）拆分为多个逻辑子状态，通过独立 `StateFlow` 暴露，减少不必要的 Compose 重组，提升 UI 响应性能。
 
 ---

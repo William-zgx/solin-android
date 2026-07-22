@@ -1,5 +1,13 @@
 # SolinViewModel Split Plan
 
+> **Status: COMPLETED** (Wave 1–6, see `docs/optimization_plan_weaknesses.md` §20–§22)
+>
+> **Result**: `SolinViewModel.kt` reduced from ~6,500 lines to ~1,500 lines. 19 focused
+> controllers now live under `presentation/`; `SolinViewModel` is a thin facade that
+> delegates to controllers and assembles composite `ChatUiState`.
+>
+> **Original target below** (kept for historical reference):
+>
 > **Target**: `app/src/main/java/com/bytedance/zgx/solin/SolinViewModel.kt` (6500 lines, 27 constructor deps, ~110+ methods, ~25 private fields)
 >
 > **Strategy**: Extract 8 focused controllers from the monolithic ViewModel, then introduce a `SolinViewModelCoordinator` that holds all controllers and assembles the composite `ChatUiState`. Migration proceeds in 8 incremental steps; each step is independently shippable.

@@ -1,8 +1,9 @@
 # 针对已知缺点的优化方案（可执行版）
 
-> 状态：Wave 1 进行中  
-> 关联：`docs/plans/viewmodel-split.md`、`solin-screen-split.md`、`uistate-split.md`、`data-layer-suspend-migration.md`、`ai_friendly_architecture_multi_agent_plan.md`  
+> 状态：Wave 1–6 已完成（见 §20–§22 战役总结）
+> 关联：`docs/plans/viewmodel-split.md`、`solin-screen-split.md`、`uistate-split.md`、`data-layer-suspend-migration.md`
 > 目标：把「安全 harness 很强、热点文件不可演进」的债务，变成可并行交付的结构改进。
+> 架构原则与愿景见 §2；已落地的结构化改进（日志/常量/加密/并发等）见 `agent_core_modules.md` 对应章节。
 
 ---
 
@@ -505,10 +506,10 @@ Wave 5 新增：
 
 | 轨道 | 交付 | 状态 |
 | --- | --- | --- |
-| C6 Chat 再拆 | ToolContinuation + Generation | **已落地** ChatController **1380** |
+| C6 Chat 再拆 | ToolContinuation + Generation | **已落地** ChatController **2029** |
 | D6 Loop 再拆 | InitialToolPlanner + PendingConfirmation + ModelToolRequest | **已落地** Loop **3399** |
-| B6 Screen chrome | TopBar/Empty/Bubble/Timeline/FirstRun | **已落地** Screen **1466** |
-| C6b VM residual | Voice/Background/Audit/DeviceContext | **已落地** VM **1396** |
+| B6 Screen chrome | TopBar/Empty/Bubble/Timeline/FirstRun | **已落地** Screen **1605** |
+| C6b VM residual | Voice/Background/Audit/DeviceContext | **已落地** VM **1490** |
 | UiState 全拆 | Big Bang 多 StateFlow | **明确不做**（见 §21） |
 | Gradle 物理模块 | `:presentation` / `:orchestration` | **明确不做**（包边界测试已足够） |
 
@@ -516,21 +517,21 @@ Wave 5 新增：
 
 | 文件 | Wave 5 | Wave 6 | Δ |
 | --- | ---: | ---: | ---: |
-| `SolinViewModel.kt` | 1804 | **1396** | **−408** |
-| `SolinScreen.kt` | 2820 | **1466** | **−1354** |
+| `SolinViewModel.kt` | 1804 | **1490** | **−314** |
+| `SolinScreen.kt` | 2820 | **1605** | **−1215** |
 | `AgentLoopRuntime.kt` | 4002 | **3399** | **−603** |
-| `ChatController.kt` | 2142 | **1380** | **−762** |
+| `ChatController.kt` | 2142 | **2029** | **−113** |
 
-三大经典热点（VM+Screen+Loop）：**8626 → 6261（−2365）**
+三大经典热点（VM+Screen+Loop）：**8626 → 6494（−2132）**
 
 相对 **原始基线**（6807 / 6343 / 5436 = 18586）：
 
 | 文件 | 原始 | 现 | 累计 Δ |
 | --- | ---: | ---: | ---: |
-| ViewModel | 6807 | 1396 | **−5411 (−79%)** |
-| Screen | 6343 | 1466 | **−4877 (−77%)** |
+| ViewModel | 6807 | 1490 | **−5317 (−78%)** |
+| Screen | 6343 | 1605 | **−4738 (−75%)** |
 | Loop | 5436 | 3399 | **−2037 (−37%)** |
-| **合计** | 18586 | **6261** | **−12325 (−66%)** |
+| **合计** | 18586 | **6494** | **−12092 (−65%)** |
 
 Wave 6 新增协作面（节选）：
 

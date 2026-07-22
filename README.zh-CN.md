@@ -228,18 +228,30 @@ app/src/main/java/com/bytedance/zgx/solin/
   action/          手机动作规划与 Android 执行边界
   audit/           脱敏工具审计存储
   background/      提醒与定时任务状态
+  capability/      能力描述符与产品定位矩阵
+  credentials/     API Key / OAuth 凭证解析
   data/            模型、会话持久化与 bundled model 导入
   device/          本地设备上下文快照
-  download/        DownloadManager 边界
+  download/        DownloadManager 边界与模型校验
+  eval/            AI 行为评估数据模型
+  evidence/        端侧证据 blob 加密存储
+  logging/         SolinLog 结构化日志门面
+  mcp/             Model Context Protocol 服务器接入
   memory/          本地记忆索引与语义记忆运行时
+  module/          SolinModule 注册与冻结快照
   multimodal/      分享、选择器文本、图片 payload 和 OCR 边界
   orchestration/   聊天、记忆、工具和动作路由
+  plan/            多步计划持久化与工具桥接
+  presentation/    ViewModel facade、8 个命名控制器与 11 个支持文件
+  rcperf/          RC 性能基准（纯 JVM 可测）
   resource/        设备资源采样
   runtime/         LiteRT-LM 与远程运行时边界
   safety/          工具风险、确认和隐私决策
   skill/           内置技能 manifest 与执行
+  storage/         本地 KV / 文档 / 向量存储契约
   tool/            工具注册表、schema、结果和 provider
-  ui/              Compose 界面
+  ui/              Compose 界面与叶子组件
+  undo/            动作撤销策略
 
 docs/              架构、隐私、验证、模型和发布文档
 scripts/           本地、设备、发布和证据辅助脚本

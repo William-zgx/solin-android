@@ -27,7 +27,6 @@ Agent 协议（必读）: [`AGENTS.md`](AGENTS.md)
 | 文档角色与流程图 | `docs/index.md` |
 | Agent / 工具模块归属 | `docs/agent_core_modules.md` |
 | 结构债与 Wave 并行规则 | `docs/optimization_plan_weaknesses.md` |
-| 多 Agent 重构愿景 | `docs/ai_friendly_architecture_multi_agent_plan.md` |
 | 隐私边界 | `docs/privacy_notice.md` |
 | 模型来源与校验 | `docs/model_manifest.md` |
 | 真机验收 | `docs/phone_acceptance.md` |
@@ -50,12 +49,25 @@ runtime/        本地 LiteRT / 远程运行时
 memory/         本地记忆索引与语义运行时
 device/         设备上下文快照
 data/           模型、会话、设置持久化
+storage/        本地 KV / 文档 / 向量存储契约
 ui/             Compose 界面
-presentation/   ViewModel facade / 控制器（演进中）
+resource/       系统资源采样与稳定压力状态
+presentation/   ViewModel facade / 19 个文件（8 个命名控制器，已落地）
 action/         手机动作规划与 Android 执行边界
 audit/          脱敏工具审计
+evidence/       证据 blob 加密存储
 multimodal/     分享、附件、OCR 边界
 background/     提醒与定时任务
+module/         SolinModule 注册与冻结
+mcp/            Model Context Protocol 服务器接入
+credentials/    API Key / OAuth 凭证解析
+download/       模型下载与校验
+capability/     能力矩阵与产品定位
+plan/           多步计划持久化与工具桥接
+undo/           动作撤销策略
+rcperf/         RC 性能基准（纯 JVM 可测）
+eval/           AI 行为评估数据模型
+logging/        SolinLog 结构化日志门面
 ```
 
 请求主路径（摘要）：
@@ -81,15 +93,15 @@ background/     提醒与定时任务
 
 ---
 
-## 5. 上帝对象与演进方向
+## 5. 结构债现状与演进方向
 
-当前热点（约行数见 `docs/optimization_plan_weaknesses.md` §8）：
+Wave 1–6 已完成（见 `docs/optimization_plan_weaknesses.md` §20–§22）。三大热点文件已大幅瘦身：
 
-| 文件 | 目标 |
-| --- | --- |
-| `SolinViewModel.kt` | 薄 facade → `presentation/controllers/*` |
-| `SolinScreen.kt` | 编排壳 → `ui/components/*` 叶子 |
-| `AgentLoopRuntime.kt` | 薄 facade → 路由 / 预算 / 规划协作者 |
+| 文件 | 原始行数 | 现行 | 协作面 |
+| --- | ---: | ---: | --- |
+| `SolinViewModel.kt` | ~6,800 | ~1,500 | `presentation/*` 19 个文件（8 个命名控制器） |
+| `SolinScreen.kt` | ~6,300 | ~1,600 | `ui/components/*` 17 个叶子组件 |
+| `AgentLoopRuntime.kt` | ~5,400 | ~3,400 | `orchestration/ToolPlanCoordinator` 等 5+ 协作类 |
 
 **原则：** 先逻辑边界与架构测试，再物理 Gradle module；增量可合并，禁止 Big Bang。  
 **并行改代码时：** 遵守 `optimization_plan_weaknesses.md` §5 文件所有权表（与 `AGENTS.md` 一致）。

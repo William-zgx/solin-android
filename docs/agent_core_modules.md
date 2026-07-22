@@ -172,6 +172,53 @@ Tests:
 - `ToolExecutionBoundaryTest`
 - `SolinViewModelTest`
 
+## Runtime
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/runtime/`
+
+Responsibilities:
+
+- Execute local LiteRT-LM and remote OpenAI-compatible chat generations.
+- Adaptively select backend (local vs. remote) and generation parameters based
+  on context window, quality issues, and resource pressure.
+- Guard model output quality and probe remote endpoint connectivity.
+
+Boundaries:
+
+- Runtime modules do not mutate `ChatUiState`; they return typed results that
+  the orchestration layer folds into state.
+- Local runtime never sends data off-device; remote runtime filters
+  `LocalOnly` context before dispatch.
+- Prompt templates are centralized here, not scattered across callers.
+
+Current status:
+
+- `LiteRtRuntime` wraps the Google AI Edge LiteRT-LM `Engine` with GPU/CPU
+  fallback and explicit model loading.
+- `RemoteChatRuntime` streams from an OpenAI-compatible endpoint using
+  OkHttp, with `CredentialResolver` for auth and `RemoteModelEndpoints` for
+  base URL resolution.
+- `AdaptiveGenerationPolicy` decides backend, token limits, and image caps
+  from `AdaptiveGenerationPolicyInput` (preferred backend, context window,
+  last-gen stats, quality issues, image count).
+- `ModelOutputQualityGuard` detects degraded generations (truncation,
+  repetition, empty output) and surfaces `GenerationQualityIssue`.
+- `RemoteModelConnectivityProbe` performs lightweight preflight checks
+  before a remote generation is attempted.
+- `TfliteTextEmbeddingRuntimeFactory` builds the TFLite embedding runtime
+  used by the memory index.
+- `ChatPrompts` centralizes system prompt and tool-use prompt construction.
+
+Tests:
+
+- `FakeLiteRtRuntimeTest`
+- `LiteRtRuntimeConfigTest`
+- `RemoteChatRuntimeTest`
+- `AdaptiveGenerationPolicyTest`
+- `ModelOutputQualityGuardTest`
+
 ## Skill Framework
 
 Code:
@@ -448,7 +495,6 @@ Current status:
 Tests:
 
 - `MemoryRepositoryTest`
-- `ModelRepositoryPathTest`
 - `SolinViewModelTest`
 - `MainActivityLongTermMemoryUiTest`
 
@@ -681,6 +727,497 @@ Current status:
 Tests:
 
 - `RemoteModelRepositoryTest` validates HTTPS endpoint configuration.
+
+## Capability Matrix
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/capability/CapabilityMatrix.kt`
+
+Responsibilities:
+
+- Declare user-facing capability descriptors with owner agent, privacy level,
+  risk, confirmation policy, and continuation policy.
+- Provide a single source of truth for product capability positioning used by
+  UI surfaces, release gates, and verification scripts.
+
+Boundaries:
+
+- Capability descriptors are metadata only; they do not register tools or
+  execute behavior.
+- Privacy level and confirmation policy must match the underlying `ToolSpec`
+  values.
+
+Current status:
+
+- `CapabilityDescriptor` covers chat, memory, device context, tools, remote
+  mode, and model management capabilities.
+- `CapabilityOwnerAgent` assigns each capability to an owning agent
+  (Coordinator, EdgeModel, Multimodal, AgentRuntime, Memory, TrustPrivacy,
+  PerformanceQa).
+- `CapabilityPrivacyLevel` mirrors the `LocalOnly` / `RemoteEligible` split:
+  `UserProvided`, `PublicEvidence`, `LocalEvidence`, `ExternalAction`,
+  `BackgroundTask`.
+
+Tests:
+
+- `CapabilityMatrixDocumentationTest`
+
+## Credentials
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/credentials/`
+
+Responsibilities:
+
+- Resolve API keys and OAuth bearer tokens for remote model and MCP calls.
+- Keep credential material out of chat history, traces, and audit logs.
+
+Boundaries:
+
+- `CredentialResolver` never persists raw tokens; it returns a short-lived
+  `Credential` sealed value.
+- Refresh is not automatic; callers invoke `refreshWith(refresher)` when
+  `isExpired` is true.
+
+Current status:
+
+- `Credential` sealed class has `ApiKey` (static, never expires) and `OAuth`
+  (bearer with optional refresh token and expiry) variants.
+- `ApiKeyCredentialResolver` reads from encrypted preferences.
+- `NoOpCredentialResolver` is the default when no remote endpoint is configured.
+
+Tests:
+
+- `ApiKeyCredentialResolverTest`
+- `NoOpCredentialResolverTest`
+- `CredentialTest`
+
+## Model Download
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/download/`
+
+Responsibilities:
+
+- Download recommended and custom `.litertlm` / `.tflite` model files through
+  Android `DownloadManager` or direct HTTP with byte limits.
+- Verify file size and SHA-256 before marking a download as usable.
+
+Boundaries:
+
+- Downloads are bounded by `CUSTOM_MODEL_MAX_BYTES`; oversized transfers fail
+  with `ModelTransferSizeLimitExceededException`.
+- Hugging Face gated downloads require a user-provided `SOLIN_HF_TOKEN`; the
+  token is never committed or logged.
+
+Current status:
+
+- `ModelDownloadService` wraps Android `DownloadManager` for large files and
+  falls back to a direct `HttpURLConnection` path for preflight checks.
+- `HuggingFaceDownloadUrlResolver` normalizes HF repository URLs to direct
+  download endpoints.
+- Downloads are tracked in a `ConcurrentHashMap` of active jobs with atomic
+  byte counters.
+
+Tests:
+
+- `ModelDownloadServiceTest`
+- `HuggingFaceDownloadUrlResolverTest`
+
+## Module Registry
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/module/`
+
+Responsibilities:
+
+- Provide a compile-time registration seam for first-party Kotlin modules that
+  contribute tools, handlers, and Skill sources.
+- Freeze the registry snapshot before the Agent loop starts so late
+  registration cannot bypass validation.
+
+Boundaries:
+
+- Modules are in-process only. Out-of-process (Binder) extensions are a future
+  seam; `SolinModule` does not expose IPC.
+- `SolinModuleRegistry.freeze()` rejects duplicate specs, duplicate handlers,
+  duplicate Skill ids, and handlers without a corresponding spec.
+
+Current status:
+
+- `SolinModule` interface exposes `moduleId` and `register(registry)`.
+- `SolinModuleRegistryImpl` collects `ToolProvider`, `ToolHandler`, and
+  `SkillSource` contributions, then freezes into an immutable snapshot.
+- `SolinAppContainer` assembles the static module list at startup.
+
+Tests:
+
+- `SolinModuleRegistryTest`
+
+## Plan
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/plan/`
+
+Responsibilities:
+
+- Persist multi-step plan items for an active run so the UI can show progress
+  and the loop can resume after process death.
+- Convert plan steps into tool requests through the frozen registry.
+
+Boundaries:
+
+- Plans store titles, status, and notes only; raw tool arguments and model
+  output are not persisted in plan items.
+- Plan progression is gated by the same confirmation and safety boundaries as
+  direct tool execution.
+
+Current status:
+
+- `PlanItem` tracks `PENDING`, `IN_PROGRESS`, `DONE`, `BLOCKED`, `SKIPPED`
+  status with position ordering.
+- `SessionPlanStore` persists plan snapshots per run id.
+- `PlanToolHandler` and `PlanToolsModule` bridge plan items to the tool
+  registry.
+
+Tests:
+
+- `SessionPlanStoreTest`
+- `PlanToolHandlerTest`
+
+## Presentation Controllers
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/presentation/`
+
+Responsibilities:
+
+- Hold extracted ViewModel logic as focused controllers that assemble and
+  mutate `ChatUiState` sub-states.
+- Keep `SolinViewModel` as a thin facade that forwards to controllers and
+  combines their state.
+
+Boundaries:
+
+- Controllers do not call Android APIs directly; they depend on injected
+  repositories and runtimes.
+- Controllers do not own cross-cutting state; `SolinViewModel` remains the
+  single composition root for `ChatUiState`.
+
+Current status:
+
+- 19 controllers cover chat, model load, tool execution, session, device
+  context, background tasks, shared input, voice input, model selection,
+  audit UI, generation streaming, generation quality, remote send, tool
+  continuation, and auto-inference authorization.
+- `SolinViewModel` is reduced from ~6,500 lines to ~1,500 lines; it now
+  delegates to controllers and assembles the composite UI state.
+- `GenerationStreamReducer` is a pure-Kotlin reducer for typed
+  started/delta/completed/failed/cancelled generation events.
+
+Tests:
+
+- `ChatModelsTest`
+- `ChatUiStateModelVerificationTest`
+- `ChatPlacementInputsTest`
+- `ToolExecutionControllerTest`
+- `GenerationStreamReducerTest`
+
+## UI Layer
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/ui/`
+- `app/src/main/java/com/bytedance/zgx/solin/ui/components/`
+
+Responsibilities:
+
+- Render the assistant surface as Compose composables that observe
+  `ChatUiState` and forward user intents to `SolinViewModel`.
+- Keep composables thin and stateless; state ownership stays in the
+  presentation layer.
+
+Boundaries:
+
+- UI composables do not call repositories, runtimes, or Android APIs
+  directly; they go through `SolinViewModel` / controller callbacks.
+- `testTag` values are part of the verification contract and must stay
+  stable across refactors.
+
+Current status:
+
+- `SolinScreen.kt` is the root composable; it is reduced from ~6,300 lines
+  to ~1,600 lines by delegating to 17 leaf components under
+  `ui/components/`.
+- Leaf components cover top bar, empty state, message bubble/chrome,
+  first-run setup, memory panel, model manager, remote mode/send
+  disclosure, session manager, trust boundary, action draft, background
+  task, and external outcome sheets.
+- `MessageMarkdown` renders assistant message content with safe link
+  handling.
+- `ResourcePressureBadge` / `ResourcePressureOverlay` surface device
+  resource pressure from the `resource/` module.
+- `theme/` holds the Compose color, typography, and shape definitions.
+
+Tests:
+
+- `SolinScreenDisplayTest`
+- Component-specific Compose UI tests under `ui/components/`
+
+## Resource Monitoring
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/resource/`
+
+Responsibilities:
+
+- Sample system resource state (PSS, Java/native heap, available RAM, CPU,
+  thermal pressure) on a fixed interval and expose a stable, debounced view
+  to the UI and runtime.
+
+Boundaries:
+
+- This module only observes; it never throttles, kills, or reconfigures
+  inference. Policy decisions based on resource state live in the runtime
+  and presentation layers.
+- Sampling runs on a background coroutine; the UI receives immutable
+  snapshots via the `StableResourceState` model.
+
+Current status:
+
+- `SystemResourceMonitor` reads `/proc` stats, `ActivityManager`, and
+  `PowerManager` thermal APIs to build `SystemResourceSnapshot` samples
+  every 1.5 s.
+- `StableResourceSnapshotAggregator` smooths raw samples into
+  `StableResourceState` (Normal / Warm / Hot band) with hysteresis so the
+  UI badge does not flicker on transient spikes.
+- `ResourcePressure` and `ThermalPressure` enums define the user-facing
+  pressure levels surfaced by `ResourcePressureBadge` /
+  `ResourcePressureOverlay` in the UI layer.
+
+Tests:
+
+- `SystemResourceMonitorTest`
+- `StableResourceSnapshotAggregatorTest`
+
+## MCP (Model Context Protocol)
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/mcp/`
+
+Responsibilities:
+
+- Connect to user-approved MCP servers over a Binder transport and expose
+  their tools through the frozen `ToolRegistry`.
+- Keep MCP tools behind the same risk, confirmation, and privacy boundaries as
+  built-in tools.
+
+Boundaries:
+
+- No servers are shipped with v1; users add servers explicitly through a
+  future management UI.
+- MCP tools default to `High` risk and `Required` confirmation until the user
+  approves a lower risk level.
+
+Current status:
+
+- `McpClient` manages server connections and approved tool specs.
+- `McpModule` registers approved MCP tool specs and handlers with the module
+  registry at startup.
+- `McpConsentStore` persists user approval decisions per server.
+- `BinderMcpTransport` provides the in-process IPC seam for future
+  out-of-process servers.
+
+Tests:
+
+- `McpProtocolTest`
+- `McpServerRegistryTest`
+- `McpModuleTest`
+- `McpConsentStoreTest`
+
+## Storage
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/storage/`
+
+Responsibilities:
+
+- Provide local key-value, document, and vector storage contracts backed by
+  Android storage primitives.
+- Keep all local storage on device; nothing in this module syncs to cloud.
+
+Boundaries:
+
+- Storage collections are versioned (`LocalStorageSchemaVersions.CURRENT`)
+  so migrations are explicit.
+- Vector dimensions are fixed at 768 (`LocalVectorIndexContract.DIMENSIONS`)
+  to match the EmbeddingGemma model.
+
+Current status:
+
+- `LocalStorageContracts` defines collection names (`KEY_VALUES`, `DOCUMENTS`,
+  `VECTORS`) and read scopes (`LocalContext`, `RemoteSend`).
+- `AndroidLocalStorageStores` implements the contracts using Android
+  `SharedPreferences` and file-based storage.
+- `ZvecLocalStorage` and `ZvecNativeStore` provide the vector index
+  implementation.
+
+Tests:
+
+- `LocalStorageContractTest`
+- `LocalStorageBackfillTest`
+- `ZvecLocalStorageParityTest`
+
+## Data Layer
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/data/`
+
+Responsibilities:
+
+- Persist models, sessions, settings, generation parameters, and remote
+  model configuration on device.
+- Manage encrypted storage of secrets and database keys.
+- Install bundled models and migrate legacy preferences.
+
+Boundaries:
+
+- Data layer does not execute model inference or call remote endpoints.
+- All persisted data stays on device; nothing in this module syncs to
+  cloud.
+- `runBlocking` is still used in `PreferenceSettingsStore` to bridge
+  synchronous callers with DataStore; migration to `suspend` is tracked
+  in `docs/plans/data-layer-suspend-migration.md`.
+
+Current status:
+
+- `ModelRepository` manages installed `.litertlm` / `.tflite` model files,
+  custom model imports, and bundled model installation.
+- `SessionRepository` persists chat sessions and messages via Room
+  (`SolinDatabase`) and tracks the active session.
+- `PreferenceSettingsStore` wraps Jetpack DataStore for user preferences.
+- `EncryptedSecretStore` / `LocalDatabaseKeyManager` /
+  `EncryptedDatabaseMigrator` handle encrypted storage of API keys,
+  database keys, and migration of legacy unencrypted data.
+- `FirstRunSetupRepository`, `GenerationParametersRepository`,
+  `HuggingFaceAuthRepository`, and `RemoteModelRepository` cover their
+  respective domains.
+- `BundledModelInstaller` installs models from the app's bundled assets
+  for the internal `bundledModels` build variant.
+- `LegacyPrefsMigrator` migrates old `SharedPreferences` data to the
+  current storage scheme.
+
+Tests:
+
+- `ModelRepositoryTest`
+- `ModelRepositoryPathTest`
+- `SessionRepositoryTest`
+- `PreferenceSettingsStoreTest`
+- `EncryptedSecretStoreTest`
+
+## Undo
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/undo/`
+
+Responsibilities:
+
+- Determine whether a completed tool action can be undone and produce an
+  `UndoPlan` for the UI to offer.
+
+Boundaries:
+
+- Undo plans are advisory only; executing an undo still goes through the full
+  tool confirmation and safety boundary.
+- High-risk actions (send, delete, pay, publish) are never auto-undoable.
+
+Current status:
+
+- `UndoPolicy` is a functional interface that maps `(ToolRequest, ToolResult)`
+  to an optional `UndoPlan`.
+- `UndoModels` defines the plan structure with target tool, reason, and
+  allowlisted arguments.
+
+Tests:
+
+- `UndoPolicyRegistryTest`
+- `UndoModelsTest`
+
+## RC Performance
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/rcperf/RcPerf.kt`
+
+Responsibilities:
+
+- Benchmark local model throughput (tokens/second) and GPU fallback status for
+  release candidate verification.
+- Provide pure, JVM-testable logic that the harness wires to the real runtime.
+
+Boundaries:
+
+- Throughput is only ever the raw LiteRT decode benchmark value; it is never
+  estimated from character counts or UI text length.
+- When the benchmark is unavailable, the result is a diagnosable failure, not
+  a fabricated number.
+
+Current status:
+
+- `RcPerfResult` reports `Available` (with `tokensPerSecond` and
+  `GpuFallbackStatus`) or `Failure` (with reason).
+- `GpuFallbackStatus` maps 1:1 to `verify_perf_baseline.sh` wire values:
+  `not-needed`, `fallback-to-cpu`, `gpu-unavailable`.
+- Benchmark logic is exercised by `testDebugUnitTest`; it never reads,
+  deletes, or resets real model files or user data.
+
+Tests:
+
+- `RcPerfTest`
+
+## Eval
+
+Code:
+
+- `app/src/main/java/com/bytedance/zgx/solin/eval/AgentBehaviorEvalModels.kt`
+
+Responsibilities:
+
+- Define typed models for AI behavior evaluation fixtures, traces, and
+  release-gate assertions.
+- Capture run placement, data destination receipts, and safety outcomes for
+  offline verification.
+
+Boundaries:
+
+- Eval models are data contracts only; they do not execute runs or modify
+  runtime behavior.
+- Eval fixtures are stored separately from production data and are never sent
+  to remote models.
+
+Current status:
+
+- `AgentBehaviorEvalModels` covers `RunPlacement`, `RunDataReceipt`,
+  `RunDataDestination`, `PlacementReasonCode`, and trace schema versioning.
+- Models are consumed by `scripts/verify_ai_behavior_eval.sh` and
+  `scripts/collect_ai_behavior_actual_trace.sh`.
+
+Tests:
+
+- `AiBehaviorEvalFixturesTest`
+- `AiBehaviorActualTraceGeneratorTest`
+- `AiBehaviorPlanningTraceProjectorTest`
 
 ## Regression Strategy
 

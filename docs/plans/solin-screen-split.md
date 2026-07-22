@@ -1,5 +1,12 @@
 # SolinScreen Composable Split -- Detailed Implementation Plan
 
+> **Status: COMPLETED** (Wave 1–6, see `docs/optimization_plan_weaknesses.md` §20–§22)
+>
+> **Result**: `SolinScreen.kt` reduced from ~6,300 lines to ~1,600 lines. 17 leaf
+> components now live under `ui/components/`.
+>
+> **Original plan below** (kept for historical reference):
+
 ## Overview
 
 `SolinScreen.kt` at `app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt` is

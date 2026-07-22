@@ -63,7 +63,7 @@ only summarizes current readiness and blockers.
 
 ## Recent Test Results
 
-- 1637 unit tests passing, 0 failures.
+- ~1911 unit tests passing, 0 failures.
 - `scripts/verify_local.sh` passes (exit code 0).
 - Emulator tests: 7 previously-failing tests now passing.
 
@@ -86,8 +86,11 @@ only summarizes current readiness and blockers.
 
 ## Future Work
 
-Detailed implementation plans live in `docs/plans/`. The four active plans
-are tracked as future work items beyond the current release gate.
+Detailed implementation plans live in `docs/plans/`. Of the five tracked
+plans, two are completed (ViewModel split, SolinScreen split), one is
+explicitly not doing (UiState split), one is not started (data layer suspend
+migration), and one has no plan file yet (AgentLoopRuntime split). These are
+tracked as future work items beyond the current release gate.
 
 ## Next Commands
 

@@ -246,18 +246,30 @@ app/src/main/java/com/bytedance/zgx/solin/
   action/          Mobile action planning and Android execution boundary
   audit/           Redacted tool audit storage
   background/      Reminders and scheduled task state
+  capability/      Capability descriptors and product positioning matrix
+  credentials/     API key / OAuth credential resolution
   data/            Model/session persistence and bundled model import
   device/          Local device context snapshots
-  download/        DownloadManager boundary
+  download/        DownloadManager boundary and model verification
+  eval/            AI behavior evaluation data models
+  evidence/        On-device evidence blob encryption storage
+  logging/         SolinLog structured logging facade
+  mcp/             Model Context Protocol server integration
   memory/          Local memory indexing and semantic memory runtime
+  module/          SolinModule registry and freeze snapshot
   multimodal/      Share/picker text, image payload, and OCR boundaries
   orchestration/   Chat, memory, tool, and action routing
+  plan/            Multi-step plan persistence and tool bridging
+  presentation/    ViewModel facade, 8 named controllers, and 11 support files
+  rcperf/          Release candidate performance benchmarking
   resource/        Device resource sampling
   runtime/         LiteRT-LM and remote runtime boundaries
   safety/          Tool risk, confirmation, and privacy decisions
   skill/           Built-in skill manifests and execution
+  storage/         Local key-value / document / vector storage contracts
   tool/            Tool registry, schemas, results, and providers
-  ui/              Compose surfaces
+  ui/              Compose surfaces and leaf components
+  undo/            Action undo policy
 
 docs/              Architecture, privacy, validation, model, and release docs
 scripts/           Local, device, release, and evidence helpers

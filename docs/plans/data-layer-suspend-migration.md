@@ -1,5 +1,8 @@
 # Data Layer Suspend Function Migration Plan
 
+> **Status: NOT STARTED** — `runBlocking` is still used in `PreferenceSettingsStore.kt`
+> (and other data-layer call sites). This plan remains available for future execution.
+
 ## Overview
 
 The Solin Android data layer currently uses `runBlocking` extensively to bridge synchronous interface
