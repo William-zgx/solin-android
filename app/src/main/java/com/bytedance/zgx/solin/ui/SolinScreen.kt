@@ -406,7 +406,12 @@ fun SolinScreen(
                         onRecommendedModelSelected = onRecommendedModelSelected,
                         onInstalledModelSelected = onInstalledModelSelected,
                         onDeleteInstalledModel = onDeleteInstalledModel,
-                        onInferenceModeSelected = onInferenceModeSelected,
+                        onInferenceModeSelected = { mode ->
+                            onInferenceModeSelected(mode)
+                            if (mode == InferenceMode.Auto) {
+                                showModelManager = false
+                            }
+                        },
                         onRemoteModelConfigChanged = onRemoteModelConfigChanged,
                         onTestRemoteModelConnectivity = onTestRemoteModelConnectivity,
                         onBackendSelected = onBackendSelected,
