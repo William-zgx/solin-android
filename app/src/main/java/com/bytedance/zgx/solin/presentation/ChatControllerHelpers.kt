@@ -10,47 +10,53 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
-import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
+import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
-import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.EvidenceQuality
 import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
+import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.evidence.toEvidenceReceiptSummary
 import com.bytedance.zgx.solin.isUsable
 import com.bytedance.zgx.solin.memory.MemoryRecallMode
 import com.bytedance.zgx.solin.modelProfile
+import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
-import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.BindAndReserveResult
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
-import com.bytedance.zgx.solin.orchestration.ModelRuntimeAdapters
-import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
+import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.ModelCandidateSnapshot
 import com.bytedance.zgx.solin.orchestration.ModelRequirements
+import com.bytedance.zgx.solin.orchestration.ModelRuntimeAdapters
+import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.PreparedChatBindingStore
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlan
 import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlanner
 import com.bytedance.zgx.solin.orchestration.PromptPrivacySegment
 import com.bytedance.zgx.solin.orchestration.PromptSegmentSource
+import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RequestComplexity
 import com.bytedance.zgx.solin.orchestration.RequestComplexityAggregator
 import com.bytedance.zgx.solin.orchestration.RequestComplexityInput
-import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
-import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
-import com.bytedance.zgx.solin.orchestration.RunPlacementBindingStore
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
+import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
+import com.bytedance.zgx.solin.orchestration.RunPlacementBindingStore
 import com.bytedance.zgx.solin.orchestration.RunningModelRuntimeCall
 import com.bytedance.zgx.solin.orchestration.estimateTokensApproximate
+import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.orchestration.toContextPrivacySegments
 import com.bytedance.zgx.solin.runtime.GenerationQualityIssue
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -61,6 +67,39 @@ import kotlinx.coroutines.flow.update
 internal interface ChatServingCall {
     suspend fun await()
     fun stop()
+}
+
+/**
+ * Serving call for a prepared Chat run: [launch] creates the LAZY generation job and hands it back,
+ * [await] starts and joins it, and [stop] (idempotent) stops the runtime only while the job is active.
+ */
+internal class PreparedServingCall(
+    private val launch: (onLaunched: (Deferred<Unit>) -> Unit) -> Unit,
+    private val stopRuntime: () -> Unit,
+) : ChatServingCall {
+    private val stopped = AtomicBoolean(false)
+    private val job = AtomicReference<Deferred<Unit>?>(null)
+
+    override suspend fun await() {
+        if (stopped.get()) throw CancellationException("Prepared Chat serving was stopped")
+        launch { launched ->
+            check(job.compareAndSet(null, launched)) { "Prepared Chat job was already assigned" }
+        }
+        val launched = job.get() ?: error("Prepared Chat generation did not start")
+        if (stopped.get()) {
+            launched.cancel()
+            throw CancellationException("Prepared Chat serving was stopped")
+        }
+        launched.start()
+        launched.await()
+    }
+
+    override fun stop() {
+        if (!stopped.compareAndSet(false, true)) return
+        val launched = job.get()
+        if (launched?.isActive == true) stopRuntime()
+        launched?.cancel()
+    }
 }
 
 internal interface ChatPlacementRuntime : PreparedChatBindingStore {
@@ -206,6 +245,26 @@ internal fun initialChatPrivacyPlan(
 
 internal fun PromptPrivacyPlan.withRouteContext(route: AssistantRoute.Chat): PromptPrivacyPlan =
     PromptPrivacyPlanner.append(this, route.toContextPrivacySegments())
+
+internal fun initialAgentRunOptions(
+    state: ChatUiState,
+    useRemoteModel: Boolean,
+    remoteConfig: RemoteModelConfig,
+): AgentRunOptions =
+    if (useRemoteModel) {
+        AgentRunOptions(
+            initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
+            remoteToolScope = RemoteToolScope.ModelPlanning,
+            reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations,
+            // Enable remote-vision GUI driving only when the user opted in AND the remote model
+            // declares vision support. This lets the in-app observe→replan→tap loop run without a
+            // local action model — the remote model sees screenshots and decides taps.
+            remoteGuiDrivingEnabled = state.remoteGuiAutomationEnabled &&
+                remoteConfig.supportsVisionInput,
+        )
+    } else {
+        AgentRunOptions(reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations)
+    }
 
 internal data class ChatPlacementInputs(
     val requirements: ModelRequirements,

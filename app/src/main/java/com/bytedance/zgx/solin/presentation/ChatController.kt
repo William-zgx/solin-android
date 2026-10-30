@@ -8,8 +8,6 @@ import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LocalImageAttachment
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
-import com.bytedance.zgx.solin.ModelHealth
-import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
@@ -28,7 +26,6 @@ import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
-import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.multimodal.SharedInput
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentPlan
@@ -36,7 +33,6 @@ import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
-import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.ModelPlacementInput
 import com.bytedance.zgx.solin.orchestration.ModelPlacementPolicy
 import com.bytedance.zgx.solin.orchestration.PrepareChatRunRequest
@@ -72,8 +68,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
@@ -392,7 +386,7 @@ class ChatController internal constructor(
                     return
                 }
                 InitialSendDecision.NotReady -> {
-                    handleNotReadySendAttempt()
+                    routeOutcomes.handleNotReady()
                     return
                 }
                 InitialSendDecision.Proceed -> Unit
@@ -429,22 +423,8 @@ class ChatController internal constructor(
         }
         val includePrivateLocalContext = preparedExecution?.includePrivateLocalContext
             ?: (stateBeforeSend.inferenceMode == InferenceMode.Local)
-        val agentRunOptions = preparedExecution?.agentRunOptions ?: if (useRemoteModel) {
-            AgentRunOptions(
-                initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-                reduceDeviceActionConfirmations = stateBeforeSend.reduceDeviceActionConfirmations,
-                // Enable remote-vision GUI driving only when the user opted in AND the remote model
-                // declares vision support. This lets the in-app observe→replan→tap loop run without a
-                // local action model — the remote model sees screenshots and decides taps.
-                remoteGuiDrivingEnabled = stateBeforeSend.remoteGuiAutomationEnabled &&
-                    remoteConfig.supportsVisionInput,
-            )
-        } else {
-            AgentRunOptions(
-                reduceDeviceActionConfirmations = stateBeforeSend.reduceDeviceActionConfirmations,
-            )
-        }
+        val agentRunOptions = preparedExecution?.agentRunOptions
+            ?: initialAgentRunOptions(stateBeforeSend, useRemoteModel, remoteConfig)
         if (preparedExecution != null && useRemoteModel) {
             val remoteDecision = ChatSendPreflight.preparedRemoteSend(
                 messagePrivacy = effectiveMessagePrivacy,
@@ -1179,12 +1159,8 @@ class ChatController internal constructor(
         prepared: PreparedChatRun,
         execution: PreparedChatExecution,
         placement: RunPlacement,
-    ): ChatServingCall = object : ChatServingCall {
-        private val stopped = AtomicBoolean(false)
-        private val job = AtomicReference<Deferred<Unit>?>(null)
-
-        override suspend fun await() {
-            if (stopped.get()) throw CancellationException("Prepared Chat serving was stopped")
+    ): ChatServingCall = PreparedServingCall(
+        launch = { onLaunched ->
             sendMessageInternal(
                 prompt = execution.promptForDispatch,
                 explicitMessagePrivacy = execution.effectiveMessagePrivacy,
@@ -1194,32 +1170,17 @@ class ChatController internal constructor(
                 currentPromptEvidenceSummary = execution.currentPromptEvidenceSummary,
                 preparedExecution = execution,
                 preparedPlacement = placement,
-                preparedJobLaunched = { launched ->
-                    check(job.compareAndSet(null, launched)) { "Prepared Chat job was already assigned" }
-                },
+                preparedJobLaunched = onLaunched,
                 onRemoteServingStarted = { deferredAudit.commit(prepared.runId) },
             )
-            val launched = job.get() ?: error("Prepared Chat generation did not start")
-            if (stopped.get()) {
-                launched.cancel()
-                throw CancellationException("Prepared Chat serving was stopped")
+        },
+        stopRuntime = {
+            when (placement) {
+                RunPlacement.Local -> runtime.stop()
+                RunPlacement.Remote -> remoteRuntime.stop()
             }
-            launched.start()
-            launched.await()
-        }
-
-        override fun stop() {
-            if (!stopped.compareAndSet(false, true)) return
-            val launched = job.get()
-            if (launched?.isActive == true) {
-                when (placement) {
-                    RunPlacement.Local -> runtime.stop()
-                    RunPlacement.Remote -> remoteRuntime.stop()
-                }
-            }
-            launched?.cancel()
-        }
-    }
+        },
+    )
 
     fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
         deferredAudit.deferSuccessfulAudit {
@@ -1261,45 +1222,6 @@ class ChatController internal constructor(
 
     fun sendPendingSharedInput(userInstruction: String = "") {
         sharedInputSupport.sendPendingSharedInput(userInstruction)
-    }
-
-    private fun handleNotReadySendAttempt() {
-        val state = uiState.value
-        if (state.inferenceMode == InferenceMode.Remote && !state.remoteModelConfig.isConfigured) {
-            val notice = "请先在模型管理中配置远程模型地址和模型名；我还没有发送你的内容。"
-            val messages = if (state.messages.lastOrNull()?.text == notice) {
-                state.messages
-            } else {
-                state.messages + ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = notice,
-                    privacy = MessagePrivacy.LocalOnly,
-                )
-            }
-            sessionHost.replaceActiveSessionMessages(messages, persistNow = true)
-            uiState.update {
-                it.copy(
-                    isReady = false,
-                    pendingRemoteSendDisclosure = null,
-                    statusText = "请配置远程模型",
-                    modelHealth = ModelHealth(
-                        profileId = it.remoteModelConfig.modelProfile().id,
-                        state = ModelHealthState.LoadFailed,
-                        failureReason = "远程模型未配置",
-                    ),
-                )
-            }
-            return
-        }
-        uiState.update {
-            it.copy(
-                statusText = if (state.inferenceMode == InferenceMode.Remote) {
-                    "远程模型未就绪"
-                } else {
-                    "请先下载或导入本地模型"
-                },
-            )
-        }
     }
 
     private fun cancelActiveGenerationRun(runId: String?) {

@@ -2,10 +2,14 @@ package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapability
+import com.bytedance.zgx.solin.ModelHealth
+import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
+import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -14,7 +18,7 @@ import kotlinx.coroutines.flow.update
 
 /**
  * Applies the non-chat outcomes of an initial route (action draft / auto-run tool, rejected tool,
- * missing model). Moved verbatim from `ChatController.sendMessageInternal`.
+ * missing model) and the not-ready send attempt.
  */
 internal class ChatRouteOutcomeHandler(
     private val uiState: MutableStateFlow<ChatUiState>,
@@ -153,6 +157,46 @@ internal class ChatRouteOutcomeHandler(
                 isBusy = false,
                 isGenerating = false,
                 statusText = "缺少$capabilityName",
+            )
+        }
+    }
+
+    /** Send attempted before a model is ready; a missing remote config gets a local-only notice. */
+    fun handleNotReady() {
+        val state = uiState.value
+        if (state.inferenceMode == InferenceMode.Remote && !state.remoteModelConfig.isConfigured) {
+            val notice = "请先在模型管理中配置远程模型地址和模型名；我还没有发送你的内容。"
+            val messages = if (state.messages.lastOrNull()?.text == notice) {
+                state.messages
+            } else {
+                state.messages + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = notice,
+                    privacy = MessagePrivacy.LocalOnly,
+                )
+            }
+            sessionHost.replaceActiveSessionMessages(messages, persistNow = true)
+            uiState.update {
+                it.copy(
+                    isReady = false,
+                    pendingRemoteSendDisclosure = null,
+                    statusText = "请配置远程模型",
+                    modelHealth = ModelHealth(
+                        profileId = it.remoteModelConfig.modelProfile().id,
+                        state = ModelHealthState.LoadFailed,
+                        failureReason = "远程模型未配置",
+                    ),
+                )
+            }
+            return
+        }
+        uiState.update {
+            it.copy(
+                statusText = if (state.inferenceMode == InferenceMode.Remote) {
+                    "远程模型未就绪"
+                } else {
+                    "请先下载或导入本地模型"
+                },
             )
         }
     }
