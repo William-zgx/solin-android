@@ -1,29 +1,16 @@
 package com.bytedance.zgx.solin
 
-import android.Manifest
-import android.app.Activity
-import android.app.AppOpsManager
-import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Process
-import android.provider.Settings
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,17 +27,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.bytedance.zgx.solin.device.DeviceContextAuthorizationSnapshot
-import com.bytedance.zgx.solin.device.SolinAccessibilityService
 import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
 import com.bytedance.zgx.solin.ui.SolinScreen
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,95 +54,20 @@ class MainActivity : ComponentActivity() {
         SolinAppContainerInitialization.Loading,
     )
     private var readyContentInitialized = false
-    private val shareIntentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
-    private var pendingMediaProjectionConfirmation: PendingAgentConfirmation? = null
-    private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
-    private var speechRecognizer: SpeechRecognizer? = null
-    private val voiceInputSessions = VoiceInputSessionGate()
-    private val runtimePermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { grantResults ->
-        val confirmation = pendingRuntimePermissionConfirmationForResult(grantResults.keys)
-        pendingRuntimePermissionConfirmation = null
-        syncDeviceContextAuthorizationSnapshot()
-        if (confirmation == null) {
-            rejectCurrentRuntimePermissionPendingAfterUnmatchedResult(grantResults.keys)
-            return@registerForActivityResult
-        }
-        val deniedPermissions = confirmation.deniedRuntimePermissionsAfterGrantResult(
-            grantResults = grantResults,
-            hasRuntimePermission = ::hasRuntimePermission,
-            toolRegistry = appContainer.toolRegistry,
-        )
-        if (deniedPermissions.isEmpty()) {
-            confirmAgentConfirmationWithPermissions(confirmation)
-        } else {
-            viewModel.launchPersistenceWork {
-                viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
-                    confirmation = confirmation,
-                    deniedPermissions = deniedPermissions,
-                )
-            }
-        }
-    }
-    private val specialAccessLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        val requirement = pendingSpecialAccessRequirement ?: return@registerForActivityResult
-        pendingSpecialAccessRequirement = null
-        syncDeviceContextAuthorizationSnapshot()
-        viewModel.launchPersistenceWork {
-            viewModel.reportSpecialAccessResult(
-                requirement = requirement,
-                granted = hasSpecialAccess(requirement.id),
-            )
-        }
-    }
-    private val voiceAudioPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) {
-            startVoiceInput()
-        } else {
-            viewModel.reportVoiceInputUnavailable("未授权麦克风权限")
-        }
-    }
+    private val voiceRecognition = VoiceRecognitionCoordinator(
+        activity = this,
+        viewModel = { viewModel },
+        isViewModelReady = { readyContentInitialized },
+    )
+    private val confirmationPermissions = ConfirmationPermissionCoordinator(
+        activity = this,
+        viewModel = { viewModel },
+        appContainer = { appContainer },
+    )
     private val sharedAttachmentLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         handlePickedSharedUris(uris)
-    }
-    private val currentScreenshotOcrLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val confirmation = pendingMediaProjectionConfirmationForResult()
-        pendingMediaProjectionConfirmation = null
-        if (confirmation == null) {
-            rejectCurrentMediaProjectionPendingAfterUnmatchedResult()
-            return@registerForActivityResult
-        }
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val requestId = confirmation.toolRequest?.id
-            if (requestId == null) {
-                viewModel.launchPersistenceWork {
-                    viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
-                }
-            } else {
-                appContainer.currentScreenshotOcrProvider.setOneShotConsent(
-                    requestId = requestId,
-                    resultCode = result.resultCode,
-                    data = result.data,
-                )
-                viewModel.launchPersistenceWork {
-                    viewModel.confirmAgentConfirmation(confirmation)
-                }
-            }
-        } else {
-            viewModel.launchPersistenceWork {
-                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
-            }
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -229,7 +136,7 @@ class MainActivity : ComponentActivity() {
         )
         // onResume skips the permission sync while the container is still loading, so a cold
         // start would otherwise report nothing granted until the next resume.
-        syncDeviceContextAuthorizationSnapshot()
+        confirmationPermissions.syncDeviceContextAuthorizationSnapshot()
         contentInitialization = SolinAppContainerInitialization.Ready(appContainer)
         lifecycleScope.launch {
             runCatching { viewModel.awaitPersistenceInitialization() }
@@ -237,7 +144,7 @@ class MainActivity : ComponentActivity() {
                     withContext(Dispatchers.IO) {
                         configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
                     }
-                    restorePendingSpecialAccessRequirement(savedInstanceState)
+                    confirmationPermissions.restorePendingSpecialAccessRequirement(savedInstanceState)
                     handleSharedIntent(intent, allowPreviouslyConsumed = false)
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.refreshRemoteModelConnectivityIfStale()
@@ -346,7 +253,7 @@ class MainActivity : ComponentActivity() {
                     onDisablePeriodicCheckPolicy = {
                         viewModel.launchPersistenceWork(viewModel::disablePeriodicCheckPolicy)
                     },
-                    onOpenSpecialAccessSettings = ::openSpecialAccessSettings,
+                    onOpenSpecialAccessSettings = confirmationPermissions::openSpecialAccessSettings,
                     resolveRuntimePermissionRequirements = { confirmation ->
                         confirmation.runtimePermissionRequirementsFor(
                             toolRegistry = appContainer.toolRegistry,
@@ -357,7 +264,7 @@ class MainActivity : ComponentActivity() {
                             toolRegistry = appContainer.toolRegistry,
                         )
                     },
-                    onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
+                    onConfirmAgentConfirmation = confirmationPermissions::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = { confirmation ->
                         viewModel.launchPersistenceWork { viewModel.dismissAgentConfirmation(confirmation) }
                     },
@@ -397,9 +304,9 @@ class MainActivity : ComponentActivity() {
                     onClearPendingSharedInput = { draftId ->
                         viewModel.launchPersistenceWork { viewModel.clearPendingSharedInputDraft(draftId) }
                     },
-                    onStartVoiceInput = ::startVoiceInput,
-                    onCancelVoiceInput = ::cancelVoiceInput,
-                    onFinishVoiceInput = ::finishVoiceInput,
+                    onStartVoiceInput = voiceRecognition::start,
+                    onCancelVoiceInput = voiceRecognition::cancel,
+                    onFinishVoiceInput = voiceRecognition::finish,
                     onPickSharedAttachment = {
                         sharedAttachmentLauncher.launch(SHARED_ATTACHMENT_MIME_TYPES)
                     },
@@ -445,7 +352,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (!isAppContainerReady()) return
-        syncDeviceContextAuthorizationSnapshot()
+        confirmationPermissions.syncDeviceContextAuthorizationSnapshot()
     }
 
     /**
@@ -465,30 +372,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        pendingSpecialAccessRequirement?.id?.let {
-            outState.putString(KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID, it)
-        }
+        confirmationPermissions.saveState(outState)
         super.onSaveInstanceState(outState)
-    }
-
-    override fun onDestroy() {
-        val hadActiveVoiceSession = voiceInputSessions.activeSessionId != 0L
-        voiceInputSessions.cancelActiveSession()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        if (hadActiveVoiceSession && readyContentInitialized) {
-            viewModel.reportVoiceInputUnavailable("语音输入已因界面重建或关闭而停止")
-        }
-        shareIntentScope.cancel()
-        super.onDestroy()
-    }
-
-    private fun restorePendingSpecialAccessRequirement(savedInstanceState: Bundle?) {
-        pendingSpecialAccessRequirement = restoredPendingSpecialAccessRequirement(
-            requirementId = savedInstanceState?.getString(KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID),
-            pendingConfirmation = viewModel.uiState.value.pendingConfirmation,
-            toolRegistry = appContainer.toolRegistry,
-        )
     }
 
     private fun handleSharedIntent(intent: Intent?, allowPreviouslyConsumed: Boolean) {
@@ -527,7 +412,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        shareIntentScope.launch {
+        lifecycleScope.launch {
             val readMode = sharedInputReadMode()
             val sharedInput = withContext(Dispatchers.IO) {
                 ShareIntentReader(applicationContext).readUris(uris, mode = readMode)
@@ -544,295 +429,6 @@ class MainActivity : ComponentActivity() {
             localSupportsVisionInput = viewModel.uiState.value.activeLocalModelSupportsVisionInput,
         )
 
-    private fun startVoiceInput() {
-        if (!hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
-            viewModel.reportVoiceInputUnavailable("需要授权麦克风权限")
-            voiceAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            return
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
-            return
-        }
-        val recognizer = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
-            speechRecognizer = it
-        }
-        val sessionId = voiceInputSessions.startSession()
-        recognizer.setRecognitionListener(appVoiceRecognitionListener(sessionId))
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        viewModel.startVoiceInputCapture()
-        runCatching { recognizer.startListening(intent) }
-            .onFailure {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    voiceInputSessions.clearIfActive(sessionId)
-                    viewModel.reportVoiceInputUnavailable("语音输入启动失败")
-                }
-            }
-    }
-
-    private fun finishVoiceInput() {
-        val sessionId = voiceInputSessions.activeSessionId
-        val recognizer = speechRecognizer
-        if (recognizer == null || !voiceInputSessions.isActive(sessionId)) {
-            voiceInputSessions.clearIfActive(sessionId)
-            viewModel.reportVoiceInputUnavailable("语音输入已中断")
-            return
-        }
-        runCatching { recognizer.stopListening() }
-            .onSuccess {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    viewModel.finishVoiceInputCapture()
-                }
-            }
-            .onFailure {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    voiceInputSessions.clearIfActive(sessionId)
-                    viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
-                }
-            }
-    }
-
-    private fun cancelVoiceInput() {
-        voiceInputSessions.cancelActiveSession()
-        runCatching { speechRecognizer?.cancel() }
-        viewModel.reportVoiceInputUnavailable("语音输入已取消")
-    }
-
-    private fun appVoiceRecognitionListener(sessionId: Long): RecognitionListener =
-        object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    viewModel.startVoiceInputCapture()
-                }
-            }
-
-            override fun onBeginningOfSpeech() = Unit
-
-            override fun onRmsChanged(rmsdB: Float) {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    viewModel.updateVoiceInputLevel(rmsDb = rmsdB)
-                }
-            }
-
-            override fun onBufferReceived(buffer: ByteArray?) = Unit
-
-            override fun onEndOfSpeech() {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    viewModel.finishVoiceInputCapture()
-                }
-            }
-
-            override fun onError(error: Int) {
-                if (!voiceInputSessions.isActive(sessionId)) {
-                    return
-                }
-                voiceInputSessions.clearIfActive(sessionId)
-                viewModel.reportVoiceInputUnavailable(error.voiceInputErrorMessage())
-            }
-
-            override fun onResults(results: Bundle?) {
-                if (!voiceInputSessions.isActive(sessionId)) return
-                voiceInputSessions.clearIfActive(sessionId)
-                val transcript = results?.recognizedSpeechText()
-                if (transcript.isNullOrBlank()) {
-                    viewModel.reportVoiceInputUnavailable("未识别到语音")
-                } else {
-                    viewModel.acceptVoiceTranscript(transcript)
-                }
-            }
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                if (voiceInputSessions.isActive(sessionId)) {
-                    partialResults?.recognizedSpeechText()?.let(viewModel::updateVoiceInputPartialTranscript)
-                }
-            }
-
-            override fun onEvent(eventType: Int, params: Bundle?) = Unit
-        }
-
-    private fun openSpecialAccessSettings(requirement: SpecialAccessRequirement) {
-        pendingSpecialAccessRequirement = requirement
-        runCatching {
-            specialAccessLauncher.launch(Intent(requirement.settingsAction))
-        }.onFailure {
-            pendingSpecialAccessRequirement = null
-            viewModel.reportSystemSettingsUnavailable("当前设备无法打开${requirement.title}设置")
-        }
-    }
-
-    private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {
-        syncDeviceContextAuthorizationSnapshot()
-        if (
-            pendingRuntimePermissionConfirmation != null ||
-            pendingMediaProjectionConfirmation != null ||
-            pendingSpecialAccessRequirement != null
-        ) return
-        val missingPermissions = confirmation.runtimePermissionsFor(toolRegistry = appContainer.toolRegistry)
-            .filterNot(::hasRuntimePermission)
-        if (missingPermissions.isNotEmpty()) {
-            pendingRuntimePermissionConfirmation = confirmation
-            runtimePermissionLauncher.launch(missingPermissions.toTypedArray())
-            return
-        }
-        val missingSpecialAccess = confirmation.specialAccessRequirementsFor(toolRegistry = appContainer.toolRegistry)
-            .filterNot { requirement -> hasSpecialAccess(requirement.id) }
-        if (missingSpecialAccess.isNotEmpty()) {
-            openSpecialAccessSettings(missingSpecialAccess.first())
-            return
-        }
-        if (confirmation.requiresCurrentScreenshotOcrConsent(toolRegistry = appContainer.toolRegistry)) {
-            requestCurrentScreenshotOcrConsent(confirmation)
-            return
-        }
-        viewModel.launchPersistenceWork {
-            viewModel.confirmAgentConfirmation(confirmation)
-        }
-    }
-
-    private fun requestCurrentScreenshotOcrConsent(confirmation: PendingAgentConfirmation) {
-        val mediaProjectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
-        if (mediaProjectionManager == null) {
-            viewModel.launchPersistenceWork {
-                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
-            }
-            return
-        }
-        pendingMediaProjectionConfirmation = confirmation
-        runCatching {
-            currentScreenshotOcrLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
-        }.onFailure {
-            pendingMediaProjectionConfirmation = null
-            viewModel.launchPersistenceWork {
-                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
-            }
-        }
-    }
-
-    private fun hasRuntimePermission(permission: String): Boolean {
-        if (permission == Manifest.permission.POST_NOTIFICATIONS &&
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
-        ) {
-            return true
-        }
-        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun hasSpecialAccess(id: String): Boolean =
-        when (id) {
-            SPECIAL_ACCESS_USAGE_STATS -> hasUsageStatsAccess()
-            SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT -> hasAccessibilityScreenTextAccess()
-            SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL -> hasAccessibilityScreenTextAccess()
-            else -> false
-        }
-
-    private fun pendingRuntimePermissionConfirmationForResult(
-        resultPermissions: Set<String>,
-    ): PendingAgentConfirmation? {
-        val current = viewModel.uiState.value.pendingConfirmation
-        val remembered = pendingRuntimePermissionConfirmation
-        if (current != null &&
-            current.requiresRuntimePermissionResult(resultPermissions, toolRegistry = appContainer.toolRegistry)
-        ) {
-            return current
-        }
-        return remembered?.takeIf { pending ->
-            current == null && pending.requiresRuntimePermissionResult(resultPermissions, toolRegistry = appContainer.toolRegistry)
-        }
-    }
-
-    private fun rejectCurrentRuntimePermissionPendingAfterUnmatchedResult(
-        resultPermissions: Set<String>,
-    ) {
-        val current = viewModel.uiState.value.pendingConfirmation
-            ?.takeIf { pending ->
-                pending.requiresRuntimePermissionResult(resultPermissions, toolRegistry = appContainer.toolRegistry) ||
-                    pending.runtimePermissionsFor(toolRegistry = appContainer.toolRegistry).isNotEmpty()
-            }
-            ?: return
-        val deniedPermissions = current.runtimePermissionsFor(toolRegistry = appContainer.toolRegistry)
-            .filterNot(::hasRuntimePermission)
-            .ifEmpty { current.runtimePermissionsFor(toolRegistry = appContainer.toolRegistry) }
-        viewModel.launchPersistenceWork {
-            viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
-                confirmation = current,
-                deniedPermissions = deniedPermissions,
-            )
-        }
-    }
-
-    private fun pendingMediaProjectionConfirmationForResult(): PendingAgentConfirmation? {
-        val current = viewModel.uiState.value.pendingConfirmation
-        val remembered = pendingMediaProjectionConfirmation
-        if (current != null && current.requiresCurrentScreenshotOcrConsent(toolRegistry = appContainer.toolRegistry)) {
-            return current
-        }
-        return remembered?.takeIf { pending ->
-            current == null && pending.requiresCurrentScreenshotOcrConsent(toolRegistry = appContainer.toolRegistry)
-        }
-    }
-
-    private fun rejectCurrentMediaProjectionPendingAfterUnmatchedResult() {
-        val current = viewModel.uiState.value.pendingConfirmation
-            ?.takeIf { it.requiresCurrentScreenshotOcrConsent(toolRegistry = appContainer.toolRegistry) }
-            ?: return
-        viewModel.launchPersistenceWork {
-            viewModel.rejectAgentConfirmationForMediaProjectionDenial(current)
-        }
-    }
-
-    private fun syncDeviceContextAuthorizationSnapshot() {
-        viewModel.updateDeviceContextAuthorizationSnapshot(
-            DeviceContextAuthorizationSnapshot(
-                grantedRuntimePermissions = DEVICE_CONTEXT_RUNTIME_PERMISSIONS
-                    .filter(::hasRuntimePermission)
-                    .toSet(),
-                grantedSpecialAccessIds = DEVICE_CONTEXT_SPECIAL_ACCESS_IDS
-                    .filter(::hasSpecialAccess)
-                    .toSet(),
-            ),
-        )
-    }
-
-    private fun hasUsageStatsAccess(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
-        val mode = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                appOps.unsafeCheckOpNoThrow(
-                    AppOpsManager.OPSTR_GET_USAGE_STATS,
-                    Process.myUid(),
-                    packageName,
-                )
-            } else {
-                appOps.checkOpNoThrow(
-                    AppOpsManager.OPSTR_GET_USAGE_STATS,
-                    Process.myUid(),
-                    packageName,
-                )
-            }
-        }.getOrDefault(AppOpsManager.MODE_ERRORED)
-        return mode == AppOpsManager.MODE_ALLOWED
-    }
-
-    private fun hasAccessibilityScreenTextAccess(): Boolean {
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ).orEmpty()
-        val target = ComponentName(this, SolinAccessibilityService::class.java).flattenToString()
-        return enabledServices
-            .split(':')
-            .any { enabled ->
-                ComponentName.unflattenFromString(enabled)
-                    ?.flattenToString()
-                    ?.equals(target, ignoreCase = true) == true
-            }
-    }
-
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
             "com.bytedance.zgx.solin.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
@@ -845,8 +441,6 @@ class MainActivity : ComponentActivity() {
             "com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
         const val EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT =
             "com.bytedance.zgx.solin.extra.DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT"
-        private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
-            "com.bytedance.zgx.solin.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
         private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(
             "text/*",
             "image/*",
@@ -865,24 +459,6 @@ class MainActivity : ComponentActivity() {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
-        private val DEVICE_CONTEXT_RUNTIME_PERMISSIONS = buildList {
-            add(Manifest.permission.READ_CONTACTS)
-            add(Manifest.permission.READ_CALENDAR)
-            add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.READ_MEDIA_IMAGES)
-                add(Manifest.permission.READ_MEDIA_VIDEO)
-                add(Manifest.permission.READ_MEDIA_AUDIO)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-            }
-        }
-        private val DEVICE_CONTEXT_SPECIAL_ACCESS_IDS = listOf(
-            SPECIAL_ACCESS_USAGE_STATS,
-            SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
-            SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
-        )
 
         private fun isRunningUnderAndroidTest(): Boolean =
             runCatching {
@@ -898,32 +474,6 @@ internal fun sharedInputReadModeFor(
     @Suppress("UNUSED_PARAMETER")
     localSupportsVisionInput: Boolean = false,
 ): SharedInputReadMode = SharedInputReadMode.DestinationNeutralVision
-
-internal class VoiceInputSessionGate {
-    var activeSessionId: Long = 0L
-        private set
-    private var nextSessionId: Long = 0L
-
-    fun startSession(): Long {
-        activeSessionId = ++nextSessionId
-        return activeSessionId
-    }
-
-    fun cancelActiveSession() {
-        if (activeSessionId != 0L) {
-            activeSessionId = 0L
-        }
-    }
-
-    fun clearIfActive(sessionId: Long) {
-        if (isActive(sessionId)) {
-            activeSessionId = 0L
-        }
-    }
-
-    fun isActive(sessionId: Long): Boolean =
-        sessionId != 0L && sessionId == activeSessionId
-}
 
 internal fun Intent.shareIntentConsumptionKey(): String? {
     val actionValue = action?.takeIf {
@@ -967,23 +517,4 @@ private fun Intent.sharedStreamUrisForConsumptionKey(): List<Uri> =
         Intent.ACTION_SEND -> listOfNotNull(getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
         Intent.ACTION_SEND_MULTIPLE -> getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
         else -> emptyList()
-    }
-
-private fun Bundle.recognizedSpeechText(): String? =
-    getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        ?.firstOrNull()
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-
-private fun Int.voiceInputErrorMessage(): String =
-    when (this) {
-        SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音"
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到声音"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授权麦克风权限"
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "语音识别服务忙碌"
-        SpeechRecognizer.ERROR_NETWORK,
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-        -> "语音识别网络不可用"
-
-        else -> "语音输入不可用"
     }
