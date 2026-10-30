@@ -219,21 +219,15 @@ private fun String.extractivePromptCompress(
 private fun List<String>.prioritizedForObservationPrompt(): List<String> {
     val requiredPrefixes = listOf(
         "This is user-authorized",
-        "Output exactly one call",
-        "Decide if",
+        "Examples:",
+        "Allowed tools:",
         "When LocalOnly observation evidence",
-        "Allowed LocalOnly tools",
-        "Do not output web_search",
-        "When LocalOnly evidence includes",
         "Use only target values",
-        "Never output mode",
-        "Prefer a type-tagged target",
-        "For an app search request",
-        "If only tap=",
-        "Do not output ordinary text",
-        "For ui_scroll",
-        "If the latest action failed",
         "Stop on",
+        "If the latest action failed",
+        "For an app search request",
+        "For ui_scroll",
+        "Do not output ordinary text",
         "User intent preview:",
         "Prior request details:",
         RUN_NOTES_PROMPT_LABEL,
@@ -257,20 +251,23 @@ private fun List<String>.joinPrioritizedObservationPrompt(maxChars: Int): String
     }.prioritizedBaseObservationLines()
     val localEvidenceBudget = (maxChars * 0.42).toInt().coerceIn(320, 900)
     val diagnosticsBudget = (maxChars * 0.12).toInt().coerceIn(90, 220)
-    val baseBudget = (maxChars - localEvidenceBudget - diagnosticsBudget - 2).coerceAtLeast(maxChars / 3)
+    val diagnosticsText = diagnosticsLine
+        ?.extractivePromptCompress(diagnosticsBudget, diagnosticProtectedPromptPatterns)
+    val localEvidenceText = localEvidenceLine
+        ?.extractivePromptCompress(
+            localEvidenceBudget,
+            localEvidenceLine.targetShortlistTargetValuePatterns() + localEvidenceProtectedPromptPatterns,
+        )
+    // Base lines get whatever the evidence/diagnostics lines did not actually use (never less than
+    // the old fixed split), so short diagnostics such as "none" stop starving the rule lines.
+    val reservedChars = listOfNotNull(diagnosticsText, localEvidenceText).sumOf { text -> text.length + 1 }
+    val baseBudget = (maxChars - reservedChars).coerceAtLeast(maxChars / 3)
     val parts = buildList {
         baseLines.joinPromptLinesWithinBudget(baseBudget)
             .takeIf { text -> text.isNotBlank() }
             ?.let(::add)
-        diagnosticsLine
-            ?.extractivePromptCompress(diagnosticsBudget, diagnosticProtectedPromptPatterns)
-            ?.let(::add)
-        localEvidenceLine
-            ?.extractivePromptCompress(
-                localEvidenceBudget,
-                localEvidenceLine.targetShortlistTargetValuePatterns() + localEvidenceProtectedPromptPatterns,
-            )
-            ?.let(::add)
+        diagnosticsText?.let(::add)
+        localEvidenceText?.let(::add)
     }
     val joined = parts.joinToString(separator = "\n")
     return if (joined.length <= maxChars) joined else joined.take(maxChars - 3).trimEnd() + "..."
@@ -280,7 +277,9 @@ private fun List<String>.joinPromptLinesWithinBudget(maxChars: Int): String {
     val accepted = mutableListOf<String>()
     var used = 0
     for (line in filter { value -> value.isNotBlank() }) {
-        val candidate = if (line.length > 180) {
+        // The tool-signature line is bounded by construction and must never be cut mid-list: a
+        // truncated tool list would silently hide allowed tools from the model.
+        val candidate = if (line.length > 180 && !line.startsWith("Allowed tools:")) {
             line.extractivePromptCompress(
                 maxChars = 180,
                 protectedPatterns = listOf(Regex("""targetShortlist\([^)]*\)""")),
@@ -299,26 +298,20 @@ private fun List<String>.joinPromptLinesWithinBudget(maxChars: Int): String {
 private fun List<String>.prioritizedBaseObservationLines(): List<String> {
     val priorityPrefixes = listOf(
         "This is user-authorized",
-        "Output exactly one call",
+        "Examples:",
         "User intent preview:",
         "Previous tool:",
         "Observation status:",
         "App search progress:",
         "Prior request details:",
-        "Use only target values",
-        "For an app search request",
+        "Allowed tools:",
         "When LocalOnly observation evidence",
-        "Allowed LocalOnly tools",
-        "Do not output web_search",
-        "When LocalOnly evidence includes",
-        "Never output mode",
+        "Use only target values",
         "Stop on",
-        "For ui_scroll",
-        "Prefer a type-tagged target",
-        "Do not output ordinary text",
-        "If only tap=",
         "If the latest action failed",
-        "Decide if",
+        "For an app search request",
+        "For ui_scroll",
+        "Do not output ordinary text",
         RUN_NOTES_PROMPT_LABEL,
     )
     return withIndex()

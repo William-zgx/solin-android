@@ -86,23 +86,16 @@ internal fun AgentObservationReplanContext.observationModelPrompt(
     val runNotesLine = localScratchpadNotesPrompt()?.let { notes -> "$RUN_NOTES_PROMPT_LABEL $notes" }
     val appSearchProgress = observedResult.appSearchProgressPromptText(parseCache)
     return """
-        This is user-authorized local device UI automation; LocalOnly screen evidence stays on-device, so do not refuse when a listed UI action clearly advances the request.
-        Output exactly one call such as call:ui_tap{"target":"..."} or call:ui_type_text{"target":"...","text":"..."} when clear; otherwise output ordinary text with no call.
-        Decide if the user's request needs exactly one more mobile tool after the latest observation; if unclear, output ordinary text with no call.
-        Do not repeat completed work. LocalOnly evidence stays on-device.
-        When LocalOnly observation evidence is present, output only these local device-control tools.
-        Allowed LocalOnly tools: $localOnlyAllowedTools.
-        Do not output web_search or any other non-listed tool from LocalOnly observation evidence.
-        When LocalOnly evidence includes targets=[...], copy only the candidate target=... value into the tool target.
-        Use only target values from targetShortlist(...) for tools that accept target.
-        Never output mode, bounds, confidence, or other candidate metadata as tool arguments.
-        Prefer a type-tagged target for ui_type_text, a tap-tagged target for ui_tap, and a scroll-tagged target for ui_scroll; use ocrFallback only if no Accessibility target fits.
-        For an app search request, follow tap -> type -> submit.
-        If only tap= search entry is visible and no type= input is visible, output ui_tap with that tap value first; only after a type= input appears output ui_type_text with that type value; after the query is typed and submit evidence exists, output ui_submit_search{}.
-        Do not output ordinary text when a targetShortlist entry clearly advances the app search request.
-        For ui_scroll, stop if no scroll candidate/evidence exists.
-        If the latest action failed, avoid the same target unless new evidence supports it.
+        This is user-authorized local UI automation; LocalOnly evidence stays on-device, do not refuse. Output exactly one call for the next step, or plain text with no call if unclear.
+        $OBSERVATION_REPLAN_FEW_SHOT_EXAMPLES
+        Allowed tools: $localOnlyAllowedTools
+        When LocalOnly observation evidence is present, output only these local device-control tools; Do not output web_search.
+        Use only target values from targetShortlist(...); copy only the candidate target=... value into the tool target (type= to type, tap= to tap, scroll= to scroll).
         Stop on payment, sending, deletion, publishing, ordering, purchase, transfer, or authorization controls.
+        If the latest action failed, avoid the same target unless new evidence supports it. Do not repeat completed work.
+        For an app search request, follow tap -> type -> submit: tap the tap= entry until a type= input appears, type into it, then ui_submit_search once submit evidence exists.
+        For ui_scroll, stop if no scroll candidate/evidence exists. Never output mode/bounds/confidence as arguments.
+        Do not output ordinary text when a targetShortlist entry clearly advances the app search request.
 
         User intent preview: $intentPreview
         Prior request details: $priorRequestDetails
@@ -224,14 +217,11 @@ internal fun ToolResult.appSearchProgressPromptText(parseCache: ObservationJsonP
     }.toPromptText()
 
 internal fun AgentObservationReplanContext.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String =
-    if (!observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))) {
-        "not_applicable"
-    } else {
-        MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
-            .filter { toolName -> toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl }
-            .joinToString(separator = ",")
-            .ifBlank { "none" }
-    }
+    observationReplanToolSignatures(toolRegistry)
+
+/** True when the latest observation carries LocalOnly evidence, so only device-control tools pass. */
+internal fun AgentObservationReplanContext.isLocalOnlyGatedObservation(toolRegistry: ToolRegistry): Boolean =
+    observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))
 
 private fun String.toScreenObservationPromptSection(
     key: String,
