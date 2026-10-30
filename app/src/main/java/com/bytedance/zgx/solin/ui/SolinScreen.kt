@@ -54,6 +54,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -521,7 +522,12 @@ fun SolinScreen(
 
             state.pendingExternalOutcome?.let { pendingOutcome ->
                 ModalBottomSheet(
-                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    // The outcome must be recorded explicitly, so the sheet refuses to hide: an empty
+                    // onDismissRequest alone would let a swipe hide it while it stays in composition.
+                    sheetState = rememberModalBottomSheetState(
+                        skipPartiallyExpanded = true,
+                        confirmValueChange = { it != SheetValue.Hidden },
+                    ),
                     onDismissRequest = {},
                 ) {
                     ExternalOutcomeSheet(
