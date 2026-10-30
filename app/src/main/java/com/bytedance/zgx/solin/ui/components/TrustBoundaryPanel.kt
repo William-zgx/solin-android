@@ -5,12 +5,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -20,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.RemoteSendAuditSummary
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
+import com.bytedance.zgx.solin.mcp.McpCapabilityState
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.solin.ui.PRIVACY_POLICY_ENTRY_TEXT
 import com.bytedance.zgx.solin.ui.PRODUCT_ACTION_VALUE_TEXT
@@ -43,6 +50,10 @@ internal fun TrustBoundaryPanel(
     onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
     onReduceDeviceActionConfirmationsChanged: (Boolean) -> Unit,
     onRemoteGuiAutomationEnabledChanged: (Boolean) -> Unit,
+    /** MCP opt-in toggle state; `null` hides the section until the caller wires it. */
+    mcpCapability: McpCapabilityToggleUiState? = null,
+    /** `(enabled, disclosureAccepted)`; enabling the first time requires the disclosure. */
+    onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
 ) {
     val sensitiveDisclosureRows = sensitiveCapabilityDisclosureDisplayRows()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -163,6 +174,13 @@ internal fun TrustBoundaryPanel(
                 )
             }
         }
+        if (mcpCapability != null) {
+            McpCapabilityToggleSection(
+                state = mcpCapability,
+                enabled = !state.isBusy,
+                onEnabledChanged = onMcpCapabilityEnabledChanged,
+            )
+        }
         PanelSurface {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle(
@@ -206,6 +224,97 @@ internal fun TrustBoundaryPanel(
                 }
             }
         }
+    }
+}
+
+/** Trust Center view of the MCP opt-in capability (mirrors `mcp.McpCapabilityState`). */
+internal data class McpCapabilityToggleUiState(
+    val enabled: Boolean,
+    val disclosureAcknowledged: Boolean,
+    val restartRequired: Boolean,
+    val approvedToolCount: Int,
+)
+
+internal fun McpCapabilityState.toToggleUiState(): McpCapabilityToggleUiState =
+    McpCapabilityToggleUiState(
+        enabled = enabled,
+        disclosureAcknowledged = disclosureAcknowledged,
+        restartRequired = restartRequired,
+        approvedToolCount = approvedToolCount,
+    )
+
+internal const val MCP_CAPABILITY_TITLE = "MCP 扩展工具（默认关闭）"
+
+internal const val MCP_CAPABILITY_SUBTITLE =
+    "开启后，你已批准的 MCP 扩展应用的工具可被 Solin 使用；每次调用前都会确认，调用记录会出现在下方远程发送记录中（不保存参数内容）。关闭立即生效，开启在重启应用后生效。"
+
+internal const val MCP_CAPABILITY_DISCLOSURE_TITLE = "开启 MCP 扩展工具"
+
+internal const val MCP_CAPABILITY_DISCLOSURE_BODY =
+    "MCP 工具由其他已安装应用提供。调用时，工具参数（可能包含你的对话内容）会离开 Solin 发送给该应用，该应用可能再将其上传到网络，因此视为离开本机。每次调用仍需你逐个确认，并记录到远程发送记录（只记工具名和参数数量）。工具返回的结果默认仅保存在本机，只交给本地模型处理。"
+
+@Composable
+private fun McpCapabilityToggleSection(
+    state: McpCapabilityToggleUiState,
+    enabled: Boolean,
+    onEnabledChanged: (Boolean, Boolean) -> Unit,
+) {
+    var showDisclosure by remember { mutableStateOf(false) }
+    PanelSurface {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionTitle(
+                modifier = Modifier.weight(1f),
+                text = MCP_CAPABILITY_TITLE,
+                subtitle = buildString {
+                    append(MCP_CAPABILITY_SUBTITLE)
+                    append(" 已批准工具：${state.approvedToolCount} 个。")
+                    if (state.restartRequired) append(" 重启应用后生效。")
+                },
+            )
+            Switch(
+                modifier = Modifier.testTag("mcp_capability_switch"),
+                checked = state.enabled,
+                enabled = enabled,
+                onCheckedChange = { checked ->
+                    if (checked && !state.disclosureAcknowledged) {
+                        showDisclosure = true
+                    } else {
+                        onEnabledChanged(checked, false)
+                    }
+                },
+            )
+        }
+    }
+    if (showDisclosure) {
+        AlertDialog(
+            modifier = Modifier.testTag("mcp_capability_disclosure_dialog"),
+            onDismissRequest = { showDisclosure = false },
+            title = { Text(MCP_CAPABILITY_DISCLOSURE_TITLE) },
+            text = { Text(MCP_CAPABILITY_DISCLOSURE_BODY) },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("mcp_capability_disclosure_confirm"),
+                    onClick = {
+                        showDisclosure = false
+                        onEnabledChanged(true, true)
+                    },
+                ) {
+                    Text("同意并开启")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.testTag("mcp_capability_disclosure_cancel"),
+                    onClick = { showDisclosure = false },
+                ) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

@@ -16,4 +16,10 @@ interface McpTransport : AutoCloseable {
 
     /** True if currently connected to the server. */
     fun isConnected(): Boolean
+
+    /**
+     * Establishes the connection if needed and returns whether it is usable. Implementations must
+     * verify the peer (for Binder: the MCP_SERVER signature permission) before sending anything.
+     */
+    suspend fun connect(): Boolean = isConnected()
 }

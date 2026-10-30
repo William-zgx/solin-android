@@ -226,6 +226,35 @@ gated by defense-in-depth:
   cannot be captured, no pixels leave and the loop stops (or falls back to the
   local action model where available).
 
+### MCP Extension Tools (opt-in)
+
+Solin can use tools provided by other installed apps over the Model Context
+Protocol (MCP). This capability is **off by default** and is controlled by the
+"MCP 扩展工具" switch in the Trust Center.
+
+- Turning it on the first time requires accepting a disclosure: tool arguments
+  (which may contain conversation content) leave Solin for the MCP server app,
+  which may upload them, so every MCP call is treated as data leaving the
+  device. Turning it off takes effect immediately; turning it on, or newly
+  approved tools, take effect after the app restarts.
+- Only servers the user registered and tools the user approved are exposed.
+  Solin binds a server only if its app holds Solin's `MCP_SERVER` signature
+  permission (same signing certificate), accepts replies only from that app's
+  UID, and refuses a call if the server's live tool schema no longer matches
+  the schema the user approved. Tools whose schema is outside Solin's closed
+  argument schema are not exposed. MCP tools are never offered to remote-model
+  planning.
+- Every MCP tool is `HighExternalSend` risk with confirmation `Required`, so
+  each call is confirmed individually and cannot be skipped by the
+  reduced-confirmation setting.
+- Each attempted call is recorded in the remote-send audit as
+  `MCP:<server>` with the tool name and the number of arguments only — never
+  argument values, the user's prompt, or the result.
+- MCP results are `LocalOnly` and `requiresLocalModel=true` by default, are
+  handled only by the local model, and binary content (images, blobs) is
+  dropped. Results become `RemoteEligible` only for a server the user
+  explicitly marked as public.
+
 ## External Intents And Attachments
 
 Confirmed tools may open Android system screens, the share sheet, email drafts,
@@ -320,8 +349,9 @@ disabled, explicit remember/fact commands do not create new long-term memory
 records; forget and clear controls can still remove existing records.
 
 This codebase does not contain a first-party analytics upload path beyond
-user-configured remote model calls, recommended/custom model downloads, and
-Android external intents initiated by confirmed actions. Recheck release builds
+user-configured remote model calls, recommended/custom model downloads,
+Android external intents initiated by confirmed actions, and confirmed calls to
+user-approved MCP server apps when the opt-in MCP capability is enabled. Recheck release builds
 and any added SDKs before publishing this statement externally.
 The device resource entry displays only locally sampled aggregate app PSS,
 heap, available RAM, CPU, and thermal pressure state. It does not include

@@ -11,6 +11,7 @@ import com.bytedance.zgx.solin.action.ActionExecutor
 import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditRepository
+import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import com.bytedance.zgx.solin.audit.ToolAuditRepository
 import com.bytedance.zgx.solin.safety.SafetyCategory
@@ -97,8 +98,11 @@ import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.S3ChatPlacementRuntime
 import com.bytedance.zgx.solin.mcp.McpClient
+import com.bytedance.zgx.solin.mcp.McpCapabilityController
+import com.bytedance.zgx.solin.mcp.McpCapabilitySettings
 import com.bytedance.zgx.solin.mcp.McpModule
 import com.bytedance.zgx.solin.mcp.McpServerRegistry
+import com.bytedance.zgx.solin.mcp.SharedPreferencesMcpCapabilitySettings
 import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
@@ -119,7 +123,11 @@ import com.bytedance.zgx.solin.plan.SessionPlanStore
 class SolinAppContainer(
     context: Context,
     private val skipLocalModelRuntime: Boolean = false,
-    private val enableMcp: Boolean = false,
+    /**
+     * MCP opt-in override for tests/debug launches. `null` (default) follows the persisted Trust
+     * Center toggle, which defaults to OFF and requires the MCP disclosure to be accepted.
+     */
+    private val enableMcp: Boolean? = null,
 ) {
     private val appContext = context.applicationContext
     private val adaptiveInferenceRollout = AdaptiveInferenceRollout.parse(
@@ -133,9 +141,28 @@ class SolinAppContainer(
     private val settingsStore = PreferenceSettingsStore(appContext)
     private val secretStore = EncryptedSecretStore(appContext)
     val sessionPlanStore: SessionPlanStore = SessionPlanStore()
+    private val mcpSettings: McpCapabilitySettings = SharedPreferencesMcpCapabilitySettings(appContext)
+    private val mcpActiveThisSession: Boolean = enableMcp ?: mcpSettings.isEnabled()
+
+    /** Backs the Trust Center MCP toggle (default OFF). */
+    val mcpCapabilityController: McpCapabilityController =
+        McpCapabilityController(mcpSettings, activeThisSession = mcpActiveThisSession)
     private val moduleRegistry: FrozenSolinModuleRegistry = run {
         val reg = SolinModuleRegistryImpl()
-        val mcpClient = if (enableMcp) McpClient(McpServerRegistry(appContext)) else null
+        val mcpClient = if (mcpActiveThisSession) {
+            McpClient(
+                registry = McpServerRegistry(appContext, settings = mcpSettings),
+                settings = mcpSettings,
+                // Resolved lazily at call time: the audit repository is created later in init.
+                auditSink = object : RemoteSendAuditSink {
+                    override fun record(event: RemoteSendAuditEvent) {
+                        remoteSendAuditRepository.record(event)
+                    }
+                },
+            )
+        } else {
+            null
+        }
         val mcpModule = mcpClient?.let { McpModule(it) }
         val planToolHandler = PlanToolHandler(sessionPlanStore)
         val modules: List<SolinModule> = buildList {
