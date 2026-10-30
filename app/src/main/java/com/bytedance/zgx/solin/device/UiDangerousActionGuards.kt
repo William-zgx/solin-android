@@ -1,6 +1,14 @@
 package com.bytedance.zgx.solin.device
 
-private val dangerousActionTextMarkers = listOf(
+/**
+ * The ONE dangerous-action keyword source, shared by the device-control screen guards here and
+ * by `ToolRegistry.isLowRiskDeviceActionConfirmationSkippable` (whether a `ui_tap` target may
+ * skip confirmation). It is the union of the two lists that used to be maintained separately —
+ * the registry copy lacked 授权/允许/同意, so a tap on a permission-grant button could skip
+ * confirmation. Only ever add to this list: a larger list can only refuse or require
+ * confirmation more often, which is the fail-closed direction.
+ */
+internal val dangerousActionTextMarkers: List<String> = listOf(
     "支付",
     "付款",
     "转账",
@@ -14,6 +22,18 @@ private val dangerousActionTextMarkers = listOf(
     "授权",
     "允许",
     "同意",
+    "提交",
+    "确认",
+    "send",
+    "delete",
+    "pay",
+    "transfer",
+    "submit",
+    "post",
+    "publish",
+    "buy",
+    "order",
+    "confirm",
 )
 
 private val strongDangerousActionTextMarkers = listOf(

@@ -107,10 +107,10 @@ class BuiltInToolSpecSnapshotTest {
 提交 -> confirm
 提交订单 -> confirm
 立即购买 -> confirm
-允许 -> skip
-授权 -> skip
-同意 -> skip
-同意并继续 -> skip
+允许 -> confirm
+授权 -> confirm
+同意 -> confirm
+同意并继续 -> confirm
 Send -> confirm
 Confirm -> confirm
 Order -> confirm

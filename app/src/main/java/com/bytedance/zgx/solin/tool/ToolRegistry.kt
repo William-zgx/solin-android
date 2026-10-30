@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.tool
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
+import com.bytedance.zgx.solin.device.hasDangerousActionText
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.undo.UndoPlan
 import com.bytedance.zgx.solin.undo.UndoPolicy
@@ -160,7 +161,7 @@ class ToolRegistry private constructor(
             hasTag(request.toolName, ToolCapabilityTag.LowRiskDeviceAction) -> true
             !hasTag(request.toolName, ToolCapabilityTag.ConditionalLowRiskDeviceAction) -> false
             request.toolName == MobileActionFunctions.UI_TAP ->
-                !request.arguments["target"].orEmpty().containsHighRiskUiActionTarget()
+                !request.arguments["target"].hasDangerousActionText()
             request.toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
                 request.arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
             else -> false
@@ -635,32 +636,6 @@ private fun definitionsFor(providers: List<ToolProvider>): List<ToolDefinition> 
     providers.flatMap { provider ->
         provider.specs().map(::ToolDefinition)
     }
-
-private fun String.containsHighRiskUiActionTarget(): Boolean {
-    val normalized = lowercase()
-    return listOf(
-        "发送",
-        "删除",
-        "支付",
-        "付款",
-        "转账",
-        "下单",
-        "提交",
-        "发布",
-        "购买",
-        "确认",
-        "send",
-        "delete",
-        "pay",
-        "transfer",
-        "submit",
-        "post",
-        "publish",
-        "buy",
-        "order",
-        "confirm",
-    ).any { normalized.contains(it) }
-}
 
 private object BuiltInToolProvider : ToolProvider {
     override fun specs(): List<ToolSpec> =

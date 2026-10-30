@@ -196,6 +196,21 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun uiTapOnPermissionGrantTargetsRequiresConfirmation() {
+        listOf("允许", "授权", "同意", "同意并继续", "始终允许", "授权登录").forEach { target ->
+            assertFalse(
+                "ui_tap on \"$target\" must not skip confirmation",
+                registry.isLowRiskDeviceActionConfirmationSkippable(
+                    ToolRequest(
+                        toolName = MobileActionFunctions.UI_TAP,
+                        arguments = mapOf("target" to target),
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun toolTagsDriveDeviceControlRuntimePolicies() {
         assertTrue(registry.startsDeviceControlSession(MobileActionFunctions.OPEN_WIFI_SETTINGS))
         assertTrue(registry.startsDeviceControlSession(MobileActionFunctions.SEARCH_MAPS))
