@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -17,12 +16,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,10 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ui.components.ActionDraftSheet
 import com.bytedance.zgx.solin.ui.components.BackgroundTaskSheet
@@ -43,7 +37,6 @@ import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_CURRENT_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_PRIVACY_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_REMOTE_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.ModelManagerSheet
-import com.bytedance.zgx.solin.ui.components.PanelSurface
 import com.bytedance.zgx.solin.ui.components.SessionManagerSheet
 import com.bytedance.zgx.solin.ui.components.ExternalOutcomeSheet
 import com.bytedance.zgx.solin.ui.components.RemoteModeDisclosureSheet
@@ -60,30 +53,22 @@ import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
 import com.bytedance.zgx.solin.ui.components.solinTechBackdrop
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
-import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
-import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MessageRole
-import com.bytedance.zgx.solin.ModelCapability
-import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
-import com.bytedance.zgx.solin.RunDataReceiptUiSummary
 import com.bytedance.zgx.solin.RuntimePermissionRequirement
 import com.bytedance.zgx.solin.SpecialAccessRequirement
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
-import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
-import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
-import java.util.Locale
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -499,463 +484,3 @@ private fun appendComposerInput(current: String, addition: String): String {
         current.trimEnd() + "\n" + cleaned
     }
 }
-
-
-internal fun runDataReceiptDisplayText(receipt: RunDataReceiptUiSummary): String {
-    val destination = when (receipt.destination) {
-        "Remote" -> "远端"
-        "Local" -> "本机"
-        else -> receipt.destination.ifBlank { "未知" }
-    }
-    val protectedTypes = receipt.protectedContentTypes
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString(separator = "、")
-        ?: "无额外保护项"
-    val deletableRecords = receipt.deletableRecordTypes
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString(separator = "、")
-        ?: "无"
-    val rawPersisted = if (receipt.rawContentPersisted) "是" else "否"
-    val memoryUsage = if (receipt.memoryContextIncluded) "已使用" else "未带出"
-    val memoryRecall = if (receipt.memoryHitCount > 0) {
-        "Semantic ${receipt.semanticMemoryHitCount} / Lexical ${receipt.lexicalMemoryHitCount}"
-    } else {
-        "未使用"
-    }
-    val outputQuality = if (receipt.outputQualityGuardTriggered) {
-        val issue = receipt.outputQualityIssue ?: "已触发"
-        val rule = receipt.outputQualityRule?.let { value -> "/$value" }.orEmpty()
-        val action = receipt.outputQualityAction?.let { value -> "，动作=$value" }.orEmpty()
-        val prefix = if (receipt.outputQualityKeptPrefix) "，已保留前缀" else ""
-        "触发 $issue$rule$action$prefix"
-    } else {
-        "未触发"
-    }
-    val deviceUsage = if (receipt.deviceContextIncluded) "已使用" else "未带出"
-    val evidenceSources = receipt.evidenceSourceTypes
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString(separator = "/")
-        ?: "无"
-    val evidenceUsage = if (receipt.evidenceCardCount > 0) {
-        "${receipt.evidenceCardCount} 条（仅本机 ${receipt.localOnlyEvidenceCardCount}，截断 ${receipt.truncatedEvidenceCardCount}，低质量 ${receipt.lowQualityEvidenceCardCount}，来源 $evidenceSources）"
-    } else {
-        "未使用"
-    }
-    return "去向：$destination；隐私：${receipt.currentPromptPrivacy.userFacingPrivacyLabel()}；远端历史：${receipt.remoteHistoryCount}；" +
-        "过滤仅本机历史：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
-        "召回：$memoryRecall；设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
-        "证据：$evidenceUsage；输出保护：$outputQuality；保护：${protectedTypes.userFacingPrivacyLabel()}；可删除：$deletableRecords；原文持久化：$rawPersisted"
-}
-
-private fun String.userFacingPrivacyLabel(): String =
-    replace("RemoteEligible 对话上下文", "可远程发送的对话上下文")
-        .replace("LocalOnly 历史", "仅本机历史")
-        .replace("RemoteEligible", "可远程发送")
-        .replace("LocalOnly", "仅本机")
-
-internal fun inferencePreferenceDisplayText(preference: InferenceMode): String =
-    "偏好：${preference.label()}"
-
-internal fun activePlacementDisplayText(
-    placement: RunPlacement?,
-    reason: PlacementReasonCode?,
-): String? = when (placement) {
-    RunPlacement.Local -> when (reason) {
-        PlacementReasonCode.USER_FORCED_LOCAL -> "本次使用本地模型：你选择了本地偏好。"
-        PlacementReasonCode.PRIVACY_REQUIRES_LOCAL -> "本次使用本地模型：内容仅限本地处理。"
-        PlacementReasonCode.REMOTE_NOT_AUTHORIZED -> "本次使用本地模型：自动模式尚未获得远程授权。"
-        PlacementReasonCode.REMOTE_NOT_CONFIGURED -> "本次使用本地模型：远程模型尚未配置。"
-        PlacementReasonCode.REMOTE_CONNECTIVITY_UNAVAILABLE -> "本次使用本地模型：远程连接当前不可用。"
-        PlacementReasonCode.REMOTE_STATUS_STALE -> "本次使用本地模型：远程连接状态需要重新验证。"
-        PlacementReasonCode.REMOTE_CAPABILITY_MISMATCH -> "本次使用本地模型：远程模型能力不满足本次请求。"
-        PlacementReasonCode.REMOTE_OVERLOADED -> "本次使用本地模型：远程模型当前繁忙。"
-        PlacementReasonCode.AUTO_SIMPLE_LOCAL -> "本次使用本地模型：任务较轻，手机状态正常。"
-        PlacementReasonCode.AUTO_IMAGE_LOCAL -> "本次使用本地模型：图片可在本机处理，避免发送到远程。"
-        PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED ->
-            "本次使用本地模型：后续内容需要留在本机。"
-        PlacementReasonCode.MODEL_EXECUTION_FAILED -> "本地模型执行失败。"
-        else -> "本次使用本地模型。"
-    }
-
-    RunPlacement.Remote -> when (reason) {
-        PlacementReasonCode.USER_FORCED_REMOTE -> "本次使用远程模型：你选择了远程偏好。"
-        PlacementReasonCode.LOCAL_MODEL_UNAVAILABLE -> "本次使用远程模型：本地模型当前不可用。"
-        PlacementReasonCode.LOCAL_RESOURCE_BLOCKED -> "本次使用远程模型：手机资源暂不适合本地运行。"
-        PlacementReasonCode.LOCAL_CAPABILITY_MISMATCH -> "本次使用远程模型：本地模型能力不满足本次请求。"
-        PlacementReasonCode.AUTO_COMPLEX_REMOTE -> "本次使用远程模型：任务较复杂，且远程连接已验证。"
-        PlacementReasonCode.AUTO_RESOURCE_REMOTE -> "本次使用远程模型：手机资源压力较高，且远程连接已验证。"
-        PlacementReasonCode.MODEL_EXECUTION_FAILED -> "远程模型执行失败。"
-        else -> "本次使用远程模型。"
-    }
-
-    null -> when (reason) {
-        null -> null
-        PlacementReasonCode.PRIVACY_REQUIRES_LOCAL ->
-            "无法执行：内容只能在本地处理，但本地模型当前不可用。"
-        PlacementReasonCode.LOCAL_MODEL_UNAVAILABLE -> "无法执行：本地模型当前不可用。"
-        PlacementReasonCode.LOCAL_RESOURCE_BLOCKED -> "无法执行：手机资源暂不适合本地运行。"
-        PlacementReasonCode.LOCAL_CAPABILITY_MISMATCH -> "无法执行：本地模型能力不满足本次请求。"
-        PlacementReasonCode.REMOTE_NOT_AUTHORIZED -> "无法执行：尚未获得远程模型授权。"
-        PlacementReasonCode.REMOTE_NOT_CONFIGURED -> "无法执行：远程模型尚未配置。"
-        PlacementReasonCode.REMOTE_CONNECTIVITY_UNAVAILABLE -> "无法执行：远程连接当前不可用。"
-        PlacementReasonCode.REMOTE_STATUS_STALE -> "无法执行：远程连接状态需要重新验证。"
-        PlacementReasonCode.REMOTE_CAPABILITY_MISMATCH -> "无法执行：远程模型能力不满足本次请求。"
-        PlacementReasonCode.REMOTE_OVERLOADED -> "无法执行：远程模型当前繁忙。"
-        PlacementReasonCode.NO_ELIGIBLE_TARGET ->
-            "无法执行：没有同时满足隐私、能力和可用性要求的模型。"
-        PlacementReasonCode.PLACEMENT_DECISION_MISSING -> "无法执行：本次运行位置尚未确定。"
-        PlacementReasonCode.PLACEMENT_NOT_RESTORABLE -> "无法继续：本次运行位置无法安全恢复。"
-        PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED ->
-            "无法继续远程生成：后续内容需要留在本机。"
-        PlacementReasonCode.MODEL_EXECUTION_FAILED -> "模型执行失败。"
-        else -> "无法执行：没有可用的运行位置。"
-    }
-}
-
-internal fun currentModelStatus(state: ChatUiState): String {
-    val ready = if (state.inferenceMode == InferenceMode.Remote) {
-        when {
-            state.isBusy -> state.statusText
-            state.isReady -> "已就绪"
-            else -> state.statusText
-        }
-    } else {
-        when {
-            state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
-            state.isBusy -> state.statusText
-            state.isReady -> "已就绪"
-            state.modelPath != null -> "待加载"
-            else -> state.statusText
-        }
-    }
-    return when (state.inferenceMode) {
-        InferenceMode.Local -> {
-            val modelName = state.installedModels
-                .firstOrNull { it.id == state.activeInstalledModelId }
-                ?.displayName
-                ?: state.selectedRecommendedModel.shortName
-            "${inferencePreferenceDisplayText(state.inferenceMode)} · 本地候选：$modelName · " +
-                "${state.backend.name} · ${LocalModelTokenLimits.compactDisplayText(state.localMaxTotalTokens)} · $ready"
-        }
-
-        InferenceMode.Auto ->
-            "${inferencePreferenceDisplayText(state.inferenceMode)} · 本地与远程候选按请求评估 · $ready"
-
-        InferenceMode.Remote -> {
-            val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
-            "${inferencePreferenceDisplayText(state.inferenceMode)} · 远程候选：$modelName · $ready"
-        }
-    }
-}
-
-internal fun modelHealthDisplayText(state: ChatUiState): String {
-    val health = state.modelHealth
-    val parts = mutableListOf("健康：${health.state.label()}")
-    health.backend?.let { backend -> parts += "backend=${backend.label()}" }
-    health.fallbackBackend?.let { fallback -> parts += "fallback=${fallback.label()}" }
-    health.loadMs?.let { loadMs -> parts += "load=${loadMs}ms" }
-    health.firstTokenMs?.let { firstTokenMs -> parts += "first=${firstTokenMs}ms" }
-    health.tokenCount?.let { tokens -> parts += "tokens=$tokens" }
-    health.tokensPerSecond?.takeIf { it > 0.0 }?.let { value ->
-        parts += "speed=${String.format(Locale.US, "%.1f", value)} tok/s"
-    }
-    health.failureReason
-        ?.takeIf { it.isNotBlank() }
-        ?.let { reason -> parts += "reason=${reason.take(80)}" }
-    health.lastOutputQualityIssue
-        ?.takeIf { it.isNotBlank() }
-        ?.let { issue ->
-            val rule = health.lastOutputQualityRule
-                ?.takeIf { value -> value.isNotBlank() }
-                ?.let { value -> "/$value" }
-                .orEmpty()
-            parts += "quality=$issue$rule"
-        }
-    return parts.joinToString(separator = " · ")
-}
-
-internal fun ModelHealthState.label(): String =
-    when (this) {
-        ModelHealthState.NotInstalled -> "未安装"
-        ModelHealthState.InstalledUnverified -> "待校验"
-        ModelHealthState.Verified -> "已校验"
-        ModelHealthState.Loading -> "加载中"
-        ModelHealthState.Loaded -> "已加载"
-        ModelHealthState.LoadFailed -> "加载失败"
-        ModelHealthState.FallbackActive -> "Fallback"
-    }
-
-internal fun capabilityLabel(capability: ModelCapability): String =
-    when (capability) {
-        ModelCapability.Chat -> "对话"
-        ModelCapability.MemoryEmbedding -> "记忆"
-        ModelCapability.MobileAction -> "动作"
-    }
-
-internal fun ChatUiState.pendingSelectedChatDownloadBytes(): Long =
-    if (isModelInstalled(selectedRecommendedModel.id)) {
-        0L
-    } else {
-        selectedRecommendedModel.byteSize
-    }
-
-@Composable
-internal fun DeviceCheck(
-    state: ChatUiState,
-    requiredBytes: Long,
-) {
-    val hasPendingDownload = requiredBytes > 0L
-    val hasEnoughSpace = !hasPendingDownload ||
-        ModelCatalog.hasEnoughSpace(state.availableModelStorageBytes, requiredBytes)
-    PanelSurface {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "设备检查",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                DeviceMetric(
-                    modifier = Modifier.weight(1f),
-                    label = "架构",
-                    value = if (state.isArm64Supported) "arm64" else "不支持",
-                    good = state.isArm64Supported,
-                )
-                DeviceMetric(
-                    modifier = Modifier.weight(1f),
-                    label = "空间",
-                    value = ModelCatalog.formatBytes(state.availableModelStorageBytes),
-                    good = hasEnoughSpace,
-                )
-                DeviceMetric(
-                    modifier = Modifier.weight(1f),
-                    label = "待下载",
-                    value = if (hasPendingDownload) {
-                        ModelCatalog.formatBytes(requiredBytes)
-                    } else {
-                        "已就绪"
-                    },
-                    good = true,
-                )
-            }
-            if (!state.isArm64Supported) {
-                Text(
-                    text = "此模型需要 64 位 ARM 安卓设备。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            } else if (!hasEnoughSpace) {
-                Text(
-                    text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存；也可以先配置远程模型，或导入你信任的更小 .litertlm。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun DeviceMetric(
-    modifier: Modifier,
-    label: String,
-    value: String,
-    good: Boolean,
-) {
-    val semanticColors = LocalSolinColors.current
-    Column(
-        modifier = modifier
-            .clip(MaterialTheme.shapes.medium)
-            .background(
-                if (good) {
-                    semanticColors.localContainer.copy(alpha = 0.52f)
-                } else {
-                    MaterialTheme.colorScheme.errorContainer
-                },
-            )
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = if (good) {
-                semanticColors.onLocalContainer
-            } else {
-                MaterialTheme.colorScheme.onErrorContainer
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-internal fun ProgressBlock(state: ChatUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val progress = state.downloadProgressPercent
-        if (progress == null) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        } else {
-            LinearProgressIndicator(
-                progress = { progress / 100f },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = state.statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = when {
-                    progress != null -> "$progress%"
-                    state.isPreparingDownload -> "准备中"
-                    else -> ModelCatalog.formatBytes(state.downloadedBytes)
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (state.totalBytes > 0L) {
-            Text(
-                text = "${ModelCatalog.formatBytes(state.downloadedBytes)} / " +
-                    ModelCatalog.formatBytes(state.totalBytes),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
-    "远程模式：图片发送前会确认；非图片附件、分享文本和 OCR 不会自动发送。"
-
-internal const val AUTO_ATTACHMENT_PROTECTION_NOTICE =
-    "自动偏好：本次位置会在发送时决定；如使用远程，图片发送前会确认，其他附件不会自动发送。"
-
-internal const val ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE =
-    "本次使用远程模型：图片发送前会确认；非图片附件、分享文本和 OCR 不会自动发送。"
-
-internal const val PRODUCT_POSITIONING_TEXT =
-    "隐私优先的随身 AI 助手：可下载或导入本地模型，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界和权限。"
-
-internal const val PRODUCT_POSITIONING_SHORT_TEXT =
-    "隐私优先的随身 AI 助手"
-
-internal const val PRODUCT_HOME_TITLE_TEXT =
-    "隐私优先的随身 AI 助手"
-
-internal const val PRODUCT_HOME_DESCRIPTION_TEXT =
-    "本地模型可下载或导入，远程多模态可选，设备动作必须确认执行。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
-
-internal enum class HomeValueKind {
-    Local,
-    Remote,
-    Action,
-}
-
-internal data class HomeValueProposition(
-    val kind: HomeValueKind,
-    val title: String,
-    val body: String,
-)
-
-internal val HOME_VALUE_PROPOSITIONS = listOf(
-    HomeValueProposition(
-        kind = HomeValueKind.Local,
-        title = "本地可用",
-        body = "基础问答、图片输入、会话和显式记忆优先留在本机；离线模型可稍后下载或导入。",
-    ),
-    HomeValueProposition(
-        kind = HomeValueKind.Remote,
-        title = "远程多模态可选",
-        body = "远程模型只在你配置并切换后使用；切换时提醒一次，疑似敏感内容仍会单独确认。",
-    ),
-    HomeValueProposition(
-        kind = HomeValueKind.Action,
-        title = "动作确认执行",
-        body = "联系人、日历、分享、提醒和系统相关动作先说明权限与风险，再由你确认。",
-    ),
-)
-
-internal const val MODEL_STARTUP_BANNER_TITLE =
-    "模型未就绪"
-
-internal const val MODEL_STARTUP_BANNER_DESCRIPTION =
-    "配置远程模型可立即试用；下载或导入本地模型后可离线问答。切换远程会提醒，设备动作仍会先让你确认。"
-
-internal val HOME_CAPABILITY_PILLS = listOf(
-    "离线问答",
-    "显式记忆",
-    "图片/文件",
-    "确认动作",
-)
-
-internal const val LOCAL_SETUP_PANEL_TITLE =
-    "离线基础问答可选下载"
-
-internal const val LOCAL_SETUP_PANEL_DESCRIPTION =
-    "下载后基础问答和历史默认留在本机；也可以先跳过，稍后配置远程模型或导入可信 .litertlm。"
-
-internal const val MODEL_MANAGER_POSITIONING_TEXT =
-    "可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。"
-
-internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
-    "哪些内容留在本机？",
-    "把想法整理成本机待办",
-    "切换远程模型前提醒什么？",
-)
-
-internal const val PRODUCT_LOCAL_VALUE_TEXT =
-    "下载或导入已验证本地模型后，基础问答可在手机上运行；支持图片的本地模型可处理主动选择的图片。会话、记忆和本地工具结果默认留在本机。"
-
-internal const val PRODUCT_REMOTE_VALUE_TEXT =
-    "远程模型只在你配置并切换后使用；主动选择的图片只在逐次确认后发送给远程视觉模型，不支持图片时直接提示不支持。"
-
-internal const val PRODUCT_ACTION_VALUE_TEXT =
-    "联系人、日历、系统页面、分享、提醒和屏幕相关能力都先展示用途、权限和风险，再由你确认或取消。"
-
-internal const val PRIVACY_POLICY_ENTRY_TEXT =
-    "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力必须你确认后才执行。"
-
-internal const val REMOTE_MODE_DISCLOSURE_TEXT =
-    "OpenAI 兼容地址和模型名；API Key 加密保存在本机。图片需开启并逐次确认后才会发送。"
-
-internal const val MODEL_DOWNLOAD_RATIONALE_TEXT =
-    "本地模型让基础问答离线可用；基础对话模型约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"
-
-internal const val VOICE_INPUT_PRIVACY_DESCRIPTION =
-    "语音输入；使用系统语音转写，结果只进入输入框，不自动发送，不读取本地音频文件；开启前会先确认"
-
-internal const val VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE =
-    "开启语音输入"
-
-internal const val VOICE_INPUT_PERMISSION_DISCLOSURE_BODY =
-    "语音会交由 Android 系统语音识别服务处理；Solin 不保存音频文件，转写结果只进入输入框，不会自动发送。确认后才会请求麦克风权限或开始收音。"
-
-internal const val TRUST_LOCAL_BOUNDARY_TEXT =
-    "会话、长期记忆、设备上下文和本地工具结果默认留在本机；切到远程模型时，标记为仅本机的隐私消息和工具结果不会进入远程历史。"
-
-internal const val TRUST_REMOTE_BOUNDARY_TEXT =
-    "远程模型会收到当前可远程发送的对话上下文；你主动附加的图片会在逐次确认后随请求发送，非图片附件、分享文本、OCR 摘录和本地工具私密结果不会自动发送。"
-
-internal const val TRUST_PERMISSION_BOUNDARY_TEXT =
-    "联系人、日历、媒体、通知、当前屏幕、Accessibility 文本和截图 OCR 都需要运行时权限、系统特殊授权或前台一次性确认；动作工具仍需用户确认后执行。"
-
-internal const val SENSITIVE_CAPABILITY_DISCLOSURE_TEXT =
-    "麦克风、媒体、联系人/日历、Usage Stats、Accessibility、截图、远程图片发送和设备动作都有数据范围、同意边界，以及取消、撤销或清除路径。"

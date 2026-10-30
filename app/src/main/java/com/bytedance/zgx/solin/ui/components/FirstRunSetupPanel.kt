@@ -36,7 +36,6 @@ import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_DESCRIPTION
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_TITLE
 import com.bytedance.zgx.solin.ui.MODEL_STARTUP_BANNER_DESCRIPTION
 import com.bytedance.zgx.solin.ui.MODEL_STARTUP_BANNER_TITLE
-import com.bytedance.zgx.solin.ui.ProgressBlock
 import com.bytedance.zgx.solin.ui.activePlacementDisplayText
 import com.bytedance.zgx.solin.ui.capabilityLabel
 import com.bytedance.zgx.solin.ui.currentModelStatus

@@ -54,7 +54,6 @@ import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.ui.MODEL_MANAGER_POSITIONING_TEXT
 import com.bytedance.zgx.solin.ui.REMOTE_MODE_DISCLOSURE_TEXT
 import com.bytedance.zgx.solin.ui.modelHealthDisplayText
-import com.bytedance.zgx.solin.ui.ProgressBlock
 import java.util.Locale
 
 internal const val MODEL_MANAGER_CURRENT_TAB_INDEX = 0

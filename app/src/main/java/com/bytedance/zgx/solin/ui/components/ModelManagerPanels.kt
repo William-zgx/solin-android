@@ -46,7 +46,6 @@ import com.bytedance.zgx.solin.SetupTier
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.isUsable
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
-import com.bytedance.zgx.solin.ui.DeviceCheck
 import com.bytedance.zgx.solin.ui.MODEL_DOWNLOAD_RATIONALE_TEXT
 import com.bytedance.zgx.solin.ui.capabilityLabel
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors

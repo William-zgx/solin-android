@@ -28,7 +28,6 @@ import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
-import com.bytedance.zgx.solin.ui.DeviceCheck
 import com.bytedance.zgx.solin.ui.HOME_CAPABILITY_PILLS
 import com.bytedance.zgx.solin.ui.HOME_VALUE_PROPOSITIONS
 import com.bytedance.zgx.solin.ui.HomeValueKind
