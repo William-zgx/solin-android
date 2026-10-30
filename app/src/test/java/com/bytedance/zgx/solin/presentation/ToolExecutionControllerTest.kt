@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ToolExecutionControllerTest {
@@ -174,6 +176,162 @@ class ToolExecutionControllerTest {
         // was Rejected before reaching the executor.
         assertEquals("continuation-wait", executedRequestId)
         assertEquals(null, uiState.value.pendingConfirmation)
+    }
+
+    @Test
+    fun dismissingRunBoundConfirmationWithoutRequestCancelsTheRunInsteadOfAFabricatedRequest() = runTest {
+        val router = RecordingRouter()
+        val pending = runBoundConfirmationWithoutRequest()
+        val uiState = MutableStateFlow(ChatUiState(pendingConfirmation = pending))
+        val controller = controller(
+            router = router.asObservationRouter(),
+            result = ToolRequest(toolName = "unused").succeeded("unused"),
+            uiState = uiState,
+            activeRunPlacement = { null },
+            continueAfterObservation = {},
+        )
+
+        controller.dismissAgentConfirmation(pending)
+
+        assertEquals(listOf("cancelRun:run-missing-request"), router.runMutations)
+        assertNull(uiState.value.pendingConfirmation)
+    }
+
+    @Test
+    fun confirmingRunBoundConfirmationWithoutRequestFailsClosedWithoutExecuting() = runTest {
+        val router = RecordingRouter()
+        val pending = runBoundConfirmationWithoutRequest()
+        val uiState = MutableStateFlow(ChatUiState(pendingConfirmation = pending))
+        var executed = false
+        val controller = controller(
+            router = router.asObservationRouter(),
+            result = ToolRequest(toolName = "unused").succeeded("unused"),
+            uiState = uiState,
+            activeRunPlacement = { null },
+            continueAfterObservation = {},
+            actionExecutor = object : ToolExecutor {
+                override fun execute(request: ToolRequest): ToolResult {
+                    executed = true
+                    return request.succeeded("executed")
+                }
+            },
+        )
+
+        controller.confirmAgentConfirmation(pending)
+
+        assertEquals(listOf("cancelRun:run-missing-request"), router.runMutations)
+        assertFalse(executed)
+        val state = uiState.value
+        assertNull(state.pendingConfirmation)
+        assertFalse(state.isBusy)
+        assertEquals(MessagePrivacy.LocalOnly, state.messages.last().privacy)
+    }
+
+    @Test
+    fun rejectingRunBoundConfirmationWithoutRequestCancelsTheRun() = runTest {
+        val router = RecordingRouter()
+        val pending = runBoundConfirmationWithoutRequest()
+        val uiState = MutableStateFlow(ChatUiState(pendingConfirmation = pending))
+        val controller = controller(
+            router = router.asObservationRouter(),
+            result = ToolRequest(toolName = "unused").succeeded("unused"),
+            uiState = uiState,
+            activeRunPlacement = { null },
+            continueAfterObservation = {},
+        )
+
+        controller.rejectAgentConfirmationForMediaProjectionDenial(pending)
+
+        assertEquals(listOf("cancelRun:run-missing-request"), router.runMutations)
+        assertNull(uiState.value.pendingConfirmation)
+    }
+
+    @Test
+    fun runBoundConfirmationWithoutRequestStaysPendingWhenRunCancellationFails() = runTest {
+        val router = RecordingRouter(cancelRunFailure = IllegalStateException("db unavailable"))
+        val pending = runBoundConfirmationWithoutRequest()
+        val uiState = MutableStateFlow(ChatUiState(pendingConfirmation = pending))
+        val controller = controller(
+            router = router.asObservationRouter(),
+            result = ToolRequest(toolName = "unused").succeeded("unused"),
+            uiState = uiState,
+            activeRunPlacement = { null },
+            continueAfterObservation = {},
+        )
+
+        controller.dismissAgentConfirmation(pending)
+
+        // The run is still awaiting confirmation, so the UI keeps the confirmation visible rather
+        // than diverging from the run state.
+        assertEquals(pending, uiState.value.pendingConfirmation)
+    }
+
+    @Test
+    fun runlessDraftConfirmationStillBuildsItsOwnRequest() {
+        val draft = ActionDraft(
+            functionName = "local_tool",
+            title = "Test",
+            summary = "reason",
+            parameters = mapOf("a" to "b"),
+        )
+        val runless = PendingAgentConfirmation(
+            runId = null,
+            draft = draft,
+            toolRequest = null,
+            skillId = null,
+            plannedByModel = false,
+            fallbackReason = null,
+        )
+
+        val request = requireNotNull(runless.resolvedToolRequest())
+        assertEquals("local_tool", request.toolName)
+        assertEquals(mapOf("a" to "b"), request.arguments)
+        assertEquals("reason", request.reason)
+        assertNull(runBoundConfirmationWithoutRequest().resolvedToolRequest())
+        val bound = ToolRequest(id = "bound", toolName = "local_tool")
+        assertEquals(bound, runless.copy(runId = "run", toolRequest = bound).resolvedToolRequest())
+    }
+
+    private fun runBoundConfirmationWithoutRequest(): PendingAgentConfirmation =
+        PendingAgentConfirmation(
+            runId = "run-missing-request",
+            draft = ActionDraft(
+                functionName = "local_tool",
+                title = "Test",
+                summary = "Test",
+                parameters = emptyMap(),
+            ),
+            toolRequest = null,
+            skillId = null,
+            plannedByModel = true,
+            fallbackReason = null,
+        )
+
+    private class RecordingRouter(private val cancelRunFailure: Throwable? = null) {
+        val runMutations = mutableListOf<String>()
+
+        fun asObservationRouter(): ObservationRouter {
+            val calls = ObservationRouter()
+            calls.router = Proxy.newProxyInstance(
+                AssistantRouter::class.java.classLoader,
+                arrayOf(AssistantRouter::class.java),
+            ) { _, method, args ->
+                when (method.name) {
+                    "cancelRun" -> {
+                        cancelRunFailure?.let { throw it }
+                        runMutations += "cancelRun:${args[0]}"
+                        null
+                    }
+                    "confirmToolRequest", "cancelToolRequest", "failPendingToolRequest" -> {
+                        runMutations += "${method.name}:${args[0]}:${args[1]}"
+                        null
+                    }
+                    "failStaleInFlightRuns" -> 0
+                    else -> null
+                }
+            } as AssistantRouter
+            return calls
+        }
     }
 
     private fun controller(

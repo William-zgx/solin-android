@@ -54,6 +54,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
+private const val MISSING_TOOL_REQUEST_REASON =
+    "Run-bound confirmation is missing its tool request; cancelled without executing."
 
 /**
  * Owns tool confirmation, execution, public-evidence batching, and pending-action restore.
@@ -182,11 +184,14 @@ class ToolExecutionController(
             }
             return
         }
-        val request = pendingConfirmation.toolRequest ?: ToolRequest(
-            toolName = pendingConfirmation.draft.functionName,
-            arguments = pendingConfirmation.draft.parameters,
-            reason = pendingConfirmation.draft.summary,
-        )
+        val request = pendingConfirmation.resolvedToolRequest() ?: run {
+            failClosedForMissingToolRequest(
+                pendingConfirmation = pendingConfirmation,
+                statusText = "工具未执行",
+                appendFailureMessage = true,
+            )
+            return
+        }
         val confirmedRun = try {
             confirmation.runId?.let { runId ->
                 assistantOrchestrator.confirmToolRequest(runId, request.id)
@@ -865,11 +870,14 @@ class ToolExecutionController(
             }
             return
         }
-        val request = pendingConfirmation.toolRequest ?: ToolRequest(
-            toolName = pendingConfirmation.draft.functionName,
-            arguments = pendingConfirmation.draft.parameters,
-            reason = pendingConfirmation.draft.summary,
-        )
+        val request = pendingConfirmation.resolvedToolRequest() ?: run {
+            failClosedForMissingToolRequest(
+                pendingConfirmation = pendingConfirmation,
+                statusText = statusText,
+                appendFailureMessage = true,
+            )
+            return
+        }
         val result = resultFor(request)
         val observation = confirmation.runId?.let { runId ->
             assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
@@ -897,6 +905,56 @@ class ToolExecutionController(
     }
 
 
+    /**
+     * A run-bound confirmation lost its tool request, so there is no request id to confirm, cancel
+     * or fail. Fail closed: never execute, and cancel the whole run (the orchestrator cancels
+     * whatever request it is awaiting) so the run and the UI agree instead of the UI clearing the
+     * confirmation while the run stays AwaitingUserConfirmation. If the cancellation itself fails
+     * the run is still awaiting, so the confirmation stays visible.
+     */
+    private fun failClosedForMissingToolRequest(
+        pendingConfirmation: PendingAgentConfirmation,
+        statusText: String,
+        appendFailureMessage: Boolean,
+    ) {
+        val runId = pendingConfirmation.runId
+        val cancellation = runCatching {
+            runId?.let { id -> assistantOrchestrator.cancelRun(id, MISSING_TOOL_REQUEST_REASON) }
+        }
+        if (cancellation.isFailure) {
+            uiState.update {
+                it.copy(
+                    pendingConfirmation = pendingConfirmation,
+                    isBusy = false,
+                    isGenerating = false,
+                    statusText = "工具确认失败，未执行动作。",
+                )
+            }
+            return
+        }
+        if (appendFailureMessage) {
+            replaceActiveSessionMessages(
+                uiState.value.messages + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "工具确认缺少请求信息，已取消该动作，未执行。",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                true,
+            )
+        }
+        uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                isBusy = false,
+                isGenerating = false,
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
+                statusText = statusText,
+            )
+        }
+    }
+
     fun dismissAgentConfirmation(confirmation: PendingAgentConfirmation? = uiState.value.pendingConfirmation) {
         if (dispatchPersistenceWorkIfNeeded { dismissAgentConfirmation(confirmation) }) return
         val pendingConfirmation = uiState.value.pendingConfirmation
@@ -912,11 +970,14 @@ class ToolExecutionController(
             }
             return
         }
-        val request = pendingConfirmation.toolRequest ?: ToolRequest(
-            toolName = pendingConfirmation.draft.functionName,
-            arguments = pendingConfirmation.draft.parameters,
-            reason = pendingConfirmation.draft.summary,
-        )
+        val request = pendingConfirmation.resolvedToolRequest() ?: run {
+            failClosedForMissingToolRequest(
+                pendingConfirmation = pendingConfirmation,
+                statusText = "已取消动作草稿",
+                appendFailureMessage = false,
+            )
+            return
+        }
         val observation = if (pendingConfirmation.runId != null) {
             assistantOrchestrator.cancelToolRequest(pendingConfirmation.runId, request.id)
         } else {
