@@ -35,6 +35,9 @@ private const val KIND_AUDIO = "audio"
 private const val KIND_DOCUMENTS = "documents"
 private const val KIND_DOWNLOADS = "downloads"
 private const val KIND_OTHERS = "others"
+private val RECENT_FILE_KINDS = setOf(
+    KIND_ALL, KIND_SCREENSHOTS, KIND_IMAGES, KIND_VIDEOS, KIND_AUDIO, KIND_DOCUMENTS, KIND_DOWNLOADS, KIND_OTHERS,
+)
 
 const val FOREGROUND_APP_SOURCE_USAGE_STATS_ESTIMATE = "usage_stats_estimate"
 const val FOREGROUND_APP_CONFIDENCE_ESTIMATE = "estimate"
@@ -143,6 +146,14 @@ internal data class RecentFileKindFilter(
     val selection: String? = null,
     val selectionArgs: Array<String>? = null,
 )
+
+/** MIME_TYPE LIKE any of [mimePatterns], OR-joined (empty selection when no patterns). */
+private fun mimeLikeFilter(kind: String, vararg mimePatterns: String): RecentFileKindFilter =
+    RecentFileKindFilter(
+        allowedKind = kind,
+        selection = mimePatterns.joinToString(separator = " OR ") { "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?" },
+        selectionArgs = arrayOf(*mimePatterns),
+    )
 
 internal fun collectRecentFileItems(
     rows: Sequence<RecentFileRow>,
@@ -577,11 +588,7 @@ class AndroidRecentFileProvider(
                     RecentFileKindFilter(allowedKind = KIND_ALL)
                 }
 
-            KIND_IMAGES -> RecentFileKindFilter(
-                allowedKind = KIND_IMAGES,
-                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
-                selectionArgs = arrayOf("image/%"),
-            )
+            KIND_IMAGES -> mimeLikeFilter(KIND_IMAGES, "image/%")
 
             KIND_SCREENSHOTS -> RecentFileKindFilter(
                 allowedKind = KIND_IMAGES,
@@ -590,25 +597,11 @@ class AndroidRecentFileProvider(
                 selectionArgs = screenshotSelectionArgs(),
             )
 
-            KIND_VIDEOS -> RecentFileKindFilter(
-                allowedKind = KIND_VIDEOS,
-                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
-                selectionArgs = arrayOf("video/%"),
-            )
+            KIND_VIDEOS -> mimeLikeFilter(KIND_VIDEOS, "video/%")
 
-            KIND_AUDIO -> RecentFileKindFilter(
-                allowedKind = KIND_AUDIO,
-                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
-                selectionArgs = arrayOf("audio/%"),
-            )
+            KIND_AUDIO -> mimeLikeFilter(KIND_AUDIO, "audio/%")
 
-            KIND_DOCUMENTS -> RecentFileKindFilter(
-                allowedKind = KIND_DOCUMENTS,
-                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ? OR " +
-                    "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ? OR " +
-                    "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
-                selectionArgs = arrayOf("application/%", "text/%", "application/x-%"),
-            )
+            KIND_DOCUMENTS -> mimeLikeFilter(KIND_DOCUMENTS, "application/%", "text/%", "application/x-%")
 
             KIND_DOWNLOADS ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -629,40 +622,19 @@ class AndroidRecentFileProvider(
             else -> RecentFileKindFilter(allowedKind = KIND_ALL)
         }
 
-    private fun mediaFilterForGrantedPermissions(): RecentFileKindFilter {
-        val clauses = mutableListOf<String>()
-        val args = mutableListOf<String>()
-        if (mediaPolicy.hasVisualMediaAccessForKind(KIND_IMAGES)) {
-            clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
-            args += "image/%"
-        }
-        if (mediaPolicy.hasVisualMediaAccessForKind(KIND_VIDEOS)) {
-            clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
-            args += "video/%"
-        }
-        if (mediaPolicy.hasAudioPermission()) {
-            clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
-            args += "audio/%"
-        }
-        return RecentFileKindFilter(
-            allowedKind = KIND_ALL,
-            selection = clauses.joinToString(separator = " OR "),
-            selectionArgs = args.toTypedArray(),
+    /** On Android 13+ "all" only covers the media kinds whose permission was granted. */
+    private fun mediaFilterForGrantedPermissions(): RecentFileKindFilter =
+        mimeLikeFilter(
+            KIND_ALL,
+            *listOfNotNull(
+                "image/%".takeIf { mediaPolicy.hasVisualMediaAccessForKind(KIND_IMAGES) },
+                "video/%".takeIf { mediaPolicy.hasVisualMediaAccessForKind(KIND_VIDEOS) },
+                "audio/%".takeIf { mediaPolicy.hasAudioPermission() },
+            ).toTypedArray(),
         )
-    }
 
     private fun normalizeKind(input: String): String =
-        when (input.lowercase()) {
-            KIND_SCREENSHOTS -> KIND_SCREENSHOTS
-            KIND_IMAGES -> KIND_IMAGES
-            KIND_VIDEOS -> KIND_VIDEOS
-            KIND_AUDIO -> KIND_AUDIO
-            KIND_DOCUMENTS -> KIND_DOCUMENTS
-            KIND_DOWNLOADS -> KIND_DOWNLOADS
-            KIND_OTHERS -> KIND_OTHERS
-            KIND_ALL -> KIND_ALL
-            else -> KIND_ALL
-        }
+        input.lowercase().takeIf { it in RECENT_FILE_KINDS } ?: KIND_ALL
 
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -680,7 +652,11 @@ class AndroidRecentImageTextProvider(
             return RecentImageTextReadResult.PermissionDenied("未授权“读取图片”权限")
         }
         val normalizedMaxCount = maxCount.coerceIn(1, MAX_RECENT_IMAGE_TEXT_SCAN_COUNT)
-        val filter = buildImageTextFilter(normalizedKind)
+        val filter = if (normalizedKind == KIND_SCREENSHOTS) {
+            RecentFileKindFilter(KIND_SCREENSHOTS, selection = screenshotSelection(), selectionArgs = screenshotSelectionArgs())
+        } else {
+            mimeLikeFilter(KIND_IMAGES, "image/%")
+        }
 
         return try {
             val cursor = context.contentResolver.query(
@@ -732,25 +708,8 @@ class AndroidRecentImageTextProvider(
         }
     }
 
-    private fun buildImageTextFilter(kind: String): ImageTextFilter =
-        when (kind) {
-            KIND_SCREENSHOTS -> ImageTextFilter(
-                selection = screenshotSelection(),
-                selectionArgs = screenshotSelectionArgs(),
-            )
-
-            else -> ImageTextFilter(
-                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
-                selectionArgs = arrayOf("image/%"),
-            )
-        }
-
     private fun normalizeImageTextKind(input: String): String =
-        when (input.lowercase()) {
-            KIND_IMAGES -> KIND_IMAGES
-            KIND_SCREENSHOTS -> KIND_SCREENSHOTS
-            else -> KIND_SCREENSHOTS
-        }
+        if (input.lowercase() == KIND_IMAGES) KIND_IMAGES else KIND_SCREENSHOTS
 
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -771,9 +730,4 @@ class AndroidRecentImageTextProvider(
             text = text,
             truncated = truncated,
         )
-
-    private data class ImageTextFilter(
-        val selection: String,
-        val selectionArgs: Array<String>,
-    )
 }
