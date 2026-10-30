@@ -401,15 +401,10 @@ class ActionExecutor(
 
     private fun intentsFor(request: ToolRequest): List<Intent>? =
         when (request.toolName) {
-            MobileActionFunctions.OPEN_WIFI_SETTINGS ->
-                listOf(Intent(Settings.ACTION_WIFI_SETTINGS))
-
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS ->
-                listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-
+            MobileActionFunctions.OPEN_WIFI_SETTINGS -> listOf(Intent(Settings.ACTION_WIFI_SETTINGS))
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
                 listOf(Intent(systemSettingsActionFor(request.arguments.getValue("target"))))
-
             MobileActionFunctions.SEARCH_MAPS ->
                 listOf(
                     Intent(
@@ -417,7 +412,6 @@ class ActionExecutor(
                         Uri.parse("geo:0,0?q=${Uri.encode(request.arguments["query"].orEmpty())}"),
                     ),
                 )
-
             MobileActionFunctions.COMPOSE_EMAIL ->
                 listOf(
                     Intent(Intent.ACTION_SENDTO).apply {
@@ -426,7 +420,6 @@ class ActionExecutor(
                         putExtra(Intent.EXTRA_TEXT, request.arguments["body"].orEmpty())
                     },
                 )
-
             MobileActionFunctions.CREATE_CALENDAR_EVENT ->
                 listOf(
                     Intent(Intent.ACTION_INSERT).apply {
@@ -435,7 +428,6 @@ class ActionExecutor(
                         putExtra(CalendarContract.Events.DESCRIPTION, request.arguments["description"].orEmpty())
                     },
                 )
-
             MobileActionFunctions.CREATE_CONTACT_DRAFT ->
                 listOf(
                     Intent(ContactsContract.Intents.Insert.ACTION).apply {
@@ -445,37 +437,20 @@ class ActionExecutor(
                         putExtra(ContactsContract.Intents.Insert.PHONE, request.arguments["phone"].orEmpty())
                     },
                 )
-
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS ->
-                listOf(Intent(Settings.ACTION_SETTINGS))
-
-            MobileActionFunctions.SET_SYSTEM_ALARM ->
-                listOf(systemAlarmIntent(request))
-
-            MobileActionFunctions.SET_SYSTEM_TIMER ->
-                listOf(systemTimerIntent(request))
-
-            MobileActionFunctions.SHARE_TEXT ->
-                listOf(shareTextIntent(request))
-
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> listOf(Intent(Settings.ACTION_SETTINGS))
+            MobileActionFunctions.SET_SYSTEM_ALARM -> listOf(systemAlarmIntent(request))
+            MobileActionFunctions.SET_SYSTEM_TIMER -> listOf(systemTimerIntent(request))
+            MobileActionFunctions.SHARE_TEXT -> listOf(shareTextIntent(request))
             MobileActionFunctions.OPEN_DEEP_LINK ->
                 listOf(
                     Intent(Intent.ACTION_VIEW, Uri.parse(request.arguments.getValue("uri")))
                         .withCategoryIfAvailable(Intent.CATEGORY_BROWSABLE),
                 )
-
-            MobileActionFunctions.OPEN_CAMERA ->
-                listOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
-
-            MobileActionFunctions.OPEN_APP_BY_NAME ->
-                appNameIntentCandidates(request)
-
-            MobileActionFunctions.OPEN_APP_INTENT ->
-                appIntentCandidates(request)
-
+            MobileActionFunctions.OPEN_CAMERA -> listOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+            MobileActionFunctions.OPEN_APP_BY_NAME -> appNameIntentCandidates(request)
+            MobileActionFunctions.OPEN_APP_INTENT -> appIntentCandidates(request)
             MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
                 listOf(appDeepTargetFor(request).buildIntent(request.arguments))
-
             else -> null
         }
 
@@ -956,114 +931,36 @@ class ActionExecutor(
         targetId: String = "",
         targetPackage: String = "",
         deepTargetKind: String? = null,
-    ): ExternalActivityMetadata =
-        when (toolName) {
+    ): ExternalActivityMetadata {
+        val (targetKind, safeData) = when (toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ExternalActivityMetadata(
-                targetKind = "SystemSettings",
-                intentAction = action,
-                safeData = mapOf("settingsAction" to action),
-            )
-
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityMetadata(
-                targetKind = "SystemSettings",
-                intentAction = action,
-                safeData = mapOf(
-                    "settingsAction" to action,
-                    "specialAccess" to "usage_stats",
-                ),
-            )
-
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> ExternalActivityMetadata(
-                targetKind = "SystemSettings",
-                intentAction = action,
-                safeData = mapOf(
-                    "settingsAction" to action,
-                    "targetId" to targetId,
-                ),
-            )
-
-            MobileActionFunctions.SEARCH_MAPS -> ExternalActivityMetadata(
-                targetKind = "MapSearch",
-                intentAction = action,
-                safeData = uriData,
-            )
-
-            MobileActionFunctions.COMPOSE_EMAIL -> ExternalActivityMetadata(
-                targetKind = "EmailDraft",
-                intentAction = action,
-                safeData = uriData,
-            )
-
-            MobileActionFunctions.CREATE_CALENDAR_EVENT -> ExternalActivityMetadata(
-                targetKind = "CalendarEventDraft",
-                intentAction = action,
-                safeData = uriData,
-            )
-
-            MobileActionFunctions.CREATE_CONTACT_DRAFT -> ExternalActivityMetadata(
-                targetKind = "ContactDraft",
-                intentAction = action,
-                safeData = mimeTypeData,
-            )
-
-            MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
-                targetKind = "ShareSheet",
-                intentAction = action,
-                safeData = mapOf("payloadMimeType" to "text/plain"),
-            )
-
-            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityMetadata(
-                targetKind = "HttpsUri",
-                intentAction = action,
-                safeData = uriData,
-            )
-
-            MobileActionFunctions.OPEN_CAMERA -> ExternalActivityMetadata(
-                targetKind = "Camera",
-                intentAction = action,
-            )
-
-            MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityMetadata(
-                targetKind = "SystemAlarm",
-                intentAction = action,
-            )
-
-            MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityMetadata(
-                targetKind = "SystemTimer",
-                intentAction = action,
-            )
-
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS ->
+                "SystemSettings" to mapOf("settingsAction" to action)
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS ->
+                "SystemSettings" to mapOf("settingsAction" to action, "specialAccess" to "usage_stats")
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                "SystemSettings" to mapOf("settingsAction" to action, "targetId" to targetId)
+            MobileActionFunctions.SEARCH_MAPS -> "MapSearch" to uriData
+            MobileActionFunctions.COMPOSE_EMAIL -> "EmailDraft" to uriData
+            MobileActionFunctions.CREATE_CALENDAR_EVENT -> "CalendarEventDraft" to uriData
+            MobileActionFunctions.CREATE_CONTACT_DRAFT -> "ContactDraft" to mimeTypeData
+            MobileActionFunctions.SHARE_TEXT -> "ShareSheet" to mapOf("payloadMimeType" to "text/plain")
+            MobileActionFunctions.OPEN_DEEP_LINK -> "HttpsUri" to uriData
+            MobileActionFunctions.OPEN_CAMERA -> "Camera" to emptyMap()
+            MobileActionFunctions.SET_SYSTEM_ALARM -> "SystemAlarm" to emptyMap()
+            MobileActionFunctions.SET_SYSTEM_TIMER -> "SystemTimer" to emptyMap()
             MobileActionFunctions.OPEN_APP_BY_NAME,
-            MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
-                targetKind = "AndroidPackage",
-                intentAction = action,
-                safeData = mapOf("targetPackage" to targetPackage),
-            )
-
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> ExternalActivityMetadata(
-                targetKind = deepTargetKind ?: "AppDeepTarget",
-                intentAction = action,
-                safeData = mapOf(
-                    "targetId" to targetId,
-                    "targetPackage" to targetPackage,
-                ),
-            )
-
-            else -> ExternalActivityMetadata(
-                targetKind = "ExternalActivity",
-                intentAction = action,
-            )
+            MobileActionFunctions.OPEN_APP_INTENT ->
+                "AndroidPackage" to mapOf("targetPackage" to targetPackage)
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+                (deepTargetKind ?: "AppDeepTarget") to mapOf("targetId" to targetId, "targetPackage" to targetPackage)
+            else -> "ExternalActivity" to emptyMap()
         }
+        return ExternalActivityMetadata(targetKind = targetKind, intentAction = action, safeData = safeData)
+    }
 
     private fun Intent?.safeUriMetadata(): Map<String, String> =
-        this?.data?.let { uri ->
-            buildMap {
-                uri.scheme?.let { put("targetUriScheme", it) }
-                uri.host?.let { put("targetUriHost", it) }
-                if (uri.port != -1) put("targetUriPort", uri.port.toString())
-            }
-        }.orEmpty()
+        this?.data?.let { uri -> safeUriMetadata(uri.scheme, uri.host, uri.port) }.orEmpty()
 
     private fun Intent?.safeMimeTypeMetadata(): Map<String, String> =
         this?.type?.let { mimeType -> mapOf("payloadMimeType" to mimeType) }.orEmpty()
@@ -1071,12 +968,16 @@ class ActionExecutor(
     private fun String?.safeUriMetadata(): Map<String, String> {
         val uri = runCatching { this?.trim()?.takeIf { it.isNotBlank() }?.let(::URI) }.getOrNull()
             ?: return emptyMap()
-        return buildMap {
-            uri.scheme?.let { put("targetUriScheme", it) }
-            uri.host?.let { put("targetUriHost", it) }
-            if (uri.port != -1) put("targetUriPort", uri.port.toString())
-        }
+        return safeUriMetadata(uri.scheme, uri.host, uri.port)
     }
+
+    /** Scheme, host and explicit port only: never path, query or fragment. */
+    private fun safeUriMetadata(scheme: String?, host: String?, port: Int): Map<String, String> =
+        buildMap {
+            scheme?.let { put("targetUriScheme", it) }
+            host?.let { put("targetUriHost", it) }
+            if (port != -1) put("targetUriPort", port.toString())
+        }
 
     private fun defaultIntentActionFor(toolName: String): String =
         when (toolName) {
