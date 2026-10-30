@@ -446,56 +446,46 @@ class ModelRepository(
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
         installedModels().forEach { entity ->
-            val modelId = entity.recommendedModelId ?: return@forEach
-            val model = catalogRecommendedModel(modelId) ?: return@forEach
-            val wasVerifiedRecommended = entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
-            if (entity.hasVerifiedRecommendedEvidence(model) &&
-                hasCompleteRecommendedBundleShape(File(entity.path), model)
-            ) {
-                return@forEach
+            val model = entity.recommendedModelId?.let(::catalogRecommendedModel) ?: return@forEach
+            reverifiedLegacyRecommendedModel(entity, model)?.let { updated ->
+                modelDao.upsert(updated)
+                changed = true
             }
-            val file = File(entity.path)
-            if (!file.exists() || !ModelCatalog.isCompleteRecommendedModel(file.length(), model)) {
-                if (wasVerifiedRecommended) {
-                    modelDao.upsert(
-                        entity.copy(
-                            fileBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L,
-                            verificationStatus = ModelVerificationStatus.FailedVerification.name,
-                        ),
-                    )
-                    changed = true
-                }
-                return@forEach
-            }
-            if (!ModelCatalog.hasCompleteCompanionFiles(file, model)) {
-                if (wasVerifiedRecommended) {
-                    modelDao.upsert(
-                        entity.copy(
-                            fileBytes = file.length().coerceAtLeast(0L),
-                            verifiedSha256 = null,
-                            verificationStatus = ModelVerificationStatus.FailedVerification.name,
-                        ),
-                    )
-                    changed = true
-                }
-                return@forEach
-            }
-            val verified = ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
-            modelDao.upsert(
-                entity.copy(
-                    fileBytes = file.length().coerceAtLeast(0L),
-                    sourceRevision = model.sourceRevision,
-                    verifiedSha256 = if (verified) model.sha256Hex else null,
-                    verificationStatus = if (verified) {
-                        ModelVerificationStatus.VerifiedRecommended.name
-                    } else {
-                        ModelVerificationStatus.FailedVerification.name
-                    },
-                ),
-            )
-            changed = true
         }
         return changed
+    }
+
+    /** The re-verified row for [entity], or null when it is already verified or nothing changes. */
+    private fun reverifiedLegacyRecommendedModel(
+        entity: InstalledModelEntity,
+        model: RecommendedModel,
+    ): InstalledModelEntity? {
+        val file = File(entity.path)
+        if (entity.hasVerifiedRecommendedEvidence(model) && hasCompleteRecommendedBundleShape(file, model)) {
+            return null
+        }
+        val wasVerifiedRecommended = entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
+        val failed = ModelVerificationStatus.FailedVerification.name
+        if (!file.exists() || !ModelCatalog.isCompleteRecommendedModel(file.length(), model)) {
+            return entity.copy(
+                fileBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L,
+                verificationStatus = failed,
+            ).takeIf { wasVerifiedRecommended }
+        }
+        if (!ModelCatalog.hasCompleteCompanionFiles(file, model)) {
+            return entity.copy(
+                fileBytes = file.length().coerceAtLeast(0L),
+                verifiedSha256 = null,
+                verificationStatus = failed,
+            ).takeIf { wasVerifiedRecommended }
+        }
+        val verified = ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
+        return entity.copy(
+            fileBytes = file.length().coerceAtLeast(0L),
+            sourceRevision = model.sourceRevision,
+            verifiedSha256 = if (verified) model.sha256Hex else null,
+            verificationStatus = if (verified) ModelVerificationStatus.VerifiedRecommended.name else failed,
+        )
     }
 
     private fun discoverRecommendedDownloadedModels() {
@@ -836,7 +826,7 @@ private fun InstalledModelEntity.hasVerifiedRecommendedEvidence(model: Recommend
         verifiedSha256?.equals(model.sha256Hex, ignoreCase = true) == true
 
 private fun catalogRecommendedModel(modelId: String): RecommendedModel? =
-    RECOMMENDED_MODELS.firstOrNull { it.id == modelId }
+    ModelCatalog.recommendedModelOrNull(modelId)
 
 internal fun hasCompleteRecommendedBundleShape(
     file: File,
