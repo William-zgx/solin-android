@@ -28,6 +28,7 @@ import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.BindAndReserveResult
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeAdapters
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
 import com.bytedance.zgx.solin.orchestration.ModelCandidateSnapshot
@@ -347,6 +348,16 @@ internal fun ChatUiState.failedGenerationModelHealth(
         state = ModelHealthState.LoadFailed,
         backend = if (useRemoteModel) null else backend,
         failureReason = reason,
+    )
+
+/** Ends a run that never got a model placement: the UI goes idle and records why. */
+internal fun ChatUiState.idleWithoutPlacement(reason: PlacementReasonCode, statusText: String): ChatUiState =
+    copy(
+        isBusy = false,
+        isGenerating = false,
+        activeRunPlacement = null,
+        activeRunPlacementReason = reason,
+        statusText = statusText,
     )
 
 internal fun ChatUiState.clearedEvidence(): ChatUiState =

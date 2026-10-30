@@ -441,6 +441,37 @@ internal class ChatRemoteSendSupport(
             sensitiveHitSnippets = outboundSafetyPolicy.detectSensitiveSnippets(prompt),
         )
 
+    /** The current-input disclosure: the forced graded one for sensitive content, otherwise the plain one. */
+    fun buildCurrentInputDisclosure(
+        sensitive: Boolean,
+        prompt: String,
+        messagePrivacy: MessagePrivacy,
+        remoteConfig: RemoteModelConfig,
+        remoteHistory: List<ChatMessage>,
+        imageAttachments: List<ChatImageAttachment>,
+        stateBeforeSend: ChatUiState,
+    ): PendingRemoteSendDisclosure =
+        if (sensitive) {
+            buildSensitiveRemoteSendDisclosure(
+                prompt = prompt,
+                messagePrivacy = messagePrivacy,
+                remoteConfig = remoteConfig,
+                remoteHistory = remoteHistory,
+                imageAttachments = imageAttachments,
+                stateBeforeSend = stateBeforeSend,
+            )
+        } else {
+            buildPendingRemoteSendDisclosure(
+                kind = RemoteSendDisclosureKind.CurrentInput,
+                prompt = prompt,
+                messagePrivacy = messagePrivacy,
+                remoteConfig = remoteConfig,
+                remoteHistory = remoteHistory,
+                imageAttachments = imageAttachments,
+                stateBeforeSend = stateBeforeSend,
+            )
+        }
+
     /**
      * Builds a forced disclosure for a sensitive send that offers graded handling (mask & send /
      * send anyway). Always [PendingRemoteSendDisclosure.forcedBySensitiveContent] so it can
