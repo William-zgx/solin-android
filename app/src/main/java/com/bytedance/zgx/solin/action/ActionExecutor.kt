@@ -33,6 +33,7 @@ import com.bytedance.zgx.solin.tool.succeeded
 import com.bytedance.zgx.solin.tool.unknownToolFailure
 import java.net.URI
 import java.util.Calendar
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 class ActionExecutor(
     private val context: Context?,
@@ -707,9 +708,6 @@ class ActionExecutor(
 
     private fun Intent.withPackageIfAvailable(packageName: String): Intent =
         apply { runCatching { setPackage(packageName) } }
-
-    private fun Throwable.cleanMessage(): String =
-        message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
 
     private fun shareTextIntent(request: ToolRequest): Intent {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {

@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 private val CONTEXT_OVERFLOW_MARKERS = listOf(
     "context_length",

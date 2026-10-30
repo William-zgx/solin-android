@@ -23,6 +23,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 interface ToolExecutor {
     fun execute(request: ToolRequest): ToolResult
@@ -354,9 +355,6 @@ internal fun ToolRequest.localOnlyData(): Map<String, String> =
 /** Retryable failure whose data marks the result local-only. */
 internal fun ToolRequest.localOnlyFailure(code: ToolErrorCode, summary: String): ToolResult =
     failed(code = code, summary = summary, retryable = true, data = localOnlyData())
-
-internal fun Throwable.cleanMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
 
 internal fun ToolRequest.toolExecutionContext(): Map<String, String> =
     mapOf("toolName" to toolName)

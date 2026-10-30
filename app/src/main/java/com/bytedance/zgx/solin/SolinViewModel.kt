@@ -48,7 +48,6 @@ import com.bytedance.zgx.solin.presentation.SessionController
 import com.bytedance.zgx.solin.presentation.SharedIntentIngestionGate
 import com.bytedance.zgx.solin.presentation.ToolExecutionController
 import com.bytedance.zgx.solin.presentation.VoiceInputController
-import com.bytedance.zgx.solin.presentation.cleanMessage
 import com.bytedance.zgx.solin.presentation.toDeviceContextSnapshot
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
@@ -73,6 +72,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON =
     "ViewModel cleared before this Agent run completed."

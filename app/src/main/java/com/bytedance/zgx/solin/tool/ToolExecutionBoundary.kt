@@ -8,6 +8,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 const val DEFAULT_TOOL_EXECUTION_TIMEOUT_MILLIS = 20_000L
 

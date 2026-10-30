@@ -597,8 +597,6 @@ internal fun List<AgentPlan.UseTool>.batchToolTitle(): String =
         }
 
 /** Non-blank exception message for user-facing status text, falling back to the type name. */
-internal fun Throwable.cleanMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
 
 /** Prefixes [text] with the model's already streamed [partial] answer, if any. */
 internal fun afterPartialAnswer(partial: CharSequence, text: String): String =

@@ -8,6 +8,7 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 data class SkillManifest(
     val id: String,
@@ -647,8 +648,6 @@ private fun JSONObject.optStringSetOrNull(name: String): Set<String>? {
     }
 }
 
-private fun Throwable.cleanMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
 
 private fun StringBuilder.appendLengthPrefixed(value: String) {
     append(value.length)

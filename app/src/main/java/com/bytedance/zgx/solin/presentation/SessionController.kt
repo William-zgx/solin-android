@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 /**
  * Owns chat-session lifecycle: create / select / delete, and local runtime conversation restore.

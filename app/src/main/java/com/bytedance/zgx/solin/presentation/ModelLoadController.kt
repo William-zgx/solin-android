@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 /**
  * Owns local/remote model selection, download/import, HF auth, first-run setup download queue,

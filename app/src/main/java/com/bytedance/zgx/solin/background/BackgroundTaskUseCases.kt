@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.background
 
 import com.bytedance.zgx.solin.BackgroundTaskSummary
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 data class BackgroundTaskSnapshot(
     val activeTasks: List<BackgroundTaskSummary>,
@@ -105,5 +106,3 @@ fun ScheduledTask.toSummary(): BackgroundTaskSummary =
         status = status,
     )
 
-private fun Throwable.cleanMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName

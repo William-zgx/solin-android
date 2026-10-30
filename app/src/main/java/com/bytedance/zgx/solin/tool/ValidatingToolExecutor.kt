@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.orchestration.NoOpToolProgressPublisher
 import com.bytedance.zgx.solin.orchestration.ToolProgressPublisher
+import com.bytedance.zgx.solin.logging.cleanMessage
 
 class ValidatingToolExecutor(
     private val delegate: ToolExecutor,
