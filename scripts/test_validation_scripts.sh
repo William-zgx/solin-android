@@ -1503,9 +1503,16 @@ verify_local_shellcheck_scripts=(
   scripts/verify_ai_behavior_eval.sh
   scripts/collect_ai_behavior_actual_trace.sh
 )
+assert_file_contains_text scripts/verify_local.sh 'for script_path in scripts/*.sh scripts/lib/*.sh; do'
+assert_file_contains_text scripts/verify_local.sh 'bash -n "$script_path"'
 for script_path in "${verify_local_shellcheck_scripts[@]}"; do
-  assert_file_contains_text scripts/verify_local.sh "$script_path"
+  [[ -f "$script_path" ]] || fail "verify_local.sh syntax-check glob must cover $script_path"
 done
+BROKEN_SYNTAX_SCRIPT="$TMP_DIR/broken-syntax.sh"
+printf 'if then\n' > "$BROKEN_SYNTAX_SCRIPT"
+if bash -n "$BROKEN_SYNTAX_SCRIPT" 2>/dev/null; then
+  fail "bash -n must reject a script with a syntax error"
+fi
 
 MOCK_MODEL_DRIVEN_CASE_BLOCK="$(sed -n '/^run_model_driven_case()/,/^}/p' scripts/run_mock_target_app_search_eval.sh)"
 for expected in \
@@ -3110,7 +3117,7 @@ verify_local_release_scripts=(
   scripts/sign_release_artifacts.sh
 )
 for script_path in "${verify_local_release_scripts[@]}"; do
-  assert_file_contains_text scripts/verify_local.sh "$script_path"
+  [[ -f "$script_path" ]] || fail "verify_local.sh syntax-check glob must cover $script_path"
 done
 
 for signing_script in scripts/sign_release_artifacts.sh scripts/package_bundled_models.sh; do
