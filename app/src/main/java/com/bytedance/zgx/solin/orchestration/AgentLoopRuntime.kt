@@ -68,7 +68,6 @@ import kotlinx.coroutines.launch
 private const val RUN_CANCELLED_REASON = "Agent run was cancelled by the user."
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
 private const val TAG = "AgentLoopRuntime"
-private const val MAX_VERBOSE_TRACE_THINK_TEXT_CHARS = 4_000
 
 /**
  * Attempt cap for [AgentLoopRuntime.terminateRun]'s compare-and-set retry loop.
@@ -416,22 +415,6 @@ class AgentLoopRuntime(
                 summary: String,
             ) {
                 this@AgentLoopRuntime.auditToolEvent(runId, plan, eventType, status, summary)
-            }
-
-            override fun recordVerboseTrace(
-                runId: String,
-                thinkText: String?,
-                actionSummary: String?,
-                actionToolName: String?,
-                observationSummary: String?,
-            ) {
-                this@AgentLoopRuntime.recordVerboseTrace(
-                    runId = runId,
-                    thinkText = thinkText,
-                    actionSummary = actionSummary,
-                    actionToolName = actionToolName,
-                    observationSummary = observationSummary,
-                )
             }
 
             override fun safeRecordTelemetry(sample: MetricSample, label: String) {
@@ -1650,15 +1633,6 @@ class AgentLoopRuntime(
     ): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
-        // Capture model's raw output / reasoning for verbose trace (optimization #8).
-        // This records the model's full text before tool-call extraction, enabling
-        // post-hoc debugging of why the model chose a particular action.
-        if (text.isNotBlank()) {
-            recordVerboseTrace(
-                runId = runId,
-                thinkText = text.take(MAX_VERBOSE_TRACE_THINK_TEXT_CHARS),
-            )
-        }
         if (observationDecisionBudgetExceeded(runId)) {
             return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
         }
@@ -2233,13 +2207,6 @@ class AgentLoopRuntime(
             ),
             "StepLatency:$stepType",
         )
-    }
-
-    private fun recordVerboseTrace(runId: String, thinkText: String? = null, actionSummary: String? = null, actionToolName: String? = null, observationSummary: String? = null) {
-        runCatching {
-            val stepIndex = traceStore.steps(runId).size
-            traceStore.appendVerboseTrace(runId, VerboseTraceEntry(stepIndex = stepIndex, thinkText = thinkText, actionSummary = actionSummary, actionToolName = actionToolName, observationSummary = observationSummary))
-        }.onFailure { Log.e(TAG, "Verbose trace recording failed", it) }
     }
 
     private fun String.boundedPromptValue(maxLength: Int = 2_000): String =

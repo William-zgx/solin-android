@@ -98,8 +98,6 @@ interface AgentTraceStore {
         updateState(runId, state)
     }
     fun appendStep(runId: String, step: AgentStep)
-    fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry)
-    fun verboseTrace(runId: String): List<VerboseTraceEntry>
     fun steps(runId: String): List<AgentStep>
 
     /**
@@ -135,7 +133,6 @@ class InMemoryAgentTraceStore(
     private val runs = ConcurrentHashMap<String, AgentRun>()
     private val runSteps = ConcurrentHashMap<String, CopyOnWriteArrayList<AgentStep>>()
     private val runStepSummaries = ConcurrentHashMap<String, CopyOnWriteArrayList<AgentTraceStepSummary>>()
-    private val runVerboseTraces = ConcurrentHashMap<String, CopyOnWriteArrayList<VerboseTraceEntry>>()
     private val pendingConfirmations = ConcurrentHashMap<String, PendingToolConfirmationSnapshot>()
     private val continuationCursors = ConcurrentHashMap<String, AgentContinuationCursor>()
 
@@ -152,7 +149,6 @@ class InMemoryAgentTraceStore(
         runs[run.id] = run
         runSteps[run.id] = CopyOnWriteArrayList()
         runStepSummaries[run.id] = CopyOnWriteArrayList()
-        runVerboseTraces[run.id] = CopyOnWriteArrayList()
         return run
     }
 
@@ -210,13 +206,6 @@ class InMemoryAgentTraceStore(
             steps.add(step)
         }
     }
-
-    override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
-        runVerboseTraces.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(entry)
-    }
-
-    override fun verboseTrace(runId: String): List<VerboseTraceEntry> =
-        runVerboseTraces[runId]?.toList().orEmpty()
 
     override fun steps(runId: String): List<AgentStep> =
         runSteps[runId].orEmpty().toList()
@@ -311,7 +300,6 @@ class InMemoryAgentTraceStore(
             runs.remove(runId)
             runSteps.remove(runId)
             runStepSummaries.remove(runId)
-            runVerboseTraces.remove(runId)
             pendingConfirmations.remove(runId)
             continuationCursors.remove(runId)
         }
@@ -345,7 +333,6 @@ class RoomAgentTraceStore(
 
     private val liveRuns = ConcurrentHashMap<String, AgentRun>()
     private val liveSteps = ConcurrentHashMap<String, CopyOnWriteArrayList<LiveStepEntry>>()
-    private val liveVerboseTraces = ConcurrentHashMap<String, CopyOnWriteArrayList<VerboseTraceEntry>>()
     private val livePendingConfirmations = ConcurrentHashMap<String, PendingToolConfirmationSnapshot>()
     private val liveNextActionInputs = ConcurrentHashMap<String, String>()
     private val liveContinuationCursors = ConcurrentHashMap<String, AgentContinuationCursor>()
@@ -382,7 +369,6 @@ class RoomAgentTraceStore(
         check(insertResult.getOrNull() != -1L) { "Duplicate agent run id: ${run.id}" }
         liveRuns[run.id] = run
         liveSteps[run.id] = CopyOnWriteArrayList()
-        liveVerboseTraces[run.id] = CopyOnWriteArrayList()
         return run
     }
 
@@ -546,13 +532,6 @@ class RoomAgentTraceStore(
         }
     }
 
-    override fun appendVerboseTrace(runId: String, entry: VerboseTraceEntry) {
-        liveVerboseTraces.computeIfAbsent(runId) { CopyOnWriteArrayList() }.add(entry)
-    }
-
-    override fun verboseTrace(runId: String): List<VerboseTraceEntry> =
-        liveVerboseTraces[runId]?.toList().orEmpty()
-
     override fun steps(runId: String): List<AgentStep> =
         mergedStepEntries(runId).map { entry -> entry.step }
 
@@ -699,7 +678,6 @@ class RoomAgentTraceStore(
         runIds.forEach { runId ->
             liveRuns.remove(runId)
             liveSteps.remove(runId)
-            liveVerboseTraces.remove(runId)
             livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
             liveContinuationCursors.remove(runId)

@@ -86,13 +86,6 @@ internal class ToolObservationCoordinator(
             status: ToolStatus?,
             summary: String,
         )
-        fun recordVerboseTrace(
-            runId: String,
-            thinkText: String? = null,
-            actionSummary: String? = null,
-            actionToolName: String? = null,
-            observationSummary: String? = null,
-        )
         fun safeRecordTelemetry(sample: MetricSample, label: String)
         fun recordStepLatency(stepType: String, runId: String?)
         fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
@@ -369,7 +362,6 @@ internal class ToolObservationCoordinator(
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
         traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
-        host.recordVerboseTrace(runId = runId, actionToolName = request.toolName, actionSummary = request.reason.ifBlank { request.toolName }, observationSummary = observedResult.summary.take(500))
         // Wave 2 lifecycle: dual-write ToolSucceeded / ToolFailed based on observed status.
         // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
         // (ValidatingToolExecutor), so these are the terminal counterpart events.
@@ -499,26 +491,6 @@ internal class ToolObservationCoordinator(
             else -> Unit
         }
         traceStore.appendStep(runId, AgentStep.ObservationDecided(effectiveDecision))
-        // Capture observation decision reasoning for verbose trace (optimization #8).
-        host.recordVerboseTrace(
-            runId = runId,
-            actionSummary = when (effectiveDecision) {
-                AgentObservationDecision.Complete -> "observation:complete"
-                is AgentObservationDecision.ContinueWithModel -> "observation:continue_with_model"
-                is AgentObservationDecision.RetryTool -> "observation:retry_tool(${effectiveDecision.attempt})"
-                is AgentObservationDecision.PlanNextTool -> "observation:plan_next_tool"
-                is AgentObservationDecision.PlanToolBatch -> "observation:plan_tool_batch"
-                is AgentObservationDecision.Fail -> "observation:fail"
-                AgentObservationDecision.Cancel -> "observation:cancel"
-            },
-            observationSummary = when (effectiveDecision) {
-                is AgentObservationDecision.ContinueWithModel -> effectiveDecision.reason
-                is AgentObservationDecision.RetryTool -> effectiveDecision.reason
-                is AgentObservationDecision.PlanNextTool -> effectiveDecision.reason
-                is AgentObservationDecision.Fail -> effectiveDecision.reason
-                else -> null
-            }?.take(500),
-        )
         if (effectiveDecision is AgentObservationDecision.RetryTool) {
             host.auditToolRequest(
                 runId = runId,
