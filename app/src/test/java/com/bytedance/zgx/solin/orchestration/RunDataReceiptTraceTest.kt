@@ -454,32 +454,6 @@ class RunDataReceiptTraceTest {
         assertTrue(schemaFailure is IllegalArgumentException)
     }
 
-    @Test
-    fun shadowPlacementIsBestEffortAndNeverCreatesDispatchTrace() {
-        val delegate = InMemoryAgentTraceStore(clockMillis = { 1L })
-        val run = delegate.createRun("[redacted]", sessionId = "session")
-        val decision = testBinding(runId = run.id).toPlacementDecision()
-
-        assertTrue(delegate.appendShadowPlacementBestEffort(run.id, decision))
-        assertEquals(listOf("ShadowPlacementEvaluated"), delegate.stepSummaries(run.id).map { it.type })
-        assertFalse(
-            delegate.stepSummaries(run.id).any { summary ->
-                summary.type in setOf(
-                    "PlacementSelected",
-                    "RunDataReceiptRecorded",
-                    "ModelRuntimeInvocationStarted",
-                )
-            },
-        )
-
-        val throwingStore = object : AgentTraceStore by delegate {
-            override fun appendStep(runId: String, step: AgentStep) {
-                error("shadow trace unavailable")
-            }
-        }
-        assertFalse(throwingStore.appendShadowPlacementBestEffort(run.id, decision))
-    }
-
     private fun RunPlacementBinding.toPlacementDecision(): PlacementDecision.Chosen =
         PlacementDecision.Chosen(
             policyVersion = policyVersion,

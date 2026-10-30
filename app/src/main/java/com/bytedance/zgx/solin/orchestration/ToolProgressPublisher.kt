@@ -359,15 +359,6 @@ class DefaultToolProgressPublisher(
     }
 }
 
-// Backwards-compatible type alias: Wave 1 code that referred to the class as `ToolProgressPublisher`
-// continues to compile; the interface now owns that name.
-@Deprecated(
-    message = "ToolProgressPublisher is now an interface; use DefaultToolProgressPublisher for the bus-backed implementation.",
-    replaceWith = ReplaceWith("DefaultToolProgressPublisher", "com.bytedance.zgx.solin.orchestration.DefaultToolProgressPublisher"),
-    level = DeprecationLevel.HIDDEN,
-)
-typealias ToolProgressPublisherClass = DefaultToolProgressPublisher
-
 // ---------------------------------------------------------------------------
 // Progress update sealed hierarchy
 // ---------------------------------------------------------------------------

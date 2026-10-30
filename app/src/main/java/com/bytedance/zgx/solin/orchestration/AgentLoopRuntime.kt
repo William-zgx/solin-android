@@ -1793,7 +1793,7 @@ class AgentLoopRuntime(
      * [TelemetryCounter.CompactionTriggered] counter. Called by the context compactor
      * (wired upstream of this runtime) whenever it truncates or summarizes history.
      */
-    fun recordCompactionTriggered(
+    private fun recordCompactionTriggered(
         runId: String?,
         reason: String,
         contextBefore: Int,
@@ -1866,7 +1866,7 @@ class AgentLoopRuntime(
      * long-running phases (e.g. mark "model_generation" before sending a prompt, recordStepLatency
      * after observeModelResult).
      */
-    fun markStepStart(runId: String, stepType: String) {
+    private fun markStepStart(runId: String, stepType: String) {
         stepStartedAtMillis[StepStartKey(runId, stepType)] = System.currentTimeMillis()
     }
 

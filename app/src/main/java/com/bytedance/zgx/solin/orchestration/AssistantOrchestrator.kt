@@ -126,8 +126,6 @@ interface AssistantRouter : AutoCloseable {
 
     fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) = Unit
 
-    fun recordShadowPlacement(runId: String, decision: PlacementDecision) = Unit
-
     fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) = Unit
 
     /**
@@ -376,10 +374,6 @@ class AssistantOrchestrator(
         agentLoopRuntime.recordRunDataReceipt(runId, receipt)
     }
 
-    override fun recordShadowPlacement(runId: String, decision: PlacementDecision) {
-        traceStore.appendShadowPlacementBestEffort(runId, decision)
-    }
-
     override fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) {
         agentLoopRuntime.recordModelOutputQualityGuardTriggered(runId, trace)
     }
@@ -438,19 +432,6 @@ class AssistantOrchestrator(
     suspend fun drainPendingMessagesSuspend(runId: String): PendingMessagesDrain =
         agentLoopRuntime.drainPendingMessagesSuspend(runId)
 
-    fun recordCompactionTriggered(
-        runId: String?,
-        reason: String,
-        contextBefore: Int,
-        contextAfter: Int,
-    ) {
-        agentLoopRuntime.recordCompactionTriggered(runId, reason, contextBefore, contextAfter)
-    }
-
-    fun markStepStart(runId: String, stepType: String) {
-        agentLoopRuntime.markStepStart(runId, stepType)
-    }
-
     /**
      * Compact [messages] to fit [tokenBudget]. Passthrough to [AgentLoopRuntime.compactHistory]
      * so the ViewModel/orchestrator layer can preflight history before each model send. Returns
@@ -474,16 +455,6 @@ class AssistantOrchestrator(
         estimatedTokens = estimatedTokens ?: ::estimateTokensApproximate,
     )
 }
-
-internal fun AgentTraceStore.appendShadowPlacementBestEffort(
-    runId: String,
-    decision: PlacementDecision,
-): Boolean = runCatching {
-    appendStep(
-        runId,
-        AgentStep.ShadowPlacementEvaluated(ShadowPlacementTrace.from(decision)),
-    )
-}.isSuccess
 
 private fun PendingToolConfirmationSnapshot.toAssistantRoute(): AssistantRoute.Action =
     AssistantRoute.Action(
