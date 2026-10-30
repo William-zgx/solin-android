@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.orchestration
 
-import com.bytedance.zgx.solin.resource.ThermalPressure
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
@@ -33,8 +32,6 @@ import kotlinx.coroutines.launch
  */
 enum class ServingBackend {
     LocalLiteRt,
-    RemoteOpenAI,
-    RemoteCustom,
 }
 
 /** Well-known monotonic counters tracked by the orchestration layer. */
@@ -43,7 +40,6 @@ enum class TelemetryCounter {
     CompactionTriggered,
     SafetyBlocks,
     AskUserQuestions,
-    ModelFallback,
     CacheHits,
     /** Incremented for each [SolinEvent.Agent.TextDelta] chunk received (count only; no text). */
     TextTokens,
@@ -53,8 +49,6 @@ enum class TelemetryCounter {
     RunFailures,
     /** Incremented for each [SolinEvent.Audit] event (count only; no payload). */
     AuditEvents,
-    /** Incremented for each [SolinEvent.Safety] event (count only; no payload). */
-    SafetyEvents,
 
     /**
      * Incremented when persisted step history becomes unreadable for a run, so the step-derived
@@ -128,18 +122,6 @@ sealed class MetricSample(
         val reason: String,
         val contextBefore: Int,
         val contextAfter: Int,
-        override val occurredAtMillis: Long = System.currentTimeMillis(),
-        override val runId: String? = null,
-    ) : MetricSample(occurredAtMillis, runId)
-
-    /** Periodic resource pressure sample (memory/CPU/thermal). */
-    data class ResourceSnapshot(
-        /** 0..100 composite pressure; see SystemResourceMonitor. */
-        val pressurePercent: Int,
-        /** Proportional Set Size in KiB. */
-        val pssKb: Long,
-        val nativeHeapKb: Long,
-        val thermalStatus: ThermalPressure,
         override val occurredAtMillis: Long = System.currentTimeMillis(),
         override val runId: String? = null,
     ) : MetricSample(occurredAtMillis, runId)
@@ -346,7 +328,6 @@ private fun MetricSample.bucketKey(): String =
         is MetricSample.ToolCompleted -> "ToolCompleted:$toolName"
         is MetricSample.StepLatency -> "StepLatency:$stepType"
         is MetricSample.CompactionTriggered -> "CompactionTriggered:$reason"
-        is MetricSample.ResourceSnapshot -> "ResourceSnapshot:${thermalStatus.name}"
         is MetricSample.CounterInc -> "Counter:${name.name}"
     }
 
@@ -357,7 +338,6 @@ private fun MetricSample.latencyMsOrNull(): Long? =
         is MetricSample.ToolCompleted -> latencyMs
         is MetricSample.StepLatency -> latencyMs
         is MetricSample.CompactionTriggered -> null
-        is MetricSample.ResourceSnapshot -> null
         is MetricSample.CounterInc -> null
     }
 
@@ -368,8 +348,6 @@ private fun MetricSample.latencyMsOrNull(): Long? =
 // plan titles, evidence content, prompts, or any user-authored strings. Only
 // numeric latencies, counts, enum/code names, and coarse metadata are recorded.
 // ---------------------------------------------------------------------------
-
-private val UNKNOWN_THERMAL = setOf("", null, "unknown", "null")
 
 /**
  * Subscribe to [bus] and translate each [SolinEvent] into zero-or-more numeric [MetricSample]
@@ -516,59 +494,6 @@ internal fun SolinEvent.toMetricSamples(): List<MetricSample> {
         is SolinEvent.Agent.PlanUpdated -> Unit
         is SolinEvent.Agent.UndoPushed -> Unit
 
-        // Runtime
-        is SolinEvent.Runtime.ModelLoaded -> {
-            out += MetricSample.StepLatency(
-                stepType = "model_load",
-                latencyMs = loadMs,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-        }
-
-        is SolinEvent.Runtime.FirstToken -> {
-            // FirstToken has ttftMs but no duration; emit as a StepLatency keyed by a sanitized
-            // model bucket. PRIVACY: modelLabel may contain filesystem paths or model-version
-            // strings that reveal device state; bucket to a short enum-style tag so telemetry
-            // keys never carry user-identifying or path information.
-            out += MetricSample.StepLatency(
-                stepType = "ttft:${sanitizeModelLabel(modelLabel)}",
-                latencyMs = ttftMs,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-        }
-
-        is SolinEvent.Runtime.ResourceSample -> {
-            val thermal = thermalPressureLabel.let { label ->
-                if (label in UNKNOWN_THERMAL) {
-                    com.bytedance.zgx.solin.resource.ThermalPressure.Unknown
-                } else {
-                    runCatching {
-                        com.bytedance.zgx.solin.resource.ThermalPressure.valueOf(label!!)
-                    }.getOrDefault(com.bytedance.zgx.solin.resource.ThermalPressure.Unknown)
-                }
-            }
-            out += MetricSample.ResourceSnapshot(
-                pressurePercent = pressurePercent,
-                pssKb = appPssBytes / BYTES_PER_KIB,
-                nativeHeapKb = 0L,
-                thermalStatus = thermal,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-            // CPU is informational and optional (nullable); surface via counter when elevated.
-            if (cpuPercent != null && cpuPercent > 80) {
-                out += MetricSample.CounterInc(
-                    name = TelemetryCounter.ModelFallback,
-                    occurredAtMillis = occurredAtMillis,
-                    runId = runId,
-                )
-            }
-        }
-
-        is SolinEvent.Runtime.DownloadProgress -> Unit
-
         // Audit: record count only — never summary/payload.
         is SolinEvent.Audit.ToolAudited,
         is SolinEvent.Audit.RemoteSendAudited,
@@ -579,52 +504,7 @@ internal fun SolinEvent.toMetricSamples(): List<MetricSample> {
                 runId = runId,
             )
         }
-
-        // Safety: count only.
-        is SolinEvent.Safety.ConfirmationRequested -> {
-            out += MetricSample.CounterInc(
-                name = TelemetryCounter.SafetyEvents,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-        }
-
-        is SolinEvent.Safety.PolicyTriggered -> {
-            out += MetricSample.CounterInc(
-                name = TelemetryCounter.SafetyEvents,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-            if (blocked) {
-                out += MetricSample.CounterInc(
-                    name = TelemetryCounter.SafetyBlocks,
-                    occurredAtMillis = occurredAtMillis,
-                    runId = runId,
-                )
-            }
-        }
     }
     return out
 }
 
-private const val BYTES_PER_KIB = 1024L
-
-/**
- * Sanitize a runtime model label (which may be a filesystem path like `/data/.../model.tflite`,
- * a remote model id, or a developer-provided free-form string) into a short, enum-style tag
- * safe for use as a metric key. Never returns the raw label if it looks path-like; buckets
- * unknown/local/empty labels under "local" and strips directory + extension segments.
- */
-internal fun sanitizeModelLabel(raw: String?): String {
-    if (raw.isNullOrBlank()) return "local"
-    val trimmed = raw.trim()
-    // Anything containing path separators is almost certainly a filesystem path; bucket to local.
-    if (trimmed.contains('/') || trimmed.contains('\\')) return "local"
-    // Drop common file extensions that shouldn't appear in metric keys.
-    val withoutExt = trimmed.removeSuffix(".tflite").removeSuffix(".bin").removeSuffix(".gguf")
-    // Restrict to a tight character class to avoid control chars / whitespace / metric-separator chars.
-    val sanitized = withoutExt.filter { it.isLetterOrDigit() || it == '_' || it == '-' }
-    if (sanitized.isEmpty()) return "local"
-    // Cap length to avoid unbounded keys (remote model ids are often long).
-    return sanitized.take(32)
-}

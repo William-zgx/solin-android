@@ -33,12 +33,6 @@ enum class AgentRunEventState {
     Cancelled,
 }
 
-enum class AgentRunTerminalState {
-    AnswerGenerated,
-    Failed,
-    Cancelled,
-}
-
 enum class AgentRunPrivacyMarker {
     LocalOnly,
     ContainsLocalContext,
@@ -70,7 +64,6 @@ sealed class AgentRunEvent(
         val inputId: String,
         val sourceLabel: String,
         val privacyMarkers: Set<AgentRunPrivacyMarker> = emptySet(),
-        val attachmentCount: Int = 0,
     ) : AgentRunEvent(eventId, runId, AgentRunEventKind.InputReceived)
 
     data class ContextLoaded(
@@ -445,49 +438,3 @@ object AgentStepRunEventAdapter {
             else -> emptySet()
         }
 }
-
-private fun sanitizeId(value: String): String {
-    val normalized = normalizeText(value)
-    return if (
-        normalized.isBlank() ||
-        normalized.length > MAX_ID_LENGTH ||
-        normalized.anyUnsafeContent() ||
-        !SAFE_ID_PATTERN.matches(normalized)
-    ) {
-        REDACTED_ID
-    } else {
-        normalized
-    }
-}
-
-private fun sanitizeText(value: String): String {
-    val normalized = normalizeText(value)
-    if (normalized.isBlank()) {
-        return REDACTED_TEXT
-    }
-    if (normalized.anyUnsafeContent()) {
-        return REDACTED_TEXT
-    }
-    return normalized.take(MAX_TEXT_LENGTH)
-}
-
-private fun normalizeText(value: String): String =
-    value.trim().replace(WHITESPACE_PATTERN, " ")
-
-private fun String.anyUnsafeContent(): Boolean =
-    UNSAFE_TEXT_PATTERNS.any { pattern -> pattern.containsMatchIn(this) }
-
-private const val REDACTED_ID = "[redacted-id]"
-private const val REDACTED_TEXT = "[redacted]"
-private const val MAX_ID_LENGTH = 80
-private const val MAX_TEXT_LENGTH = 120
-
-private val WHITESPACE_PATTERN = Regex("\\s+")
-private val SAFE_ID_PATTERN = Regex("[A-Za-z0-9._:-]+")
-private val UNSAFE_TEXT_PATTERNS = listOf(
-    Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"),
-    Regex("(?i)\\b(password|passwd|secret|token|api[_ -]?key|credential|private)\\b\\s*[:=]?\\s*\\S*"),
-    Regex("(?i)\\b(rm\\s+-rf|curl\\s+|wget\\s+|bash\\s+-c|sh\\s+-c|powershell\\s+|sudo\\s+|chmod\\s+|eval\\s*\\(|exec\\s*\\(|adb\\s+shell|am\\s+start)\\b"),
-    Regex("(?i)\\bhttps?://\\S+"),
-    Regex("[{}]"),
-)

@@ -425,9 +425,6 @@ private fun ToolResult.isRecoverableLocalObservationFailure(): Boolean {
         data["screenText"]?.isNotBlank() == true
 }
 
-internal fun String.explicitNextActionText(): String? =
-    explicitSequentialActionTextAt(1)
-
 internal fun String.explicitSequentialActionTextAt(index: Int): String? {
     if (index < 0) return null
     return explicitSequentialActionSegments().getOrNull(index)

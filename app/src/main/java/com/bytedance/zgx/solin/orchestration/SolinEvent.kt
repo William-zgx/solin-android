@@ -6,7 +6,6 @@ sealed interface SolinEvent {
     val eventId: String
     val occurredAtMillis: Long
     val runId: String?
-    val correlationId: String? get() = runId
     val replay: Int get() = DEFAULT_REPLAY
 
     sealed interface Agent : SolinEvent {
@@ -94,7 +93,6 @@ sealed interface SolinEvent {
             val ttftMs: Long,
             val durationMs: Long,
             val reasoningTokens: Int = 0,
-            val cacheReadTokens: Int = 0,
             override val eventId: String = UUID.randomUUID().toString(),
             override val occurredAtMillis: Long = System.currentTimeMillis(),
         ) : Agent
@@ -197,43 +195,6 @@ sealed interface SolinEvent {
         ) : Agent
     }
 
-    sealed interface Runtime : SolinEvent {
-        data class ModelLoaded(
-            val modelLabel: String,
-            val loadMs: Long,
-            override val runId: String? = null,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Runtime
-
-        data class FirstToken(
-            val modelLabel: String,
-            val ttftMs: Long,
-            override val runId: String? = null,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Runtime
-
-        data class ResourceSample(
-            val pressurePercent: Int,
-            val appPssBytes: Long,
-            val cpuPercent: Int?,
-            val thermalPressureLabel: String? = null,
-            override val runId: String? = null,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Runtime
-
-        data class DownloadProgress(
-            val modelLabel: String? = null,
-            val bytesDownloaded: Long,
-            val totalBytes: Long,
-            override val runId: String? = null,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Runtime
-    }
-
     sealed interface Audit : SolinEvent {
         /**
          * Fired when a tool audit record is persisted. Mirrors [com.bytedance.zgx.solin.audit.ToolAuditEvent]
@@ -276,28 +237,6 @@ sealed interface SolinEvent {
             override val eventId: String = UUID.randomUUID().toString(),
             override val occurredAtMillis: Long = System.currentTimeMillis(),
         ) : Audit
-    }
-
-    sealed interface Safety : SolinEvent {
-        data class ConfirmationRequested(
-            override val runId: String,
-            val requestId: String,
-            val toolCallId: String,
-            val actionLabel: String,
-            val riskLevel: String? = null,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Safety
-
-        data class PolicyTriggered(
-            override val runId: String,
-            val policyName: String,
-            val blocked: Boolean,
-            val reason: String? = null,
-            val toolCallId: String? = null,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Safety
     }
 
     companion object {

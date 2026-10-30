@@ -19,10 +19,6 @@ sealed interface ToolErrorCode {
         override val code: String = "safety_rejected"
     }
 
-    data object Timeout : ToolErrorCode {
-        override val code: String = "timeout"
-    }
-
     data object Cancelled : ToolErrorCode {
         override val code: String = "cancelled"
     }

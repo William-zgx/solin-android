@@ -6,7 +6,6 @@ package com.bytedance.zgx.solin.orchestration
  */
 sealed class AgentProfile {
     abstract val profileId: String
-    abstract val allowParallelTools: Boolean
     abstract val maxStepsPerTurn: Int
 
     /**
@@ -23,19 +22,16 @@ sealed class AgentProfile {
 
     data class General(
         override val profileId: String = "general",
-        override val allowParallelTools: Boolean = true,
         override val maxStepsPerTurn: Int = 15,
     ) : AgentProfile()
 
     data class Build(
         override val profileId: String = "build",
-        override val allowParallelTools: Boolean = false,
         override val maxStepsPerTurn: Int = 30,
     ) : AgentProfile()
 
     data class Plan(
         override val profileId: String = "plan",
-        override val allowParallelTools: Boolean = false,
         override val maxStepsPerTurn: Int = 3,
     ) : AgentProfile()
 
@@ -44,7 +40,6 @@ sealed class AgentProfile {
         val parentToolCallId: String,
         val depth: Int = 1,
         override val profileId: String = "subagent",
-        override val allowParallelTools: Boolean = false,
         override val maxStepsPerTurn: Int = 10,
     ) : AgentProfile()
 
