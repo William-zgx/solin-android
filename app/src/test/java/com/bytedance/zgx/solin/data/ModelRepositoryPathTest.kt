@@ -250,65 +250,6 @@ class ModelRepositoryPathTest {
     }
 
     @Test
-    fun activeChatCandidateRequiresChatGenerationProfile() {
-        val verifiedChat = installedModel(
-            id = DEFAULT_CHAT_MODEL_ID,
-            path = "/tmp/chat.litertlm",
-            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
-            withVerifiedCatalogEvidence = true,
-        )
-        val verifiedMemory = installedModel(
-            id = MEMORY_EMBEDDING_MODEL_ID,
-            path = "/tmp/memory.tflite",
-            recommendedModelId = MEMORY_EMBEDDING_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
-            withVerifiedCatalogEvidence = true,
-        )
-        val customChat = installedModel(
-            id = "custom-chat",
-            path = "/tmp/custom.litertlm",
-            recommendedModelId = null,
-            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
-        )
-
-        assertTrue(installedModelCanBecomeActiveChatModel(verifiedChat))
-        assertFalse(installedModelCanBecomeActiveChatModel(verifiedMemory))
-        assertTrue(installedModelCanBecomeActiveChatModel(customChat))
-    }
-
-    @Test
-    fun currentActiveChatCandidateRequiresCurrentFileVerificationForRecommendedChat() {
-        val verifiedChat = installedModel(
-            id = DEFAULT_CHAT_MODEL_ID,
-            path = "/tmp/chat.litertlm",
-            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
-            withVerifiedCatalogEvidence = true,
-        )
-        var verifierCalls = 0
-
-        assertFalse(
-            installedModelCanBecomeCurrentActiveChatModel(
-                model = verifiedChat,
-                currentFileVerifier = { _, model ->
-                    verifierCalls += 1
-                    assertEquals(DEFAULT_CHAT_MODEL_ID, model.id)
-                    false
-                },
-            ),
-        )
-        assertEquals(1, verifierCalls)
-
-        assertTrue(
-            installedModelCanBecomeCurrentActiveChatModel(
-                model = verifiedChat,
-                currentFileVerifier = { _, _ -> true },
-            ),
-        )
-    }
-
-    @Test
     fun canDeleteInstalledModelFileAllowsOnlyManagedLiteRtLmFiles() {
         withTempModelDir { internalRoot ->
             withTempModelDir { externalRoot ->

@@ -41,7 +41,6 @@ abstract class SolinDatabase : RoomDatabase() {
     abstract fun memoryDeletionTransactionDao(): MemoryDeletionTransactionDao
     abstract fun agentTraceDao(): AgentTraceDao
     abstract fun runPlacementBindingDao(): RunPlacementBindingDao
-    abstract fun localStorageMigrationStateDao(): LocalStorageMigrationStateDao
 
     companion object {
         @Volatile

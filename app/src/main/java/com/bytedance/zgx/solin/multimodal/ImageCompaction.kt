@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.multimodal
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
-import java.util.Base64
 import kotlin.math.roundToInt
 
 internal const val MAX_VISION_IMAGE_DIMENSION = 1024
@@ -51,34 +50,4 @@ internal fun ByteArray.compactedImageBytesForVision(): ByteArray? {
     } finally {
         bitmap.recycle()
     }
-}
-
-/**
- * Compacts a base64 data URL for vision model input.
- *
- * Parses the `data:image/...;base64,...` URL, compacts the embedded image bytes,
- * and returns a new data URL. If the image was already small enough with acceptable
- * dimensions, the original URL is returned unchanged.
- *
- * @return the compacted (or original) data URL, or `null` if the data URL could not
- *         be parsed or compaction failed.
- */
-internal fun compactImageDataUrlForVision(dataUrl: String): String? {
-    val prefixEnd = dataUrl.indexOf(";base64,")
-    if (prefixEnd < 0) return null
-    val base64Data = dataUrl.substring(prefixEnd + ";base64,".length)
-    val bytes = runCatching { Base64.getDecoder().decode(base64Data) }.getOrNull() ?: return null
-
-    if (bytes.size <= MAX_VISION_IMAGE_BYTES) {
-        // Quick check: decode to verify dimensions before deciding.
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        val maxDim = maxOf(options.outWidth, options.outHeight)
-        if (maxDim in 1..MAX_VISION_IMAGE_DIMENSION) return dataUrl
-    }
-
-    val compacted = bytes.compactedImageBytesForVision() ?: return null
-    if (compacted === bytes) return dataUrl
-    val compactedBase64 = Base64.getEncoder().encodeToString(compacted)
-    return "data:image/jpeg;base64,$compactedBase64"
 }

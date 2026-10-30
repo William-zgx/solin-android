@@ -3,16 +3,6 @@ package com.bytedance.zgx.solin.memory
 import com.bytedance.zgx.solin.MessagePrivacy
 
 object MemoryQualityContract {
-    const val EXPLICIT_RECALL_TARGET_PERCENT = 90
-    const val FALSE_POSITIVE_MAX_PERCENT = 5
-
-    val longTermRecordTypes: Set<MemoryRecordType> =
-        setOf(
-            MemoryRecordType.Preference,
-            MemoryRecordType.UserFact,
-            MemoryRecordType.TaskState,
-        )
-
     fun validateRunBoundary(
         remoteMode: Boolean,
         memoryContextIncluded: Boolean,

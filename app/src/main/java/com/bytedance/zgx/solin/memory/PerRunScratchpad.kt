@@ -42,21 +42,11 @@ class PerRunScratchpad {
         return index
     }
 
-    /** Get all notes for a run, in order. */
-    @Synchronized
-    fun getNotes(runId: String): List<ScratchpadEntry> =
-        notesByRunId[runId]?.toList().orEmpty()
-
     /** Clear all notes for a run. Called when the run ends. */
     @Synchronized
     fun clear(runId: String) {
         notesByRunId.remove(runId)
     }
-
-    /** Returns true if the run has any notes. */
-    @Synchronized
-    fun hasNotes(runId: String): Boolean =
-        notesByRunId[runId]?.isNotEmpty() == true
 
     /**
      * Format notes for inclusion in the model prompt.

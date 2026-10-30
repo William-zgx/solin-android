@@ -29,7 +29,6 @@ package com.bytedance.zgx.solin.multimodal
  *   through the unchanged device-control executor with all preflights (dangerous/foreground).
  */
 object RemoteVisionScreenshotContract {
-    const val CAPABILITY_NAME = "remote_vision_gui_automation"
     const val CONSENT_REASON = "accessibility_remote_vision_gui_automation"
     const val SOURCE = "current_screen"
 

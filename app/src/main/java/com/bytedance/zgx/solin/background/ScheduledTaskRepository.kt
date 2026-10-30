@@ -109,29 +109,6 @@ class ScheduledTaskRepository(
         return task
     }
 
-    fun recordPeriodicCheckRun(
-        nextAllowedRunAtMillis: Long,
-        summary: String,
-        status: ScheduledTaskStatus = ScheduledTaskStatus.Scheduled,
-    ): ScheduledTask {
-        val now = clockMillis()
-        val existing = periodicCheck()
-        val request = existing?.periodicCheckRequest()
-            ?: PeriodicCheckScheduleRequest()
-        val task = ScheduledTask(
-            id = PeriodicCheckScheduleRequest.TASK_ID,
-            type = ScheduledTaskType.PeriodicCheck,
-            title = PeriodicCheckScheduleRequest.TITLE,
-            body = request.storageSummaryWithLastRun(summary),
-            triggerAtMillis = nextAllowedRunAtMillis,
-            status = status,
-            createdAtMillis = existing?.createdAtMillis ?: now,
-            updatedAtMillis = now,
-        )
-        dao.upsert(task.toEntity())
-        return task
-    }
-
     fun startPeriodicCheckRun(): Boolean =
         dao.markPeriodicCheckRunningIfScheduled(
             taskId = PeriodicCheckScheduleRequest.TASK_ID,
@@ -194,10 +171,6 @@ class ScheduledTaskRepository(
         return task
     }
 
-    fun markDelivered(taskId: String) {
-        updateStatus(taskId, ScheduledTaskStatus.Delivered)
-    }
-
     fun markReminderDeliveredIfRunning(taskId: String): Boolean =
         updateReminderStatusIfRunning(taskId, ScheduledTaskStatus.Delivered)
 
@@ -230,10 +203,6 @@ class ScheduledTaskRepository(
         )
     }
 
-    fun markCancelled(taskId: String) {
-        updateStatus(taskId, ScheduledTaskStatus.Cancelled)
-    }
-
     fun cancelScheduled(taskId: String): Boolean =
         updateScheduledStatus(taskId, ScheduledTaskStatus.Cancelled)
 
@@ -250,14 +219,6 @@ class ScheduledTaskRepository(
             triggerAtMillis = triggerAtMillis,
             updatedAtMillis = updatedAtMillis,
         ) > 0
-
-    fun markRunning(taskId: String) {
-        updateStatus(taskId, ScheduledTaskStatus.Running)
-    }
-
-    fun markFailed(taskId: String) {
-        updateStatus(taskId, ScheduledTaskStatus.Failed)
-    }
 
     fun markScheduledFailed(taskId: String): Boolean =
         updateScheduledStatus(taskId, ScheduledTaskStatus.Failed)
@@ -293,16 +254,6 @@ class ScheduledTaskRepository(
             staleUpdatedAtMillis = now - RUNNING_TASK_LEASE_MILLIS,
             updatedAtMillis = now,
         ) > 0
-    }
-
-    private fun updateStatus(taskId: String, status: ScheduledTaskStatus) {
-        val existing = dao.task(taskId) ?: return
-        dao.upsert(
-            existing.copy(
-                status = status.name,
-                updatedAtMillis = clockMillis(),
-            ),
-        )
     }
 
     private fun ScheduledTask.toEntity(): ScheduledTaskEntity =

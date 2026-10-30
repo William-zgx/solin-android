@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.data.ScheduledTaskEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,7 +26,8 @@ class ScheduledTaskRepositoryTest {
         assertEquals(ScheduledTaskStatus.Scheduled, repository.task(task.id)?.status)
         assertEquals(listOf(task.id), repository.scheduled().map { it.id })
 
-        repository.markDelivered(task.id)
+        assertNotNull(repository.startReminderDelivery(task.id))
+        assertTrue(repository.markReminderDeliveredIfRunning(task.id))
 
         assertEquals(ScheduledTaskStatus.Delivered, repository.task(task.id)?.status)
         assertEquals(emptyList<ScheduledTask>(), repository.scheduled())
@@ -62,7 +64,7 @@ class ScheduledTaskRepositoryTest {
     fun missingTaskStatusUpdateIsNoop() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
 
-        repository.markCancelled("missing")
+        assertFalse(repository.cancelScheduled("missing"))
 
         assertNull(repository.task("missing"))
     }
@@ -195,7 +197,7 @@ class ScheduledTaskRepositoryTest {
             triggerAtMillis = 5_000L,
         )
 
-        repository.markCancelled(task.id)
+        assertTrue(repository.cancelScheduled(task.id))
 
         assertEquals(ScheduledTaskStatus.Cancelled, repository.task(task.id)?.status)
         assertEquals(emptyList<ScheduledTask>(), repository.scheduled())
@@ -345,7 +347,8 @@ class ScheduledTaskRepositoryTest {
             body = "不能被 Scheduled-only API 改写",
             triggerAtMillis = 30_000L,
         )
-        repository.markDelivered(delivered.id)
+        repository.startReminderDelivery(delivered.id)
+        repository.markReminderDeliveredIfRunning(delivered.id)
 
         assertTrue(repository.cancelScheduled(scheduledToCancel.id))
         assertTrue(repository.deleteScheduled(scheduledToDelete.id))

@@ -300,15 +300,6 @@ interface MemoryEmbeddingDao {
 }
 
 @Dao
-interface LocalStorageMigrationStateDao {
-    @Query("SELECT * FROM local_storage_migration_state WHERE id = :id LIMIT 1")
-    fun state(id: String): LocalStorageMigrationStateEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsert(state: LocalStorageMigrationStateEntity)
-}
-
-@Dao
 interface MemoryDeletionEventDao {
     @Query("SELECT * FROM memory_deletion_events ORDER BY deletedAtMillis DESC, id DESC")
     fun events(): List<MemoryDeletionEventEntity>

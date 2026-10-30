@@ -340,9 +340,6 @@ internal object ModelCatalog {
     fun defaultSetupModelIds(): Set<String> =
         setOf(DEFAULT_CHAT_MODEL_ID)
 
-    fun capabilityForModelId(modelId: String?): ModelCapability =
-        recommendedModelById(modelId).capability
-
     fun isChatModel(modelId: String?): Boolean =
         modelId == null || (profileForModelIdOrNull(modelId)?.supportsChatGeneration == true)
 

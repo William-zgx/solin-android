@@ -811,26 +811,6 @@ private fun verifiedRecommendedModelPath(
             currentFileVerifier(model, catalogModel)
     }?.path
 
-internal fun installedModelCanBecomeActiveChatModel(model: InstalledModelEntity): Boolean =
-    if (model.recommendedModelId == null) {
-        true
-    } else {
-        ModelCatalog.profileForModelIdOrNull(model.recommendedModelId)?.supportsChatGeneration == true &&
-            model.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
-    }
-
-internal fun installedModelCanBecomeCurrentActiveChatModel(
-    model: InstalledModelEntity,
-    currentFileVerifier: (InstalledModelEntity, RecommendedModel) -> Boolean =
-        ::currentFileMatchesVerifiedRecommendedModel,
-): Boolean {
-    if (model.recommendedModelId == null) return true
-    val catalogModel = catalogRecommendedModel(model.recommendedModelId) ?: return false
-    return ModelCatalog.profileFor(catalogModel).supportsChatGeneration &&
-        model.hasVerifiedRecommendedEvidence(catalogModel) &&
-        currentFileVerifier(model, catalogModel)
-}
-
 internal fun recommendedRegistrationVerificationStatus(
     file: File,
     model: RecommendedModel,

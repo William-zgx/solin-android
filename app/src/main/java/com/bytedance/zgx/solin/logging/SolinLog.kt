@@ -66,14 +66,6 @@ object SolinLogHolder {
     var current: SolinLog = if (BuildConfig.DEBUG) AndroidSolinLog() else NoOpSolinLog()
 }
 
-/**
- * Swap the active [SolinLog] implementation. Primarily used by tests to inject
- * a fake or capturing logger.
- */
-fun setSolinLog(impl: SolinLog) {
-    SolinLogHolder.current = impl
-}
-
 // ---------------------------------------------------------------------------
 // Top-level convenience functions
 // ---------------------------------------------------------------------------

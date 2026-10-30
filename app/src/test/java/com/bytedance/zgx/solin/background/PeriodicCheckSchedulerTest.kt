@@ -377,7 +377,8 @@ class PeriodicCheckSchedulerTest {
             clockMillis = { 10_000L },
         )
         repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
-        repository.recordPeriodicCheckRun(
+        repository.startPeriodicCheckRun()
+        repository.finishPeriodicCheckRunIfRunning(
             nextAllowedRunAtMillis = 20_000L,
             summary = "lastRun=ok;overdueReminderCount=0",
         )

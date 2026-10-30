@@ -147,7 +147,8 @@ class ReminderAlarmReceiverTest {
         val handler = ReminderAlarmDeliveryHandler(
             repository = repository,
             postReminder = { taskId, _, _ ->
-                repository.markCancelled(taskId)
+                // Simulates a concurrent cancel that bypasses the Scheduled-only guard.
+                dao.upsert(dao.tasks.getValue(taskId).copy(status = ScheduledTaskStatus.Cancelled.name))
                 true
             },
         )
@@ -201,7 +202,7 @@ class ReminderAlarmReceiverTest {
             when (terminalStatus) {
                 ScheduledTaskStatus.Cancelled -> repository.cancelScheduled(task.id)
                 ScheduledTaskStatus.Deleted -> repository.deleteScheduled(task.id)
-                ScheduledTaskStatus.Failed -> repository.markFailed(task.id)
+                ScheduledTaskStatus.Failed -> repository.markScheduledFailed(task.id)
                 else -> error("Unexpected terminal status: $terminalStatus")
             }
             val deliveredTaskIds = mutableListOf<String>()
