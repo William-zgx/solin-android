@@ -25,6 +25,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.Call
@@ -859,6 +861,60 @@ class RemoteChatRuntimeTest {
         secondCall.canceled.get(2, java.util.concurrent.TimeUnit.SECONDS)
         firstCollection.cancelAndJoin()
         secondCollection.cancelAndJoin()
+    }
+
+    @Test
+    fun stopDuringRetryBackoffPreventsNextAttempt() = runTest {
+        val factory = FailingCallFactory()
+        val runtime = OkHttpRemoteChatRuntime(
+            callFactory = factory,
+            retryPolicy = RemoteRetryPolicy(
+                maxAttempts = 3,
+                baseDelayMillis = 400,
+                maxDelayMillis = 400,
+                jitterRatio = 0.0,
+            ),
+        )
+        val collection = async(Dispatchers.Default) {
+            runCatching {
+                runtime.send(
+                    prompt = "stop during backoff",
+                    history = emptyList(),
+                    parameters = GenerationParameters(),
+                    config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                ).toList()
+            }.exceptionOrNull()
+        }
+        assertTrue(
+            "first attempt should fail",
+            factory.firstFailure.await(2, java.util.concurrent.TimeUnit.SECONDS),
+        )
+        // Let the runtime classify the transport failure and enter the retry backoff.
+        Thread.sleep(80)
+
+        runtime.stop()
+
+        val failure = withContext(Dispatchers.Default) { withTimeout(5_000) { collection.await() } }
+        assertEquals("stop() during backoff must not start another attempt", 1, factory.callCount.get())
+        assertTrue(
+            "stopped generation should surface as cancellation but was $failure",
+            failure is kotlinx.coroutines.CancellationException,
+        )
+    }
+
+    private class FailingCallFactory : Call.Factory {
+        val callCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val firstFailure = java.util.concurrent.CountDownLatch(1)
+
+        override fun newCall(request: Request): Call {
+            callCount.incrementAndGet()
+            return object : Call by BlockingCall(request) {
+                override fun execute(): Response {
+                    firstFailure.countDown()
+                    throw IOException("connection reset")
+                }
+            }
+        }
     }
 
     private class BlockingCallFactory : Call.Factory {

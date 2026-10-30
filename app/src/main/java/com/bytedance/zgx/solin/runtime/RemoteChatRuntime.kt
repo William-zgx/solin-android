@@ -24,10 +24,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -85,6 +89,13 @@ class OkHttpRemoteChatRuntime(
     private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
     /**
+     * Bumped by [stop]. A retry loop captures the generation when it starts and refuses to begin a
+     * new attempt (or wakes from its backoff early) once the generation changes, so a `stop()` that
+     * lands between attempts — when no call is registered in [activeCalls] — is not lost.
+     */
+    private val stopGeneration = MutableStateFlow(0L)
+
+    /**
      * Runs one remote attempt, retrying transient provider failures per [retryPolicy].
      *
      * Provider endpoints are not always stable (transient 5xx, rate limits, dropped mobile
@@ -106,9 +117,11 @@ class OkHttpRemoteChatRuntime(
         currentCall: AtomicReference<Call?> = AtomicReference(null),
         attemptBlock: suspend (call: Call, markEmitted: () -> Unit) -> Unit,
     ) {
+        val generation = stopGeneration.value
         var attempt = 1
         var hasEmittedOutput = false
         while (true) {
+            if (stopGeneration.value != generation) throw RemoteGenerationStoppedException()
             val call = callFactory.newCall(request)
             activeCalls.add(call)
             currentCall.set(call)
@@ -137,7 +150,13 @@ class OkHttpRemoteChatRuntime(
                     TAG_REMOTE,
                     "remote attempt $attempt failed (${failureClass.name}); retrying in ${decision.delayMillis}ms",
                 )
-                delay(decision.delayMillis)
+                // Only the in-flight call is tracked in activeCalls; release it before backing off
+                // and wake early when stop() bumps the generation during the wait.
+                activeCalls.remove(call)
+                val stoppedDuringBackoff = withTimeoutOrNull(decision.delayMillis) {
+                    stopGeneration.first { it != generation }
+                } != null
+                if (stoppedDuringBackoff) throw RemoteGenerationStoppedException(throwable)
                 attempt = decision.attempt
             } finally {
                 activeCalls.remove(call)
@@ -205,7 +224,9 @@ class OkHttpRemoteChatRuntime(
                 }
                 close()
             } catch (throwable: Throwable) {
-                if (currentCall.get()?.isCanceled() == true) {
+                if (throwable is RemoteGenerationStoppedException) {
+                    close(throwable)
+                } else if (currentCall.get()?.isCanceled() == true) {
                     close(CancellationException("远程生成已取消", throwable))
                 } else {
                     close(throwable)
@@ -292,7 +313,9 @@ class OkHttpRemoteChatRuntime(
                 }
                 close()
             } catch (throwable: Throwable) {
-                if (currentCall.get()?.isCanceled() == true) {
+                if (throwable is RemoteGenerationStoppedException) {
+                    close(throwable)
+                } else if (currentCall.get()?.isCanceled() == true) {
                     close(CancellationException("远程生成已取消", throwable))
                 } else {
                     close(throwable)
@@ -306,7 +329,17 @@ class OkHttpRemoteChatRuntime(
     }
 
     override fun stop() {
+        stopGeneration.update { it + 1 }
         activeCalls.toList().forEach(Call::cancel)
+    }
+}
+
+/** Raised when [OkHttpRemoteChatRuntime.stop] interrupts a generation between retry attempts. */
+private class RemoteGenerationStoppedException(
+    cause: Throwable? = null,
+) : CancellationException("远程生成已取消") {
+    init {
+        cause?.let(::initCause)
     }
 }
 
