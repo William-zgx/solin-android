@@ -588,24 +588,14 @@ class AgentLoopRuntime(
     // subagents) would otherwise clobber each other's start marker and drop or mis-measure samples.
     private val stepStartedAtMillis = runScopedState.stepStartedAtMillis
 
-    fun runOnce(
-        input: String,
-        installedCapabilities: Set<ModelCapability>,
-        memoryEnabled: Boolean,
-        actionModelPath: String? = null,
-        deviceContext: DeviceContextSnapshot? = null,
-        sessionId: String? = null,
-        options: AgentRunOptions = AgentRunOptions(),
-        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
-    ): AgentLoopResult {
-        val profile = options.profile
-        val createdRun = runCatching { traceStore.createRun(input, sessionId) }
+    /**
+     * Creates the trace run, falling back to an ephemeral in-memory run when the trace store fails
+     * (e.g. a Room error on a fresh install). The ephemeral run is not persisted, but all in-memory
+     * bookkeeping still works so the route can proceed.
+     */
+    private fun createRunOrEphemeral(input: String, sessionId: String?): AgentRun =
+        runCatching { traceStore.createRun(input, sessionId) }
             .getOrElse { throwable ->
-                // If the trace store's createRun fails (e.g. Room DB error on a fresh
-                // test install where tables were cleared), fall back to an ephemeral
-                // in-memory run so the route can still proceed. The run won't be
-                // persisted to the database, but all in-memory bookkeeping
-                // (profilesByRunId, runStartedAtMillis, etc.) still works.
                 val now = System.currentTimeMillis()
                 AgentRun(
                     id = "ephemeral-${now}-${(0..Int.MAX_VALUE).random()}",
@@ -621,6 +611,49 @@ class AgentLoopRuntime(
                     )
                 }
             }
+
+    /**
+     * Fails a run whose initial plan was rejected before any tool ran: records the rejection,
+     * audits it, moves the run to Failed with a Validation RunFailed event, and drops per-run state.
+     * [failedStepMessage], when set, is also appended as an [AgentStep.Failed] trace step.
+     */
+    private fun failInitialPlanValidation(
+        runId: String,
+        plan: AgentPlan.RejectedTool,
+        failedStepMessage: String?,
+    ): AgentLoopResult {
+        traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
+        auditRejectedTool(runId, plan.result)
+        failedStepMessage?.let { message -> traceStore.appendStep(runId, AgentStep.Failed(message)) }
+        val failedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        eventBus.publish(
+            SolinEvent.Agent.RunFailed(
+                runId = runId,
+                code = AgentErrorCode.Validation,
+                message = failedStepMessage ?: plan.result.summary,
+            ),
+        )
+        clearEphemeralRunState(runId)
+        return AgentLoopResult(
+            run = failedRun,
+            plan = plan,
+            steps = traceStore.steps(runId),
+        )
+    }
+
+    fun runOnce(
+        input: String,
+        installedCapabilities: Set<ModelCapability>,
+        memoryEnabled: Boolean,
+        actionModelPath: String? = null,
+        deviceContext: DeviceContextSnapshot? = null,
+        sessionId: String? = null,
+        options: AgentRunOptions = AgentRunOptions(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
+    ): AgentLoopResult {
+        val profile = options.profile
+        val createdRun = createRunOrEphemeral(input, sessionId)
         val startedAt = System.currentTimeMillis()
         // Only register an explicit (non-default) profile so the constructor's
         // maxRunToolSteps remains the effective cap for callers that don't opt in
@@ -635,7 +668,6 @@ class AgentLoopRuntime(
         remoteGuiDrivingEnabledByRunId[createdRun.id] = options.remoteGuiDrivingEnabled
         installedCapabilityProfilesByRunId[createdRun.id] = installedCapabilityProfiles.toList()
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
-        // Wave 2 lifecycle: dual-write RunStarted + initial TurnStarted alongside trace steps.
         eventBus.publish(
             SolinEvent.Agent.RunStarted(
                 runId = createdRun.id,
@@ -662,26 +694,8 @@ class AgentLoopRuntime(
                 toolName = "subagent",
                 reason = "subagent depth validation",
             )
-            val rejectedResult = syntheticRequest.rejected(message)
-            val rejectedPlan = AgentPlan.RejectedTool(rejectedResult)
-            traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(rejectedPlan))
-            traceStore.appendStep(createdRun.id, AgentStep.ToolRejected(rejectedResult))
-            auditRejectedTool(createdRun.id, rejectedResult)
-            traceStore.appendStep(createdRun.id, AgentStep.Failed(message))
-            val failedRun = traceStore.updateState(createdRun.id, AgentRunState.Failed)
-            eventBus.publish(
-                SolinEvent.Agent.RunFailed(
-                    runId = createdRun.id,
-                    code = AgentErrorCode.Validation,
-                    message = message,
-                ),
-            )
-            clearEphemeralRunState(createdRun.id)
-            return AgentLoopResult(
-                run = failedRun,
-                plan = rejectedPlan,
-                steps = traceStore.steps(createdRun.id),
-            )
+            val rejectedPlan = AgentPlan.RejectedTool(syntheticRequest.rejected(message))
+            return failInitialPlanValidation(createdRun.id, rejectedPlan, failedStepMessage = message)
         }
 
         val memoryHits = if (memoryEnabled) {
@@ -707,23 +721,7 @@ class AgentLoopRuntime(
             }
 
             is AgentPlan.RejectedTool -> {
-                traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(initialToolPlan))
-                traceStore.appendStep(createdRun.id, AgentStep.ToolRejected(initialToolPlan.result))
-                auditRejectedTool(createdRun.id, initialToolPlan.result)
-                val failedRun = traceStore.updateState(createdRun.id, AgentRunState.Failed)
-                eventBus.publish(
-                    SolinEvent.Agent.RunFailed(
-                        runId = createdRun.id,
-                        code = AgentErrorCode.Validation,
-                        message = initialToolPlan.result.summary,
-                    ),
-                )
-                clearEphemeralRunState(createdRun.id)
-                return AgentLoopResult(
-                    run = failedRun,
-                    plan = initialToolPlan,
-                    steps = traceStore.steps(createdRun.id),
-                )
+                return failInitialPlanValidation(createdRun.id, initialToolPlan, failedStepMessage = null)
             }
 
             is AgentPlan.MissingModel -> {
