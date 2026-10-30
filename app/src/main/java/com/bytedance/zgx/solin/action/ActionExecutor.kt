@@ -6,12 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.media.AudioManager
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.view.KeyEvent
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.PeriodicCheckConstraints
@@ -23,6 +26,8 @@ import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TEXT_CHARS
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TITLE_CHARS
+import com.bytedance.zgx.solin.tool.MAX_SMS_BODY_CHARS
+import com.bytedance.zgx.solin.tool.PHONE_NUMBER_PATTERN
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -45,6 +50,8 @@ class ActionExecutor(
     private val appLauncherResolver: ((String) -> AppLaunchResolution)? = null,
     private val deviceControlSessionStarter: ((String) -> Unit)? = null,
     private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
+    /** Test seam for [MobileActionFunctions.CONTROL_MEDIA]; production dispatches through [AudioManager]. */
+    private val mediaKeyDispatcher: ((Int) -> Boolean)? = null,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         when (request.toolName) {
@@ -55,6 +62,7 @@ class ActionExecutor(
             MobileActionFunctions.NOTE -> return executeNote(request)
             MobileActionFunctions.FINISH -> return executeFinish(request)
             MobileActionFunctions.TAKE_OVER -> return executeTakeOver(request)
+            MobileActionFunctions.CONTROL_MEDIA -> return controlMedia(request)
         }
         externalIntentInvalidReason(request)?.let { reason -> return request.invalidRequest(reason) }
         executeExternalActivityWithInjectedStarter(request)?.let { result -> return result }
@@ -62,6 +70,50 @@ class ActionExecutor(
         val intents = intentsFor(request)
             ?: return request.unknownToolFailure()
         return executeExternalActivityIntents(request, intents)
+    }
+
+    /**
+     * Sends one media key (DOWN + UP) to the active media session. No Android permission, no
+     * content read; the outcome in the other app is not verified.
+     */
+    private fun controlMedia(request: ToolRequest): ToolResult {
+        val command = request.arguments["command"].orEmpty()
+        val keyCode = mediaKeyCodeFor(command)
+            ?: return request.invalidRequest("不支持的媒体控制指令：$command")
+        val dispatcher = mediaKeyDispatcher
+            ?: context?.let { appContext -> { code: Int -> dispatchMediaKey(appContext, code) } }
+            ?: return request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "媒体控制服务不可用",
+                retryable = true,
+                data = mapOf("toolName" to request.toolName),
+            )
+        val dispatched = runCatching { dispatcher(keyCode) }.getOrDefault(false)
+        if (!dispatched) {
+            return request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "媒体按键发送失败",
+                retryable = true,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+        return request.succeeded(
+            summary = "已发送媒体按键：${mediaCommandLabel(command)}",
+            data = mapOf(
+                "toolName" to request.toolName,
+                "command" to command,
+                "dispatchState" to "KeyEventDispatched",
+                "completionVerified" to "false",
+            ),
+        )
+    }
+
+    private fun dispatchMediaKey(appContext: Context, keyCode: Int): Boolean {
+        val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        val now = SystemClock.uptimeMillis()
+        audioManager.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
+        audioManager.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
+        return true
     }
 
     private fun readClipboard(request: ToolRequest): ToolResult {
@@ -390,7 +442,17 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> listOf(Intent(Settings.ACTION_WIFI_SETTINGS))
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                listOf(Intent(systemSettingsActionFor(request.arguments.getValue("target"))))
+                systemSettingsActionsFor(request.arguments.getValue("target")).map(::Intent)
+            MobileActionFunctions.DIAL_PHONE_NUMBER ->
+                listOf(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${request.arguments.getValue("phoneNumber")}")))
+            MobileActionFunctions.COMPOSE_SMS ->
+                listOf(
+                    Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${request.arguments.getValue("phoneNumber")}")).apply {
+                        request.arguments["body"]?.takeIf { it.isNotBlank() }?.let { body ->
+                            putExtra(SMS_BODY_EXTRA, body)
+                        }
+                    },
+                )
             MobileActionFunctions.SEARCH_MAPS ->
                 listOf(
                     Intent(
@@ -457,6 +519,8 @@ class ActionExecutor(
                 "已打开${SystemSettingsTargets.pageLabel(request.arguments["target"].orEmpty())}"
             MobileActionFunctions.SEARCH_MAPS -> "已打开地图搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "已打开邮件草稿页"
+            MobileActionFunctions.DIAL_PHONE_NUMBER -> "已打开拨号盘并填入号码，请在拨号界面确认后拨出"
+            MobileActionFunctions.COMPOSE_SMS -> "已打开短信草稿，请在短信应用中确认后发送"
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "已打开日历新建事件页"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "已打开联系人草稿页"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "已打开系统设置页"
@@ -488,8 +552,27 @@ class ActionExecutor(
             MobileActionFunctions.SET_SYSTEM_ALARM -> systemAlarmInvalidReason(request)
             MobileActionFunctions.SET_SYSTEM_TIMER -> systemTimerInvalidReason(request)
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> calendarDraftInvalidReason(request)
+            MobileActionFunctions.DIAL_PHONE_NUMBER,
+            MobileActionFunctions.COMPOSE_SMS -> phoneDraftInvalidReason(request)
             else -> null
         }
+
+    /** Defense in depth behind the schema: only a plain number reaches tel:/smsto: (no USSD *#, no pause chars). */
+    private fun phoneDraftInvalidReason(request: ToolRequest): String? {
+        val allowed = if (request.toolName == MobileActionFunctions.COMPOSE_SMS) {
+            setOf("phoneNumber", "body")
+        } else {
+            setOf("phoneNumber")
+        }
+        val unknownArguments = request.arguments.keys - allowed
+        val phoneNumber = request.arguments["phoneNumber"].orEmpty()
+        return when {
+            unknownArguments.isNotEmpty() -> "不接受参数：${unknownArguments.sorted().joinToString()}"
+            !phoneNumber.matches(phoneNumberRegex) -> "电话号码只能包含数字，可带 + 前缀"
+            request.arguments["body"].orEmpty().length > MAX_SMS_BODY_CHARS -> "短信正文过长"
+            else -> null
+        }
+    }
 
     private fun calendarDraftInvalidReason(request: ToolRequest): String? {
         val beginText = request.arguments["beginTimeMillis"]
@@ -712,6 +795,18 @@ class ActionExecutor(
             MobileActionFunctions.SHARE_TEXT -> ExternalActivityLaunch(
                 toolName = request.toolName,
                 action = Intent.ACTION_CHOOSER,
+            )
+
+            MobileActionFunctions.DIAL_PHONE_NUMBER -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = Intent.ACTION_DIAL,
+                uri = "tel:${request.arguments.getValue("phoneNumber")}",
+            )
+
+            MobileActionFunctions.COMPOSE_SMS -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = Intent.ACTION_SENDTO,
+                uri = "smsto:${request.arguments.getValue("phoneNumber")}",
             )
 
             else -> null
@@ -949,6 +1044,8 @@ class ActionExecutor(
                 "SystemSettings" to mapOf("settingsAction" to action, "targetId" to targetId)
             MobileActionFunctions.SEARCH_MAPS -> "MapSearch" to uriData
             MobileActionFunctions.COMPOSE_EMAIL -> "EmailDraft" to uriData
+            MobileActionFunctions.DIAL_PHONE_NUMBER -> "PhoneDial" to uriData
+            MobileActionFunctions.COMPOSE_SMS -> "SmsDraft" to uriData
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "CalendarEventDraft" to uriData
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "ContactDraft" to mimeTypeData
             MobileActionFunctions.SHARE_TEXT -> "ShareSheet" to mapOf("payloadMimeType" to "text/plain")
@@ -993,6 +1090,8 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> Settings.ACTION_SETTINGS
             MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
             MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO
+            MobileActionFunctions.DIAL_PHONE_NUMBER -> Intent.ACTION_DIAL
+            MobileActionFunctions.COMPOSE_SMS -> Intent.ACTION_SENDTO
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> Intent.ACTION_INSERT
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> ContactsContract.Intents.Insert.ACTION
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> Settings.ACTION_SETTINGS
@@ -1008,8 +1107,19 @@ class ActionExecutor(
             else -> ""
         }
 
+    /** Primary settings action first, then fallbacks for OEMs that do not export it. */
+    internal fun systemSettingsActionsFor(target: String): List<String> =
+        when (target) {
+            SystemSettingsTargets.DO_NOT_DISTURB ->
+                listOf(ZEN_MODE_SETTINGS_ACTION, Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS, Settings.ACTION_SOUND_SETTINGS)
+            SystemSettingsTargets.VOLUME -> listOf(VOLUME_PANEL_ACTION, Settings.ACTION_SOUND_SETTINGS)
+            else -> listOf(systemSettingsActionFor(target))
+        }
+
     private fun systemSettingsActionFor(target: String): String =
         when (target) {
+            SystemSettingsTargets.DO_NOT_DISTURB -> ZEN_MODE_SETTINGS_ACTION
+            SystemSettingsTargets.VOLUME -> VOLUME_PANEL_ACTION
             SystemSettingsTargets.BLUETOOTH -> Settings.ACTION_BLUETOOTH_SETTINGS
             SystemSettingsTargets.LOCATION -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
             SystemSettingsTargets.NOTIFICATION -> "android.settings.NOTIFICATION_SETTINGS"
@@ -1105,8 +1215,37 @@ class ActionExecutor(
         const val COMPLETION_STATE_NOT_STARTED = "NotStarted"
         const val EXTERNAL_ACTIVITY_START_FAILED_SUMMARY = "外部应用或系统页面启动失败"
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
+        const val SMS_BODY_EXTRA = "sms_body"
+        /** Settings.ACTION_ZEN_MODE_SETTINGS is @hide but exported by AOSP and most OEM Settings apps. */
+        const val ZEN_MODE_SETTINGS_ACTION = "android.settings.ZEN_MODE_SETTINGS"
+        /** Settings.Panel.ACTION_VOLUME (API 29+); older releases fall back to sound settings. */
+        const val VOLUME_PANEL_ACTION = "android.settings.panel.action.VOLUME"
+        val phoneNumberRegex = Regex(PHONE_NUMBER_PATTERN)
     }
 }
+
+/** Android media key code for a `control_media` command, or null when unsupported. */
+internal fun mediaKeyCodeFor(command: String): Int? =
+    when (command) {
+        "play" -> KeyEvent.KEYCODE_MEDIA_PLAY
+        "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE
+        "play_pause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+        "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
+        "previous" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+        "stop" -> KeyEvent.KEYCODE_MEDIA_STOP
+        else -> null
+    }
+
+internal fun mediaCommandLabel(command: String): String =
+    when (command) {
+        "play" -> "播放"
+        "pause" -> "暂停"
+        "play_pause" -> "播放/暂停"
+        "next" -> "下一首"
+        "previous" -> "上一首"
+        "stop" -> "停止播放"
+        else -> "媒体控制"
+    }
 
 private fun ToolRequest.clipboardContextData(): Map<String, String> =
     mapOf(

@@ -139,6 +139,8 @@ enum class ToolPermission {
     RequiresMediaProjectionConsent,
     SchedulesBackgroundWork,
     PostsNotification,
+    /** Sends a media key (play/pause/next/previous) to whichever app owns the media session. */
+    DispatchesMediaKeyEvent,
 }
 
 enum class ConfirmationPolicy {
@@ -171,6 +173,10 @@ enum class ToolCapability {
     Extension,
     /** Meta/orchestration tool (e.g. plan_read/plan_write) used by the agent itself; no device or external side effects. */
     Orchestration,
+    /** Pure on-device computation over the request arguments only: no device reads, network, model or side effects. */
+    LocalCompute,
+    /** Media session transport control (play/pause/next/previous) via system media key events. */
+    MediaControl,
 }
 
 enum class ToolCapabilityTag {
@@ -222,6 +228,7 @@ private val publicEvidenceBatchDisallowedPermissions = setOf(
     ToolPermission.RequiresMediaProjectionConsent,
     ToolPermission.SchedulesBackgroundWork,
     ToolPermission.PostsNotification,
+    ToolPermission.DispatchesMediaKeyEvent,
 )
 
 fun ToolSpec.isEligibleForParallelBatch(): Boolean =

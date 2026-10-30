@@ -1265,6 +1265,74 @@
         "AgentLoopRuntimeTest"
       ],
       "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_dial_phone_number",
+      "entrypoint": "tool_registry",
+      "toolName": "dial_phone_number",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_compose_sms",
+      "entrypoint": "tool_registry",
+      "toolName": "compose_sms",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_control_media",
+      "entrypoint": "tool_registry",
+      "toolName": "control_media",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_calculate",
+      "entrypoint": "tool_registry",
+      "toolName": "calculate",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
     }
   ],
   "toolMatrixSourceFields": [

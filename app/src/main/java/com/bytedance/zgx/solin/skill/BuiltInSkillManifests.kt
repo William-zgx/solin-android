@@ -488,6 +488,39 @@ private val builtInSkillManifests = listOf(
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.LowReadOnly,
     ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.PHONE_SMS_DRAFT_SKILL,
+        version = 1,
+        title = "拨号与短信草稿",
+        description = "打开拨号盘或短信草稿并预填号码/正文，由用户手动拨出或发送；联系人姓名先经联系人查询取得号码。",
+        triggerExamples = listOf("打电话给10086", "给10086发短信说查询话费", "call 10086"),
+        requiredTools = listOf(
+            MobileActionFunctions.DIAL_PHONE_NUMBER,
+            MobileActionFunctions.COMPOSE_SMS,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.MEDIA_CONTROL_SKILL,
+        version = 1,
+        title = "媒体播放控制",
+        description = "向当前媒体应用发送播放、暂停、上一首、下一首或停止按键，不读取播放内容。",
+        triggerExamples = listOf("下一首", "暂停音乐", "继续播放", "next song"),
+        requiredTools = listOf(MobileActionFunctions.CONTROL_MEDIA),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.LOCAL_CALCULATOR_SKILL,
+        version = 1,
+        title = "本地计算与单位换算",
+        description = "在设备本地精确计算算式或换算长度、重量、容量和温度单位，不联网也不调用模型。",
+        triggerExamples = listOf("23*17+5", "3.5公里等于多少米", "100华氏度是多少摄氏度"),
+        requiredTools = listOf(MobileActionFunctions.CALCULATE),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
+    ),
 )
 
 private val builtInCompositeSkillIds = setOf(

@@ -99,12 +99,23 @@ class MobileActionPlanner(
     private fun inferDraft(input: String): ActionDraft? {
         val normalized = input.lowercase()
         if (input.looksLikeSequentialAction()) return null
+        // Translation is a chat turn, never a tool: "把'提醒我明天9点开会'翻译成英文" must not
+        // schedule a reminder. Routing (local by default) stays with the normal chat path.
+        if (TranslationIntentParser.matches(input)) return null
         // Computed at most once and only when the branch is reached; the absolute reminder reads
         // the clock exactly once so matching and drafting cannot straddle the trigger time.
         val systemAlarmDraft by lazy { SystemAlarmActionParser.draft(input) }
         val systemTimerDraft by lazy { SystemTimerActionParser.draft(input) }
         val absoluteReminderDraft by lazy { AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId) }
+        val phoneDraft by lazy { PhoneCallActionParser.draft(input) }
+        val smsDraft by lazy { SmsDraftActionParser.draft(input) }
+        val mediaDraft by lazy { MediaControlActionParser.draft(input) }
+        val calculatorDraft by lazy { CalculatorActionParser.draft(input) }
         return when {
+            calculatorDraft != null -> calculatorDraft
+            phoneDraft != null -> phoneDraft
+            smsDraft != null -> smsDraft
+            mediaDraft != null -> mediaDraft
             DeviceSettingsActionParser.matches(input) -> DeviceSettingsActionParser.draft(input)
             SystemSettingsActionParser.matches(input) -> SystemSettingsActionParser.draft(input)
             MapSearchActionParser.matches(input) -> MapSearchActionParser.draft(input)
@@ -145,7 +156,7 @@ class MobileActionPlanner(
             title = titleFor(this),
             summary = summaryFor(this, normalizedParameters),
             parameters = normalizedParameters,
-            requiresConfirmation = this != MobileActionFunctions.WEB_SEARCH,
+            requiresConfirmation = this != MobileActionFunctions.WEB_SEARCH && this != MobileActionFunctions.CALCULATE,
         )
     }
 
@@ -191,6 +202,10 @@ class MobileActionPlanner(
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "截取当前屏幕 OCR"
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> "观察当前屏幕"
             MobileActionFunctions.QUERY_CONTACTS -> "查询联系人"
+            MobileActionFunctions.DIAL_PHONE_NUMBER -> "拨号草稿"
+            MobileActionFunctions.COMPOSE_SMS -> "短信草稿"
+            MobileActionFunctions.CONTROL_MEDIA -> "媒体播放控制"
+            MobileActionFunctions.CALCULATE -> "本地计算"
             else -> "动作草稿"
         }
 
@@ -203,6 +218,11 @@ class MobileActionPlanner(
             MobileActionFunctions.SEARCH_MAPS -> "将在地图中搜索：${parameters["query"].orEmpty()}"
             MobileActionFunctions.WEB_SEARCH -> "将使用 Web 搜索工具查询并整理结果：${parameters["query"].orEmpty()}"
             MobileActionFunctions.COMPOSE_EMAIL -> "将打开邮件 App 并填入草稿内容。"
+            MobileActionFunctions.DIAL_PHONE_NUMBER -> PhoneCallActionParser.draftFor(parameters["phoneNumber"].orEmpty()).summary
+            MobileActionFunctions.COMPOSE_SMS ->
+                SmsDraftActionParser.draftFor(parameters["phoneNumber"].orEmpty(), parameters["body"].orEmpty()).summary
+            MobileActionFunctions.CONTROL_MEDIA -> MediaControlActionParser.draftFor(parameters["command"].orEmpty()).summary
+            MobileActionFunctions.CALCULATE -> CalculatorActionParser.draftFor(parameters["expression"].orEmpty()).summary
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "将打开日历新建事件页面。"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "将打开联系人新建页面。"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "将打开系统设置，由你手动确认手电筒相关操作。"

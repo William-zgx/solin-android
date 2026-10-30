@@ -760,6 +760,9 @@ class ToolRegistryTest {
                 MobileActionFunctions.OPEN_APP_INTENT,
                 MobileActionFunctions.OPEN_APP_DEEP_TARGET,
                 MobileActionFunctions.CANCEL_REMINDER,
+                // ExternalDraft like compose_email: Required confirmation, the user still taps call/send.
+                MobileActionFunctions.DIAL_PHONE_NUMBER,
+                MobileActionFunctions.COMPOSE_SMS,
             ),
             remotePlanningTools,
         )

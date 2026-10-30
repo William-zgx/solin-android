@@ -579,7 +579,8 @@ private val builtInToolSpecs: List<ToolSpec> =
     externalAndDraftToolSpecs +
         deviceQueryToolSpecs +
         uiControlToolSpecs +
-        orchestrationToolSpecs
+        orchestrationToolSpecs +
+        assistantIntentToolSpecs
 
 private val toolDefinitionsByName: Map<String, ToolDefinition> =
     builtInToolSpecs.map(::ToolDefinition).associateBy { it.spec.name }

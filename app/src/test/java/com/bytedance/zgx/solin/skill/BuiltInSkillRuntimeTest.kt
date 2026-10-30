@@ -258,6 +258,9 @@ class BuiltInSkillRuntimeTest {
             "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
                 runtime.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"),
             ),
+            "打电话给10086" to requireNotNull(runtime.plan("打电话给10086")),
+            "下一首" to requireNotNull(runtime.plan("下一首")),
+            "23*17+5" to requireNotNull(runtime.plan("23*17+5")),
         )
 
         plans.forEach { (input, plan) ->
@@ -2100,6 +2103,24 @@ class BuiltInSkillRuntimeTest {
                 "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
                 "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
             ),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "phone_sms_draft_skill",
+            requiredTools = listOf("dial_phone_number", "compose_sms"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("打电话给10086", "给10086发短信说查询话费", "call 10086"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "media_control_skill",
+            requiredTools = listOf("control_media"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("下一首", "暂停音乐", "继续播放", "next song"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "local_calculator_skill",
+            requiredTools = listOf("calculate"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("23*17+5", "3.5公里等于多少米", "100华氏度是多少摄氏度"),
         ),
     )
 

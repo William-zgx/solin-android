@@ -107,6 +107,7 @@ class RoutingToolExecutor(
         NotificationSummaryToolExecutor(notificationSummaryProvider)
     private val recentFilesToolExecutor = RecentFilesToolExecutor(recentFileProvider)
     private val webSearchToolExecutor = WebSearchToolExecutor(webSearchProvider)
+    private val localCalculatorToolExecutor = LocalCalculatorToolExecutor()
     private val backgroundTasksToolExecutor =
         backgroundTaskScheduler?.let(::BackgroundTasksToolExecutor)
     private val recentScreenshotOcrToolExecutor =
@@ -277,6 +278,8 @@ class RoutingToolExecutor(
                 recentFilesToolExecutor.execute(request)
             MobileActionFunctions.WEB_SEARCH ->
                 webSearchToolExecutor.execute(request)
+            MobileActionFunctions.CALCULATE ->
+                localCalculatorToolExecutor.execute(request)
             MobileActionFunctions.QUERY_BACKGROUND_TASKS ->
                 backgroundTasksToolExecutor?.execute(request)
                     ?: request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "后台任务本地存储不可用")

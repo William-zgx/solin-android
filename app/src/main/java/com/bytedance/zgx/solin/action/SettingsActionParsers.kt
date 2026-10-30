@@ -155,7 +155,15 @@ internal object SystemSettingsActionParser {
                     .containsMatchIn(normalized) ->
                 SystemSettingsTargets.DISPLAY
 
-            listOf("声音设置", "音量设置", "铃声设置").any { it in input } ||
+            listOf("勿扰", "免打扰").any { it in input } ||
+                Regex("""\b(?:do\s+not\s+disturb|dnd)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.DO_NOT_DISTURB
+
+            input.requestsVolumePanel() ||
+                Regex("""\bvolume\s+(?:panel|slider|controls?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.VOLUME
+
+            listOf("声音设置", "音量设置", "铃声设置", "铃声", "静音模式", "响铃模式", "震动模式", "振动模式").any { it in input } ||
                 Regex("""\b(?:sound|volume|ringtone)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:sound|volume|ringtone)\b""", RegexOption.IGNORE_CASE)
                     .containsMatchIn(normalized) ->
                 SystemSettingsTargets.SOUND
@@ -193,9 +201,15 @@ internal object SystemSettingsActionParser {
         }
     }
 
+    /** 音量面板 / 调大音量 / 调节音量; "音量设置" keeps mapping to the sound settings page. */
+    private fun String.requestsVolumePanel(): Boolean =
+        "音量面板" in this || "音量调节" in this ||
+            Regex("""调(?:大|小|高|低|节|整)?(?:一下|一点)?(?:手机|媒体|系统)?音量|音量调(?:大|小|高|低)""").containsMatchIn(this)
+
     private fun String.hasSettingsOpenIntent(): Boolean {
         val normalized = lowercase()
-        return listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置", "调出", "启动").any { it in this } ||
+        if (requestsVolumePanel()) return true
+        return listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置", "调出", "启动", "调成", "调到", "切换到", "切到").any { it in this } ||
             englishOpenPattern.containsMatchIn(normalized) ||
             englishSettingsPattern.containsMatchIn(normalized)
     }

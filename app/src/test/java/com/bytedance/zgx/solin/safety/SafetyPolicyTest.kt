@@ -8,6 +8,7 @@ import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.isRemoteModelPlanningEligible
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -384,6 +385,48 @@ class SafetyPolicyTest {
         assertTrue(result.maskedCategories.isEmpty())
     }
 
+    @Test
+    fun assistantIntentToolsKeepDraftConfirmationAndLocalCalculatorStaysReadOnly() {
+        val registry = ToolRegistry()
+        listOf(
+            MobileActionFunctions.DIAL_PHONE_NUMBER,
+            MobileActionFunctions.COMPOSE_SMS,
+            MobileActionFunctions.CONTROL_MEDIA,
+        ).forEach { toolName ->
+            val spec = requireNotNull(registry.specFor(toolName))
+            assertEquals(toolName, RiskLevel.MediumDraftOrNavigation, spec.riskLevel)
+            assertEquals(toolName, ConfirmationPolicy.Required, spec.confirmationPolicy)
+            assertEquals(
+                toolName,
+                SafetyOutcome.RequireConfirmation,
+                policy.evaluate(spec, ToolRequest(toolName = toolName), SafetyContext(userConfirmed = false)).outcome,
+            )
+        }
+        // Dial/SMS drafts are never auto-confirmed; only the media key honors the user's opt-in bypass.
+        assertFalse(registry.isLowRiskDeviceActionConfirmationSkippable(ToolRequest(toolName = MobileActionFunctions.DIAL_PHONE_NUMBER)))
+        assertFalse(registry.isLowRiskDeviceActionConfirmationSkippable(ToolRequest(toolName = MobileActionFunctions.COMPOSE_SMS)))
+        assertTrue(registry.isLowRiskDeviceActionConfirmationSkippable(ToolRequest(toolName = MobileActionFunctions.CONTROL_MEDIA)))
+        assertEquals(setOf("command"), registry.pendingArgumentAllowlistFor(MobileActionFunctions.CONTROL_MEDIA))
+        assertTrue(registry.pendingArgumentAllowlistFor(MobileActionFunctions.DIAL_PHONE_NUMBER).isEmpty())
+        assertTrue(registry.pendingArgumentAllowlistFor(MobileActionFunctions.COMPOSE_SMS).isEmpty())
+
+        val calculator = requireNotNull(registry.specFor(MobileActionFunctions.CALCULATE))
+        assertEquals(RiskLevel.LowReadOnly, calculator.riskLevel)
+        assertEquals(ConfirmationPolicy.NotRequired, calculator.confirmationPolicy)
+        assertEquals(ToolCapability.LocalCompute, calculator.capability)
+        assertTrue(calculator.permissions.isEmpty())
+        assertEquals(setOf("expression", "result"), calculator.privateOutputKeys)
+        assertFalse(calculator.isRemoteModelPlanningEligible())
+        assertEquals(
+            SafetyOutcome.Allow,
+            policy.evaluate(
+                calculator,
+                ToolRequest(toolName = calculator.name, arguments = mapOf("expression" to "1+1")),
+                SafetyContext(userConfirmed = false),
+            ).outcome,
+        )
+    }
+
     private fun toolSpec(
         riskLevel: RiskLevel,
         confirmationPolicy: ConfirmationPolicy,
@@ -418,6 +461,7 @@ class SafetyPolicyTest {
             ToolPermission.PerformsAccessibilityGesture,
             ToolPermission.RequiresMediaProjectionConsent,
             ToolPermission.ReadsDeviceContext,
+            ToolPermission.DispatchesMediaKeyEvent,
         )
     }
 }

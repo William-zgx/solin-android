@@ -34,7 +34,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
     ToolSpec(
         name = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
         title = "打开系统设置页",
-        description = "打开 allowlisted Android 系统设置页，例如蓝牙、定位、通知、显示、声音、省电、网络、飞行模式、输入法或无障碍；不会静默修改系统开关。",
+        description = "打开 allowlisted Android 系统设置页，例如蓝牙、定位、通知、显示、声音（铃声/静音/震动）、省电、网络、飞行模式、输入法、无障碍、勿扰模式或音量面板；不会静默修改系统开关。",
         inputSchemaJson = systemSettingsSchemaJson,
         outputSchemaJson = externalActivityOutputSchemaJson,
         capability = ToolCapability.DeviceSettings,

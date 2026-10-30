@@ -195,6 +195,15 @@ object MobileActionFunctions {
     const val CANCEL_REMINDER = "cancel_reminder"
     const val ASK_USER = "ask_user"
 
+    /** Opens the dialer pre-filled via ACTION_DIAL; never ACTION_CALL, no CALL_PHONE permission. */
+    const val DIAL_PHONE_NUMBER = "dial_phone_number"
+    /** Opens an SMS draft via ACTION_SENDTO smsto:; the user still taps send. */
+    const val COMPOSE_SMS = "compose_sms"
+    /** Dispatches a play/pause/next/previous media key to the active media session. */
+    const val CONTROL_MEDIA = "control_media"
+    /** Pure on-device arithmetic and unit conversion; never calls a model or the network. */
+    const val CALCULATE = "calculate"
+
     // ── Open-AutoGLM-inspired expanded action vocabulary ──
     /** Per-run scratchpad note. Records page content for later reference within the same run. */
     const val NOTE = "note"
@@ -245,6 +254,10 @@ object MobileActionFunctions {
         QUERY_FOREGROUND_APP,
         QUERY_RECENT_NOTIFICATIONS,
         CANCEL_REMINDER,
+        DIAL_PHONE_NUMBER,
+        COMPOSE_SMS,
+        CONTROL_MEDIA,
+        CALCULATE,
         // NOTE: `ask_user`, `note`, `finish`, and `take_over` are registered in ToolRegistry
         // (builtInToolSpecs) and intercepted by AgentLoopRuntime at plan-apply time, but they are
         // NOT dispatched by BuiltInSkillRuntime — they are orchestration-level tools available to
@@ -266,6 +279,8 @@ object SystemSettingsTargets {
     const val AIRPLANE_MODE = "airplane_mode"
     const val INPUT_METHOD = "input_method"
     const val ACCESSIBILITY = "accessibility"
+    const val DO_NOT_DISTURB = "do_not_disturb"
+    const val VOLUME = "volume"
 
     val supported: Set<String> = setOf(
         GENERAL,
@@ -279,6 +294,8 @@ object SystemSettingsTargets {
         AIRPLANE_MODE,
         INPUT_METHOD,
         ACCESSIBILITY,
+        DO_NOT_DISTURB,
+        VOLUME,
     )
 
     val confirmationBypassEligible: Set<String> = supported - ACCESSIBILITY
@@ -296,6 +313,8 @@ object SystemSettingsTargets {
             AIRPLANE_MODE -> "飞行模式设置"
             INPUT_METHOD -> "输入法设置"
             ACCESSIBILITY -> "无障碍设置"
+            DO_NOT_DISTURB -> "勿扰模式设置"
+            VOLUME -> "音量设置"
             else -> "系统设置"
         }
 }

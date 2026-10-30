@@ -3,6 +3,11 @@ package com.bytedance.zgx.solin.skill
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.AppNavigationActionParser
 import com.bytedance.zgx.solin.action.AbsoluteReminderActionParser
+import com.bytedance.zgx.solin.action.CalculatorActionParser
+import com.bytedance.zgx.solin.action.MediaControlActionParser
+import com.bytedance.zgx.solin.action.PhoneCallActionParser
+import com.bytedance.zgx.solin.action.SmsDraftActionParser
+import com.bytedance.zgx.solin.action.TranslationIntentParser
 import com.bytedance.zgx.solin.action.BackgroundTasksQueryActionParser
 import com.bytedance.zgx.solin.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.solin.action.CalendarDraftActionParser
@@ -63,7 +68,17 @@ class BuiltInSkillRuntime(
         // Every rule below handles a single action only; sequential requests are left to the
         // Agent loop. Branch ORDER is significant: the first matching rule wins.
         if (input.looksLikeSequentialAction()) return null
+        // Translation goes to the normal chat turn (see TranslationIntentParser), never a skill.
+        if (TranslationIntentParser.matches(input)) return null
+        val phoneDraft by lazy { PhoneCallActionParser.draft(input) }
+        val smsDraft by lazy { SmsDraftActionParser.draft(input) }
+        val mediaDraft by lazy { MediaControlActionParser.draft(input) }
+        val calculatorDraft by lazy { CalculatorActionParser.draft(input) }
         return when {
+            calculatorDraft != null -> single(requireNotNull(calculatorDraft))
+            phoneDraft != null -> single(requireNotNull(phoneDraft))
+            smsDraft != null -> single(requireNotNull(smsDraft))
+            mediaDraft != null -> single(requireNotNull(mediaDraft))
             input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
             input.requestsCurrentScreenTextSummaryShare() -> planCurrentScreenTextSummaryShare(input)
             input.requestsCurrentSettingsUiControl() -> planCurrentSettingsUiControl(input)
@@ -839,6 +854,9 @@ class BuiltInSkillRuntime(
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
         const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
         const val APP_NAVIGATION_SKILL = "app_navigation_skill"
+        const val PHONE_SMS_DRAFT_SKILL = "phone_sms_draft_skill"
+        const val MEDIA_CONTROL_SKILL = "media_control_skill"
+        const val LOCAL_CALCULATOR_SKILL = "local_calculator_skill"
     }
 }
 

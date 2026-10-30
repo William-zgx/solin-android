@@ -2266,3 +2266,162 @@ skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜�
     - web_search deps=[] tool=web_search args={query=上海迪士尼门票多少钱} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱 reason=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
 action: Draft web_search {query=上海迪士尼门票多少钱} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
 intent: web_search High
+## 打电话给10086
+skill[StaticSkill]: phone_sms_draft_skill reason=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。
+    - dial_phone_number deps=[] tool=dial_phone_number args={phoneNumber=10086} bind={} title=拨号草稿 summary=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。 reason=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。
+skill[ModelDrivenBootstrap]: phone_sms_draft_skill reason=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。
+    - dial_phone_number deps=[] tool=dial_phone_number args={phoneNumber=10086} bind={} title=拨号草稿 summary=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。 reason=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。
+action: Draft dial_phone_number {phoneNumber=10086} title=拨号草稿 summary=将打开拨号盘并填入 10086，需要你在拨号界面手动拨出；不会直接拨打。
+intent: dial_phone_number High
+## 拨打 138-0013-8000
+skill[StaticSkill]: phone_sms_draft_skill reason=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。
+    - dial_phone_number deps=[] tool=dial_phone_number args={phoneNumber=13800138000} bind={} title=拨号草稿 summary=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。 reason=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。
+skill[ModelDrivenBootstrap]: phone_sms_draft_skill reason=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。
+    - dial_phone_number deps=[] tool=dial_phone_number args={phoneNumber=13800138000} bind={} title=拨号草稿 summary=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。 reason=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。
+action: Draft dial_phone_number {phoneNumber=13800138000} title=拨号草稿 summary=将打开拨号盘并填入 13800138000，需要你在拨号界面手动拨出；不会直接拨打。
+intent: dial_phone_number High
+## 给妈妈打个电话
+skill[StaticSkill]: contact_lookup_skill reason=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+    - query_contacts deps=[] tool=query_contacts args={query=妈妈} bind={} title=查询联系人 summary=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。 reason=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+skill[ModelDrivenBootstrap]: contact_lookup_skill reason=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+    - query_contacts deps=[] tool=query_contacts args={query=妈妈} bind={} title=查询联系人 summary=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。 reason=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+action: Draft query_contacts {query=妈妈} title=查询联系人 summary=拨号需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+intent: query_contacts High
+## 怎么给10086打电话
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 拨打*#06#
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 发短信给10086说查询话费
+skill[StaticSkill]: phone_sms_draft_skill reason=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。
+    - compose_sms deps=[] tool=compose_sms args={body=查询话费, phoneNumber=10086} bind={} title=短信草稿 summary=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。 reason=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。
+skill[ModelDrivenBootstrap]: phone_sms_draft_skill reason=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。
+    - compose_sms deps=[] tool=compose_sms args={body=查询话费, phoneNumber=10086} bind={} title=短信草稿 summary=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。 reason=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。
+action: Draft compose_sms {body=查询话费, phoneNumber=10086} title=短信草稿 summary=将打开短信应用并填入收件号码 10086 和正文，需要你在短信应用中手动发送；不会直接发送。
+intent: compose_sms High
+## 给妈妈发短信说我到了
+skill[StaticSkill]: contact_lookup_skill reason=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+    - query_contacts deps=[] tool=query_contacts args={query=妈妈} bind={} title=查询联系人 summary=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。 reason=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+skill[ModelDrivenBootstrap]: contact_lookup_skill reason=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+    - query_contacts deps=[] tool=query_contacts args={query=妈妈} bind={} title=查询联系人 summary=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。 reason=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+action: Draft query_contacts {query=妈妈} title=查询联系人 summary=发短信需要先查到「妈妈」的电话号码：将读取通讯录中匹配「妈妈」的联系人摘要，确认号码后再继续。
+intent: query_contacts High
+## 下一首
+skill[StaticSkill]: media_control_skill reason=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。
+    - control_media deps=[] tool=control_media args={command=next} bind={} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。 reason=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。
+skill[ModelDrivenBootstrap]: media_control_skill reason=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。
+    - control_media deps=[] tool=control_media args={command=next} bind={} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。 reason=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。
+action: Draft control_media {command=next} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「下一首」按键；不会读取播放内容。
+intent: control_media High
+## 暂停音乐
+skill[StaticSkill]: media_control_skill reason=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。
+    - control_media deps=[] tool=control_media args={command=pause} bind={} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。 reason=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。
+skill[ModelDrivenBootstrap]: media_control_skill reason=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。
+    - control_media deps=[] tool=control_media args={command=pause} bind={} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。 reason=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。
+action: Draft control_media {command=pause} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「暂停」按键；不会读取播放内容。
+intent: control_media High
+## 继续播放
+skill[StaticSkill]: media_control_skill reason=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。
+    - control_media deps=[] tool=control_media args={command=play} bind={} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。 reason=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。
+skill[ModelDrivenBootstrap]: media_control_skill reason=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。
+    - control_media deps=[] tool=control_media args={command=play} bind={} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。 reason=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。
+action: Draft control_media {command=play} title=媒体播放控制 summary=将向当前正在播放的媒体应用发送「播放」按键；不会读取播放内容。
+intent: control_media High
+## 播放周杰伦的歌
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 暂停
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开勿扰模式
+skill[StaticSkill]: device_settings_skill reason=将打开勿扰模式设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=do_not_disturb} bind={} title=打开 勿扰模式设置 summary=将打开勿扰模式设置，由你手动完成后续操作。 reason=将打开勿扰模式设置，由你手动完成后续操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开勿扰模式设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=do_not_disturb} bind={} title=打开 勿扰模式设置 summary=将打开勿扰模式设置，由你手动完成后续操作。 reason=将打开勿扰模式设置，由你手动完成后续操作。
+action: Draft open_system_settings {target=do_not_disturb} title=打开 勿扰模式设置 summary=将打开勿扰模式设置，由你手动完成后续操作。
+intent: open_system_settings High
+## 调大音量
+skill[StaticSkill]: device_settings_skill reason=将打开音量设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=volume} bind={} title=打开 音量设置 summary=将打开音量设置，由你手动完成后续操作。 reason=将打开音量设置，由你手动完成后续操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开音量设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=volume} bind={} title=打开 音量设置 summary=将打开音量设置，由你手动完成后续操作。 reason=将打开音量设置，由你手动完成后续操作。
+action: Draft open_system_settings {target=volume} title=打开 音量设置 summary=将打开音量设置，由你手动完成后续操作。
+intent: open_system_settings High
+## 打开音量设置
+skill[StaticSkill]: device_settings_skill reason=将打开声音设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=sound} bind={} title=打开 声音设置 summary=将打开声音设置，由你手动完成后续操作。 reason=将打开声音设置，由你手动完成后续操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开声音设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=sound} bind={} title=打开 声音设置 summary=将打开声音设置，由你手动完成后续操作。 reason=将打开声音设置，由你手动完成后续操作。
+action: Draft open_system_settings {target=sound} title=打开 声音设置 summary=将打开声音设置，由你手动完成后续操作。
+intent: open_system_settings High
+## 把手机调成静音模式
+skill[StaticSkill]: device_settings_skill reason=将打开声音设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=sound} bind={} title=打开 声音设置 summary=将打开声音设置，由你手动完成后续操作。 reason=将打开声音设置，由你手动完成后续操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开声音设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=sound} bind={} title=打开 声音设置 summary=将打开声音设置，由你手动完成后续操作。 reason=将打开声音设置，由你手动完成后续操作。
+action: Draft open_system_settings {target=sound} title=打开 声音设置 summary=将打开声音设置，由你手动完成后续操作。
+intent: open_system_settings High
+## 23*17+5
+skill[StaticSkill]: local_calculator_skill reason=将在本地计算：23*17+5
+    - calculate deps=[] tool=calculate args={expression=23*17+5} bind={} title=本地计算 summary=将在本地计算：23*17+5 reason=将在本地计算：23*17+5
+skill[ModelDrivenBootstrap]: local_calculator_skill reason=将在本地计算：23*17+5
+    - calculate deps=[] tool=calculate args={expression=23*17+5} bind={} title=本地计算 summary=将在本地计算：23*17+5 reason=将在本地计算：23*17+5
+action: Draft calculate {expression=23*17+5} title=本地计算 summary=将在本地计算：23*17+5
+intent: calculate High
+## 3.5公里等于多少米
+skill[StaticSkill]: local_calculator_skill reason=将在本地把 3.5 公里换算为米
+    - calculate deps=[] tool=calculate args={expression=3.5 km to m} bind={} title=本地计算 summary=将在本地把 3.5 公里换算为米 reason=将在本地把 3.5 公里换算为米
+skill[ModelDrivenBootstrap]: local_calculator_skill reason=将在本地把 3.5 公里换算为米
+    - calculate deps=[] tool=calculate args={expression=3.5 km to m} bind={} title=本地计算 summary=将在本地把 3.5 公里换算为米 reason=将在本地把 3.5 公里换算为米
+action: Draft calculate {expression=3.5 km to m} title=本地计算 summary=将在本地把 3.5 公里换算为米
+intent: calculate High
+## 100华氏度是多少摄氏度
+skill[StaticSkill]: local_calculator_skill reason=将在本地把 100 华氏度换算为摄氏度
+    - calculate deps=[] tool=calculate args={expression=100 f to c} bind={} title=本地计算 summary=将在本地把 100 华氏度换算为摄氏度 reason=将在本地把 100 华氏度换算为摄氏度
+skill[ModelDrivenBootstrap]: local_calculator_skill reason=将在本地把 100 华氏度换算为摄氏度
+    - calculate deps=[] tool=calculate args={expression=100 f to c} bind={} title=本地计算 summary=将在本地把 100 华氏度换算为摄氏度 reason=将在本地把 100 华氏度换算为摄氏度
+action: Draft calculate {expression=100 f to c} title=本地计算 summary=将在本地把 100 华氏度换算为摄氏度
+intent: calculate High
+## 1英寸多少厘米
+skill[StaticSkill]: local_calculator_skill reason=将在本地把 1 英寸换算为厘米
+    - calculate deps=[] tool=calculate args={expression=1 in to cm} bind={} title=本地计算 summary=将在本地把 1 英寸换算为厘米 reason=将在本地把 1 英寸换算为厘米
+skill[ModelDrivenBootstrap]: local_calculator_skill reason=将在本地把 1 英寸换算为厘米
+    - calculate deps=[] tool=calculate args={expression=1 in to cm} bind={} title=本地计算 summary=将在本地把 1 英寸换算为厘米 reason=将在本地把 1 英寸换算为厘米
+action: Draft calculate {expression=1 in to cm} title=本地计算 summary=将在本地把 1 英寸换算为厘米
+intent: calculate High
+## 三加五等于几
+skill[StaticSkill]: local_calculator_skill reason=将在本地计算：3+5
+    - calculate deps=[] tool=calculate args={expression=3+5} bind={} title=本地计算 summary=将在本地计算：3+5 reason=将在本地计算：3+5
+skill[ModelDrivenBootstrap]: local_calculator_skill reason=将在本地计算：3+5
+    - calculate deps=[] tool=calculate args={expression=3+5} bind={} title=本地计算 summary=将在本地计算：3+5 reason=将在本地计算：3+5
+action: Draft calculate {expression=3+5} title=本地计算 summary=将在本地计算：3+5
+intent: calculate High
+## 2026-06-14
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 把'提醒我明天9点开会'翻译成英文
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 翻译成英文：打电话给10086
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 你好用法语怎么说
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None

@@ -32,7 +32,9 @@ internal val systemSettingsSchemaJson = """
             "${SystemSettingsTargets.NETWORK}",
             "${SystemSettingsTargets.AIRPLANE_MODE}",
             "${SystemSettingsTargets.INPUT_METHOD}",
-            "${SystemSettingsTargets.ACCESSIBILITY}"
+            "${SystemSettingsTargets.ACCESSIBILITY}",
+            "${SystemSettingsTargets.DO_NOT_DISTURB}",
+            "${SystemSettingsTargets.VOLUME}"
           ]
         }
       },
