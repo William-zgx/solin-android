@@ -308,6 +308,19 @@ class SafetyPolicyTest {
     }
 
     @Test
+    fun detectSensitiveSnippetsIsCaseInsensitiveLikeCategories() {
+        listOf(
+            "My PASSWORD is hunter2" to "My PASSWORD",
+            "MY THERAPIST said hi" to "MY THERAPIST",
+            "HOSPITAL NEAR ME" to "HOSPITAL NEAR ME",
+        ).forEach { (text, expectedSnippet) ->
+            assertTrue(text, policy.detectSensitiveCategories(text).isNotEmpty())
+            val snippets = policy.detectSensitiveSnippets(text)
+            assertTrue("$text -> $snippets", snippets.contains(expectedSnippet))
+        }
+    }
+
+    @Test
     fun maskSensitiveContentRedactsEmailPhoneAndSecretsButKeepsDidMask() {
         val result = policy.maskSensitiveContent(
             "邮箱 a@b.com 手机 13800138000 密钥 AKIA1234567890ABCDEF",

@@ -90,11 +90,24 @@ class SafetyPolicy {
         if (text.isBlank() || maxSnippets <= 0) return emptyList()
         val snippets = linkedSetOf<String>()
         val isoSpans = isoDateOrDateTimePattern.findAll(text).map { it.range }.toList()
+        // The English keyword patterns are lowercase-only; detectSensitiveCategories runs them on
+        // the lowercased text, so snippets must too, or "My PASSWORD" would raise a category with
+        // no snippet to explain it. Show the original-case span when lowercasing kept offsets.
+        val normalized = text.lowercase()
+        val normalizedKeepsOffsets = normalized.length == text.length
 
         fun addMatches(pattern: Regex) {
             pattern.findAll(text).forEach { match ->
                 if (snippets.size >= maxSnippets) return
                 snippets += match.value.toDisclosureSnippet()
+            }
+        }
+
+        fun addNormalizedMatches(pattern: Regex) {
+            pattern.findAll(normalized).forEach { match ->
+                if (snippets.size >= maxSnippets) return
+                val value = if (normalizedKeepsOffsets) text.substring(match.range) else match.value
+                snippets += value.toDisclosureSnippet()
             }
         }
 
@@ -112,11 +125,11 @@ class SafetyPolicy {
         addMatches(privateKeyBlockPattern)
         addMatches(secretAssignmentPattern)
         addMatches(personalChineseKeywordPattern)
-        addMatches(personalEnglishKeywordPattern)
+        addNormalizedMatches(personalEnglishKeywordPattern)
         addMatches(sensitiveChineseDomainPattern)
         addMatches(sensitiveChineseLocationPattern)
-        addMatches(sensitiveEnglishDomainPattern)
-        addMatches(sensitiveEnglishLocationPattern)
+        addNormalizedMatches(sensitiveEnglishDomainPattern)
+        addNormalizedMatches(sensitiveEnglishLocationPattern)
         return snippets.take(maxSnippets)
     }
 
