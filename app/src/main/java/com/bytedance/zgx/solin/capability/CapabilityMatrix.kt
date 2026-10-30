@@ -497,7 +497,7 @@ object CapabilityMatrix {
                 displayName = "远程视觉 GUI 操作（可选开启）",
                 dataAccessed = "开启可选开关且远程模型支持视觉、处于 Remote 模式时，通过无障碍服务(AccessibilityService.takeScreenshot)捕获的当前屏幕截图像素（JPEG），可能包含屏上任意内容与其它 App 的个人信息；截图为瞬态、绝不落盘。",
                 consentBoundary = "默认关闭。需用户在信任中心显式开启（带外发警告）并确认本轮首个动作；首次确认后同轮后续截图自动外发，受每轮步数上限约束；换会话、模式或配置即重置，需重新确认。",
-                remoteBoundary = "这是这台设备默认屏幕像素边界的有意反转：截图像素会被传输到用户配置的远程视觉模型以规划点击；远程模型只收到截图与决策 prompt，不收工具 schema、不执行任何动作，其回复仅作为不可信坐标建议解析成本地 ui_tap，仍过本地危险动作与前台包名 preflight 及确认策略。",
+                remoteBoundary = "这是这台设备默认屏幕像素边界的有意反转：截图像素会被传输到用户配置的远程视觉模型以规划点击；远程模型只收到截图与决策 prompt，不收工具 schema、不执行任何动作，其回复仅作为不可信的点击/返回/滚动/停止建议解析成本地 ui_tap、ui_press_back、ui_scroll 或 finish，仍过本地危险动作与前台包名 preflight 及确认策略；停止或在未变化屏幕上重复同一动作会结束本轮。",
                 revokeOrClearControl = "可在信任中心关闭该开关、在系统无障碍设置关闭 Solin 服务、取消动作确认；每次外发写入脱敏 remote-send 审计（决策、模型、图片数、摘要，不含像素或 prompt），信任中心可回看。",
                 requiredTests = listOf(
                     "RemoteVisionObservationReplannerTest",

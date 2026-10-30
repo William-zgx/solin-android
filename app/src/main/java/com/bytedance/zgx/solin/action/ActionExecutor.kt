@@ -1374,6 +1374,14 @@ private val appLookupAliases = mapOf(
     "rednote" to "小红书",
     "bilibili" to "哔哩哔哩",
     "b站" to "哔哩哔哩",
+    "dianping" to "大众点评",
+    "点评" to "大众点评",
+    "网易云" to "网易云音乐",
+    "cloudmusic" to "网易云音乐",
+    "qqmusic" to "qq音乐",
+    "ctrip" to "携程",
+    "eleme" to "饿了么",
+    "饿了吗" to "饿了么",
 )
 
 private fun String.normalizedAppLookupKey(): String =

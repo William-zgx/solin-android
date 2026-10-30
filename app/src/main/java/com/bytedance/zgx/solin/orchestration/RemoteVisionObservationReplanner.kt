@@ -11,6 +11,8 @@ import kotlin.math.abs
 private const val REMOTE_VISION_REPLAN_REQUEST_REASON = MODEL_OBSERVATION_REPLAN_REQUEST_REASON
 private const val REMOTE_VISION_REPLAN_FALLBACK_REASON = "remote vision observation replan"
 private const val DEFAULT_MAX_REMOTE_VISION_REPLANS = 5
+private const val REMOTE_VISION_STOP_MESSAGE = "远程视觉模型判断任务已完成或不应继续操作，已停止。"
+private const val REMOTE_VISION_NO_PROGRESS_MESSAGE = "重复操作没有让屏幕产生变化，已停止自动操作。"
 
 /**
  * Two taps whose normalized coordinates differ by no more than this on both axes are the "same target".
@@ -148,7 +150,8 @@ class RemoteVisionObservationReplanner(
 
             RemoteVisionDecision.Stop -> {
                 logger("remote-vision: decision stop")
-                return null
+                // End the run explicitly; returning null would let the local model keep driving.
+                return if (executeDecisions) toFinishReplan(REMOTE_VISION_STOP_MESSAGE) else null
             }
 
             is RemoteVisionDecision.Unavailable -> {
@@ -165,7 +168,7 @@ class RemoteVisionObservationReplanner(
                 "remote-vision: repeated ${replan.request.toolName} on an unchanged screen — " +
                     "fail closed, loop stops",
             )
-            return null
+            return toFinishReplan(REMOTE_VISION_NO_PROGRESS_MESSAGE)
         }
         return replan
     }
@@ -223,6 +226,18 @@ class RemoteVisionObservationReplanner(
             title = "系统返回",
             summary = "远程视觉模型规划执行系统返回。",
             arguments = emptyMap(),
+        )
+
+    /**
+     * Builds a LOCAL `finish` (low risk, no device effect) so a remote stop, or a refused repeat,
+     * ends the run instead of falling through to the local model replanner.
+     */
+    private fun toFinishReplan(message: String): AgentObservationReplan =
+        remoteVisionReplan(
+            toolName = MobileActionFunctions.FINISH,
+            title = "结束操作",
+            summary = message,
+            arguments = mapOf("message" to message),
         )
 
     private fun AgentObservationReplanContext.inheritedForegroundPackage(): String? =

@@ -212,8 +212,10 @@ gated by defense-in-depth:
   records, audit, or receipts.
 - **This is NOT the remote tool-planning path:** the remote model receives the
   screenshot plus a decision prompt, not device-control tool schemas, and never
-  executes anything. Its reply is an untrusted coordinate suggestion parsed into
-  a local `ui_tap`. Every tap runs locally through the same device-control
+  executes anything. Its reply is an untrusted tap / back / scroll / stop
+  suggestion parsed into a local `ui_tap`, `ui_press_back`, `ui_scroll`, or
+  `finish`. A stop, or a repeated action on a screen that did not change, ends
+  the run. Every tap runs locally through the same device-control
   preflights (dangerous-action and foreground-package checks) and confirmation
   policy as any other phone-control action; payment/send/delete/publish/purchase
   /transfer/authorization controls still stop or require confirmation.

@@ -151,7 +151,7 @@ class RemoteVisionObservationReplannerTest {
         val replan = executingReplanner(RemoteVisionDecision.Tap(505, 246), logs)
             .planNext(context(previous = previous, screenHistory = unchanged))
 
-        assertNull("same tap (within tolerance) on an unchanged screen must stop", replan)
+        assertFinishes("same tap (within tolerance) on an unchanged screen must stop", replan)
         assertTrue(logs.any { it.contains("repeated ui_tap on an unchanged screen") })
     }
 
@@ -199,8 +199,8 @@ class RemoteVisionObservationReplannerTest {
             ),
         )
 
-        assertNull("scrolled to the end: another identical scroll cannot progress", scrollAgain)
-        assertNull("back had no effect: pressing it again cannot progress", backAgain)
+        assertFinishes("scrolled to the end: another identical scroll cannot progress", scrollAgain)
+        assertFinishes("back had no effect: pressing it again cannot progress", backAgain)
     }
 
     @Test
@@ -228,7 +228,7 @@ class RemoteVisionObservationReplannerTest {
         val replan = executingReplanner(RemoteVisionDecision.Tap(500, 250))
             .planNext(context(previous = previous, screenHistory = listOf(fingerprint("feed", at = 1L))))
 
-        assertNull(replan)
+        assertFinishes("no screen evidence", replan)
     }
 
     @Test
@@ -378,11 +378,24 @@ class RemoteVisionObservationReplannerTest {
     }
 
     @Test
-    fun stopDecisionReturnsNull() {
+    fun stopDecisionFinishesTheRun() {
         val replanner = RemoteVisionObservationReplanner(
             decider = { _, _ -> RemoteVisionDecision.Stop },
             gateProvider = { true },
             executeDecisions = true,
+            logger = {},
+        )
+        val replan = replanner.planNext(context())
+        assertEquals(MobileActionFunctions.FINISH, replan?.request?.toolName)
+        assertTrue(replan?.request?.arguments?.get("message").orEmpty().isNotBlank())
+    }
+
+    @Test
+    fun stopDecisionInReadOnlyModeReturnsNull() {
+        val replanner = RemoteVisionObservationReplanner(
+            decider = { _, _ -> RemoteVisionDecision.Stop },
+            gateProvider = { true },
+            executeDecisions = false,
             logger = {},
         )
         assertNull(replanner.planNext(context()))
@@ -462,5 +475,9 @@ class RemoteVisionObservationReplannerTest {
             RemoteVisionDecision.Tap(500, 250),
             parseRemoteVisionDecision("""{"action":"tap","x":"500","y":"250"}"""),
         )
+    }
+
+    private fun assertFinishes(message: String, replan: AgentObservationReplan?) {
+        assertEquals(message, MobileActionFunctions.FINISH, replan?.request?.toolName)
     }
 }
