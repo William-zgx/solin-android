@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.skill
 
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,7 +30,7 @@ data class SkillRunCheckpoint(
 ) {
     fun validationErrorFor(
         plan: SkillPlan,
-        toolRegistry: ToolRegistry = ToolRegistry(),
+        toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     ): String? {
         if (schemaVersion != SCHEMA_VERSION) return "unsupported skill checkpoint version"
         if (runId.isNotSafeCheckpointToken()) return "unsafe skill checkpoint run id"
@@ -146,7 +147,7 @@ data class SkillRunCheckpoint(
 fun SkillRunContinuation.toValueFreeCheckpoint(
     runId: String,
     plan: SkillPlan,
-    toolRegistry: ToolRegistry = ToolRegistry(),
+    toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ): SkillRunCheckpoint =
     SkillRunCheckpoint(
         runId = runId,
@@ -170,7 +171,7 @@ fun SkillRunContinuation.toValueFreeCheckpoint(
 fun SkillPlan.valueFreeCheckpointForPendingTool(
     runId: String,
     pendingRequest: ToolRequest,
-    toolRegistry: ToolRegistry = ToolRegistry(),
+    toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ): SkillRunCheckpoint? {
     val pendingStepIndex = steps.indexOfFirst { step ->
         step is SkillStep.ToolStep &&

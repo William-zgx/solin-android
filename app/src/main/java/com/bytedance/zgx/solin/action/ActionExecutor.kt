@@ -24,6 +24,7 @@ import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TEXT_CHARS
 import com.bytedance.zgx.solin.tool.MAX_SHARE_TITLE_CHARS
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.failed
@@ -40,7 +41,7 @@ class ActionExecutor(
     private val externalActivityStarter: ((ExternalActivityLaunch) -> Boolean)? = null,
     private val appLauncherResolver: ((String) -> AppLaunchResolution)? = null,
     private val deviceControlSessionStarter: ((String) -> Unit)? = null,
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName == MobileActionFunctions.SCHEDULE_REMINDER) {

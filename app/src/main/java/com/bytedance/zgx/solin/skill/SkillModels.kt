@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.skill
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -201,7 +202,7 @@ data class SkillPlanValidation(
 }
 
 fun SkillPlan.validateStructure(
-    toolRegistry: ToolRegistry = ToolRegistry(),
+    toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ): SkillPlanValidation {
     val errors = mutableListOf<String>()
     val seenStepIds = mutableSetOf<String>()

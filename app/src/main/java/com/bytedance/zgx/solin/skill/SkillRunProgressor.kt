@@ -3,12 +3,13 @@ package com.bytedance.zgx.solin.skill
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 
 class SkillRunProgressor(
     private val maxSteps: Int = DEFAULT_MAX_STEPS,
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ) {
     fun validateForExecution(plan: SkillPlan): String? {
         val validation = plan.validateStructure(toolRegistry)

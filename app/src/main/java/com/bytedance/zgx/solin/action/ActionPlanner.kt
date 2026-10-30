@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.action
 
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import java.time.ZoneId
 import org.json.JSONArray
 import org.json.JSONObject
@@ -9,7 +10,7 @@ import org.json.JSONTokener
 class MobileActionPlanner(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val zoneId: ZoneId = ZoneId.systemDefault(),
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ) {
     fun classifyIntent(input: String): IntentCandidate {
         parseModelOutput(input)?.let { draft ->

@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
@@ -14,7 +15,7 @@ class SkillRunExecutor(
     private val toolExecutor: ToolExecutor,
     private val modelExecutor: SkillModelStepExecutor,
     private val toolGate: SkillToolGate = RegistrySkillToolGate(),
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     maxSteps: Int = DEFAULT_MAX_STEPS,
 ) {
     private val progressor = SkillRunProgressor(maxSteps = maxSteps, toolRegistry = toolRegistry)
@@ -349,7 +350,7 @@ fun interface SkillToolGate {
 }
 
 class RegistrySkillToolGate(
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     private val safetyPolicy: SafetyPolicy = SafetyPolicy(),
 ) : SkillToolGate {
     override fun evaluate(

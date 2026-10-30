@@ -8,6 +8,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.io.File
 import kotlinx.coroutines.flow.collect
@@ -55,7 +56,7 @@ sealed class ModelToolOutputParseResult {
 
 class HybridActionPlanningRuntime(
     cacheDir: File,
-    toolRegistry: ToolRegistry = ToolRegistry(),
+    toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     private val rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
 ) : ActionPlanningRuntime, AutoCloseable {
     private val modelPlanner = ModelBackedActionPlanner(cacheDir, rulePlanner, toolRegistry)
@@ -200,7 +201,7 @@ private fun Throwable.diagnosticReason(): String =
 
 internal fun actionPrompt(
     input: String,
-    toolSpecs: List<ToolSpec> = ToolRegistry().specs(),
+    toolSpecs: List<ToolSpec> = defaultBuiltInToolRegistry.specs(),
 ): String {
     val toolLines = toolSpecs.joinToString(separator = "\n") { spec ->
         spec.toActionPromptLine()
