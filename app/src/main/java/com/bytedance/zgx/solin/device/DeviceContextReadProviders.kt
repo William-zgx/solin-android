@@ -510,12 +510,14 @@ private fun screenshotSelectionArgs(): Array<String> {
 class AndroidRecentFileProvider(
     private val context: Context,
 ) : RecentFileProvider {
+    private val mediaPolicy = MediaReadAccessPolicy(hasPermission = ::hasPermission)
+
     override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult {
         val normalizedKind = normalizeKind(kind)
-        if (!hasReadPermissionForKind(normalizedKind)) {
+        if (!mediaPolicy.hasReadPermissionForKind(normalizedKind)) {
             return RecentFileReadResult.PermissionDenied(
-                reason = permissionMessageForKind(normalizedKind),
-                retryable = isRuntimePermissionRetryableKind(normalizedKind),
+                reason = mediaPolicy.permissionMessageForKind(normalizedKind),
+                retryable = mediaPolicy.isRuntimePermissionRetryableKind(normalizedKind),
             )
         }
         val normalizedMaxCount = maxCount.coerceIn(1, MAX_RECENT_FILE_COUNT)
@@ -555,7 +557,7 @@ class AndroidRecentFileProvider(
 
             RecentFileReadResult.Available(
                 items = files,
-                mediaAccessScope = mediaAccessScopeForKind(normalizedKind),
+                mediaAccessScope = mediaPolicy.mediaAccessScopeForKind(normalizedKind),
             )
         } catch (_: SecurityException) {
             RecentFileReadResult.PermissionDenied("未授权“读取文件”权限")
@@ -630,15 +632,15 @@ class AndroidRecentFileProvider(
     private fun mediaFilterForGrantedPermissions(): RecentFileKindFilter {
         val clauses = mutableListOf<String>()
         val args = mutableListOf<String>()
-        if (hasVisualMediaAccessForKind(KIND_IMAGES)) {
+        if (mediaPolicy.hasVisualMediaAccessForKind(KIND_IMAGES)) {
             clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
             args += "image/%"
         }
-        if (hasVisualMediaAccessForKind(KIND_VIDEOS)) {
+        if (mediaPolicy.hasVisualMediaAccessForKind(KIND_VIDEOS)) {
             clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
             args += "video/%"
         }
-        if (hasPermission(Manifest.permission.READ_MEDIA_AUDIO)) {
+        if (mediaPolicy.hasAudioPermission()) {
             clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
             args += "audio/%"
         }
@@ -662,91 +664,6 @@ class AndroidRecentFileProvider(
             else -> KIND_ALL
         }
 
-    private fun hasReadPermissionForKind(kind: String): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            return when (kind) {
-                KIND_SCREENSHOTS -> hasVisualMediaAccessForKind(KIND_IMAGES)
-                KIND_IMAGES -> hasVisualMediaAccessForKind(KIND_IMAGES)
-                KIND_VIDEOS -> hasVisualMediaAccessForKind(KIND_VIDEOS)
-                KIND_AUDIO -> hasPermission(Manifest.permission.READ_MEDIA_AUDIO)
-                KIND_ALL -> hasVisualMediaAccessForKind(KIND_IMAGES) ||
-                    hasVisualMediaAccessForKind(KIND_VIDEOS) ||
-                    hasPermission(Manifest.permission.READ_MEDIA_AUDIO)
-                else -> false
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return when (kind) {
-                KIND_SCREENSHOTS -> hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
-                KIND_IMAGES -> hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
-                KIND_VIDEOS -> hasPermission(Manifest.permission.READ_MEDIA_VIDEO)
-                KIND_AUDIO -> hasPermission(Manifest.permission.READ_MEDIA_AUDIO)
-                KIND_ALL -> hasPermission(Manifest.permission.READ_MEDIA_IMAGES) ||
-                    hasPermission(Manifest.permission.READ_MEDIA_VIDEO) ||
-                    hasPermission(Manifest.permission.READ_MEDIA_AUDIO)
-                else -> false
-            }
-        }
-        return hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-
-    private fun permissionMessageForKind(kind: String): String =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            kind in setOf(KIND_DOCUMENTS, KIND_DOWNLOADS, KIND_OTHERS)
-        ) {
-            "当前 Android 版本需要通过系统文件选择器授权非媒体文件"
-        } else {
-            "未授权“读取文件”权限"
-        }
-
-    private fun isRuntimePermissionRetryableKind(kind: String): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            kind !in setOf(KIND_DOCUMENTS, KIND_DOWNLOADS, KIND_OTHERS)
-
-    private fun mediaAccessScopeForKind(kind: String): String {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return MEDIA_ACCESS_SCOPE_LEGACY_STORAGE
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            if (kind in setOf(KIND_SCREENSHOTS, KIND_IMAGES)) {
-                return visualMediaAccessScope(Manifest.permission.READ_MEDIA_IMAGES)
-            }
-            if (kind == KIND_VIDEOS) {
-                return visualMediaAccessScope(Manifest.permission.READ_MEDIA_VIDEO)
-            }
-            if (kind == KIND_ALL &&
-                hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) &&
-                !hasPermission(Manifest.permission.READ_MEDIA_IMAGES) &&
-                !hasPermission(Manifest.permission.READ_MEDIA_VIDEO)
-            ) {
-                return MEDIA_ACCESS_SCOPE_USER_SELECTED_VISUAL_MEDIA
-            }
-        }
-        return MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY
-    }
-
-    private fun visualMediaAccessScope(fullMediaPermission: String): String =
-        if (hasPermission(fullMediaPermission)) {
-            MEDIA_ACCESS_SCOPE_FULL_VISUAL_MEDIA
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-        ) {
-            MEDIA_ACCESS_SCOPE_USER_SELECTED_VISUAL_MEDIA
-        } else {
-            MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY
-        }
-
-    private fun hasVisualMediaAccessForKind(kind: String): Boolean {
-        val fullMediaPermission = when (kind) {
-            KIND_IMAGES, KIND_SCREENSHOTS -> Manifest.permission.READ_MEDIA_IMAGES
-            KIND_VIDEOS -> Manifest.permission.READ_MEDIA_VIDEO
-            else -> return false
-        }
-        return hasPermission(fullMediaPermission) ||
-            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
-    }
-
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
@@ -755,9 +672,11 @@ class AndroidRecentImageTextProvider(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
 ) : RecentImageTextProvider {
+    private val mediaPolicy = MediaReadAccessPolicy(hasPermission = ::hasPermission)
+
     override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult {
         val normalizedKind = normalizeImageTextKind(kind)
-        if (!hasImageReadPermission()) {
+        if (!mediaPolicy.hasImageReadPermission()) {
             return RecentImageTextReadResult.PermissionDenied("未授权“读取图片”权限")
         }
         val normalizedMaxCount = maxCount.coerceIn(1, MAX_RECENT_IMAGE_TEXT_SCAN_COUNT)
@@ -796,7 +715,7 @@ class AndroidRecentImageTextProvider(
                             lastModifiedMillis = it.getLong(modifiedIndex).coerceAtLeast(0L) * 1000L,
                         ),
                         scannedCount = scannedCount,
-                        mediaAccessScope = mediaAccessScopeForImages(),
+                        mediaAccessScope = mediaPolicy.mediaAccessScopeForImages(),
                     )
                 }
             }
@@ -804,7 +723,7 @@ class AndroidRecentImageTextProvider(
             RecentImageTextReadResult.Available(
                 item = null,
                 scannedCount = scannedCount,
-                mediaAccessScope = mediaAccessScopeForImages(),
+                mediaAccessScope = mediaPolicy.mediaAccessScopeForImages(),
             )
         } catch (_: SecurityException) {
             RecentImageTextReadResult.PermissionDenied("未授权“读取图片”权限")
@@ -831,30 +750,6 @@ class AndroidRecentImageTextProvider(
             KIND_IMAGES -> KIND_IMAGES
             KIND_SCREENSHOTS -> KIND_SCREENSHOTS
             else -> KIND_SCREENSHOTS
-        }
-
-    private fun hasImageReadPermission(): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            hasPermission(Manifest.permission.READ_MEDIA_IMAGES) ||
-                hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
-        } else {
-            hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-
-    private fun mediaAccessScopeForImages(): String =
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            MEDIA_ACCESS_SCOPE_LEGACY_STORAGE
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            !hasPermission(Manifest.permission.READ_MEDIA_IMAGES) &&
-            hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-        ) {
-            MEDIA_ACCESS_SCOPE_USER_SELECTED_VISUAL_MEDIA
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            MEDIA_ACCESS_SCOPE_FULL_VISUAL_MEDIA
-        } else {
-            MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY
         }
 
     private fun hasPermission(permission: String): Boolean =
