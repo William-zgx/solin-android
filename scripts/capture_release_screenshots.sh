@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/lib/emulator.sh"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
@@ -106,15 +107,6 @@ fail() {
   exit 1
 }
 
-device_state_for() {
-  local serial="$1"
-  "$ADB_BIN" devices | awk -v serial="$serial" '$1 == serial {print $2; found = 1} END {if (!found) print ""}'
-}
-
-authorized_emulators() {
-  "$ADB_BIN" devices | awk 'NR > 1 && $1 ~ /^emulator-[0-9]+$/ && $2 == "device" {print $1}'
-}
-
 select_emulator_once() {
   if [[ -n "${ANDROID_SERIAL:-}" ]]; then
     if [[ "$ANDROID_SERIAL" != emulator-* && "${ALLOW_PHYSICAL_SCREENSHOTS:-0}" != "1" ]]; then
@@ -148,27 +140,6 @@ wait_for_emulator_selection() {
         "Timed out waiting for a single authorized emulator. Start exactly one emulator-* device or set AVD_NAME to an available AVD."
     sleep 2
   done
-}
-
-wait_for_boot_completed() {
-  local deadline=$((SECONDS + BOOT_TIMEOUT_SECONDS))
-  while true; do
-    local state boot_completed
-    state="$(device_state_for "$SELECTED_SERIAL")"
-    boot_completed="$("$ADB_BIN" -s "$SELECTED_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
-    if [[ "$state" == "device" && "$boot_completed" == "1" ]]; then
-      return
-    fi
-    [[ "$SECONDS" -lt "$deadline" ]] ||
-      fail emulator-boot emulator-boot-timeout "Timed out waiting for $SELECTED_SERIAL to finish booting."
-    sleep 2
-  done
-}
-
-emulator_avd_name() {
-  "${ADB[@]}" emu avd name 2>/dev/null |
-    tr -d '\r' |
-    awk 'NF && $0 != "OK" {value = $0} END {print value}'
 }
 
 debug_receiver_broadcast() {

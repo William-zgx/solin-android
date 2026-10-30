@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/lib/emulator.sh"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
@@ -178,24 +179,6 @@ fi
 if [[ "$SKIP_SOLIN_INSTALL" != "1" ]]; then
   "${ADB[@]}" install -r "$DEBUG_APK"
 fi
-
-solin_accessibility_enabled() {
-  local dump enabled_section crashed_section
-  dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
-  enabled_section="$(awk '
-    /Enabled services:/ {printing = 1}
-    printing {print}
-    /Binding services:/ {printing = 0}
-    /Crashed services:/ {printing = 0}
-  ' <<<"$dump")"
-  crashed_section="$(awk '
-    /Crashed services:/ {printing = 1}
-    printing {print}
-    /Client list info:/ {printing = 0}
-  ' <<<"$dump")"
-  grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$enabled_section" &&
-    ! grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"$crashed_section"
-}
 
 if ! solin_accessibility_enabled; then
   fail_with_reason solin-accessibility-not-enabled \

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/lib/emulator.sh"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
@@ -117,15 +118,6 @@ fail() {
   shift 2
   echo "verify_fresh_start_main_shell_emulator: $*" >&2
   exit 1
-}
-
-device_state_for() {
-  local serial="$1"
-  "$ADB_BIN" devices | awk -v serial="$serial" '$1 == serial {print $2; found = 1} END {if (!found) print ""}'
-}
-
-authorized_emulators() {
-  "$ADB_BIN" devices | awk 'NR > 1 && $1 ~ /^emulator-[0-9]+$/ && $2 == "device" {print $1}'
 }
 
 select_emulator_once() {
