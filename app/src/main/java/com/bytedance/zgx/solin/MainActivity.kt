@@ -1,7 +1,6 @@
 package com.bytedance.zgx.solin
 
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
@@ -64,6 +63,7 @@ class MainActivity : ComponentActivity() {
         viewModel = { viewModel },
         appContainer = { appContainer },
     )
+    private val debugIntents = DebugIntentHandler(context = this, viewModel = { viewModel })
     private val sharedAttachmentLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
             runCatching { viewModel.awaitPersistenceInitialization() }
                 .onSuccess {
                     withContext(Dispatchers.IO) {
-                        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
+                        debugIntents.configureRemoteModelForScreenshotEvidenceIfPresent(intent)
                     }
                     confirmationPermissions.restorePendingSpecialAccessRequirement(savedInstanceState)
                     handleSharedIntent(intent, allowPreviouslyConsumed = false)
@@ -341,10 +341,10 @@ class MainActivity : ComponentActivity() {
             runCatching { viewModel.awaitPersistenceInitialization() }
                 .onSuccess {
                     withContext(Dispatchers.IO) {
-                        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
+                        debugIntents.configureRemoteModelForScreenshotEvidenceIfPresent(intent)
                     }
                     handleSharedIntent(intent, allowPreviouslyConsumed = true)
-                    dispatchDebugPromptIfPresent(intent)
+                    debugIntents.dispatchPromptIfPresent(intent)
                 }
         }
     }
@@ -353,22 +353,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (!isAppContainerReady()) return
         confirmationPermissions.syncDeviceContextAuthorizationSnapshot()
-    }
-
-    /**
-     * Debug-only: if the launch/new intent carries a UTF-8 prompt extra, forward it straight into
-     * [SolinViewModel.sendMessage], bypassing the IME. Lets ADB drive a real agent run (including the
-     * remote-vision GUI loop) with text `adb shell input text` cannot type (e.g. Chinese) via
-     * `am start ... --es <EXTRA_DEBUG_PROMPT> "打开小红书搜索咖啡"`. No-op in release builds.
-     */
-    private fun dispatchDebugPromptIfPresent(intent: Intent) {
-        if (!BuildConfig.DEBUG) return
-        val prompt = intent.getStringExtra(EXTRA_DEBUG_PROMPT)?.trim().orEmpty()
-        if (prompt.isEmpty() || !isAppContainerReady()) return
-        // Consume once so a re-delivered intent (config change / relaunch) does not resend.
-        intent.removeExtra(EXTRA_DEBUG_PROMPT)
-        android.util.Log.i("Solin/DebugPrompt", "dispatching prompt len=${prompt.length}")
-        viewModel.sendMessage(prompt)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -385,19 +369,6 @@ class MainActivity : ComponentActivity() {
             readMode = sharedInputReadMode(),
             reader = ShareIntentReader(applicationContext),
             allowPreviouslyConsumed = allowPreviouslyConsumed,
-        )
-    }
-
-    private fun configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent: Intent) {
-        if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
-        val baseUrl = intent.getStringExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL) ?: return
-        val modelName = intent.getStringExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_MODEL_NAME) ?: return
-        val supportsVisionInput =
-            intent.getBooleanExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT, false)
-        viewModel.configureDebugRemoteModelForScreenshotEvidence(
-            baseUrl = baseUrl,
-            modelName = modelName,
-            supportsVisionInput = supportsVisionInput,
         )
     }
 
@@ -432,7 +403,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
             "com.bytedance.zgx.solin.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
-        // Debug-only prompt injection (see dispatchDebugPromptIfPresent). Release builds ignore it.
+        // Debug-only extras, handled by DebugIntentHandler. Release builds ignore them.
         const val EXTRA_DEBUG_PROMPT =
             "com.bytedance.zgx.solin.extra.DEBUG_PROMPT"
         const val EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL =
