@@ -184,21 +184,11 @@ internal class AgentTraceQueries(
             .lastOrNull()
     }
 
-    fun latestSkillPlan(runId: String): SkillPlan? =
+    /** Latest live skill plan for [runId], optionally the latest one that [matching] accepts. */
+    fun latestSkillPlan(runId: String, matching: (SkillPlan) -> Boolean = { true }): SkillPlan? =
         traceStore.steps(runId).asSequence()
             .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
-            .lastOrNull()
-
-    fun latestLowRiskAppControlSkillPlan(runId: String): SkillPlan? =
-        traceStore.steps(runId).asSequence()
-            .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
-            .filter { plan -> plan.isLowRiskAppControlSkill() }
-            .lastOrNull()
-
-    fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
-        traceStore.steps(runId).asSequence()
-            .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
-            .filter { plan -> plan.isModelDrivenAppSearchSkill() }
+            .filter(matching)
             .lastOrNull()
 
     private fun AgentTraceStepSummary.skillRequestIdFromJson(): String? =

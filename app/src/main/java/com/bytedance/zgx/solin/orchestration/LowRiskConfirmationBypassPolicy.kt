@@ -70,7 +70,7 @@ internal class LowRiskConfirmationBypassPolicy(
 
     private fun lowRiskAppControlSkillPlanForRun(runId: String, preferred: SkillPlan?): SkillPlan? =
         preferred?.takeIf { plan -> plan.isLowRiskAppControlSkill() }
-            ?: traceQueries.latestLowRiskAppControlSkillPlan(runId)
+            ?: traceQueries.latestSkillPlan(runId) { plan -> plan.isLowRiskAppControlSkill() }
 
     private fun AgentPlan.UseTool.exceedsLowRiskAppControlCheckpointForRun(
         runId: String,

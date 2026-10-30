@@ -188,6 +188,7 @@ class AgentLoopRuntime(
     // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
     // call sites unchanged.
     private val runScopedState = RunScopedState()
+    private val traceQueries = AgentTraceQueries(traceStore)
     private val runEvents = RunTransitionEventPublisher(eventBus, runScopedState) { runId, stepType ->
         markStepStart(runId, stepType)
     }
@@ -272,15 +273,10 @@ class AgentLoopRuntime(
         observationReplanner = observationReplanner,
         actionPlanningRuntime = actionPlanningRuntime,
         traceStore = traceStore,
+        traceQueries = traceQueries,
         safetyPolicy = safetyPolicy,
         runBudget = runBudget,
         host = object : ToolPlanCoordinator.Host {
-            override fun latestSkillPlan(runId: String): SkillPlan? =
-                this@AgentLoopRuntime.latestSkillPlan(runId)
-
-            override fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
-                this@AgentLoopRuntime.latestModelDrivenAppSearchSkillPlan(runId)
-
             override fun invalidSkillPlanReason(skillPlan: SkillPlan?): String? =
                 initialToolPlanner.invalidSkillPlanReason(skillPlan)
 
@@ -2038,7 +2034,6 @@ class AgentLoopRuntime(
         )
     }
 
-    private val traceQueries = AgentTraceQueries(traceStore)
     private val confirmationBypassPolicy = LowRiskConfirmationBypassPolicy(
         toolRegistry = toolRegistry,
         traceStore = traceStore,
@@ -2078,8 +2073,6 @@ class AgentLoopRuntime(
     private fun skillIdForRequest(runId: String, requestId: String): String? =
         traceQueries.skillIdForRequest(runId, requestId)
     private fun latestSkillPlan(runId: String): SkillPlan? = traceQueries.latestSkillPlan(runId)
-    private fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
-        traceQueries.latestModelDrivenAppSearchSkillPlan(runId)
 
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
         val restoredSnapshot = traceStore.latestPendingConfirmation()

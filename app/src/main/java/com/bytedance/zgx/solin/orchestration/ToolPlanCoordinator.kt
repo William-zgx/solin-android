@@ -62,6 +62,7 @@ internal class ToolPlanCoordinator(
     private val observationReplanner: AgentObservationReplanner,
     private val actionPlanningRuntime: ActionPlanningRuntime,
     private val traceStore: AgentTraceStore,
+    private val traceQueries: AgentTraceQueries,
     private val safetyPolicy: SafetyPolicy,
     private val runBudget: AgentRunBudget,
     private val host: Host,
@@ -71,8 +72,6 @@ internal class ToolPlanCoordinator(
      * Keeps confirmation-bypass policy and skill-auth validation on the runtime facade.
      */
     interface Host {
-        fun latestSkillPlan(runId: String): SkillPlan?
-        fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan?
         fun invalidSkillPlanReason(skillPlan: SkillPlan?): String?
         fun invalidSkillPlanRejection(request: ToolRequest, skillPlan: SkillPlan?): ToolResult?
         fun toolRequestsFor(runId: String): List<ToolRequest>
@@ -109,7 +108,7 @@ internal class ToolPlanCoordinator(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan {
-        host.latestSkillPlan(run.id)?.let { skillPlan ->
+        traceQueries.latestSkillPlan(run.id)?.let { skillPlan ->
             host.invalidSkillPlanReason(skillPlan)?.let { reason ->
                 val requestedRequestIds = host.toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
                     toolRequest.id
@@ -169,10 +168,10 @@ internal class ToolPlanCoordinator(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan? {
-        host.latestSkillPlan(run.id)?.let { skillPlan ->
+        traceQueries.latestSkillPlan(run.id)?.let { skillPlan ->
             if (
                 !skillPlan.isModelDrivenAppSearchSkill() &&
-                !(skillPlan.isSingleToolStepPlan() && host.latestModelDrivenAppSearchSkillPlan(run.id) != null)
+                !(skillPlan.isSingleToolStepPlan() && traceQueries.latestSkillPlan(run.id) { it.isModelDrivenAppSearchSkill() } != null)
             ) {
                 return null
             }
@@ -420,7 +419,7 @@ internal class ToolPlanCoordinator(
     ): NextObservationPlan? {
         if (!result.isUnverifiedExternalLaunch()) return null
         if (!toolRegistry.isOpenAppLaunchTool(request.toolName)) return null
-        val skillPlan = host.latestSkillPlan(run.id) ?: return null
+        val skillPlan = traceQueries.latestSkillPlan(run.id) ?: return null
         if (!skillPlan.manifest.continuesAfterUnverifiedOpenAppLaunch) return null
         val requestBelongsToSkill = skillPlan.steps
             .filterIsInstance<SkillStep.ToolStep>()
@@ -439,7 +438,7 @@ internal class ToolPlanCoordinator(
         result: ToolResult,
     ): NextObservationPlan? {
         if (!toolRegistry.isLowRiskAppControlContinuationTool(request)) return null
-        val skillPlan = host.latestSkillPlan(run.id) ?: return null
+        val skillPlan = traceQueries.latestSkillPlan(run.id) ?: return null
         if (!skillPlan.isLowRiskAppControlSkill()) return null
         if (!skillPlan.hasToolStep(request)) return null
         host.invalidSkillPlanReason(skillPlan)?.let { reason ->
@@ -498,20 +497,20 @@ internal class ToolPlanCoordinator(
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> true
 
             else -> isDeviceControlTool(request) &&
-                host.latestSkillPlan(run.id).allowsModelDrivenAppSearchLocalObservation(run.id)
+                traceQueries.latestSkillPlan(run.id).allowsModelDrivenAppSearchLocalObservation(run.id)
         }
 
     private fun SkillPlan?.allowsModelDrivenAppSearchLocalObservation(runId: String): Boolean {
         val plan = this ?: return true
         return plan.isModelDrivenAppSearchSkill() ||
-            (plan.isSingleToolStepPlan() && host.latestModelDrivenAppSearchSkillPlan(runId) != null)
+            (plan.isSingleToolStepPlan() && traceQueries.latestSkillPlan(runId) { it.isModelDrivenAppSearchSkill() } != null)
     }
 
     fun planNextToolStepFromCurrentSkill(
         run: AgentRun,
         result: ToolResult,
     ): NextObservationPlan? {
-        val skillPlan = host.latestSkillPlan(run.id) ?: return null
+        val skillPlan = traceQueries.latestSkillPlan(run.id) ?: return null
         val requestedRequestIds = host.toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
         return when (val progression = skillProgressor.nextToolAfterToolResult(
             skillPlan = skillPlan,
@@ -542,7 +541,7 @@ internal class ToolPlanCoordinator(
         text: String,
         allowInlineToolCalls: Boolean = true,
     ): NextObservationPlan {
-        val skillPlan = host.latestSkillPlan(run.id)
+        val skillPlan = traceQueries.latestSkillPlan(run.id)
             ?: return if (allowInlineToolCalls) {
                 planExplicitToolCallAfterModelResult(run, text)
             } else {
