@@ -158,19 +158,4 @@ internal class PendingConfirmationSupport(
             skillPlan = plan.skillPlan,
         )
     }
-
-    /** Shared restore path used by [AgentLoopRuntime.toolRequestsFor]. */
-    fun restoreToolRequest(step: AgentTraceStepSummary): ToolRequest? =
-        step.restoredToolRequestSummaryOrNull()?.let { request ->
-            ToolRequest(
-                id = request.requestId,
-                toolName = request.toolName,
-                arguments = emptyMap(),
-                reason = "",
-            )
-        }
-
-    /** Shared restore path used by [AgentLoopRuntime.latestUnverifiedExternalResult]. */
-    fun restoreUnverifiedExternalResult(step: AgentTraceStepSummary): ToolResult? =
-        step.restoredUnverifiedExternalResultOrNull()
 }

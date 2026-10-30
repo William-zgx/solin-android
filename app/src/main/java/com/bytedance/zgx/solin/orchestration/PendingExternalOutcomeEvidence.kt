@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
@@ -97,6 +98,17 @@ internal fun AgentTraceStepSummary.restoredToolRequestSummaryOrNull(): RestoredT
         title = title,
     )
 }
+
+/** Value-free ToolRequest (no arguments, no reason) rebuilt from a persisted ToolRequested summary. */
+internal fun AgentTraceStepSummary.restoredToolRequestOrNull(): ToolRequest? =
+    restoredToolRequestSummaryOrNull()?.let { request ->
+        ToolRequest(
+            id = request.requestId,
+            toolName = request.toolName,
+            arguments = emptyMap(),
+            reason = "",
+        )
+    }
 
 /**
  * Rebuilds the allowlisted completion metadata of a persisted ToolObserved step as a [ToolResult],
