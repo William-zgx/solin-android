@@ -1156,26 +1156,20 @@ Code:
 
 Responsibilities:
 
-- Determine whether a completed tool action can be undone and produce an
-  `UndoPlan` for the UI to offer.
-
-Boundaries:
-
-- Undo plans are advisory only; executing an undo still goes through the full
-  tool confirmation and safety boundary.
-- High-risk actions (send, delete, pay, publish) are never auto-undoable.
+- Hold the undo data types used by Agent run events.
 
 Current status:
 
-- `UndoPolicy` is a functional interface that maps `(ToolRequest, ToolResult)`
-  to an optional `UndoPlan`.
-- `UndoModels` defines the plan structure with target tool, reason, and
-  allowlisted arguments.
+- Only the `UndoEntry` / `UndoPlan` data types remain, referenced by
+  `AgentRunEvent.UndoPushed`. No production path creates undo plans; the former
+  undo-policy registry and the Agent loop's undo stack were removed because
+  nothing consumed them. Re-introducing undo must go through the full tool
+  confirmation and safety boundary, and high-risk actions (send, delete, pay,
+  publish) must never be auto-undoable.
 
 Tests:
 
-- `UndoPolicyRegistryTest`
-- `UndoModelsTest`
+- `AgentRunEventsTest`
 
 ## RC Performance
 
