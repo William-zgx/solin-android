@@ -464,7 +464,6 @@ data class ChatUiState(
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val activeRunPlacement: RunPlacement? = null,
     val activeRunPlacementReason: PlacementReasonCode? = null,
-    val activePlacementPolicyVersion: Int? = null,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
     val backend: BackendChoice = BackendChoice.GPU,
     val generationParameters: GenerationParameters = GenerationParameters(),

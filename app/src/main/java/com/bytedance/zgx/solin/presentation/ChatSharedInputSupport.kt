@@ -55,10 +55,6 @@ internal class ChatSharedInputSupport(
     private var nextSharedInputDraftId = 0L
     private var pendingSharedInputRemoteSendRestore: PendingSharedInputRemoteSendRestore? = null
 
-    fun clearPendingRemoteChatSharedState() {
-        pendingSharedInputRemoteSendRestore = null
-    }
-
     /**
      * Consumes and returns a matching shared-input restore for [pending], clearing the held restore.
      * Always clears the held restore (matching or not) so a confirm/dismiss does not leave stale state.

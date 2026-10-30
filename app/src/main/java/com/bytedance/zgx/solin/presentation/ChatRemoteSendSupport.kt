@@ -96,10 +96,6 @@ internal class ChatRemoteSendSupport(
         pendingRemoteContinuation = continuation
     }
 
-    fun clearPendingRemoteContinuation() {
-        pendingRemoteContinuation = null
-    }
-
     fun clearPendingRemoteChatState() {
         pendingRemoteContinuation = null
         clearSharedInputRestore()
@@ -319,17 +315,8 @@ internal class ChatRemoteSendSupport(
         uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
     }
 
-    /** Read-only egress audit view surfaced to the privacy/settings UI (most-recent-first). */
     private fun loadRemoteSendAuditEvents(): List<RemoteSendAuditSummary> =
-        remoteSendAuditLog.recentRemoteSends().map { event ->
-            RemoteSendAuditSummary(
-                id = event.id,
-                decisionLabel = event.decision.label,
-                modelName = event.modelName,
-                summary = event.summary,
-                createdAtMillis = event.createdAtMillis,
-            )
-        }
+        remoteSendAuditLog.recentRemoteSendSummaries()
 
     fun refreshRemoteSendAuditEvents() {
         uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
@@ -499,3 +486,15 @@ internal class ChatRemoteSendSupport(
         }
     }
 }
+
+/** Read-only egress audit view surfaced to the privacy/settings UI (most-recent-first). */
+internal fun RemoteSendAuditLog.recentRemoteSendSummaries(): List<RemoteSendAuditSummary> =
+    recentRemoteSends().map { event ->
+        RemoteSendAuditSummary(
+            id = event.id,
+            decisionLabel = event.decision.label,
+            modelName = event.modelName,
+            summary = event.summary,
+            createdAtMillis = event.createdAtMillis,
+        )
+    }

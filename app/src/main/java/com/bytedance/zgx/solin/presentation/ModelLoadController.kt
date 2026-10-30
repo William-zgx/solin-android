@@ -161,7 +161,6 @@ internal class ModelLoadController(
         return true
     }
 
-
     fun configureDebugRemoteModelForScreenshotEvidence(
         baseUrl: String,
         modelName: String,
@@ -202,7 +201,6 @@ internal class ModelLoadController(
             },
         )
     }
-
 
     fun startModelDownload() {
         beginRecommendedModelDownload(modelRepository.selectedRecommendedModel())
@@ -301,7 +299,6 @@ internal class ModelLoadController(
         return beginModelDownload(sources.first())
     }
 
-
     fun skipFirstRunSetup() {
         if (uiState.value.isBusy) return
         firstRunSetupRepository.markSetupDismissed()
@@ -312,7 +309,6 @@ internal class ModelLoadController(
             )
         }
     }
-
 
     fun startCustomModelDownload(downloadUrl: String) {
         val source = modelRepository.createCustomDownloadSource(downloadUrl)
@@ -439,7 +435,6 @@ internal class ModelLoadController(
         }
     }
 
-
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (uiState.value.isBusy) return
         clearPendingRemoteState()
@@ -556,7 +551,6 @@ internal class ModelLoadController(
             }
         }
     }
-
 
     fun selectRecommendedModel(modelId: String) {
         if (uiState.value.isBusy || uiState.value.selectedModelId == modelId) return
@@ -813,7 +807,6 @@ internal class ModelLoadController(
             )
         }
     }
-
 
     private fun beginModelDownload(source: ModelDownloadSource): Boolean {
         refreshDeviceStatus()
@@ -1180,7 +1173,6 @@ internal class ModelLoadController(
     private fun shouldRestoreFirstRunSetupAfterDownloadFailure(): Boolean =
         setupDownloadInProgress && uiState.value.modelPath == null && !uiState.value.isReady
 
-
     fun updateModelState(modelState: ModelSelectionState) {
         uiState.update {
             it.copy(
@@ -1288,7 +1280,4 @@ internal class ModelLoadController(
             )
         }
     }
-
-    private fun Throwable.cleanMessage(): String =
-        message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
 }

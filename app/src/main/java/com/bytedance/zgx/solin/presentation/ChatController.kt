@@ -210,7 +210,6 @@ class ChatController internal constructor(
                         state.copy(
                             activeRunPlacement = binding.placement,
                             activeRunPlacementReason = binding.primaryReason,
-                            activePlacementPolicyVersion = binding.policyVersion,
                         )
                     }
                 }
@@ -730,7 +729,6 @@ class ChatController internal constructor(
                     activePublicWebEvidence = emptyList(),
                     activeRunPlacement = null,
                     activeRunPlacementReason = null,
-                    activePlacementPolicyVersion = null,
                     statusText = "处理中",
                 )
             }
@@ -765,7 +763,6 @@ class ChatController internal constructor(
                             isGenerating = false,
                             activeRunPlacement = null,
                             activeRunPlacementReason = PlacementReasonCode.PLACEMENT_DECISION_MISSING,
-                            activePlacementPolicyVersion = null,
                             statusText = "请求路由失败",
                         )
                     }
@@ -784,7 +781,6 @@ class ChatController internal constructor(
                         failInitialPlacement(
                             route.runId,
                             PlacementReasonCode.PLACEMENT_NOT_RESTORABLE,
-                            ModelPlacementPolicy.POLICY_VERSION,
                         )
                         return@generation
                     }
@@ -1496,7 +1492,6 @@ class ChatController internal constructor(
                 state.copy(
                     activeRunPlacement = binding.placement,
                     activeRunPlacementReason = binding.primaryReason,
-                    activePlacementPolicyVersion = binding.policyVersion,
                 )
             }
         }
@@ -1521,7 +1516,6 @@ class ChatController internal constructor(
             failInitialPlacement(
                 runId = runId,
                 reason = PlacementReasonCode.PLACEMENT_DECISION_MISSING,
-                policyVersion = null,
             )
             return
         }
@@ -1547,7 +1541,6 @@ class ChatController internal constructor(
                         isGenerating = false,
                         activeRunPlacement = null,
                         activeRunPlacementReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
-                        activePlacementPolicyVersion = ModelPlacementPolicy.POLICY_VERSION,
                         statusText = "已保护本地内容",
                     )
                 }
@@ -1581,7 +1574,6 @@ class ChatController internal constructor(
                         isGenerating = false,
                         activeRunPlacement = null,
                         activeRunPlacementReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
-                        activePlacementPolicyVersion = ModelPlacementPolicy.POLICY_VERSION,
                         statusText = "已阻止远程发送",
                     )
                 }
@@ -1630,7 +1622,7 @@ class ChatController internal constructor(
             remoteSendConfirmed = requiresDisclosure,
         )
         if (preparedChatExecutions.putIfAbsent(runId, execution) != null) {
-            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, null)
+            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             return
         }
         val result = preparedChatRunCoordinator.prepare(
@@ -1658,15 +1650,15 @@ class ChatController internal constructor(
         when (result) {
             is PrepareChatRunResult.Blocked -> {
                 preparedChatExecutions.remove(runId, execution)
-                failInitialPlacement(runId, result.decision.primaryReason, result.decision.policyVersion)
+                failInitialPlacement(runId, result.decision.primaryReason)
             }
             PrepareChatRunResult.BindingRejected -> {
                 preparedChatExecutions.remove(runId, execution)
-                failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, null)
+                failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             }
             PrepareChatRunResult.DispatchRejected -> {
                 preparedChatExecutions.remove(runId, execution)
-                failInitialPlacement(runId, PlacementReasonCode.MODEL_EXECUTION_FAILED, null)
+                failInitialPlacement(runId, PlacementReasonCode.MODEL_EXECUTION_FAILED)
             }
             is PrepareChatRunResult.Ready -> Unit
             is PrepareChatRunResult.AwaitingDisclosure -> {
@@ -1715,19 +1707,19 @@ class ChatController internal constructor(
         val runId = pending.runId
         val revision = pending.remoteProfileRevision
         if (runId.isNullOrBlank() || revision.isNullOrBlank()) {
-            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, null)
+            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             return
         }
         val execution = preparedChatExecutions[runId]
         if (execution == null) {
-            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, null)
+            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             return
         }
         if (uiState.value.activeSessionId != execution.stateBeforeSend.activeSessionId) {
             preparedChatRunCoordinator.cancel(runId)
             preparedChatExecutions.remove(runId, execution)
             discardDeferredRemoteSend(runId)
-            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, null)
+            failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             return
         }
         execution.preserveConfirmedLocalMessages(
@@ -1745,7 +1737,7 @@ class ChatController internal constructor(
             if (!preparedChatRunCoordinator.confirmAndDispatch(runId, revision)) {
                 preparedChatExecutions.remove(runId, execution)
                 discardDeferredRemoteSend(runId)
-                failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE, null)
+                failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             }
         }
     }
@@ -1760,7 +1752,6 @@ class ChatController internal constructor(
     private fun failInitialPlacement(
         runId: String?,
         reason: PlacementReasonCode,
-        policyVersion: Int?,
     ) {
         runId?.let { assistantOrchestrator.failModelGeneration(it, reason.name) }
         uiState.update {
@@ -1769,7 +1760,6 @@ class ChatController internal constructor(
                 isGenerating = false,
                 activeRunPlacement = null,
                 activeRunPlacementReason = reason,
-                activePlacementPolicyVersion = policyVersion,
                 statusText = "没有可用的模型执行目标",
             )
         }

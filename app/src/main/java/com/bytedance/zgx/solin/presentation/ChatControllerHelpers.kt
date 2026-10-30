@@ -525,3 +525,7 @@ internal fun List<AgentPlan.UseTool>.batchToolTitle(): String =
         .joinToString(separator = "、") { (title, count) ->
             if (count > 1) "$title x$count" else title
         }
+
+/** Non-blank exception message for user-facing status text, falling back to the type name. */
+internal fun Throwable.cleanMessage(): String =
+    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName

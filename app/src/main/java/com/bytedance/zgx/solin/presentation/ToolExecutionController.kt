@@ -440,7 +440,7 @@ class ToolExecutionController(
     ) {
         if (plans.isEmpty()) {
             assistantOrchestrator.failModelGeneration(runId, "远程模型返回了空工具批次")
-            updateLastAssistantLocalOnly("远程模型返回了空工具批次，已停止执行。")
+            uiState.updateLastAssistantLocalOnly("远程模型返回了空工具批次，已停止执行。")
             persistActiveSessionFromUi()
             uiState.update {
                 it.copy(
@@ -470,7 +470,7 @@ class ToolExecutionController(
         val observation = assistantOrchestrator.observeToolResults(runId, results)
         if (observation == null) {
             assistantOrchestrator.cancelRun(runId, "批量工具结果无法进入观察流程")
-            updateLastAssistantLocalOnly("批量工具结果无法进入观察流程，已停止执行。")
+            uiState.updateLastAssistantLocalOnly("批量工具结果无法进入观察流程，已停止执行。")
             persistActiveSessionFromUi()
             uiState.update {
                 it.copy(
@@ -904,7 +904,6 @@ class ToolExecutionController(
         }
     }
 
-
     /**
      * A run-bound confirmation lost its tool request, so there is no request id to confirm, cancel
      * or fail. Fail closed: never execute, and cancel the whole run (the orchestrator cancels
@@ -1106,19 +1105,4 @@ class ToolExecutionController(
             title = title,
             summary = summary,
         )
-
-    private fun updateLastAssistantLocalOnly(text: String) {
-        uiState.update { state ->
-            val updatedMessages = state.messages.toMutableList()
-            val index = updatedMessages.indexOfLast { it.role == MessageRole.Assistant }
-            if (index >= 0) {
-                updatedMessages[index] = updatedMessages[index].copy(
-                    text = text,
-                    generationStats = null,
-                    privacy = MessagePrivacy.LocalOnly,
-                )
-            }
-            state.copy(messages = updatedMessages)
-        }
-    }
 }

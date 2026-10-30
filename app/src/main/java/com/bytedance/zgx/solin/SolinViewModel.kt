@@ -51,6 +51,8 @@ import com.bytedance.zgx.solin.presentation.SessionController
 import com.bytedance.zgx.solin.presentation.ToolExecutionController
 import com.bytedance.zgx.solin.presentation.VoiceInputController
 import com.bytedance.zgx.solin.presentation.activeModelProfileId
+import com.bytedance.zgx.solin.presentation.cleanMessage
+import com.bytedance.zgx.solin.presentation.recentRemoteSendSummaries
 import com.bytedance.zgx.solin.presentation.localContextWindowTokens
 import com.bytedance.zgx.solin.presentation.localPreferredBackends
 import com.bytedance.zgx.solin.presentation.modelHealthForCurrentSelection
@@ -1079,20 +1081,6 @@ class SolinViewModel internal constructor(
         super.onCleared()
     }
 
-    private fun loadRemoteSendAuditEvents(): List<RemoteSendAuditSummary> =
-        remoteSendAuditLog.recentRemoteSends().map { event ->
-            RemoteSendAuditSummary(
-                id = event.id,
-                decisionLabel = event.decision.label,
-                modelName = event.modelName,
-                summary = event.summary,
-                createdAtMillis = event.createdAtMillis,
-            )
-        }
-
-    private fun Throwable.cleanMessage(): String =
-        message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
-
     private fun createInitialState(): ChatUiState {
         val modelState = modelRepository.currentState()
         val backend = generationParametersRepository.loadBackend()
@@ -1133,7 +1121,7 @@ class SolinViewModel internal constructor(
             backgroundTaskHistory = loadBackgroundTaskHistory(),
             periodicCheckPolicy = loadPeriodicCheckPolicy(),
             auditEvents = loadAuditEvents(),
-            remoteSendAuditEvents = loadRemoteSendAuditEvents(),
+            remoteSendAuditEvents = remoteSendAuditLog.recentRemoteSendSummaries(),
             agentTraceRuns = loadAgentTraceRuns(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),

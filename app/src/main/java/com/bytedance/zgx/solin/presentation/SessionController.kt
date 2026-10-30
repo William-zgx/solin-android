@@ -245,7 +245,4 @@ class SessionController(
         sessionRestoreGeneration += 1
         return sessionRestoreGeneration
     }
-
-    private fun Throwable.cleanMessage(): String =
-        message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
 }

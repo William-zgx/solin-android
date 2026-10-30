@@ -385,9 +385,6 @@ internal class ChatGenerationSupport(
     fun estimateHistoryTokensDefault(messages: List<ChatMessage>): Int =
         com.bytedance.zgx.solin.orchestration.estimateTokensApproximate(messages)
 
-    private fun Throwable.cleanMessage(): String =
-        message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
-
     /**
      * Detect context-length overflow phrases in an exception chain. Matches wording produced by
      * common remote providers (OpenAI "context_length_exceeded", Anthropic "prompt is too long",
