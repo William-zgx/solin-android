@@ -113,6 +113,8 @@ for target in "${SCAN_TARGETS[@]}"; do
     --exclude-dir=build \
     --exclude-dir=.idea \
     --exclude-dir=.trae \
+    --exclude-dir=.claude \
+    --exclude-dir=.codex \
     --exclude-dir=test \
     --exclude-dir=androidTest \
     --exclude='*.png' \
