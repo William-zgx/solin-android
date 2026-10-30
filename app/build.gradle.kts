@@ -271,6 +271,14 @@ android {
         }
     }
 
+    // lintDebug currently reports no errors, so no baseline is needed: any new error fails
+    // verify_local.sh. Warnings stay non-fatal (no warningsAsErrors yet).
+    lint {
+        abortOnError = true
+        checkDependencies = true
+        checkReleaseBuilds = true
+    }
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
