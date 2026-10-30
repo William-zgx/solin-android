@@ -26,7 +26,6 @@ import com.bytedance.zgx.solin.tool.MAX_SHARE_TITLE_CHARS
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.failed
 import com.bytedance.zgx.solin.tool.succeeded
 import java.net.URI
@@ -43,16 +42,6 @@ class ActionExecutor(
     private val deviceControlSessionStarter: ((String) -> Unit)? = null,
     private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : ToolExecutor {
-    fun executeConfirmed(draft: ActionDraft): Boolean {
-        val request = ToolRequest(
-            toolName = draft.functionName,
-            arguments = draft.parameters,
-            reason = draft.summary,
-            sensitivityReason = draft.sensitivityReason,
-        )
-        return execute(request).status == ToolStatus.Succeeded
-    }
-
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName == MobileActionFunctions.SCHEDULE_REMINDER) {
             return scheduleReminder(request)
@@ -461,17 +450,11 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS ->
                 listOf(Intent(Settings.ACTION_SETTINGS))
 
-            MobileActionFunctions.SCHEDULE_REMINDER ->
-                null
-
             MobileActionFunctions.SET_SYSTEM_ALARM ->
                 listOf(systemAlarmIntent(request))
 
             MobileActionFunctions.SET_SYSTEM_TIMER ->
                 listOf(systemTimerIntent(request))
-
-            MobileActionFunctions.READ_CLIPBOARD ->
-                null
 
             MobileActionFunctions.SHARE_TEXT ->
                 listOf(shareTextIntent(request))
@@ -508,10 +491,8 @@ class ActionExecutor(
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "已打开日历新建事件页"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "已打开联系人草稿页"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "已打开系统设置页"
-            MobileActionFunctions.SCHEDULE_REMINDER -> "已安排后台提醒"
             MobileActionFunctions.SET_SYSTEM_ALARM -> "已打开系统闹钟设置界面"
             MobileActionFunctions.SET_SYSTEM_TIMER -> "已打开系统倒计时设置界面"
-            MobileActionFunctions.READ_CLIPBOARD -> "已读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
             MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
             MobileActionFunctions.OPEN_CAMERA -> "已打开相机"

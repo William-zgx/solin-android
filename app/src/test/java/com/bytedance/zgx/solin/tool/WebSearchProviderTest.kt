@@ -68,28 +68,6 @@ class WebSearchProviderTest {
     }
 
     @Test
-    fun fanOutForCurrentComparisonAndWeatherIsDeterministic() {
-        val comparison = fanOutWebSearchRequests(
-            WebSearchRequest(query = "OpenAI vs Anthropic latest models"),
-            currentYear = 2026,
-        )
-
-        assertEquals(WebSearchFreshness.Current, comparison.first().freshness)
-        assertEquals(listOf("OpenAI", "Anthropic latest models", "OpenAI Anthropic latest models 对比 差异"), comparison.map { it.query })
-
-        val weather = fanOutWebSearchRequests(
-            WebSearchRequest(
-                query = "北京和上海的天气",
-                searchMode = WebSearchMode.WeatherCurrent,
-            ),
-            currentYear = 2026,
-        )
-
-        assertEquals(listOf("北京", "上海"), weather.map { it.query })
-        assertTrue(weather.all { request -> request.freshness == WebSearchFreshness.Current })
-    }
-
-    @Test
     fun freshnessInferenceRecognizesCurrentLanguageHints() {
         listOf(
             "最新 AI 模型",

@@ -61,44 +61,6 @@ internal fun inferWebSearchFreshness(
         else -> searchMode.defaultFreshness
     }
 
-internal fun fanOutWebSearchRequests(
-    request: WebSearchRequest,
-    currentYear: Int = LocalDate.now(ZoneOffset.UTC).year,
-): List<WebSearchRequest> {
-    val freshness = if (
-        request.freshness == WebSearchFreshness.Current ||
-        request.query.hasCurrentFreshnessIntent(currentYear) ||
-        request.searchMode == WebSearchMode.WeatherCurrent
-    ) {
-        WebSearchFreshness.Current
-    } else {
-        request.freshness
-    }
-    if (request.searchMode == WebSearchMode.WeatherCurrent) {
-        val locations = request.query.weatherLocationQueries()
-        return locations
-            .take(2)
-            .map { location ->
-                request.copy(
-                    query = location,
-                    searchMode = WebSearchMode.WeatherCurrent,
-                    freshness = WebSearchFreshness.Current,
-                    maxResults = 1,
-                )
-            }
-            .ifEmpty { listOf(request.copy(freshness = freshness)) }
-    }
-    val subjects = request.query.compareSubjects()
-    if (subjects.size < 2) return listOf(request.copy(freshness = freshness))
-    val first = subjects[0]
-    val second = subjects[1]
-    return listOf(
-        request.copy(query = first, freshness = freshness),
-        request.copy(query = second, freshness = freshness),
-        request.copy(query = "$first $second 对比 差异", freshness = freshness),
-    ).distinctBy { fanOutRequest -> fanOutRequest.query.lowercase() }
-}
-
 enum class WebSearchMode(val schemaValue: String) {
     General("general"),
     WeatherCurrent("weather_current"),
@@ -778,25 +740,6 @@ private fun String.optimizedWebSearchKeywords(): String {
         .replace(Regex("""\s+"""), " ")
         .trim()
     return optimized.ifBlank { trim() }
-}
-
-private fun String.compareSubjects(): List<String> {
-    val normalized = trim()
-        .replace(Regex("""(?i)\b(?:compare|comparison|difference(?:s)?\s+between|versus|vs\.?)\b"""), "|")
-        .replace(Regex("""(?i)\b(?:and|with)\b"""), "|")
-        .replace(Regex("""(比较|对比|区别|差异|差别|相差|不同|哪个更好|哪一个更好|谁更好)"""), "|")
-        .replace(Regex("""(?<=.)比(?=.)"""), "|")
-        .replace(Regex("""[、,，/;；]"""), "|")
-        .replace(Regex("""(?<=.)[和与跟及](?=.)"""), "|")
-        .replace(searchPunctuationRegex, " ")
-        .replace(Regex("""\s*\|\s*"""), "|")
-        .replace(Regex("""\s+"""), " ")
-        .trim('|', ' ')
-    return normalized.split('|')
-        .map { candidate -> candidate.optimizedWebSearchKeywords() }
-        .filter { candidate -> candidate.length >= 2 }
-        .distinct()
-        .take(2)
 }
 
 private fun String.containsWholeYear(year: Int): Boolean =

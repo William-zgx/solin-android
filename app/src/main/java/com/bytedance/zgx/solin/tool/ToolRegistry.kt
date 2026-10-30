@@ -35,7 +35,6 @@ class ToolRegistry private constructor(
     init {
         require(definitionsByName.size == definitions.size) { "Tool names must be unique." }
         definitions.forEach { definition ->
-            definition.argumentValidator
             validateRuntimePermissionDescriptorContract(definition.spec)
             validateExactlyOneOfContract(definition.spec)
         }
@@ -135,11 +134,6 @@ class ToolRegistry private constructor(
             notUndoableUiTools.associateWith { notUndoableUi }
     }
 
-    fun toolNamesWithTag(tag: ToolCapabilityTag): Set<String> =
-        orderedSpecs
-            .filter { spec -> tag in spec.tags }
-            .mapTo(linkedSetOf()) { spec -> spec.name }
-
     fun hasTag(toolName: String, tag: ToolCapabilityTag): Boolean =
         specFor(toolName)?.tags?.contains(tag) == true
 
@@ -173,9 +167,6 @@ class ToolRegistry private constructor(
 
     fun isCheckpointedUiActionTool(toolName: String): Boolean =
         hasTag(toolName, ToolCapabilityTag.CheckpointedUiAction)
-
-    fun isBackgroundSkillAllowedTool(toolName: String): Boolean =
-        hasTag(toolName, ToolCapabilityTag.BackgroundSkillAllowed)
 
     fun specialAccessTagsFor(toolName: String): Set<ToolCapabilityTag> =
         specFor(toolName)
@@ -405,7 +396,6 @@ private fun validateRuntimePermissionDescriptorContract(spec: ToolSpec) {
     }
 }
 
-
 /**
  * Fails registry construction when a [ToolSpec.exactlyOneOf] group cannot possibly be enforced.
  *
@@ -620,7 +610,6 @@ private fun String.isLocalOnlyScreenObservationJson(): Boolean {
     }.getOrDefault(false)
 }
 
-
 private fun definitionsFor(supportedActions: Set<String>): List<ToolDefinition> {
     val missingDefinitions = supportedActions - toolDefinitionsByName.keys
     require(missingDefinitions.isEmpty()) {
@@ -674,71 +663,7 @@ class BuiltInToolsModule : com.bytedance.zgx.solin.module.SolinModule {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ── Open-AutoGLM-inspired expanded action vocabulary schemas ──
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 private val recentImageOcrPrivateOutputKeys = setOf("ocrText")
-
-
-
-
-
 
 private val observeCurrentScreenPrivateOutputKeys = setOf(
     "observationId",
