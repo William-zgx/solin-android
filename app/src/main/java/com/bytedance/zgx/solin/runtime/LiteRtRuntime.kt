@@ -73,8 +73,7 @@ data class LocalModelRuntimeCapabilities(
         fun fromProfile(profile: ModelCapabilityProfile?): LocalModelRuntimeCapabilities =
             LocalModelRuntimeCapabilities(
                 supportsVisionInput = profile?.supportsVisionInput == true,
-                contextWindowTokens = profile?.contextWindowTokens
-                    ?: LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+                contextWindowTokens = LocalModelTokenLimits.contextWindowTokensFor(profile),
                 preferredBackends = profile?.preferredLocalBackends.orEmpty(),
             )
     }
@@ -323,7 +322,13 @@ class RealLiteRtRuntime internal constructor(
         try {
             createdEngine.initialize()
             val createdConversation =
-                createdEngine.createConversation(LiteRtConversationSpec(history, parameters))
+                createdEngine.createConversation(
+                    LiteRtConversationSpec(
+                        history,
+                        parameters,
+                        maxInputTokens = profileMaxInputTokens(),
+                    ),
+                )
             // Publish the native handles only once both exist, so a failed load never leaves a
             // closed engine reachable from recreate/close.
             engine = createdEngine
@@ -377,9 +382,21 @@ class RealLiteRtRuntime internal constructor(
         conversation = null
         previousConversation?.close()
         conversation = currentEngine.createConversation(
-            LiteRtConversationSpec(compactedHistory, parameters, currentPrompt, maxInputTokens),
+            LiteRtConversationSpec(
+                compactedHistory,
+                parameters,
+                currentPrompt,
+                maxInputTokens ?: profileMaxInputTokens(),
+            ),
         )
     }
+
+    /**
+     * History budget when the caller supplies none: derived from the configured model profile
+     * window (8K fail-safe default) instead of the static 8K input budget.
+     */
+    private fun profileMaxInputTokens(): Int =
+        LocalModelTokenLimits.maxInputTokensFor(capabilities.contextWindowTokens)
 
     /**
      * Run [ContextCompactor.compact] on [history] when configured. Uses [runBlocking] because

@@ -277,8 +277,10 @@ The recommended local chat path currently starts with the E2B model, which is a
 multi-GB download. Users can instead configure a remote model endpoint or
 import a trusted compatible `.litertlm` file. Smaller memory and action model
 assets are not replacements for a chat model. Local chat model profiles use an
-8k-token context window with a 6k input budget and 2k output reserve; that is a
-runtime prompt budget, not an authorization token.
+8k-token context window with a 6k input budget and 2k output reserve; the
+window is read from the model capability profile (8k is the fail-safe default
+when a profile declares none, and larger declarations are capped at 32k). That
+is a runtime prompt budget, not an authorization token.
 
 Model files are stored in local app storage and are not bundled into the
 ordinary Play/public APK. The separate internal `bundledModels`

@@ -40,7 +40,8 @@ object AdaptiveGenerationPolicy {
         } else {
             LocalModelTokenLimits.OUTPUT_TOKEN_RESERVE
         }
-        val profileMaxInputTokens = (input.contextWindowTokens - outputReserveTokens)
+        val contextWindowTokens = LocalModelTokenLimits.contextWindowTokensFor(input.contextWindowTokens)
+        val profileMaxInputTokens = (contextWindowTokens - outputReserveTokens)
             .coerceAtLeast(0)
         val conservativeInputTokens = minOf(MIN_INPUT_TOKENS, profileMaxInputTokens)
 
