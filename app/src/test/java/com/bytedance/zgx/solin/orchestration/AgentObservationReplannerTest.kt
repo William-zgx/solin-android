@@ -72,8 +72,8 @@ class AgentObservationReplannerTest : ObservationReplannerTestFixtures() {
         )
 
         assertNull(replan)
-        assertTrue(runtime.lastInput.orEmpty().contains("LocalOnly observation evidence"))
-        assertTrue(runtime.lastInput.orEmpty().contains("Do not output web_search"))
+        assertTrue(runtime.firstInput.orEmpty().contains("LocalOnly observation evidence"))
+        assertTrue(runtime.firstInput.orEmpty().contains("Do not output web_search"))
     }
 
     @Test
@@ -128,7 +128,7 @@ class AgentObservationReplannerTest : ObservationReplannerTestFixtures() {
             )
 
             assertNull(replan)
-            assertTrue(runtime.lastInput.orEmpty().contains("Do not output web_search"))
+            assertTrue(runtime.firstInput.orEmpty().contains("Do not output web_search"))
         }
     }
 
@@ -254,7 +254,7 @@ class AgentObservationReplannerTest : ObservationReplannerTestFixtures() {
         )
 
         assertNull(replan)
-        val prompt = runtime.lastInput.orEmpty()
+        val prompt = runtime.firstInput.orEmpty()
         assertTrue(prompt.contains("ocrBlocks(count=1)=[block0{text=继续,bounds=[12,22,112,72]}]"))
         assertFalse(prompt.contains("继续{target=ocr:block:0,modeTags=ocrFallback"))
         assertFalse(prompt.contains("targetShortlist(ocrFallback=ocr:block:0)"))

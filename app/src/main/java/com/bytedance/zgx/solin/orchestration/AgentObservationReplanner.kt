@@ -206,39 +206,64 @@ class ModelObservationReplanner(
         // two prompt builds and every acceptance guard. One cache instance per planNext call keeps
         // parsing to once-per-shape; it is never shared beyond this invocation.
         val parseCache = ObservationJsonParseCache()
-        val prompts = listOf(
-            context.observationModelPrompt(toolRegistry, parseCache),
-            context.minimalObservationModelPrompt(toolRegistry, parseCache),
-        ).distinct()
-        prompts.forEachIndexed { promptIndex, prompt ->
-            val planningResult = actionPlanningRuntime.plan(
-                input = prompt,
-                actionModelPath = actionModelPath,
+        // At most TWO model calls per invocation (unchanged worst case): the full prompt, then
+        // EITHER the minimal prompt (the model produced no draft) OR one corrective re-prompt (the
+        // model produced a draft that a guard rejected). The corrective draft re-runs every guard;
+        // a second rejection fails closed — there is no third call and no loop.
+        val fullPrompt = context.observationModelPrompt(toolRegistry, parseCache)
+        val first = attempt(context, actionModelPath, fullPrompt, promptIndex = 0, parseCache)
+        first.replan?.let { replan -> return replan }
+        val secondPrompt: String
+        val secondPromptIndex: Int
+        if (first.producedModelDraft) {
+            val rejectedDraft = first.rejectedDraft
+            val reason = first.rejectionReason
+            if (rejectedDraft == null || reason == null || !reason.isCorrectableGuardRejection()) return null
+            secondPrompt = context.correctiveObservationModelPrompt(
+                toolRegistry = toolRegistry,
+                rejectedDraft = rejectedDraft,
+                rejectionReason = reason,
+                parseCache = parseCache,
             )
-            val acceptance = context.acceptModelObservationReplan(planningResult, parseCache)
-            if (acceptance.replan != null) {
-                recordDiagnostic(
-                    planningResult.toObservationReplanDiagnostic(
-                        promptIndex = promptIndex,
-                        reason = "accepted",
-                    ),
-                )
-                return acceptance.replan
-            }
-            recordDiagnostic(
-                planningResult.toObservationReplanDiagnostic(
-                    promptIndex = promptIndex,
-                    reason = acceptance.rejectionReason ?: "model_replan_not_accepted",
-                ),
-            )
-            if (planningResult.usedModel &&
-                planningResult.plan.kind == ActionPlanKind.Draft &&
-                planningResult.plan.draft != null
-            ) {
-                return null
-            }
+            secondPromptIndex = CORRECTIVE_OBSERVATION_PROMPT_INDEX
+        } else {
+            secondPrompt = context.minimalObservationModelPrompt(toolRegistry, parseCache)
+            if (secondPrompt == fullPrompt) return null
+            secondPromptIndex = 1
         }
-        return null
+        return attempt(context, actionModelPath, secondPrompt, secondPromptIndex, parseCache).replan
+    }
+
+    private fun attempt(
+        context: AgentObservationReplanContext,
+        actionModelPath: String,
+        prompt: String,
+        promptIndex: Int,
+        parseCache: ObservationJsonParseCache,
+    ): ModelObservationReplanAttempt {
+        val planningResult = actionPlanningRuntime.plan(
+            input = prompt,
+            actionModelPath = actionModelPath,
+        )
+        val acceptance = context.acceptModelObservationReplan(planningResult, parseCache)
+        recordDiagnostic(
+            planningResult.toObservationReplanDiagnostic(
+                promptIndex = promptIndex,
+                reason = if (acceptance.replan != null) {
+                    "accepted"
+                } else {
+                    acceptance.rejectionReason ?: "model_replan_not_accepted"
+                },
+            ),
+        )
+        return ModelObservationReplanAttempt(
+            replan = acceptance.replan,
+            producedModelDraft = planningResult.usedModel &&
+                planningResult.plan.kind == ActionPlanKind.Draft &&
+                planningResult.plan.draft != null,
+            rejectedDraft = acceptance.rejectedDraft,
+            rejectionReason = acceptance.rejectionReason,
+        )
     }
 
     private fun recordDiagnostic(diagnostic: ModelObservationReplanDiagnostic) {
@@ -285,7 +310,7 @@ class ModelObservationReplanner(
             else -> null
         }
         if (rejectionReason != null) {
-            return ModelObservationReplanAcceptance(rejectionReason = rejectionReason)
+            return ModelObservationReplanAcceptance(rejectionReason = rejectionReason, rejectedDraft = draft)
         }
         // Propagate the expected foreground package from the triggering observe request onto the
         // replanned UI action so the executor's foreground-package preflight actually fires. Without
@@ -342,6 +367,15 @@ data class ModelObservationReplanDiagnostic(
 
 private data class ModelObservationReplanAcceptance(
     val replan: AgentObservationReplan? = null,
+    val rejectionReason: String? = null,
+    /** The normalized model draft a guard rejected, for the single corrective re-prompt. */
+    val rejectedDraft: ActionDraft? = null,
+)
+
+private data class ModelObservationReplanAttempt(
+    val replan: AgentObservationReplan? = null,
+    val producedModelDraft: Boolean,
+    val rejectedDraft: ActionDraft? = null,
     val rejectionReason: String? = null,
 )
 

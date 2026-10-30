@@ -8877,8 +8877,13 @@ class AgentLoopRuntimeTest {
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         assertTrue(observed.decision.requiresLocalModel)
         assertTrue(observed.continuationRequiresLocalModel)
-        assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
+        // Full observation prompt, then ONE corrective re-prompt for the guard-rejected web_search.
+        assertEquals(
+            listOf(null, "/verified/mobile-action.litertlm", "/verified/mobile-action.litertlm"),
+            actionRuntime.actionModelPaths,
+        )
         assertTrue(actionRuntime.plannedInputs[1].contains("LocalOnly observation evidence"))
+        assertTrue(actionRuntime.plannedInputs[2].contains("(non_local_observation_tool)"))
         assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
             step.request.toolName == MobileActionFunctions.WEB_SEARCH
         })

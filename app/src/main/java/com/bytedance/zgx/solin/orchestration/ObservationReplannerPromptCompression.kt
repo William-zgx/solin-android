@@ -163,7 +163,7 @@ internal fun String.targetShortlistTargetSummary(): String? {
     }
 }
 
-private fun String.targetShortlistTargetValues(): List<String> {
+internal fun String.targetShortlistTargetValues(): List<String> {
     val shortlist = Regex("""targetShortlist\(([^)]*)\)""")
         .find(this)
         ?.groupValues

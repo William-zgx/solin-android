@@ -53,7 +53,7 @@ class ModelObservationReplannerSearchGuardTest : ObservationReplannerTestFixture
         )
 
         assertNull(replan)
-        assertTrue(runtime.lastInput.orEmpty().contains("screenText=搜索商品"))
+        assertTrue(runtime.firstInput.orEmpty().contains("screenText=搜索商品"))
     }
 
     @Test

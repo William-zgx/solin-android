@@ -170,7 +170,7 @@ private fun ToolResult.observationDiagnosticsPrompt(): String {
         .shortTraceText(maxLength = MAX_LOCAL_DIAGNOSTICS_CHARS)
 }
 
-private fun ToolResult.localObservationEvidencePrompt(
+internal fun ToolResult.localObservationEvidencePrompt(
     intentPreview: String,
     parseCache: ObservationJsonParseCache? = null,
 ): String {
@@ -216,14 +216,14 @@ private fun ToolResult.localObservationEvidencePrompt(
  * [parseCache] when present so the stage classification does not re-parse observation JSON. Falls
  * back to the default [AppSearchProgressEvidence.fromData] parser when no cache is threaded.
  */
-private fun ToolResult.appSearchProgressPromptText(parseCache: ObservationJsonParseCache?): String =
+internal fun ToolResult.appSearchProgressPromptText(parseCache: ObservationJsonParseCache?): String =
     if (parseCache == null) {
         AppSearchProgressEvidence.fromData(data)
     } else {
         AppSearchProgressEvidence.fromData(data) { rawJson -> parseCache.screenObservationOrNull(rawJson) }
     }.toPromptText()
 
-private fun AgentObservationReplanContext.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String =
+internal fun AgentObservationReplanContext.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String =
     if (!observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))) {
         "not_applicable"
     } else {

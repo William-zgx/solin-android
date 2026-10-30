@@ -53,7 +53,7 @@ class ModelObservationReplannerTargetGuardTest : ObservationReplannerTestFixture
         )
 
         assertNull(replan)
-        assertTrue(runtime.lastInput.orEmpty().contains("ocrText=继续"))
+        assertTrue(runtime.firstInput.orEmpty().contains("ocrText=继续"))
     }
 
     @Test
@@ -520,7 +520,7 @@ class ModelObservationReplannerTargetGuardTest : ObservationReplannerTestFixture
         )
 
         assertNull(replan)
-        val prompt = runtime.lastInput.orEmpty()
+        val prompt = runtime.firstInput.orEmpty()
         assertTrue(prompt.contains("stop if no scroll candidate/evidence exists"))
     }
 
