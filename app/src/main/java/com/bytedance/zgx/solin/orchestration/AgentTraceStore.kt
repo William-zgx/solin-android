@@ -938,12 +938,6 @@ private fun AgentRunState.isStaleAfterProcessRestart(): Boolean =
         AgentRunState.AwaitingUserAnswer,
     )
 
-private fun AgentRunState.isTerminal(): Boolean =
-    this in setOf(
-        AgentRunState.Completed,
-        AgentRunState.Cancelled,
-        AgentRunState.Failed,
-    )
 
 private fun AgentRun.toEntity(): AgentRunEntity =
     AgentRunEntity(

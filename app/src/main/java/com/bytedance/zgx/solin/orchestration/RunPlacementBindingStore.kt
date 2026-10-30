@@ -77,7 +77,7 @@ class RoomRunPlacementBindingStore(
         state: AgentRunState,
         updatedAtMillis: Long,
     ): TerminalizeRunResult {
-        if (!state.isTerminalPlacementRunState()) return TerminalizeRunResult.Rejected
+        if (!state.isTerminal()) return TerminalizeRunResult.Rejected
         val lock = lifecycleLock(runId)
         return synchronized(lock) {
             val permit = activeBindings[runId]
@@ -175,7 +175,7 @@ class RoomRunPlacementBindingStore(
             ?: return notRestorable(RunPlacementRecoveryRejection.UnknownEnum)
         val runState = runCatching { AgentRunState.valueOf(snapshot.run.state) }.getOrNull()
             ?: return notRestorable(RunPlacementRecoveryRejection.UnknownEnum)
-        if (runState.isTerminalPlacementRunState()) {
+        if (runState.isTerminal()) {
             return notRestorable(RunPlacementRecoveryRejection.TerminalRun)
         }
         if (binding.bootCount != context.bootCount) {
@@ -390,7 +390,7 @@ class RoomRunPlacementBindingStore(
     private fun isDurablyPublishable(binding: RunPlacementBinding): Boolean = runCatching {
         val snapshot = dao.recoverySnapshot(binding.runId) ?: return@runCatching false
         val runState = AgentRunState.valueOf(snapshot.run.state)
-        !runState.isTerminalPlacementRunState() &&
+        !runState.isTerminal() &&
             snapshot.binding.toDomainOrNull() == binding &&
             snapshot.steps.haveConsistentPlacementTrace(binding)
     }.getOrDefault(false)
@@ -403,7 +403,7 @@ class RoomRunPlacementBindingStore(
         val runState = AgentRunState.valueOf(snapshot.run.state)
         val age = context.elapsedRealtimeMillis - boundAtElapsedRealtimeMillis
         persisted == this &&
-            !runState.isTerminalPlacementRunState() &&
+            !runState.isTerminal() &&
             schemaVersion == RUN_PLACEMENT_BINDING_SCHEMA_VERSION &&
             bootCount == context.bootCount &&
             age in 0L..RUN_PLACEMENT_RECOVERY_MAX_AGE_MILLIS &&
@@ -416,9 +416,6 @@ private fun RunPlacementBinding.isInitialCanonicalBinding(): Boolean =
     schemaVersion == RUN_PLACEMENT_BINDING_SCHEMA_VERSION &&
         dispatchState == ModelDispatchState.Pending &&
         attempt == 0
-
-private fun AgentRunState.isTerminalPlacementRunState(): Boolean =
-    this in setOf(AgentRunState.Completed, AgentRunState.Cancelled, AgentRunState.Failed)
 
 private fun AgentRunState.isRestorablePlacementContinuationState(): Boolean =
     this in setOf(AgentRunState.AwaitingUserConfirmation, AgentRunState.AwaitingExternalOutcome)

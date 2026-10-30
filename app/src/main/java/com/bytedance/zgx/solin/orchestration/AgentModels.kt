@@ -28,6 +28,9 @@ enum class AgentRunState {
     Failed,
 }
 
+internal fun AgentRunState.isTerminal(): Boolean =
+    this == AgentRunState.Completed || this == AgentRunState.Cancelled || this == AgentRunState.Failed
+
 enum class AgentRuntimePhase {
     Created,
     LoadingContext,

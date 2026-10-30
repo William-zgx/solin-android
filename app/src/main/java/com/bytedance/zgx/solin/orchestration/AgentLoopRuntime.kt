@@ -340,9 +340,6 @@ class AgentLoopRuntime(
         runBudget = runBudget,
         maxToolRetryAttempts = maxToolRetryAttempts,
         host = object : ToolObservationCoordinator.Host {
-            override val terminalRunStates: Set<AgentRunState>
-                get() = this@AgentLoopRuntime.terminalRunStates
-
             override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
                 this@AgentLoopRuntime.toolRequestFor(runId, requestId)
 
@@ -830,7 +827,7 @@ class AgentLoopRuntime(
 
     fun cancelRun(runId: String, reason: String = RUN_CANCELLED_REASON): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
-        if (run.state in terminalRunStates) return null
+        if (run.state.isTerminal()) return null
         // Drop any queued steer/queued messages for a run that is being torn down. We cannot
         // selectively purge from an UNLIMITED Channel, so drain into a discard sink by runId.
         // Residual batches will naturally be ignored by any later drain call because the run is
@@ -902,7 +899,7 @@ class AgentLoopRuntime(
         while (updatedRun == null && attempt < MAX_TERMINATE_RUN_CAS_ATTEMPTS) {
             attempt++
             val run = traceStore.run(runId) ?: return null
-            if (run.state in terminalRunStates) return null
+            if (run.state.isTerminal()) return null
             updatedRun = traceStore.compareAndSetState(
                 runId = runId,
                 expectedState = run.state,
@@ -979,7 +976,7 @@ class AgentLoopRuntime(
         if (messages.isEmpty()) return false
         val id = runId ?: return false
         val run = traceStore.run(id) ?: return false
-        if (run.state in terminalRunStates) return false
+        if (run.state.isTerminal()) return false
         val enqueued = steerMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
         if (!enqueued) return false
         // Only cancel a model-streaming job; never interrupt tool execution. The state check is
@@ -1009,7 +1006,7 @@ class AgentLoopRuntime(
         if (messages.isEmpty()) return false
         val id = runId ?: return false
         val run = traceStore.run(id) ?: return false
-        if (run.state in terminalRunStates) return false
+        if (run.state.isTerminal()) return false
         return queuedMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
     }
 
@@ -1083,7 +1080,7 @@ class AgentLoopRuntime(
         var found: String? = null
         for (runId in runStartedAtMillis.keys) {
             val run = traceStore.run(runId) ?: continue
-            if (run.state in terminalRunStates) continue
+            if (run.state.isTerminal()) continue
             if (found != null) return null // >1 active; ambiguous
             found = runId
         }
@@ -1210,7 +1207,7 @@ class AgentLoopRuntime(
     fun steerRun(runId: String, messages: List<ChatMessage>): Boolean {
         if (messages.isEmpty()) return false
         val run = traceStore.run(runId) ?: return false
-        if (run.state in terminalRunStates) return false
+        if (run.state.isTerminal()) return false
         return steer(messages = messages, runId = runId)
     }
 
@@ -1607,7 +1604,7 @@ class AgentLoopRuntime(
         ) ?: return null
         val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        if (finalState in terminalRunStates) {
+        if (finalState.isTerminal()) {
             clearEphemeralRunState(runId)
         }
         if (
@@ -1718,7 +1715,7 @@ class AgentLoopRuntime(
             failureCode = AgentErrorCode.Unknown("model_observation"),
             failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: "observation failed",
         )
-        if (finalState in terminalRunStates) {
+        if (finalState.isTerminal()) {
             clearEphemeralRunState(runId)
         }
         if (
@@ -1781,13 +1778,13 @@ class AgentLoopRuntime(
 
     fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) {
         val run = traceStore.run(runId) ?: return
-        if (run.state in terminalRunStates) return
+        if (run.state.isTerminal()) return
         traceStore.appendStep(runId, AgentStep.RunDataReceiptRecorded(receipt))
     }
 
     fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) {
         val run = traceStore.run(runId) ?: return
-        if (run.state in terminalRunStates) return
+        if (run.state.isTerminal()) return
         traceStore.appendStep(runId, AgentStep.ModelOutputQualityGuardTriggered(trace))
     }
 
@@ -1972,12 +1969,6 @@ class AgentLoopRuntime(
             toolRegistry.startsDeviceControlSession(request.toolName) ||
                 toolPlanCoordinator.isDeviceControlTool(request)
         }
-
-    private val terminalRunStates = setOf(
-        AgentRunState.Completed,
-        AgentRunState.Cancelled,
-        AgentRunState.Failed,
-    )
 
     /**
      * States in which a run is waiting on someone outside the agent, so its wall-clock deadline is

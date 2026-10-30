@@ -46,7 +46,6 @@ internal class ToolObservationCoordinator(
      * on the runtime facade.
      */
     interface Host {
-        val terminalRunStates: Set<AgentRunState>
 
         fun toolRequestFor(runId: String, requestId: String): ToolRequest?
         fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch?
@@ -246,7 +245,7 @@ internal class ToolObservationCoordinator(
             failureCode = AgentErrorCode.Unknown("tool_failure"),
             failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: assistantMessage,
         )
-        if (updatedRun.state in host.terminalRunStates) {
+        if (updatedRun.state.isTerminal()) {
             host.clearEphemeralRunState(runId)
         }
         return AgentObservationResult(
@@ -556,7 +555,7 @@ internal class ToolObservationCoordinator(
             failureMessage = (effectiveDecision as? AgentObservationDecision.Fail)?.reason
                 ?: observedResult.summary,
         )
-        if (finalState in host.terminalRunStates) {
+        if (finalState.isTerminal()) {
             host.clearEphemeralRunState(runId)
         }
         // Side effects and the returned decision MUST follow [effectiveDecision], the same value that
