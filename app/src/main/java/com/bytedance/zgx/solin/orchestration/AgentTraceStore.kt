@@ -1989,7 +1989,7 @@ private fun AgentObservationDecision.traceJson(): JSONObject {
     return json
 }
 
-private fun String.shortTraceText(maxLength: Int = 160): String {
+internal fun String.shortTraceText(maxLength: Int = 160): String {
     val compact = lineSequence()
         .joinToString(" ") { line -> line.trim() }
         .replace(Regex("\\s+"), " ")

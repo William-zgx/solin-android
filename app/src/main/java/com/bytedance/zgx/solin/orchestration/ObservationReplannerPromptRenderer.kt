@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.orchestration
 
-import com.bytedance.zgx.solin.audit.ToolAuditSummaryRedactor
 import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.ScreenObservation
 import com.bytedance.zgx.solin.device.UiTargetEvidenceCandidate
@@ -79,8 +78,8 @@ internal fun AgentObservationReplanContext.observationModelPrompt(
     parseCache: ObservationJsonParseCache? = null,
 ): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
-        .safeObservationPromptText()
-    val observationSummary = observedResult.summary.safeObservationPromptText()
+        .shortTraceText()
+    val observationSummary = observedResult.summary.shortTraceText()
     val observationDiagnostics = observedResult.observationDiagnosticsPrompt()
     val localObservationEvidence = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
     val localOnlyAllowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
@@ -122,7 +121,7 @@ internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
     parseCache: ObservationJsonParseCache? = null,
 ): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
-        .safeObservationPromptText(maxLength = 120)
+        .shortTraceText(maxLength = 120)
     val localOnlyAllowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val localEvidence = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
     val targetShortlists = localEvidence.targetShortlistSummariesForPrompt()
@@ -148,28 +147,28 @@ private fun List<ToolRequest>.priorRequestDetailsPrompt(): String =
         .map { request -> request.toPriorRequestDetailPrompt() }
         .joinToString(separator = " -> ")
         .ifBlank { "none" }
-        .safeObservationPromptText(maxLength = MAX_PRIOR_REQUEST_DETAILS_CHARS)
+        .shortTraceText(maxLength = MAX_PRIOR_REQUEST_DETAILS_CHARS)
 
 private fun ToolRequest.toPriorRequestDetailPrompt(): String {
     val details = buildList {
         arguments["target"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 96)
+            ?.shortTraceText(maxLength = 96)
             ?.let { value -> add("target=$value") }
         arguments["direction"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 32)
+            ?.shortTraceText(maxLength = 32)
             ?.let { value -> add("direction=$value") }
         arguments["captureMode"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 48)
+            ?.shortTraceText(maxLength = 48)
             ?.let { value -> add("captureMode=$value") }
         arguments["text"]
             ?.takeIf { value -> value.isNotBlank() }
             ?.let { value -> add("textChars=${value.length}") }
         arguments["timeoutMillis"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 16)
+            ?.shortTraceText(maxLength = 16)
             ?.let { value -> add("timeoutMillis=$value") }
     }.joinToString(separator = ",")
     return if (details.isBlank()) toolName else "$toolName{$details}"
@@ -184,14 +183,14 @@ private fun ToolResult.observationDiagnosticsPrompt(): String {
         localObservationDiagnosticKeys.forEach { key ->
             data[key]
                 ?.takeIf { value -> value.isNotBlank() }
-                ?.safeObservationPromptText(maxLength = 160)
+                ?.shortTraceText(maxLength = 160)
                 ?.let { value -> add("$key=$value") }
         }
     }
     return diagnostics
         .joinToString(separator = "; ")
         .ifBlank { "none" }
-        .safeObservationPromptText(maxLength = MAX_LOCAL_DIAGNOSTICS_CHARS)
+        .shortTraceText(maxLength = MAX_LOCAL_DIAGNOSTICS_CHARS)
 }
 
 private fun ToolResult.localObservationEvidencePrompt(
@@ -219,20 +218,20 @@ private fun ToolResult.localObservationEvidencePrompt(
         }
         data["ocrText"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 360)
+            ?.shortTraceText(maxLength = 360)
             ?.let { text -> add("ocrText=$text") }
         data["screenText"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 360)
+            ?.shortTraceText(maxLength = 360)
             ?.let { text -> add("screenText=$text") }
         data["screenObservationDiffSummary"]
             ?.takeIf { value -> value.isNotBlank() }
-            ?.safeObservationPromptText(maxLength = 520)
+            ?.shortTraceText(maxLength = 520)
             ?.let { text -> add("screenObservationDiffSummary=$text") }
     }
     return sections.joinToString(separator = " | ")
         .ifBlank { "none" }
-        .safeObservationPromptText(maxLength = MAX_LOCAL_EVIDENCE_CHARS)
+        .shortTraceText(maxLength = MAX_LOCAL_EVIDENCE_CHARS)
     }
 
 /**
@@ -388,7 +387,7 @@ private fun JSONObject.toObservationElementPromptText(): String {
     }.joinToString(separator = "+").ifBlank { "static" }
     val text = optString("text")
         .takeIf { value -> value.isNotBlank() }
-        ?.safeObservationPromptText(maxLength = 72)
+        ?.shortTraceText(maxLength = 72)
         ?: "no_text"
     val bounds = optJSONObject("bounds")?.boundsPromptText()
     return buildString {
@@ -414,7 +413,7 @@ private fun JSONObject.toObservationElementPromptText(): String {
 private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
     val text = optString("text")
         .takeIf { value -> value.isNotBlank() }
-        ?.safeObservationPromptText(maxLength = 72)
+        ?.shortTraceText(maxLength = 72)
         ?: return null
     val clickability = optJSONObject("clickability")
     if (clickability?.optBoolean("enabled", true) == false) return null
@@ -428,7 +427,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
     if (modeTags.isEmpty()) return null
     val targetValue = optString("id")
         .takeIf { value -> value.isNotBlank() }
-        ?.safeObservationPromptText(maxLength = 72)
+        ?.shortTraceText(maxLength = 72)
         ?: text
     val bounds = optJSONObject("bounds")?.boundsPromptText()
     val promptText = buildString {
@@ -505,11 +504,11 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         .take(2)
         .joinToString(" ")
         .takeIf { text -> text.isNotBlank() }
-        ?.safeObservationPromptText(maxLength = 72)
+        ?.shortTraceText(maxLength = 72)
         ?: return null
     val targetValue = optString("id")
         .takeIf { value -> value.isNotBlank() }
-        ?.safeObservationPromptText(maxLength = 72)
+        ?.shortTraceText(maxLength = 72)
         ?: return null
     val clickability = optJSONObject("clickability")
     val role = optString("role", "unknown")
@@ -562,13 +561,13 @@ private fun List<LocalTargetCandidatePrompt>.targetEvidencePromptText(): String?
         .joinToString(separator = "; ") { candidate ->
             buildString {
                 append("id=")
-                append(candidate.targetValue.safeObservationPromptText(maxLength = 96))
+                append(candidate.targetValue.shortTraceText(maxLength = 96))
                 append(",text=")
-                append(candidate.label.safeObservationPromptText(maxLength = 48))
+                append(candidate.label.shortTraceText(maxLength = 48))
                 append(",mode=")
                 append(candidate.modeTags.joinToString(separator = "+"))
                 append(",role=")
-                append(candidate.role.safeObservationPromptText(maxLength = 32))
+                append(candidate.role.shortTraceText(maxLength = 32))
             }
         }
         .takeIf { value -> value.isNotBlank() }
@@ -718,8 +717,8 @@ private fun JSONObject.toOcrTargetCandidatePrompts(blockIndex: Int): List<LocalT
     toOcrTargetEvidencePrompts(blockIndex).map { evidence -> evidence.toOcrTargetCandidatePrompt() }
 
 private fun OcrTargetEvidencePrompt.toOcrTargetCandidatePrompt(): LocalTargetCandidatePrompt {
-    val text = text.safeObservationPromptText(maxLength = 72)
-    val targetValue = id.safeObservationPromptText(maxLength = 96)
+    val text = text.shortTraceText(maxLength = 72)
+    val targetValue = id.shortTraceText(maxLength = 96)
     val promptText = buildString {
         append(text)
         append("{target=")
@@ -741,7 +740,7 @@ private fun OcrTargetEvidencePrompt.toOcrTargetCandidatePrompt(): LocalTargetCan
 
 private fun JSONObject.toOcrBlockPromptText(index: Int): String {
     val text = optString("text")
-        .safeObservationPromptText(maxLength = 72)
+        .shortTraceText(maxLength = 72)
         .ifBlank { "no_text" }
     val bounds = optJSONObject("bounds")?.boundsPromptText()
     return buildString {
@@ -767,11 +766,3 @@ private fun JSONObject.containsOcrObservation(elements: JSONArray): Boolean =
 private fun Double.formatPromptScore(): String =
     String.format(java.util.Locale.US, "%.2f", this)
 
-private fun String.safeObservationPromptText(maxLength: Int = 160): String {
-    val compact = lineSequence()
-        .joinToString(" ") { line -> line.trim() }
-        .replace(Regex("\\s+"), " ")
-        .trim()
-    val redacted = ToolAuditSummaryRedactor.redact(compact)
-    return if (redacted.length <= maxLength) redacted else redacted.take(maxLength - 3) + "..."
-}
