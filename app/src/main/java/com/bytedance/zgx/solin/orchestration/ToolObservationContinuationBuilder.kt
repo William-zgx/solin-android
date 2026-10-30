@@ -157,6 +157,11 @@ internal class ToolObservationContinuationBuilder(
                 )
             }
 
+            // A note is a scratchpad write, not evidence to answer from: the run keeps replanning and
+            // the note reaches later local-model prompts via [withScratchpadNotes]. Its private
+            // output key still drives trace/audit redaction.
+            MobileActionFunctions.NOTE -> null
+
             else -> policyContinuationAfterToolObservation(run, request, result)
         }
     }

@@ -62,6 +62,8 @@ class ScratchpadContinuationPrivacyTest {
                         "toolName" to MobileActionFunctions.NOTE,
                         "content" to noteText,
                         "noteIndex" to "1",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
                     ),
                 ),
             )
