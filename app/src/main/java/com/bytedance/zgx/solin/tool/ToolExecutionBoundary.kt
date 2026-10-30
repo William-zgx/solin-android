@@ -198,9 +198,3 @@ private fun resultsByRequestId(
     }
     return results.associateBy { it.requestId }
 }
-
-private fun ToolRequest.toolExecutionContext(): Map<String, String> =
-    mapOf("toolName" to toolName)
-
-private fun Throwable.cleanMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
