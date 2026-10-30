@@ -30,8 +30,6 @@ import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
-import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
-import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -68,9 +66,7 @@ internal fun resolveBoundToolContinuation(
 internal class ChatToolContinuationSupport(
     private val uiState: MutableStateFlow<ChatUiState>,
     private val runtime: LiteRtRuntime,
-    private val remoteRuntime: RemoteChatRuntime,
     private val assistantOrchestrator: AssistantRouter,
-    private val outputQualityGuard: ModelOutputQualityGuard,
     private val generationSupport: ChatGenerationSupport,
     private val remoteSendSupport: ChatRemoteSendSupport,
     private val launchGenerationJob: (runId: String?, block: suspend () -> Unit) -> Unit,

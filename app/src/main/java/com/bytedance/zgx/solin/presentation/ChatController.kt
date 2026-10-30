@@ -236,9 +236,7 @@ class ChatController internal constructor(
     private val toolContinuationSupport = ChatToolContinuationSupport(
         uiState = uiState,
         runtime = runtime,
-        remoteRuntime = remoteRuntime,
         assistantOrchestrator = assistantOrchestrator,
-        outputQualityGuard = outputQualityGuard,
         generationSupport = generationSupport,
         remoteSendSupport = remoteSendSupport,
         launchGenerationJob = { runId, block -> launchToolGenerationJob(runId, block) },
