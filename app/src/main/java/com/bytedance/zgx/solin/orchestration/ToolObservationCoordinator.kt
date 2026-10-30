@@ -4,9 +4,7 @@ import android.util.Log
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
-import com.bytedance.zgx.solin.audit.ToolAuditEvent
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
-import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.orchestration.ToolErrorCode as OrchestrationToolErrorCode
@@ -33,7 +31,7 @@ internal const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
  */
 internal class ToolObservationCoordinator(
     private val toolRegistry: ToolRegistry,
-    private val auditSink: ToolAuditSink,
+    private val auditRecorder: ToolAuditRecorder,
     private val eventBus: SolinEventBus,
     private val traceStore: AgentTraceStore,
     private val toolPlanCoordinator: ToolPlanCoordinator,
@@ -148,36 +146,14 @@ internal class ToolObservationCoordinator(
             traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
             // One resolution for both sinks: the audit row and its event-bus copy must agree.
             val resolvedSkillId = host.skillIdForRequest(runId, plan.request.id)
-            auditSink.record(
-                ToolAuditEvent(
-                    runId = runId,
-                    requestId = traceResult.requestId,
-                    toolName = plan.request.toolName,
-                    skillId = resolvedSkillId,
-                    eventType = ToolAuditEventType.ToolObserved,
-                    status = traceResult.status,
-                    riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel,
-                    permissions = toolRegistry.specFor(plan.request.toolName)?.permissions.orEmpty(),
-                    summary = traceResult.auditSummaryForObservation(plan.request),
-                ),
-            )
-            // Proof-of-wiring: also publish onto SolinEventBus for the new seam.
-            eventBus.publish(
-                SolinEvent.Audit.ToolAudited(
-                    runId = runId,
-                    requestId = traceResult.requestId,
-                    toolName = plan.request.toolName,
-                    skillId = resolvedSkillId,
-                    eventType = ToolAuditEventType.ToolObserved.name,
-                    status = traceResult.status.name,
-                    riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel?.name,
-                    permissionsCsv = toolRegistry.specFor(plan.request.toolName)?.permissions
-                        ?.map { it.name }
-                        ?.sorted()
-                        ?.joinToString(separator = ",")
-                        .orEmpty(),
-                    summary = traceResult.auditSummaryForObservation(plan.request),
-                ),
+            auditRecorder.record(
+                runId = runId,
+                requestId = traceResult.requestId,
+                toolName = plan.request.toolName,
+                skillId = resolvedSkillId,
+                eventType = ToolAuditEventType.ToolObserved,
+                status = traceResult.status,
+                summary = traceResult.auditSummaryForObservation(plan.request),
             )
             publishToolOutcomeEvent(runId, plan.request, traceResult, retryAttempt = 0)
             recordToolCompletedTelemetry(runId, plan.request, traceResult, retryAttempt = 0)
@@ -403,39 +379,16 @@ internal class ToolObservationCoordinator(
         // Wave 4 telemetry: record step latency for tool_execution boundary.
         host.recordStepLatency("tool_execution", runId)
         toolPlanCoordinator.recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
-        val spec = toolRegistry.specFor(request.toolName)
-        val riskLevel = spec?.riskLevel
-        val permissions = spec?.permissions.orEmpty()
         val resolvedSkillId = host.skillIdForRequest(runId, observedResult.requestId)
         val observationSummary = observedResult.auditSummaryForObservation(request)
-        auditSink.record(
-            ToolAuditEvent(
-                runId = runId,
-                requestId = observedResult.requestId,
-                toolName = request.toolName,
-                skillId = resolvedSkillId,
-                eventType = ToolAuditEventType.ToolObserved,
-                status = observedResult.status,
-                riskLevel = riskLevel,
-                permissions = permissions,
-                summary = observationSummary,
-            ),
-        )
-        eventBus.publish(
-            SolinEvent.Audit.ToolAudited(
-                runId = runId,
-                requestId = observedResult.requestId,
-                toolName = request.toolName,
-                skillId = resolvedSkillId,
-                eventType = ToolAuditEventType.ToolObserved.name,
-                status = observedResult.status.name,
-                riskLevel = riskLevel?.name,
-                permissionsCsv = permissions
-                    .map { it.name }
-                    .sorted()
-                    .joinToString(separator = ","),
-                summary = observationSummary,
-            ),
+        auditRecorder.record(
+            runId = runId,
+            requestId = observedResult.requestId,
+            toolName = request.toolName,
+            skillId = resolvedSkillId,
+            eventType = ToolAuditEventType.ToolObserved,
+            status = observedResult.status,
+            summary = observationSummary,
         )
         val recoveryAction = recoveryActionForObservation(request, observedResult)
         val assistantMessage = messageForObservation(observedResult, retryAttempt, recoveryAction)

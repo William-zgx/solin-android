@@ -17,7 +17,6 @@ import com.bytedance.zgx.solin.action.IntentRoutingDecision
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
-import com.bytedance.zgx.solin.audit.ToolAuditEvent
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
 import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
@@ -191,6 +190,7 @@ class AgentLoopRuntime(
     private var closed = false
 
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
+    private val auditRecorder = ToolAuditRecorder(toolRegistry, auditSink, eventBus)
     // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
     // call sites unchanged.
     private val runScopedState = RunScopedState()
@@ -334,7 +334,7 @@ class AgentLoopRuntime(
 
     private val toolObservationCoordinator = ToolObservationCoordinator(
         toolRegistry = toolRegistry,
-        auditSink = auditSink,
+        auditRecorder = auditRecorder,
         eventBus = eventBus,
         traceStore = traceStore,
         toolPlanCoordinator = toolPlanCoordinator,
@@ -2901,78 +2901,29 @@ class AgentLoopRuntime(
         skillId: String? = skillIdForRequest(runId, request.id),
         summary: String,
     ) {
-        val spec = toolRegistry.specFor(request.toolName)
-        val riskLevel = spec?.riskLevel
-        val permissions = spec?.permissions.orEmpty()
-        auditSink.record(
-            ToolAuditEvent(
-                runId = runId,
-                requestId = request.id,
-                toolName = request.toolName,
-                skillId = skillId,
-                eventType = eventType,
-                status = status,
-                riskLevel = riskLevel,
-                permissions = permissions,
-                summary = summary,
-            ),
-        )
-        // Wave 4 dual-write: publish the same event onto SolinEventBus so the
-        // ToolAuditRepository subscriber can record it through the new seam. The
-        // direct record() call above stays in place until the bus path is verified.
-        eventBus.publish(
-            SolinEvent.Audit.ToolAudited(
-                runId = runId,
-                requestId = request.id,
-                toolName = request.toolName,
-                skillId = skillId,
-                eventType = eventType.name,
-                status = status?.name,
-                riskLevel = riskLevel?.name,
-                permissionsCsv = permissions
-                    .map { it.name }
-                    .sorted()
-                    .joinToString(separator = ","),
-                summary = summary,
-            ),
+        auditRecorder.record(
+            runId = runId,
+            requestId = request.id,
+            toolName = request.toolName,
+            skillId = skillId,
+            eventType = eventType,
+            status = status,
+            summary = summary,
         )
     }
 
     private fun auditRejectedTool(runId: String, result: ToolResult) {
-        val toolName = result.data["toolName"]
-        val spec = toolName?.let(toolRegistry::specFor)
         val resolvedSkillId = result.requestId.takeIf { it.isNotBlank() }?.let { requestId ->
             skillIdForRequest(runId, requestId)
         }
-        val permissions = spec?.permissions.orEmpty()
-        auditSink.record(
-            ToolAuditEvent(
-                runId = runId,
-                requestId = result.requestId,
-                toolName = toolName,
-                skillId = resolvedSkillId,
-                eventType = ToolAuditEventType.ToolRejected,
-                status = result.status,
-                riskLevel = spec?.riskLevel,
-                permissions = permissions,
-                summary = result.summary,
-            ),
-        )
-        eventBus.publish(
-            SolinEvent.Audit.ToolAudited(
-                runId = runId,
-                requestId = result.requestId,
-                toolName = toolName,
-                skillId = resolvedSkillId,
-                eventType = ToolAuditEventType.ToolRejected.name,
-                status = result.status.name,
-                riskLevel = spec?.riskLevel?.name,
-                permissionsCsv = permissions
-                    .map { it.name }
-                    .sorted()
-                    .joinToString(separator = ","),
-                summary = result.summary,
-            ),
+        auditRecorder.record(
+            runId = runId,
+            requestId = result.requestId,
+            toolName = result.data["toolName"],
+            skillId = resolvedSkillId,
+            eventType = ToolAuditEventType.ToolRejected,
+            status = result.status,
+            summary = result.summary,
         )
     }
 
