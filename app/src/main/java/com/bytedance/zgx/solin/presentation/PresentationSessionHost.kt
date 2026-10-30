@@ -122,6 +122,7 @@ internal class DefaultPresentationSessionHost(
         replaceActiveSessionMessages(messages, persistNow = true)
         if (memoryUserMessage != null) {
             persistExplicitPreferenceMemory(memoryUserMessage)
+            memoryUiController.onUserMessage(memoryUserMessage.text)
         }
         rebuildMemoryIndex()
     }

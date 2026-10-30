@@ -338,14 +338,63 @@ internal fun actionParameterDisplayRows(
             ),
         )
 
+        keyForMatching in epochMillisParameterKeys && trimmedValue.toLongOrNull() != null -> listOf(
+            ActionParameterDisplayRow(
+                label = parameterLabels[keyForMatching] ?: normalizedKey,
+                value = formatEpochMillis(trimmedValue.toLong()),
+                preferCompact = true,
+            ),
+        )
+
+        keyForMatching == "command" && trimmedValue in mediaCommandLabels -> listOf(
+            ActionParameterDisplayRow(
+                label = "媒体操作",
+                value = mediaCommandLabels.getValue(trimmedValue),
+                preferCompact = true,
+            ),
+        )
+
         else -> listOf(
             ActionParameterDisplayRow(
-                label = normalizedKey.ifBlank { "参数" },
+                label = parameterLabels[keyForMatching] ?: normalizedKey.ifBlank { "参数" },
                 value = trimmedValue,
+                preferCompact = keyForMatching in compactParameterKeys,
             ),
         )
     }
 }
+
+/** Readable labels for common draft arguments; unknown keys keep their raw name. */
+private val parameterLabels = mapOf(
+    "phonenumber" to "电话号码",
+    "body" to "短信内容",
+    "expression" to "算式",
+    "begintimemillis" to "开始时间",
+    "endtimemillis" to "结束时间",
+    "triggeratmillis" to "提醒时间",
+    "delayminutes" to "延迟（分钟）",
+    "lengthseconds" to "时长（秒）",
+    "hour" to "小时",
+    "minutes" to "分钟",
+    "message" to "备注",
+    "title" to "标题",
+)
+
+private val compactParameterKeys = setOf("phonenumber", "expression", "delayminutes", "lengthseconds", "hour", "minutes")
+
+private val epochMillisParameterKeys = setOf("begintimemillis", "endtimemillis", "triggeratmillis")
+
+private val mediaCommandLabels = mapOf(
+    "play" to "播放",
+    "pause" to "暂停",
+    "play_pause" to "播放/暂停",
+    "next" to "下一首",
+    "previous" to "上一首",
+    "stop" to "停止",
+)
+
+private fun formatEpochMillis(millis: Long): String =
+    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(java.util.Date(millis))
 
 internal fun actionDataBoundaryDisplayRows(functionName: String): List<String> =
     when (functionName) {

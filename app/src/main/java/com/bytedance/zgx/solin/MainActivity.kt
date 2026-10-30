@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
     private fun ReadySolinContent(skipStartupModelRuntimeWork: Boolean) {
         val context = LocalContext.current
         val state by viewModel.uiState.collectAsStateWithLifecycle()
+        val memoryPanel by viewModel.memoryPanelState.collectAsStateWithLifecycle()
         val mcpController = appContainer.mcpCapabilityController
         var mcpCapability by remember { mutableStateOf<McpCapabilityToggleUiState?>(null) }
         LaunchedEffect(mcpController) {
@@ -173,6 +174,13 @@ class MainActivity : ComponentActivity() {
         }
         SolinScreen(
                     state = state,
+                    memoryPanel = memoryPanel,
+                    onConfirmMemorySuggestion = { suggestionId ->
+                        viewModel.launchPersistenceWork { viewModel.confirmMemorySuggestion(suggestionId) }
+                    },
+                    onDismissMemorySuggestion = { suggestionId ->
+                        viewModel.launchPersistenceWork { viewModel.dismissMemorySuggestion(suggestionId) }
+                    },
                     mcpCapability = mcpCapability,
                     onMcpCapabilityEnabledChanged = { enabled, disclosureAccepted ->
                         lifecycleScope.launch {

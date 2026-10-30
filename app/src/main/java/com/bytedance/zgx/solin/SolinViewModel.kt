@@ -40,6 +40,7 @@ import com.bytedance.zgx.solin.presentation.DefaultPresentationSessionHost
 import com.bytedance.zgx.solin.presentation.InferenceModeController
 import com.bytedance.zgx.solin.presentation.InitialChatStateFactory
 import com.bytedance.zgx.solin.presentation.StartupStateRestorer
+import com.bytedance.zgx.solin.presentation.MemoryPanelState
 import com.bytedance.zgx.solin.presentation.MemoryUiController
 import com.bytedance.zgx.solin.presentation.PresentationSessionHost
 import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
@@ -444,7 +445,17 @@ class SolinViewModel internal constructor(
         if (!deferPersistenceInitialization) {
             persistenceInitialization.complete(Unit)
         }
+        assistantOrchestrator.memoryRetrievalOutcome?.let { outcomes ->
+            viewModelScope.launch(ioDispatcher) { outcomes.collect(memoryUiController::onMemoryRetrievalOutcome) }
+        }
     }
+
+    /** Memory-panel state (retrieval health, "remember this?" suggestions). */
+    val memoryPanelState: StateFlow<MemoryPanelState> get() = memoryUiController.memoryPanelState
+
+    fun confirmMemorySuggestion(suggestionId: String) = memoryUiController.confirmMemorySuggestion(suggestionId)
+
+    fun dismissMemorySuggestion(suggestionId: String) = memoryUiController.dismissMemorySuggestion(suggestionId)
 
     fun restoreStartupState(skipModelRuntimeWork: Boolean = false) {
         if (startupRestored) return

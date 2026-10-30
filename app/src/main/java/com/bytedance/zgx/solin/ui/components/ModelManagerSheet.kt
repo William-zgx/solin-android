@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.ui.components
 
+import com.bytedance.zgx.solin.presentation.MemoryPanelState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -87,6 +88,9 @@ internal fun ModelManagerSheet(
     onRemoteGuiAutomationEnabledChanged: (Boolean) -> Unit,
     mcpCapability: McpCapabilityToggleUiState? = null,
     onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
+    memoryPanel: MemoryPanelState = MemoryPanelState(),
+    onConfirmMemorySuggestion: (String) -> Unit = {},
+    onDismissMemorySuggestion: (String) -> Unit = {},
     onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
     onOpenModelPage: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -182,6 +186,9 @@ internal fun ModelManagerSheet(
                 onMemoryEnabledChanged = onMemoryEnabledChanged,
                 onForgetLongTermMemory = onForgetLongTermMemory,
                 onClearLongTermMemory = onClearLongTermMemory,
+                memoryPanel = memoryPanel,
+                onConfirmMemorySuggestion = onConfirmMemorySuggestion,
+                onDismissMemorySuggestion = onDismissMemorySuggestion,
             )
 
             else -> TrustBoundaryPanel(
@@ -522,6 +529,9 @@ internal fun AdvancedModelPanel(
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
+    memoryPanel: MemoryPanelState = MemoryPanelState(),
+    onConfirmMemorySuggestion: (String) -> Unit = {},
+    onDismissMemorySuggestion: (String) -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PanelSurface {
@@ -538,6 +548,10 @@ internal fun AdvancedModelPanel(
             onMemoryEnabledChanged = onMemoryEnabledChanged,
             onForgetLongTermMemory = onForgetLongTermMemory,
             onClearLongTermMemory = onClearLongTermMemory,
+            retrievalStatusText = memoryPanel.retrievalStatusText,
+            suggestions = memoryPanel.suggestions,
+            onConfirmSuggestion = onConfirmMemorySuggestion,
+            onDismissSuggestion = onDismissMemorySuggestion,
         )
     }
 }

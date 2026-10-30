@@ -252,6 +252,20 @@ class SolinScreenDisplayTest {
     }
 
     @Test
+    fun actionParametersUseReadableLabelsForDialSmsMediaCalculatorAndTimes() {
+        assertEquals("电话号码", actionParameterDisplayRows("phoneNumber", "10086").single().label)
+        assertEquals("短信内容", actionParameterDisplayRows("body", "到了").single().label)
+        assertEquals("算式", actionParameterDisplayRows("expression", "1+2").single().label)
+        val media = actionParameterDisplayRows("command", "next").single()
+        assertEquals("媒体操作", media.label)
+        assertEquals("下一首", media.value)
+        val time = actionParameterDisplayRows("beginTimeMillis", "1700000000000").single()
+        assertEquals("开始时间", time.label)
+        assertTrue(time.value, Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}""").matches(time.value))
+        assertEquals("customKey", actionParameterDisplayRows("customKey", "v").single().label)
+    }
+
+    @Test
     fun actionDataBoundaryNamesExternalLocalAndBackgroundDestinations() {
         val externalRows = actionDataBoundaryDisplayRows(MobileActionFunctions.SHARE_TEXT)
         assertContainsAll(externalRows.joinToString(), "外部 App", "未确认结果前宣称已完成")

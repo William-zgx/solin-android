@@ -100,6 +100,10 @@ interface AssistantRouter : AutoCloseable {
     /** Register the in-flight model streaming Job for [runId] (never a tool-execution Job). */
     fun registerModelCallJob(runId: String, job: kotlinx.coroutines.Job) = Unit
 
+    /** Outcome of the latest agent-run memory retrieval (health only); null when not tracked. */
+    val memoryRetrievalOutcome: kotlinx.coroutines.flow.StateFlow<MemoryRetrievalOutcome?>?
+        get() = null
+
     /** Unregister [job] (or any registered Job when null) for [runId]. */
     fun unregisterModelCallJob(runId: String, job: kotlinx.coroutines.Job?) = Unit
 
@@ -226,6 +230,11 @@ class AssistantOrchestrator(
     private val sessionPlanStore: SessionPlanStore? = null,
     private val contextCompactor: ContextCompactor = NoOpContextCompactor,
 ) : AssistantRouter {
+    private val memoryRetrieval = MemoryRetrieval(memoryIndex)
+
+    override val memoryRetrievalOutcome: kotlinx.coroutines.flow.StateFlow<MemoryRetrievalOutcome?>
+        get() = memoryRetrieval.lastOutcome
+
     private val resolvedSystemPromptBuilder = systemPromptBuilder
         ?: systemContextContributors.takeIf { it.isNotEmpty() }?.let {
             SystemPromptBuilder(contributors = it, includeDeviceControlSurvivalRules = true)
@@ -246,6 +255,7 @@ class AssistantOrchestrator(
         evidenceBlobStore = evidenceBlobStore,
         sessionPlanStore = sessionPlanStore,
         contextCompactor = contextCompactor,
+        memoryRetrieval = memoryRetrieval,
     )
 
     override fun route(

@@ -51,6 +51,21 @@ class ContextAssemblerTest {
     }
 
     @Test
+    fun translationTurnUsesTranslationInstructionInsteadOfContextScaffolding() {
+        val assembler = ContextAssembler(systemPromptBuilder = null, memoryIndex = null)
+        val input = "把今天天气不错翻译成英文"
+        val out = assembler.assembleAnswerPrompt(
+            input = input,
+            memoryHits = listOf(MemoryHit(id = "m", text = "无关记忆", score = 0.9f, finalScore = 0.9f)),
+            deviceContext = null,
+            run = fakeRun(input = input),
+        )
+        assertTrue(out, out.startsWith("请把以下内容翻译成英文，只输出译文："))
+        assertTrue(out, out.endsWith("今天天气不错"))
+        assertTrue(out, !out.contains("无关记忆"))
+    }
+
+    @Test
     fun answerPromptWrapsInputWithScaffoldingWhenMemoryIsPresent() {
         val assembler = ContextAssembler(systemPromptBuilder = null, memoryIndex = null)
         val input = "what is my preference?"

@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.action.TranslationIntentParser
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.EvidenceQuality
@@ -45,6 +46,9 @@ class ContextAssembler(
         deviceContext: DeviceContextSnapshot?,
         run: AgentRun,
     ): String {
+        // Translation turns are plain chat; a fixed instruction keeps small models from answering
+        // or explaining the text instead of translating it. Context cards would only distract here.
+        TranslationIntentParser.parse(input)?.let { request -> return request.chatInstruction() }
         val localMemoryHits = memoryHits.filter { hit -> hit.isAvailableForLocalContext() }
         val contributorCards = runCatching {
             systemPromptBuilder
