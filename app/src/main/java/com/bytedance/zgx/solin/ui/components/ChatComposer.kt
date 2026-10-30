@@ -145,77 +145,45 @@ internal fun Composer(
             )
         }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // Narrow screens drop the model button; everything else renders identically.
             val compactControls = maxWidth < 360.dp
-            if (compactControls) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    ComposerAttachmentButton(
-                        contentDescription = attachmentContentDescription(
-                            preference = state.inferenceMode,
-                            actualPlacement = activeRunPlacement,
-                            actualReason = activeRunPlacementReason,
-                        ),
-                        enabled = attachmentEnabled,
-                        onClick = onPickSharedAttachment,
-                    )
-                    ComposerTextInput(
-                        modifier = Modifier.weight(1f),
-                        input = input,
-                        onInputChanged = onInputChanged,
-                        inputEnabled = inputEnabled,
-                        placeholder = placeholder,
-                    )
-                    ComposerVoiceButton(
-                        enabled = voiceEnabled,
-                        onClick = { showVoicePermissionDisclosure = true },
-                    )
-                    ComposerSendButton(
-                        actionIsStop = actionIsStop,
-                        canSend = canSend,
-                        onStopGeneration = onStopGeneration,
-                        onSend = onSend,
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    ComposerAttachmentButton(
-                        contentDescription = attachmentContentDescription(
-                            preference = state.inferenceMode,
-                            actualPlacement = activeRunPlacement,
-                            actualReason = activeRunPlacementReason,
-                        ),
-                        enabled = attachmentEnabled,
-                        onClick = onPickSharedAttachment,
-                    )
-                    ComposerTextInput(
-                        modifier = Modifier.weight(1f),
-                        input = input,
-                        onInputChanged = onInputChanged,
-                        inputEnabled = inputEnabled,
-                        placeholder = placeholder,
-                    )
-                    ComposerVoiceButton(
-                        enabled = voiceEnabled,
-                        onClick = { showVoicePermissionDisclosure = true },
-                    )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                ComposerAttachmentButton(
+                    contentDescription = attachmentContentDescription(
+                        preference = state.inferenceMode,
+                        actualPlacement = activeRunPlacement,
+                        actualReason = activeRunPlacementReason,
+                    ),
+                    enabled = attachmentEnabled,
+                    onClick = onPickSharedAttachment,
+                )
+                ComposerTextInput(
+                    modifier = Modifier.weight(1f),
+                    input = input,
+                    onInputChanged = onInputChanged,
+                    inputEnabled = inputEnabled,
+                    placeholder = placeholder,
+                )
+                ComposerVoiceButton(
+                    enabled = voiceEnabled,
+                    onClick = { showVoicePermissionDisclosure = true },
+                )
+                if (!compactControls) {
                     ComposerModelButton(
                         enabled = !state.isBusy,
                         onClick = onOpenModelManager,
                     )
-                    ComposerSendButton(
-                        actionIsStop = actionIsStop,
-                        canSend = canSend,
-                        onStopGeneration = onStopGeneration,
-                        onSend = onSend,
-                    )
                 }
+                ComposerSendButton(
+                    actionIsStop = actionIsStop,
+                    canSend = canSend,
+                    onStopGeneration = onStopGeneration,
+                    onSend = onSend,
+                )
             }
         }
     }
