@@ -71,8 +71,6 @@ class ZvecNativeStore private constructor(
     }
 
     companion object {
-        private const val LAST_ERROR_CLOSED = 5
-
         init {
             System.loadLibrary("solin_zvec_bridge")
         }

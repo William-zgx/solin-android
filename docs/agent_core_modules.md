@@ -1074,31 +1074,28 @@ Code:
 
 Responsibilities:
 
-- Provide local key-value, document, and vector storage contracts backed by
-  Android storage primitives.
+- Read the retired plaintext memory storage (SharedPreferences documents and
+  the zvec vector index) once, so `LegacyMemoryStorageRetirement` can import
+  it into encrypted Room and delete it.
 - Keep all local storage on device; nothing in this module syncs to cloud.
 
 Boundaries:
 
-- Storage collections are versioned (`LocalStorageSchemaVersions.CURRENT`)
-  so migrations are explicit.
+- Read-only: production never writes legacy documents or vectors.
 - Vector dimensions are fixed at 768 (`LocalVectorIndexContract.DIMENSIONS`)
-  to match the EmbeddingGemma model.
+  to match the EmbeddingGemma model; other dimensions fail closed.
 
 Current status:
 
-- `LocalStorageContracts` defines collection names (`KEY_VALUES`, `DOCUMENTS`,
-  `VECTORS`) and read scopes (`LocalContext`, `RemoteSend`).
-- `AndroidLocalStorageStores` implements the contracts using Android
-  `SharedPreferences` and file-based storage.
-- `ZvecLocalStorage` and `ZvecNativeStore` provide the vector index
-  implementation.
+- `LocalStorageContracts` defines the legacy `LocalDocument` and
+  `LegacyVector` shapes.
+- `AndroidLocalStorageStores` reads legacy documents from `SharedPreferences`
+  and vectors through `ZvecNativeStore`.
 
 Tests:
 
-- `LocalStorageContractTest`
-- `LocalStorageBackfillTest`
-- `ZvecLocalStorageParityTest`
+- `LegacyMemoryStorageRetirementTest`
+- `ZvecNativeStoreSmokeTest`
 
 ## Data Layer
 
