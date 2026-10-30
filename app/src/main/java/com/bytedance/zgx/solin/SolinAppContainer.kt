@@ -4,26 +4,20 @@ import android.content.Context
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.bytedance.zgx.solin.action.ActionExecutor
 import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditRepository
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
-import com.bytedance.zgx.solin.audit.ToolAuditEvent
-import com.bytedance.zgx.solin.audit.ToolAuditEventType
-import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.audit.ToolAuditRepository
 import com.bytedance.zgx.solin.safety.SafetyCategory
-import com.bytedance.zgx.solin.tool.RiskLevel
-import com.bytedance.zgx.solin.tool.ToolPermission
-import com.bytedance.zgx.solin.tool.ToolStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import com.bytedance.zgx.solin.background.AndroidBackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.ReminderNotificationHelper
@@ -39,7 +33,6 @@ import com.bytedance.zgx.solin.data.ModelRepository
 import com.bytedance.zgx.solin.data.SolinDatabase
 import com.bytedance.zgx.solin.data.PreferenceSettingsStore
 import com.bytedance.zgx.solin.data.RemoteModelRepository
-import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.data.SessionRepository
 import com.bytedance.zgx.solin.device.AccessibilityRawScreenshotProvider
 import com.bytedance.zgx.solin.device.AndroidCalendarAvailabilityProvider
@@ -54,7 +47,6 @@ import com.bytedance.zgx.solin.device.DeviceControlSessionService
 import com.bytedance.zgx.solin.download.ModelDownloadService
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.OnDeviceEvidenceBlobStore
-import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.memory.RoomMemoryDeletionEventStore
 import com.bytedance.zgx.solin.memory.RoomMemoryEmbeddingStore
@@ -436,40 +428,46 @@ class SolinAppContainer(
     }
 
     fun viewModelFactory(skipStartupModelRuntimeWork: Boolean = false): ViewModelProvider.Factory =
-        SolinViewModelFactory(
-            modelRepository = modelRepository,
-            bundledModelInstaller = bundledModelInstaller,
-            sessionRepository = sessionRepository,
-            generationParametersRepository = generationParametersRepository,
-            remoteModelRepository = remoteModelRepository,
-            remoteConnectivityRefreshCoordinator = remoteConnectivityRefreshCoordinator,
-            adaptiveInferenceRollout = adaptiveInferenceRollout,
-            huggingFaceAuthRepository = huggingFaceAuthRepository,
-            firstRunSetupRepository = firstRunSetupRepository,
-            downloadService = downloadService,
-            runtime = localRuntime,
-            remoteRuntime = remoteRuntime,
-            memoryRepository = memoryRepository,
-            longTermMemoryControls = memoryRepository,
-            backgroundTaskScheduler = backgroundTaskScheduler,
-            toolAuditLog = toolAuditRepository,
-            remoteSendAuditRepository = remoteSendAuditRepository,
-            remoteSendPendingStore = settingsStore,
-            actionExecutor = actionExecutor,
-            assistantOrchestrator = assistantOrchestrator,
-            chatPlacementRuntime = chatPlacementRuntime,
-            stableResourceStateProvider = ::currentStableResourceState,
-            bootCountProvider = ::currentBootCount,
-            elapsedRealtimeMillis = SystemClock::elapsedRealtime,
-            isArm64DeviceProvider = {
-                Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
-            },
-            skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
-            // The module-aware registry, not the built-in default: the safety authorizer inside
-            // ToolExecutionController rejects any tool its registry does not know, which would make
-            // every module-contributed tool unexecutable.
-            toolRegistry = toolRegistry,
-        )
+        viewModelFactory {
+            initializer {
+                SolinViewModel(
+                    modelRepository = modelRepository,
+                    bundledModelInstaller = bundledModelInstaller,
+                    sessionRepository = sessionRepository,
+                    generationParametersRepository = generationParametersRepository,
+                    remoteModelRepository = remoteModelRepository,
+                    adaptiveInferenceRollout = adaptiveInferenceRollout,
+                    injectedRemoteConnectivityRefreshCoordinator = remoteConnectivityRefreshCoordinator,
+                    huggingFaceAuthStore = huggingFaceAuthRepository,
+                    firstRunSetupRepository = firstRunSetupRepository,
+                    downloadService = downloadService,
+                    runtime = localRuntime,
+                    remoteRuntime = remoteRuntime,
+                    memoryRepository = memoryRepository,
+                    longTermMemoryControls = memoryRepository,
+                    backgroundTaskScheduler = backgroundTaskScheduler,
+                    toolAuditLog = toolAuditRepository,
+                    remoteSendAuditSink = remoteSendAuditRepository,
+                    remoteSendAuditLog = remoteSendAuditRepository,
+                    remoteSendPendingStore = settingsStore,
+                    actionExecutor = actionExecutor,
+                    assistantOrchestrator = assistantOrchestrator,
+                    chatPlacementRuntime = chatPlacementRuntime,
+                    stableResourceStateProvider = ::currentStableResourceState,
+                    bootCountProvider = ::currentBootCount,
+                    elapsedRealtimeMillis = SystemClock::elapsedRealtime,
+                    isArm64DeviceProvider = {
+                        Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
+                    },
+                    skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+                    deferPersistenceInitialization = true,
+                    // The module-aware registry, not the built-in default: the safety authorizer inside
+                    // ToolExecutionController rejects any tool its registry does not know, which would
+                    // make every module-contributed tool unexecutable.
+                    toolRegistry = toolRegistry,
+                )
+            }
+        }
 
     internal fun sampleSystemResources(): SystemResourceSnapshot? =
         systemResourceMonitor.sample()?.also { stableResourceSnapshotAggregator.record(it) }
@@ -487,33 +485,6 @@ class SolinAppContainer(
         assistantOrchestrator.close()
         observationActionPlanningRuntime.close()
     }
-
-    private fun SolinEvent.Audit.ToolAudited.toToolAuditEvent(): ToolAuditEvent =
-        ToolAuditEvent(
-            id = eventId,
-            runId = runId,
-            requestId = requestId,
-            toolName = toolName,
-            skillId = skillId,
-            eventType = runCatching { ToolAuditEventType.valueOf(eventType) }
-                .getOrDefault(ToolAuditEventType.ToolObserved),
-            status = status?.let { name ->
-                runCatching { ToolStatus.valueOf(name) }.getOrNull()
-            },
-            riskLevel = riskLevel?.let { name ->
-                runCatching { RiskLevel.valueOf(name) }.getOrNull()
-            },
-            permissions = permissionsCsv
-                .split(",")
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .mapNotNull { name ->
-                    runCatching { ToolPermission.valueOf(name) }.getOrNull()
-                }
-                .toSet(),
-            summary = summary,
-            createdAtMillis = occurredAtMillis,
-        )
 
     private fun SolinEvent.Audit.RemoteSendAudited.toRemoteSendAuditEvent(): RemoteSendAuditEvent? {
         val resolvedDecision = runCatching { RemoteSendDecision.valueOf(decision) }
@@ -535,73 +506,5 @@ class SolinAppContainer(
             summary = summary,
             createdAtMillis = occurredAtMillis,
         )
-    }
-}
-
-private class SolinViewModelFactory(
-    private val modelRepository: ModelRepository,
-    private val bundledModelInstaller: BundledModelInstaller,
-    private val sessionRepository: SessionRepository,
-    private val generationParametersRepository: GenerationParametersRepository,
-    private val remoteModelRepository: RemoteModelRepository,
-    private val remoteConnectivityRefreshCoordinator: RemoteConnectivityRefreshCoordinator,
-    private val adaptiveInferenceRollout: AdaptiveInferenceRollout,
-    private val huggingFaceAuthRepository: HuggingFaceAuthRepository,
-    private val firstRunSetupRepository: FirstRunSetupRepository,
-    private val downloadService: ModelDownloadService,
-    private val runtime: LiteRtRuntime,
-    private val remoteRuntime: OkHttpRemoteChatRuntime,
-    private val memoryRepository: MemoryRepository,
-    private val longTermMemoryControls: LongTermMemoryControls,
-    private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler,
-    private val toolAuditLog: ToolAuditLog,
-    private val remoteSendAuditRepository: RemoteSendAuditRepository,
-    private val remoteSendPendingStore: RemoteSendPendingStore,
-    private val actionExecutor: ToolExecutor,
-    private val assistantOrchestrator: AssistantOrchestrator,
-    private val chatPlacementRuntime: ChatPlacementRuntime,
-    private val stableResourceStateProvider: () -> StableResourceState,
-    private val bootCountProvider: () -> Long,
-    private val elapsedRealtimeMillis: () -> Long,
-    private val isArm64DeviceProvider: () -> Boolean,
-    private val skipStartupModelRuntimeWork: Boolean,
-    private val toolRegistry: ToolRegistry,
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        require(modelClass.isAssignableFrom(SolinViewModel::class.java)) {
-            "Unknown ViewModel class ${modelClass.name}"
-        }
-        return SolinViewModel(
-            modelRepository = modelRepository,
-            bundledModelInstaller = bundledModelInstaller,
-            sessionRepository = sessionRepository,
-            generationParametersRepository = generationParametersRepository,
-            remoteModelRepository = remoteModelRepository,
-            adaptiveInferenceRollout = adaptiveInferenceRollout,
-            injectedRemoteConnectivityRefreshCoordinator = remoteConnectivityRefreshCoordinator,
-            huggingFaceAuthStore = huggingFaceAuthRepository,
-            firstRunSetupRepository = firstRunSetupRepository,
-            downloadService = downloadService,
-            runtime = runtime,
-            remoteRuntime = remoteRuntime,
-            memoryRepository = memoryRepository,
-            longTermMemoryControls = longTermMemoryControls,
-            backgroundTaskScheduler = backgroundTaskScheduler,
-            toolAuditLog = toolAuditLog,
-            remoteSendAuditSink = remoteSendAuditRepository,
-            remoteSendAuditLog = remoteSendAuditRepository,
-            remoteSendPendingStore = remoteSendPendingStore,
-            actionExecutor = actionExecutor,
-            assistantOrchestrator = assistantOrchestrator,
-            chatPlacementRuntime = chatPlacementRuntime,
-            stableResourceStateProvider = stableResourceStateProvider,
-            bootCountProvider = bootCountProvider,
-            elapsedRealtimeMillis = elapsedRealtimeMillis,
-            isArm64DeviceProvider = isArm64DeviceProvider,
-            skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
-            deferPersistenceInitialization = true,
-            toolRegistry = toolRegistry,
-        ) as T
     }
 }
