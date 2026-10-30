@@ -57,7 +57,6 @@ internal class ToolObservationCoordinator(
             request: ToolRequest?,
             result: ToolResult,
         ): ToolObservationContinuation?
-        fun redactedForTrace(result: ToolResult, request: ToolRequest?): ToolResult
         fun failObservationBudget(
             runId: String,
             result: ToolResult,
@@ -108,7 +107,6 @@ internal class ToolObservationCoordinator(
         fun consumeToolDispatchLatencyMs(requestId: String): Long
         fun bumpAndGetTurnIndex(runId: String): Int
         fun setRemoteToolScope(runId: String, scope: RemoteToolScope)
-        fun toOrchestrationErrorCode(code: ToolErrorCode?): OrchestrationToolErrorCode
         fun publicEvidenceBatchResultOrFailure(result: ToolResult, request: ToolRequest): ToolResult
         fun publicEvidenceBatchAuditSummary(
             successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
@@ -146,7 +144,7 @@ internal class ToolObservationCoordinator(
             val rawResult = resultsByRequestId.getValue(plan.request.id)
             val validatedResult = toolRegistry.validateResult(plan.request, rawResult) ?: rawResult
             val publicResult = host.publicEvidenceBatchResultOrFailure(validatedResult, plan.request)
-            val traceResult = host.redactedForTrace(publicResult, plan.request)
+            val traceResult = publicResult.redactedForTrace(plan.request, toolRegistry)
             traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
             // One resolution for both sinks: the audit row and its event-bus copy must agree.
             val resolvedSkillId = host.skillIdForRequest(runId, plan.request.id)
@@ -371,7 +369,7 @@ internal class ToolObservationCoordinator(
         } else {
             null
         }
-        val observedResult = host.redactedForTrace(safeResult, request)
+        val observedResult = safeResult.redactedForTrace(request, toolRegistry)
         // Handle note: add to per-run scratchpad. The note tool's result contract carries the text
         // under `content` (with optional `noteIndex`).
         if (request.toolName == MobileActionFunctions.NOTE) {
@@ -704,7 +702,7 @@ internal class ToolObservationCoordinator(
                         runId = runId,
                         toolCallId = request.id,
                         toolName = request.toolName,
-                        code = host.toOrchestrationErrorCode(observedResult.error?.code),
+                        code = observedResult.error?.code.toOrchestrationErrorCode(),
                         message = observedResult.error?.message ?: observedResult.summary,
                         retryable = retryAttempt > 0,
                     ),

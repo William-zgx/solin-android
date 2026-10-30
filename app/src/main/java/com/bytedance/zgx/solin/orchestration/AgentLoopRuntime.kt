@@ -360,9 +360,6 @@ class AgentLoopRuntime(
             ): ToolObservationContinuation? =
                 this@AgentLoopRuntime.continuationForToolObservation(run, request, result)
 
-            override fun redactedForTrace(result: ToolResult, request: ToolRequest?): ToolResult =
-                result.redactedForTrace(request)
-
             override fun failObservationBudget(
                 runId: String,
                 result: ToolResult,
@@ -486,9 +483,6 @@ class AgentLoopRuntime(
             override fun setRemoteToolScope(runId: String, scope: RemoteToolScope) {
                 remoteToolScopesByRunId[runId] = scope
             }
-
-            override fun toOrchestrationErrorCode(code: ToolErrorCode?): OrchestrationToolErrorCode =
-                code.toOrchestrationErrorCode()
 
             override fun publicEvidenceBatchResultOrFailure(
                 result: ToolResult,
@@ -1606,7 +1600,7 @@ class AgentLoopRuntime(
         )
         val safeResult = toolRegistry.validateResult(request, result) ?: result
         if (safeResult.status != ToolStatus.Succeeded) return null
-        val traceResult = safeResult.redactedForTrace(request)
+        val traceResult = safeResult.redactedForTrace(request, toolRegistry)
         traceStore.appendStep(runId, AgentStep.ExternalOutcomeConfirmed(requestId, outcome, traceResult))
         auditToolRequest(
             runId = runId,
@@ -2871,38 +2865,9 @@ class AgentLoopRuntime(
         )
     }
 
-    private fun ToolErrorCode?.toOrchestrationErrorCode(): OrchestrationToolErrorCode = when (this) {
-        null -> OrchestrationToolErrorCode.Unknown("unknown")
-        ToolErrorCode.PermissionDenied -> OrchestrationToolErrorCode.Unknown("permission_denied")
-        ToolErrorCode.UnknownTool -> OrchestrationToolErrorCode.ToolNotFound
-        ToolErrorCode.InvalidRequest, ToolErrorCode.InvalidResult, ToolErrorCode.MissingArgument ->
-            OrchestrationToolErrorCode.InvalidArgs
-        ToolErrorCode.NoActivityFound -> OrchestrationToolErrorCode.Unknown("no_activity_found")
-        ToolErrorCode.ExecutionFailed -> OrchestrationToolErrorCode.ExecutionFailed
-        ToolErrorCode.UserCancelled -> OrchestrationToolErrorCode.Cancelled
-    }
-
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
         data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
             data["privacy"] == MessagePrivacy.LocalOnly.name
-
-    private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
-        val toolName = request?.toolName ?: return this
-        val privateKeys = toolRegistry.privateOutputKeysFor(toolName)
-        if (privateKeys.isEmpty()) return this
-        val redactedData = privateKeys.fold(data) { currentData, key ->
-            if (key in currentData) {
-                currentData + (key to "[redacted]")
-            } else {
-                currentData
-            }
-        }
-        if (redactedData == data) return this
-        return copy(
-            summary = toolRegistry.redactedResultSummaryFor(toolName) ?: summary,
-            data = redactedData,
-        )
-    }
 
     private fun String?.recentImageOcrContentLabel(): String =
         when (this) {
