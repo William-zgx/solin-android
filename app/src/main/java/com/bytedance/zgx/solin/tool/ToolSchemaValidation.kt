@@ -11,96 +11,85 @@ private val SUPPORTED_ROOT_SCHEMA_KEYS = setOf(
     "additionalProperties",
 )
 
+/**
+ * Validates request arguments against a tool's input schema. Thin wrapper over the shared
+ * [SchemaMapRules]; the rejection strings are a fail-closed boundary surfaced to the model and
+ * must stay byte-identical.
+ */
 internal data class ToolArgumentValidator(
-    private val requiredArguments: Set<String>,
-    private val properties: Map<String, PropertyRule>,
-    private val additionalProperties: Boolean,
+    private val rules: SchemaMapRules,
 ) {
-    fun validate(request: ToolRequest): String? {
-        if (!additionalProperties) {
-            val unknownArguments = request.arguments.keys - properties.keys
-            if (unknownArguments.isNotEmpty()) {
-                return "Tool ${request.toolName} does not accept argument(s): " +
-                    unknownArguments.sorted().joinToString()
-            }
-        }
-
-        val missingArguments = requiredArguments
-            .filter { argumentName ->
-                val argumentValue = request.arguments[argumentName]
-                val expectedType = properties[argumentName]?.type
-                if (expectedType == "boolean") {
-                    argumentValue == null
-                } else {
-                    argumentValue.isNullOrBlank()
-                }
-            }
-        if (missingArguments.isNotEmpty()) {
-            return "Tool ${request.toolName} requires argument(s): ${missingArguments.sorted().joinToString()}"
-        }
-
-        request.arguments.forEach { (name, value) ->
-            val rule = properties[name] ?: return@forEach
-            rule.validate(request.toolName, "argument", name, value)?.let { return it }
-        }
-
-        return null
-    }
+    fun validate(request: ToolRequest): String? =
+        rules.validate(
+            toolName = request.toolName,
+            values = request.arguments,
+            unknownKeysPrefix = "does not accept argument(s): ",
+            missingKeysPrefix = "requires argument(s): ",
+            ruleSubject = "argument",
+        )
 
     companion object {
-        fun fromSchema(spec: ToolSpec): ToolArgumentValidator {
-            val schema = JSONObject(spec.inputSchemaJson)
-            validateRootSchema(spec.name, "input schema", schema)
-            val propertiesJson = schema.optJSONObject("properties") ?: JSONObject()
-            val properties = propertiesJson.keysSet().associateWith { propertyName ->
-                val propertyJson = propertiesJson.optJSONObject(propertyName) ?: JSONObject()
-                validatePropertySchema(spec.name, "input schema", propertyName, propertyJson)
-                PropertyRule(
-                    type = propertyJson.optStringOrNull("type"),
-                    constValue = propertyJson.optConstStringOrNull(),
-                    minLength = propertyJson.optIntOrNull("minLength"),
-                    maxLength = propertyJson.optIntOrNull("maxLength"),
-                    pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
-                    enum = propertyJson.optStringSetOrNull("enum")?.toSet(),
-                    format = propertyJson.optStringOrNull("format"),
-                    contentMediaType = propertyJson.optStringOrNull("contentMediaType"),
-                    minimum = propertyJson.optDoubleOrNull("minimum"),
-                    maximum = propertyJson.optDoubleOrNull("maximum"),
-                    exclusiveMinimum = propertyJson.optDoubleOrNull("exclusiveMinimum"),
-                    exclusiveMaximum = propertyJson.optDoubleOrNull("exclusiveMaximum"),
-                )
-            }
-            val requiredArguments = schema.optStringSet("required")
-            val unknownRequired = requiredArguments - properties.keys
-            require(unknownRequired.isEmpty()) {
-                "Tool ${spec.name} schema requires undeclared properties: ${unknownRequired.sorted().joinToString()}"
-            }
-            return ToolArgumentValidator(
-                requiredArguments = requiredArguments,
-                properties = properties,
-                additionalProperties = schema.optBoolean("additionalProperties", true),
+        fun fromSchema(spec: ToolSpec): ToolArgumentValidator =
+            ToolArgumentValidator(
+                SchemaMapRules.fromSchema(
+                    toolName = spec.name,
+                    schemaJson = spec.inputSchemaJson,
+                    schemaKind = "input schema",
+                    unknownRequiredPrefix = "schema requires undeclared properties: ",
+                ),
             )
-        }
     }
 }
 
+/** Validates result data against a tool's output schema. See [ToolArgumentValidator]. */
 internal data class ToolResultDataValidator(
-    private val requiredDataKeys: Set<String>,
+    private val rules: SchemaMapRules,
+) {
+    fun validate(request: ToolRequest, result: ToolResult): String? =
+        rules.validate(
+            toolName = request.toolName,
+            values = result.data,
+            unknownKeysPrefix = "result does not accept data key(s): ",
+            missingKeysPrefix = "result requires data key(s): ",
+            ruleSubject = "result data",
+        )
+
+    companion object {
+        fun fromSchema(spec: ToolSpec): ToolResultDataValidator =
+            ToolResultDataValidator(
+                SchemaMapRules.fromSchema(
+                    toolName = spec.name,
+                    schemaJson = spec.outputSchemaJson,
+                    schemaKind = "output schema",
+                    unknownRequiredPrefix = "output schema requires undeclared properties: ",
+                ),
+            )
+    }
+}
+
+/** Parsed closed-dialect object schema for a flat `Map<String, String>` (arguments or result data). */
+internal data class SchemaMapRules(
+    private val requiredKeys: Set<String>,
     private val properties: Map<String, PropertyRule>,
     private val additionalProperties: Boolean,
 ) {
-    fun validate(request: ToolRequest, result: ToolResult): String? {
+    fun validate(
+        toolName: String,
+        values: Map<String, String>,
+        unknownKeysPrefix: String,
+        missingKeysPrefix: String,
+        ruleSubject: String,
+    ): String? {
         if (!additionalProperties) {
-            val unknownKeys = result.data.keys - properties.keys
+            val unknownKeys = values.keys - properties.keys
             if (unknownKeys.isNotEmpty()) {
-                return "Tool ${request.toolName} result does not accept data key(s): " +
-                    unknownKeys.sorted().joinToString()
+                return "Tool $toolName $unknownKeysPrefix" + unknownKeys.sorted().joinToString()
             }
         }
 
-        val missingKeys = requiredDataKeys
+        val missingKeys = requiredKeys
             .filter { key ->
-                val value = result.data[key]
+                val value = values[key]
                 val expectedType = properties[key]?.type
                 if (expectedType == "boolean") {
                     value == null
@@ -109,25 +98,30 @@ internal data class ToolResultDataValidator(
                 }
             }
         if (missingKeys.isNotEmpty()) {
-            return "Tool ${request.toolName} result requires data key(s): ${missingKeys.sorted().joinToString()}"
+            return "Tool $toolName $missingKeysPrefix${missingKeys.sorted().joinToString()}"
         }
 
-        result.data.forEach { (name, value) ->
+        values.forEach { (name, value) ->
             val rule = properties[name] ?: return@forEach
-            rule.validate(request.toolName, "result data", name, value)?.let { return it }
+            rule.validate(toolName, ruleSubject, name, value)?.let { return it }
         }
 
         return null
     }
 
     companion object {
-        fun fromSchema(spec: ToolSpec): ToolResultDataValidator {
-            val schema = JSONObject(spec.outputSchemaJson)
-            validateRootSchema(spec.name, "output schema", schema)
+        fun fromSchema(
+            toolName: String,
+            schemaJson: String,
+            schemaKind: String,
+            unknownRequiredPrefix: String,
+        ): SchemaMapRules {
+            val schema = JSONObject(schemaJson)
+            validateRootSchema(toolName, schemaKind, schema)
             val propertiesJson = schema.optJSONObject("properties") ?: JSONObject()
             val properties = propertiesJson.keysSet().associateWith { propertyName ->
                 val propertyJson = propertiesJson.optJSONObject(propertyName) ?: JSONObject()
-                validatePropertySchema(spec.name, "output schema", propertyName, propertyJson)
+                validatePropertySchema(toolName, schemaKind, propertyName, propertyJson)
                 PropertyRule(
                     type = propertyJson.optStringOrNull("type"),
                     constValue = propertyJson.optConstStringOrNull(),
@@ -143,14 +137,13 @@ internal data class ToolResultDataValidator(
                     exclusiveMaximum = propertyJson.optDoubleOrNull("exclusiveMaximum"),
                 )
             }
-            val requiredDataKeys = schema.optStringSet("required")
-            val unknownRequired = requiredDataKeys - properties.keys
+            val requiredKeys = schema.optStringSet("required")
+            val unknownRequired = requiredKeys - properties.keys
             require(unknownRequired.isEmpty()) {
-                "Tool ${spec.name} output schema requires undeclared properties: " +
-                    unknownRequired.sorted().joinToString()
+                "Tool $toolName $unknownRequiredPrefix" + unknownRequired.sorted().joinToString()
             }
-            return ToolResultDataValidator(
-                requiredDataKeys = requiredDataKeys,
+            return SchemaMapRules(
+                requiredKeys = requiredKeys,
                 properties = properties,
                 additionalProperties = schema.optBoolean("additionalProperties", true),
             )
