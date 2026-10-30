@@ -13,8 +13,27 @@ import com.bytedance.zgx.solin.memory.MemoryCommandResult
 import com.bytedance.zgx.solin.memory.MemoryController
 import com.bytedance.zgx.solin.memory.MemoryControllerResult
 import com.bytedance.zgx.solin.memory.MemoryHit
+import com.bytedance.zgx.solin.orchestration.MemoryRetrievalOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+
+/**
+ * Memory-panel-only state that does not belong in [ChatUiState] (kept separate so this controller
+ * does not have to grow the shared chat state model).
+ *
+ * [retrievalDegraded] reflects the most recent agent-run memory retrieval.
+ */
+data class MemoryPanelState(
+    val retrievalDegraded: Boolean = false,
+) {
+    /** Short status line for the memory panel, or null when retrieval is healthy. */
+    val retrievalStatusText: String?
+        get() = if (retrievalDegraded) MEMORY_RETRIEVAL_DEGRADED_TEXT else null
+}
+
+internal const val MEMORY_RETRIEVAL_DEGRADED_TEXT = "记忆暂不可用"
 
 /**
  * UI-state side of the memory paths: applies [MemoryController] results to [ChatUiState].
@@ -28,6 +47,21 @@ internal class MemoryUiController(
     private val uiState: MutableStateFlow<ChatUiState>,
     private val skipModelRuntimeWork: Boolean,
 ) {
+    private val panelState = MutableStateFlow(MemoryPanelState())
+
+    /** Memory-panel state (retrieval health); render alongside [ChatUiState]. */
+    val memoryPanelState: StateFlow<MemoryPanelState> = panelState.asStateFlow()
+
+    /**
+     * Records the outcome of the latest agent-run memory retrieval
+     * (`orchestration.MemoryRetrieval.lastOutcome`). A later healthy or skipped retrieval clears
+     * the degraded flag.
+     */
+    fun onMemoryRetrievalOutcome(outcome: MemoryRetrievalOutcome?) {
+        val degraded = outcome?.degraded == true
+        panelState.update { state -> state.copy(retrievalDegraded = degraded) }
+    }
+
     fun semanticMemoryStatus(): SemanticMemoryStatus =
         memoryController.semanticMemoryState().toSemanticMemoryStatus()
 

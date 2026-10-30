@@ -151,6 +151,7 @@ class AgentLoopRuntime(
     private val sessionPlanStore: SessionPlanStore? = null,
     private val contextCompactor: ContextCompactor = NoOpContextCompactor,
     private val contextAssembler: ContextAssembler? = null,
+    private val memoryRetrieval: MemoryRetrieval = MemoryRetrieval(memoryIndex),
 ) {
     private val resolvedContextAssembler: ContextAssembler =
         contextAssembler ?: ContextAssembler(
@@ -679,11 +680,7 @@ class AgentLoopRuntime(
             return failInitialPlanValidation(createdRun.id, rejectedPlan, failedStepMessage = message)
         }
 
-        val memoryHits = if (memoryEnabled) {
-            runCatching { memoryIndex.search(input, topK = 3) }.getOrDefault(emptyList())
-        } else {
-            emptyList()
-        }
+        val memoryHits = memoryRetrieval.retrieve(input, memoryEnabled).hits
         traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(memoryHits, deviceContext))
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
 

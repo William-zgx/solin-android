@@ -43,6 +43,8 @@ internal fun MemoryTogglePanel(
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
+    /** Shown when the last agent-run memory retrieval degraded (see `MemoryPanelState`). */
+    retrievalStatusText: String? = null,
 ) {
     val memoryModelInstalled = ModelCapability.MemoryEmbedding in state.installedCapabilities
     var confirmClear by rememberSaveable { mutableStateOf(false) }
@@ -92,6 +94,14 @@ internal fun MemoryTogglePanel(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (retrievalStatusText != null) {
+                        Text(
+                            modifier = Modifier.testTag("memory_retrieval_status"),
+                            text = retrievalStatusText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
                 Switch(
                     modifier = Modifier.testTag("memory_switch"),
