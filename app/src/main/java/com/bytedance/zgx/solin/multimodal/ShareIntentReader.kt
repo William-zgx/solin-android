@@ -4,10 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.provider.OpenableColumns
 import com.bytedance.zgx.solin.ChatImageAttachment
 import com.bytedance.zgx.solin.LocalImageAttachment
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.storage.openableMetadata
 import java.io.InputStream
 import java.util.Base64
 
@@ -308,29 +308,8 @@ class ShareIntentReader(
     }
 
     private fun queryMetadata(uri: Uri): AttachmentMetadata {
-        var displayName: String? = null
-        var sizeBytes: Long? = null
-        runCatching {
-            context.contentResolver.query(
-                uri,
-                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (nameIndex >= 0 && !cursor.isNull(nameIndex)) {
-                        displayName = cursor.getString(nameIndex)
-                    }
-                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
-                        sizeBytes = cursor.getLong(sizeIndex).takeIf { it >= 0L }
-                    }
-                }
-            }
-        }
-        return AttachmentMetadata(displayName = displayName, sizeBytes = sizeBytes)
+        val metadata = runCatching { context.contentResolver.openableMetadata(uri) }.getOrNull()
+        return AttachmentMetadata(displayName = metadata?.displayName, sizeBytes = metadata?.sizeBytes)
     }
 
     private data class AttachmentMetadata(

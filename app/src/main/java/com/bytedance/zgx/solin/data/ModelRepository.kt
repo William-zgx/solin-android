@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.data
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
-import android.provider.OpenableColumns
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.HIGH_QUALITY_CHAT_MODEL_ID
@@ -15,6 +14,7 @@ import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RECOMMENDED_MODELS
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.isLocalDebugHost
+import com.bytedance.zgx.solin.storage.openableMetadata
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -580,37 +580,13 @@ class ModelRepository(
         } ?: error("无法读取模型文件")
     }
 
-    private fun resolveFileSize(uri: Uri): Long {
-        appContext.contentResolver.query(
-            uri,
-            arrayOf(OpenableColumns.SIZE),
-            null,
-            null,
-            null,
-        )?.use { cursor ->
-            val columnIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-            if (columnIndex >= 0 && cursor.moveToFirst()) {
-                return cursor.getLong(columnIndex).coerceAtLeast(0L)
-            }
-        }
-        return 0L
-    }
+    private fun resolveFileSize(uri: Uri): Long =
+        appContext.contentResolver.openableMetadata(uri)?.sizeBytes ?: 0L
 
     private fun resolveDisplayName(uri: Uri): String {
-        appContext.contentResolver.query(
-            uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME),
-            null,
-            null,
-            null,
-        )?.use { cursor ->
-            val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (columnIndex >= 0 && cursor.moveToFirst()) {
-                cursor.getString(columnIndex)
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { return it }
-            }
-        }
+        appContext.contentResolver.openableMetadata(uri)?.displayName
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
         return uri.lastPathSegment
             ?.substringAfterLast('/')
             ?.substringAfterLast(':')
