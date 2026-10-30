@@ -178,14 +178,9 @@ class ToolExecutionController(
             }
         } catch (_: Exception) {
             uiState.update {
-                it.copy(
+                sessionHost.finishedRun(it, runId = confirmation.runId, statusText = "工具确认失败，未执行动作。").copy(
                     pendingConfirmation = pendingConfirmation,
-                    isBusy = false,
-                    isGenerating = false,
                     auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
-                    statusText = "工具确认失败，未执行动作。",
                 )
             }
             return
@@ -200,14 +195,9 @@ class ToolExecutionController(
                 true,
             )
             uiState.update {
-                it.copy(
+                sessionHost.finishedRun(it, runId = confirmation.runId, statusText = "工具未执行").copy(
                     pendingConfirmation = null,
-                    isBusy = false,
-                    isGenerating = false,
                     auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
-                    statusText = "工具未执行",
                 )
             }
             return
@@ -379,7 +369,11 @@ class ToolExecutionController(
         sessionHost.rebuildMemoryIndex()
         val pendingExternalOutcome = observation?.pendingExternalOutcomeFor(confirmation, request)
         uiState.update {
-            it.copy(
+            sessionHost.finishedRun(
+                it,
+                runId = confirmation.runId,
+                statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
+            ).copy(
                 pendingConfirmation = null,
                 pendingExternalOutcome = pendingExternalOutcome,
                 backgroundTasks = sessionHost.loadBackgroundTasks(),
@@ -387,13 +381,8 @@ class ToolExecutionController(
                 periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
                 longTermMemories = sessionHost.loadLongTermMemories(),
                 auditEvents = sessionHost.loadAuditEvents(),
-                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                 activePublicWebEvidence = publicWebEvidence,
                 latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
-                isBusy = false,
-                isGenerating = false,
-                statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
             )
         }
     }
@@ -423,13 +412,8 @@ class ToolExecutionController(
             uiState.updateLastAssistantLocalOnly("远程模型返回了空工具批次，已停止执行。")
             sessionHost.persistActiveSessionFromUi()
             uiState.update {
-                it.copy(
-                    isBusy = false,
-                    isGenerating = false,
+                sessionHost.finishedRun(it, runId = runId, statusText = "批量工具不可执行").copy(
                     auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                    statusText = "批量工具不可执行",
                 )
             }
             return
@@ -453,14 +437,9 @@ class ToolExecutionController(
             uiState.updateLastAssistantLocalOnly("批量工具结果无法进入观察流程，已停止执行。")
             sessionHost.persistActiveSessionFromUi()
             uiState.update {
-                it.copy(
+                sessionHost.finishedRun(it, runId = runId, statusText = "批量工具不可执行").copy(
                     pendingConfirmation = null,
-                    isBusy = false,
-                    isGenerating = false,
                     auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                    statusText = "批量工具不可执行",
                 )
             }
             return
@@ -567,20 +546,15 @@ class ToolExecutionController(
         sessionHost.syncTaskStateMemories()
         sessionHost.rebuildMemoryIndex()
         uiState.update {
-            it.copy(
+            sessionHost.finishedRun(it, runId = runId, statusText = observation.assistantMessage).copy(
                 pendingConfirmation = null,
                 backgroundTasks = sessionHost.loadBackgroundTasks(),
                 backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
                 periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
                 longTermMemories = sessionHost.loadLongTermMemories(),
                 auditEvents = sessionHost.loadAuditEvents(),
-                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                 activePublicWebEvidence = publicWebEvidence,
                 latestRecoveryAction = observation.recoveryAction,
-                isBusy = false,
-                isGenerating = false,
-                statusText = observation.assistantMessage,
             )
         }
     }
@@ -640,16 +614,11 @@ class ToolExecutionController(
             return
         }
         uiState.update {
-            it.copy(
+            sessionHost.finishedRun(it, runId = runId, statusText = pendingStatusText).copy(
                 pendingConfirmation = confirmation,
                 latestRecoveryAction = null,
-                isBusy = false,
-                isGenerating = false,
                 isReady = true,
                 auditEvents = sessionHost.loadAuditEvents(),
-                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                statusText = pendingStatusText,
             )
         }
     }
@@ -872,14 +841,9 @@ class ToolExecutionController(
         )
         sessionHost.rebuildMemoryIndex()
         uiState.update {
-            it.copy(
+            sessionHost.finishedRun(it, runId = confirmation.runId, statusText = statusText).copy(
                 pendingConfirmation = null,
-                isBusy = false,
-                isGenerating = false,
                 auditEvents = sessionHost.loadAuditEvents(),
-                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
-                statusText = statusText,
             )
         }
     }
@@ -922,14 +886,9 @@ class ToolExecutionController(
             )
         }
         uiState.update {
-            it.copy(
+            sessionHost.finishedRun(it, runId = runId, statusText = statusText).copy(
                 pendingConfirmation = null,
-                isBusy = false,
-                isGenerating = false,
                 auditEvents = sessionHost.loadAuditEvents(),
-                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                statusText = statusText,
             )
         }
     }

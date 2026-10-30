@@ -178,3 +178,20 @@ internal class DefaultPresentationSessionHost(
     ): List<MemoryEvidenceUiSummary> =
         if (includePrivateLocalContext) memoryEvidenceSummariesFor(memoryHits) else emptyList()
 }
+
+/**
+ * The common "run step finished" UI update: not busy, not generating, fresh trace runs and the
+ * run's timeline, and [statusText]. Callers chain `.copy(...)` for anything run-specific.
+ */
+internal fun PresentationSessionHost.finishedRun(
+    state: ChatUiState,
+    runId: String?,
+    statusText: String,
+): ChatUiState =
+    state.copy(
+        isBusy = false,
+        isGenerating = false,
+        agentTraceRuns = loadAgentTraceRuns(),
+        activeRunTimeline = activeRunTimelineFor(runId),
+        statusText = statusText,
+    )

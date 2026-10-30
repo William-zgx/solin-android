@@ -797,14 +797,9 @@ class ChatController internal constructor(
                             uiState.updateLastAssistant("模型尚未就绪")
                             sessionHost.persistActiveSessionFromUi()
                             uiState.update {
-                                it.copy(
-                                    isBusy = false,
-                                    isGenerating = false,
+                                sessionHost.finishedRun(it, runId = route.runId, statusText = "未加载模型").copy(
                                     isReady = false,
                                     pendingConfirmation = null,
-                                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                    statusText = "未加载模型",
                                 )
                             }
                             return@generation
@@ -816,14 +811,9 @@ class ChatController internal constructor(
                             uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
                             sessionHost.persistActiveSessionFromUi()
                             uiState.update {
-                                it.copy(
-                                    isBusy = false,
-                                    isGenerating = false,
+                                sessionHost.finishedRun(it, runId = route.runId, statusText = "请配置远程模型").copy(
                                     isReady = false,
                                     pendingConfirmation = null,
-                                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                    statusText = "请配置远程模型",
                                 )
                             }
                             return@generation
@@ -847,16 +837,11 @@ class ChatController internal constructor(
                                 uiState.updateLastAssistantLocalOnly(boundaryFailure)
                                 sessionHost.persistActiveSessionFromUi()
                                 uiState.update {
-                                    it.copy(
-                                        isBusy = false,
-                                        isGenerating = false,
+                                    sessionHost.finishedRun(it, runId = route.runId, statusText = "已阻止远程发送").copy(
                                         isReady = remoteConfig.isConfigured,
                                         pendingConfirmation = null,
                                         memoryHits = emptyList(),
-                                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                                        activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                         activeMemoryEvidence = emptyList(),
-                                        statusText = "已阻止远程发送",
                                     )
                                 }
                                 return@generation

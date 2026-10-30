@@ -85,14 +85,9 @@ internal class ChatGenerationCompletion(
             sessionHost.persistActiveSessionFromUi()
             sessionHost.rebuildMemoryIndex()
             uiState.update {
-                it.copy(
-                    isBusy = false,
-                    isGenerating = false,
+                sessionHost.finishedRun(it, runId = route.runId, statusText = "动作不可执行").copy(
                     isReady = true,
                     auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                    statusText = "动作不可执行",
                 )
             }
             return
@@ -130,14 +125,9 @@ internal class ChatGenerationCompletion(
                     sessionHost.persistActiveSessionFromUi()
                     sessionHost.rebuildMemoryIndex()
                     uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isGenerating = false,
+                        sessionHost.finishedRun(it, runId = route.runId, statusText = "动作不可执行").copy(
                             isReady = true,
                             auditEvents = sessionHost.loadAuditEvents(),
-                            agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                            activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                            statusText = "动作不可执行",
                         )
                     }
                     return
