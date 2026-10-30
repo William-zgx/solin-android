@@ -40,6 +40,7 @@ import com.bytedance.zgx.solin.presentation.AutoInferenceAuthorizationCoordinato
 import com.bytedance.zgx.solin.presentation.BackgroundTaskController
 import com.bytedance.zgx.solin.presentation.ChatController
 import com.bytedance.zgx.solin.presentation.DefaultPresentationSessionHost
+import com.bytedance.zgx.solin.presentation.InferenceModeController
 import com.bytedance.zgx.solin.presentation.MemoryUiController
 import com.bytedance.zgx.solin.presentation.PresentationSessionHost
 import com.bytedance.zgx.solin.presentation.toSemanticMemoryStatus
@@ -48,7 +49,6 @@ import com.bytedance.zgx.solin.presentation.ModelLoadController
 import com.bytedance.zgx.solin.presentation.SessionController
 import com.bytedance.zgx.solin.presentation.ToolExecutionController
 import com.bytedance.zgx.solin.presentation.VoiceInputController
-import com.bytedance.zgx.solin.presentation.activeModelProfileId
 import com.bytedance.zgx.solin.presentation.cleanMessage
 import com.bytedance.zgx.solin.presentation.recentRemoteSendSummaries
 import com.bytedance.zgx.solin.presentation.localContextWindowTokens
@@ -334,6 +334,16 @@ class SolinViewModel internal constructor(
         },
         resetRemoteSendDisclosureSuppression = chatController::resetRemoteSendDisclosureSuppression,
         rebuildMemoryIndex = sessionHost::rebuildMemoryIndex,
+    )
+
+    private val inferenceModeController = InferenceModeController(
+        uiState = _uiState,
+        runtime = runtime,
+        remoteModelRepository = remoteModelRepository,
+        autoInferenceAuthorizationCoordinator = autoInferenceAuthorizationCoordinator,
+        chatController = chatController,
+        modelLoadController = modelLoadController,
+        requireRemoteSendDisclosure = requireRemoteSendDisclosure,
     )
 
     private val sessionController = SessionController(
@@ -717,76 +727,7 @@ class SolinViewModel internal constructor(
     }
 
     fun selectInferenceMode(mode: InferenceMode) {
-        if (_uiState.value.isBusy) return
-        if (mode == InferenceMode.Auto) {
-            if (!autoInferenceAuthorizationCoordinator.request()) {
-                _uiState.update { it.copy(statusText = "自动模式当前未开放") }
-                return
-            }
-            chatController.clearPendingRemoteChatState()
-            chatController.resetRemoteSendDisclosureSuppression()
-            val disclosure = modelLoadController.remoteModeDisclosure()
-            _uiState.update {
-                it.copy(
-                    pendingSharedInputDraft = null,
-                    pendingRemoteModeDisclosure = disclosure,
-                    pendingRemoteSendDisclosure = null,
-                    statusText = "自动模式待确认",
-                )
-            }
-            return
-        }
-
-        val cancelledAutoSelection = autoInferenceAuthorizationCoordinator.hasPending
-        autoInferenceAuthorizationCoordinator.cancel()
-        if (cancelledAutoSelection) {
-            _uiState.update { it.copy(pendingRemoteModeDisclosure = null) }
-        }
-        if (_uiState.value.inferenceMode == mode) return
-        // Trust boundary changed (inference mode switch): a prior session-scoped
-        // "don't ask again" must not silently carry into the new destination.
-        chatController.clearPendingRemoteChatState()
-        chatController.resetRemoteSendDisclosureSuppression()
-        remoteModelRepository.saveMode(mode)
-        if (mode == InferenceMode.Remote) {
-            runtime.close()
-            _uiState.update { it.copy(pendingSharedInputDraft = null) }
-            modelLoadController.updateRemoteReadiness(
-                prefix = "已切换到远程模型",
-                showModeDisclosure = requireRemoteSendDisclosure,
-            )
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                inferenceMode = InferenceMode.Local,
-                pendingSharedInputDraft = null,
-                pendingRemoteModeDisclosure = null,
-                pendingRemoteSendDisclosure = null,
-                isReady = runtime.isLoaded,
-                statusText = if (runtime.isLoaded) {
-                    "就绪 · ${it.backend.label()}"
-                } else if (it.modelPath != null) {
-                    "已切换到本地模型，点击加载模型"
-                } else {
-                    "请先下载或导入本地模型"
-                },
-                modelHealth = ModelHealth(
-                    profileId = it.activeModelProfileId(),
-                    state = if (runtime.isLoaded) {
-                        ModelHealthState.Loaded
-                    } else if (it.modelPath != null) {
-                        it.modelHealth.state.takeIf { state ->
-                            state == ModelHealthState.Verified || state == ModelHealthState.InstalledUnverified
-                        } ?: ModelHealthState.Verified
-                    } else {
-                        ModelHealthState.NotInstalled
-                    },
-                    backend = it.backend.takeIf { _ -> it.modelPath != null },
-                ),
-            )
-        }
+        inferenceModeController.selectInferenceMode(mode)
     }
 
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
@@ -834,54 +775,11 @@ class SolinViewModel internal constructor(
     }
 
     fun confirmRemoteModeDisclosure(disclosure: PendingRemoteModeDisclosure) {
-        var refreshConnectivity = false
-        autoInferenceAuthorizationCoordinator.serialized {
-            if (_uiState.value.pendingRemoteModeDisclosure !== disclosure) return@serialized
-            if (!autoInferenceAuthorizationCoordinator.hasPending) {
-                dismissRemoteModeDisclosure()
-                return@serialized
-            }
-            val confirmed = autoInferenceAuthorizationCoordinator.confirm()
-            val currentConfig = remoteModelRepository.loadConfig()
-            _uiState.update {
-                it.copy(
-                    inferenceMode = if (confirmed) InferenceMode.Auto else it.inferenceMode,
-                    remoteModelConfig = currentConfig,
-                    pendingRemoteModeDisclosure = null,
-                    pendingRemoteSendDisclosure = null,
-                    isReady = if (confirmed) runtime.isLoaded || currentConfig.isConfigured else it.isReady,
-                    statusText = if (confirmed) {
-                        "已启用自动模式"
-                    } else {
-                        "远程配置已变化，请重新选择自动模式"
-                    },
-                )
-            }
-            refreshConnectivity = confirmed
-        }
-        if (refreshConnectivity) modelLoadController.refreshRemoteConnectivityIfStale()
+        inferenceModeController.confirmRemoteModeDisclosure(disclosure)
     }
 
     fun dismissRemoteModeDisclosure() {
-        val cancelledAutoSelection = autoInferenceAuthorizationCoordinator.hasPending
-        autoInferenceAuthorizationCoordinator.cancel()
-        _uiState.update {
-            if (it.pendingRemoteModeDisclosure == null) {
-                it
-            } else {
-                it.copy(
-                    pendingRemoteModeDisclosure = null,
-                    statusText = when {
-                        cancelledAutoSelection && it.inferenceMode == InferenceMode.Local ->
-                            if (runtime.isLoaded) "就绪 · ${it.backend.label()}" else it.statusText
-                        cancelledAutoSelection -> it.statusText
-                        it.inferenceMode == InferenceMode.Remote ->
-                            if (it.remoteModelConfig.isConfigured) "就绪 · 远程" else "请配置远程模型"
-                        else -> it.statusText
-                    },
-                )
-            }
-        }
+        inferenceModeController.dismissRemoteModeDisclosure()
     }
 
     fun sendMessage(prompt: String) {
