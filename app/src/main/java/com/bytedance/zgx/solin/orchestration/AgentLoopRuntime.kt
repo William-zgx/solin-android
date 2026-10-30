@@ -27,8 +27,6 @@ import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import com.bytedance.zgx.solin.plan.SessionPlanStore
-import com.bytedance.zgx.solin.undo.UndoEntry
-import com.bytedance.zgx.solin.undo.UndoPlan
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyDecision
@@ -192,7 +190,6 @@ class AgentLoopRuntime(
     @Volatile
     private var closed = false
 
-    private val undoStack = java.util.ArrayDeque<UndoEntry>()
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
     // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
     // call sites unchanged.
@@ -472,63 +469,6 @@ class AgentLoopRuntime(
             override fun addScratchpadNote(runId: String, noteContent: String) {
                 runCatching { scratchpad.addNote(runId, noteContent) }
                     .onFailure { Log.e(TAG, "Scratchpad note failed", it) }
-            }
-
-            override fun applyUndoBookkeeping(
-                runId: String,
-                request: ToolRequest,
-                safeResult: ToolResult,
-                observedStatus: ToolStatus,
-            ) {
-                runCatching {
-                    when (observedStatus) {
-                        ToolStatus.Succeeded -> {
-                            val policy = toolRegistry.undoPolicyFor(request.toolName)
-                            val undoPlan = policy?.planUndoAfter(request, safeResult)
-                            when (undoPlan) {
-                                is UndoPlan.CompensatingTool -> {
-                                    synchronized(undoStack) {
-                                        undoStack.clear()
-                                        val now = System.currentTimeMillis()
-                                        undoStack.push(
-                                            UndoEntry(
-                                                sourceRunId = runId,
-                                                sourceRequestId = request.id,
-                                                toolName = request.toolName,
-                                                plan = undoPlan,
-                                                availableUntilMillis = now + undoPlan.ttlMillis,
-                                                createdAtMillis = now,
-                                            ),
-                                        )
-                                    }
-                                    eventBus.publish(
-                                        SolinEvent.Agent.UndoPushed(
-                                            runId = runId,
-                                            sourceRequestId = request.id,
-                                            toolName = request.toolName,
-                                            summary = undoPlan.summary,
-                                            availableUntilMillis = System.currentTimeMillis() + undoPlan.ttlMillis,
-                                        ),
-                                    )
-                                }
-                                is UndoPlan.NotApplicable,
-                                is UndoPlan.ExternalHandoff,
-                                is UndoPlan.NotUndoable,
-                                null -> {
-                                    synchronized(undoStack) { undoStack.clear() }
-                                }
-                            }
-                        }
-                        ToolStatus.Failed,
-                        ToolStatus.Rejected,
-                        ToolStatus.Cancelled -> {
-                            synchronized(undoStack) { undoStack.clear() }
-                        }
-                    }
-                }.onFailure { throwable ->
-                    Log.e(TAG, "Undo bookkeeping failed; clearing stack safely", throwable)
-                    runCatching { synchronized(undoStack) { undoStack.clear() } }
-                }
             }
 
             override fun markToolDispatchStarted(requestId: String) {
@@ -1158,9 +1098,6 @@ class AgentLoopRuntime(
             runCatching { scratchpad.clear(runId) }
         }
         runScopedState.clear()
-        synchronized(undoStack) {
-            undoStack.clear()
-        }
     }
 
     private fun cancelAndClearModelCallJob(runId: String) {
@@ -2957,16 +2894,6 @@ class AgentLoopRuntime(
         cancelAndClearModelCallJob(runId)
         pendingUserQuestionsByRunId.remove(runId)
         runCatching { scratchpad.clear(runId) }
-        // Wave 7: expire undo entries whose source run is terminating. Any surviving entries
-        // with a later TTL than the run lifetime are invalidated by the run end.
-        runCatching {
-            synchronized(undoStack) {
-                val iter = undoStack.iterator()
-                while (iter.hasNext()) {
-                    if (iter.next().sourceRunId == runId) iter.remove()
-                }
-            }
-        }
     }
 
     private fun clearDeletedRunState(runId: String) {
@@ -2976,29 +2903,6 @@ class AgentLoopRuntime(
     /** Run ids that still hold in-memory per-run state; test hook for terminal-cleanup coverage. */
     internal fun runIdsWithScopedState(): Set<String> =
         runScopedState.trackedRunIds() + pendingUserQuestionsByRunId.keys + activeModelCallJobs.keys
-
-    /**
-     * Wave 7: return the currently-live undo entry (compensating tool) if one exists and its
-     * TTL has not elapsed, or null otherwise. Clears an expired entry as a side effect.
-     */
-    fun latestUndo(): UndoEntry? {
-        synchronized(undoStack) {
-            val top = undoStack.peek() ?: return null
-            val now = System.currentTimeMillis()
-            if (top.availableUntilMillis <= now) {
-                undoStack.clear()
-                return null
-            }
-            return top
-        }
-    }
-
-    /**
-     * Wave 7: return the [UndoPlan] of the currently-live undo entry, or null if none is
-     * available / the entry is expired. Useful for UI affordances that want to show the
-     * compensating-tool summary without exposing the full entry struct.
-     */
-    fun peekUndoPlan(): UndoPlan? = latestUndo()?.plan
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =
         toolRequestsFor(runId).any { request ->

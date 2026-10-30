@@ -43,7 +43,7 @@ internal class ToolObservationCoordinator(
 ) {
     /**
      * Runtime-owned lookups and side effects the coordinator must not re-implement.
-     * Keeps undo stack, remote tool scopes, continuation prompts, and parking state
+     * Keeps remote tool scopes, continuation prompts, and parking state
      * on the runtime facade.
      */
     interface Host {
@@ -104,12 +104,6 @@ internal class ToolObservationCoordinator(
         fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot
         fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult
         fun addScratchpadNote(runId: String, noteContent: String)
-        fun applyUndoBookkeeping(
-            runId: String,
-            request: ToolRequest,
-            safeResult: ToolResult,
-            observedStatus: ToolStatus,
-        )
         fun markToolDispatchStarted(requestId: String)
         fun consumeToolDispatchLatencyMs(requestId: String): Long
         fun bumpAndGetTurnIndex(runId: String): Int
@@ -407,13 +401,6 @@ internal class ToolObservationCoordinator(
         // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
         // (ValidatingToolExecutor), so these are the terminal counterpart events.
         publishToolOutcomeEvent(runId, request, observedResult, retryAttempt)
-        // Wave 7 undo bookkeeping delegated to host (runtime-owned undo stack).
-        host.applyUndoBookkeeping(
-            runId = runId,
-            request = request,
-            safeResult = safeResult,
-            observedStatus = observedResult.status,
-        )
         recordToolCompletedTelemetry(runId, request, observedResult, retryAttempt)
         // Wave 4 telemetry: record step latency for tool_execution boundary.
         host.recordStepLatency("tool_execution", runId)
