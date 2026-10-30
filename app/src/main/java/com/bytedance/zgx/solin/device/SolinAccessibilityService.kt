@@ -738,8 +738,10 @@ class SolinAccessibilityService : AccessibilityService() {
      *
      * Runs on the device-control thread inside [runDeviceControlWithTimeout]. The framework
      * screenshot callback MUST be delivered on a different thread (this one blocks on the latch), so
-     * [mainExecutor] is used — mirroring how [dispatchTapGesture] receives its gesture callback off
-     * the control thread. Fails closed (returns [RawScreenshotReadResult.Failed]) on unsupported API,
+     * the dedicated [screenshotCallbackExecutor] is used — not the main thread, which may be busy
+     * rendering a window transition exactly when the loop captures. A capture is a read, not a UI
+     * side effect, so it is submitted via [submitUiRead] and a capture timeout leaves the task
+     * retryable. Fails closed (returns [RawScreenshotReadResult.Failed]) on unsupported API,
      * timeout, framework error, or decode failure.
      */
     private fun takeScreenshotRaw(): RawScreenshotReadResult {
@@ -758,7 +760,7 @@ class SolinAccessibilityService : AccessibilityService() {
             RawScreenshotReadResult.Failed("当前屏幕截图不可用"),
         )
         try {
-            submitUiSideEffect {
+            submitUiRead {
                 takeScreenshot(
                     Display.DEFAULT_DISPLAY,
                     screenshotCallbackExecutor,
@@ -1684,6 +1686,12 @@ private fun <T> submitUiSideEffect(action: () -> T): T {
     return task?.submitUiSideEffect(action) ?: action()
 }
 
+/** Like [submitUiSideEffect] for read-only framework calls: lease-checked, but not marked as a UI change. */
+private fun <T> submitUiRead(action: () -> T): T {
+    val task = deviceControlTask.get()
+    return task?.submitUiRead(action) ?: action()
+}
+
 internal class DeviceControlTaskCancelledException : IllegalStateException()
 
 internal enum class DeviceControlTaskCancellationReason {
@@ -1776,6 +1784,18 @@ internal class DeviceControlTaskCoordinator {
         synchronized(lock) {
             if (!isActiveLocked(task)) throw DeviceControlTaskCancelledException()
             task.markUiSideEffectSubmittedLocked()
+        }
+        return action()
+    }
+
+    /**
+     * Validates like [submitUiSideEffect] but does NOT mark the task as having submitted a UI side
+     * effect. For read-only framework calls (takeScreenshot): nothing on screen changes, so a timeout
+     * afterwards must stay retryable.
+     */
+    internal fun <T> submitUiRead(task: DeviceControlTaskLease, action: () -> T): T {
+        synchronized(lock) {
+            if (!isActiveLocked(task)) throw DeviceControlTaskCancelledException()
         }
         return action()
     }
@@ -1886,6 +1906,9 @@ internal class DeviceControlTaskLease internal constructor(
 
     internal fun <T> submitUiSideEffect(action: () -> T): T =
         coordinator.submitUiSideEffect(this, action)
+
+    internal fun <T> submitUiRead(action: () -> T): T =
+        coordinator.submitUiRead(this, action)
 
     internal fun runUiSideEffectIfActive(action: () -> Unit): Boolean =
         coordinator.runUiSideEffectIfActive(this, action)

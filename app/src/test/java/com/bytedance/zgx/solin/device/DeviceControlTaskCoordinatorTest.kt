@@ -134,6 +134,35 @@ class DeviceControlTaskCoordinatorTest {
         assertTrue(result.reason.contains("未确认"))
     }
 
+    @Test
+    fun timeoutAfterUiReadOnlySubmissionRemainsRetryable() {
+        val coordinator = DeviceControlTaskCoordinator()
+        coordinator.connect(Any())
+        val task = requireNotNull(coordinator.startTask())
+        var reads = 0
+        task.submitUiRead { reads += 1 }
+
+        val result = uiActionTimeoutResult(task)
+
+        assertEquals(1, reads)
+        assertTrue(result.retryable)
+        assertFalse(result.reason.contains("未确认"))
+    }
+
+    @Test
+    fun interruptPreventsUiReadSubmission() {
+        val coordinator = DeviceControlTaskCoordinator()
+        val owner = Any()
+        coordinator.connect(owner)
+        val task = requireNotNull(coordinator.startTask())
+        var reads = 0
+
+        coordinator.interrupt(owner)
+
+        assertCancelled { task.submitUiRead { reads += 1 } }
+        assertEquals(0, reads)
+    }
+
     private fun assertCancelled(block: () -> Unit) {
         try {
             block()
