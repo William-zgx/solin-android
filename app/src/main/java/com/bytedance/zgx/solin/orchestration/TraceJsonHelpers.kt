@@ -14,3 +14,14 @@ internal fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
 
 internal fun AgentTraceStepSummary.requestIdFromJson(): String? =
     jsonObjectOrNull()?.optString("requestId")?.takeIf { it.isNotBlank() }
+
+/** Every JSONObject element of this array, skipping non-object entries. */
+internal fun JSONArray.jsonObjects(): List<JSONObject> =
+    buildList {
+        for (index in 0 until length()) {
+            optJSONObject(index)?.let(::add)
+        }
+    }
+
+internal fun firstNonBlank(vararg values: String): String? =
+    values.firstOrNull { value -> value.isNotBlank() }
