@@ -215,22 +215,18 @@ class DeviceControlToolExecutor(
             )
         }
         val target = request.arguments["target"].orEmpty()
-        guardedActionPreflight(
+        return guardedAction(
             request,
             actionType = "tap",
             target = target,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = true,
-        )?.let { return it }
-        return actionResult(
-            request = request,
-            actionType = "tap",
-            target = target,
-            result = provider.tap(
+        ) {
+            provider.tap(
                 target = target,
                 timeoutMillis = request.timeoutMillis(),
-            ).withExpectedForegroundPackageVerification(request),
-        )
+            )
+        }
     }
 
     private fun executeTypeText(
@@ -238,45 +234,37 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
     ): ToolResult {
         val target = request.arguments["target"].orEmpty()
-        guardedActionPreflight(
+        return guardedAction(
             request,
             actionType = "type_text",
             target = target,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = true,
-        )?.let { return it }
-        return actionResult(
-            request = request,
-            actionType = "type_text",
-            target = target,
-            result = provider.typeText(
+        ) {
+            provider.typeText(
                 text = request.arguments["text"].orEmpty(),
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
                 allowClipboardPasteFallback = request.allowClipboardPasteFallback(),
-            ).withExpectedForegroundPackageVerification(request),
-        )
+            )
+        }
     }
 
     private fun executeSubmitSearch(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
-        guardedActionPreflight(
+        return guardedAction(
             request,
             actionType = "submit_search",
             target = "",
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = false,
-        )?.let { return it }
-        return actionResult(
-            request = request,
-            actionType = "submit_search",
-            target = "",
-            result = provider.submitSearch(
+        ) {
+            provider.submitSearch(
                 timeoutMillis = request.timeoutMillis(),
-            ).withExpectedForegroundPackageVerification(request),
-        )
+            )
+        }
     }
 
     private fun executeScroll(
@@ -284,31 +272,22 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
     ): ToolResult {
         val direction = UiScrollDirection.fromSchemaValue(request.arguments["direction"])
-            ?: return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "不支持的滚动方向：${request.arguments["direction"]}",
-                retryable = false,
-                data = request.deviceControlBaseData(),
-            )
+            ?: return request.invalidDeviceControlRequest("不支持的滚动方向：${request.arguments["direction"]}")
         val target = request.arguments["target"].orEmpty()
-        guardedActionPreflight(
+        return guardedAction(
             request,
             actionType = "scroll",
             target = target,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = false,
-        )?.let { return it }
-        return actionResult(
-            request = request,
-            actionType = "scroll",
-            target = target,
-            result = provider.scroll(
+            extraData = mapOf("direction" to direction.schemaValue),
+        ) {
+            provider.scroll(
                 direction = direction,
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
-            ).withExpectedForegroundPackageVerification(request),
-            extraData = mapOf("direction" to direction.schemaValue),
-        )
+            )
+        }
     }
 
     private fun executeSwipe(
@@ -322,36 +301,27 @@ class DeviceControlToolExecutor(
         if (startX == null || startY == null || endX == null || endY == null ||
             startX !in 0..1000 || startY !in 0..1000 || endX !in 0..1000 || endY !in 0..1000
         ) {
-            return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "滑动坐标必须为 0-1000 的归一化整数：startXNorm/startYNorm/endXNorm/endYNorm",
-                retryable = false,
-                data = request.deviceControlBaseData(),
-            )
+            return request.invalidDeviceControlRequest("滑动坐标必须为 0-1000 的归一化整数：startXNorm/startYNorm/endXNorm/endYNorm")
         }
         val durationMillis = request.arguments["durationMillis"]?.trim()?.toLongOrNull()
             ?: DEFAULT_UI_GESTURE_DURATION_MILLIS
         // No named target: the dangerous-action preflight guards against the whole current screen.
-        guardedActionPreflight(
+        return guardedAction(
             request,
             actionType = "swipe",
             target = "",
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
-        )?.let { return it }
-        return actionResult(
-            request = request,
-            actionType = "swipe",
-            target = "",
-            result = provider.swipe(
+        ) {
+            provider.swipe(
                 startXNorm = startX,
                 startYNorm = startY,
                 endXNorm = endX,
                 endYNorm = endY,
                 durationMillis = durationMillis,
                 timeoutMillis = request.timeoutMillis(),
-            ).withExpectedForegroundPackageVerification(request),
-        )
+            )
+        }
     }
 
     private fun executeLongPress(
@@ -361,33 +331,24 @@ class DeviceControlToolExecutor(
         val xNorm = request.arguments["xNorm"]?.trim()?.toIntOrNull()
         val yNorm = request.arguments["yNorm"]?.trim()?.toIntOrNull()
         if (xNorm == null || yNorm == null || xNorm !in 0..1000 || yNorm !in 0..1000) {
-            return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "长按坐标必须为 0-1000 的归一化整数：xNorm/yNorm",
-                retryable = false,
-                data = request.deviceControlBaseData(),
-            )
+            return request.invalidDeviceControlRequest("长按坐标必须为 0-1000 的归一化整数：xNorm/yNorm")
         }
         val holdMillis = request.arguments["holdMillis"]?.trim()?.toLongOrNull()
             ?: DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
-        guardedActionPreflight(
+        return guardedAction(
             request,
             actionType = "long_press",
             target = "",
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
-        )?.let { return it }
-        return actionResult(
-            request = request,
-            actionType = "long_press",
-            target = "",
-            result = provider.longPress(
+        ) {
+            provider.longPress(
                 xNorm = xNorm,
                 yNorm = yNorm,
                 holdMillis = holdMillis,
                 timeoutMillis = request.timeoutMillis(),
-            ).withExpectedForegroundPackageVerification(request),
-        )
+            )
+        }
     }
 
     private fun executePressKey(
@@ -395,28 +356,49 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
     ): ToolResult {
         val key = UiSystemKey.fromSchemaValue(request.arguments["key"])
-            ?: return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "不支持的系统按键：${request.arguments["key"]}（仅支持 home/recents/enter/delete）",
-                retryable = false,
-                data = request.deviceControlBaseData(),
-            )
-        guardedActionPreflight(
+            ?: return request.invalidDeviceControlRequest("不支持的系统按键：${request.arguments["key"]}（仅支持 home/recents/enter/delete）")
+        return guardedAction(
             request,
             actionType = "press_key",
             target = key.schemaValue,
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
+            extraData = mapOf("key" to key.schemaValue),
+        ) {
+            provider.pressKey(
+                key = key,
+                timeoutMillis = request.timeoutMillis(),
+            )
+        }
+    }
+
+    /**
+     * Runs [guardedActionPreflight] and, only if it passes, [perform]s the action and verifies the
+     * expected foreground package afterwards. The two safety flags stay required for the reasons
+     * documented on [guardedActionPreflight].
+     */
+    private fun guardedAction(
+        request: ToolRequest,
+        actionType: String,
+        target: String,
+        failClosedOnUnavailable: Boolean,
+        dismissBlockingOverlays: Boolean,
+        extraData: Map<String, String> = emptyMap(),
+        perform: () -> UiActionReadResult,
+    ): ToolResult {
+        guardedActionPreflight(
+            request,
+            actionType = actionType,
+            target = target,
+            failClosedOnUnavailable = failClosedOnUnavailable,
+            dismissBlockingOverlays = dismissBlockingOverlays,
         )?.let { return it }
         return actionResult(
             request = request,
-            actionType = "press_key",
-            target = key.schemaValue,
-            result = provider.pressKey(
-                key = key,
-                timeoutMillis = request.timeoutMillis(),
-            ).withExpectedForegroundPackageVerification(request),
-            extraData = mapOf("key" to key.schemaValue),
+            actionType = actionType,
+            target = target,
+            result = perform().withExpectedForegroundPackageVerification(request),
+            extraData = extraData,
         )
     }
 
@@ -883,6 +865,14 @@ class DeviceControlToolExecutor(
                     "failureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
                 )
             ).withAppSearchProgressEvidence(),
+        )
+
+    private fun ToolRequest.invalidDeviceControlRequest(summary: String): ToolResult =
+        failed(
+            code = ToolErrorCode.InvalidRequest,
+            summary = summary,
+            retryable = false,
+            data = deviceControlBaseData(),
         )
 
     private fun ToolRequest.deviceControlBaseData(): Map<String, String> =
