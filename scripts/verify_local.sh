@@ -15,7 +15,7 @@ MAX_RELEASE_AAB_BYTES="${MAX_RELEASE_AAB_BYTES:-$((75 * 1024 * 1024))}"
 scripts/doctor.sh --local
 # `bash -n a.sh b.sh` only parses a.sh (the rest become positional args), so check each
 # script on its own. The glob keeps new scripts and libraries covered automatically.
-for script_path in scripts/*.sh scripts/lib/*.sh; do
+for script_path in scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh; do
   bash -n "$script_path"
 done
 scripts/test_validation_scripts.sh
