@@ -58,147 +58,67 @@ class BuiltInSkillRuntime(
         val systemAlarmDraft by lazy { SystemAlarmActionParser.draft(input) }
         val systemTimerDraft by lazy { SystemTimerActionParser.draft(input) }
         val absoluteReminderDraft by lazy { AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId) }
+        fun single(draft: ActionDraft): SkillPlan? = plan(input, draft, draft.toToolRequest())
         if (input.looksLikeCurrentScreenTextSummaryShareNonAction(input.lowercase())) return null
         // Every rule below handles a single action only; sequential requests are left to the
         // Agent loop. Branch ORDER is significant: the first matching rule wins.
         if (input.looksLikeSequentialAction()) return null
         return when {
             input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
-            input.requestsCurrentScreenTextSummaryShare() ->
-                planCurrentScreenTextSummaryShare(input)
-
-            input.requestsCurrentSettingsUiControl() ->
-                planCurrentSettingsUiControl(input)
-
-            input.requestsCurrentBrowserUiSearch() ->
-                planCurrentBrowserUiSearch(input)
-
-            input.requestsCurrentMapsUiRoute() ->
-                planCurrentMapsUiRoute(input)
-
-            input.requestsCurrentDraftFormUiFill() ->
-                planCurrentDraftFormUiFill(input)
-
-            input.requestsOpenAppThenUiSearch() ->
-                planOpenAppThenUiSearch(input)
-
-            MapSearchActionParser.matches(input) ->
-                plan(input, MapSearchActionParser.draft(input).toRequestPair())
-
-            EmailDraftActionParser.matches(input) ->
-                plan(input, EmailDraftActionParser.draft(input).toRequestPair())
-
-            CalendarDraftActionParser.matches(input) ->
-                plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
-
-            CalendarAvailabilityActionParser.matches(input) ->
-                plan(input, CalendarAvailabilityActionParser.draft(input).toRequestPair())
-
-            DeviceSettingsActionParser.matches(input) ->
-                plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
-
-            SystemSettingsActionParser.matches(input) ->
-                plan(input, SystemSettingsActionParser.draft(input).toRequestPair())
-
-            ContactQueryActionParser.matches(input) ->
-                plan(input, ContactQueryActionParser.draft(input).toRequestPair())
-
-            ContactDraftActionParser.matches(input) ->
-                plan(input, ContactDraftActionParser.draft(input).toRequestPair())
-
-            WebSearchActionParser.matches(input) ->
-                plan(input, WebSearchActionParser.draft(input).toRequestPair())
-
-            RecentScreenshotOcrActionParser.matches(input) ->
-                plan(input, RecentScreenshotOcrActionParser.draft(input).toRequestPair())
-
-            RecentImageOcrActionParser.matches(input) ->
-                plan(input, RecentImageOcrActionParser.draft(input).toRequestPair())
-
-            CurrentScreenshotOcrActionParser.matches(input) ->
-                plan(input, CurrentScreenshotOcrActionParser.draft().toRequestPair())
-
-            RecentFilesActionParser.matches(input) ->
-                plan(input, RecentFilesActionParser.draft(input).toRequestPair())
-
-            DeepLinkActionParser.matches(input) ->
-                plan(input, DeepLinkActionParser.draft(input).toRequestPair())
-
-            CameraActionParser.matches(input) ->
-                plan(input, CameraActionParser.draft().toRequestPair())
-
-            systemAlarmDraft != null ->
-                plan(input, requireNotNull(systemAlarmDraft).toRequestPair())
-
-            systemTimerDraft != null ->
-                plan(input, requireNotNull(systemTimerDraft).toRequestPair())
-
-            AppNavigationActionParser.matches(input) ->
-                plan(input, AppNavigationActionParser.draft(input).toRequestPair())
-
-            input.requestsCurrentAppUiSearch() ->
-                planCurrentAppUiSearch(input)
-
-            ForegroundAppActionParser.matches(input) ->
-                plan(input, ForegroundAppActionParser.draft().toRequestPair())
-
-            RecentNotificationsActionParser.matches(input) ->
-                plan(input, RecentNotificationsActionParser.draft(input).toRequestPair())
-
-            input.requestsCurrentScreenObservation() -> {
-                val draft = ActionDraft(
+            input.requestsCurrentScreenTextSummaryShare() -> planCurrentScreenTextSummaryShare(input)
+            input.requestsCurrentSettingsUiControl() -> planCurrentSettingsUiControl(input)
+            input.requestsCurrentBrowserUiSearch() -> planCurrentBrowserUiSearch(input)
+            input.requestsCurrentMapsUiRoute() -> planCurrentMapsUiRoute(input)
+            input.requestsCurrentDraftFormUiFill() -> planCurrentDraftFormUiFill(input)
+            input.requestsOpenAppThenUiSearch() -> planOpenAppThenUiSearch(input)
+            MapSearchActionParser.matches(input) -> single(MapSearchActionParser.draft(input))
+            EmailDraftActionParser.matches(input) -> single(EmailDraftActionParser.draft(input))
+            CalendarDraftActionParser.matches(input) -> single(CalendarDraftActionParser.draft(input))
+            CalendarAvailabilityActionParser.matches(input) -> single(CalendarAvailabilityActionParser.draft(input))
+            DeviceSettingsActionParser.matches(input) -> single(DeviceSettingsActionParser.draft(input))
+            SystemSettingsActionParser.matches(input) -> single(SystemSettingsActionParser.draft(input))
+            ContactQueryActionParser.matches(input) -> single(ContactQueryActionParser.draft(input))
+            ContactDraftActionParser.matches(input) -> single(ContactDraftActionParser.draft(input))
+            WebSearchActionParser.matches(input) -> single(WebSearchActionParser.draft(input))
+            RecentScreenshotOcrActionParser.matches(input) -> single(RecentScreenshotOcrActionParser.draft(input))
+            RecentImageOcrActionParser.matches(input) -> single(RecentImageOcrActionParser.draft(input))
+            CurrentScreenshotOcrActionParser.matches(input) -> single(CurrentScreenshotOcrActionParser.draft())
+            RecentFilesActionParser.matches(input) -> single(RecentFilesActionParser.draft(input))
+            DeepLinkActionParser.matches(input) -> single(DeepLinkActionParser.draft(input))
+            CameraActionParser.matches(input) -> single(CameraActionParser.draft())
+            systemAlarmDraft != null -> single(requireNotNull(systemAlarmDraft))
+            systemTimerDraft != null -> single(requireNotNull(systemTimerDraft))
+            AppNavigationActionParser.matches(input) -> single(AppNavigationActionParser.draft(input))
+            input.requestsCurrentAppUiSearch() -> planCurrentAppUiSearch(input)
+            ForegroundAppActionParser.matches(input) -> single(ForegroundAppActionParser.draft())
+            RecentNotificationsActionParser.matches(input) -> single(RecentNotificationsActionParser.draft(input))
+            input.requestsCurrentScreenObservation() -> single(
+                ActionDraft(
                     functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     title = "观察当前屏幕",
                     summary = "将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。",
                     parameters = emptyMap(),
-                )
-                plan(input, draft.toRequestPair())
-            }
-
-            CurrentScreenTextActionParser.matches(input) ->
-                plan(input, CurrentScreenTextActionParser.draft(input).toRequestPair())
-
-            CancelReminderActionParser.matches(input) ->
-                plan(input, CancelReminderActionParser.draft(input).toRequestPair())
-
-            PeriodicCheckActionParser.matches(input) ->
-                plan(input, PeriodicCheckActionParser.draft(input).toRequestPair())
-
-            BackgroundTasksQueryActionParser.matches(input) ->
-                plan(input, BackgroundTasksQueryActionParser.draft(input).toRequestPair())
-
-            ShareTextActionParser.matches(input) ->
-                plan(input, ShareTextActionParser.draft(input).toRequestPair())
-
-            absoluteReminderDraft != null ->
-                plan(input, requireNotNull(absoluteReminderDraft).toRequestPair())
-
-            ReminderActionParser.matches(input) ->
-                plan(input, ReminderActionParser.draft(input).toRequestPair())
-
-            input.requestsClipboardContext() -> {
-                val draft = ActionDraft(
+                ),
+            )
+            CurrentScreenTextActionParser.matches(input) -> single(CurrentScreenTextActionParser.draft(input))
+            CancelReminderActionParser.matches(input) -> single(CancelReminderActionParser.draft(input))
+            PeriodicCheckActionParser.matches(input) -> single(PeriodicCheckActionParser.draft(input))
+            BackgroundTasksQueryActionParser.matches(input) -> single(BackgroundTasksQueryActionParser.draft(input))
+            ShareTextActionParser.matches(input) -> single(ShareTextActionParser.draft(input))
+            absoluteReminderDraft != null -> single(requireNotNull(absoluteReminderDraft))
+            ReminderActionParser.matches(input) -> single(ReminderActionParser.draft(input))
+            input.requestsClipboardContext() -> single(
+                ActionDraft(
                     functionName = MobileActionFunctions.READ_CLIPBOARD,
                     title = "读取剪贴板",
                     summary = "将读取当前剪贴板文本。",
                     parameters = emptyMap(),
-                )
-                val request = ToolRequest(
-                    toolName = MobileActionFunctions.READ_CLIPBOARD,
-                    reason = draft.summary,
-                )
-                plan(input, draft, request)
-            }
-
-            input.requestsCurrentPageSimpleInteraction() ->
-                planCurrentPageSimpleInteraction(input)
-
+                ),
+            )
+            input.requestsCurrentPageSimpleInteraction() -> planCurrentPageSimpleInteraction(input)
             else -> null
         }
     }
-
-    private fun plan(input: String, pair: DraftRequestPair): SkillPlan? =
-        plan(input, pair.draft, pair.request)
 
     override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? {
         val isSingleActionRequest = !input.looksLikeSequentialAction()
@@ -245,10 +165,7 @@ class BuiltInSkillRuntime(
             summary = "将读取当前剪贴板文本，用于生成可分享摘要。",
             parameters = emptyMap(),
         )
-        val resolvedReadRequest = readRequest ?: ToolRequest(
-            toolName = MobileActionFunctions.READ_CLIPBOARD,
-            reason = resolvedReadDraft.summary,
-        )
+        val resolvedReadRequest = readRequest ?: resolvedReadDraft.toToolRequest()
         return localSummarySharePlan(
             input = input,
             skillId = CLIPBOARD_SUMMARY_SHARE_SKILL,
@@ -273,11 +190,7 @@ class BuiltInSkillRuntime(
         val resolvedReadDraft = readDraft ?: CurrentScreenTextActionParser.draft(input).copy(
             summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
         )
-        val resolvedReadRequest = readRequest ?: ToolRequest(
-            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            arguments = resolvedReadDraft.parameters,
-            reason = resolvedReadDraft.summary,
-        )
+        val resolvedReadRequest = readRequest ?: resolvedReadDraft.toToolRequest()
         return localSummarySharePlan(
             input = input,
             skillId = CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
@@ -315,11 +228,6 @@ class BuiltInSkillRuntime(
             summary = shareSummary,
             parameters = emptyMap(),
         )
-        val shareRequest = ToolRequest(
-            toolName = MobileActionFunctions.SHARE_TEXT,
-            reason = shareDraft.summary,
-        )
-
         return SkillPlan(
             request = SkillRequest(
                 id = UUID.randomUUID().toString(),
@@ -346,7 +254,7 @@ class BuiltInSkillRuntime(
                 SkillStep.ToolStep(
                     id = shareStepId,
                     dependsOn = listOf(summarizeStepId),
-                    request = shareRequest,
+                    request = shareDraft.toToolRequest(),
                     draft = shareDraft,
                     argumentBindings = mapOf("text" to "$summarizeStepId.shareText"),
                 ),
@@ -360,19 +268,18 @@ class BuiltInSkillRuntime(
             input = input,
             skillId = SETTINGS_UI_CONTROL_SKILL,
             reason = "将在当前设置页先观察屏幕，再点击可见设置项：$target。",
-            steps = listOf(
-                observeScreenStep("observe_settings"),
-                tapStep(
-                    id = "tap_settings_target",
-                    dependsOn = listOf("observe_settings"),
-                    target = target,
-                    summary = "点击当前设置页中的可见设置项：$target。",
-                ),
-                waitStep(
-                    id = "verify_settings_target",
-                    dependsOn = listOf("tap_settings_target"),
-                    summary = "等待设置页面变化并重新观察。",
-                ),
+            steps = observeActVerifySteps(
+                observeId = "observe_settings",
+                act = { dependsOn ->
+                    tapStep(
+                        id = "tap_settings_target",
+                        dependsOn = dependsOn,
+                        target = target,
+                        summary = "点击当前设置页中的可见设置项：$target。",
+                    )
+                },
+                verifyId = "verify_settings_target",
+                verifySummary = "等待设置页面变化并重新观察。",
             ),
         )
     }
@@ -437,20 +344,19 @@ class BuiltInSkillRuntime(
             input = input,
             skillId = DRAFT_FORM_UI_SKILL,
             reason = "将在当前${draft.formTitle}草稿页观察并填写${draft.fieldTitle}；不会发送、保存或发布。",
-            steps = listOf(
-                observeScreenStep("observe_draft_form"),
-                typeTextStep(
-                    id = "type_draft_field",
-                    dependsOn = listOf("observe_draft_form"),
-                    target = draft.fieldTarget,
-                    text = draft.text,
-                    summary = "在当前${draft.formTitle}草稿页填写${draft.fieldTitle}。",
-                ),
-                waitStep(
-                    id = "verify_draft_field",
-                    dependsOn = listOf("type_draft_field"),
-                    summary = "等待草稿字段更新并重新观察。",
-                ),
+            steps = observeActVerifySteps(
+                observeId = "observe_draft_form",
+                act = { dependsOn ->
+                    typeTextStep(
+                        id = "type_draft_field",
+                        dependsOn = dependsOn,
+                        target = draft.fieldTarget,
+                        text = draft.text,
+                        summary = "在当前${draft.formTitle}草稿页填写${draft.fieldTitle}。",
+                    )
+                },
+                verifyId = "verify_draft_field",
+                verifySummary = "等待草稿字段更新并重新观察。",
             ),
         )
     }
@@ -531,73 +437,55 @@ class BuiltInSkillRuntime(
 
     private fun planCurrentPageSimpleInteraction(input: String): SkillPlan? {
         val command = input.extractCurrentPageUiCommand() ?: return null
-        return when (command) {
-            is CurrentPageUiCommand.Tap -> deviceUiTemplatePlan(
-                input = input,
-                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
-                reason = "将在当前页面观察并点击可见元素：${command.target}。",
-                steps = listOf(
-                    observeScreenStep("observe_current_page_tap"),
-                    tapStep(
-                        id = "tap_current_page_target",
-                        dependsOn = listOf("observe_current_page_tap"),
-                        target = command.target,
-                        summary = "点击当前页面中的可见元素：${command.target}。",
-                    ),
-                    waitStep(
-                        id = "verify_current_page_tap",
-                        dependsOn = listOf("tap_current_page_target"),
-                        summary = "等待页面变化并重新观察。",
-                    ),
-                ),
-            )
+        val (reason, steps) = when (command) {
+            is CurrentPageUiCommand.Tap ->
+                "将在当前页面观察并点击可见元素：${command.target}。" to observeActVerifySteps(
+                    observeId = "observe_current_page_tap",
+                    act = { dependsOn ->
+                        tapStep(
+                            id = "tap_current_page_target",
+                            dependsOn = dependsOn,
+                            target = command.target,
+                            summary = "点击当前页面中的可见元素：${command.target}。",
+                        )
+                    },
+                    verifyId = "verify_current_page_tap",
+                    verifySummary = "等待页面变化并重新观察。",
+                )
 
-            is CurrentPageUiCommand.Type -> deviceUiTemplatePlan(
-                input = input,
-                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
-                reason = "将在当前页面观察并输入文本。",
-                steps = listOf(
-                    observeScreenStep("observe_current_page_input"),
-                    typeTextStep(
-                        id = "type_current_page_text",
-                        dependsOn = listOf("observe_current_page_input"),
-                        text = command.text,
-                        target = command.target,
-                        summary = "在当前页面输入文本。",
-                    ),
-                    waitStep(
-                        id = "verify_current_page_input",
-                        dependsOn = listOf("type_current_page_text"),
-                        summary = "等待输入结果并重新观察。",
-                    ),
-                ),
-            )
+            is CurrentPageUiCommand.Type ->
+                "将在当前页面观察并输入文本。" to observeActVerifySteps(
+                    observeId = "observe_current_page_input",
+                    act = { dependsOn ->
+                        typeTextStep(
+                            id = "type_current_page_text",
+                            dependsOn = dependsOn,
+                            text = command.text,
+                            target = command.target,
+                            summary = "在当前页面输入文本。",
+                        )
+                    },
+                    verifyId = "verify_current_page_input",
+                    verifySummary = "等待输入结果并重新观察。",
+                )
 
-            is CurrentPageUiCommand.Scroll -> deviceUiTemplatePlan(
-                input = input,
-                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
-                reason = "将在当前页面观察并滚动。",
-                steps = listOf(
-                    observeScreenStep("observe_current_page_scroll"),
-                    scrollStep(
-                        id = "scroll_current_page",
-                        dependsOn = listOf("observe_current_page_scroll"),
-                        direction = command.direction,
-                        summary = "滚动当前页面。",
-                    ),
-                    waitStep(
-                        id = "verify_current_page_scroll",
-                        dependsOn = listOf("scroll_current_page"),
-                        summary = "等待滚动结果并重新观察。",
-                    ),
-                ),
-            )
+            is CurrentPageUiCommand.Scroll ->
+                "将在当前页面观察并滚动。" to observeActVerifySteps(
+                    observeId = "observe_current_page_scroll",
+                    act = { dependsOn ->
+                        scrollStep(
+                            id = "scroll_current_page",
+                            dependsOn = dependsOn,
+                            direction = command.direction,
+                            summary = "滚动当前页面。",
+                        )
+                    },
+                    verifyId = "verify_current_page_scroll",
+                    verifySummary = "等待滚动结果并重新观察。",
+                )
 
-            CurrentPageUiCommand.Back -> deviceUiTemplatePlan(
-                input = input,
-                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
-                reason = "将在当前页面执行系统返回。",
-                steps = listOf(
+            CurrentPageUiCommand.Back ->
+                "将在当前页面执行系统返回。" to listOf(
                     pressBackStep(
                         id = "press_current_page_back",
                         summary = "执行系统返回。",
@@ -607,22 +495,38 @@ class BuiltInSkillRuntime(
                         dependsOn = listOf("press_current_page_back"),
                         summary = "等待返回后的页面稳定。",
                     ),
-                ),
-            )
+                )
 
-            CurrentPageUiCommand.Wait -> deviceUiTemplatePlan(
-                input = input,
-                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
-                reason = "将等待当前页面稳定并重新观察。",
-                steps = listOf(
+            CurrentPageUiCommand.Wait ->
+                "将等待当前页面稳定并重新观察。" to listOf(
                     waitStep(
                         id = "wait_current_page",
                         dependsOn = emptyList(),
                         summary = "等待当前页面稳定并重新观察。",
                     ),
-                ),
-            )
+                )
         }
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+            reason = reason,
+            steps = steps,
+        )
+    }
+
+    /** observe → one UI action → wait-and-reobserve, each step depending on the previous one. */
+    private fun observeActVerifySteps(
+        observeId: String,
+        act: (dependsOn: List<String>) -> SkillStep.ToolStep,
+        verifyId: String,
+        verifySummary: String,
+    ): List<SkillStep> {
+        val action = act(listOf(observeId))
+        return listOf(
+            observeScreenStep(observeId),
+            action,
+            waitStep(id = verifyId, dependsOn = listOf(action.id), summary = verifySummary),
+        )
     }
 
     private fun currentAppSearchSteps(

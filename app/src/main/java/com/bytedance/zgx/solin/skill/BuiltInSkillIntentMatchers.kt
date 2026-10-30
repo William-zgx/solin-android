@@ -419,17 +419,5 @@ internal fun String.requestsClipboardContext(): Boolean {
     return referencesClipboard && asksToRead && !asksToShare
 }
 
-internal data class DraftRequestPair(
-    val draft: ActionDraft,
-    val request: ToolRequest,
-)
-
-internal fun ActionDraft.toRequestPair(): DraftRequestPair =
-    DraftRequestPair(
-        draft = this,
-        request = ToolRequest(
-            toolName = functionName,
-            arguments = parameters,
-            reason = summary,
-        ),
-    )
+internal fun ActionDraft.toToolRequest(): ToolRequest =
+    ToolRequest(toolName = functionName, arguments = parameters, reason = summary)
