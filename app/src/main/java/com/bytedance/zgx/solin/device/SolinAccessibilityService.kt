@@ -217,9 +217,9 @@ class SolinAccessibilityService : AccessibilityService() {
      * restore handles the clipboard.
      */
     private fun scheduleClipboardDrainAfterInterrupt() {
-        val token = clipboardRestorer.pendingToken() ?: return
+        val restoreToken = clipboardRestorer.pendingToken() ?: return
         mainHandler.postDelayed(
-            { drainPendingClipboardOnTeardown(token) },
+            { drainPendingClipboardOnTeardown(restoreToken) },
             DEFAULT_POST_ACTION_WAIT_MILLIS,
         )
     }
