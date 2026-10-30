@@ -114,6 +114,18 @@ data class AgentObservationReplanContext(
      * Local replanners ignore this field. Defaults false → fail closed (no screenshot leaves).
      */
     val runHasUserConfirmedStep: Boolean = false,
+    /**
+     * Value-free outcome token (`ok` / `no_change` / `failed:<kind>`) per prior request id, derived
+     * from the trace by [ToolPlanCoordinator]. Rendered next to each prior request in the local
+     * replanner prompt so "avoid the same target if the last action failed" has evidence.
+     */
+    val priorStepOutcomes: Map<String, String> = emptyMap(),
+    /**
+     * LocalOnly per-run scratchpad notes (may quote screen content). Only delivered to
+     * [LocalOnlyNotesObservationReplanner]s — every other replanner, including remote-vision, gets
+     * this stripped via [scopedForReplanner]. Defaults empty (fail closed).
+     */
+    val localOnlyScratchpadNotes: List<String> = emptyList(),
 )
 
 data class AgentObservationReplan(
@@ -140,7 +152,7 @@ class CompositeAgentObservationReplanner(
     private val delegates = delegates.toList()
 
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? =
-        delegates.firstNotNullOfOrNull { delegate -> delegate.planNext(context) }
+        delegates.firstNotNullOfOrNull { delegate -> delegate.planNext(context.scopedForReplanner(delegate)) }
 }
 
 class ModelObservationReplanner(
@@ -148,7 +160,7 @@ class ModelObservationReplanner(
     private val actionModelPathProvider: () -> String? = { null },
     private val toolRegistry: ToolRegistry = ToolRegistry(),
     maxModelReplans: Int = DEFAULT_MAX_MODEL_OBSERVATION_REPLANS,
-) : AgentObservationReplanner {
+) : LocalOnlyNotesObservationReplanner {
     private val modelReplanLimit = maxModelReplans.coerceAtLeast(0)
     private val lastDiagnostic = AtomicReference<ModelObservationReplanDiagnostic?>(null)
 

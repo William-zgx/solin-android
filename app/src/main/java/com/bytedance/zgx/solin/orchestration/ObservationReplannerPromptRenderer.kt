@@ -21,8 +21,6 @@ private const val MAX_LOCAL_TARGET_CANDIDATES = 8
 private const val MAX_LOCAL_TARGET_LABELS_PER_MODE = 4
 private const val MAX_LOCAL_EVIDENCE_CHARS = 2_000
 private const val MAX_LOCAL_DIAGNOSTICS_CHARS = 800
-private const val MAX_PRIOR_REQUEST_DETAILS = 4
-private const val MAX_PRIOR_REQUEST_DETAILS_CHARS = 360
 
 private val localObservationDiagnosticKeys = listOf(
     "actionType",
@@ -83,7 +81,9 @@ internal fun AgentObservationReplanContext.observationModelPrompt(
     val observationDiagnostics = observedResult.observationDiagnosticsPrompt()
     val localObservationEvidence = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
     val localOnlyAllowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
-    val priorRequestDetails = priorRequests.priorRequestDetailsPrompt()
+    val priorRequestDetails = priorRequestDetailsPrompt()
+    // Inserted after trimIndent so an unindented notes line cannot change the template's indent.
+    val runNotesLine = localScratchpadNotesPrompt()?.let { notes -> "$RUN_NOTES_PROMPT_LABEL $notes" }
     val appSearchProgress = observedResult.appSearchProgressPromptText(parseCache)
     return """
         This is user-authorized local device UI automation; LocalOnly screen evidence stays on-device, so do not refuse when a listed UI action clearly advances the request.
@@ -113,7 +113,16 @@ internal fun AgentObservationReplanContext.observationModelPrompt(
         Observation diagnostics: $observationDiagnostics
         LocalOnly observation evidence: $localObservationEvidence
     """.trimIndent()
+        .withLineAfter(prefix = "Prior request details:", line = runNotesLine)
         .compressForObservationModelContext()
+}
+
+private fun String.withLineAfter(prefix: String, line: String?): String {
+    if (line == null) return this
+    val lines = lines()
+    val index = lines.indexOfFirst { candidate -> candidate.startsWith(prefix) }
+    if (index < 0) return this
+    return (lines.subList(0, index + 1) + line + lines.subList(index + 1, lines.size)).joinToString("\n")
 }
 
 internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
@@ -140,38 +149,6 @@ internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
         若要输入搜索词，输出 call:ui_type_text{"target":"候选target","text":"用户要搜索的词"}。
         若要提交搜索，输出 call:ui_submit_search{}。
     """.trimIndent().compressForObservationModelContext(maxChars = 1_200)
-}
-
-private fun List<ToolRequest>.priorRequestDetailsPrompt(): String =
-    takeLast(MAX_PRIOR_REQUEST_DETAILS)
-        .map { request -> request.toPriorRequestDetailPrompt() }
-        .joinToString(separator = " -> ")
-        .ifBlank { "none" }
-        .shortTraceText(maxLength = MAX_PRIOR_REQUEST_DETAILS_CHARS)
-
-private fun ToolRequest.toPriorRequestDetailPrompt(): String {
-    val details = buildList {
-        arguments["target"]
-            ?.takeIf { value -> value.isNotBlank() }
-            ?.shortTraceText(maxLength = 96)
-            ?.let { value -> add("target=$value") }
-        arguments["direction"]
-            ?.takeIf { value -> value.isNotBlank() }
-            ?.shortTraceText(maxLength = 32)
-            ?.let { value -> add("direction=$value") }
-        arguments["captureMode"]
-            ?.takeIf { value -> value.isNotBlank() }
-            ?.shortTraceText(maxLength = 48)
-            ?.let { value -> add("captureMode=$value") }
-        arguments["text"]
-            ?.takeIf { value -> value.isNotBlank() }
-            ?.let { value -> add("textChars=${value.length}") }
-        arguments["timeoutMillis"]
-            ?.takeIf { value -> value.isNotBlank() }
-            ?.shortTraceText(maxLength = 16)
-            ?.let { value -> add("timeoutMillis=$value") }
-    }.joinToString(separator = ",")
-    return if (details.isBlank()) toolName else "$toolName{$details}"
 }
 
 private fun ToolResult.observationDiagnosticsPrompt(): String {

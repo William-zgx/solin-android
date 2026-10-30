@@ -101,8 +101,8 @@ private val diagnosticProtectedPromptPatterns = listOf(
 )
 
 private val priorRequestProtectedPromptPatterns = listOf(
-    Regex("""ui_[a-z_]+\{[^}]*target=[^}]*\}"""),
-    Regex("""observe_current_screen\{[^}]*\}"""),
+    Regex("""ui_[a-z_]+\{[^}]*target=[^}]*\}(\[[^\]]*\])?"""),
+    Regex("""observe_current_screen\{[^}]*\}(\[[^\]]*\])?"""),
 )
 
 private fun String.compressLabeledPromptValue(
@@ -236,6 +236,7 @@ private fun List<String>.prioritizedForObservationPrompt(): List<String> {
         "Stop on",
         "User intent preview:",
         "Prior request details:",
+        RUN_NOTES_PROMPT_LABEL,
         "Previous tool:",
         "Observation status:",
         "App search progress:",
@@ -318,6 +319,7 @@ private fun List<String>.prioritizedBaseObservationLines(): List<String> {
         "If only tap=",
         "If the latest action failed",
         "Decide if",
+        RUN_NOTES_PROMPT_LABEL,
     )
     return withIndex()
         .sortedWith(

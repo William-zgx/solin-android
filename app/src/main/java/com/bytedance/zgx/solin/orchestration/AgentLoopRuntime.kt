@@ -304,6 +304,9 @@ class AgentLoopRuntime(
             override fun remoteGuiDrivingEnabled(runId: String): Boolean =
                 remoteGuiDrivingEnabledByRunId[runId] ?: false
 
+            override fun localScratchpadNotes(runId: String): List<String> =
+                scratchpadNotesFromPromptBlock(runCatching { scratchpad.formatForPrompt(runId) }.getOrNull())
+
             override fun runHasUserConfirmedStep(runId: String): Boolean =
                 traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
 

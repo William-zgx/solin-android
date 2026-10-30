@@ -6002,6 +6002,58 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun observationReplanContextCarriesTraceStepOutcomesWithoutScratchpadNotesForNonLocalReplanners() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val captured = mutableListOf<AgentObservationReplanContext>()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { context ->
+                captured += context
+                null
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
+            ),
+        )
+
+        val context = captured.single()
+        assertEquals("ok", context.priorStepOutcomes[planned.plan.request.id])
+        assertTrue(context.localOnlyScratchpadNotes.isEmpty())
+    }
+
+    @Test
     fun successfulObservationCanPlanNextToolAndRequestConfirmationAgain() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(

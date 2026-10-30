@@ -93,6 +93,11 @@ internal class ToolPlanCoordinator(
          * confirmation (see [AgentObservationReplanContext.runHasUserConfirmedStep]).
          */
         fun runHasUserConfirmedStep(runId: String): Boolean
+        /**
+         * LocalOnly per-run scratchpad notes. Only reach [LocalOnlyNotesObservationReplanner]s; see
+         * [AgentObservationReplanContext.localOnlyScratchpadNotes]. Defaults to none (fail closed).
+         */
+        fun localScratchpadNotes(runId: String): List<String> = emptyList()
         fun valueFreeCompletedStepFrontiers(runId: String): Set<String>
         fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
         fun withLowRiskAppControlContinuationBypass(
@@ -144,7 +149,9 @@ internal class ToolPlanCoordinator(
                 screenObservationHistory = screenObservationFingerprints(run.id),
                 inheritedExpectedForegroundPackage = result.launchedTargetPackageOrNull(),
                 runHasUserConfirmedStep = host.runHasUserConfirmedStep(run.id),
-            ),
+                priorStepOutcomes = traceStore.steps(run.id).replanStepOutcomesByRequestId(),
+                localOnlyScratchpadNotes = host.localScratchpadNotes(run.id),
+            ).scopedForReplanner(observationReplanner),
         ) ?: return NextObservationPlan.None
         if (
             replan.plannedByModel &&
@@ -190,7 +197,9 @@ internal class ToolPlanCoordinator(
                 screenObservationHistory = screenObservationFingerprints(run.id),
                 inheritedExpectedForegroundPackage = result.launchedTargetPackageOrNull(),
                 runHasUserConfirmedStep = host.runHasUserConfirmedStep(run.id),
-            ),
+                priorStepOutcomes = traceStore.steps(run.id).replanStepOutcomesByRequestId(),
+                localOnlyScratchpadNotes = host.localScratchpadNotes(run.id),
+            ).scopedForReplanner(observationReplanner),
         ) ?: return null
         if (
             replan.plannedByModel &&
