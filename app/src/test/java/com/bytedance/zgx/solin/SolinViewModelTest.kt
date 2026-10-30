@@ -5,13 +5,8 @@ import android.app.DownloadManager
 import android.net.Uri
 import android.provider.Settings
 import com.bytedance.zgx.solin.action.ActionDraft
-import com.bytedance.zgx.solin.action.ActionPlan
-import com.bytedance.zgx.solin.action.ActionPlanKind
-import com.bytedance.zgx.solin.action.ActionPlanningResult
-import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.MobileActionPlanner
-import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.audit.ToolAuditRecord
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
@@ -100,9 +95,6 @@ import com.bytedance.zgx.solin.presentation.ChatServingCall
 import com.bytedance.zgx.solin.resource.StableResourceBand
 import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.resource.ThermalPressure
-import com.bytedance.zgx.solin.runtime.LocalModelRequest
-import com.bytedance.zgx.solin.runtime.LocalModelRuntimeCapabilities
-import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
@@ -110,6 +102,8 @@ import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRequest
+import com.bytedance.zgx.solin.testing.FakeLiteRtRuntime
+import com.bytedance.zgx.solin.testing.RecordingActionRuntime
 import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -9351,94 +9345,6 @@ class SolinViewModelTest {
         }
     }
 
-    private class FakeLiteRtRuntime(
-        private val localResponse: String = "本地回复",
-        private val localChunks: List<String> = listOf(localResponse),
-        private val failure: Throwable? = null,
-        private val hangDuringSend: Boolean = false,
-        private val loadFailures: Map<BackendChoice, Throwable> = emptyMap(),
-    ) : LiteRtRuntime {
-        val prompts = mutableListOf<String>()
-        val localRequests = mutableListOf<LocalModelRequest>()
-        val recreatedHistories = mutableListOf<List<ChatMessage>>()
-        val preparedForSendPrompts = mutableListOf<String>()
-        val preparedForSendMaxInputTokens = mutableListOf<Int?>()
-        val loadCalls = mutableListOf<BackendChoice>()
-        val configuredCapabilities = mutableListOf<LocalModelRuntimeCapabilities>()
-        var stopCallCount: Int = 0
-            private set
-        var closeCallCount: Int = 0
-            private set
-        var recreateCallCount: Int = 0
-            private set
-        override var isLoaded: Boolean = false
-
-        override fun configureModelCapabilities(capabilities: LocalModelRuntimeCapabilities) {
-            configuredCapabilities += capabilities
-        }
-
-        override fun load(
-            modelPath: String,
-            backend: BackendChoice,
-            history: List<ChatMessage>,
-            parameters: GenerationParameters,
-        ) {
-            loadCalls += backend
-            loadFailures[backend]?.let { throwable ->
-                isLoaded = false
-                throw throwable
-            }
-            isLoaded = true
-        }
-
-        override fun recreateConversation(
-            history: List<ChatMessage>,
-            parameters: GenerationParameters,
-        ) {
-            recreateCallCount += 1
-            recreatedHistories += history
-            isLoaded = true
-        }
-
-        override fun recreateConversationForSend(
-            history: List<ChatMessage>,
-            prompt: String,
-            parameters: GenerationParameters,
-            maxInputTokens: Int?,
-        ) {
-            preparedForSendPrompts += prompt
-            preparedForSendMaxInputTokens += maxInputTokens
-            recreateConversation(history, parameters)
-        }
-
-        override fun send(prompt: String): Flow<String> {
-            prompts += prompt
-            failure?.let { throw it }
-            if (hangDuringSend) {
-                return flow { awaitCancellation() }
-            }
-            return flow {
-                localChunks.forEach { chunk -> emit(chunk) }
-            }
-        }
-
-        override fun send(request: LocalModelRequest): Flow<String> {
-            localRequests += request
-            return send(request.prompt)
-        }
-
-        override fun lastGenerationStats(): GenerationStats? = null
-
-        override fun stop() {
-            stopCallCount += 1
-        }
-
-        override fun close() {
-            closeCallCount += 1
-            isLoaded = false
-        }
-    }
-
     private class FakeAssistantRouter(
         private val routeResult: AssistantRoute? = null,
         private val routeFailure: Throwable? = null,
@@ -9888,23 +9794,6 @@ class SolinViewModelTest {
         override fun persistActiveSessionFrom(messages: List<ChatMessage>) {
             this.messages = messages
         }
-    }
-
-    private class RecordingActionRuntime(
-        private val likelyAction: Boolean,
-        private val modelOutputResult: ModelToolOutputParseResult = ModelToolOutputParseResult.None,
-    ) : ActionPlanningRuntime {
-        override fun isLikelyAction(input: String): Boolean = likelyAction
-
-        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-            ActionPlanningResult(
-                plan = ActionPlan(ActionPlanKind.NoAction),
-                usedModel = false,
-                fallbackReason = null,
-            )
-
-        override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
-            modelOutputResult
     }
 
     private class CountingMemoryRepository : MemoryIndex, LongTermMemoryControls {
