@@ -69,6 +69,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
@@ -241,7 +242,7 @@ class ChatController internal constructor(
         assistantOrchestrator = assistantOrchestrator,
         generationSupport = generationSupport,
         remoteSendSupport = remoteSendSupport,
-        launchGenerationJob = { runId, block -> launchGenerationJob(runId, modelCall = true, block = block) },
+        launchGenerationJob = { runId, block -> launchModelCallGenerationJob(runId, block) },
         cancelActiveGenerationRun = { runId -> cancelActiveGenerationRun(runId) },
         executePublicEvidenceToolBatchAfterRunIsExecuting = executePublicEvidenceToolBatchAfterRunIsExecutingCallback,
         handleNextToolPlan = handleNextToolPlanCallback,
@@ -1289,24 +1290,35 @@ class ChatController internal constructor(
     }
 
     fun launchToolGenerationJob(runId: String?, block: suspend () -> Unit) {
-        launchGenerationJob(runId, modelCall = false, block = block)
+        launchGenerationJob(runId) { block() }
     }
 
     /**
-     * [modelCall] marks a job that streams a model turn (tool continuation); only such jobs are
-     * registered for steer cancellation. Tool-execution jobs never are, so steer cannot interrupt them.
+     * Launches a job that streams a model turn (tool continuation). Only such jobs are registered for
+     * steer cancellation, and only until [block] calls its `endModelCall` argument (right after the
+     * stream) or returns. Tool execution afterwards is never steer-cancellable.
      */
-    private fun launchGenerationJob(runId: String?, modelCall: Boolean, block: suspend () -> Unit) {
-        activeGenerationRunId = runId
-        val job = scope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
-            val modelCallJob = currentCoroutineContext()[Job].takeIf { modelCall && runId != null }
+    private fun launchModelCallGenerationJob(runId: String?, block: suspend (endModelCall: () -> Unit) -> Unit) {
+        launchGenerationJob(runId) {
+            val modelCallJob = currentCoroutineContext()[Job].takeIf { runId != null }
+            val registered = AtomicBoolean(modelCallJob != null)
+            val endModelCall = {
+                if (registered.compareAndSet(true, false)) {
+                    modelCallJob?.let { job -> midRunSteering.onModelCallFinished(requireNotNull(runId), job) }
+                }
+            }
             modelCallJob?.let { job -> midRunSteering.onModelCallStarted(requireNotNull(runId), job) }
             try {
-                block()
+                block(endModelCall)
             } finally {
-                modelCallJob?.let { job -> midRunSteering.onModelCallFinished(requireNotNull(runId), job) }
+                endModelCall()
             }
         }
+    }
+
+    private fun launchGenerationJob(runId: String?, block: suspend () -> Unit) {
+        activeGenerationRunId = runId
+        val job = scope.launch(ioDispatcher, start = CoroutineStart.LAZY) { block() }
         trackGenerationJob(job)
         job.start()
     }

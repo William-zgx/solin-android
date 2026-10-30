@@ -121,12 +121,18 @@ abstract class ObservationReplannerTestFixtures {
     ) : ActionPlanningRuntime {
         var lastInput: String? = null
         var lastActionModelPath: String? = null
+        var lastToolSpecNames: List<String>? = null
         val inputs = mutableListOf<String>()
 
         /** The full observation prompt; later inputs may be the corrective re-prompt. */
         val firstInput: String? get() = inputs.firstOrNull()
 
         override fun isLikelyAction(input: String): Boolean = true
+
+        override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult {
+            lastToolSpecNames = toolSpecs.map { spec -> spec.name }
+            return plan(input, actionModelPath)
+        }
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
             inputs += input

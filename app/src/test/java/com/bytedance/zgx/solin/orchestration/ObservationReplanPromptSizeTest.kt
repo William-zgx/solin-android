@@ -51,10 +51,10 @@ class ObservationReplanPromptSizeTest {
         val wrappedScoped = actionPrompt(prompt, context.observationReplanToolSpecs(registry)).length
         println("ObservationReplanPromptSize prompt=${prompt.length} wrappedAll=$wrappedAll wrappedScoped=$wrappedScoped")
 
-        // Current wiring (action prompt still lists every spec): within 5% of the 7,696 baseline even
-        // though no rule line is dropped any more.
-        assertTrue(wrappedAll <= (BASELINE_WRAPPED_ALL_SPECS * 1.05).toInt())
-        // With the scoped spec list (cross-track request to action/ActionPlanningRuntime): >= 40% smaller.
+        // The registry keeps growing, so the full-spec wrap is only a reference point; replanner calls
+        // pass the scoped list (ModelObservationReplanner -> ActionPlanningRuntime.plan(toolSpecs)).
+        assertTrue("wrappedScoped=$wrappedScoped wrappedAll=$wrappedAll", wrappedScoped <= (wrappedAll * 0.6).toInt())
+        // Scoped wrap stays >= 40% under the pre-scope 7,696-char baseline.
         assertTrue("wrappedScoped=$wrappedScoped", wrappedScoped <= (BASELINE_WRAPPED_ALL_SPECS * 0.6).toInt())
     }
 

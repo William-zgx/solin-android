@@ -244,6 +244,7 @@ class ModelObservationReplanner(
         val planningResult = actionPlanningRuntime.plan(
             input = prompt,
             actionModelPath = actionModelPath,
+            toolSpecs = context.observationReplanToolSpecs(toolRegistry),
         )
         val acceptance = context.acceptModelObservationReplan(planningResult, parseCache)
         recordDiagnostic(

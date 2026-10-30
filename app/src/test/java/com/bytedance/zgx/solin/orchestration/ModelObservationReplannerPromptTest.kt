@@ -92,7 +92,10 @@ class ModelObservationReplannerPromptTest : ObservationReplannerTestFixtures() {
         assertTrue(prompt.contains("LocalOnly observation evidence"))
         assertFalse(prompt.contains("ocrBlocks(count="))
         assertFalse(prompt.contains("\"elements\""))
-        assertFalse(prompt.contains("\"lines\""))
+        assertFalse(prompt.contains("\"lines\""))        // The model call advertises only the scoped device-control tools, not every registered spec.
+        val advertised = runtime.lastToolSpecNames.orEmpty()
+        assertTrue("$advertised", MobileActionFunctions.UI_TAP in advertised)
+        assertFalse("$advertised", MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR in advertised)
     }
 
     @Test

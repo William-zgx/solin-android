@@ -33,6 +33,15 @@ interface ActionPlanningRuntime {
 
     fun isLikelyAction(input: String): Boolean
     fun plan(input: String, actionModelPath: String?): ActionPlanningResult
+
+    /**
+     * Same as [plan], but the model prompt advertises only [toolSpecs] (e.g. the observation
+     * replanner's scoped tool list). Parsing and acceptance are unchanged; runtimes without a model
+     * prompt ignore the scope.
+     */
+    fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
+        plan(input, actionModelPath)
+
     fun parseModelToolOutput(output: String): ModelToolOutputParseResult = ModelToolOutputParseResult.None
 }
 
@@ -67,9 +76,19 @@ class HybridActionPlanningRuntime(
     override fun isLikelyAction(input: String): Boolean =
         classifyIntent(input).isAction
 
-    override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+    override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
+        planWithToolSpecs(input, actionModelPath, toolSpecs = null)
+
+    override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
+        planWithToolSpecs(input, actionModelPath, toolSpecs)
+
+    private fun planWithToolSpecs(
+        input: String,
+        actionModelPath: String?,
+        toolSpecs: List<ToolSpec>?,
+    ): ActionPlanningResult {
         if (actionModelPath != null) {
-            val modelAttemptResult = runCatching { modelPlanner.plan(input, actionModelPath) }
+            val modelAttemptResult = runCatching { modelPlanner.plan(input, actionModelPath, toolSpecs) }
             val modelAttempt = modelAttemptResult.getOrNull()
             val modelPlan = modelAttempt?.plan
             if (modelPlan?.kind == ActionPlanKind.Draft && modelPlan.draft != null) {
@@ -118,13 +137,13 @@ private class ModelBackedActionPlanner(
     private var loadedPath: String? = null
     private var engine: Engine? = null
 
-    fun plan(input: String, modelPath: String): ModelBackedPlanningAttempt {
+    fun plan(input: String, modelPath: String, toolSpecs: List<ToolSpec>?): ModelBackedPlanningAttempt {
         val activeEngine = engineFor(modelPath)
         val conversation = activeEngine.createConversation(actionConversationConfig())
         return try {
             val output = StringBuilder()
             runBlocking {
-                conversation.sendMessageAsync(actionPrompt(input, toolRegistry.specs())).collect { message ->
+                conversation.sendMessageAsync(actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs())).collect { message ->
                     output.append(message.textContent())
                 }
             }

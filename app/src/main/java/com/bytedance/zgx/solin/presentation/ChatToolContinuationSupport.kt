@@ -69,7 +69,8 @@ internal class ChatToolContinuationSupport(
     private val assistantOrchestrator: AssistantRouter,
     private val generationSupport: ChatGenerationSupport,
     private val remoteSendSupport: ChatRemoteSendSupport,
-    private val launchGenerationJob: (runId: String?, block: suspend () -> Unit) -> Unit,
+    /** Launches a steer-cancellable model-call job; `endModelCall` ends cancellability after streaming. */
+    private val launchGenerationJob: (runId: String?, block: suspend (endModelCall: () -> Unit) -> Unit) -> Unit,
     private val cancelActiveGenerationRun: (runId: String?) -> Unit,
     private val executePublicEvidenceToolBatchAfterRunIsExecuting: suspend (
         runId: String,
@@ -219,7 +220,7 @@ internal class ChatToolContinuationSupport(
             }
             return
         }
-        launchGenerationJob(runId) {
+        launchGenerationJob(runId) { endModelCall ->
             var streamingAssistantUpdates: StreamingAssistantUpdateCoalescer? = null
             try {
                 if (generationSupport.abortIfServingUnavailable(
@@ -277,6 +278,8 @@ internal class ChatToolContinuationSupport(
                         parameters = parameters,
                     )
                 }
+                // Streaming is over: a steer must not cancel the tool batch or planning that follows.
+                endModelCall()
                 generationSupport.guardCompletedTurn(turn, useRemoteModel, remoteConfig)
                 turn.qualityDecision?.let { decision ->
                     generationSupport.finishOutputQualityGuardedGeneration(
