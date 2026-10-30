@@ -1196,7 +1196,7 @@ class AgentLoopRuntime(
             state = AgentRunState.Failed,
         ) ?: return null
         traceStore.clearPendingConfirmationsForRun(runId)
-        val augmentedReason = augmentReasonWithStepBudgetHint(runId, reason)
+        val augmentedReason = runBudget.augmentReasonWithStepBudgetHint(runId, reason)
         traceStore.appendStep(runId, AgentStep.Failed(augmentedReason))
         val decision = AgentObservationDecision.Fail(augmentedReason)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
@@ -1244,7 +1244,7 @@ class AgentLoopRuntime(
         run: AgentRun,
         request: ToolRequest,
     ): AgentLoopResult {
-        val hintReason = augmentReasonWithStepBudgetHint(run.id, TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        val hintReason = runBudget.augmentReasonWithStepBudgetHint(run.id, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         val rejectedPlan = AgentPlan.RejectedTool(request.rejected(hintReason))
         traceStore.appendStep(run.id, AgentStep.ModelPlanned(rejectedPlan))
         traceStore.appendStep(run.id, AgentStep.ToolRejected(rejectedPlan.result))
@@ -1258,14 +1258,6 @@ class AgentLoopRuntime(
             steps = traceStore.steps(run.id),
         )
     }
-
-    private fun effectiveMaxToolSteps(runId: String): Int = runBudget.effectiveMaxToolSteps(runId)
-    private fun toolStepBudgetExceeded(runId: String): Boolean = runBudget.toolStepBudgetExceeded(runId)
-    private fun observationDecisionBudgetExceeded(runId: String): Boolean =
-        runBudget.observationDecisionBudgetExceeded(runId)
-    private fun runDeadlineExceeded(runId: String): Boolean = runBudget.runDeadlineExceeded(runId)
-    private fun augmentReasonWithStepBudgetHint(runId: String, reason: String): String =
-        runBudget.augmentReasonWithStepBudgetHint(runId, reason)
 
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
@@ -1585,13 +1577,13 @@ class AgentLoopRuntime(
     ): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
-        if (observationDecisionBudgetExceeded(runId)) {
+        if (runBudget.observationDecisionBudgetExceeded(runId)) {
             return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
         }
         // Time-domain guard, checked alongside the step-count budget: a local generation has no
         // timeout, so N bounded turns can still add up to an unbounded run. Fail closed here (a safe
         // GeneratingAnswer -> Failed boundary) rather than starting yet another turn.
-        if (runDeadlineExceeded(runId)) {
+        if (runBudget.runDeadlineExceeded(runId)) {
             return failRunBudget(runId, RUN_WALL_CLOCK_DEADLINE_EXCEEDED_REASON)
         }
         // Step latency for model_generation (delta since the caller marked the step, 0L fallback).
