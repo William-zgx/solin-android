@@ -399,16 +399,7 @@ internal class ModelLoadController(
                     loadModel()
                 },
                 onFailure = { throwable ->
-                    uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isDownloading = false,
-                            downloadProgressPercent = null,
-                            downloadedBytes = 0L,
-                            totalBytes = 0L,
-                            statusText = "导入失败：${throwable.cleanMessage()}",
-                        )
-                    }
+                    uiState.update { it.downloadFinished("导入失败：${throwable.cleanMessage()}") }
                 },
             )
         }
@@ -1004,16 +995,7 @@ internal class ModelLoadController(
                             setupDownloadQueue.clear()
                             setupDownloadInProgress = false
                             targetFile.delete()
-                            uiState.update {
-                                it.copy(
-                                    isBusy = false,
-                                    isDownloading = false,
-                                    downloadProgressPercent = null,
-                                    downloadedBytes = 0L,
-                                    totalBytes = 0L,
-                                    statusText = throwable.cleanMessage(),
-                                )
-                            }
+                            uiState.update { it.downloadFinished(throwable.cleanMessage()) }
                             return@launch
                         }
                         modelRepository.clearPendingDownload()
@@ -1031,16 +1013,7 @@ internal class ModelLoadController(
                             )
                         }
                         updateModelState(modelRepository.currentState())
-                        uiState.update {
-                            it.copy(
-                                isBusy = false,
-                                isDownloading = false,
-                                downloadProgressPercent = null,
-                                downloadedBytes = 0L,
-                                totalBytes = 0L,
-                                statusText = "模型下载完成",
-                            )
-                        }
+                        uiState.update { it.downloadFinished("模型下载完成") }
                         continueSetupDownloadOrLoad(source)
                         return@launch
                     }
@@ -1090,16 +1063,7 @@ internal class ModelLoadController(
                 targetFile.delete()
                 setupDownloadQueue.clear()
                 setupDownloadInProgress = false
-                uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isDownloading = false,
-                        downloadProgressPercent = null,
-                        downloadedBytes = 0L,
-                        totalBytes = 0L,
-                        statusText = throwable.cleanMessage(),
-                    )
-                }
+                uiState.update { it.downloadFinished(throwable.cleanMessage()) }
                 return@launch
             }
             if (source.registerInstalledModel) {
@@ -1275,3 +1239,14 @@ internal class ModelLoadController(
         }
     }
 }
+
+/** Clears all download progress and ends the busy state. */
+internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState =
+    copy(
+        isBusy = false,
+        isDownloading = false,
+        downloadProgressPercent = null,
+        downloadedBytes = 0L,
+        totalBytes = 0L,
+        statusText = statusText,
+    )

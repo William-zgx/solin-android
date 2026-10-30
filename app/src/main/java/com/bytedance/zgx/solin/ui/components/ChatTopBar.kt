@@ -50,6 +50,7 @@ import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.ui.activePlacementDisplayText
+import com.bytedance.zgx.solin.ui.downloadStatusLabel
 import com.bytedance.zgx.solin.ui.inferencePreferenceDisplayText
 import com.bytedance.zgx.solin.ui.PRODUCT_POSITIONING_SHORT_TEXT
 import com.bytedance.zgx.solin.ui.ResourcePressureOverlay
@@ -364,7 +365,7 @@ internal fun RuntimeStatusBadge(
 ) {
     val active = state.isReady && !state.isBusy
     val label = when {
-        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+        state.isDownloading -> state.downloadStatusLabel()
         state.isBusy -> "处理中"
         activeRunPlacement == RunPlacement.Remote -> "本次远程"
         activeRunPlacement == RunPlacement.Local -> "本次本地"
@@ -418,7 +419,7 @@ internal fun compactModelStatusShort(
     activeRunPlacement: RunPlacement?,
     activeRunPlacementReason: PlacementReasonCode?,
 ): String = when {
-    state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+    state.isDownloading -> state.downloadStatusLabel()
     activeRunPlacement == RunPlacement.Remote -> "${state.inferenceMode.label()}→远程"
     activeRunPlacement == RunPlacement.Local -> "${state.inferenceMode.label()}→本地"
     activeRunPlacementReason != null -> "${state.inferenceMode.label()}·阻断"

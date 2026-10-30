@@ -122,6 +122,9 @@ internal fun activePlacementDisplayText(
     }
 }
 
+internal fun ChatUiState.downloadStatusLabel(): String =
+    downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+
 internal fun currentModelStatus(state: ChatUiState): String {
     val ready = if (state.inferenceMode == InferenceMode.Remote) {
         when {
@@ -131,7 +134,7 @@ internal fun currentModelStatus(state: ChatUiState): String {
         }
     } else {
         when {
-            state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+            state.isDownloading -> state.downloadStatusLabel()
             state.isBusy -> state.statusText
             state.isReady -> "已就绪"
             state.modelPath != null -> "待加载"
