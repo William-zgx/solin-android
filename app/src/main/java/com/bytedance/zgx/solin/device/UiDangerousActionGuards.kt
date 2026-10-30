@@ -1,12 +1,16 @@
 package com.bytedance.zgx.solin.device
 
 /**
- * The ONE dangerous-action keyword source, shared by the device-control screen guards here and
- * by `ToolRegistry.isLowRiskDeviceActionConfirmationSkippable` (whether a `ui_tap` target may
- * skip confirmation). It is the union of the two lists that used to be maintained separately —
- * the registry copy lacked 授权/允许/同意, so a tap on a permission-grant button could skip
- * confirmation. Only ever add to this list: a larger list can only refuse or require
- * confirmation more often, which is the fail-closed direction.
+ * Dangerous-action keywords, defined once here and used at two strengths:
+ *
+ * - [dangerousActionTextMarkers] — screen-wide guards. Any enabled actionable node whose label
+ *   matches blocks every automatic UI action on that screen, so this list stays narrow (payment,
+ *   delete, send, publish, order, grant) to keep low-risk app search usable on shopping/map apps.
+ * - [dangerousTapTargetMarkers] — whether one `ui_tap` target may skip confirmation
+ *   (`ToolRegistry.isLowRiskDeviceActionConfirmationSkippable`). It is the screen list plus generic
+ *   submit/confirm verbs, so it only ever asks for confirmation more often (fail closed).
+ *
+ * Only ever add to these lists.
  */
 internal val dangerousActionTextMarkers: List<String> = listOf(
     "支付",
@@ -22,6 +26,9 @@ internal val dangerousActionTextMarkers: List<String> = listOf(
     "授权",
     "允许",
     "同意",
+)
+
+internal val dangerousTapTargetMarkers: List<String> = dangerousActionTextMarkers + listOf(
     "提交",
     "确认",
     "send",
@@ -68,12 +75,15 @@ private val standaloneDangerousActionTextMarkers = listOf(
     "同意",
 )
 
-internal fun String?.hasDangerousActionText(): Boolean {
+internal fun String?.hasDangerousActionText(): Boolean = containsAnyMarker(dangerousActionTextMarkers)
+
+/** Whether a single `ui_tap` target needs confirmation; stricter than [hasDangerousActionText]. */
+internal fun String?.hasDangerousTapTargetText(): Boolean = containsAnyMarker(dangerousTapTargetMarkers)
+
+private fun String?.containsAnyMarker(markers: List<String>): Boolean {
     val normalized = normalizedLookupKey()
     if (normalized.isBlank()) return false
-    return dangerousActionTextMarkers.any { marker ->
-        normalized.contains(marker.normalizedLookupKey())
-    }
+    return markers.any { marker -> normalized.contains(marker.normalizedLookupKey()) }
 }
 
 internal fun String?.hasOcrDangerousActionText(): Boolean {

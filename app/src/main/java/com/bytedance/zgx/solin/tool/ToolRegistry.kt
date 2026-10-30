@@ -3,7 +3,7 @@ package com.bytedance.zgx.solin.tool
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
-import com.bytedance.zgx.solin.device.hasDangerousActionText
+import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.undo.UndoPlan
 import com.bytedance.zgx.solin.undo.UndoPolicy
@@ -155,7 +155,7 @@ class ToolRegistry private constructor(
             hasTag(request.toolName, ToolCapabilityTag.LowRiskDeviceAction) -> true
             !hasTag(request.toolName, ToolCapabilityTag.ConditionalLowRiskDeviceAction) -> false
             request.toolName == MobileActionFunctions.UI_TAP ->
-                !request.arguments["target"].hasDangerousActionText()
+                !request.arguments["target"].hasDangerousTapTargetText()
             request.toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
                 request.arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
             else -> false
