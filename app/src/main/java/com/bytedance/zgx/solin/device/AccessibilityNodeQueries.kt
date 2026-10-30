@@ -186,6 +186,23 @@ internal fun AccessibilityNodeInfo.findTransientOverlayDismissCandidate(): NodeC
 private fun AccessibilityNodeInfo.overlayLabel(): String =
     text.normalizedNodeText() ?: contentDescription.normalizedNodeText() ?: ""
 
+/**
+ * Live-node mirror of `ScreenStateSnapshot.hasDangerousActionControl`: the same per-node rule and the
+ * same narrow screen-wide [dangerousActionTextMarkers] list (not the stricter single-tap list).
+ */
+internal fun AccessibilityNodeInfo.hasDangerousActionControlNode(): Boolean {
+    var found = false
+    walkScreenNodes(
+        maxWalkCount = MAX_SCREEN_STATE_NODE_WALK,
+        // Pure predicate; nothing is retained past the visit.
+        recycleVisitedNodes = true,
+    ) { node ->
+        if (node.toScreenNode(id = "").hasDangerousActionControl()) found = true
+        !found
+    }
+    return found
+}
+
 internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
     var markerCount = 0
     walkScreenNodes(

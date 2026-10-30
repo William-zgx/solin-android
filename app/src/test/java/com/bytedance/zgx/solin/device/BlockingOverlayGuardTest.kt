@@ -150,6 +150,124 @@ class BlockingOverlayGuardTest {
         assertFalse("".hasBlockingOverlayMarker())
     }
 
+    // ── Update dialogs, splash ads and nag pop-ups ───────────────────────────────────────────────
+
+    @Test
+    fun recognizesUpdateAndAdDismissLabels() {
+        listOf(
+            "以后再说",
+            "下次再说",
+            "稍后再说",
+            "稍后提醒",
+            "暂不更新",
+            "暂不升级",
+            "跳过广告",
+            "残忍拒绝",
+            "跳过 3",
+            "3s 跳过",
+            "跳过(5)",
+            "跳过广告 5秒",
+            "Skip 5",
+        ).forEach { label ->
+            assertTrue("'$label' should be a dismiss label", label.isOverlayDismissLabel())
+        }
+    }
+
+    @Test
+    fun newDismissLabelsStayExactAndShort() {
+        listOf(
+            // Content text that merely contains a new dismiss word.
+            "以后再说吧我们先聊聊",
+            "残忍拒绝后将失去优惠券资格",
+            "暂不更新会导致部分功能不可用",
+            // Countdown look-alikes that are not countdowns.
+            "跳过3天",
+            "跳过此步骤3",
+            "跳过123",
+            "3",
+            "5秒",
+            // Dangerous rows stay refused whatever is added to the list.
+            "关闭免密支付",
+            "关闭自动续费",
+        ).forEach { label ->
+            assertFalse("'$label' must not be an overlay dismiss control", label.isOverlayDismissLabel())
+        }
+    }
+
+    @Test
+    fun updateDialogIsDetectedAndDismissedViaLaterLabel() {
+        val updateDialog = snapshot(
+            id = "update",
+            nodes = listOf(
+                node(id = "title", text = "发现新版本 V9.2.0"),
+                node(id = "body", text = "更新内容：1. 修复已知问题"),
+                node(id = "update", text = "立即更新", clickable = true),
+                node(id = "later", text = "以后再说", clickable = true),
+            ),
+        )
+
+        assertTrue(updateDialog.hasBlockingOverlay())
+        assertEquals("later", updateDialog.blockingOverlayDismissTarget()?.id)
+    }
+
+    @Test
+    fun splashAdWithCountdownSkipIsDetectedAndDismissed() {
+        val splash = snapshot(
+            id = "splash",
+            nodes = listOf(
+                node(id = "ad_copy", text = "点击跳转详情页或第三方应用"),
+                node(id = "skip", text = "跳过 3", clickable = true),
+            ),
+        )
+
+        assertTrue(splash.hasBlockingOverlay())
+        assertEquals("skip", splash.blockingOverlayDismissTarget()?.id)
+    }
+
+    @Test
+    fun updateDialogWithDangerousControlIsNeverDismissed() {
+        // The "no dismiss on screens with dangerous controls" rule holds for the new overlay kinds: an
+        // update prompt that also asks to 同意 a policy, or offers a 关闭免密支付 row, gets no target.
+        val withConsent = snapshot(
+            id = "update-consent",
+            nodes = listOf(
+                node(id = "title", text = "发现新版本"),
+                node(id = "body", text = "更新内容"),
+                node(id = "agree", text = "同意并更新", clickable = true),
+                node(id = "later", text = "以后再说", clickable = true),
+            ),
+        )
+        val withPaymentToggle = snapshot(
+            id = "update-payment",
+            nodes = listOf(
+                node(id = "title", text = "版本更新"),
+                node(id = "body", text = "立即升级享受新功能"),
+                node(id = "payment", text = "关闭免密支付", clickable = true),
+                node(id = "later", text = "下次再说", clickable = true),
+            ),
+        )
+
+        assertTrue(withConsent.hasBlockingOverlay())
+        assertNull(withConsent.blockingOverlayDismissTarget())
+        assertTrue(withPaymentToggle.hasBlockingOverlay())
+        assertNull(withPaymentToggle.blockingOverlayDismissTarget())
+    }
+
+    @Test
+    fun singleUpdateOrAdMarkerIsNotAnOverlay() {
+        // A settings "版本更新" row or a feed card's "摇一摇" copy alone is ordinary content.
+        val settingsRow = snapshot(
+            id = "settings",
+            nodes = listOf(
+                node(id = "row", text = "版本更新", clickable = true),
+                node(id = "later", text = "以后再说", clickable = true),
+            ),
+        )
+
+        assertFalse(settingsRow.hasBlockingOverlay())
+        assertNull(settingsRow.blockingOverlayDismissTarget())
+    }
+
     @Test
     fun overlayDetectionThresholdIsTheSharedConstant() {
         // Both detectors count markers against the same threshold; a single marker is normal commerce

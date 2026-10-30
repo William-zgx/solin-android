@@ -1025,7 +1025,12 @@ class SolinAccessibilityService : AccessibilityService() {
         )
 
     private fun dismissTransientSearchOverlay(root: AccessibilityNodeInfo): Boolean {
-        root.findTransientOverlayDismissCandidate()?.let { candidate ->
+        // Same fail-closed rule as `blockingOverlayDismissTarget` on the executor side: never
+        // auto-tap a dismiss affordance on a window that also carries a payment/send/delete/authorize
+        // control. The system-back fallback below stays available (back cancels, it never confirms).
+        root.takeUnless { it.hasDangerousActionControlNode() }
+            ?.findTransientOverlayDismissCandidate()
+            ?.let { candidate ->
             if (activateCandidate(candidate)) {
                 sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
                 return true
