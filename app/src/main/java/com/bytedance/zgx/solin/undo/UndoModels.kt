@@ -8,12 +8,6 @@ sealed class UndoPlan {
         val summary: String,
         val ttlMillis: Long = 60_000L,
     ) : UndoPlan()
-
-    data class ExternalHandoff(val reason: String) : UndoPlan()
-
-    data object NotApplicable : UndoPlan()
-
-    data class NotUndoable(val reason: String) : UndoPlan()
 }
 
 data class UndoEntry(

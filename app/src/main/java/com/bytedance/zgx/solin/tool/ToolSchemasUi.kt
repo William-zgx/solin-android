@@ -5,13 +5,8 @@ import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 /**
  * JSON Schemas for the on-screen observation and UI-automation (device control) tools.
  *
- * Moved verbatim out of ToolRegistry.kt, which was ~3050 lines of which ~80% was this
- * schema data. Splitting the data by domain keeps the registry file about behavior (spec
- * declarations, validation, undo policy) and lets each schema group be reviewed on its own.
- *
  * These are `internal`, not `private`, only because the specs that reference them live in
- * another file of the same module. Nothing here changed semantically; ToolSchemaContractTest
- * guards the schema contract.
+ * another file of the same module. ToolSchemaContractTest guards the schema contract.
  */
 
 internal val observeCurrentScreenSchemaJson = """

@@ -5,8 +5,6 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
 import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
-import com.bytedance.zgx.solin.undo.UndoPlan
-import com.bytedance.zgx.solin.undo.UndoPolicy
 import org.json.JSONObject
 
 class ToolRegistry private constructor(
@@ -17,20 +15,6 @@ class ToolRegistry private constructor(
 
     private val definitionsByName: Map<String, ToolDefinition> = definitions.associateBy { it.spec.name }
     private val orderedSpecs: List<ToolSpec> = definitions.map { it.spec }
-
-    /**
-     * Undo policies, built once at construction and never mutated afterwards.
-     *
-     * WHY immutable: a ToolRegistry instance is shared across threads — the parallel tool
-     * batch runs on `Dispatchers.IO` while [undoPolicyFor] is read from the executor and
-     * audit paths. The previous `MutableMap` plus a public `registerUndoPolicy` mutator
-     * left an unsynchronized write path open on a concurrently-read map. In practice all
-     * writes happened during `init` (no caller ever invoked the mutator), so this is a
-     * contract fix, not a live-bug fix: the safety property is now enforced by the type
-     * instead of by convention. If a SolinModule ever needs to contribute undo policies,
-     * add them as a constructor parameter merged here — do not reintroduce a setter.
-     */
-    private val undoPolicies: Map<String, UndoPolicy> = defaultUndoPolicies()
 
     init {
         require(definitionsByName.size == definitions.size) { "Tool names must be unique." }
@@ -61,78 +45,6 @@ class ToolRegistry private constructor(
 
     fun redactedResultSummaryFor(toolName: String): String? =
         specFor(toolName)?.redactedResultSummary
-
-    fun undoPolicyFor(toolName: String): UndoPolicy? = undoPolicies[toolName]
-
-    private fun defaultUndoPolicies(): Map<String, UndoPolicy> {
-        val externalHandoff = UndoPolicy { _, _ ->
-            UndoPlan.ExternalHandoff("performed externally; handoff to user")
-        }
-        val notApplicable = UndoPolicy { _, _ -> UndoPlan.NotApplicable }
-        val notUndoableUi = UndoPolicy { _, _ -> UndoPlan.NotUndoable("irreversible UI action") }
-
-        // External handoff tools (user completes action outside Solin), including human takeover.
-        val externalHandoffTools = listOf(
-            MobileActionFunctions.SHARE_TEXT,
-            MobileActionFunctions.COMPOSE_EMAIL,
-            MobileActionFunctions.CREATE_CALENDAR_EVENT,
-            MobileActionFunctions.CREATE_CONTACT_DRAFT,
-            MobileActionFunctions.SET_SYSTEM_ALARM,
-            MobileActionFunctions.SET_SYSTEM_TIMER,
-            MobileActionFunctions.OPEN_CAMERA,
-            MobileActionFunctions.OPEN_DEEP_LINK,
-            MobileActionFunctions.OPEN_APP_BY_NAME,
-            MobileActionFunctions.OPEN_APP_INTENT,
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET,
-            MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            MobileActionFunctions.SEARCH_MAPS,
-            MobileActionFunctions.WEB_SEARCH,
-            MobileActionFunctions.SCHEDULE_REMINDER,
-            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
-            MobileActionFunctions.CANCEL_REMINDER,
-            MobileActionFunctions.TAKE_OVER,
-        )
-
-        // Read-only / observation tools — undo not applicable
-        val notApplicableTools = listOf(
-            MobileActionFunctions.QUERY_CONTACTS,
-            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
-            MobileActionFunctions.QUERY_FOREGROUND_APP,
-            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
-            MobileActionFunctions.QUERY_RECENT_FILES,
-            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
-            MobileActionFunctions.READ_CLIPBOARD,
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-            MobileActionFunctions.READ_RECENT_IMAGE_OCR,
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-            MobileActionFunctions.NOTE,
-            MobileActionFunctions.FINISH,
-            // plan_read is not a MobileActionFunctions constant; registered by literal
-            "plan_read",
-        )
-
-        // Irreversible UI actions
-        val notUndoableUiTools = listOf(
-            MobileActionFunctions.UI_TAP,
-            MobileActionFunctions.UI_TYPE_TEXT,
-            MobileActionFunctions.UI_SCROLL,
-            MobileActionFunctions.UI_SWIPE,
-            MobileActionFunctions.UI_LONG_PRESS,
-            MobileActionFunctions.UI_PRESS_KEY,
-            MobileActionFunctions.UI_SUBMIT_SEARCH,
-            MobileActionFunctions.UI_PRESS_BACK,
-            MobileActionFunctions.UI_WAIT,
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
-        )
-
-        return externalHandoffTools.associateWith { externalHandoff } +
-            notApplicableTools.associateWith { notApplicable } +
-            notUndoableUiTools.associateWith { notUndoableUi }
-    }
 
     fun hasTag(toolName: String, tag: ToolCapabilityTag): Boolean =
         specFor(toolName)?.tags?.contains(tag) == true
