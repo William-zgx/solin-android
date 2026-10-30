@@ -9,7 +9,6 @@ import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
-import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -48,14 +47,7 @@ internal class ChatGenerationCompletion(
             val toolBatch =
                 (observation.decision as? AgentObservationDecision.PlanToolBatch)?.plans
             if (toolBatch != null) {
-                val assistantText = buildString {
-                    if (partial.isNotBlank()) {
-                        append(partial)
-                        append("\n\n")
-                    }
-                    append("正在并行使用工具：${toolBatch.batchToolTitle()}")
-                }
-                uiState.updateLastAssistantLocalOnly(assistantText)
+                uiState.updateLastAssistantLocalOnly(toolBatchAssistantText(partial, toolBatch))
                 sessionHost.persistActiveSessionFromUi()
                 executePublicEvidenceToolBatchAfterRunIsExecuting(observation.run.id, toolBatch)
                 return
@@ -63,18 +55,7 @@ internal class ChatGenerationCompletion(
             val nextToolPlan =
                 (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
             if (nextToolPlan != null) {
-                val assistantText = buildString {
-                    if (partial.isNotBlank()) {
-                        append(partial)
-                        append("\n\n")
-                    }
-                    if (nextToolPlan.requiresUserConfirmation()) {
-                        append("已准备远程动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
-                    } else {
-                        append("正在使用工具：${nextToolPlan.draft.title}")
-                    }
-                }
-                uiState.updateLastAssistantLocalOnly(assistantText)
+                uiState.updateLastAssistantLocalOnly(nextToolAssistantText(partial, nextToolPlan, draftSource = "远程"))
                 sessionHost.persistActiveSessionFromUi()
                 handleNextToolPlan(observation.run.id, nextToolPlan, "动作草稿待确认 · 远程模型")
                 return
@@ -108,12 +89,8 @@ internal class ChatGenerationCompletion(
                 val nextToolPlan =
                     (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                 if (nextToolPlan != null) {
-                    val assistantText = if (nextToolPlan.requiresUserConfirmation()) {
-                        "已准备模型动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。"
-                    } else {
-                        "正在使用工具：${nextToolPlan.draft.title}"
-                    }
-                    uiState.updateLastAssistantLocalOnly(assistantText)
+                    // The inline tool call replaces the streamed text, so it is not prefixed with it.
+                    uiState.updateLastAssistantLocalOnly(nextToolAssistantText("", nextToolPlan, draftSource = "模型"))
                     sessionHost.persistActiveSessionFromUi()
                     handleNextToolPlan(modelObservation.run.id, nextToolPlan, "动作草稿待确认 · 本地模型")
                     return

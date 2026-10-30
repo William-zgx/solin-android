@@ -42,6 +42,7 @@ import com.bytedance.zgx.solin.orchestration.RequestComplexity
 import com.bytedance.zgx.solin.orchestration.RequestComplexityAggregator
 import com.bytedance.zgx.solin.orchestration.RequestComplexityInput
 import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
+import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.orchestration.RunPlacementBindingStore
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
@@ -529,3 +530,21 @@ internal fun List<AgentPlan.UseTool>.batchToolTitle(): String =
 /** Non-blank exception message for user-facing status text, falling back to the type name. */
 internal fun Throwable.cleanMessage(): String =
     message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
+
+/** Prefixes [text] with the model's already streamed [partial] answer, if any. */
+internal fun afterPartialAnswer(partial: CharSequence, text: String): String =
+    if (partial.isBlank()) text else "$partial\n\n$text"
+
+internal fun toolBatchAssistantText(partial: CharSequence, plans: List<AgentPlan.UseTool>): String =
+    afterPartialAnswer(partial, "正在并行使用工具：${plans.batchToolTitle()}")
+
+/** [draftSource] names who drafted a confirmation-gated step, e.g. "远程" or "模型". */
+internal fun nextToolAssistantText(partial: CharSequence, plan: AgentPlan.UseTool, draftSource: String): String =
+    afterPartialAnswer(
+        partial,
+        if (plan.requiresUserConfirmation()) {
+            "已准备${draftSource}动作草稿：${plan.draft.title}\n请确认后再执行。"
+        } else {
+            "正在使用工具：${plan.draft.title}"
+        },
+    )

@@ -2,6 +2,13 @@ package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.AgentTraceRunUiSummary
 import com.bytedance.zgx.solin.BackendChoice
+import com.bytedance.zgx.solin.ChatImageAttachment
+import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.SolinConstants
+import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
+import com.bytedance.zgx.solin.runtime.RemoteChatEvent
+import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
+import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.GenerationParameters
@@ -103,9 +110,17 @@ internal object BoundGenerationStopResolver {
  * Extracted from [ChatController] (Wave 6 Track C6). Callers keep orchestration and job
  * lifecycle ownership; this collaborator only mutates UI/session state for generation I/O.
  */
+/** Mutable state of one guarded generation turn, shared across its streaming callbacks. */
+internal class GuardedTurn(val streamingUpdates: StreamingAssistantUpdateCoalescer) {
+    val partial = StringBuilder()
+    var observation: AgentModelObservationResult? = null
+    var qualityDecision: GenerationQualityDecision? = null
+}
+
 internal class ChatGenerationSupport(
     private val uiState: MutableStateFlow<ChatUiState>,
     private val runtime: LiteRtRuntime,
+    private val remoteRuntime: RemoteChatRuntime,
     private val assistantOrchestrator: AssistantRouter,
     private val outputQualityGuard: ModelOutputQualityGuard,
     private val runtimeLock: Mutex,
@@ -149,6 +164,216 @@ internal class ChatGenerationSupport(
             ).collect { chunk ->
                 onChunk(chunk)
             }
+        }
+    }
+
+    /**
+     * Streams one remote turn with [tools] into [turn], stopping on the first output-quality
+     * violation and recording tool calls as the turn's observation. Retries once on context
+     * overflow (see [sendRemoteWithOverflowRetry]). Returns the history actually sent.
+     */
+    suspend fun streamRemoteTurn(
+        turn: GuardedTurn,
+        runId: String?,
+        prompt: String,
+        history: List<ChatMessage>,
+        parameters: GenerationParameters,
+        config: RemoteModelConfig,
+        tools: List<ToolSpec>,
+        imageAttachments: List<ChatImageAttachment> = emptyList(),
+        acceptDelta: (String) -> Boolean = { true },
+        onServingStarted: () -> Unit,
+    ): List<ChatMessage> {
+        val tokenBudget = config.modelProfile().contextWindowTokens
+            ?.let { window -> (window * SolinConstants.Ui.REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
+            ?: Int.MAX_VALUE
+        val modelId = config.modelProfile().id
+        return sendRemoteWithOverflowRetry(runId = runId, history = history, tokenBudget = tokenBudget) { historyToSend ->
+            remoteRuntime.sendWithTools(
+                prompt = prompt,
+                history = historyToSend,
+                parameters = parameters,
+                config = config,
+                tools = tools,
+                imageAttachments = imageAttachments,
+            ).collect { event ->
+                onServingStarted()
+                if (turn.qualityDecision != null) return@collect
+                when (event) {
+                    is RemoteChatEvent.TextDelta -> {
+                        if (turn.observation == null && acceptDelta(event.text)) {
+                            val decision = appendGuardedGenerationChunk(
+                                partial = turn.partial,
+                                chunk = event.text,
+                                runtimeKind = GenerationRuntimeKind.Remote,
+                                modelId = modelId,
+                                backend = null,
+                                parameters = parameters,
+                                streamingUpdates = turn.streamingUpdates,
+                            )
+                            if (decision !is GenerationQualityDecision.Continue) {
+                                turn.qualityDecision = decision
+                                remoteRuntime.stop()
+                            }
+                        }
+                    }
+
+                    is RemoteChatEvent.ToolCall -> {
+                        turn.streamingUpdates.flush()
+                        val id = runId ?: error("远程工具调用缺少 Agent run")
+                        turn.observation = assistantOrchestrator.observeModelToolRequest(id, event.request)
+                            ?: error("远程工具调用无法进入确认流程")
+                    }
+
+                    is RemoteChatEvent.ToolCalls -> {
+                        turn.streamingUpdates.flush()
+                        val id = runId ?: error("远程工具调用缺少 Agent run")
+                        turn.observation = assistantOrchestrator.observeModelToolRequests(id, event.requests)
+                            ?: error("远程批量工具调用无法进入执行流程")
+                    }
+
+                    is RemoteChatEvent.ParseError -> {
+                        val decision = outputQualityGuard.failClosedForFormatViolation(
+                            summary = event.summary,
+                            accumulatedText = turn.partial.toString(),
+                            runtimeKind = GenerationRuntimeKind.Remote,
+                            modelId = modelId,
+                            backend = null,
+                        )
+                        applyOutputQualityDecisionToAssistant(
+                            partial = turn.partial,
+                            decision = decision,
+                            streamingUpdates = turn.streamingUpdates,
+                        )
+                        turn.qualityDecision = decision
+                        remoteRuntime.stop()
+                    }
+                }
+            }
+        }.first
+    }
+
+    /** Streams one local turn into [turn], stopping the runtime on the first quality violation. */
+    suspend fun streamLocalTurn(
+        turn: GuardedTurn,
+        prompt: String,
+        history: List<ChatMessage>,
+        parameters: GenerationParameters,
+        imageAttachments: List<LocalImageAttachment> = emptyList(),
+        acceptDelta: (String) -> Boolean = { true },
+    ) {
+        collectLocalRuntimeResponse(
+            promptForModel = prompt,
+            history = history,
+            parameters = parameters,
+            imageAttachments = imageAttachments,
+        ) { chunk ->
+            if (turn.qualityDecision == null && acceptDelta(chunk)) {
+                val decision = appendGuardedGenerationChunk(
+                    partial = turn.partial,
+                    chunk = chunk,
+                    runtimeKind = GenerationRuntimeKind.Local,
+                    modelId = uiState.value.activeModelProfileId(),
+                    backend = uiState.value.backend,
+                    parameters = parameters,
+                    streamingUpdates = turn.streamingUpdates,
+                )
+                if (decision !is GenerationQualityDecision.Continue) {
+                    turn.qualityDecision = decision
+                    runtime.stop()
+                }
+            }
+        }
+    }
+
+    /** Runs the completed-output quality check on a turn that ended without a decision or tool call. */
+    fun guardCompletedTurn(turn: GuardedTurn, useRemoteModel: Boolean, remoteConfig: RemoteModelConfig) {
+        if (turn.qualityDecision != null || turn.observation != null) return
+        val finalDecision = outputQualityGuard.evaluateCompleted(
+            output = turn.partial.toString(),
+            runtimeKind = if (useRemoteModel) GenerationRuntimeKind.Remote else GenerationRuntimeKind.Local,
+            modelId = if (useRemoteModel) {
+                remoteConfig.modelProfile().id
+            } else {
+                uiState.value.activeModelProfileId()
+            },
+            backend = if (useRemoteModel) null else uiState.value.backend,
+        )
+        if (finalDecision !is GenerationQualityDecision.Continue) {
+            applyOutputQualityDecisionToAssistant(
+                partial = turn.partial,
+                decision = finalDecision,
+                streamingUpdates = turn.streamingUpdates,
+            )
+            turn.qualityDecision = finalDecision
+        }
+    }
+
+    /**
+     * Fails the run before any model call when the chosen runtime cannot serve it. Returns true
+     * when the run was ended.
+     */
+    fun abortIfServingUnavailable(
+        runId: String?,
+        useRemoteModel: Boolean,
+        remoteConfigured: Boolean,
+        localNotReadyText: String,
+    ): Boolean {
+        when {
+            !useRemoteModel && !runtime.isLoaded ->
+                abortBeforeGeneration(runId, "本地模型尚未就绪", localNotReadyText, "未加载模型")
+            useRemoteModel && !remoteConfigured ->
+                abortBeforeGeneration(runId, "远程模型未配置", "请先在模型管理中配置远程模型地址和模型名", "请配置远程模型")
+            else -> return false
+        }
+        return true
+    }
+
+    private fun abortBeforeGeneration(runId: String?, failureReason: String, assistantText: String, statusText: String) {
+        runId?.let { id -> assistantOrchestrator.failModelGeneration(id, failureReason) }
+        uiState.updateLastAssistant(assistantText)
+        persistActiveSessionFromUi()
+        uiState.update {
+            it.copy(
+                isBusy = false,
+                isGenerating = false,
+                isReady = false,
+                pendingConfirmation = null,
+                agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
+                statusText = statusText,
+            )
+        }
+    }
+
+    /** Ends a run whose generation threw: fails the run and surfaces the error. */
+    fun failGeneration(
+        runId: String?,
+        throwable: Throwable,
+        useRemoteModel: Boolean,
+        remoteConfigured: Boolean,
+        showErrorOnlyWhileGenerating: Boolean = false,
+    ) {
+        val errorMessage = generationFailureMessage(throwable, useRemoteModel)
+        runId?.let { id -> assistantOrchestrator.failModelGeneration(id, errorMessage) }
+        if (!showErrorOnlyWhileGenerating || uiState.value.isGenerating) {
+            uiState.updateLastAssistant("出错了：$errorMessage")
+            persistActiveSessionFromUi()
+        }
+        uiState.update {
+            it.copy(
+                isBusy = false,
+                isGenerating = false,
+                isReady = useRemoteModel && remoteConfigured,
+                pendingConfirmation = null,
+                agentTraceRuns = loadAgentTraceRuns(),
+                activeRunTimeline = activeRunTimelineFor(runId),
+                modelHealth = it.failedGenerationModelHealth(
+                    useRemoteModel = useRemoteModel,
+                    reason = errorMessage,
+                ),
+                statusText = if (useRemoteModel) "远程生成失败" else "生成失败，建议重新加载",
+            )
         }
     }
 

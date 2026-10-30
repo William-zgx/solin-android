@@ -16,7 +16,6 @@ import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
-import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
@@ -33,7 +32,6 @@ import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
 import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.multimodal.SharedInput
-import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
@@ -56,11 +54,8 @@ import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.toRunDataDestination
-import com.bytedance.zgx.solin.runtime.GenerationQualityDecision
-import com.bytedance.zgx.solin.runtime.GenerationRuntimeKind
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
-import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
 import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -142,6 +137,7 @@ class ChatController internal constructor(
     private val generationSupport = ChatGenerationSupport(
         uiState = uiState,
         runtime = runtime,
+        remoteRuntime = remoteRuntime,
         assistantOrchestrator = assistantOrchestrator,
         outputQualityGuard = outputQualityGuard,
         runtimeLock = runtimeLock,
@@ -790,32 +786,13 @@ class ChatController internal constructor(
                                 statusText = "生成中",
                             )
                         }
-                        if (!useRemoteModel && !runtime.isLoaded) {
-                            activeModelRunId?.let { runId ->
-                                assistantOrchestrator.failModelGeneration(runId, "本地模型尚未就绪")
-                            }
-                            uiState.updateLastAssistant("模型尚未就绪")
-                            sessionHost.persistActiveSessionFromUi()
-                            uiState.update {
-                                sessionHost.finishedRun(it, runId = route.runId, statusText = "未加载模型").copy(
-                                    isReady = false,
-                                    pendingConfirmation = null,
-                                )
-                            }
-                            return@generation
-                        }
-                        if (useRemoteModel && !remoteConfig.isConfigured) {
-                            activeModelRunId?.let { runId ->
-                                assistantOrchestrator.failModelGeneration(runId, "远程模型未配置")
-                            }
-                            uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
-                            sessionHost.persistActiveSessionFromUi()
-                            uiState.update {
-                                sessionHost.finishedRun(it, runId = route.runId, statusText = "请配置远程模型").copy(
-                                    isReady = false,
-                                    pendingConfirmation = null,
-                                )
-                            }
+                        if (generationSupport.abortIfServingUnavailable(
+                                runId = route.runId,
+                                useRemoteModel = useRemoteModel,
+                                remoteConfigured = remoteConfig.isConfigured,
+                                localNotReadyText = "模型尚未就绪",
+                            )
+                        ) {
                             return@generation
                         }
                         if (useRemoteModel) {
@@ -848,7 +825,6 @@ class ChatController internal constructor(
                             }
                         }
 
-                        val partial = StringBuilder()
                         val streamingUpdates = StreamingAssistantUpdateCoalescer(
                             publish = { text ->
                                 if (generationStreams.isActive(streamKey)) {
@@ -857,8 +833,8 @@ class ChatController internal constructor(
                             },
                         )
                         streamingAssistantUpdates = streamingUpdates
-                        var remoteToolObservation: AgentModelObservationResult? = null
-                        var outputQualityDecision: GenerationQualityDecision? = null
+                        val turn = GuardedTurn(streamingUpdates)
+                        val acceptDelta = { chunk: String -> generationStreams.acceptDelta(streamKey, chunk) }
                         if (useRemoteModel) {
                             val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(agentRunOptions.remoteToolScope)
                             route.runId?.let { runId ->
@@ -877,130 +853,30 @@ class ChatController internal constructor(
                                     remoteHistoryCount = remoteHistory.size,
                                 )
                             }
-                            val remoteTokenBudget = remoteConfig.modelProfile().contextWindowTokens
-                                ?.let { window -> (window * SolinConstants.Ui.REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
-                                ?: Int.MAX_VALUE
-                            val result = generationSupport.sendRemoteWithOverflowRetry(
+                            remoteHistory = generationSupport.streamRemoteTurn(
+                                turn = turn,
                                 runId = route.runId,
+                                prompt = route.promptForModel,
                                 history = remoteHistory,
-                                tokenBudget = remoteTokenBudget,
-                            ) { historyToSend ->
-                                val events = remoteRuntime.sendWithTools(
-                                    prompt = route.promptForModel,
-                                    history = historyToSend,
-                                    parameters = stateBeforeSend.generationParameters,
-                                    config = remoteConfig,
-                                    tools = remoteTools,
-                                    imageAttachments = imageAttachments,
-                                )
-                                events.collect { event ->
-                                    onRemoteServingStarted?.invoke()
-                                    if (outputQualityDecision != null) return@collect
-                                    when (event) {
-                                        is RemoteChatEvent.TextDelta -> {
-                                            if (
-                                                remoteToolObservation == null &&
-                                                generationStreams.acceptDelta(streamKey, event.text)
-                                            ) {
-                                                val decision = generationSupport.appendGuardedGenerationChunk(
-                                                    partial = partial,
-                                                    chunk = event.text,
-                                                    runtimeKind = GenerationRuntimeKind.Remote,
-                                                    modelId = remoteConfig.modelProfile().id,
-                                                    backend = null,
-                                                    parameters = stateBeforeSend.generationParameters,
-                                                    streamingUpdates = streamingUpdates,
-                                                )
-                                                if (decision !is GenerationQualityDecision.Continue) {
-                                                    outputQualityDecision = decision
-                                                    remoteRuntime.stop()
-                                                }
-                                            }
-                                        }
-
-                                        is RemoteChatEvent.ToolCall -> {
-                                            streamingUpdates.flush()
-                                            val runId = route.runId ?: error("远程工具调用缺少 Agent run")
-                                            remoteToolObservation =
-                                                assistantOrchestrator.observeModelToolRequest(runId, event.request)
-                                                    ?: error("远程工具调用无法进入确认流程")
-                                        }
-
-                                        is RemoteChatEvent.ToolCalls -> {
-                                            streamingUpdates.flush()
-                                            val runId = route.runId ?: error("远程工具调用缺少 Agent run")
-                                            remoteToolObservation =
-                                                assistantOrchestrator.observeModelToolRequests(runId, event.requests)
-                                                    ?: error("远程批量工具调用无法进入执行流程")
-                                        }
-
-                                        is RemoteChatEvent.ParseError -> {
-                                            val decision = outputQualityGuard.failClosedForFormatViolation(
-                                                summary = event.summary,
-                                                accumulatedText = partial.toString(),
-                                                runtimeKind = GenerationRuntimeKind.Remote,
-                                                modelId = remoteConfig.modelProfile().id,
-                                                backend = null,
-                                            )
-                                            generationSupport.applyOutputQualityDecisionToAssistant(
-                                                partial = partial,
-                                                decision = decision,
-                                                streamingUpdates = streamingUpdates,
-                                            )
-                                            outputQualityDecision = decision
-                                            remoteRuntime.stop()
-                                        }
-                                    }
-                                }
-                            }
-                            remoteHistory = result.first
+                                parameters = stateBeforeSend.generationParameters,
+                                config = remoteConfig,
+                                tools = remoteTools,
+                                imageAttachments = imageAttachments,
+                                acceptDelta = acceptDelta,
+                                onServingStarted = { onRemoteServingStarted?.invoke() },
+                            )
                         } else {
-                            generationSupport.collectLocalRuntimeResponse(
-                                promptForModel = route.promptForModel,
+                            generationSupport.streamLocalTurn(
+                                turn = turn,
+                                prompt = route.promptForModel,
                                 history = stateBeforeSend.messages,
                                 parameters = stateBeforeSend.generationParameters,
                                 imageAttachments = localImageAttachments,
-                            ) { chunk ->
-                                if (
-                                    outputQualityDecision == null &&
-                                    generationStreams.acceptDelta(streamKey, chunk)
-                                ) {
-                                    val decision = generationSupport.appendGuardedGenerationChunk(
-                                        partial = partial,
-                                        chunk = chunk,
-                                        runtimeKind = GenerationRuntimeKind.Local,
-                                        modelId = uiState.value.activeModelProfileId(),
-                                        backend = uiState.value.backend,
-                                        parameters = stateBeforeSend.generationParameters,
-                                        streamingUpdates = streamingUpdates,
-                                    )
-                                    if (decision !is GenerationQualityDecision.Continue) {
-                                        outputQualityDecision = decision
-                                        runtime.stop()
-                                    }
-                                }
-                            }
-                        }
-                        if (outputQualityDecision == null && remoteToolObservation == null) {
-                            val finalDecision = outputQualityGuard.evaluateCompleted(
-                                output = partial.toString(),
-                                runtimeKind = if (useRemoteModel) GenerationRuntimeKind.Remote else GenerationRuntimeKind.Local,
-                                modelId = if (useRemoteModel) {
-                                    remoteConfig.modelProfile().id
-                                } else {
-                                    uiState.value.activeModelProfileId()
-                                },
-                                backend = if (useRemoteModel) null else uiState.value.backend,
+                                acceptDelta = acceptDelta,
                             )
-                            if (finalDecision !is GenerationQualityDecision.Continue) {
-                                generationSupport.applyOutputQualityDecisionToAssistant(
-                                    partial = partial,
-                                    decision = finalDecision,
-                                    streamingUpdates = streamingUpdates,
-                                )
-                                outputQualityDecision = finalDecision
-                            }
                         }
+                        generationSupport.guardCompletedTurn(turn, useRemoteModel, remoteConfig)
+                        val outputQualityDecision = turn.qualityDecision
                         outputQualityDecision?.let { decision ->
                             generationSupport.finishOutputQualityGuardedGeneration(
                                 runId = route.runId,
@@ -1014,8 +890,8 @@ class ChatController internal constructor(
                         generationStreams.complete(streamKey)
                         generationCompletion.complete(
                             route = route,
-                            observation = remoteToolObservation,
-                            partial = partial,
+                            observation = turn.observation,
+                            partial = turn.partial,
                             useRemoteModel = useRemoteModel,
                             includePrivateLocalContext = includePrivateLocalContext,
                         )
@@ -1042,33 +918,13 @@ class ChatController internal constructor(
                 activeStreamKey?.let(generationStreams::fail)
                 solinE(TAG_MODEL, "generation: failed useRemoteModel=$useRemoteModel", throwable)
                 streamingAssistantUpdates?.flush()
-                val errorMessage = generationSupport.generationFailureMessage(throwable, useRemoteModel)
-                activeModelRunId?.let { runId ->
-                    assistantOrchestrator.failModelGeneration(runId, errorMessage)
-                }
-                if (uiState.value.isGenerating) {
-                    uiState.updateLastAssistant("出错了：$errorMessage")
-                    sessionHost.persistActiveSessionFromUi()
-                }
-                uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isGenerating = false,
-                        isReady = useRemoteModel && remoteConfig.isConfigured,
-                        pendingConfirmation = null,
-                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                        activeRunTimeline = sessionHost.activeRunTimelineFor(activeModelRunId),
-                        modelHealth = it.failedGenerationModelHealth(
-                            useRemoteModel = useRemoteModel,
-                            reason = errorMessage,
-                        ),
-                        statusText = if (useRemoteModel) {
-                            "远程生成失败"
-                        } else {
-                            "生成失败，建议重新加载"
-                        },
-                    )
-                }
+                generationSupport.failGeneration(
+                    runId = activeModelRunId,
+                    throwable = throwable,
+                    useRemoteModel = useRemoteModel,
+                    remoteConfigured = remoteConfig.isConfigured,
+                    showErrorOnlyWhileGenerating = true,
+                )
             }
         }
         val preparedJob = if (preparedExecution != null) {

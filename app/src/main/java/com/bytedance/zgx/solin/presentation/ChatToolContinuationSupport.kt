@@ -8,7 +8,6 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RunTimelineItemUiSummary
-import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import com.bytedance.zgx.solin.label
@@ -16,9 +15,7 @@ import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
-import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
-import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
@@ -32,12 +29,8 @@ import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
 import com.bytedance.zgx.solin.orchestration.RunPlacement
-import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
-import com.bytedance.zgx.solin.runtime.GenerationQualityDecision
-import com.bytedance.zgx.solin.runtime.GenerationRuntimeKind
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
-import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -233,52 +226,21 @@ internal class ChatToolContinuationSupport(
         launchGenerationJob(runId) {
             var streamingAssistantUpdates: StreamingAssistantUpdateCoalescer? = null
             try {
-                if (!useRemoteModel && !runtime.isLoaded) {
-                    runId?.let { id ->
-                        assistantOrchestrator.failModelGeneration(id, "本地模型尚未就绪")
-                    }
-                    uiState.updateLastAssistant("模型尚未就绪，无法继续处理工具结果")
-                    persistActiveSessionFromUi()
-                    uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isGenerating = false,
-                            isReady = false,
-                            pendingConfirmation = null,
-                            agentTraceRuns = loadAgentTraceRuns(),
-                            activeRunTimeline = activeRunTimelineFor(runId),
-                            statusText = "未加载模型",
-                        )
-                    }
+                if (generationSupport.abortIfServingUnavailable(
+                        runId = runId,
+                        useRemoteModel = useRemoteModel,
+                        remoteConfigured = remoteConfig.isConfigured,
+                        localNotReadyText = "模型尚未就绪，无法继续处理工具结果",
+                    )
+                ) {
                     return@launchGenerationJob
                 }
-                if (useRemoteModel && !remoteConfig.isConfigured) {
-                    runId?.let { id ->
-                        assistantOrchestrator.failModelGeneration(id, "远程模型未配置")
-                    }
-                    uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
-                    persistActiveSessionFromUi()
-                    uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isGenerating = false,
-                            isReady = false,
-                            pendingConfirmation = null,
-                            agentTraceRuns = loadAgentTraceRuns(),
-                            activeRunTimeline = activeRunTimelineFor(runId),
-                            statusText = "请配置远程模型",
-                        )
-                    }
-                    return@launchGenerationJob
-                }
-
-                val partial = StringBuilder()
                 val streamingUpdates = StreamingAssistantUpdateCoalescer(
                     publish = { text -> uiState.updateLastAssistant(text) },
                 )
                 streamingAssistantUpdates = streamingUpdates
-                var modelObservation: AgentModelObservationResult? = null
-                var outputQualityDecision: GenerationQualityDecision? = null
+                val turn = GuardedTurn(streamingUpdates)
+                val parameters = uiState.value.generationParameters
                 if (useRemoteModel) {
                     val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(remoteToolScope)
                     runId?.let { id ->
@@ -287,32 +249,9 @@ internal class ChatToolContinuationSupport(
                             scope = remoteToolScope,
                             toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name },
                         )
-                        val continuationReceipt = RunDataReceipt(
-                            destination = RunDataDestination.Remote,
-                            currentPromptPrivacy = responsePrivacy.name,
-                            remoteHistoryCount = remoteHistory.size,
-                            localOnlyHistoryFilteredCount = stateAtStart.messages.count { message ->
-                                message.privacy == MessagePrivacy.LocalOnly
-                            },
-                            memoryHitCount = 0,
-                            memoryContextIncluded = false,
-                            deviceContextIncluded = false,
-                            imageAttachmentCount = 0,
-                            protectedSourceCount = stateAtStart.messages.count { message ->
-                                message.privacy == MessagePrivacy.LocalOnly
-                            },
-                            rawContentPersisted = false,
-                            protectedContentTypes = listOf(
-                                "本地记忆",
-                                "设备上下文",
-                                "LocalOnly 历史",
-                                "本地工具结果",
-                            ),
-                            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
-                        )
                         assistantOrchestrator.recordRunDataReceipt(
                             runId = id,
-                            receipt = continuationReceipt,
+                            receipt = continuationReceipt(stateAtStart, responsePrivacy, remoteHistory.size, remote = true),
                         )
                     }
                     if (!remoteSendConfirmed) {
@@ -324,172 +263,37 @@ internal class ChatToolContinuationSupport(
                             remoteHistoryCount = remoteHistory.size,
                         )
                     }
-                    val remoteTokenBudget = remoteConfig.modelProfile().contextWindowTokens
-                        ?.let { window -> (window * SolinConstants.Ui.REMOTE_COMPACTION_BUDGET_RATIO).toInt() }
-                        ?: Int.MAX_VALUE
-                    val result = generationSupport.sendRemoteWithOverflowRetry(
+                    remoteHistory = generationSupport.streamRemoteTurn(
+                        turn = turn,
                         runId = runId,
+                        prompt = promptForModel,
                         history = remoteHistory,
-                        tokenBudget = remoteTokenBudget,
-                    ) { historyToSend ->
-                        val events = remoteRuntime.sendWithTools(
-                            prompt = promptForModel,
-                            history = historyToSend,
-                            parameters = uiState.value.generationParameters,
-                            config = remoteConfig,
-                            tools = remoteTools,
-                        )
-                        events.collect { event ->
-                            onRemoteServingStarted(runId)
-                            if (outputQualityDecision != null) return@collect
-                            when (event) {
-                                is RemoteChatEvent.TextDelta -> {
-                                    if (modelObservation == null) {
-                                        val decision = generationSupport.appendGuardedGenerationChunk(
-                                            partial = partial,
-                                            chunk = event.text,
-                                            runtimeKind = GenerationRuntimeKind.Remote,
-                                            modelId = remoteConfig.modelProfile().id,
-                                            backend = null,
-                                            parameters = uiState.value.generationParameters,
-                                            streamingUpdates = streamingUpdates,
-                                        )
-                                        if (decision !is GenerationQualityDecision.Continue) {
-                                            outputQualityDecision = decision
-                                            remoteRuntime.stop()
-                                        }
-                                    }
-                                }
-
-                                is RemoteChatEvent.ToolCall -> {
-                                    streamingUpdates.flush()
-                                    val id = runId ?: error("远程工具调用缺少 Agent run")
-                                    modelObservation =
-                                        assistantOrchestrator.observeModelToolRequest(id, event.request)
-                                            ?: error("远程工具调用无法进入确认流程")
-                                }
-
-                                is RemoteChatEvent.ToolCalls -> {
-                                    streamingUpdates.flush()
-                                    val id = runId ?: error("远程工具调用缺少 Agent run")
-                                    modelObservation =
-                                        assistantOrchestrator.observeModelToolRequests(id, event.requests)
-                                            ?: error("远程批量工具调用无法进入执行流程")
-                                }
-
-                                is RemoteChatEvent.ParseError -> {
-                                    val decision = outputQualityGuard.failClosedForFormatViolation(
-                                        summary = event.summary,
-                                        accumulatedText = partial.toString(),
-                                        runtimeKind = GenerationRuntimeKind.Remote,
-                                        modelId = remoteConfig.modelProfile().id,
-                                        backend = null,
-                                    )
-                                    generationSupport.applyOutputQualityDecisionToAssistant(
-                                        partial = partial,
-                                        decision = decision,
-                                        streamingUpdates = streamingUpdates,
-                                    )
-                                    outputQualityDecision = decision
-                                    remoteRuntime.stop()
-                                }
-                            }
-                        }
-                    }
-                    remoteHistory = result.first
-                } else {
-                    generationSupport.collectLocalRuntimeResponse(
-                        promptForModel = promptForModel,
-                        history = stateAtStart.messages.dropLast(1),
-                        parameters = uiState.value.generationParameters,
-                    ) { chunk ->
-                        if (outputQualityDecision == null) {
-                            val decision = generationSupport.appendGuardedGenerationChunk(
-                                partial = partial,
-                                chunk = chunk,
-                                runtimeKind = GenerationRuntimeKind.Local,
-                                modelId = uiState.value.activeModelProfileId(),
-                                backend = uiState.value.backend,
-                                parameters = uiState.value.generationParameters,
-                                streamingUpdates = streamingUpdates,
-                            )
-                            if (decision !is GenerationQualityDecision.Continue) {
-                                outputQualityDecision = decision
-                                runtime.stop()
-                            }
-                        }
-                    }
-                }
-                if (outputQualityDecision == null && modelObservation == null) {
-                    val finalDecision = outputQualityGuard.evaluateCompleted(
-                        output = partial.toString(),
-                        runtimeKind = if (useRemoteModel) GenerationRuntimeKind.Remote else GenerationRuntimeKind.Local,
-                        modelId = if (useRemoteModel) {
-                            remoteConfig.modelProfile().id
-                        } else {
-                            uiState.value.activeModelProfileId()
-                        },
-                        backend = if (useRemoteModel) null else uiState.value.backend,
+                        parameters = parameters,
+                        config = remoteConfig,
+                        tools = remoteTools,
+                        onServingStarted = { onRemoteServingStarted(runId) },
                     )
-                    if (finalDecision !is GenerationQualityDecision.Continue) {
-                        generationSupport.applyOutputQualityDecisionToAssistant(
-                            partial = partial,
-                            decision = finalDecision,
-                            streamingUpdates = streamingUpdates,
-                        )
-                        outputQualityDecision = finalDecision
-                    }
+                } else {
+                    generationSupport.streamLocalTurn(
+                        turn = turn,
+                        prompt = promptForModel,
+                        history = stateAtStart.messages.dropLast(1),
+                        parameters = parameters,
+                    )
                 }
-                outputQualityDecision?.let { decision ->
-                    val continuationReceipt = if (useRemoteModel) {
-                        RunDataReceipt(
-                            destination = RunDataDestination.Remote,
-                            currentPromptPrivacy = responsePrivacy.name,
-                            remoteHistoryCount = remoteHistory.size,
-                            localOnlyHistoryFilteredCount = stateAtStart.messages.count { message ->
-                                message.privacy == MessagePrivacy.LocalOnly
-                            },
-                            memoryHitCount = 0,
-                            memoryContextIncluded = false,
-                            deviceContextIncluded = false,
-                            imageAttachmentCount = 0,
-                            protectedSourceCount = stateAtStart.messages.count { message ->
-                                message.privacy == MessagePrivacy.LocalOnly
-                            },
-                            rawContentPersisted = false,
-                            protectedContentTypes = listOf(
-                                "本地记忆",
-                                "设备上下文",
-                                "LocalOnly 历史",
-                                "本地工具结果",
-                            ),
-                            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
-                        )
-                    } else {
-                        RunDataReceipt(
-                            destination = RunDataDestination.Local,
-                            currentPromptPrivacy = responsePrivacy.name,
-                            remoteHistoryCount = 0,
-                            localOnlyHistoryFilteredCount = 0,
-                            memoryHitCount = 0,
-                            memoryContextIncluded = false,
-                            deviceContextIncluded = false,
-                            imageAttachmentCount = 0,
-                            protectedSourceCount = 0,
-                            rawContentPersisted = false,
-                            protectedContentTypes = emptyList(),
-                            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
-                        )
-                    }
+                generationSupport.guardCompletedTurn(turn, useRemoteModel, remoteConfig)
+                turn.qualityDecision?.let { decision ->
                     generationSupport.finishOutputQualityGuardedGeneration(
                         runId = runId,
                         decision = decision,
-                        receipt = continuationReceipt,
+                        receipt = continuationReceipt(stateAtStart, responsePrivacy, remoteHistory.size, useRemoteModel),
                         useRemoteModel = useRemoteModel,
                     )
                     return@launchGenerationJob
                 }
                 streamingUpdates.flush()
+                val partial = turn.partial
+                var modelObservation = turn.observation
                 if (modelObservation == null) {
                     if (partial.isBlank()) {
                         uiState.updateLastAssistant("没有生成内容")
@@ -506,12 +310,12 @@ internal class ChatToolContinuationSupport(
                         )
                     }
                 } else {
-                    val remotePlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+                    val remotePlan = (modelObservation.decision as? AgentObservationDecision.PlanNextTool)?.plan
                     val remoteToolBatch =
-                        (modelObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
+                        (modelObservation.decision as? AgentObservationDecision.PlanToolBatch)?.plans
                     if (remotePlan == null && remoteToolBatch == null) {
                         uiState.updateLastAssistantLocalOnly(
-                            "无法准备这个动作：${(modelObservation?.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
+                            "无法准备这个动作：${(modelObservation.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
                         )
                     }
                 }
@@ -520,14 +324,7 @@ internal class ChatToolContinuationSupport(
                 val toolBatch = (modelObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
                 if (toolBatch != null) {
                     val observedForBatch = modelObservation ?: error("远程批量工具调用缺少 Agent observation")
-                    val assistantText = buildString {
-                        if (partial.isNotBlank()) {
-                            append(partial)
-                            append("\n\n")
-                        }
-                        append("正在并行使用工具：${toolBatch.batchToolTitle()}")
-                    }
-                    uiState.updateLastAssistantLocalOnly(assistantText)
+                    uiState.updateLastAssistantLocalOnly(toolBatchAssistantText(partial, toolBatch))
                     persistActiveSessionFromUi()
                     executePublicEvidenceToolBatchAfterRunIsExecuting(
                         observedForBatch.run.id,
@@ -538,19 +335,8 @@ internal class ChatToolContinuationSupport(
                 val nextToolPlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                 if (nextToolPlan != null) {
                     val observedForPending = modelObservation ?: error("远程工具调用缺少 Agent observation")
-                    val assistantText = buildString {
-                        if (partial.isNotBlank()) {
-                            append(partial)
-                            append("\n\n")
-                        }
-                        if (nextToolPlan.requiresUserConfirmation()) {
-                            val modelLabel = if (useRemoteModel) "远程" else "模型"
-                            append("已准备${modelLabel}动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
-                        } else {
-                            append("正在使用工具：${nextToolPlan.draft.title}")
-                        }
-                    }
-                    uiState.updateLastAssistantLocalOnly(assistantText)
+                    val draftSource = if (useRemoteModel) "远程" else "模型"
+                    uiState.updateLastAssistantLocalOnly(nextToolAssistantText(partial, nextToolPlan, draftSource))
                     persistActiveSessionFromUi()
                     handleNextToolPlan(
                         observedForPending.run.id,
@@ -559,18 +345,17 @@ internal class ChatToolContinuationSupport(
                     )
                     return@launchGenerationJob
                 }
-                val observedForContinuation = modelObservation
-                val continuationPrompt = observedForContinuation?.continuationPromptForModel
-                if (observedForContinuation?.decision is AgentObservationDecision.ContinueWithModel &&
+                val continuationPrompt = modelObservation?.continuationPromptForModel
+                if (modelObservation?.decision is AgentObservationDecision.ContinueWithModel &&
                     continuationPrompt != null
                 ) {
                     uiState.updateLastAssistant("正在根据公开来源补充引用…")
                     persistActiveSessionFromUi()
                     continueAfterToolObservation(
-                        runId = observedForContinuation.run.id,
+                        runId = modelObservation.run.id,
                         promptForModel = continuationPrompt,
                         responsePrivacy = responsePrivacy,
-                        remoteToolScope = observedForContinuation.continuationRemoteToolScope,
+                        remoteToolScope = modelObservation.continuationRemoteToolScope,
                     )
                     return@launchGenerationJob
                 }
@@ -602,34 +387,47 @@ internal class ChatToolContinuationSupport(
             } catch (throwable: Throwable) {
                 solinE(TAG_MODEL, "generation(tool-continuation): failed useRemoteModel=$useRemoteModel", throwable)
                 streamingAssistantUpdates?.flush()
-                val errorMessage = generationSupport.generationFailureMessage(throwable, useRemoteModel)
-                runId?.let { id ->
-                    assistantOrchestrator.failModelGeneration(id, errorMessage)
-                }
-                uiState.updateLastAssistant("出错了：$errorMessage")
-                persistActiveSessionFromUi()
-                uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isGenerating = false,
-                        isReady = useRemoteModel && remoteConfig.isConfigured,
-                        pendingConfirmation = null,
-                        agentTraceRuns = loadAgentTraceRuns(),
-                        activeRunTimeline = activeRunTimelineFor(runId),
-                        modelHealth = it.failedGenerationModelHealth(
-                            useRemoteModel = useRemoteModel,
-                            reason = errorMessage,
-                        ),
-                        statusText = if (useRemoteModel) {
-                            "远程生成失败"
-                        } else {
-                            "生成失败，建议重新加载"
-                        },
-                    )
-                }
+                generationSupport.failGeneration(
+                    runId = runId,
+                    throwable = throwable,
+                    useRemoteModel = useRemoteModel,
+                    remoteConfigured = remoteConfig.isConfigured,
+                )
             } finally {
                 discardDeferredRemoteSend(runId)
             }
         }
+    }
+
+    /** What a tool-result continuation sends: never memory, device context or images. */
+    private fun continuationReceipt(
+        stateAtStart: ChatUiState,
+        responsePrivacy: MessagePrivacy,
+        remoteHistoryCount: Int,
+        remote: Boolean,
+    ): RunDataReceipt {
+        val localOnlyCount = if (remote) {
+            stateAtStart.messages.count { message -> message.privacy == MessagePrivacy.LocalOnly }
+        } else {
+            0
+        }
+        return RunDataReceipt(
+            destination = if (remote) RunDataDestination.Remote else RunDataDestination.Local,
+            currentPromptPrivacy = responsePrivacy.name,
+            remoteHistoryCount = if (remote) remoteHistoryCount else 0,
+            localOnlyHistoryFilteredCount = localOnlyCount,
+            memoryHitCount = 0,
+            memoryContextIncluded = false,
+            deviceContextIncluded = false,
+            imageAttachmentCount = 0,
+            protectedSourceCount = localOnlyCount,
+            rawContentPersisted = false,
+            protectedContentTypes = if (remote) {
+                listOf("本地记忆", "设备上下文", "LocalOnly 历史", "本地工具结果")
+            } else {
+                emptyList()
+            },
+            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
+        )
     }
 }
