@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.memory
 
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.storage.LocalDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -77,6 +78,48 @@ class LegacyMemoryStorageRetirementTest {
             existingRecordIds = setOf("active-record"),
             deletedRecordIds = emptySet(),
         )
+    }
+
+    @Test
+    fun legacyRecordDocumentParsesMetadataAndKeepsLocalOnlyPrivacy() {
+        val document = LocalDocument(
+            domain = "memory",
+            id = "pref-1",
+            title = "Preference",
+            text = "用户偏好：回答尽量简洁",
+            sensitivity = "Normal",
+            type = "Preference",
+            metadataJson = """{"source":"ExplicitUser","sensitivity":"Normal","conflictKey":"response-length"}""",
+            expiresAtMillis = 9999L,
+        )
+
+        assertEquals(
+            PersistedMemoryRecord(
+                id = "pref-1",
+                type = MemoryRecordType.Preference,
+                text = "用户偏好：回答尽量简洁",
+                source = MemoryRecordSource.ExplicitUser,
+                sensitivity = MemoryRecordSensitivity.Normal,
+                privacy = MessagePrivacy.LocalOnly,
+                expiresAtMillis = 9999L,
+                conflictKey = "response-length",
+            ),
+            document.toLegacyMemoryRecordOrNull(),
+        )
+    }
+
+    @Test
+    fun legacyRecordParserFallsBackForMissingMetadataAndSkipsForeignDocuments() {
+        val bare = LocalDocument(domain = "memory", id = "fact-1", title = "", text = "fact", type = "UserFact")
+
+        val parsed = bare.toLegacyMemoryRecordOrNull()
+
+        assertEquals(MemoryRecordSource.LegacyImport, parsed?.source)
+        assertEquals(MemoryRecordSensitivity.Normal, parsed?.sensitivity)
+        assertEquals(null, parsed?.conflictKey)
+        assertEquals(null, bare.copy(domain = "other").toLegacyMemoryRecordOrNull())
+        assertEquals(null, bare.copy(type = "MemoryEmbedding").toLegacyMemoryRecordOrNull())
+        assertEquals(null, bare.copy(deletedAtMillis = 1L).toLegacyMemoryRecordOrNull())
     }
 
     private fun embeddingDocument(

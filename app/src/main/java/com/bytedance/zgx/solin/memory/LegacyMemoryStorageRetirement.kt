@@ -1,7 +1,6 @@
 package com.bytedance.zgx.solin.memory
 
 import android.content.Context
-import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.storage.LocalVectorIndexContract
 import com.bytedance.zgx.solin.storage.LocalDocument
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
@@ -27,7 +26,8 @@ internal class LegacyMemoryStorageRetirement(
         legacyDocuments.validateForSecureMigration()
         val existingRecordIds = records.records()
             .mapTo(mutableSetOf()) { record -> record.id }
-        val legacyRecords = ZvecMemoryRecordStore(legacyDocuments).records()
+        val legacyRecords = legacyDocuments.list()
+            .mapNotNull { document -> document.toLegacyMemoryRecordOrNull() }
             .filterNot { record -> record.id in deletedRecordIds }
 
         val existingById = records.records().associateBy { record -> record.id }
@@ -125,7 +125,26 @@ internal class LegacyMemoryStorageRetirement(
                 ).joinToString(separator = "\u0000").toByteArray(),
             )
             .joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
 
+/** Parses a plaintext record written by the retired zvec/SharedPreferences memory store. */
+internal fun LocalDocument.toLegacyMemoryRecordOrNull(): PersistedMemoryRecord? {
+    if (domain != LEGACY_MEMORY_DOMAIN || deletedAtMillis != null) return null
+    val recordType = runCatching { MemoryRecordType.valueOf(type) }.getOrNull() ?: return null
+    val metadata = runCatching { JSONObject(metadataJson) }.getOrNull()
+    return PersistedMemoryRecord(
+        id = id,
+        type = recordType,
+        text = text,
+        source = metadata?.optString(LEGACY_MEMORY_SOURCE_KEY)
+            ?.let { source -> runCatching { MemoryRecordSource.valueOf(source) }.getOrNull() }
+            ?: MemoryRecordSource.LegacyImport,
+        sensitivity = runCatching { MemoryRecordSensitivity.valueOf(sensitivity) }
+            .getOrDefault(MemoryRecordSensitivity.Normal),
+        privacy = privacy,
+        expiresAtMillis = expiresAtMillis,
+        conflictKey = metadata?.optString(LEGACY_MEMORY_CONFLICT_KEY)?.takeIf { it.isNotBlank() },
+    )
 }
 
 internal fun retainedLegacyEmbeddingImports(
@@ -182,3 +201,5 @@ private const val LEGACY_MEMORY_DOMAIN = "memory"
 private const val LEGACY_MEMORY_EMBEDDING_TYPE = "MemoryEmbedding"
 private const val LEGACY_MEMORY_EMBEDDING_RECORD_ID_KEY = "recordId"
 private const val LEGACY_MEMORY_EMBEDDING_MODEL_ID_KEY = "modelId"
+private const val LEGACY_MEMORY_SOURCE_KEY = "source"
+private const val LEGACY_MEMORY_CONFLICT_KEY = "conflictKey"
