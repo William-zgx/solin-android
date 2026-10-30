@@ -288,6 +288,15 @@ fun ToolRequest.failed(
         retryable = retryable,
     )
 
+/** Non-retryable [ToolErrorCode.InvalidRequest] failure carrying only the tool name. */
+fun ToolRequest.invalidRequest(summary: String): ToolResult =
+    failed(
+        code = ToolErrorCode.InvalidRequest,
+        summary = summary,
+        retryable = false,
+        data = mapOf("toolName" to toolName),
+    )
+
 fun ToolRequest.rejected(
     summary: String,
     data: Map<String, String> = mapOf("toolName" to toolName),

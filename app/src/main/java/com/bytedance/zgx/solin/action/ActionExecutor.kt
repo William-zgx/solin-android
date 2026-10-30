@@ -28,6 +28,7 @@ import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.failed
+import com.bytedance.zgx.solin.tool.invalidRequest
 import com.bytedance.zgx.solin.tool.succeeded
 import com.bytedance.zgx.solin.tool.unknownToolFailure
 import java.net.URI
@@ -67,7 +68,7 @@ class ActionExecutor(
         if (request.toolName == MobileActionFunctions.TAKE_OVER) {
             return executeTakeOver(request)
         }
-        validateExternalIntentRequest(request)?.let { failure -> return failure }
+        externalIntentInvalidReason(request)?.let { reason -> return request.invalidRequest(reason) }
         executeExternalActivityWithInjectedStarter(request)?.let { result -> return result }
 
         val intents = intentsFor(request)
@@ -500,48 +501,32 @@ class ActionExecutor(
             else -> "工具已执行"
         }
 
-    private fun validateExternalIntentRequest(request: ToolRequest): ToolResult? =
+    /** Returns the user-facing reason when an external-intent request is malformed, else null. */
+    private fun externalIntentInvalidReason(request: ToolRequest): String? =
         when (request.toolName) {
-            MobileActionFunctions.OPEN_DEEP_LINK -> {
-                val uri = request.arguments["uri"].orEmpty()
-                val unknownArguments = request.arguments.keys - setOf("uri")
-                if (unknownArguments.isNotEmpty()) {
-                    request.failed(
-                        code = ToolErrorCode.InvalidRequest,
-                        summary = "打开深链仅支持 uri 参数",
-                        retryable = false,
-                        data = mapOf("toolName" to request.toolName),
-                    )
-                } else if (!isAllowedExternalUri(uri)) {
-                    request.failed(
-                        code = ToolErrorCode.InvalidRequest,
-                        summary = "深链 URI 只支持安全的 https 链接",
-                        retryable = false,
-                        data = mapOf("toolName" to request.toolName),
-                    )
-                } else {
-                    null
-                }
+            MobileActionFunctions.OPEN_DEEP_LINK -> when {
+                (request.arguments.keys - setOf("uri")).isNotEmpty() -> "打开深链仅支持 uri 参数"
+                !isAllowedExternalUri(request.arguments["uri"].orEmpty()) -> "深链 URI 只支持安全的 https 链接"
+                else -> null
             }
-
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> validateSystemSettingsRequest(request)
-            MobileActionFunctions.OPEN_APP_BY_NAME -> validateOpenAppByNameRequest(request)
-            MobileActionFunctions.OPEN_APP_INTENT -> validateOpenAppIntentRequest(request)
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> validateOpenAppDeepTargetRequest(request)
-            MobileActionFunctions.SHARE_TEXT -> validateShareTextRequest(request)
-            MobileActionFunctions.OPEN_CAMERA -> validateEmptyArguments(request, "打开相机不接受参数")
-            MobileActionFunctions.SET_SYSTEM_ALARM -> validateSystemAlarmRequest(request)
-            MobileActionFunctions.SET_SYSTEM_TIMER -> validateSystemTimerRequest(request)
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> systemSettingsInvalidReason(request)
+            MobileActionFunctions.OPEN_APP_BY_NAME -> openAppByNameInvalidReason(request)
+            MobileActionFunctions.OPEN_APP_INTENT -> openAppIntentInvalidReason(request)
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> openAppDeepTargetInvalidReason(request)
+            MobileActionFunctions.SHARE_TEXT -> shareTextInvalidReason(request)
+            MobileActionFunctions.OPEN_CAMERA -> "打开相机不接受参数".takeIf { request.arguments.isNotEmpty() }
+            MobileActionFunctions.SET_SYSTEM_ALARM -> systemAlarmInvalidReason(request)
+            MobileActionFunctions.SET_SYSTEM_TIMER -> systemTimerInvalidReason(request)
             else -> null
         }
 
-    private fun validateSystemAlarmRequest(request: ToolRequest): ToolResult? {
+    private fun systemAlarmInvalidReason(request: ToolRequest): String? {
         val unknownArguments = request.arguments.keys - setOf("hour", "minutes", "message", "recurrence")
         val hour = request.arguments["hour"]?.toIntOrNull()
         val minutes = request.arguments["minutes"]?.toIntOrNull()
         val recurrence = request.arguments["recurrence"].orEmpty().ifBlank { "once" }
         val message = request.arguments["message"].orEmpty()
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "系统闹钟不接受参数：${unknownArguments.sorted().joinToString()}"
             hour == null || hour !in 0..23 -> "系统闹钟 hour 必须在 0 到 23 之间"
             minutes == null || minutes !in 0..59 -> "系统闹钟 minutes 必须在 0 到 59 之间"
@@ -549,154 +534,81 @@ class ActionExecutor(
             message.length > MAX_CLOCK_LABEL_CHARS -> "系统闹钟标签过长"
             else -> null
         }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
     }
 
-    private fun validateSystemTimerRequest(request: ToolRequest): ToolResult? {
+    private fun systemTimerInvalidReason(request: ToolRequest): String? {
         val unknownArguments = request.arguments.keys - setOf("lengthSeconds", "message")
         val lengthSeconds = request.arguments["lengthSeconds"]?.toIntOrNull()
         val message = request.arguments["message"].orEmpty()
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "系统倒计时不接受参数：${unknownArguments.sorted().joinToString()}"
             lengthSeconds == null || lengthSeconds !in 1..MAX_TIMER_SECONDS ->
                 "系统倒计时时长必须在 1 到 $MAX_TIMER_SECONDS 秒之间"
             message.length > MAX_CLOCK_LABEL_CHARS -> "系统倒计时标签过长"
             else -> null
         }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
     }
 
-    private fun validateSystemSettingsRequest(request: ToolRequest): ToolResult? {
+    private fun systemSettingsInvalidReason(request: ToolRequest): String? {
         val target = request.arguments["target"].orEmpty()
         val unknownArguments = request.arguments.keys - setOf("target")
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "打开系统设置仅支持 target 参数"
             target !in SystemSettingsTargets.supported -> "系统设置 target 不在允许列表中"
             else -> null
         }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
     }
 
-    private fun validateEmptyArguments(request: ToolRequest, summary: String): ToolResult? =
-        if (request.arguments.isEmpty()) {
-            null
-        } else {
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = summary,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
-
-    private fun validateShareTextRequest(request: ToolRequest): ToolResult? {
+    private fun shareTextInvalidReason(request: ToolRequest): String? {
         val unknownArguments = request.arguments.keys - setOf("text", "title")
         val text = request.arguments["text"].orEmpty()
         val title = request.arguments["title"].orEmpty()
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "分享文本仅支持 text 和 title 参数"
             text.isBlank() -> "分享文本不能为空"
             text.length > MAX_SHARE_TEXT_CHARS -> "分享文本不能超过 $MAX_SHARE_TEXT_CHARS 个字符"
             title.length > MAX_SHARE_TITLE_CHARS -> "分享标题不能超过 $MAX_SHARE_TITLE_CHARS 个字符"
             else -> null
         }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
     }
 
-    private fun validateOpenAppIntentRequest(request: ToolRequest): ToolResult? {
+    private fun openAppIntentInvalidReason(request: ToolRequest): String? {
         val packageName = request.arguments["packageName"].orEmpty()
         val unknownArguments = request.arguments.keys - setOf("packageName")
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "打开应用 Intent 仅支持 packageName 参数"
             !PACKAGE_NAME_PATTERN.matches(packageName) -> "应用包名无效"
             else -> null
         }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
     }
 
-    private fun validateOpenAppByNameRequest(request: ToolRequest): ToolResult? {
+    private fun openAppByNameInvalidReason(request: ToolRequest): String? {
         val appName = request.arguments["appName"].orEmpty()
         val unknownArguments = request.arguments.keys - setOf("appName")
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "按名称打开应用仅支持 appName 参数"
             appName.isBlank() -> "应用名称不能为空"
             appName.length > MAX_APP_NAME_CHARS -> "应用名称过长"
             appName.any { it.code < 0x20 } -> "应用名称包含无效字符"
             else -> null
         }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
     }
 
-    private fun validateOpenAppDeepTargetRequest(request: ToolRequest): ToolResult? {
+    private fun openAppDeepTargetInvalidReason(request: ToolRequest): String? {
         val targetId = request.arguments[AppDeepTargets.TARGET_ID_ARGUMENT].orEmpty()
         val target = AppDeepTargets.targetOrNull(targetId)
-            ?: return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "应用深层目标 targetId 不在允许列表中",
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
+            ?: return "应用深层目标 targetId 不在允许列表中"
         val allowedArguments = setOf(AppDeepTargets.TARGET_ID_ARGUMENT) + target.requiredArguments
         val unknownArguments = request.arguments.keys - allowedArguments
         val packageName = request.arguments[AppDeepTargets.PACKAGE_NAME_ARGUMENT].orEmpty()
         val missingArguments = target.requiredArguments
             .filter { request.arguments[it].isNullOrBlank() }
-        val invalidReason = when {
+        return when {
             unknownArguments.isNotEmpty() -> "应用深层目标不接受参数：${unknownArguments.sorted().joinToString()}"
             missingArguments.isNotEmpty() -> "应用深层目标缺少参数：${missingArguments.sorted().joinToString()}"
             AppDeepTargets.PACKAGE_NAME_ARGUMENT in target.requiredArguments &&
                 !PACKAGE_NAME_PATTERN.matches(packageName) -> "应用包名无效"
             else -> null
-        }
-        return invalidReason?.let { reason ->
-            request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = reason,
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
         }
     }
 

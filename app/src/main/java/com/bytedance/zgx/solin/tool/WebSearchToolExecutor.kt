@@ -12,20 +12,10 @@ class WebSearchToolExecutor(
         }
         val query = request.arguments["query"].orEmpty().trim()
         if (query.isBlank()) {
-            return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "搜索词不能为空",
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
+            return request.invalidRequest("搜索词不能为空")
         }
         val searchMode = WebSearchMode.fromSchemaValue(request.arguments["searchMode"])
-            ?: return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "不支持的搜索模式：${request.arguments["searchMode"]}",
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
+            ?: return request.invalidRequest("不支持的搜索模式：${request.arguments["searchMode"]}")
         val freshnessArgument = request.arguments["freshness"]
         val freshness = WebSearchFreshness.fromSchemaValue(freshnessArgument)
             ?: if (freshnessArgument.isNullOrBlank()) {
@@ -34,32 +24,17 @@ class WebSearchToolExecutor(
                     searchMode = searchMode,
                 )
             } else {
-                return request.failed(
-                    code = ToolErrorCode.InvalidRequest,
-                    summary = "不支持的搜索时效：$freshnessArgument",
-                    retryable = false,
-                    data = mapOf("toolName" to request.toolName),
-                )
+                return request.invalidRequest("不支持的搜索时效：$freshnessArgument")
             }
         val maxResultsArgument = request.arguments["maxResults"]
         val maxResults = maxResultsArgument?.toIntOrNull()
             ?: if (maxResultsArgument.isNullOrBlank()) {
                 DEFAULT_WEB_SEARCH_MAX_RESULTS
             } else {
-                return request.failed(
-                    code = ToolErrorCode.InvalidRequest,
-                    summary = "搜索结果数量必须是整数：$maxResultsArgument",
-                    retryable = false,
-                    data = mapOf("toolName" to request.toolName),
-                )
+                return request.invalidRequest("搜索结果数量必须是整数：$maxResultsArgument")
             }
         if (maxResults !in 1..MAX_WEB_SEARCH_MAX_RESULTS) {
-            return request.failed(
-                code = ToolErrorCode.InvalidRequest,
-                summary = "搜索结果数量必须在 1 到 $MAX_WEB_SEARCH_MAX_RESULTS 之间：$maxResults",
-                retryable = false,
-                data = mapOf("toolName" to request.toolName),
-            )
+            return request.invalidRequest("搜索结果数量必须在 1 到 $MAX_WEB_SEARCH_MAX_RESULTS 之间：$maxResults")
         }
         val searchRequest = WebSearchRequest(
             query = query,
