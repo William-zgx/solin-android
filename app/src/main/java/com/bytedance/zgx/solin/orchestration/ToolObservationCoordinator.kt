@@ -154,12 +154,14 @@ internal class ToolObservationCoordinator(
             val publicResult = host.publicEvidenceBatchResultOrFailure(validatedResult, plan.request)
             val traceResult = host.redactedForTrace(publicResult, plan.request)
             traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
+            // One resolution for both sinks: the audit row and its event-bus copy must agree.
+            val resolvedSkillId = host.skillIdForRequest(runId, plan.request.id)
             auditSink.record(
                 ToolAuditEvent(
                     runId = runId,
                     requestId = traceResult.requestId,
                     toolName = plan.request.toolName,
-                    skillId = null,
+                    skillId = resolvedSkillId,
                     eventType = ToolAuditEventType.ToolObserved,
                     status = traceResult.status,
                     riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel,
@@ -173,7 +175,7 @@ internal class ToolObservationCoordinator(
                     runId = runId,
                     requestId = traceResult.requestId,
                     toolName = plan.request.toolName,
-                    skillId = host.skillIdForRequest(runId, plan.request.id),
+                    skillId = resolvedSkillId,
                     eventType = ToolAuditEventType.ToolObserved.name,
                     status = traceResult.status.name,
                     riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel?.name,
@@ -185,8 +187,11 @@ internal class ToolObservationCoordinator(
                     summary = traceResult.auditSummaryForObservation(plan.request),
                 ),
             )
+            publishToolOutcomeEvent(runId, plan.request, traceResult, retryAttempt = 0)
+            recordToolCompletedTelemetry(runId, plan.request, traceResult, retryAttempt = 0)
             plan to traceResult
         }
+        host.recordStepLatency("tool_execution", runId)
         val successfulPairs = observedPairs.filter { (_, result) -> result.status == ToolStatus.Succeeded }
         val cancelledPair = observedPairs.firstOrNull { (_, result) -> result.status == ToolStatus.Cancelled }
         val gapPairs = observedPairs.filter { (_, result) ->
@@ -274,8 +279,13 @@ internal class ToolObservationCoordinator(
         ) ?: return null
         if (decision is AgentObservationDecision.ContinueWithModel) {
             host.setRemoteToolScope(runId, RemoteToolScope.PublicEvidenceOnly)
-            host.markStepStart("model_generation")
         }
+        publishRunTransition(
+            runId = runId,
+            finalState = updatedRun.state,
+            completedText = assistantMessage,
+            failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: assistantMessage,
+        )
         if (updatedRun.state in host.terminalRunStates) {
             host.clearEphemeralRunState(runId)
         }
@@ -395,59 +405,7 @@ internal class ToolObservationCoordinator(
         // Wave 2 lifecycle: dual-write ToolSucceeded / ToolFailed based on observed status.
         // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
         // (ValidatingToolExecutor), so these are the terminal counterpart events.
-        when (observedResult.status) {
-            ToolStatus.Succeeded ->
-                eventBus.publish(
-                    SolinEvent.Agent.ToolSucceeded(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        summary = observedResult.summary,
-                    ),
-                )
-            ToolStatus.Failed ->
-                eventBus.publish(
-                    SolinEvent.Agent.ToolFailed(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        code = host.toOrchestrationErrorCode(observedResult.error?.code),
-                        message = observedResult.error?.message ?: observedResult.summary,
-                        retryable = retryAttempt > 0,
-                    ),
-                )
-            ToolStatus.Rejected -> {
-                eventBus.publish(
-                    SolinEvent.Agent.ToolFailed(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        code = OrchestrationToolErrorCode.SafetyRejected,
-                        message = observedResult.error?.message ?: observedResult.summary,
-                        retryable = false,
-                    ),
-                )
-                // Wave 4 telemetry: count safety-policy rejections distinct from user-cancel / exec failures.
-                host.safeRecordTelemetry(
-                    MetricSample.CounterInc(
-                        name = TelemetryCounter.SafetyBlocks,
-                        runId = runId,
-                    ),
-                    "SafetyBlocks counter",
-                )
-            }
-            ToolStatus.Cancelled ->
-                eventBus.publish(
-                    SolinEvent.Agent.ToolFailed(
-                        runId = runId,
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        code = OrchestrationToolErrorCode.Cancelled,
-                        message = observedResult.error?.message ?: observedResult.summary,
-                        retryable = false,
-                    ),
-                )
-        }
+        publishToolOutcomeEvent(runId, request, observedResult, retryAttempt)
         // Wave 7 undo bookkeeping delegated to host (runtime-owned undo stack).
         host.applyUndoBookkeeping(
             runId = runId,
@@ -455,20 +413,7 @@ internal class ToolObservationCoordinator(
             safeResult = safeResult,
             observedStatus = observedResult.status,
         )
-        // Wave 4 telemetry: record ToolCompleted sample with wall-clock latency since
-        // ToolRequested was appended (0L fallback if no start marker exists, e.g. restored runs).
-        val toolLatencyMs = host.consumeToolDispatchLatencyMs(request.id)
-        host.safeRecordTelemetry(
-            MetricSample.ToolCompleted(
-                toolName = request.toolName,
-                latencyMs = toolLatencyMs,
-                succeeded = observedResult.status == ToolStatus.Succeeded,
-                retryCount = retryAttempt,
-                requestId = request.id,
-                runId = runId,
-            ),
-            "ToolCompleted",
-        )
+        recordToolCompletedTelemetry(runId, request, observedResult, retryAttempt)
         // Wave 4 telemetry: record step latency for tool_execution boundary.
         host.recordStepLatency("tool_execution", runId)
         toolPlanCoordinator.recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
@@ -689,27 +634,13 @@ internal class ToolObservationCoordinator(
         // TurnEnded requires tokensIn/tokensOut/ttft/duration which are known only when a model
         // generation completes; that is published from observeModelResult (and via run budget
         // fail paths here using zeros where unknown).
-        when (finalState) {
-            AgentRunState.Completed -> host.publishRunEnded(runId, finalText = assistantMessage)
-            AgentRunState.Failed -> {
-                val failureMessage = (effectiveDecision as? AgentObservationDecision.Fail)?.reason
-                    ?: observedResult.summary
-                host.publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), failureMessage)
-            }
-            AgentRunState.Cancelled ->
-                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
-            AgentRunState.GeneratingAnswer -> {
-                // Starting a new model turn — bump the turn counter and publish TurnStarted.
-                val nextTurn = host.bumpAndGetTurnIndex(runId)
-                eventBus.publish(
-                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
-                )
-                host.markStepStart("model_generation")
-            }
-            AgentRunState.RetryingTool -> host.markStepStart("tool_execution")
-            AgentRunState.ExecutingTool -> host.markStepStart("tool_execution")
-            else -> Unit
-        }
+        publishRunTransition(
+            runId = runId,
+            finalState = finalState,
+            completedText = assistantMessage,
+            failureMessage = (effectiveDecision as? AgentObservationDecision.Fail)?.reason
+                ?: observedResult.summary,
+        )
         if (finalState in host.terminalRunStates) {
             host.clearEphemeralRunState(runId)
         }
@@ -757,6 +688,126 @@ internal class ToolObservationCoordinator(
             retryAttempt = retryAttempt,
             steps = traceStore.steps(runId),
         )
+    }
+
+    /**
+     * Terminal per-tool lifecycle event (ToolSucceeded / ToolFailed). Shared by the single-tool and
+     * batch observation paths so both feed the same telemetry subscribers.
+     */
+    private fun publishToolOutcomeEvent(
+        runId: String,
+        request: ToolRequest,
+        observedResult: ToolResult,
+        retryAttempt: Int,
+    ) {
+        when (observedResult.status) {
+            ToolStatus.Succeeded ->
+                eventBus.publish(
+                    SolinEvent.Agent.ToolSucceeded(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        summary = observedResult.summary,
+                    ),
+                )
+            ToolStatus.Failed ->
+                eventBus.publish(
+                    SolinEvent.Agent.ToolFailed(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        code = host.toOrchestrationErrorCode(observedResult.error?.code),
+                        message = observedResult.error?.message ?: observedResult.summary,
+                        retryable = retryAttempt > 0,
+                    ),
+                )
+            ToolStatus.Rejected -> {
+                eventBus.publish(
+                    SolinEvent.Agent.ToolFailed(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        code = OrchestrationToolErrorCode.SafetyRejected,
+                        message = observedResult.error?.message ?: observedResult.summary,
+                        retryable = false,
+                    ),
+                )
+                // Wave 4 telemetry: count safety-policy rejections distinct from user-cancel / exec failures.
+                host.safeRecordTelemetry(
+                    MetricSample.CounterInc(
+                        name = TelemetryCounter.SafetyBlocks,
+                        runId = runId,
+                    ),
+                    "SafetyBlocks counter",
+                )
+            }
+            ToolStatus.Cancelled ->
+                eventBus.publish(
+                    SolinEvent.Agent.ToolFailed(
+                        runId = runId,
+                        toolCallId = request.id,
+                        toolName = request.toolName,
+                        code = OrchestrationToolErrorCode.Cancelled,
+                        message = observedResult.error?.message ?: observedResult.summary,
+                        retryable = false,
+                    ),
+                )
+        }
+    }
+
+    /**
+     * Wave 4 telemetry: record ToolCompleted sample with wall-clock latency since ToolRequested was
+     * appended (0L fallback if no start marker exists, e.g. restored runs).
+     */
+    private fun recordToolCompletedTelemetry(
+        runId: String,
+        request: ToolRequest,
+        observedResult: ToolResult,
+        retryAttempt: Int,
+    ) {
+        val toolLatencyMs = host.consumeToolDispatchLatencyMs(request.id)
+        host.safeRecordTelemetry(
+            MetricSample.ToolCompleted(
+                toolName = request.toolName,
+                latencyMs = toolLatencyMs,
+                succeeded = observedResult.status == ToolStatus.Succeeded,
+                retryCount = retryAttempt,
+                requestId = request.id,
+                runId = runId,
+            ),
+            "ToolCompleted",
+        )
+    }
+
+    /**
+     * Wave 2 lifecycle: publish terminal / transition events alongside the trace once the run state
+     * has moved. TurnEnded requires token/ttft stats known only when a model generation completes, so
+     * it is published from observeModelResult instead.
+     */
+    private fun publishRunTransition(
+        runId: String,
+        finalState: AgentRunState,
+        completedText: String,
+        failureMessage: String,
+    ) {
+        when (finalState) {
+            AgentRunState.Completed -> host.publishRunEnded(runId, finalText = completedText)
+            AgentRunState.Failed ->
+                host.publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), failureMessage)
+            AgentRunState.Cancelled ->
+                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
+            AgentRunState.GeneratingAnswer -> {
+                // Starting a new model turn — bump the turn counter and publish TurnStarted.
+                val nextTurn = host.bumpAndGetTurnIndex(runId)
+                eventBus.publish(
+                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
+                )
+                host.markStepStart("model_generation")
+            }
+            AgentRunState.RetryingTool -> host.markStepStart("tool_execution")
+            AgentRunState.ExecutingTool -> host.markStepStart("tool_execution")
+            else -> Unit
+        }
     }
 
     private fun observationDecision(

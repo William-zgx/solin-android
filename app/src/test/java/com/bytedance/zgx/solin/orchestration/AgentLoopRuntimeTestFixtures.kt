@@ -46,6 +46,36 @@ internal class RecordingSolinEventBus : SolinEventBus {
     inline fun <reified T : SolinEvent> ofType(): List<T> = events.filterIsInstance<T>()
 }
 
+internal class RecordingTelemetrySink : TelemetrySink {
+    private val delegate = InMemoryTelemetrySink()
+    val samples = java.util.concurrent.CopyOnWriteArrayList<MetricSample>()
+
+    override fun record(sample: MetricSample) {
+        samples += sample
+        delegate.record(sample)
+    }
+
+    override fun snapshot(): TelemetrySnapshot = delegate.snapshot()
+}
+
+internal fun publicWebSearchResultData(
+    query: String,
+    summaryText: String = "$query summary",
+): Map<String, String> =
+    mapOf(
+        "toolName" to MobileActionFunctions.WEB_SEARCH,
+        "privacy" to com.bytedance.zgx.solin.MessagePrivacy.RemoteEligible.name,
+        "requiresLocalModel" to "false",
+        "query" to query,
+        "source" to "duckduckgo",
+        "searchMode" to "general",
+        "retrievedAt" to "2026-06-13T00:00:00Z",
+        "freshness" to "current",
+        "maxResults" to "3",
+        "summaryText" to summaryText,
+        "resultsJson" to """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
+    )
+
 internal fun externalDeepLinkPlanningResult(): ActionPlanningResult =
     ActionPlanningResult(
         plan = ActionPlan(
