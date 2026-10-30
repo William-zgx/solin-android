@@ -50,11 +50,7 @@ data class RemoteSendAuditEvent(
 ) {
     /** A redacted copy safe to persist/display. Idempotent. */
     fun redactedForAudit(maxLength: Int = MAX_SUMMARY_LENGTH): RemoteSendAuditEvent =
-        copy(
-            summary = ToolAuditSummaryRedactor.redact(
-                summary.replace(Regex("""\s+"""), " ").trim(),
-            ).take(maxLength),
-        )
+        copy(summary = ToolAuditSummaryRedactor.redactSummary(summary, maxLength))
 
     private companion object {
         const val MAX_SUMMARY_LENGTH = 200

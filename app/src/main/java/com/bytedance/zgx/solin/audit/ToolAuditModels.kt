@@ -19,12 +19,7 @@ data class ToolAuditEvent(
     val createdAtMillis: Long = System.currentTimeMillis(),
 ) {
     fun sanitizedSummary(maxLength: Int = MAX_SUMMARY_LENGTH): String =
-        ToolAuditSummaryRedactor.redact(
-            summary
-                .replace(Regex("""\s+"""), " ")
-                .trim(),
-        )
-            .take(maxLength)
+        ToolAuditSummaryRedactor.redactSummary(summary, maxLength)
 
     fun redactedForAudit(maxLength: Int = MAX_SUMMARY_LENGTH): ToolAuditEvent =
         copy(summary = sanitizedSummary(maxLength))
@@ -63,12 +58,18 @@ object ToolAuditSummaryRedactor {
     private val apiKeyToken = Regex("""\bsk-[A-Za-z0-9_-]{16,}\b""")
     private val emailAddress = Regex("""\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b""")
 
+    private val whitespaceRun = Regex("""\s+""")
+
     fun redact(text: String): String =
         text
             .replace(credentialAssignment) { match -> "${match.groupValues[1]}[redacted]" }
             .replace(bearerToken, "Bearer [redacted]")
             .replace(apiKeyToken, "sk-[redacted]")
             .replace(emailAddress, "[email]")
+
+    /** Collapses whitespace, redacts credentials and emails, then truncates to [maxLength]. */
+    fun redactSummary(summary: String, maxLength: Int): String =
+        redact(summary.replace(whitespaceRun, " ").trim()).take(maxLength)
 }
 
 enum class ToolAuditEventType {
