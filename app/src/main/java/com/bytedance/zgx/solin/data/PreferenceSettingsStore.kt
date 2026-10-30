@@ -1,6 +1,8 @@
 package com.bytedance.zgx.solin.data
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -40,8 +42,10 @@ internal fun decodeInferenceMode(raw: String?): InferenceMode =
  * All three would share the same underlying `solin_settings` DataStore so the
  * migration path is transparent to existing data.
  */
-class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionStore, RemoteSendPendingStore {
-    private val dataStore = context.applicationContext.solinDataStore
+class PreferenceSettingsStore internal constructor(
+    private val dataStore: DataStore<Preferences>,
+) : SettingsStore, ActiveSessionStore, RemoteSendPendingStore {
+    constructor(context: Context) : this(context.applicationContext.solinDataStore)
 
     override fun isSetupDismissed(): Boolean =
         readBoolean(Keys.FIRST_RUN_DISMISSED, false)
@@ -75,18 +79,18 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         writeBoolean(Keys.REMOTE_GUI_AUTOMATION_ENABLED, enabled)
     }
 
-    override fun loadGenerationParameters(): GenerationParameters =
-        GenerationParameters(
-            temperature = readFloat(Keys.TEMPERATURE, GenerationParameters.DEFAULT_TEMPERATURE),
-            topP = readFloat(Keys.TOP_P, GenerationParameters.DEFAULT_TOP_P),
-            topK = readInt(Keys.TOP_K, GenerationParameters.DEFAULT_TOP_K),
+    override fun loadGenerationParameters(): GenerationParameters {
+        val prefs = snapshot()
+        return GenerationParameters(
+            temperature = prefs[Keys.TEMPERATURE] ?: GenerationParameters.DEFAULT_TEMPERATURE,
+            topP = prefs[Keys.TOP_P] ?: GenerationParameters.DEFAULT_TOP_P,
+            topK = prefs[Keys.TOP_K] ?: GenerationParameters.DEFAULT_TOP_K,
             reasoningEffort = reasoningEffortFromOrdinal(
-                readInt(
-                    Keys.REASONING_EFFORT_ORDINAL,
-                    GenerationParameters.DEFAULT_REASONING_EFFORT_ORDINAL,
-                ),
+                prefs[Keys.REASONING_EFFORT_ORDINAL]
+                    ?: GenerationParameters.DEFAULT_REASONING_EFFORT_ORDINAL,
             ),
         ).normalized()
+    }
 
     override fun saveGenerationParameters(parameters: GenerationParameters): GenerationParameters {
         val normalized = parameters.normalized()
@@ -139,17 +143,19 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         writeString(Keys.ACTIVE_INSTALLED_MODEL_ID, modelId.orEmpty())
     }
 
-    override fun loadRemoteConfig(apiKey: String): RemoteModelConfig =
-        RemoteModelConfig(
-            baseUrl = readString(Keys.REMOTE_BASE_URL, ""),
-            modelName = readString(Keys.REMOTE_MODEL_NAME, ""),
+    override fun loadRemoteConfig(apiKey: String): RemoteModelConfig {
+        val prefs = snapshot()
+        return RemoteModelConfig(
+            baseUrl = prefs[Keys.REMOTE_BASE_URL] ?: "",
+            modelName = prefs[Keys.REMOTE_MODEL_NAME] ?: "",
             apiKey = apiKey,
-            supportsVisionInput = readBoolean(Keys.REMOTE_SUPPORTS_VISION_INPUT, false),
-            supportsToolCalls = readBoolean(Keys.REMOTE_SUPPORTS_TOOL_CALLS, false),
-            contextWindowTokens = readInt(Keys.REMOTE_CONTEXT_WINDOW_TOKENS, 0).takeIf { it > 0 },
-            profileRevision = readString(Keys.REMOTE_PROFILE_REVISION, ""),
+            supportsVisionInput = prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT] ?: false,
+            supportsToolCalls = prefs[Keys.REMOTE_SUPPORTS_TOOL_CALLS] ?: false,
+            contextWindowTokens = (prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS] ?: 0).takeIf { it > 0 },
+            profileRevision = prefs[Keys.REMOTE_PROFILE_REVISION] ?: "",
             connectivityStatus = RemoteModelConnectivityStatus.Unknown,
         ).normalized()
+    }
 
     override fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig {
         val normalized = config.normalized()
@@ -217,29 +223,28 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         writeInt(Keys.MIGRATION_VERSION, version)
     }
 
-    private fun readBoolean(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, default: Boolean): Boolean =
-        runBlocking { dataStore.data.first()[key] ?: default }
+    /** One consistent DataStore snapshot; multi-key loaders read every key from a single one. */
+    private fun snapshot(): Preferences =
+        runBlocking { dataStore.data.first() }
 
-    private fun writeBoolean(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean) {
+    private fun <T> read(key: Preferences.Key<T>, default: T): T =
+        snapshot()[key] ?: default
+
+    private fun <T> write(key: Preferences.Key<T>, value: T) {
         runBlocking { dataStore.edit { it[key] = value } }
     }
 
-    private fun readFloat(key: androidx.datastore.preferences.core.Preferences.Key<Float>, default: Float): Float =
-        runBlocking { dataStore.data.first()[key] ?: default }
+    private fun readBoolean(key: Preferences.Key<Boolean>, default: Boolean): Boolean = read(key, default)
 
-    private fun readInt(key: androidx.datastore.preferences.core.Preferences.Key<Int>, default: Int): Int =
-        runBlocking { dataStore.data.first()[key] ?: default }
+    private fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) = write(key, value)
 
-    private fun writeInt(key: androidx.datastore.preferences.core.Preferences.Key<Int>, value: Int) {
-        runBlocking { dataStore.edit { it[key] = value } }
-    }
+    private fun readInt(key: Preferences.Key<Int>, default: Int): Int = read(key, default)
 
-    private fun readString(key: androidx.datastore.preferences.core.Preferences.Key<String>, default: String): String =
-        runBlocking { dataStore.data.first()[key] ?: default }
+    private fun writeInt(key: Preferences.Key<Int>, value: Int) = write(key, value)
 
-    private fun writeString(key: androidx.datastore.preferences.core.Preferences.Key<String>, value: String) {
-        runBlocking { dataStore.edit { it[key] = value } }
-    }
+    private fun readString(key: Preferences.Key<String>, default: String): String = read(key, default)
+
+    private fun writeString(key: Preferences.Key<String>, value: String) = write(key, value)
 
     private object Keys {
         val MIGRATION_VERSION = intPreferencesKey("migration_version")
