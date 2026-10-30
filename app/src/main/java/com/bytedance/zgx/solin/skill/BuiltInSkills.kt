@@ -55,6 +55,12 @@ class BuiltInSkillRuntime(
 
     override fun plan(input: String): SkillPlan? {
         val isSingleActionRequest = !input.looksLikeSequentialAction()
+        // Each draft is computed at most once, and only when its branch is reached. The
+        // absolute reminder reads the clock exactly once: matching and drafting against two
+        // different readings could cross the trigger time and make the draft null.
+        val systemAlarmDraft by lazy { SystemAlarmActionParser.draft(input) }
+        val systemTimerDraft by lazy { SystemTimerActionParser.draft(input) }
+        val absoluteReminderDraft by lazy { AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId) }
         return when {
             input.looksLikeCurrentScreenTextSummaryShareNonAction(input.lowercase()) -> null
             isSingleActionRequest && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
@@ -121,11 +127,11 @@ class BuiltInSkillRuntime(
             isSingleActionRequest && CameraActionParser.matches(input) ->
                 plan(input, CameraActionParser.draft().toRequestPair())
 
-            isSingleActionRequest && SystemAlarmActionParser.matches(input) ->
-                plan(input, requireNotNull(SystemAlarmActionParser.draft(input)).toRequestPair())
+            isSingleActionRequest && systemAlarmDraft != null ->
+                plan(input, requireNotNull(systemAlarmDraft).toRequestPair())
 
-            isSingleActionRequest && SystemTimerActionParser.matches(input) ->
-                plan(input, requireNotNull(SystemTimerActionParser.draft(input)).toRequestPair())
+            isSingleActionRequest && systemTimerDraft != null ->
+                plan(input, requireNotNull(systemTimerDraft).toRequestPair())
 
             isSingleActionRequest && AppNavigationActionParser.matches(input) ->
                 plan(input, AppNavigationActionParser.draft(input).toRequestPair())
@@ -171,8 +177,8 @@ class BuiltInSkillRuntime(
                 plan(input, draft, request)
             }
 
-            isSingleActionRequest && AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) -> {
-                val draft = requireNotNull(AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId))
+            isSingleActionRequest && absoluteReminderDraft != null -> {
+                val draft = requireNotNull(absoluteReminderDraft)
                 val request = ToolRequest(
                     toolName = draft.functionName,
                     arguments = draft.parameters,

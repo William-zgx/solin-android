@@ -98,6 +98,11 @@ class MobileActionPlanner(
     private fun inferDraft(input: String): ActionDraft? {
         val normalized = input.lowercase()
         if (input.looksLikeSequentialAction()) return null
+        // Computed at most once and only when the branch is reached; the absolute reminder reads
+        // the clock exactly once so matching and drafting cannot straddle the trigger time.
+        val systemAlarmDraft by lazy { SystemAlarmActionParser.draft(input) }
+        val systemTimerDraft by lazy { SystemTimerActionParser.draft(input) }
+        val absoluteReminderDraft by lazy { AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId) }
         return when {
             DeviceSettingsActionParser.matches(input) ->
                 DeviceSettingsActionParser.draft(input)
@@ -117,11 +122,11 @@ class MobileActionPlanner(
             CameraActionParser.matches(input) ->
                 CameraActionParser.draft()
 
-            SystemAlarmActionParser.matches(input) ->
-                SystemAlarmActionParser.draft(input)
+            systemAlarmDraft != null ->
+                systemAlarmDraft
 
-            SystemTimerActionParser.matches(input) ->
-                SystemTimerActionParser.draft(input)
+            systemTimerDraft != null ->
+                systemTimerDraft
 
             AppNavigationActionParser.matches(input) ->
                 AppNavigationActionParser.draft(input)
@@ -129,8 +134,8 @@ class MobileActionPlanner(
             ReminderActionParser.matches(input) ->
                 ReminderActionParser.draft(input)
 
-            AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) ->
-                AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId)
+            absoluteReminderDraft != null ->
+                absoluteReminderDraft
 
             PeriodicCheckActionParser.matches(input) ->
                 PeriodicCheckActionParser.draft(input)

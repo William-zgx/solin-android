@@ -5,9 +5,6 @@ import java.time.ZoneId
 import kotlin.math.roundToLong
 
 internal object SystemAlarmActionParser {
-    fun matches(input: String): Boolean =
-        draft(input) != null
-
     fun draft(input: String): ActionDraft? {
         if (!input.hasAlarmTrigger() || input.looksLikeTimeActionDiscussion()) return null
         val parsedTime = ClockTimeParser.parse(input) ?: return null
@@ -54,9 +51,6 @@ internal object SystemAlarmActionParser {
 }
 
 internal object SystemTimerActionParser {
-    fun matches(input: String): Boolean =
-        draft(input) != null
-
     fun draft(input: String): ActionDraft? {
         if (!input.hasTimerTrigger() || input.looksLikeTimeActionDiscussion()) return null
         val durationSeconds = DurationParser.durationSeconds(input) ?: return null
@@ -103,9 +97,6 @@ internal object SystemTimerActionParser {
 }
 
 internal object AbsoluteReminderActionParser {
-    fun matches(input: String, nowMillis: Long, zoneId: ZoneId): Boolean =
-        draft(input, nowMillis, zoneId) != null
-
     fun draft(input: String, nowMillis: Long, zoneId: ZoneId): ActionDraft? {
         if (!input.hasAbsoluteReminderTrigger() || input.looksLikeTimeActionDiscussion()) return null
         if (input.hasDailyRecurrence()) return null
