@@ -9,6 +9,26 @@ import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
  * another file of the same module. ToolSchemaContractTest guards the schema contract.
  */
 
+/**
+ * The trailing property pair shared by every package-guarded UI action schema. Interpolated after
+ * the 8-space indent, so its first line carries no indent of its own and the rest carry 8 spaces;
+ * the enclosing trimIndent() then yields the same JSON text as an inline copy.
+ */
+private val foregroundPackageGuardProperties = """
+"expectedPackageName": {
+          "type": "string",
+          "description": "Optional foreground package that must still be active before executing this UI action.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetPackageName": {
+          "type": "string",
+          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
+          "minLength": 1,
+          "maxLength": 200
+        }
+""".removeSurrounding("\n")
+
 internal val observeCurrentScreenSchemaJson = """
     {
       "type": "object",
@@ -61,18 +81,7 @@ internal val uiTapSchemaJson = """
           "minimum": 100,
           "maximum": 10000
         },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
@@ -103,18 +112,7 @@ internal val uiTypeTextSchemaJson = """
           "type": "boolean",
           "description": "When true, allows falling back to temporary clipboard paste if direct Accessibility text setting fails. Defaults to false."
         },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
@@ -129,18 +127,7 @@ internal val uiSubmitSearchSchemaJson = """
           "minimum": 100,
           "maximum": 10000
         },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
@@ -166,18 +153,7 @@ internal val uiScrollSchemaJson = """
           "minimum": 100,
           "maximum": 10000
         },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
@@ -213,18 +189,7 @@ internal val uiSwipeSchemaJson = """
           "description": "Swipe duration in ms; longer is slower/more deliberate."
         },
         "timeoutMillis": { "type": "integer", "minimum": 100, "maximum": 10000 },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
@@ -244,18 +209,7 @@ internal val uiLongPressSchemaJson = """
           "description": "Long-press hold duration in ms."
         },
         "timeoutMillis": { "type": "integer", "minimum": 100, "maximum": 10000 },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
@@ -272,18 +226,7 @@ internal val uiPressKeySchemaJson = """
           "description": "Whitelisted system key. No arbitrary keycodes are accepted."
         },
         "timeoutMillis": { "type": "integer", "minimum": 100, "maximum": 10000 },
-        "expectedPackageName": {
-          "type": "string",
-          "description": "Optional foreground package that must still be active before executing this UI action.",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "targetPackageName": {
-          "type": "string",
-          "description": "Optional alias for expectedPackageName, used by external planners to bind the foreground app.",
-          "minLength": 1,
-          "maxLength": 200
-        }
+        ${foregroundPackageGuardProperties}
       },
       "additionalProperties": false
     }
