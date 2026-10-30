@@ -150,7 +150,7 @@ assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "capabilityM
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "capabilityMatrixSha256=$CAPABILITY_MATRIX_SHA"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "matrixVersion=1"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "scenarioCount=6"
-assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "productCapabilityCount=18"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "productCapabilityCount=19"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "toolCapabilityCount=45"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "sensitiveDisclosureCount=10"
 assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "requiredBehaviorBoundaryCount=1"

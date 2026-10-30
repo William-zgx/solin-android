@@ -354,6 +354,23 @@ object CapabilityMatrix {
                 ),
                 ownerAgent = CapabilityOwnerAgent.PerformanceQa,
             ),
+            CapabilityDescriptor(
+                capabilityId = "mcp_extension_tools",
+                entrypoint = "trust_center_mcp_toggle",
+                toolName = null,
+                modelCapability = ModelCapability.Chat,
+                privacyLevel = CapabilityPrivacyLevel.ExternalAction,
+                requiresLocalModel = true,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.Required,
+                failureBehavior = "默认关闭。仅在信任中心开启 MCP 扩展工具并同意“数据离开本机”说明、且工具已由用户批准时可用；每次调用都需确认（HighExternalSend），参数发给其他应用前写入远程发送审计（只记工具名和参数数量）；服务器未通过签名权限/UID 校验、工具定义与批准时不一致、开关关闭或审计不可用时拒绝且不发送；结果默认仅本机并只交给本地模型。",
+                requiredTests = listOf(
+                    "McpClientTest",
+                    "McpToolSpecsTest",
+                    "McpCapabilitySettingsTest",
+                ),
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+            ),
         )
 
     val nextStageMvpDescriptors: List<CapabilityDescriptor>

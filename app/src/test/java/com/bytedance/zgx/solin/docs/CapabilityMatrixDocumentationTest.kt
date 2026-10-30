@@ -66,6 +66,7 @@ class CapabilityMatrixDocumentationTest {
                 "remote_public_evidence",
                 "trust_center_capability_review",
                 "release_gate",
+                "mcp_extension_tools",
             ),
             documentedIds,
         )
