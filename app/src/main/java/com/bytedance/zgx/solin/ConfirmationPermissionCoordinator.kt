@@ -91,6 +91,10 @@ internal class ConfirmationPermissionCoordinator(
                     viewModel().rejectAgentConfirmationForMediaProjectionDenial(confirmation)
                 }
             } else {
+                // Storing the consent also starts the short-lived mediaProjection foreground
+                // service while this activity is still in the foreground (Android 14 requires
+                // it after consent and before getMediaProjection). The capture stops it; a
+                // service start failure surfaces as a distinct tool failure, not as a denial.
                 appContainer().currentScreenshotOcrProvider.setOneShotConsent(
                     requestId = requestId,
                     resultCode = result.resultCode,

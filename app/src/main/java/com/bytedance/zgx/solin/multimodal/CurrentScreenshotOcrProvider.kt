@@ -94,6 +94,7 @@ sealed interface RawScreenshotReadResult {
 class AndroidCurrentScreenshotOcrProvider(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
+    private val foregroundGate: ScreenCaptureForegroundGate = AndroidScreenCaptureForegroundGate(context),
 ) : CurrentScreenshotOcrProvider, RawScreenshotProvider {
     private val pendingConsent =
         RequestBoundOneShotConsentStore<CurrentScreenshotOcrConsent>(
@@ -107,7 +108,7 @@ class AndroidCurrentScreenshotOcrProvider(
         issuedAtMillis: Long,
     ) {
         if (resultCode != Activity.RESULT_OK || data == null) {
-            pendingConsent.clear(requestId)
+            clearOneShotConsent(requestId)
             return
         }
         pendingConsent.set(
@@ -115,10 +116,15 @@ class AndroidCurrentScreenshotOcrProvider(
             issuedAtMillis = issuedAtMillis,
             data = CurrentScreenshotOcrConsent(resultCode = resultCode, data = Intent(data)),
         )
+        // Called from the MediaProjection consent callback while the activity is in the
+        // foreground: Android 14 requires the mediaProjection-type foreground service to be
+        // started after consent and before getMediaProjection (done later on the tool thread).
+        foregroundGate.start(requestId)
     }
 
     override fun clearOneShotConsent(requestId: String) {
         pendingConsent.clear(requestId)
+        foregroundGate.stop(requestId)
     }
 
     override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean =
@@ -131,6 +137,7 @@ class AndroidCurrentScreenshotOcrProvider(
         val consent = pendingConsent.consume(requestId, nowMillis)
             ?: return CurrentScreenshotOcrReadResult.MissingConsent
         return captureBitmap(
+            requestId = requestId,
             consent = consent,
             onMissingConsent = { CurrentScreenshotOcrReadResult.MissingConsent },
             onFailed = { reason -> CurrentScreenshotOcrReadResult.Failed(reason) },
@@ -168,6 +175,7 @@ class AndroidCurrentScreenshotOcrProvider(
         val consent = pendingConsent.consume(requestId, nowMillis)
             ?: return RawScreenshotReadResult.MissingConsent
         return captureBitmap(
+            requestId = requestId,
             consent = consent,
             onMissingConsent = { RawScreenshotReadResult.MissingConsent },
             onFailed = { reason -> RawScreenshotReadResult.Failed(reason) },
@@ -199,19 +207,41 @@ class AndroidCurrentScreenshotOcrProvider(
 
     /**
      * Shared MediaProjection→VirtualDisplay→ImageReader→Bitmap capture core. Handles
-     * consent-backed projection setup, one-shot frame acquisition, resource teardown, and
-     * SecurityException→MissingConsent mapping. [block] receives the captured bitmap (already
-     * scheduled for recycle) and produces the caller-specific result. Both the LocalOnly OCR
-     * path and the remote-vision raw path funnel through here so the projection plumbing stays
-     * identical and cannot drift between the two.
+     * the mediaProjection foreground-service session (await before projection, always stop
+     * afterwards), consent-backed projection setup, one-shot frame acquisition, resource
+     * teardown, and failure mapping: a stale consent token maps to MissingConsent while a
+     * foreground-service failure maps to a distinct Failed reason. [block] receives the captured
+     * bitmap (already scheduled for recycle) and produces the caller-specific result. Both the
+     * LocalOnly OCR path and the remote-vision raw path funnel through here so the projection
+     * plumbing stays identical and cannot drift between the two.
      */
     private fun <R> captureBitmap(
+        requestId: String,
         consent: CurrentScreenshotOcrConsent,
         onMissingConsent: () -> R,
         onFailed: (String) -> R,
         serviceUnavailableReason: String,
         block: (Bitmap) -> R,
+    ): R =
+        withScreenCaptureForegroundSession(
+            gate = foregroundGate,
+            requestId = requestId,
+            timeoutMillis = FOREGROUND_SERVICE_START_TIMEOUT_MILLIS,
+            onMissingConsent = onMissingConsent,
+            onFailed = onFailed,
+            unexpectedFailureReason = serviceUnavailableReason,
+        ) {
+            captureWithProjection(consent, onMissingConsent, onFailed, block)
+        }
+
+    private fun <R> captureWithProjection(
+        consent: CurrentScreenshotOcrConsent,
+        onMissingConsent: () -> R,
+        onFailed: (String) -> R,
+        block: (Bitmap) -> R,
     ): R {
+        // SecurityException from here (stale token or missing foreground service) is mapped by
+        // withScreenCaptureForegroundSession.
         val projection = mediaProjectionManager().getMediaProjection(consent.resultCode, consent.data)
             ?: return onMissingConsent()
         val metrics = context.resources.displayMetrics
@@ -253,10 +283,6 @@ class AndroidCurrentScreenshotOcrProvider(
             val image = capturedImage.getAndSet(null)
                 ?: return onFailed("当前屏幕截图不可用")
             image.useToBitmap(block)
-        } catch (_: SecurityException) {
-            onMissingConsent()
-        } catch (_: Throwable) {
-            onFailed(serviceUnavailableReason)
         } finally {
             virtualDisplay?.release()
             imageReader.close()
@@ -278,6 +304,7 @@ class AndroidCurrentScreenshotOcrProvider(
         const val VIRTUAL_DISPLAY_NAME = "SolinCurrentScreenshot"
         const val IMAGE_READER_MAX_IMAGES = 2
         const val CAPTURE_TIMEOUT_MILLIS = 2_500L
+        const val FOREGROUND_SERVICE_START_TIMEOUT_MILLIS = 3_000L
     }
 }
 

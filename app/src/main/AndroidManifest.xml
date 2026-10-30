@@ -17,6 +17,7 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -145,6 +146,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="user_confirmed_device_control_session" />
         </service>
+
+        <!--
+             Short-lived, user-visible session for ONE confirmed current-screenshot OCR
+             capture. Started from the MediaProjection consent callback and stopped right
+             after the capture (or failure/cancel); self-stops after 45 s.
+        -->
+        <service
+            android:name=".multimodal.ScreenCaptureForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <receiver
             android:name=".background.ReminderAlarmReceiver"

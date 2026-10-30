@@ -117,6 +117,26 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun declaresMediaProjectionForegroundServiceForCurrentScreenshotOcr() {
+        val manifest = readManifest()
+        val service = manifest.serviceBlockFor(".multimodal.ScreenCaptureForegroundService")
+        val provider = readMainFile("java/com/bytedance/zgx/solin/multimodal/CurrentScreenshotOcrProvider.kt")
+        val serviceSource = readMainFile("java/com/bytedance/zgx/solin/multimodal/ScreenCaptureForegroundService.kt")
+
+        // Android 14 (targetSdk 34+) rejects getMediaProjection without a running
+        // mediaProjection-type foreground service and the matching FGS permission.
+        assertTrue(manifest.contains("""android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"""))
+        assertTrue(service.contains("""android:exported="false""""))
+        assertTrue(service.contains("""android:foregroundServiceType="mediaProjection""""))
+        assertFalse(service.contains("<intent-filter"))
+        assertTrue(serviceSource.contains("ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION"))
+        assertTrue(serviceSource.contains(".setSmallIcon(R.drawable.ic_notification_solin)"))
+        // Consent stores start the session; the capture core always stops it.
+        assertTrue(provider.contains("foregroundGate.start(requestId)"))
+        assertTrue(provider.contains("withScreenCaptureForegroundSession("))
+    }
+
+    @Test
     fun reminderRecoveryReceiverHandlesBootAndPackageReplacement() {
         val manifest = readManifest()
         val receiver = manifest.receiverBlockFor(".background.ReminderBootReceiver")
