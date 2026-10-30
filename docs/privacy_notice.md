@@ -156,7 +156,14 @@ Remote-vision GUI automation control is enabled — direct screen capture via th
 already-connected Accessibility service (`AccessibilityService.takeScreenshot`),
 whose pixels are transmitted to the remote vision model (see "Remote-Vision GUI
 Automation" below). MediaProjection is used only for one-shot current-screen
-screenshot OCR after foreground consent (a separate, LocalOnly path).
+screenshot OCR after foreground consent (a separate, LocalOnly path). While that
+single capture runs, Android requires a short-lived `mediaProjection`
+foreground service; Solin shows it as a visible "Solin正在读取当前屏幕"
+notification, starts it only after the user granted MediaProjection consent,
+and stops it as soon as the capture finishes, fails, or is cancelled (it
+self-stops after 45 seconds otherwise). The service captures nothing itself
+and transmits nothing. If the service cannot start, the OCR tool reports a
+distinct failure instead of capturing or asking again.
 
 For screen understanding specifically, screen pixels, OCR excerpts,
 Accessibility text, Accessibility snapshot nodes/bounds metadata, and
@@ -229,7 +236,14 @@ action. Share sheets, drafts, high-risk actions, and unknown external actions
 remain an opened-but-unverified boundary until the user records the outcome.
 
 System speech recognition inserts a transcript into the compose box only;
-sending remains explicit. Audio/video/legacy Office/binary attachments are
+sending remains explicit. Voice input prefers Android's on-device recognizer
+(`SpeechRecognizer.createOnDeviceSpeechRecognizer`, Android 12+) when the
+device reports one, in which case audio is recognized on the device. Otherwise
+Solin uses the default system recognition service and requests offline
+recognition (`EXTRA_PREFER_OFFLINE`); because that request is only a hint, the
+system recognition service may still use its own online service, so Solin
+shows the voice consent again with an explicit online-recognition note before
+the first such session. Solin itself does not upload or store the audio. Audio/video/legacy Office/binary attachments are
 metadata-only in the current app. Supported strict UTF-8 text, RTF, PDF text
 layers, PDF scanned-page OCR fallback, and Office Open XML attachments may
 produce bounded local excerpts. Shared-input excerpts are staged as local
