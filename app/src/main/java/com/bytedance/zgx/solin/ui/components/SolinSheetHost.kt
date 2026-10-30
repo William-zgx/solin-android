@@ -5,6 +5,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
@@ -68,6 +69,14 @@ internal fun SolinSheetHost(
     }
 
     state.pendingConfirmation?.let { confirmation ->
+        // Keyed on the resolvers too, so a new registry-backed resolver can never be served a
+        // stale (possibly understated) requirement list.
+        val runtimePermissionRequirements = remember(confirmation, resolveRuntimePermissionRequirements) {
+            resolveRuntimePermissionRequirements(confirmation)
+        }
+        val specialAccessRequirements = remember(confirmation, resolveSpecialAccessRequirements) {
+            resolveSpecialAccessRequirements(confirmation)
+        }
         ModalBottomSheet(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             onDismissRequest = { onDismissAgentConfirmation(confirmation) },
@@ -75,8 +84,8 @@ internal fun SolinSheetHost(
             ActionDraftSheet(
                 confirmation = confirmation,
                 grantedSpecialAccessIds = state.grantedSpecialAccessIds,
-                runtimePermissionRequirements = resolveRuntimePermissionRequirements(confirmation),
-                specialAccessRequirements = resolveSpecialAccessRequirements(confirmation),
+                runtimePermissionRequirements = runtimePermissionRequirements,
+                specialAccessRequirements = specialAccessRequirements,
                 onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
                 onConfirm = { onConfirmAgentConfirmation(confirmation) },
                 onDismiss = { onDismissAgentConfirmation(confirmation) },

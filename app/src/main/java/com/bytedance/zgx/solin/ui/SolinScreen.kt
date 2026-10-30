@@ -249,7 +249,9 @@ fun SolinScreen(
                     }
                 }
 
-                val publicSourceRows = publicWebEvidenceDisplayRows(state.activePublicWebEvidence)
+                val publicSourceRows = remember(state.activePublicWebEvidence) {
+                    publicWebEvidenceDisplayRows(state.activePublicWebEvidence)
+                }
                 if (publicSourceRows.isNotEmpty()) {
                     SourcesStrip(
                         modifier = Modifier

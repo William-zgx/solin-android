@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -144,13 +145,24 @@ private fun MessageContent(
         return
     }
 
+    // Markdown parsing depends only on [text]; skip it when the bubble recomposes unchanged.
+    val renderedSegments = remember(text) {
+        splitMessageSegments(text).map { segment ->
+            val annotated = if (!segment.isCode && segment.text.isNotBlank()) {
+                segment.text.toMessageAnnotatedString()
+            } else {
+                null
+            }
+            segment to annotated
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        splitMessageSegments(text).forEach { segment ->
+        renderedSegments.forEach { (segment, annotated) ->
             if (segment.isCode) {
                 CodeBlock(segment.text)
-            } else if (segment.text.isNotBlank()) {
+            } else if (annotated != null) {
                 Text(
-                    text = segment.text.toMessageAnnotatedString(),
+                    text = annotated,
                     style = MaterialTheme.typography.bodyLarge,
                     color = color,
                 )
