@@ -11,15 +11,12 @@ import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.BackgroundTaskUseCases
-import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.solin.data.BundledModelInstaller
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.GenerationParametersStore
 import com.bytedance.zgx.solin.data.HuggingFaceAuthStore
-import com.bytedance.zgx.solin.data.ModelDownloadSource
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
-import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.data.SessionStore
@@ -41,19 +38,17 @@ import com.bytedance.zgx.solin.presentation.BackgroundTaskController
 import com.bytedance.zgx.solin.presentation.ChatController
 import com.bytedance.zgx.solin.presentation.DefaultPresentationSessionHost
 import com.bytedance.zgx.solin.presentation.InferenceModeController
+import com.bytedance.zgx.solin.presentation.InitialChatStateFactory
+import com.bytedance.zgx.solin.presentation.StartupStateRestorer
 import com.bytedance.zgx.solin.presentation.MemoryUiController
 import com.bytedance.zgx.solin.presentation.PresentationSessionHost
-import com.bytedance.zgx.solin.presentation.toSemanticMemoryStatus
 import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.ModelLoadController
 import com.bytedance.zgx.solin.presentation.SessionController
+import com.bytedance.zgx.solin.presentation.SharedIntentIngestionGate
 import com.bytedance.zgx.solin.presentation.ToolExecutionController
 import com.bytedance.zgx.solin.presentation.VoiceInputController
 import com.bytedance.zgx.solin.presentation.cleanMessage
-import com.bytedance.zgx.solin.presentation.recentRemoteSendSummaries
-import com.bytedance.zgx.solin.presentation.localContextWindowTokens
-import com.bytedance.zgx.solin.presentation.localPreferredBackends
-import com.bytedance.zgx.solin.presentation.modelHealthForCurrentSelection
 import com.bytedance.zgx.solin.presentation.toDeviceContextSnapshot
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
@@ -79,8 +74,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-private const val STALE_AGENT_RUN_STARTUP_REASON =
-    "App restarted before this Agent step completed."
 private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON =
     "ViewModel cleared before this Agent run completed."
 internal const val STREAMING_UI_UPDATE_INTERVAL_MILLIS = 75L
@@ -172,10 +165,7 @@ class SolinViewModel internal constructor(
     private val runtimeLock = Mutex()
     private val persistenceActionMutex = Mutex()
     private val persistenceInitialization = CompletableDeferred<Unit>()
-    private val sharedIntentIngestionLock = Any()
-    private val completedSharedIntentKeys = mutableSetOf<String>()
-    private val inFlightSharedIntentGenerations = mutableMapOf<String, Long>()
-    private var nextSharedIntentGeneration = 0L
+    private val sharedIntentIngestionGate = SharedIntentIngestionGate()
     private var hasCleared = false
     private var startupRestored = false
     private var deviceContextAuthorizationSnapshot = DeviceContextAuthorizationSnapshot()
@@ -200,8 +190,10 @@ class SolinViewModel internal constructor(
         backgroundTaskScheduler = backgroundTaskScheduler,
         longTermMemoryControls = longTermMemoryControls,
         backgroundTaskUseCases = backgroundTaskUseCases,
-        syncTaskStateMemories = { syncTaskStateMemories() },
-        loadLongTermMemories = ::loadLongTermMemories,
+        syncTaskStateMemories = {
+            memoryController.syncTaskStateMemories(memoryEnabled = _uiState.value.memoryEnabled)
+        },
+        loadLongTermMemories = memoryController::loadLongTermMemories,
     )
 
     private val autoInferenceAuthorizationCoordinator = AutoInferenceAuthorizationCoordinator(
@@ -216,14 +208,30 @@ class SolinViewModel internal constructor(
             dispatcher = ioDispatcher,
         )
 
-    private val _uiState = MutableStateFlow(
+    private val initialChatStateFactory = InitialChatStateFactory(
+        modelRepository = modelRepository,
+        generationParametersRepository = generationParametersRepository,
+        firstRunSetupRepository = firstRunSetupRepository,
+        remoteModelRepository = remoteModelRepository,
+        adaptiveInferenceRollout = adaptiveInferenceRollout,
+        huggingFaceAuthStore = huggingFaceAuthStore,
+        sessionRepository = sessionRepository,
+        memoryRepository = memoryRepository,
+        memoryController = memoryController,
+        auditUiController = auditUiController,
+        backgroundTaskController = backgroundTaskController,
+        remoteSendAuditLog = remoteSendAuditLog,
+        isArm64Device = isArm64DeviceProvider,
+    )
+
+    private val _uiState: MutableStateFlow<ChatUiState> = MutableStateFlow(
         if (deferPersistenceInitialization) {
             ChatUiState(
                 statusText = "正在初始化本地数据",
-                isArm64Supported = isArm64Device(),
+                isArm64Supported = isArm64DeviceProvider(),
             )
         } else {
-            createInitialState()
+            initialChatStateFactory.createInitialState()
         },
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -362,7 +370,20 @@ class SolinViewModel internal constructor(
         restorePendingExternalOutcomeIfAny = { clearMissing ->
             toolExecutionController.restorePendingExternalOutcomeIfAny(clearMissing)
         },
-        loadAgentTraceRuns = ::loadAgentTraceRuns,
+        loadAgentTraceRuns = auditUiController::loadAgentTraceRuns,
+    )
+
+    private val startupStateRestorer = StartupStateRestorer(
+        uiState = _uiState,
+        modelRepository = modelRepository,
+        assistantOrchestrator = assistantOrchestrator,
+        chatController = chatController,
+        toolExecutionController = toolExecutionController,
+        modelLoadController = modelLoadController,
+        backgroundTaskController = backgroundTaskController,
+        memoryUiController = memoryUiController,
+        auditUiController = auditUiController,
+        isArm64Device = isArm64DeviceProvider,
     )
 
     private val voiceInputController = VoiceInputController(
@@ -388,41 +409,29 @@ class SolinViewModel internal constructor(
         reader: ShareIntentReader,
         allowPreviouslyConsumed: Boolean,
     ) {
-        val generation = synchronized(sharedIntentIngestionLock) {
-            if (consumptionKey in inFlightSharedIntentGenerations) {
-                return
-            }
-            if (!allowPreviouslyConsumed && consumptionKey in completedSharedIntentKeys) {
-                return
-            }
-            if (allowPreviouslyConsumed) {
-                completedSharedIntentKeys.remove(consumptionKey)
-            }
-            (++nextSharedIntentGeneration).also { value ->
-                inFlightSharedIntentGenerations[consumptionKey] = value
-            }
-        }
+        val generation = sharedIntentIngestionGate.tryStart(consumptionKey, allowPreviouslyConsumed)
+            ?: return
         val copiedIntent = Intent(intent)
         viewModelScope.launch(ioDispatcher) {
             try {
                 val sharedInput = reader.read(copiedIntent, mode = readMode)
-                if (!isCurrentSharedIntentIngestion(consumptionKey, generation)) return@launch
+                if (!sharedIntentIngestionGate.isCurrent(consumptionKey, generation)) return@launch
                 persistenceActionMutex.withLock {
-                    if (!isCurrentSharedIntentIngestion(consumptionKey, generation)) {
+                    if (!sharedIntentIngestionGate.isCurrent(consumptionKey, generation)) {
                         return@withLock
                     }
                     if (sharedInput == null) {
-                        clearSharedIntentIngestion(consumptionKey, generation)
+                        sharedIntentIngestionGate.clear(consumptionKey, generation)
                     } else {
                         chatController.ingestSharedInput(sharedInput)
-                        markSharedIntentIngestionCompleted(consumptionKey, generation)
+                        sharedIntentIngestionGate.markCompleted(consumptionKey, generation)
                     }
                 }
             } catch (error: CancellationException) {
-                clearSharedIntentIngestion(consumptionKey, generation)
+                sharedIntentIngestionGate.clear(consumptionKey, generation)
                 throw error
             } catch (_: Throwable) {
-                clearSharedIntentIngestion(consumptionKey, generation)
+                sharedIntentIngestionGate.clear(consumptionKey, generation)
             }
         }
     }
@@ -443,13 +452,13 @@ class SolinViewModel internal constructor(
         if (deferPersistenceInitialization) {
             viewModelScope.launch(ioDispatcher) {
                 runCatching {
-                    val initialState = createInitialState()
+                    val initialState = initialChatStateFactory.createInitialState()
                     // The Activity may already have synced the permission snapshot while the
                     // deferred initialization was pending; do not reset it to "nothing granted".
                     _uiState.update { current ->
                         initialState.copy(grantedSpecialAccessIds = current.grantedSpecialAccessIds)
                     }
-                    restoreStartupStateAfterInitialization(skipModelRuntimeWork)
+                    startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
                     persistenceInitialization.complete(Unit)
                 }.onFailure { error ->
                     persistenceInitialization.completeExceptionally(error)
@@ -463,75 +472,7 @@ class SolinViewModel internal constructor(
             }
             return
         }
-        restoreStartupStateAfterInitialization(skipModelRuntimeWork)
-    }
-
-    private fun restoreStartupStateAfterInitialization(skipModelRuntimeWork: Boolean) {
-        chatController.failClosedPendingRemoteSendOnStartup()
-        recoverBackgroundTasksOnStartup()
-        syncTaskStateMemories()
-        modelLoadController.refreshDeviceStatus()
-        _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
-        modelLoadController.verifyLegacyModelsOnStartup(skipModelRuntimeWork)
-        failStaleAgentRunsOnStartup()
-        if (modelLoadController.startBundledModelInstallOnStartup(skipModelRuntimeWork)) {
-            toolExecutionController.restorePendingAgentConfirmationIfAny()
-            toolExecutionController.restorePendingExternalOutcomeIfAny()
-            return
-        }
-
-        if (skipModelRuntimeWork) {
-            if (_uiState.value.inferenceMode == InferenceMode.Remote) {
-                modelLoadController.updateRemoteReadiness("远程模型")
-                // Ensure first-run setup is dismissed when remote is already
-                // configured (mirrors updateRemoteModelConfig's behaviour so
-                // pre-configured test/production states reach isReady=true).
-                if (_uiState.value.remoteModelConfig.isConfigured) {
-                    _uiState.update { it.copy(showFirstRunSetup = false) }
-                }
-            } else if (_uiState.value.modelPath != null) {
-                _uiState.update {
-                    it.copy(statusText = "已找到模型，点击加载模型")
-                }
-            }
-            toolExecutionController.restorePendingAgentConfirmationIfAny()
-            toolExecutionController.restorePendingExternalOutcomeIfAny()
-            return
-        }
-
-        val pendingDownloadId = modelRepository.pendingDownloadId()
-        val pendingDownloadSource = modelRepository.loadPendingDownloadSource()
-        if (pendingDownloadId > 0L) {
-            val source = pendingDownloadSource ?: ModelDownloadSource.recommended(modelRepository.selectedRecommendedModel())
-            source.modelId?.let {
-                modelLoadController.updateModelState(modelRepository.selectRecommendedModel(it).state)
-            }
-            val target = modelRepository.downloadedModelFile(source.fileName)
-            if (target == null) {
-                modelRepository.clearPendingDownload()
-                _uiState.update {
-                    it.copy(statusText = "下载目录不可用，请导入已有模型")
-                }
-            } else {
-                modelLoadController.monitorDownload(pendingDownloadId, target, source)
-            }
-        } else if (_uiState.value.inferenceMode == InferenceMode.Remote) {
-            modelLoadController.updateRemoteReadiness("远程模型")
-        } else if (!isArm64Device()) {
-            _uiState.update {
-                it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
-            }
-        } else {
-            val activePath = modelRepository.currentState().activeModelPath
-            if (activePath != null) {
-                _uiState.update {
-                    it.copy(statusText = "已找到模型，正在加载")
-                }
-                loadModel()
-            }
-        }
-        toolExecutionController.restorePendingAgentConfirmationIfAny()
-        toolExecutionController.restorePendingExternalOutcomeIfAny()
+        startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
     }
 
     fun configureDebugRemoteModelForScreenshotEvidence(
@@ -544,10 +485,6 @@ class SolinViewModel internal constructor(
             modelName = modelName,
             supportsVisionInput = supportsVisionInput,
         )
-    }
-
-    private fun recoverBackgroundTasksOnStartup() {
-        backgroundTaskController.recoverBackgroundTasksOnStartup()
     }
 
     fun startModelDownload() {
@@ -899,128 +836,6 @@ class SolinViewModel internal constructor(
             }
         }
         super.onCleared()
-    }
-
-    private fun createInitialState(): ChatUiState {
-        val modelState = modelRepository.currentState()
-        val backend = generationParametersRepository.loadBackend()
-        val memoryEnabled = firstRunSetupRepository.isMemoryEnabled()
-        val reduceDeviceActionConfirmations = firstRunSetupRepository.reduceDeviceActionConfirmations()
-        val remoteGuiAutomationEnabled = firstRunSetupRepository.remoteGuiAutomationEnabled()
-        val storedInferenceMode = remoteModelRepository.loadMode()
-        val inferenceMode = adaptiveInferenceRollout.sanitizePreference(storedInferenceMode)
-        if (inferenceMode != storedInferenceMode) remoteModelRepository.saveMode(inferenceMode)
-        val remoteConfig = remoteModelRepository.loadConfig()
-        val hasUsableEndpoint = hasStartupModelEndpoint(modelState, remoteConfig)
-        val showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed() && !hasUsableEndpoint
-        memoryRepository.enabled = memoryEnabled
-        syncTaskStateMemories(memoryEnabled = memoryEnabled)
-        val semanticMemory = memoryController.semanticMemoryState().toSemanticMemoryStatus()
-        return ChatUiState(
-            modelPath = modelState.activeModelPath,
-            activeInstalledModelId = modelState.activeInstalledModelId,
-            installedModels = modelState.installedModels,
-            selectedModelId = modelState.selectedModelId,
-            inferenceMode = inferenceMode,
-            remoteModelConfig = remoteConfig,
-            backend = backend,
-            localMaxTotalTokens = modelState.localContextWindowTokens(),
-            localPreferredBackends = modelState.localPreferredBackends(),
-            modelHealth = modelState.modelHealthForCurrentSelection(backend),
-            showFirstRunSetup = showFirstRunSetup,
-            memoryEnabled = memoryEnabled,
-            reduceDeviceActionConfirmations = reduceDeviceActionConfirmations,
-            remoteGuiAutomationEnabled = remoteGuiAutomationEnabled,
-            semanticMemory = semanticMemory,
-            huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
-            longTermMemories = loadLongTermMemories(),
-            backgroundTasks = loadBackgroundTasks(),
-            backgroundTaskHistory = loadBackgroundTaskHistory(),
-            periodicCheckPolicy = loadPeriodicCheckPolicy(),
-            auditEvents = loadAuditEvents(),
-            remoteSendAuditEvents = remoteSendAuditLog.recentRemoteSendSummaries(),
-            agentTraceRuns = loadAgentTraceRuns(),
-            generationParameters = generationParametersRepository.load(),
-            sessions = sessionRepository.summaries(),
-            activeSessionId = sessionRepository.activeSessionId,
-            messages = sessionRepository.activeMessages(),
-            isArm64Supported = isArm64Device(),
-            availableModelStorageBytes = modelRepository.resolveModelStorageBytes(),
-            statusText = if (!hasUsableEndpoint) {
-                NO_MODEL_READY_STATUS_TEXT
-            } else {
-                "未加载模型"
-            },
-        )
-    }
-
-    private fun hasStartupModelEndpoint(
-        modelState: ModelSelectionState,
-        remoteConfig: RemoteModelConfig,
-    ): Boolean =
-        modelState.activeModelPath != null || remoteConfig.isConfigured
-
-    private fun syncTaskStateMemories(memoryEnabled: Boolean = _uiState.value.memoryEnabled) {
-        memoryController.syncTaskStateMemories(memoryEnabled = memoryEnabled)
-    }
-
-    private fun loadLongTermMemories(): List<LongTermMemorySummary> =
-        memoryController.loadLongTermMemories()
-
-    private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
-        backgroundTaskController.loadBackgroundTasks()
-
-    private fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> =
-        backgroundTaskController.loadBackgroundTaskHistory()
-
-    private fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary =
-        backgroundTaskController.loadPeriodicCheckPolicy()
-
-    private fun loadAuditEvents(): List<AuditEventSummary> =
-        auditUiController.loadAuditEvents()
-
-    private fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> =
-        auditUiController.loadAgentTraceRuns()
-
-    private fun failStaleAgentRunsOnStartup() {
-        val failedCount = assistantOrchestrator.failStaleInFlightRuns(STALE_AGENT_RUN_STARTUP_REASON)
-        if (failedCount <= 0) return
-        _uiState.update {
-            it.copy(agentTraceRuns = loadAgentTraceRuns())
-        }
-    }
-
-    private fun isArm64Device(): Boolean =
-        isArm64DeviceProvider()
-
-    private fun isCurrentSharedIntentIngestion(
-        consumptionKey: String,
-        generation: Long,
-    ): Boolean =
-        synchronized(sharedIntentIngestionLock) {
-            inFlightSharedIntentGenerations[consumptionKey] == generation
-        }
-
-    private fun markSharedIntentIngestionCompleted(
-        consumptionKey: String,
-        generation: Long,
-    ) {
-        synchronized(sharedIntentIngestionLock) {
-            if (inFlightSharedIntentGenerations[consumptionKey] != generation) return
-            inFlightSharedIntentGenerations.remove(consumptionKey)
-            completedSharedIntentKeys += consumptionKey
-        }
-    }
-
-    private fun clearSharedIntentIngestion(
-        consumptionKey: String,
-        generation: Long,
-    ) {
-        synchronized(sharedIntentIngestionLock) {
-            if (inFlightSharedIntentGenerations[consumptionKey] == generation) {
-                inFlightSharedIntentGenerations.remove(consumptionKey)
-            }
-        }
     }
 
     private fun dispatchPersistenceWorkIfNeeded(work: () -> Unit): Boolean {
