@@ -64,7 +64,6 @@ credentials/    API Key / OAuth 凭证解析
 download/       模型下载与校验
 capability/     能力矩阵与产品定位
 plan/           多步计划持久化与工具桥接
-undo/           动作撤销策略
 rcperf/         RC 性能基准（纯 JVM 可测）
 eval/           AI 行为评估数据模型
 logging/        SolinLog 结构化日志门面

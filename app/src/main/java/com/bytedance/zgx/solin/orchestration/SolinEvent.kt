@@ -180,19 +180,6 @@ sealed interface SolinEvent {
             override val occurredAtMillis: Long = System.currentTimeMillis(),
         ) : Agent
 
-        /**
-         * Fired when a just-completed tool produced a compensating undo plan. Only one
-         * undo entry is live at a time; a subsequent successful tool replaces or clears it.
-         */
-        data class UndoPushed(
-            override val runId: String,
-            val sourceRequestId: String,
-            val toolName: String,
-            val summary: String,
-            val availableUntilMillis: Long,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Agent
     }
 
     sealed interface Audit : SolinEvent {
@@ -220,23 +207,6 @@ sealed interface SolinEvent {
             override val occurredAtMillis: Long = System.currentTimeMillis(),
         ) : Audit
 
-        /**
-         * Fired when a remote-send decision is recorded. Field names mirror
-         * [com.bytedance.zgx.solin.audit.RemoteSendAuditEvent]; [decision] is the name of a
-         * [com.bytedance.zgx.solin.audit.RemoteSendDecision] entry and [sensitiveCategoriesCsv] is
-         * a comma-sorted list of [com.bytedance.zgx.solin.safety.SafetyCategory] names.
-         */
-        data class RemoteSendAudited(
-            override val runId: String?,
-            val decision: String,
-            val modelName: String?,
-            val sensitiveCategoriesCsv: String = "",
-            val imageCount: Int = 0,
-            val remoteHistoryCount: Int = 0,
-            val summary: String,
-            override val eventId: String = UUID.randomUUID().toString(),
-            override val occurredAtMillis: Long = System.currentTimeMillis(),
-        ) : Audit
     }
 
     companion object {

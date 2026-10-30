@@ -1145,29 +1145,6 @@ Tests:
 - `BundledModelInstallerTest`
 - `InferencePreferenceCodecTest`
 
-## Undo
-
-Code:
-
-- `app/src/main/java/com/bytedance/zgx/solin/undo/`
-
-Responsibilities:
-
-- Hold the undo data types used by Agent run events.
-
-Current status:
-
-- Only the `UndoEntry` / `UndoPlan` data types remain, referenced by
-  `AgentRunEvent.UndoPushed`. No production path creates undo plans; the former
-  undo-policy registry and the Agent loop's undo stack were removed because
-  nothing consumed them. Re-introducing undo must go through the full tool
-  confirmation and safety boundary, and high-risk actions (send, delete, pay,
-  publish) must never be auto-undoable.
-
-Tests:
-
-- `AgentRunEventsTest`
-
 ## RC Performance
 
 Code:

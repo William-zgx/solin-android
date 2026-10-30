@@ -2,7 +2,6 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.plan.PlanSnapshot
 import com.bytedance.zgx.solin.tool.ToolStatus
-import com.bytedance.zgx.solin.undo.UndoEntry
 
 enum class AgentRunEventKind {
     InputReceived,
@@ -15,9 +14,6 @@ enum class AgentRunEventKind {
     AnswerGenerated,
     RunFailed,
     RunCancelled,
-    UndoPushed,
-    UndoPopped,
-    UndoExecuted,
 }
 
 enum class AgentRunEventState {
@@ -91,25 +87,6 @@ sealed class AgentRunEvent(
         val snapshot: PlanSnapshot,
     ) : AgentRunEvent(eventId, runId, AgentRunEventKind.PlanUpdated)
 
-    data class UndoPushed(
-        override val eventId: String,
-        override val runId: String,
-        val entry: UndoEntry,
-    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.UndoPushed)
-
-    data class UndoPopped(
-        override val eventId: String,
-        override val runId: String,
-        val reason: String,
-    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.UndoPopped)
-
-    data class UndoExecuted(
-        override val eventId: String,
-        override val runId: String,
-        val sourceRequestId: String,
-        val success: Boolean,
-        val detail: String,
-    ) : AgentRunEvent(eventId, runId, AgentRunEventKind.UndoExecuted)
 
     data class ConfirmationRequested(
         override val eventId: String,

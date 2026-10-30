@@ -292,11 +292,6 @@ class SolinAppContainer(
         )
         toolProgressPublisher = DefaultToolProgressPublisher(eventBus = eventBus)
         telemetrySink.attachTo(eventBus, containerScope)
-        containerScope.launch {
-            eventBus.subscribe(SolinEvent.Audit.RemoteSendAudited::class).collect { event ->
-                event.toRemoteSendAuditEvent()?.let(remoteSendAuditRepository::record)
-            }
-        }
         toolRegistry = ToolRegistry(moduleRegistry.toolProviders)
         actionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
@@ -486,25 +481,4 @@ class SolinAppContainer(
         observationActionPlanningRuntime.close()
     }
 
-    private fun SolinEvent.Audit.RemoteSendAudited.toRemoteSendAuditEvent(): RemoteSendAuditEvent? {
-        val resolvedDecision = runCatching { RemoteSendDecision.valueOf(decision) }
-            .getOrElse { return null }
-        val categories = sensitiveCategoriesCsv
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .mapNotNull { name ->
-                runCatching { SafetyCategory.valueOf(name) }.getOrNull()
-            }
-        return RemoteSendAuditEvent(
-            id = eventId,
-            decision = resolvedDecision,
-            modelName = modelName,
-            sensitiveCategories = categories,
-            imageCount = imageCount,
-            remoteHistoryCount = remoteHistoryCount,
-            summary = summary,
-            createdAtMillis = occurredAtMillis,
-        )
-    }
 }

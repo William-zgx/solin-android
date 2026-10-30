@@ -492,12 +492,9 @@ internal fun SolinEvent.toMetricSamples(): List<MetricSample> {
         is SolinEvent.Agent.UserConfirmed -> Unit
         is SolinEvent.Agent.UserRejected -> Unit
         is SolinEvent.Agent.PlanUpdated -> Unit
-        is SolinEvent.Agent.UndoPushed -> Unit
 
         // Audit: record count only — never summary/payload.
-        is SolinEvent.Audit.ToolAudited,
-        is SolinEvent.Audit.RemoteSendAudited,
-        -> {
+        is SolinEvent.Audit.ToolAudited -> {
             out += MetricSample.CounterInc(
                 name = TelemetryCounter.AuditEvents,
                 occurredAtMillis = occurredAtMillis,

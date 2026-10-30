@@ -64,9 +64,6 @@ private fun AgentRunEvent.userFacingLabel(): String =
         is AgentRunEvent.AnswerGenerated -> "生成回答"
         is AgentRunEvent.RunFailed -> "失败"
         is AgentRunEvent.RunCancelled -> "已取消"
-        is AgentRunEvent.UndoPushed -> "记录撤销"
-        is AgentRunEvent.UndoPopped -> "撤销已清除"
-        is AgentRunEvent.UndoExecuted -> "执行撤销"
     }
 
 private fun AgentRunEvent.userFacingState(): AgentRunEventState =
@@ -81,9 +78,6 @@ private fun AgentRunEvent.userFacingState(): AgentRunEventState =
         is AgentRunEvent.AnswerGenerated -> AgentRunEventState.Completed
         is AgentRunEvent.RunFailed -> AgentRunEventState.Failed
         is AgentRunEvent.RunCancelled -> AgentRunEventState.Cancelled
-        is AgentRunEvent.UndoPushed -> AgentRunEventState.Executing
-        is AgentRunEvent.UndoPopped -> AgentRunEventState.Executing
-        is AgentRunEvent.UndoExecuted -> if (success) AgentRunEventState.Observing else AgentRunEventState.Failed
     }
 
 private fun AgentRunEvent.userFacingDetail(): String =
@@ -102,9 +96,6 @@ private fun AgentRunEvent.userFacingDetail(): String =
         is AgentRunEvent.AnswerGenerated -> outputLabel?.safeUiText() ?: "回答已生成"
         is AgentRunEvent.RunFailed -> reasonLabel.safeUiText()
         is AgentRunEvent.RunCancelled -> reasonLabel.safeUiText()
-        is AgentRunEvent.UndoPushed -> "${entry.toolName.safeUiText()} · ${entry.plan.summary.safeUiText()}"
-        is AgentRunEvent.UndoPopped -> reason.safeUiText()
-        is AgentRunEvent.UndoExecuted -> "${if (success) "成功" else "失败"} · ${detail.safeUiText()}"
     }
 
 private fun AgentRunEvent.privacyMarkers(): Set<*> =
@@ -118,10 +109,7 @@ private fun AgentRunEvent.privacyMarkers(): Set<*> =
         is AgentRunEvent.PlanUpdated,
         is AgentRunEvent.ToolExecuted,
         is AgentRunEvent.RunFailed,
-        is AgentRunEvent.RunCancelled,
-        is AgentRunEvent.UndoPushed,
-        is AgentRunEvent.UndoPopped,
-        is AgentRunEvent.UndoExecuted -> emptySet<Any>()
+        is AgentRunEvent.RunCancelled -> emptySet<Any>()
     }
 
 private fun AgentRunEvent.riskMarkers(): Set<*> =
@@ -135,10 +123,7 @@ private fun AgentRunEvent.riskMarkers(): Set<*> =
         is AgentRunEvent.PlanUpdated,
         is AgentRunEvent.ObservationRecorded,
         is AgentRunEvent.AnswerGenerated,
-        is AgentRunEvent.RunCancelled,
-        is AgentRunEvent.UndoPushed,
-        is AgentRunEvent.UndoPopped,
-        is AgentRunEvent.UndoExecuted -> emptySet<Any>()
+        is AgentRunEvent.RunCancelled -> emptySet<Any>()
     }
 
 private fun Set<*>.joinToLabel(): String? =

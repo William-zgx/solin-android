@@ -39,7 +39,6 @@ class AgentCoreDocumentationTest {
                 "MCP (Model Context Protocol)",
                 "Storage",
                 "Data Layer",
-                "Undo",
                 "RC Performance",
                 "Eval",
                 "Regression Strategy",
