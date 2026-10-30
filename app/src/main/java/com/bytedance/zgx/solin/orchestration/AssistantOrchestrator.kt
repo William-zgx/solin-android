@@ -430,39 +430,6 @@ class AssistantOrchestrator(
         (actionPlanningRuntime as? AutoCloseable)?.close()
     }
 
-    // -----------------------------------------------------------------------
-    // Wave 4: suspend hook/telemetry entry points forwarded to AgentLoopRuntime.
-    // These are invoked by SolinViewModel at lifecycle points that occur
-    // outside the reactive runtime (tool execution, message-list assembly).
-    // -----------------------------------------------------------------------
-
-    suspend fun beforeToolCall(runId: String, request: ToolRequest): BeforeToolCallResult =
-        agentLoopRuntime.beforeToolCall(runId, request)
-
-    suspend fun afterToolCall(
-        runId: String,
-        request: ToolRequest,
-        result: ToolResult,
-        durationMs: Long,
-    ): AfterToolCallResult = agentLoopRuntime.afterToolCall(runId, request, result, durationMs)
-
-    suspend fun transformContext(messages: List<ChatMessage>): List<ChatMessage> =
-        agentLoopRuntime.transformContext(messages)
-
-    suspend fun prepareNextTurn(
-        runId: String,
-        turnIndex: Int,
-        messageCount: Int,
-        pendingToolCalls: Int,
-    ): TurnUpdate? = agentLoopRuntime.prepareNextTurn(runId, turnIndex, messageCount, pendingToolCalls)
-
-    suspend fun shouldStopAfterTurn(
-        runId: String,
-        turnIndex: Int,
-        messageCount: Int,
-        pendingToolCalls: Int,
-    ): Boolean = agentLoopRuntime.shouldStopAfterTurn(runId, turnIndex, messageCount, pendingToolCalls)
-
     /** Suspend-aware steering drain that includes hook-provided messages. */
     suspend fun drainSteeringMessagesSuspend(runId: String): List<ChatMessage> =
         agentLoopRuntime.drainSteeringMessagesSuspend(runId)

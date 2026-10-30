@@ -1217,10 +1217,11 @@ class AgentLoopRuntime(
      */
     suspend fun drainPendingMessagesSuspend(runId: String): PendingMessagesDrain {
         val base = drainPendingMessages(runId)
-        val hookMessages = safeHookCall(
-            label = "getSteeringMessages",
-            default = emptyList<ChatMessage>(),
-        ) { hooks.getSteeringMessages() }
+        // A throwing hook must not crash the agent loop; fall back to no hook messages.
+        val hookMessages = runCatching { hooks.getSteeringMessages() }.getOrElse { throwable ->
+            Log.e(TAG, "Agent hook 'getSteeringMessages' failed; using safe default", throwable)
+            emptyList()
+        }
         return if (hookMessages.isEmpty()) {
             base
         } else {
@@ -1942,130 +1943,6 @@ class AgentLoopRuntime(
      */
     fun markStepStart(runId: String, stepType: String) {
         stepStartedAtMillis[StepStartKey(runId, stepType)] = System.currentTimeMillis()
-    }
-
-    // -----------------------------------------------------------------------
-    // Wave 4: public suspend hook entry points. Each is wrapped in runCatching
-    // so a throwing hook cannot crash the agent loop; failures are logged and
-    // safe defaults are returned. These are the canonical integration points
-    // upper layers (ViewModel / Orchestrator) should call at lifecycle points
-    // that occur OUTSIDE this runtime (executor.execute, message-list assembly,
-    // turn continuation).
-    // -----------------------------------------------------------------------
-
-    /**
-     * Invoke [AgentHooks.beforeToolCall] for the given tool [request]. Returns the hook's result
-     * (Proceed/Blocked), defaulting to Proceed if the hook throws or returns unexpectedly.
-     * Callers should treat Blocked as "do NOT call executor.execute" and surface [Blocked.reason]
-     * to the user / trace.
-     */
-    suspend fun beforeToolCall(
-        runId: String,
-        request: ToolRequest,
-    ): BeforeToolCallResult = safeHookCall(
-        label = "beforeToolCall",
-        default = BeforeToolCallResult.Proceed,
-    ) {
-        hooks.beforeToolCall(
-            BeforeToolCallContext(
-                runId = runId,
-                toolCallId = request.id,
-                toolName = request.toolName,
-                args = request.arguments,
-            ),
-        )
-    }
-
-    /**
-     * Invoke [AgentHooks.afterToolCall] for the given [result] and record a ToolCompleted
-     * telemetry sample with the supplied [durationMs]. Returns the hook's disposition (Keep /
-     * ReplaceContent / Terminate); Keep is returned on any hook failure so execution continues.
-     */
-    suspend fun afterToolCall(
-        runId: String,
-        request: ToolRequest,
-        result: ToolResult,
-        durationMs: Long,
-    ): AfterToolCallResult = safeHookCall(
-        label = "afterToolCall",
-        default = AfterToolCallResult.Keep,
-    ) {
-        // Record telemetry at the same lifecycle point as the hook so dashboards see the tool
-        // completion regardless of whether the hook decides to replace/terminate.
-        safeRecordTelemetry(
-            MetricSample.ToolCompleted(
-                toolName = request.toolName,
-                latencyMs = durationMs,
-                succeeded = result.status == ToolStatus.Succeeded,
-                requestId = request.id,
-                runId = runId,
-            ),
-            "ToolCompleted (external)",
-        )
-        hooks.afterToolCall(
-            AfterToolCallContext(
-                runId = runId,
-                toolCallId = request.id,
-                toolName = request.toolName,
-                result = result,
-                durationMs = durationMs,
-            ),
-        )
-    }
-
-    /**
-     * Invoke [AgentHooks.transformContext] on the assembled [messages]. Returns the transformed
-     * list; on hook failure the original list is returned unchanged so the model call proceeds.
-     */
-    suspend fun transformContext(messages: List<ChatMessage>): List<ChatMessage> = safeHookCall(
-        label = "transformContext",
-        default = messages,
-    ) { hooks.transformContext(messages) }
-
-    /**
-     * Invoke [AgentHooks.prepareNextTurn] at the start of each continuation turn. Returns the
-     * hook's [TurnUpdate] (prependMessages/stopAfterTurn) or null on failure / no-op.
-     */
-    suspend fun prepareNextTurn(
-        runId: String,
-        turnIndex: Int,
-        messageCount: Int,
-        pendingToolCalls: Int,
-    ): TurnUpdate? = safeHookCall(
-        label = "prepareNextTurn",
-        default = null,
-    ) {
-        hooks.prepareNextTurn(
-            TurnContext(
-                runId = runId,
-                turnIndex = turnIndex,
-                messageCount = messageCount,
-                pendingToolCalls = pendingToolCalls,
-            ),
-        )
-    }
-
-    /**
-     * Invoke [AgentHooks.shouldStopAfterTurn] after a model turn completes. Returns false on any
-     * hook failure so the default stop logic (Complete / PlanNextTool / etc.) governs.
-     */
-    suspend fun shouldStopAfterTurn(
-        runId: String,
-        turnIndex: Int,
-        messageCount: Int,
-        pendingToolCalls: Int,
-    ): Boolean = safeHookCall(
-        label = "shouldStopAfterTurn",
-        default = false,
-    ) {
-        hooks.shouldStopAfterTurn(
-            TurnContext(
-                runId = runId,
-                turnIndex = turnIndex,
-                messageCount = messageCount,
-                pendingToolCalls = pendingToolCalls,
-            ),
-        )
     }
 
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =
@@ -3445,21 +3322,9 @@ class AgentLoopRuntime(
     }
 
     // -----------------------------------------------------------------------
-    // Wave 4 telemetry + hook safety helpers.
-    //
-    // All hook invocations and telemetry recordings MUST go through these
-    // wrappers so a throwing hook implementation or sink cannot crash the
-    // agent run; failures are logged with Log.e and safe defaults are used.
+    // Wave 4 telemetry helpers. Telemetry recordings MUST go through
+    // safeRecordTelemetry so a throwing sink cannot crash the agent run.
     // -----------------------------------------------------------------------
-
-    private inline fun <T> safeHookCall(
-        label: String,
-        default: T,
-        block: () -> T,
-    ): T = runCatching(block).getOrElse { throwable ->
-        Log.e(TAG, "Agent hook '$label' failed; using safe default", throwable)
-        default
-    }
 
     private fun safeRecordTelemetry(
         sample: MetricSample,
