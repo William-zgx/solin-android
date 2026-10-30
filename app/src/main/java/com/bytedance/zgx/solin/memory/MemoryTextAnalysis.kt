@@ -8,14 +8,14 @@ import java.util.Locale
  * MemoryRepository.kt; behaviour unchanged.
  */
 
-internal fun deterministicMemoryRecordId(prefix: String, key: String): String {
-    val hash = MessageDigest.getInstance("SHA-256")
-        .digest(key.toByteArray(Charsets.UTF_8))
-        .joinToString(separator = "") { byte ->
-            (byte.toInt() and 0xff).toString(16).padStart(2, '0')
-        }
-    return "$prefix-${hash.take(16)}"
-}
+/** Lowercase hex SHA-256 of [text] encoded as UTF-8. */
+internal fun sha256Hex(text: String): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+internal fun deterministicMemoryRecordId(prefix: String, key: String): String =
+    "$prefix-${sha256Hex(key).take(16)}"
 
 /**
  * Whitespace-collapsing pattern shared by the memory normalizers.
@@ -31,14 +31,8 @@ private val TOKEN_SEPARATOR_REGEX = Regex("""[^\p{L}\p{N}]+""")
 /** Unsafe-id sanitizer pattern; hoisted for the same reason. */
 internal val UNSAFE_ID_CHARS_REGEX = Regex("""[^A-Za-z0-9_.:-]+""")
 
-internal fun semanticSourceHash(text: String): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val normalized = text.trim().replace(WHITESPACE_RUN_REGEX, " ")
-    digest.update(normalized.toByteArray(Charsets.UTF_8))
-    return digest.digest().joinToString(separator = "") { byte ->
-        "%02x".format(byte.toInt() and 0xff)
-    }
-}
+internal fun semanticSourceHash(text: String): String =
+    sha256Hex(text.trim().replace(WHITESPACE_RUN_REGEX, " "))
 
 internal fun memoryRecordTextHash(text: String): String =
     semanticSourceHash(text)

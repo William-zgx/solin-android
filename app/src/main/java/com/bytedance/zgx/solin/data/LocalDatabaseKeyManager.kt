@@ -34,7 +34,7 @@ internal class LocalDatabaseKeyManager(
             "Protected database keyset is missing while an encrypted database exists."
         }
         val randomBytes = ByteArray(PASSPHRASE_RANDOM_BYTES).also(SecureRandom()::nextBytes)
-        val passphrase = randomBytes.toHexString().toByteArray(Charsets.US_ASCII)
+        val passphrase = randomBytes.toLowerHex().toByteArray(Charsets.US_ASCII)
         writeKeyset(wrapPassphrase(passphrase))
         return passphrase
     }
@@ -131,5 +131,6 @@ internal class LocalDatabaseKeyManager(
     }
 }
 
-private fun ByteArray.toHexString(): String =
+/** Lowercase two-digit hex per byte. */
+internal fun ByteArray.toLowerHex(): String =
     joinToString(separator = "") { byte -> "%02x".format(byte) }

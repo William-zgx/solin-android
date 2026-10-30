@@ -6,7 +6,6 @@ import com.bytedance.zgx.solin.storage.LocalDocument
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
 import com.bytedance.zgx.solin.storage.ZvecNativeLocalVectorIndex
 import java.io.File
-import java.security.MessageDigest
 import org.json.JSONObject
 
 internal class LegacyMemoryStorageRetirement(
@@ -111,20 +110,18 @@ internal class LegacyMemoryStorageRetirement(
     }
 
     private fun PersistedMemoryRecord.contentHash(): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(
-                listOf(
-                    id,
-                    type.name,
-                    text,
-                    source.name,
-                    sensitivity.name,
-                    privacy.name,
-                    expiresAtMillis?.toString().orEmpty(),
-                    conflictKey.orEmpty(),
-                ).joinToString(separator = "\u0000").toByteArray(),
-            )
-            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        sha256Hex(
+            listOf(
+                id,
+                type.name,
+                text,
+                source.name,
+                sensitivity.name,
+                privacy.name,
+                expiresAtMillis?.toString().orEmpty(),
+                conflictKey.orEmpty(),
+            ).joinToString(separator = "\u0000"),
+        )
 }
 
 /** Parses a plaintext record written by the retired zvec/SharedPreferences memory store. */

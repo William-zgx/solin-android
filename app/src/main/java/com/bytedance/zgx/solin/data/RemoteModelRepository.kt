@@ -274,16 +274,9 @@ private fun RemoteModelConfig.remoteConfigIntegritySha256(): String {
         appendLengthPrefixed(normalized.contextWindowTokens?.toString().orEmpty())
         appendLengthPrefixed(normalized.profileRevision)
     }
-    val digest = MessageDigest.getInstance("SHA-256")
+    return MessageDigest.getInstance("SHA-256")
         .digest(encoded.toByteArray(Charsets.UTF_8))
-    val hex = "0123456789abcdef"
-    return buildString(digest.size * 2) {
-        digest.forEach { byte ->
-            val value = byte.toInt() and 0xff
-            append(hex[value ushr 4])
-            append(hex[value and 0x0f])
-        }
-    }
+        .toLowerHex()
 }
 
 private fun StringBuilder.appendLengthPrefixed(value: String) {
