@@ -3,7 +3,10 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.process.CommandLineArgumentProvider
 import java.net.URI
 import java.security.MessageDigest
 
@@ -39,6 +42,7 @@ val bundledModelsSourceDir = providers
 val bundledModelsHuggingFaceToken = providers
     .gradleProperty("solin.huggingFaceToken")
     .orElse(providers.environmentVariable("SOLIN_HF_TOKEN"))
+val roomSchemaDir = layout.projectDirectory.dir("schemas").asFile
 val bundledModelsAssetRoot = layout.buildDirectory.dir("generated/bundledModels/assets")
 val bundledModelsCacheRoot = layout.buildDirectory.dir("bundled-model-cache")
 val bundledModelPackModules = setOf(
@@ -260,6 +264,11 @@ android {
         getByName("main") {
             jniLibs.directories.add(zvecJniLibsRoot.absolutePath)
         }
+        // Exported Room schemas (see ksp room.schemaLocation below) are packaged into the
+        // instrumentation APK so androidx.room.testing.MigrationTestHelper can load them.
+        getByName("androidTest") {
+            assets.directories.add(roomSchemaDir.absolutePath)
+        }
     }
 
     externalNativeBuild {
@@ -268,6 +277,22 @@ android {
             version = "3.31.6"
         }
     }
+}
+
+// Room writes <version>.json schema snapshots here when @Database(exportSchema = true);
+// the argument is ignored while exportSchema is false. Commit the generated app/schemas/.
+// The schema files are tracked as KSP inputs (relative paths) so a deleted/edited snapshot
+// re-runs Room and the absolute path does not leak into build-cache keys.
+class RoomSchemaArgProvider(
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    val schemaDir: File,
+) : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOf("room.schemaLocation=${schemaDir.path}")
+}
+
+ksp {
+    arg(RoomSchemaArgProvider(roomSchemaDir))
 }
 
 kotlin {
