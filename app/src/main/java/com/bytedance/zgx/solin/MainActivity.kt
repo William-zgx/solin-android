@@ -146,6 +146,10 @@ class MainActivity : ComponentActivity() {
                     }
                     confirmationPermissions.restorePendingSpecialAccessRequirement(savedInstanceState)
                     handleSharedIntent(intent, allowPreviouslyConsumed = false)
+                    debugIntents.dispatchPromptIfPresent(
+                        intent = intent,
+                        restoredFromSavedState = savedInstanceState != null,
+                    )
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.refreshRemoteModelConnectivityIfStale()
                         awaitCancellation()

@@ -28,22 +28,29 @@ internal class DebugIntentHandler(
     }
 
     /**
-     * If the new intent carries a UTF-8 prompt extra, forward it straight into
+     * If the launch or new intent carries a UTF-8 prompt extra, forward it straight into
      * [SolinViewModel.sendMessage], bypassing the IME. Lets ADB drive a real agent run (including
      * the remote-vision GUI loop) with text `adb shell input text` cannot type (e.g. Chinese) via
-     * `am start ... --es <EXTRA_DEBUG_PROMPT> "打开小红书搜索咖啡"`.
+     * `am start ... --es <EXTRA_DEBUG_PROMPT> "打开小红书搜索咖啡"`, whether or not Solin is
+     * already running. A launch intent restored from saved state (process death) is skipped so a
+     * prompt is never resent.
      */
-    fun dispatchPromptIfPresent(intent: Intent) {
+    fun dispatchPromptIfPresent(intent: Intent, restoredFromSavedState: Boolean = false) {
         val prompt = debugPromptOrNull(
             isDebugBuild = BuildConfig.DEBUG,
+            restoredFromSavedState = restoredFromSavedState,
             rawPrompt = intent.getStringExtra(MainActivity.EXTRA_DEBUG_PROMPT),
         ) ?: return
-        // Consume once so a re-delivered intent does not resend.
+        // Consume once so a re-delivered intent (configuration change) does not resend.
         intent.removeExtra(MainActivity.EXTRA_DEBUG_PROMPT)
         Log.i("Solin/DebugPrompt", "dispatching prompt len=${prompt.length}")
         viewModel().sendMessage(prompt)
     }
 }
 
-internal fun debugPromptOrNull(isDebugBuild: Boolean, rawPrompt: String?): String? =
-    rawPrompt?.trim()?.takeIf { isDebugBuild && it.isNotEmpty() }
+internal fun debugPromptOrNull(
+    isDebugBuild: Boolean,
+    restoredFromSavedState: Boolean,
+    rawPrompt: String?,
+): String? =
+    rawPrompt?.trim()?.takeIf { isDebugBuild && !restoredFromSavedState && it.isNotEmpty() }
