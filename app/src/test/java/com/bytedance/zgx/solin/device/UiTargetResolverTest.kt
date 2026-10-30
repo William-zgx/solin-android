@@ -756,7 +756,7 @@ class UiTargetResolverTest {
         assertTrue(evidence.rankedCandidates.firstOrNull()?.score?.semanticScore ?: 0 > 0)
         assertTrue(evidence.rankedCandidates.firstOrNull()?.score?.profileHintScore ?: 0 > 0)
         assertEquals(
-            UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")?.confidence,
+            UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")?.score?.finalScore,
             evidence.rankedCandidates.firstOrNull()?.score?.finalScore,
         )
 
@@ -847,7 +847,7 @@ class UiTargetResolverTest {
         assertEquals(0, candidate.score.riskPenalty)
         assertEquals(0, candidate.score.noisePenalty)
         assertEquals(
-            UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索京东商品")?.confidence,
+            UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索京东商品")?.score?.finalScore,
             candidate.score.finalScore,
         )
     }

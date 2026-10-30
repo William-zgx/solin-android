@@ -286,16 +286,6 @@ enum class UiTargetKind(val schemaValue: String) {
     ScrollContainer("scroll_container"),
 }
 
-data class UiResolvedTarget(
-    val kind: UiTargetKind,
-    val nodeId: String?,
-    val bounds: ScreenBounds?,
-    val confidence: Int,
-    val reason: String,
-    val source: UiTargetEvidenceSource = UiTargetEvidenceSource.Accessibility,
-    val fallbackType: UiTargetFallbackType = UiTargetFallbackType.None,
-)
-
 data class UiTargetScoreComponents(
     val semanticScore: Int,
     val profileHintScore: Int,

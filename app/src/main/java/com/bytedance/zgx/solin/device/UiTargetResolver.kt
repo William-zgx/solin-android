@@ -40,128 +40,45 @@ data class UiTargetExplanationContract(
 )
 
 object UiTargetResolver {
-    fun resolve(
-        snapshot: ScreenStateSnapshot,
-        kind: UiTargetKind,
-        target: String? = null,
-        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
-    ): UiResolvedTarget? =
-        resolveAll(
-            snapshot = snapshot,
-            kind = kind,
-            target = target,
-            profile = profile,
-        ).firstOrNull()
-
-    fun resolve(
-        observation: ScreenObservation,
-        kind: UiTargetKind,
-        target: String? = null,
-        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName),
-    ): UiResolvedTarget? =
-        resolveAll(
-            observation = observation,
-            kind = kind,
-            target = target,
-            profile = profile,
-        ).firstOrNull()
-
-    fun resolveAll(
-        snapshot: ScreenStateSnapshot,
-        kind: UiTargetKind,
-        target: String? = null,
-        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
-    ): List<UiResolvedTarget> {
-        return rankedCandidates(
-            snapshot = snapshot,
-            kind = kind,
-            target = target,
-            profile = profile,
-            includeDiagnostics = false,
-        ).map { candidate ->
-            UiResolvedTarget(
-                kind = kind,
-                nodeId = candidate.nodeId,
-                bounds = candidate.bounds,
-                confidence = candidate.score.finalScore,
-                reason = candidate.reason,
-                source = candidate.source,
-                fallbackType = candidate.fallbackType,
-            )
-        }
-    }
-
-    fun resolveAll(
-        observation: ScreenObservation,
-        kind: UiTargetKind,
-        target: String? = null,
-        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName),
-    ): List<UiResolvedTarget> {
-        return rankedCandidates(
-            observation = observation,
-            kind = kind,
-            target = target,
-            profile = profile,
-            includeDiagnostics = false,
-        ).map { candidate ->
-            UiResolvedTarget(
-                kind = kind,
-                nodeId = candidate.nodeId,
-                bounds = candidate.bounds,
-                confidence = candidate.score.finalScore,
-                reason = candidate.reason,
-                source = candidate.source,
-                fallbackType = candidate.fallbackType,
-            )
-        }
-    }
-
     fun explain(
         snapshot: ScreenStateSnapshot,
         kind: UiTargetKind,
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
-    ): UiTargetResolutionEvidence {
-        val candidates = rankedCandidates(
-            snapshot = snapshot,
-            kind = kind,
-            target = target,
-            profile = profile,
-            includeDiagnostics = true,
-        )
-        val selectableCandidates = candidates.filter { candidate -> candidate.isSelectable(kind) }
-        val evidenceCandidates = selectableCandidates.takeIf { it.isNotEmpty() } ?: candidates
-        return UiTargetResolutionEvidence(
+    ): UiTargetResolutionEvidence =
+        evidence(
             kind = kind,
             target = target,
             packageName = snapshot.packageName,
-            selectedNodeId = selectableCandidates.firstOrNull()?.nodeId,
-            rankedCandidates = evidenceCandidates,
-            failureKind = if (selectableCandidates.isEmpty()) kind.missingResolutionFailureKind() else null,
+            candidates = rankedCandidates(snapshot.nodes.map(::GroundingNode), kind, target, profile),
         )
-    }
 
     fun explain(
         observation: ScreenObservation,
         kind: UiTargetKind,
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName),
-    ): UiTargetResolutionEvidence {
-        val candidates = rankedCandidates(
-            observation = observation,
-            kind = kind,
-            target = target,
-            profile = profile,
-            includeDiagnostics = true,
-        )
-        val selectableCandidates = candidates.filter { candidate -> candidate.isSelectable(kind) }
-        val evidenceCandidates = selectableCandidates.takeIf { it.isNotEmpty() } ?: candidates
-        return UiTargetResolutionEvidence(
+    ): UiTargetResolutionEvidence =
+        evidence(
             kind = kind,
             target = target,
             packageName = observation.packageName,
+            candidates = rankedCandidates(observation.toGroundingNodes(), kind, target, profile),
+        )
+
+    private fun evidence(
+        kind: UiTargetKind,
+        target: String?,
+        packageName: String?,
+        candidates: List<UiTargetEvidenceCandidate>,
+    ): UiTargetResolutionEvidence {
+        val selectableCandidates = candidates.filter { candidate -> candidate.isSelectable(kind) }
+        return UiTargetResolutionEvidence(
+            kind = kind,
+            target = target,
+            packageName = packageName,
             selectedNodeId = selectableCandidates.firstOrNull()?.nodeId,
-            rankedCandidates = evidenceCandidates,
+            rankedCandidates = selectableCandidates.ifEmpty { candidates },
             failureKind = if (selectableCandidates.isEmpty()) kind.missingResolutionFailureKind() else null,
         )
     }
@@ -202,38 +119,15 @@ object UiTargetResolver {
     }
 
     private fun rankedCandidates(
-        snapshot: ScreenStateSnapshot,
+        nodes: List<GroundingNode>,
         kind: UiTargetKind,
         target: String?,
         profile: AppInteractionProfile?,
-        includeDiagnostics: Boolean,
     ): List<UiTargetEvidenceCandidate> {
-        val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
-        val normalizedTarget = target.normalizedLookupKey()
-        return snapshot.nodes
-            .map { node ->
-                GroundingNode(
-                    node = node,
-                    source = UiTargetEvidenceSource.Accessibility,
-                    fallbackType = UiTargetFallbackType.None,
-                )
-            }
-            .mapNotNull { node -> scoreNode(node, kind, normalizedTarget, profile, metrics, includeDiagnostics) }
-            .sortedByDescending { candidate -> candidate.score.finalScore }
-    }
-
-    private fun rankedCandidates(
-        observation: ScreenObservation,
-        kind: UiTargetKind,
-        target: String?,
-        profile: AppInteractionProfile?,
-        includeDiagnostics: Boolean,
-    ): List<UiTargetEvidenceCandidate> {
-        val nodes = observation.toGroundingNodes()
         val metrics = SnapshotBoundsMetrics.from(nodes.map { node -> node.node })
         val normalizedTarget = target.normalizedLookupKey()
         val scored = nodes
-            .mapNotNull { node -> scoreNode(node, kind, normalizedTarget, profile, metrics, includeDiagnostics) }
+            .mapNotNull { node -> scoreNode(node, kind, normalizedTarget, profile, metrics) }
         // A synthesized trailing-affordance candidate (id "<parent>::affordance", fallbackType
         // OcrGrounding) must never outrank an UNRELATED real accessibility control that is itself
         // selectable for this kind — otherwise an exact text match on a right-30% sub-region could
@@ -265,7 +159,6 @@ object UiTargetResolver {
         normalizedTarget: String,
         profile: AppInteractionProfile?,
         metrics: SnapshotBoundsMetrics,
-        includeDiagnostics: Boolean,
     ): UiTargetEvidenceCandidate? {
         val node = groundingNode.node
         val label = groundingNode.labelOverride ?: node.visibleLabel()
@@ -278,7 +171,6 @@ object UiTargetResolver {
             metrics = metrics,
             fallbackPenalty = groundingNode.fallbackPenalty(),
         ) ?: return null
-        if (!includeDiagnostics && !node.isSelectable(kind, outcome.score.finalScore)) return null
         val resolvedLabel = label.ifBlank { node.className }
         return UiTargetEvidenceCandidate(
             nodeId = node.id,
@@ -560,14 +452,6 @@ fun UiTargetResolutionEvidence.explanationContract(): UiTargetExplanationContrac
     )
 }
 
-fun UiResolvedTarget.explanationContract(): UiTargetExplanationContract =
-    kind.explanationContract(
-        selected = true,
-        source = source,
-        fallbackType = fallbackType,
-        reason = reason,
-    )
-
 private fun UiTargetKind.explanationContract(
     selected: Boolean,
     source: UiTargetEvidenceSource,
@@ -748,9 +632,6 @@ internal fun UiTargetKind.requiresPreciseTarget(): Boolean =
 private fun UiTargetEvidenceCandidate.isSelectable(kind: UiTargetKind): Boolean =
     enabled && score.finalScore >= kind.minimumTargetScore()
 
-private fun ScreenNode.isSelectable(kind: UiTargetKind, score: Int): Boolean =
-    enabled && score >= kind.minimumTargetScore()
-
 private fun UiTargetKind.missingResolutionFailureKind(): UiActionFailureKind =
     when (this) {
         UiTargetKind.SearchEntry -> UiActionFailureKind.SearchEntryNotFound
@@ -761,8 +642,8 @@ private fun UiTargetKind.missingResolutionFailureKind(): UiActionFailureKind =
 
 private data class GroundingNode(
     val node: ScreenNode,
-    val source: UiTargetEvidenceSource,
-    val fallbackType: UiTargetFallbackType,
+    val source: UiTargetEvidenceSource = UiTargetEvidenceSource.Accessibility,
+    val fallbackType: UiTargetFallbackType = UiTargetFallbackType.None,
     val labelOverride: String? = null,
 ) {
     fun fallbackPenalty(): Int =
