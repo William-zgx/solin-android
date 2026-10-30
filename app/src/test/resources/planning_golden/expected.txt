@@ -2238,3 +2238,31 @@ skill[ModelDrivenBootstrap]: calendar_draft_skill reason=将打开日历新建�
     - create_calendar_event deps=[] tool=create_calendar_event args={allDay=false, beginTimeMillis=1781881200000, endTimeMillis=1781884800000, title=周五下午三点评审} bind={} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。 reason=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
 action: Draft create_calendar_event {allDay=false, beginTimeMillis=1781881200000, endTimeMillis=1781884800000, title=周五下午三点评审} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
 intent: create_calendar_event High
+## 搜一下目的地
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：目的地
+    - web_search deps=[] tool=web_search args={query=目的地} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：目的地 reason=将使用 Web 搜索工具查询并整理结果：目的地
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：目的地
+    - web_search deps=[] tool=web_search args={query=目的地} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：目的地 reason=将使用 Web 搜索工具查询并整理结果：目的地
+action: Draft web_search {query=目的地} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：目的地
+intent: web_search High
+## 搜一下申请签证需要什么材料
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料
+    - web_search deps=[] tool=web_search args={query=申请签证需要什么材料} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料 reason=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料
+    - web_search deps=[] tool=web_search args={query=申请签证需要什么材料} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料 reason=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料
+action: Draft web_search {query=申请签证需要什么材料} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：申请签证需要什么材料
+intent: web_search High
+## 搜一下吗啡的副作用
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：吗啡的副作用
+    - web_search deps=[] tool=web_search args={query=吗啡的副作用} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：吗啡的副作用 reason=将使用 Web 搜索工具查询并整理结果：吗啡的副作用
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：吗啡的副作用
+    - web_search deps=[] tool=web_search args={query=吗啡的副作用} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：吗啡的副作用 reason=将使用 Web 搜索工具查询并整理结果：吗啡的副作用
+action: Draft web_search {query=吗啡的副作用} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：吗啡的副作用
+intent: web_search High
+## 请问能不能搜一下上海迪士尼门票多少钱呢
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
+    - web_search deps=[] tool=web_search args={query=上海迪士尼门票多少钱} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱 reason=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
+    - web_search deps=[] tool=web_search args={query=上海迪士尼门票多少钱} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱 reason=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
+action: Draft web_search {query=上海迪士尼门票多少钱} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：上海迪士尼门票多少钱
+intent: web_search High

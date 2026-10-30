@@ -25,8 +25,29 @@ private val currentFreshnessTermRegex =
     Regex(
         """(?i)(最新|目前|当前|现在|近期|最近|今日|今天|今年|当下|热搜|热点|热门|火热|榜单|排行|排名|趋势|\blatest\b|\bcurrent\b|\bcurrently\b|\brecent\b|\btrending\b|\bhottest\b|\bpopular\b|\branking\b|\brankings\b|\bleaderboard\b|\btoday\b|\bnow\b)""",
     )
-private val cjkSearchNoiseRegex =
-    Regex("""(搜索一下|搜一下|查一下|看一下|帮我看看|帮我查查|帮我|帮忙|麻烦|请问|请|给我|告诉我|网页搜索|网络搜索|互联网搜索|上网搜索|网上搜索|上网查|网上查|百度一下|搜索|查询|查找|分别是什么|是什么|有哪些|怎么样|如何|多少|一下|分别|目前|当前|现在|当下|吗|呢|的)""")
+// Request, question and freshness filler, stripped only at segment edges (never inside a word).
+// 的 is only dropped before a following segment ("最火热的 AI"), never from the last one (目的).
+private val cjkSearchFillers = CjkEdgeFillers(
+    leading = listOf(
+        "搜索一下", "搜一下", "查一下", "看一下", "帮我看看", "帮我查查", "帮我", "帮忙", "请问", "给我", "告诉我",
+        "网页搜索", "网络搜索", "互联网搜索", "上网搜索", "网上搜索", "上网查", "网上查", "百度一下", "搜索", "查询",
+        "查找", "分别", "目前", "当前", "现在", "当下",
+    ),
+    trailing = listOf(
+        "分别是什么", "是什么", "有哪些", "怎么样", "如何", "多少", "一下", "分别", "目前", "当前", "现在", "当下",
+        "吗", "呢",
+    ),
+)
+private val cjkSearchNonFinalParticles = listOf("的")
+private val weatherLocationFillerWords = listOf(
+    "天气", "气温", "温度", "温差", "降雨", "下雨", "预报", "怎么样", "如何", "多少", "现在", "今天", "今晚", "明天",
+    "查询", "查一下", "搜一下", "帮我", "一下", "有没有", "会不会", "没有", "没", "吗", "嘛", "么", "了", "呢", "呀",
+    "啊", "有", "会", "是", "的", "更高", "更低", "更热", "更冷",
+)
+private val weatherLocationFillers = CjkEdgeFillers(
+    leading = weatherLocationFillerWords,
+    trailing = weatherLocationFillerWords,
+)
 
 interface WebSearchProvider {
     fun search(request: WebSearchRequest): WebSearchReadResult
@@ -553,7 +574,7 @@ private data class WeatherSnapshot(
             .put("current", current)
 }
 
-private fun String.weatherLocationQueries(): List<String> {
+internal fun String.weatherLocationQueries(): List<String> {
     val normalized = trim()
         .stripEnglishWeatherFiller()
         .replace(Regex("""(?i)\b(?:and|vs|versus|between|compare|difference)\b"""), "|")
@@ -580,18 +601,9 @@ private fun String.weatherLocationQueries(): List<String> {
 private fun String.cleanWeatherLocationCandidate(): String =
     trim()
         .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast|today|now|currently)\b"""), " ")
-        .replace(
-            Regex(
-                """(天气|气温|温度|温差|降雨|下雨|预报|怎么样|如何|多少|现在|今天|今晚|明天|查询|查一下|搜一下|帮我|请|一下|有没有|会不会|没有|没|吗|嘛|么|了|呢|呀|啊|？|\?)""",
-            ),
-            " ",
-        )
-        .replace(Regex("""^\s*(?:有|会|是|的)\s*"""), " ")
-        .replace(Regex("""\s*(?:有|会|是|的)\s*$"""), " ")
-        .replace(Regex("""\s*(?:更高|更低|更热|更冷|高|低|冷|热)\s*$"""), " ")
-        .replace(Regex("""[，。！？、:：?]+"""), " ")
-        .replace(Regex("""\s+"""), " ")
-        .trim()
+        .stripWeatherFillerSegments(weatherLocationFillers)
+        .replace(Regex("""\s*(?:高|低|冷|热)\s*$"""), " ")
+        .stripWeatherFillerSegments(weatherLocationFillers)
 
 private fun Int.weatherDescription(): String =
     when (this) {
@@ -724,14 +736,8 @@ private fun String.hasCurrentFreshnessIntent(currentYear: Int): Boolean =
     currentFreshnessTermRegex.containsMatchIn(this) ||
         containsWholeYear(currentYear)
 
-private fun String.optimizedWebSearchKeywords(): String {
-    val optimized = trim()
-        .replace(webSearchCjkAsciiBoundaryRegex, " ")
-        .replace(webSearchPunctuationRegex, " ")
-        .replace(webSearchEnglishNoiseRegex, " ")
-        .replace(cjkSearchNoiseRegex, " ")
-        .replace(Regex("""\s+"""), " ")
-        .trim()
+internal fun String.optimizedWebSearchKeywords(): String {
+    val optimized = trim().keywordizeSearchQuery(cjkSearchFillers, cjkSearchNonFinalParticles)
     return optimized.ifBlank { trim() }
 }
 

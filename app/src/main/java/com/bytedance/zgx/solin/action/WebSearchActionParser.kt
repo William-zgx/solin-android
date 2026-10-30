@@ -1,13 +1,18 @@
 package com.bytedance.zgx.solin.action
 
+import com.bytedance.zgx.solin.tool.CjkEdgeFillers
+import com.bytedance.zgx.solin.tool.keywordizeSearchQuery
 import com.bytedance.zgx.solin.tool.stripEnglishWeatherFiller
-import com.bytedance.zgx.solin.tool.webSearchCjkAsciiBoundaryRegex
-import com.bytedance.zgx.solin.tool.webSearchEnglishNoiseRegex
-import com.bytedance.zgx.solin.tool.webSearchPunctuationRegex
+import com.bytedance.zgx.solin.tool.stripWeatherFillerSegments
 
 /*
  * Rule parser for explicit web search and weather lookups.
  */
+
+private val weatherFillerWords = listOf(
+    "天气", "气温", "温度", "降雨", "下雨", "预报", "怎么样", "如何", "多少", "现在", "今天", "查询", "查一下",
+    "搜一下", "帮我", "一下",
+)
 
 internal object WebSearchActionParser {
     private val englishPattern =
@@ -16,8 +21,18 @@ internal object WebSearchActionParser {
         Regex("""^\s*(what\s+is|what\s+does|explain|how\s+do\s+i|how\s+to)\b""", RegexOption.IGNORE_CASE)
     private val negativeEnglishPattern =
         Regex("""\b(do\s+not|don't|dont)\s+(?:search|look\s+up|google|bing)\b""", RegexOption.IGNORE_CASE)
-    private val chineseSearchQuestionNoisePattern =
-        Regex("""(搜索一下|搜一下|查一下|看一下|帮我看看|帮我查查|帮我|帮忙|麻烦|请问|请|给我|告诉我|你能不能|能不能|你能|可以|分别是什么|是什么|有哪些|怎么样|如何|多少|一下|分别|吗|呢)""")
+    // Request/question filler, stripped only at segment edges (never inside a word: 目的地, 申请, 吗啡).
+    private val searchQueryFillers = CjkEdgeFillers(
+        leading = listOf(
+            "搜索一下", "搜一下", "查一下", "看一下", "帮我看看", "帮我查查", "帮我", "帮忙", "请问",
+            "给我", "告诉我", "分别",
+        ),
+        trailing = listOf("分别是什么", "是什么", "有哪些", "怎么样", "如何", "多少", "一下", "分别", "吗", "呢"),
+    )
+    private val weatherQueryFillers = CjkEdgeFillers(
+        leading = weatherFillerWords,
+        trailing = weatherFillerWords,
+    )
 
     fun matches(input: String): Boolean {
         if (input.looksLikeWebSearchNonAction()) return false
@@ -65,7 +80,9 @@ internal object WebSearchActionParser {
     }
 
     private fun strippedWebSearchQuery(input: String): String {
-        val cleaned = cleanedObject(input)
+        // cleanedObject drops a bare leading 请, which would leave "问…" behind for 请问.
+        val trimmed = input.trim()
+        val cleaned = if (trimmed.startsWith("请问")) trimmed.removePrefix("请问").trim() else cleanedObject(input)
         return cleaned
             .replace(Regex("""^百度一下\s*[:：]?\s*"""), "")
             .replace(Regex("""^(网页|网络|互联网|上网|网上)?\s*(搜索|搜|查)(一下|一搜|一查)?\s*[:：]?\s*"""), "")
@@ -92,18 +109,10 @@ internal object WebSearchActionParser {
     private fun strippedWeatherQuery(input: String): String =
         cleanedObject(input)
             .stripEnglishWeatherFiller()
-            .replace(Regex("""(天气|气温|温度|降雨|下雨|预报|怎么样|如何|多少|现在|今天|查询|查一下|搜一下|帮我|请|一下)"""), " ")
-            .replace(Regex("""[，。！？、:：?]+"""), " ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
+            .stripWeatherFillerSegments(weatherQueryFillers)
 
     private fun String.keywordizedWebSearchQuery(): String =
-        replace(webSearchCjkAsciiBoundaryRegex, " ")
-            .replace(webSearchPunctuationRegex, " ")
-            .replace(webSearchEnglishNoiseRegex, " ")
-            .replace(chineseSearchQuestionNoisePattern, " ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
+        keywordizeSearchQuery(searchQueryFillers)
 
     private fun String.looksLikeWebSearchNonAction(): Boolean {
         val normalized = lowercase()
