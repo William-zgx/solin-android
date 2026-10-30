@@ -416,11 +416,6 @@ class ModelRepository(
         }
     }
 
-    fun inferRecommendedModelId(fileName: String): String? =
-        RECOMMENDED_MODELS.firstOrNull {
-            it.fileName.equals(fileName, ignoreCase = true)
-        }?.id
-
     override fun verifiedActionModelPath(): String? {
         refreshCompletedRecommendedBundles()
         return verifiedRecommendedModelPath(
