@@ -580,17 +580,17 @@ internal object CurrentScreenTextActionParser {
     private val maxCharsPattern =
         Regex("""(?:max|limit)\s*(\d{1,5})\s*(?:chars?|characters?)""", RegexOption.IGNORE_CASE)
 
-    fun matches(input: String): Boolean {
-        if (input.looksLikeCurrentScreenTextNonAction()) return false
-        val normalized = input.lowercase()
-        return input.hasExplicitCurrentScreenTextReference(normalized)
-    }
+    fun matches(input: String): Boolean =
+        !input.looksLikeCurrentScreenTextNonAction() && referencesCurrentScreenText(input)
 
-    private fun String.hasExplicitCurrentScreenTextReference(normalized: String): Boolean =
-        chineseScreenTextPattern.containsMatchIn(this) ||
-            chineseAccessibleTextPattern.containsMatchIn(this) ||
+    /** True when [input] explicitly names the current screen's (accessible) text. */
+    fun referencesCurrentScreenText(input: String): Boolean {
+        val normalized = input.lowercase()
+        return chineseScreenTextPattern.containsMatchIn(input) ||
+            chineseAccessibleTextPattern.containsMatchIn(input) ||
             currentScreenTextPattern.containsMatchIn(normalized) ||
             visibleOrAccessibleTextPattern.containsMatchIn(normalized)
+    }
 
     fun draft(input: String): ActionDraft {
         val parameters = parameters(input)

@@ -555,9 +555,7 @@ private data class WeatherSnapshot(
 
 private fun String.weatherLocationQueries(): List<String> {
     val normalized = trim()
-        .replace(Regex("""(?i)\b(?:what(?:'s| is)?|how(?:'s| is)?|tell me|check|look up)\b"""), " ")
-        .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast)\b"""), " ")
-        .replace(Regex("""(?i)\b(?:in|for|today|now|currently)\b"""), " ")
+        .stripEnglishWeatherFiller()
         .replace(Regex("""(?i)\b(?:and|vs|versus|between|compare|difference)\b"""), "|")
         .replace(
             Regex(

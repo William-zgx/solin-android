@@ -1,6 +1,8 @@
 package com.bytedance.zgx.solin.skill
 
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.action.CurrentScreenTextActionParser
+import com.bytedance.zgx.solin.action.looksLikeClipboardContextNonAction
 import com.bytedance.zgx.solin.action.startsWithActionNegation
 import com.bytedance.zgx.solin.tool.ToolRequest
 
@@ -32,7 +34,7 @@ internal sealed class CurrentPageUiCommand {
 internal fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
     val normalized = lowercase()
     if (looksLikeCurrentScreenTextSummaryShareNonAction(normalized)) return false
-    val referencesCurrentScreen = currentScreenTextReferences(normalized)
+    val referencesCurrentScreen = CurrentScreenTextActionParser.referencesCurrentScreenText(this)
     val asksForSummary = listOf("总结", "摘要", "概括", "归纳").any { it in this } ||
         Regex("""\b(summarize|summary|brief|recap)\b""").containsMatchIn(normalized)
     val asksToShare = "分享" in this ||
@@ -40,20 +42,10 @@ internal fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
     return referencesCurrentScreen && asksForSummary && asksToShare
 }
 
-private fun String.currentScreenTextReferences(normalized: String): Boolean =
-    Regex("""(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)(?:\s|的|上|里|中|内)*(?:可访问|无障碍)?(?:文字|文本)|(?:文字|文本)(?:\s|来自|取自|读取自|在)*(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)""")
-        .containsMatchIn(this) ||
-        Regex("""(?:可访问|无障碍)(?:文字|文本)""").containsMatchIn(this) ||
-        Regex("""\b(?:current\s+)?screen\s+text\b|\b(?:current|active|this)\s+(?:screen|page|window|view)\s+(?:visible\s+|accessibility\s+|accessible\s+)?text\b|\btext\s+(?:from|on|in|of)\s+(?:the\s+)?(?:current|active|this)\s+(?:screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
-            .containsMatchIn(normalized) ||
-        Regex("""\b(?:current\s+)?(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
-            .containsMatchIn(normalized)
-
 internal fun String.requestsCurrentScreenObservation(): Boolean {
     val normalized = lowercase()
     if (
-        Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
-        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized) ||
+        startsWithQuestionOpener(normalized) ||
         Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
             .containsMatchIn(this) ||
         Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b""")
@@ -372,19 +364,20 @@ internal fun String.extractCurrentDraftFormUiFill(): DraftFormUiFill? {
     }
 }
 
+/** "How do I…" / "请问…" style openers: the user is asking about something, not requesting it. */
+private fun String.startsWithQuestionOpener(normalized: String): Boolean =
+    Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
+        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized)
+
 private fun String.looksLikeUiControlDiscussion(): Boolean {
     val normalized = lowercase()
-    return Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
-        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized) ||
+    return startsWithQuestionOpener(normalized) ||
         listOf(" API", "api", "接口", "怎么实现", "如何实现", "怎么设计").any { it in this }
 }
 
 internal fun String.looksLikeCurrentScreenTextSummaryShareNonAction(normalized: String): Boolean =
-    (
-        Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
-            Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized)
-        ) &&
-        currentScreenTextReferences(normalized) &&
+    startsWithQuestionOpener(normalized) &&
+        CurrentScreenTextActionParser.referencesCurrentScreenText(this) &&
         ("分享" in this || Regex("""\bshare\b""").containsMatchIn(normalized)) ||
         Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不).*(?:总结|摘要|概括|归纳).*(?:当前屏幕|当前界面|现在屏幕|屏幕内容|屏幕文字|屏幕文本|这个界面).*(?:分享)""")
         .containsMatchIn(this) ||
@@ -418,31 +411,13 @@ private fun String.looksLikeClipboardSummaryShareNonAction(normalized: String): 
 
 internal fun String.requestsClipboardContext(): Boolean {
     val normalized = lowercase()
-    if (looksLikeClipboardContextNonAction(normalized)) return false
+    if (looksLikeClipboardContextNonAction()) return false
     val referencesClipboard = "剪贴板" in this || "clipboard" in normalized
     val asksToRead = listOf("读取", "读一下", "看看", "查看", "总结", "摘要", "概括").any { it in this } ||
         Regex("""\b(read|summarize|summary|recap)\b""").containsMatchIn(normalized)
     val asksToShare = "分享" in this || Regex("""\bshare\b""").containsMatchIn(normalized)
     return referencesClipboard && asksToRead && !asksToShare
 }
-
-private fun String.looksLikeClipboardContextNonAction(normalized: String): Boolean =
-    Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:我\s*)?(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
-        .containsMatchIn(this) ||
-        Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b""")
-            .containsMatchIn(normalized) ||
-        listOf(
-            "剪贴板权限",
-            "剪贴板接口",
-            "剪贴板 API",
-            "剪贴板api",
-            "剪贴板怎么",
-            "如何读取剪贴板",
-            "怎么读取剪贴板",
-            "剪贴板是什么",
-        ).any { it in this } ||
-        normalized.contains(Regex("""\b(?:clipboard)\s+(?:permissions?|api|implementation|docs?|documentation|schema|tests?)\b""")) ||
-        normalized.contains(Regex("""\b(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\bclipboard\b"""))
 
 internal data class DraftRequestPair(
     val draft: ActionDraft,

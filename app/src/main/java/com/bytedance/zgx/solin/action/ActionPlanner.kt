@@ -504,7 +504,7 @@ private fun String.trimMatchingQuotes(): String {
     }
 }
 
-private fun String.looksLikeClipboardContextNonAction(): Boolean {
+internal fun String.looksLikeClipboardContextNonAction(): Boolean {
     val normalized = lowercase()
     return startsWithActionNegation() ||
         listOf(

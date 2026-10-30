@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.action
 
+import com.bytedance.zgx.solin.tool.stripEnglishWeatherFiller
 import com.bytedance.zgx.solin.tool.webSearchCjkAsciiBoundaryRegex
 import com.bytedance.zgx.solin.tool.webSearchEnglishNoiseRegex
 import com.bytedance.zgx.solin.tool.webSearchPunctuationRegex
@@ -92,9 +93,7 @@ internal object WebSearchActionParser {
 
     private fun strippedWeatherQuery(input: String): String =
         cleanedObject(input)
-            .replace(Regex("""(?i)\b(?:what(?:'s| is)?|how(?:'s| is)?|tell me|check|look up)\b"""), " ")
-            .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast)\b"""), " ")
-            .replace(Regex("""(?i)\b(?:in|for|today|now|currently)\b"""), " ")
+            .stripEnglishWeatherFiller()
             .replace(Regex("""(天气|气温|温度|降雨|下雨|预报|怎么样|如何|多少|现在|今天|查询|查一下|搜一下|帮我|请|一下)"""), " ")
             .replace(Regex("""[，。！？、:：?]+"""), " ")
             .replace(Regex("""\s+"""), " ")
