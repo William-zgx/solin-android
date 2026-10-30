@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -31,16 +30,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.bytedance.zgx.solin.ui.components.ActionDraftSheet
 import com.bytedance.zgx.solin.ui.components.BackgroundTaskSheet
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_CURRENT_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_PRIVACY_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_REMOTE_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.ModelManagerSheet
 import com.bytedance.zgx.solin.ui.components.SessionManagerSheet
-import com.bytedance.zgx.solin.ui.components.ExternalOutcomeSheet
-import com.bytedance.zgx.solin.ui.components.RemoteModeDisclosureSheet
-import com.bytedance.zgx.solin.ui.components.RemoteSendDisclosureSheet
+import com.bytedance.zgx.solin.ui.components.SolinSheetHost
 import com.bytedance.zgx.solin.ui.components.ChatEmptyState
 import com.bytedance.zgx.solin.ui.components.ChatTopBar
 import com.bytedance.zgx.solin.ui.components.Composer
@@ -409,68 +405,21 @@ fun SolinScreen(
                 }
             }
 
-            state.pendingRemoteModeDisclosure?.let { disclosure ->
-                ModalBottomSheet(
-                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                    onDismissRequest = onDismissRemoteModeDisclosure,
-                ) {
-                    RemoteModeDisclosureSheet(
-                        disclosure = disclosure,
-                        onConfirm = { onConfirmRemoteModeDisclosure(disclosure) },
-                        onDismiss = onDismissRemoteModeDisclosure,
-                    )
-                }
-            }
-
-            state.pendingRemoteSendDisclosure?.let { disclosure ->
-                ModalBottomSheet(
-                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                    onDismissRequest = onDismissRemoteSendDisclosure,
-                ) {
-                    RemoteSendDisclosureSheet(
-                        disclosure = disclosure,
-                        disclosurePolicy = state.remoteSendDisclosurePolicy,
-                        onConfirm = onConfirmRemoteSendDisclosure,
-                        onMaskAndSend = onConfirmRemoteSendWithMasking,
-                        onSendAnyway = onConfirmRemoteSendDespiteSensitive,
-                        onDismiss = onDismissRemoteSendDisclosure,
-                    )
-                }
-            }
-
-            state.pendingConfirmation?.let { confirmation ->
-                ModalBottomSheet(
-                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                    onDismissRequest = { onDismissAgentConfirmation(confirmation) },
-                ) {
-                    ActionDraftSheet(
-                        confirmation = confirmation,
-                        grantedSpecialAccessIds = state.grantedSpecialAccessIds,
-                        runtimePermissionRequirements = resolveRuntimePermissionRequirements(confirmation),
-                        specialAccessRequirements = resolveSpecialAccessRequirements(confirmation),
-                        onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
-                        onConfirm = { onConfirmAgentConfirmation(confirmation) },
-                        onDismiss = { onDismissAgentConfirmation(confirmation) },
-                    )
-                }
-            }
-
-            state.pendingExternalOutcome?.let { pendingOutcome ->
-                ModalBottomSheet(
-                    // The outcome must be recorded explicitly, so the sheet refuses to hide: an empty
-                    // onDismissRequest alone would let a swipe hide it while it stays in composition.
-                    sheetState = rememberModalBottomSheetState(
-                        skipPartiallyExpanded = true,
-                        confirmValueChange = { it != SheetValue.Hidden },
-                    ),
-                    onDismissRequest = {},
-                ) {
-                    ExternalOutcomeSheet(
-                        pending = pendingOutcome,
-                        onRecord = { outcome -> onRecordExternalOutcome(pendingOutcome, outcome) },
-                    )
-                }
-            }
+            SolinSheetHost(
+                state = state,
+                onDismissRemoteModeDisclosure = onDismissRemoteModeDisclosure,
+                onConfirmRemoteModeDisclosure = onConfirmRemoteModeDisclosure,
+                onConfirmRemoteSendDisclosure = onConfirmRemoteSendDisclosure,
+                onConfirmRemoteSendWithMasking = onConfirmRemoteSendWithMasking,
+                onConfirmRemoteSendDespiteSensitive = onConfirmRemoteSendDespiteSensitive,
+                onDismissRemoteSendDisclosure = onDismissRemoteSendDisclosure,
+                resolveRuntimePermissionRequirements = resolveRuntimePermissionRequirements,
+                resolveSpecialAccessRequirements = resolveSpecialAccessRequirements,
+                onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
+                onConfirmAgentConfirmation = onConfirmAgentConfirmation,
+                onDismissAgentConfirmation = onDismissAgentConfirmation,
+                onRecordExternalOutcome = onRecordExternalOutcome,
+            )
         }
     }
 }
