@@ -310,6 +310,62 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun inferenceModeSwitchQueuedAsPersistenceWorkRunsAfterEarlierQueuedDisclosureConfirm() = runTest(dispatcher) {
+        val ioDispatcher = StandardTestDispatcher(testScheduler)
+        val pendingStore = FakeRemoteSendPendingStore()
+        val remoteStore = configuredRemoteStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = remoteStore,
+            remoteSendPendingStore = pendingStore,
+            requireRemoteSendDisclosure = true,
+            ioDispatcher = ioDispatcher,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+        viewModel.launchPersistenceWork { viewModel.sendMessage("普通远程问题") }
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        // The user confirms the disclosure and then flips the mode. Both are queued persistence
+        // work, so the confirm is resolved against the trust boundary it was shown for before the
+        // mode switch tears that boundary down — nothing runs on the caller thread.
+        viewModel.launchPersistenceWork { viewModel.confirmRemoteSendDisclosure() }
+        viewModel.launchPersistenceWork { viewModel.selectInferenceMode(InferenceMode.Local) }
+        assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        advanceUntilIdle()
+
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        assertNull(pendingStore.pending)
+        assertNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        // The confirmed send is in flight when the queued switch runs, so the busy guard refuses
+        // the switch instead of tearing the destination down mid-send.
+        assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
+        assertEquals(InferenceMode.Remote, remoteStore.loadMode())
+    }
+
+    @Test
+    fun remoteModelConfigUpdateQueuedAsPersistenceWorkDoesNotRunOnCallerThread() = runTest(dispatcher) {
+        val ioDispatcher = StandardTestDispatcher(testScheduler)
+        val remoteStore = FakeRemoteModelStore()
+        val viewModel = createViewModel(remoteStore = remoteStore, ioDispatcher = ioDispatcher)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.launchPersistenceWork { viewModel.updateRemoteModelConfig(configuredRemoteModel()) }
+        assertFalse(remoteStore.loadConfig().isConfigured)
+
+        advanceUntilIdle()
+
+        assertTrue(remoteStore.loadConfig().isConfigured)
+        assertTrue(viewModel.uiState.value.remoteModelConfig.isConfigured)
+    }
+
+    @Test
     fun selectingInstalledLocalModelClearsPendingRemoteSendMarker() = runTest(dispatcher) {
         val pendingStore = FakeRemoteSendPendingStore()
         val remoteRuntime = RecordingRemoteChatRuntime()

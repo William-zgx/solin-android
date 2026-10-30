@@ -275,8 +275,15 @@ class MainActivity : ComponentActivity() {
                     onDeleteInstalledModel = { modelId ->
                         viewModel.launchPersistenceWork { viewModel.deleteInstalledModel(modelId) }
                     },
-                    onInferenceModeSelected = viewModel::selectInferenceMode,
-                    onRemoteModelConfigChanged = viewModel::updateRemoteModelConfig,
+                    // Both cross the trust boundary (mode switch closes the runtime and clears
+                    // pending remote-send state; config save does Keystore encryption), so they
+                    // are serialized with every other persistence action and kept off the main thread.
+                    onInferenceModeSelected = { mode ->
+                        viewModel.launchPersistenceWork { viewModel.selectInferenceMode(mode) }
+                    },
+                    onRemoteModelConfigChanged = { config ->
+                        viewModel.launchPersistenceWork { viewModel.updateRemoteModelConfig(config) }
+                    },
                     onTestRemoteModelConnectivity = {
                         viewModel.launchPersistenceWork(viewModel::testRemoteModelConnectivity)
                     },
