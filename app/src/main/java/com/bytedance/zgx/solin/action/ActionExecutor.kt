@@ -114,8 +114,11 @@ class ActionExecutor(
 
     /**
      * Handle the `note` action: record content to the per-run scratchpad.
-     * The actual scratchpad storage is managed by AgentLoopRuntime which
-     * passes the runId via the request's data context.
+     *
+     * Result contract (frozen): data `toolName` + `content`; `noteIndex` (>= 1) is only
+     * emitted by the orchestration layer when it actually knows the scratchpad index.
+     * The content may come from screen text or other private evidence, so it is marked
+     * LocalOnly and kept out of the summary.
      */
     private fun executeNote(request: ToolRequest): ToolResult {
         val content = request.arguments["content"]?.trim()
@@ -131,16 +134,13 @@ class ActionExecutor(
                 retryable = false,
             )
         }
-        // The scratchpad integration happens in AgentLoopRuntime which reads
-        // the result data and calls PerRunScratchpad.addNote(). Here we just
-        // return a successful result carrying the content.
-        val noteIndex = request.arguments["_noteIndexHint"]?.toIntOrNull() ?: 0
         return request.succeeded(
-            summary = "已记录笔记：${content.take(80)}${if (content.length > 80) "…" else ""}",
+            summary = "已记录笔记（${content.length} 字符）",
             data = mapOf(
                 "toolName" to request.toolName,
-                "noteContent" to content,
-                "noteIndex" to noteIndex.toString(),
+                "content" to content,
+                "privacy" to MessagePrivacy.LocalOnly.name,
+                "requiresLocalModel" to true.toString(),
             ),
         )
     }

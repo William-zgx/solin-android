@@ -21,7 +21,7 @@ class BuiltInToolSpecSnapshotTest {
     @Test
     fun builtInToolSpecSafetySemanticsAreStable() {
         val actual = defaultBuiltInToolRegistry.specs().joinToString(separator = "\n") { it.snapshotLine() }
-        assertEquals(EXPECTED_SNAPSHOT.trim(), actual.trim())
+        assertSnapshot(EXPECTED_SNAPSHOT, actual)
     }
 
     @Test
@@ -35,7 +35,16 @@ class BuiltInToolSpecSnapshotTest {
             )
             "$target -> ${if (skippable) "skip" else "confirm"}"
         }
-        assertEquals(EXPECTED_UI_TAP_PROBES.trim(), actual.trim())
+        assertSnapshot(EXPECTED_UI_TAP_PROBES, actual)
+    }
+
+    /** On mismatch the full actual text is printed between markers so it can be reviewed and copied. */
+    private fun assertSnapshot(expected: String, actual: String) {
+        assertEquals(
+            "Snapshot changed. Full actual:\nACTUAL_BEGIN\n${actual.trim()}\nACTUAL_END\n",
+            expected.trim(),
+            actual.trim(),
+        )
     }
 
     private fun ToolSpec.snapshotLine(): String =
@@ -151,7 +160,7 @@ ui_long_press | capability=DeviceControl | risk=MediumDraftOrNavigation | confir
 ui_press_key | capability=DeviceControl | risk=MediumDraftOrNavigation | confirm=Required | continuation=LocalEvidence | exec=Sequential | tags=[AccessibilityDeviceControlSpecialAccess, CheckpointedUiAction, LowRiskAppControlContinuation, LowRiskDeviceAction, SequentialLocalContinuation] | private=[afterActionableNodeCount, afterCapturedAtMillis, afterNodeCount, afterNodesJson, afterObservationId, afterPackageName, afterScreenHeightPx, afterScreenObservationJson, afterScreenWidthPx, afterScreenshotPerception, afterTextSummary, afterTruncated, appSearchProgressStage, beforeActionableNodeCount, beforeCapturedAtMillis, beforeNodeCount, beforeNodesJson, beforeObservationId, beforePackageName, beforeScreenHeightPx, beforeScreenObservationJson, beforeScreenWidthPx, beforeScreenshotPerception, beforeTextSummary, beforeTruncated, screenHeightPx, screenObservationDiffSummary, screenWidthPx, searchVerificationEvidence, searchVerificationStatus, summary, target, uiActionOutcome, uiActionOutcomeReason, verificationSummary] | permissions=[PerformsAccessibilityGesture, ReadsAccessibilityText, ReadsDeviceContext] | pending=[expectedPackageName, key, targetPackageName, timeoutMillis] | redacted=已执行系统按键动作 | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=34564830f8c0
 cancel_reminder | capability=BackgroundTask | risk=MediumDraftOrNavigation | confirm=Required | continuation=None | exec=Sequential | tags=[] | private=[] | permissions=[SchedulesBackgroundWork] | pending=[taskId] | redacted=null | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=608d6b288953
 ask_user | capability=DeviceContext | risk=LowReadOnly | confirm=NotRequired | continuation=LocalEvidence | exec=Sequential | tags=[UxInteraction] | private=[] | permissions=[] | pending=[] | redacted=null | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=92a02c54a244
-note | capability=Orchestration | risk=LowReadOnly | confirm=NotRequired | continuation=None | exec=Sequential | tags=[Planning] | private=[] | permissions=[] | pending=[] | redacted=null | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=57ef59879403
+note | capability=Orchestration | risk=LowReadOnly | confirm=NotRequired | continuation=LocalEvidence | exec=Sequential | tags=[Planning] | private=[content] | permissions=[] | pending=[] | redacted=已记录笔记 | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=e9386e3e72aa
 finish | capability=Orchestration | risk=LowReadOnly | confirm=NotRequired | continuation=None | exec=Sequential | tags=[Planning] | private=[] | permissions=[] | pending=[] | redacted=null | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=f2846e24963a
 take_over | capability=Orchestration | risk=LowReadOnly | confirm=NotRequired | continuation=LocalEvidence | exec=Sequential | tags=[Planning, UxInteraction] | private=[] | permissions=[] | pending=[] | redacted=null | runtime=[] | exactlyOneOf=[] | hint=false | contentHash=3083f6ba8293
 """

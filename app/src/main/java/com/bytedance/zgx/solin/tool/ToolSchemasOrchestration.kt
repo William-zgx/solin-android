@@ -198,12 +198,14 @@ internal val noteInputSchemaJson = """
 internal val noteOutputSchemaJson = """
     {
       "type": "object",
-      "required": ["toolName", "noteIndex", "content"],
+      "required": ["toolName", "content", "privacy", "requiresLocalModel"],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
-        "noteIndex": {"type": "integer", "minimum": 1},
         "content": {"type": "string", "minLength": 1},
-        "totalNotes": {"type": "integer", "minimum": 1}
+        "noteIndex": {"type": "integer", "minimum": 1},
+        "totalNotes": {"type": "integer", "minimum": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean", "const": true}
       },
       "additionalProperties": false
     }

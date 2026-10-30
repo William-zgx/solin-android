@@ -1645,6 +1645,11 @@ private val builtInToolSpecs: List<ToolSpec> = listOf(
         permissions = emptySet(),
         riskLevel = RiskLevel.LowReadOnly,
         confirmationPolicy = ConfirmationPolicy.NotRequired,
+        // Note content can be derived from screen text / OCR / other private local evidence,
+        // so it is a private LocalOnly output that only a local model may continue from.
+        privateOutputKeys = setOf("content"),
+        redactedResultSummary = "已记录笔记",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         tags = setOf(ToolCapabilityTag.Planning),
     ),
     ToolSpec(
