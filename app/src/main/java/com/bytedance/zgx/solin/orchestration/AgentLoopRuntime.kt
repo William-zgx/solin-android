@@ -2160,8 +2160,30 @@ class AgentLoopRuntime(
     ): ToolObservationContinuation? {
         if (result.status != ToolStatus.Succeeded) return null
         skillModelContinuationAfterToolObservation(run, request, result)?.let { continuation ->
+            // Skill model steps demand an exact single output; they never carry scratchpad notes.
             return continuation
         }
+        return builtInContinuationForToolObservation(run, request, result)
+            ?.withLocalScratchpadNotes(run.id)
+    }
+
+    /**
+     * Appends the run's `note` scratchpad to a continuation prompt — only when the continuation is
+     * pinned to the LOCAL model. Notes can be copied from screen text, OCR or private tool results,
+     * so a continuation that may be routed to a remote model (requiresLocalModel = false) fails closed
+     * and never carries them. The scratchpad is never read into remote prompts or audit anywhere else.
+     */
+    private fun ToolObservationContinuation.withLocalScratchpadNotes(runId: String): ToolObservationContinuation {
+        if (!requiresLocalModel) return this
+        val notes = runCatching { scratchpad.formatForPrompt(runId) }.getOrNull() ?: return this
+        return copy(prompt = "$prompt\n\n$notes")
+    }
+
+    private fun builtInContinuationForToolObservation(
+        run: AgentRun,
+        request: ToolRequest?,
+        result: ToolResult,
+    ): ToolObservationContinuation? {
         return when (request?.toolName) {
             MobileActionFunctions.READ_CLIPBOARD -> {
                 val clipboardText = result.data["text"]?.takeIf { it.isNotBlank() } ?: return null
@@ -3563,8 +3585,6 @@ class AgentLoopRuntime(
             traceStore.appendVerboseTrace(runId, VerboseTraceEntry(stepIndex = stepIndex, thinkText = thinkText, actionSummary = actionSummary, actionToolName = actionToolName, observationSummary = observationSummary))
         }.onFailure { Log.e(TAG, "Verbose trace recording failed", it) }
     }
-
-    fun scratchpadForPrompt(runId: String): String? = scratchpad.formatForPrompt(runId)
 
     private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
         com.bytedance.zgx.solin.evidence.EvidenceBounds.headTail(

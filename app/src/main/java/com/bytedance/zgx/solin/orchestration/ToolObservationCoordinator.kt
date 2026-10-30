@@ -378,9 +378,10 @@ internal class ToolObservationCoordinator(
             null
         }
         val observedResult = host.redactedForTrace(safeResult, request)
-        // Handle note: add to per-run scratchpad
+        // Handle note: add to per-run scratchpad. The note tool's result contract carries the text
+        // under `content` (with optional `noteIndex`).
         if (request.toolName == MobileActionFunctions.NOTE) {
-            val noteContent = safeResult.data["noteContent"]
+            val noteContent = safeResult.data["content"]
             if (noteContent != null && noteContent.isNotBlank()) {
                 host.addScratchpadNote(runId, noteContent)
             }
