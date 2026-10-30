@@ -308,6 +308,34 @@ class SafetyPolicyTest {
     }
 
     @Test
+    fun sensitiveContentCheckAgreesWithCategoryDetection() {
+        listOf(
+            "",
+            "   ",
+            "\n\t",
+            "北京天气",
+            "OpenAI latest models",
+            "我的手机号是 13800001111",
+            "会议在 2026-06-08T23:30:00",
+            "contact me at a@b.com",
+            "token=" + "x".repeat(12),
+            "My PASSWORD is hunter2",
+            "hospital near me",
+            "附近的心理咨询",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "sk-" + "a".repeat(20),
+            "110101199003071234",
+            "2020 2021 2022",
+        ).forEach { text ->
+            assertEquals(
+                text,
+                policy.detectSensitiveCategories(text).isNotEmpty(),
+                policy.containsSensitivePersonalOrSecretContent(text),
+            )
+        }
+    }
+
+    @Test
     fun detectSensitiveSnippetsIsCaseInsensitiveLikeCategories() {
         listOf(
             "My PASSWORD is hunter2" to "My PASSWORD",

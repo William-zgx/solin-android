@@ -243,23 +243,12 @@ class SafetyPolicy {
         toolName == MobileActionFunctions.WEB_SEARCH &&
             arguments["query"].orEmpty().containsSensitiveNetworkSearchContent()
 
-    private fun String.containsSensitiveNetworkSearchContent(): Boolean {
-        val normalized = lowercase()
-        val withoutIsoTimeWindows = isoDateOrDateTimePattern.replace(this, " ")
-        return emailPattern.containsMatchIn(this) ||
-            phonePattern.containsMatchIn(withoutIsoTimeWindows) ||
-            chineseIdPattern.containsMatchIn(this) ||
-            secretTokenPattern.containsMatchIn(this) ||
-            cloudSecretPattern.containsMatchIn(this) ||
-            privateKeyBlockPattern.containsMatchIn(this) ||
-            secretAssignmentPattern.containsMatchIn(this) ||
-            personalChineseKeywordPattern.containsMatchIn(this) ||
-            personalEnglishKeywordPattern.containsMatchIn(normalized) ||
-            sensitiveChineseDomainPattern.containsMatchIn(this) ||
-            sensitiveChineseLocationPattern.containsMatchIn(this) ||
-            sensitiveEnglishDomainPattern.containsMatchIn(normalized) ||
-            sensitiveEnglishLocationPattern.containsMatchIn(normalized)
-    }
+    /**
+     * Same decision as a non-empty [detectSensitiveCategories]: it evaluated exactly the same
+     * patterns on the same inputs, and blank text matches none of them.
+     */
+    private fun String.containsSensitiveNetworkSearchContent(): Boolean =
+        detectSensitiveCategories(this).isNotEmpty()
 
     private companion object {
         /** Replaces all but the first 2 and last 2 chars of a token with asterisks. */
