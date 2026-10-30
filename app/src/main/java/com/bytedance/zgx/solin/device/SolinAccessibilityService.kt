@@ -497,30 +497,84 @@ class SolinAccessibilityService : AccessibilityService() {
                 }
                 ?: root.findNodeCandidate { candidate -> candidate.node.isScrollable }?.node
                 ?: root.scrollableSelfOrDescendant()
-                ?: return@executeUiAction UiPrimitiveResult.failed(
-                    reason = "当前屏幕没有可滚动容器",
-                    failureKind = UiActionFailureKind.NodeNotFound,
-                )
-            val action = when (direction) {
-                UiScrollDirection.Up,
-                UiScrollDirection.Left,
-                UiScrollDirection.Backward -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            if (scrollableNode != null) {
+                val action = when (direction) {
+                    UiScrollDirection.Up,
+                    UiScrollDirection.Left,
+                    UiScrollDirection.Backward -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
 
-                UiScrollDirection.Down,
-                UiScrollDirection.Right,
-                UiScrollDirection.Forward -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                    UiScrollDirection.Down,
+                    UiScrollDirection.Right,
+                    UiScrollDirection.Forward -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                }
+                throwIfInterrupted()
+                if (submitUiSideEffect { scrollableNode.performAction(action) }) {
+                    return@executeUiAction UiPrimitiveResult.succeeded("已滚动当前页面：${direction.schemaValue}")
+                }
             }
-            throwIfInterrupted()
-            val performed = submitUiSideEffect { scrollableNode.performAction(action) }
-            if (performed) {
-                UiPrimitiveResult.succeeded("已滚动当前页面：${direction.schemaValue}")
-            } else {
-                UiPrimitiveResult.failed(
-                    reason = "滚动动作未被当前容器接受",
-                    failureKind = UiActionFailureKind.NodeNotFound,
-                )
-            }
+            scrollBySwipeFallback(
+                direction = direction,
+                containerBounds = scrollableNode?.safeBounds(),
+                actionUnavailableReason = if (scrollableNode == null) {
+                    "当前屏幕没有可滚动容器"
+                } else {
+                    "滚动动作未被当前容器接受"
+                },
+            )
         }
+
+    /**
+     * Replays a refused (or impossible) accessibility scroll as one swipe inside the container.
+     *
+     * WebView / Flutter / React Native surfaces commonly expose no scrollable node, or refuse
+     * ACTION_SCROLL_*, while scrolling fine under a finger. The fallback is a raw-coordinate gesture, so it
+     * applies the same fail-closed rule as `ui_swipe`'s preflight rather than `ui_scroll`'s fail-open one:
+     * it re-reads the screen and refuses when the screen is unreadable or carries a dangerous-action
+     * control. Risk level and confirmation are untouched — this runs inside the already-confirmed
+     * `ui_scroll` call and never widens what that call may reach (one straight stroke, safe area only).
+     */
+    private fun scrollBySwipeFallback(
+        direction: UiScrollDirection,
+        containerBounds: ScreenBounds?,
+        actionUnavailableReason: String,
+    ): UiPrimitiveResult {
+        val snapshot = observeSnapshot(
+            maxTextChars = DEFAULT_DEVICE_CONTROL_MAX_TEXT_CHARS,
+            maxNodes = DEFAULT_DEVICE_CONTROL_MAX_NODES,
+        ).snapshotOrNull()
+            ?: return UiPrimitiveResult.failed(
+                reason = "$actionUnavailableReason，且无法读取屏幕确认没有危险控件，未执行滑动回退",
+                retryable = false,
+                failureKind = UiActionFailureKind.NodeNotFound,
+            )
+        if (snapshot.hasDangerousActionControl()) {
+            return UiPrimitiveResult.failed(
+                reason = "$actionUnavailableReason，当前屏幕包含危险控件，未执行滑动回退",
+                retryable = false,
+                failureKind = UiActionFailureKind.DangerousAction,
+            )
+        }
+        val (screenWidth, screenHeight) = gestureScreenSizePx()
+        val path = scrollFallbackSwipePath(
+            direction = direction,
+            containerBounds = containerBounds,
+            screenWidthPx = screenWidth,
+            screenHeightPx = screenHeight,
+        ) ?: return UiPrimitiveResult.failed(
+            reason = "$actionUnavailableReason，滚动容器过小，无法安全执行滑动回退",
+            failureKind = UiActionFailureKind.NodeNotFound,
+        )
+        throwIfInterrupted()
+        val performed = dispatchSwipeGesture(path.startX, path.startY, path.endX, path.endY, path.durationMillis)
+        return if (performed) {
+            UiPrimitiveResult.succeeded("已通过滑动手势滚动当前页面：${direction.schemaValue}")
+        } else {
+            UiPrimitiveResult.failed(
+                reason = "$actionUnavailableReason，滑动回退手势也未被系统接受",
+                failureKind = UiActionFailureKind.NodeNotFound,
+            )
+        }
+    }
 
     private fun pressBack(timeoutMillis: Long): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
