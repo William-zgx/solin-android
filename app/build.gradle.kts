@@ -3,6 +3,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitivity
 import java.net.URI
 import java.security.MessageDigest
 
@@ -70,54 +71,27 @@ abstract class PrepareBundledModelAssetsTask : DefaultTask() {
     abstract val outputDir: DirectoryProperty
 }
 
-val bundledModelAssetSpecs = listOf(
-    BundledModelAssetSpec(
-        modelId = "chat-e2b",
-        fileName = "gemma-4-E2B-it.litertlm",
-        byteSize = 2_588_147_712L,
-        sha256Hex = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
-        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/a4a831c060880f3733135ad22f10e0e9f758f45d/gemma-4-E2B-it.litertlm?download=true",
-        chunkFileNames = listOf(
-            "chunks/gemma-4-E2B-it.litertlm.part000",
-            "chunks/gemma-4-E2B-it.litertlm.part001",
-        ),
-    ),
-    BundledModelAssetSpec(
-        modelId = "memory-embedding-gemma-300m",
-        fileName = "embeddinggemma-300M_seq256_mixed-precision.tflite",
-        byteSize = 179_131_736L,
-        sha256Hex = "37115ef7bff76cd37dd86abe503ff511b1032bf85fc624a85c49c84899e92bc5",
-        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/embeddinggemma-300M_seq256_mixed-precision.tflite?download=true",
-        requiresHuggingFaceAuthorization = true,
-    ),
-    BundledModelAssetSpec(
-        modelId = "memory-embedding-gemma-300m",
-        fileName = "sentencepiece.model",
-        byteSize = 4_683_319L,
-        sha256Hex = "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7",
-        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/sentencepiece.model?download=true",
-        primary = false,
-        requiresHuggingFaceAuthorization = true,
-    ),
-    BundledModelAssetSpec(
-        modelId = "mobile-action-270m",
-        fileName = "mobile-actions_q8_ekv1024.litertlm",
-        byteSize = 284_426_240L,
-        sha256Hex = "92109695f911d1872fa8ae07c1e3ff0ed70f2c3d1690d410ec6db8587c2ab409",
-        downloadUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/82d0f654a6270c518d16c600edce3136221b3347/mobile-actions_q8_ekv1024.litertlm?download=true",
-    ),
-    BundledModelAssetSpec(
-        modelId = "chat-e4b",
-        fileName = "gemma-4-E4B-it.litertlm",
-        byteSize = 3_659_530_240L,
-        sha256Hex = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
-        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/65ce5ba80d8790d66ef11d82d7d079a06f3fef97/gemma-4-E4B-it.litertlm?download=true",
-        chunkFileNames = listOf(
-            "chunks/gemma-4-E4B-it.litertlm.part000",
-            "chunks/gemma-4-E4B-it.litertlm.part001",
-        ),
-    ),
-)
+// Pinned model asset metadata lives in gradle/bundled-models.json, shared with
+// gradle/modelpack-assets.gradle and scripts/verify_local.sh.
+// BundledModelAssetsCatalogTest keeps it in sync with RECOMMENDED_MODELS.
+val bundledModelsCatalogFile = rootProject.file("gradle/bundled-models.json")
+
+@Suppress("UNCHECKED_CAST")
+val bundledModelAssetSpecs: List<BundledModelAssetSpec> =
+    ((groovy.json.JsonSlurper().parse(bundledModelsCatalogFile) as Map<String, Any?>)["assets"] as List<Map<String, Any?>>)
+        .map { asset ->
+            BundledModelAssetSpec(
+                modelId = asset.getValue("modelId") as String,
+                fileName = asset.getValue("fileName") as String,
+                byteSize = (asset.getValue("byteSize") as Number).toLong(),
+                sha256Hex = asset.getValue("sha256Hex") as String,
+                downloadUrl = asset.getValue("downloadUrl") as String,
+                primary = asset.getValue("primary") as Boolean,
+                requiresHuggingFaceAuthorization = asset.getValue("requiresHuggingFaceAuthorization") as Boolean,
+                chunkFileNames = (asset["chunks"] as List<Map<String, Any?>>? ?: emptyList())
+                    .map { chunk -> chunk.getValue("assetFileName") as String },
+            )
+        }
 
 fun downloadToFile(url: String, outputFile: File, authorizationHeader: String? = null) {
     var lastFailure: Exception? = null
@@ -303,6 +277,10 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
+    // BundledModelAssetsCatalogTest reads this file from the repo root; rerun tests when it changes.
+    inputs.file(bundledModelsCatalogFile)
+        .withPropertyName("bundledModelsCatalog")
+        .withPathSensitivity(PathSensitivity.NONE)
     (
         providers.gradleProperty("aiBehaviorActualTraceFile").orNull
             ?: providers.systemProperty("aiBehaviorActualTraceFile").orNull
@@ -377,6 +355,7 @@ val prepareBundledModelsAssets by tasks.registering(PrepareBundledModelAssetsTas
             "${spec.modelId}:${spec.fileName}:${spec.byteSize}:${spec.sha256Hex}:${spec.primary}"
         },
     )
+    inputs.file(bundledModelsCatalogFile).withPathSensitivity(PathSensitivity.NONE)
     inputs.property("bundledModelLayout", "manifest-only-v2")
     inputs.property("bundledModelsSourceDir", bundledModelsSourceDir.orNull ?: "")
 

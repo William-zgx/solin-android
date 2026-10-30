@@ -79,7 +79,9 @@ if [[ "$AAB_BYTES" -gt "$MAX_RELEASE_AAB_BYTES" ]]; then
   exit 1
 fi
 
-if grep -R "/resolve/main/" app/src/main/java/com/bytedance/zgx/solin/ModelCatalog.kt >/dev/null; then
+# Search the whole source tree (and the shared Gradle model catalog) so the gate keeps
+# working if ModelCatalog.kt moves between packages.
+if grep -R "/resolve/main/" app/src/main/java gradle/bundled-models.json >/dev/null; then
   echo "Recommended model downloads must be pinned to immutable revisions." >&2
   exit 1
 fi
@@ -144,42 +146,35 @@ if [[ "${VERIFY_MODEL_URLS:-0}" == "1" ]]; then
     fi
   }
 
-  check_model_header \
-    "E2B chat model" \
-    "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/a4a831c060880f3733135ad22f10e0e9f758f45d/gemma-4-E2B-it.litertlm?download=true" \
-    "2588147712" \
-    "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
-
+  # Model metadata comes from the shared catalog (also consumed by the Gradle build).
+  BUNDLED_MODELS_CATALOG="gradle/bundled-models.json"
   HF_MODEL_DOWNLOAD_TOKEN="${HUGGING_FACE_TOKEN:-${HF_TOKEN:-}}"
-  if [[ -n "$HF_MODEL_DOWNLOAD_TOKEN" ]]; then
-    check_model_header \
-      "memory embedding model" \
-      "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/embeddinggemma-300M_seq256_mixed-precision.tflite?download=true" \
-      "179131736" \
-      "37115ef7bff76cd37dd86abe503ff511b1032bf85fc624a85c49c84899e92bc5" \
-      "$HF_MODEL_DOWNLOAD_TOKEN"
+  while IFS=$'\t' read -r model_label model_url model_bytes model_sha256 model_gated; do
+    if [[ "$model_gated" == "true" ]]; then
+      if [[ -z "$HF_MODEL_DOWNLOAD_TOKEN" ]]; then
+        echo "Skipping gated $model_label URL verification; set HF_TOKEN or HUGGING_FACE_TOKEN to verify it." >&2
+        continue
+      fi
+      check_model_header "$model_label" "$model_url" "$model_bytes" "$model_sha256" "$HF_MODEL_DOWNLOAD_TOKEN"
+    else
+      check_model_header "$model_label" "$model_url" "$model_bytes" "$model_sha256"
+    fi
+  done < <(python3 - "$BUNDLED_MODELS_CATALOG" <<'PY'
+import json
+import sys
 
-    check_model_header \
-      "memory embedding tokenizer" \
-      "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/sentencepiece.model?download=true" \
-      "4683319" \
-      "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7" \
-      "$HF_MODEL_DOWNLOAD_TOKEN"
-  else
-    echo "Skipping gated memory embedding model URL verification; set HF_TOKEN or HUGGING_FACE_TOKEN to verify it." >&2
-  fi
-
-  check_model_header \
-    "mobile action model" \
-    "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/82d0f654a6270c518d16c600edce3136221b3347/mobile-actions_q8_ekv1024.litertlm?download=true" \
-    "284426240" \
-    "92109695f911d1872fa8ae07c1e3ff0ed70f2c3d1690d410ec6db8587c2ab409"
-
-  check_model_header \
-    "E4B chat model" \
-    "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/65ce5ba80d8790d66ef11d82d7d079a06f3fef97/gemma-4-E4B-it.litertlm?download=true" \
-    "3659530240" \
-    "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0"
+with open(sys.argv[1], encoding="utf-8") as handle:
+    catalog = json.load(handle)
+for asset in catalog["assets"]:
+    print("\t".join([
+        asset["label"],
+        asset["downloadUrl"],
+        str(asset["byteSize"]),
+        asset["sha256Hex"],
+        "true" if asset["requiresHuggingFaceAuthorization"] else "false",
+    ]))
+PY
+)
 fi
 
 if grep -R -E 'PREF_REMOTE_API_KEY.*putString|putString\(PREF_REMOTE_API_KEY' app/src/main/java >/dev/null; then
