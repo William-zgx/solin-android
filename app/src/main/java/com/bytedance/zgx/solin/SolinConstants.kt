@@ -58,14 +58,6 @@ object SolinConstants {
         const val ERROR_BODY_SNIPPET_BYTES: Long = 1024L
 
         /**
-         * Maximum characters to include in the user-facing failure message derived from an error body.
-         *
-         * Used by [com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime]. Keeps the surfaced
-         * reason single-line and log-safe.
-         */
-        const val ERROR_BODY_SNIPPET_CHARS: Int = 512
-
-        /**
          * Maximum number of attempts (initial + retries) for a remote chat generation.
          *
          * Used by [com.bytedance.zgx.solin.runtime.RemoteRetryPolicy]. Provider endpoints are not

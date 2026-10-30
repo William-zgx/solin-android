@@ -272,13 +272,6 @@ data class PendingAgentConfirmation(
     val fallbackReason: String?,
 )
 
-data class PendingUserQuestion(
-    val runId: String?,
-    val questionId: String,
-    val prompt: String,
-    val choices: List<String> = emptyList(),
-)
-
 enum class RemoteSendDisclosureKind {
     CurrentInput,
     ToolResultContinuation,
@@ -499,9 +492,6 @@ data class ChatUiState(
 
     val basicSetupModels: List<RecommendedModel>
         get() = ModelCatalog.basicSetupModels()
-
-    val chatModels: List<RecommendedModel>
-        get() = ModelCatalog.recommendedModelsFor(ModelCapability.Chat)
 
     val optionalChatModels: List<RecommendedModel>
         get() = ModelCatalog.optionalChatModels()

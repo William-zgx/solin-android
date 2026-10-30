@@ -13,7 +13,6 @@ data class RuntimePermissionRequirement(
     val permissions: List<String>,
     val title: String,
     val rationale: String,
-    val requestable: Boolean = true,
 )
 
 data class SpecialAccessRequirement(
