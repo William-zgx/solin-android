@@ -5,19 +5,20 @@ import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.GenerationStats
 import com.bytedance.zgx.solin.MessageRole
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.asFlow
+import com.bytedance.zgx.solin.testing.FakeLiteRtRuntime
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FakeLiteRtRuntimeTest {
     @Test
     fun fakeRuntimeSupportsLoadRecreateStreamStopAndClose() = runBlocking {
-        val runtime = FakeLiteRtRuntime(listOf("你", "好"))
+        val runtime = FakeLiteRtRuntime(
+            localChunks = listOf("你", "好"),
+            generationStats = GenerationStats(tokenCount = 2, tokensPerSecond = 12.0),
+        )
 
         runtime.load(
             modelPath = "/tmp/model.litertlm",
@@ -36,70 +37,12 @@ class FakeLiteRtRuntimeTest {
 
         assertEquals(listOf("你", "好"), chunks)
         assertEquals("/tmp/model.litertlm", runtime.loadedModelPath)
-        assertEquals(BackendChoice.GPU, runtime.loadedBackend)
-        assertEquals(1, runtime.recreatedHistory.size)
+        assertEquals(listOf(BackendChoice.GPU), runtime.loadCalls)
+        assertEquals(1, runtime.recreatedHistories.single().size)
+        assertEquals(0.3f, runtime.loadedParameters?.temperature)
         assertEquals(2, stats?.tokenCount)
         assertEquals(12.0, stats?.tokensPerSecond ?: 0.0, 0.01)
-        assertTrue(runtime.stopCalled)
+        assertEquals(1, runtime.stopCallCount)
         assertFalse(runtime.isLoaded)
-    }
-}
-
-private class FakeLiteRtRuntime(
-    private val chunks: List<String>,
-) : LiteRtRuntime {
-    var loadedModelPath: String? = null
-        private set
-    var loadedBackend: BackendChoice? = null
-        private set
-    var recreatedHistory: List<ChatMessage> = emptyList()
-        private set
-    var loadedParameters: GenerationParameters? = null
-        private set
-    var stopCalled: Boolean = false
-        private set
-
-    override var isLoaded: Boolean = false
-        private set
-
-    override fun load(
-        modelPath: String,
-        backend: BackendChoice,
-        history: List<ChatMessage>,
-        parameters: GenerationParameters,
-    ) {
-        loadedModelPath = modelPath
-        loadedBackend = backend
-        recreatedHistory = history
-        loadedParameters = parameters
-        isLoaded = true
-    }
-
-    override fun recreateConversation(
-        history: List<ChatMessage>,
-        parameters: GenerationParameters,
-    ) {
-        check(isLoaded)
-        recreatedHistory = history
-        loadedParameters = parameters
-    }
-
-    override fun send(prompt: String): Flow<String> {
-        check(isLoaded)
-        return chunks.asFlow()
-    }
-
-    override fun lastGenerationStats(): GenerationStats? =
-        GenerationStats(
-            tokenCount = chunks.size,
-            tokensPerSecond = 12.0,
-        )
-
-    override fun stop() {
-        stopCalled = true
-    }
-
-    override fun close() {
-        isLoaded = false
     }
 }

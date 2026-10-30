@@ -1,13 +1,8 @@
 package com.bytedance.zgx.solin.runtime
 
-import com.bytedance.zgx.solin.BackendChoice
-import com.bytedance.zgx.solin.GenerationParameters
-import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.data.RemoteModelRepository
-import com.bytedance.zgx.solin.data.SecretStore
-import com.bytedance.zgx.solin.data.SettingsStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -17,6 +12,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
+import com.bytedance.zgx.solin.testing.FakeSettingsStore
+import com.bytedance.zgx.solin.testing.InMemorySecretStore
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RemoteConnectivityRefreshCoordinatorTest {
@@ -30,7 +27,7 @@ class RemoteConnectivityRefreshCoordinatorTest {
 
         val snapshot = coordinator.refresh(config).await()
 
-        assertEquals(1, settings.remoteConfigSaveCount)
+        assertEquals(1, settings.saveCount)
         assertEquals(RemoteModelConnectivityStatus.Reachable, snapshot?.status)
         assertEquals(RemoteModelConnectivityStatus.Reachable, repository.currentConnectivity(config)?.status)
     }
@@ -126,38 +123,4 @@ class RemoteConnectivityRefreshCoordinatorTest {
         }
     }
 
-    private class FakeSettingsStore : SettingsStore {
-        var remoteConfig: RemoteModelConfig = RemoteModelConfig()
-        var remoteConfigSaveCount: Int = 0
-
-        override fun isSetupDismissed(): Boolean = false
-        override fun markSetupDismissed() = Unit
-        override fun isMemoryEnabled(): Boolean = true
-        override fun setMemoryEnabled(enabled: Boolean) = Unit
-        override fun loadGenerationParameters(): GenerationParameters = GenerationParameters()
-        override fun saveGenerationParameters(parameters: GenerationParameters): GenerationParameters = parameters
-        override fun loadBackend(): BackendChoice = BackendChoice.GPU
-        override fun saveBackend(backend: BackendChoice) = Unit
-        override fun loadInferenceMode(): InferenceMode = InferenceMode.Local
-        override fun saveInferenceMode(mode: InferenceMode): InferenceMode = mode
-        override fun loadRemoteConfig(apiKey: String): RemoteModelConfig = remoteConfig.copy(apiKey = apiKey)
-        override fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig {
-            remoteConfigSaveCount += 1
-            remoteConfig = config.copy(apiKey = "", connectivityStatus = RemoteModelConnectivityStatus.Unknown)
-            return remoteConfig
-        }
-        override fun selectedModelId(): String? = null
-        override fun saveSelectedModelId(modelId: String) = Unit
-        override fun activeInstalledModelId(): String? = null
-        override fun saveActiveInstalledModelId(modelId: String?) = Unit
-    }
-
-    private class InMemorySecretStore : SecretStore {
-        private val values = mutableMapOf<String, String>()
-
-        override fun loadString(name: String): Result<String> = Result.success(values[name].orEmpty())
-        override fun saveString(name: String, value: String): Result<Unit> = runCatching {
-            if (value.isBlank()) values.remove(name) else values[name] = value
-        }
-    }
 }
