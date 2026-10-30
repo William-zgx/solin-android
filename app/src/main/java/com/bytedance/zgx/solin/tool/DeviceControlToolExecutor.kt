@@ -190,19 +190,18 @@ class DeviceControlToolExecutor(
         val normalizedTarget = NormalizedTarget.fromArguments(request.arguments)
         if (normalizedTarget != null) {
             val targetLabel = "坐标(${normalizedTarget.x}, ${normalizedTarget.y})"
-            expectedForegroundPackagePreflight(request, actionType = "tap", target = targetLabel)
-                ?.let { return it }
             // A normalized-coordinate tap is a raw-pixel action with no named-target second layer
             // (like swipe/long_press/press_key), so this preflight is the sole content-aware guard
             // between the model and the pixel. Fail CLOSED when the screen cannot be confirmed
             // dangerous-free — otherwise a remote-vision coordinate tap could land on a payment/send
             // control on a momentarily-unreadable screen. Named-target taps below keep fail-open
             // because their node matching provides the second layer.
-            dangerousUiActionPreflight(
+            guardedActionPreflight(
                 request,
                 actionType = "tap",
                 target = targetLabel,
                 failClosedOnUnavailable = true,
+                dismissBlockingOverlays = false,
             )?.let { return it }
             return actionResult(
                 request = request,
@@ -216,12 +215,13 @@ class DeviceControlToolExecutor(
             )
         }
         val target = request.arguments["target"].orEmpty()
-        expectedForegroundPackagePreflight(request, actionType = "tap", target = target)?.let { return it }
-        dangerousUiActionPreflight(request, actionType = "tap", target = target)?.let { return it }
-        dismissBlockingOverlaysIfPresent()
-        // Re-validate after dismissal: closing an overlay can reveal a dangerous control that the
-        // pre-dismiss preflight never saw. Fail closed before the real tap.
-        dangerousUiActionPreflight(request, actionType = "tap", target = target)?.let { return it }
+        guardedActionPreflight(
+            request,
+            actionType = "tap",
+            target = target,
+            failClosedOnUnavailable = false,
+            dismissBlockingOverlays = true,
+        )?.let { return it }
         return actionResult(
             request = request,
             actionType = "tap",
@@ -238,11 +238,13 @@ class DeviceControlToolExecutor(
         provider: CurrentScreenControlProvider,
     ): ToolResult {
         val target = request.arguments["target"].orEmpty()
-        expectedForegroundPackagePreflight(request, actionType = "type_text", target = target)?.let { return it }
-        dangerousUiActionPreflight(request, actionType = "type_text", target = target)?.let { return it }
-        dismissBlockingOverlaysIfPresent()
-        // Re-validate after dismissal: closing an overlay can reveal a dangerous control.
-        dangerousUiActionPreflight(request, actionType = "type_text", target = target)?.let { return it }
+        guardedActionPreflight(
+            request,
+            actionType = "type_text",
+            target = target,
+            failClosedOnUnavailable = false,
+            dismissBlockingOverlays = true,
+        )?.let { return it }
         return actionResult(
             request = request,
             actionType = "type_text",
@@ -260,8 +262,13 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
-        expectedForegroundPackagePreflight(request, actionType = "submit_search", target = "")?.let { return it }
-        dangerousUiActionPreflight(request, actionType = "submit_search", target = "")?.let { return it }
+        guardedActionPreflight(
+            request,
+            actionType = "submit_search",
+            target = "",
+            failClosedOnUnavailable = false,
+            dismissBlockingOverlays = false,
+        )?.let { return it }
         return actionResult(
             request = request,
             actionType = "submit_search",
@@ -284,8 +291,13 @@ class DeviceControlToolExecutor(
                 data = request.deviceControlBaseData(),
             )
         val target = request.arguments["target"].orEmpty()
-        expectedForegroundPackagePreflight(request, actionType = "scroll", target = target)?.let { return it }
-        dangerousUiActionPreflight(request, actionType = "scroll", target = target)?.let { return it }
+        guardedActionPreflight(
+            request,
+            actionType = "scroll",
+            target = target,
+            failClosedOnUnavailable = false,
+            dismissBlockingOverlays = false,
+        )?.let { return it }
         return actionResult(
             request = request,
             actionType = "scroll",
@@ -320,12 +332,12 @@ class DeviceControlToolExecutor(
         val durationMillis = request.arguments["durationMillis"]?.trim()?.toLongOrNull()
             ?: DEFAULT_UI_GESTURE_DURATION_MILLIS
         // No named target: the dangerous-action preflight guards against the whole current screen.
-        expectedForegroundPackagePreflight(request, actionType = "swipe", target = "")?.let { return it }
-        dangerousUiActionPreflight(
+        guardedActionPreflight(
             request,
             actionType = "swipe",
             target = "",
             failClosedOnUnavailable = true,
+            dismissBlockingOverlays = false,
         )?.let { return it }
         return actionResult(
             request = request,
@@ -358,12 +370,12 @@ class DeviceControlToolExecutor(
         }
         val holdMillis = request.arguments["holdMillis"]?.trim()?.toLongOrNull()
             ?: DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
-        expectedForegroundPackagePreflight(request, actionType = "long_press", target = "")?.let { return it }
-        dangerousUiActionPreflight(
+        guardedActionPreflight(
             request,
             actionType = "long_press",
             target = "",
             failClosedOnUnavailable = true,
+            dismissBlockingOverlays = false,
         )?.let { return it }
         return actionResult(
             request = request,
@@ -389,12 +401,12 @@ class DeviceControlToolExecutor(
                 retryable = false,
                 data = request.deviceControlBaseData(),
             )
-        expectedForegroundPackagePreflight(request, actionType = "press_key", target = key.schemaValue)?.let { return it }
-        dangerousUiActionPreflight(
+        guardedActionPreflight(
             request,
             actionType = "press_key",
             target = key.schemaValue,
             failClosedOnUnavailable = true,
+            dismissBlockingOverlays = false,
         )?.let { return it }
         return actionResult(
             request = request,
@@ -406,6 +418,43 @@ class DeviceControlToolExecutor(
             ).withExpectedForegroundPackageVerification(request),
             extraData = mapOf("key" to key.schemaValue),
         )
+    }
+
+    /**
+     * The preflight chain every mutating UI action runs before touching the screen:
+     * expected-foreground-package check, then the dangerous-control check, then (only when
+     * [dismissBlockingOverlays]) a bounded overlay dismissal followed by a second dangerous-control
+     * check, because closing an overlay can reveal a dangerous control the first check never saw.
+     *
+     * Both flags are required at every call site on purpose — they are the per-action safety
+     * differences: [failClosedOnUnavailable] is true only for actions with no named-target second
+     * layer (normalized tap, swipe, long_press, press_key); overlay dismissal + re-check applies
+     * only to named-target tap and type_text.
+     */
+    private fun guardedActionPreflight(
+        request: ToolRequest,
+        actionType: String,
+        target: String,
+        failClosedOnUnavailable: Boolean,
+        dismissBlockingOverlays: Boolean,
+    ): ToolResult? {
+        expectedForegroundPackagePreflight(request, actionType = actionType, target = target)?.let { return it }
+        dangerousUiActionPreflight(
+            request,
+            actionType = actionType,
+            target = target,
+            failClosedOnUnavailable = failClosedOnUnavailable,
+        )?.let { return it }
+        if (dismissBlockingOverlays) {
+            dismissBlockingOverlaysIfPresent()
+            dangerousUiActionPreflight(
+                request,
+                actionType = actionType,
+                target = target,
+                failClosedOnUnavailable = failClosedOnUnavailable,
+            )?.let { return it }
+        }
+        return null
     }
 
     private fun expectedForegroundPackagePreflight(
