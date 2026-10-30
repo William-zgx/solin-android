@@ -88,6 +88,11 @@ class OkHttpRemoteChatRuntime(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val credentialResolver: CredentialResolver = ApiKeyCredentialResolver,
     private val retryPolicy: RemoteRetryPolicy = RemoteRetryPolicy(),
+    /**
+     * Optional override for the remote `max_tokens` cap. `null` uses the per-model default from
+     * [RemoteOutputTokenLimits]; any value is still clamped to the sane bounds there.
+     */
+    private val maxOutputTokens: Int? = null,
 ) : RemoteChatRuntime {
     private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
@@ -179,7 +184,14 @@ class OkHttpRemoteChatRuntime(
             config = config,
             imageAttachments = imageAttachments,
             body = { normalized ->
-                buildChatCompletionBody(prompt, history, parameters, normalized, imageAttachments = imageAttachments)
+                buildChatCompletionBody(
+                    prompt,
+                    history,
+                    parameters,
+                    normalized,
+                    imageAttachments = imageAttachments,
+                    maxOutputTokens = RemoteOutputTokenLimits.resolve(normalized, maxOutputTokens),
+                )
             },
         ) { response, markEmitted ->
             if (response.isEventStream()) {
@@ -210,7 +222,15 @@ class OkHttpRemoteChatRuntime(
             config = config,
             imageAttachments = imageAttachments,
             body = { normalized ->
-                buildChatCompletionBody(prompt, history, parameters, normalized, tools, imageAttachments)
+                buildChatCompletionBody(
+                    prompt,
+                    history,
+                    parameters,
+                    normalized,
+                    tools,
+                    imageAttachments,
+                    maxOutputTokens = RemoteOutputTokenLimits.resolve(normalized, maxOutputTokens),
+                )
             },
         ) { response, markEmitted ->
             if (response.isEventStream()) {
@@ -333,6 +353,46 @@ private class RemoteGenerationStoppedException(
     }
 }
 
+/**
+ * Bounded remote output cap sent as OpenAI-compatible `max_tokens`. Without it a provider may
+ * stream until its own (possibly very large) limit, which costs the user money and time and can
+ * run past the remote context window. Thinking models get a larger default because their
+ * reasoning tokens count against the same cap.
+ */
+object RemoteOutputTokenLimits {
+    const val DEFAULT_MAX_OUTPUT_TOKENS = 4_096
+    const val THINKING_MODEL_MAX_OUTPUT_TOKENS = 16_384
+    const val MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS = 32_768
+    const val MIN_MAX_OUTPUT_TOKENS = 256
+    const val MAX_MAX_OUTPUT_TOKENS = 32_768
+
+    /**
+     * Resolves `max_tokens` for [config]: an explicit positive [configuredMaxOutputTokens] wins,
+     * otherwise a per-model default; the result is clamped to
+     * [[MIN_MAX_OUTPUT_TOKENS], [MAX_MAX_OUTPUT_TOKENS]] and, when the remote profile declares a
+     * context window, to at most half of it (never below the minimum).
+     */
+    fun resolve(config: RemoteModelConfig, configuredMaxOutputTokens: Int? = null): Int {
+        val requested = configuredMaxOutputTokens?.takeIf { it > 0 } ?: defaultFor(config.modelName)
+        val bounded = requested.coerceIn(MIN_MAX_OUTPUT_TOKENS, MAX_MAX_OUTPUT_TOKENS)
+        val window = config.contextWindowTokens?.takeIf { it > 0 } ?: return bounded
+        return minOf(bounded, maxOf(MIN_MAX_OUTPUT_TOKENS, window / 2))
+    }
+
+    private fun defaultFor(modelName: String): Int =
+        when {
+            usesMaxReasoningEffort(modelName) -> MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS
+            isRemoteThinkingModel(modelName) -> THINKING_MODEL_MAX_OUTPUT_TOKENS
+            else -> DEFAULT_MAX_OUTPUT_TOKENS
+        }
+}
+
+private fun isRemoteThinkingModel(modelName: String): Boolean =
+    modelName.startsWith("kimi-", ignoreCase = true)
+
+private fun usesMaxReasoningEffort(modelName: String): Boolean =
+    modelName.equals("kimi-k3", ignoreCase = true)
+
 internal fun buildChatCompletionBody(
     prompt: String,
     history: List<ChatMessage>,
@@ -340,6 +400,7 @@ internal fun buildChatCompletionBody(
     config: RemoteModelConfig,
     tools: List<ToolSpec> = emptyList(),
     imageAttachments: List<ChatImageAttachment> = emptyList(),
+    maxOutputTokens: Int = RemoteOutputTokenLimits.resolve(config),
 ): JSONObject {
     require(imageAttachments.isEmpty() || config.supportsVisionInput) {
         "当前远程模型未启用图片输入能力，未读取、OCR 或发送图片；请切换支持视觉的远程模型后重新选择图片。"
@@ -358,10 +419,17 @@ internal fun buildChatCompletionBody(
                 .appendHistory(history)
                 .put(userMessageJson(prompt, imageAttachments)),
         ).apply {
-            if (config.modelName.equals("kimi-k3", ignoreCase = true)) {
+            put(
+                "max_tokens",
+                maxOutputTokens.coerceIn(
+                    RemoteOutputTokenLimits.MIN_MAX_OUTPUT_TOKENS,
+                    RemoteOutputTokenLimits.MAX_MAX_OUTPUT_TOKENS,
+                ),
+            )
+            if (usesMaxReasoningEffort(config.modelName)) {
                 put("reasoning_effort", "max")
             }
-            if (!config.modelName.startsWith("kimi-", ignoreCase = true)) {
+            if (!isRemoteThinkingModel(config.modelName)) {
                 put("temperature", parameters.temperature.toDouble())
                 put("top_p", parameters.topP.toDouble())
             }

@@ -151,6 +151,96 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun buildChatCompletionBody_setsBoundedDefaultMaxTokens() {
+        val generic = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+        )
+        val thinking = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.moonshot.cn/v1", "kimi-k2.5"),
+        )
+        val maxEffort = buildChatCompletionBody(
+            prompt = "你好",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.moonshot.ai/v1", "kimi-k3"),
+        )
+
+        assertEquals(RemoteOutputTokenLimits.DEFAULT_MAX_OUTPUT_TOKENS, generic.getInt("max_tokens"))
+        assertEquals(RemoteOutputTokenLimits.THINKING_MODEL_MAX_OUTPUT_TOKENS, thinking.getInt("max_tokens"))
+        assertEquals(
+            RemoteOutputTokenLimits.MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS,
+            maxEffort.getInt("max_tokens"),
+        )
+    }
+
+    @Test
+    fun buildChatCompletionBody_clampsConfiguredMaxTokens() {
+        fun maxTokens(requested: Int): Int =
+            buildChatCompletionBody(
+                prompt = "你好",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+                maxOutputTokens = requested,
+            ).getInt("max_tokens")
+
+        assertEquals(1_000, maxTokens(1_000))
+        assertEquals(RemoteOutputTokenLimits.MIN_MAX_OUTPUT_TOKENS, maxTokens(1))
+        assertEquals(RemoteOutputTokenLimits.MAX_MAX_OUTPUT_TOKENS, maxTokens(10_000_000))
+    }
+
+    @Test
+    fun remoteOutputTokenLimitsHonorOverrideAndRemoteContextWindow() {
+        val config = RemoteModelConfig("https://api.example.com/v1", "model-a")
+
+        assertEquals(2_048, RemoteOutputTokenLimits.resolve(config, configuredMaxOutputTokens = 2_048))
+        assertEquals(
+            RemoteOutputTokenLimits.DEFAULT_MAX_OUTPUT_TOKENS,
+            RemoteOutputTokenLimits.resolve(config, configuredMaxOutputTokens = 0),
+        )
+        assertEquals(
+            3_000,
+            RemoteOutputTokenLimits.resolve(config.copy(contextWindowTokens = 6_000)),
+        )
+        assertEquals(
+            RemoteOutputTokenLimits.MIN_MAX_OUTPUT_TOKENS,
+            RemoteOutputTokenLimits.resolve(config.copy(contextWindowTokens = 100)),
+        )
+    }
+
+    @Test
+    fun okHttpRuntimeSendsResolvedMaxTokensInRequestBody() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "application/json")
+                    .body("""{"choices":[{"message":{"content":"ok"}}]}""")
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient(), maxOutputTokens = 1_234)
+
+            val output = runtime.send(
+                prompt = "你好",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+            ).toList()
+
+            assertEquals(listOf("ok"), output)
+            val body = JSONObject(server.takeRequest().body!!.utf8())
+            assertEquals(1_234, body.getInt("max_tokens"))
+        }
+    }
+
+    @Test
     fun buildChatCompletionBody_excludesLocalOnlyHistory() {
         val body = buildChatCompletionBody(
             prompt = "继续",
