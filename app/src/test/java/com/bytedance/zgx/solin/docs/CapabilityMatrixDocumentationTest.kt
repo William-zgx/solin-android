@@ -318,12 +318,12 @@ class CapabilityMatrixDocumentationTest {
                 SourceAnchor("app/src/test/java/com/bytedance/zgx/solin/ui/SolinScreenDisplayTest.kt", "remoteSendDisclosureRowsNameDestinationAndProtectedData"),
             ),
             "voice_transcript_input" to listOf(
-                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt", "voice_permission_disclosure_dialog"),
+                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/components/ChatComposer.kt", "voice_permission_disclosure_dialog"),
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/SolinVoiceInputConsentUiTest.kt", "voiceButtonRequiresAppConsentBeforeStartingVoiceInput"),
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityVoicePermissionUiTest.kt", "voiceConsentThenDenyMicrophonePermissionShowsFailureAndKeepsRecoveryEntry"),
             ),
             "share_and_file_picker_input" to listOf(
-                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/SolinScreen.kt", "remote_attachment_protection_notice"),
+                SourceAnchor("app/src/main/java/com/bytedance/zgx/solin/ui/components/ChatComposer.kt", "remote_attachment_protection_notice"),
                 SourceAnchor("app/src/androidTest/java/com/bytedance/zgx/solin/MainActivityAdaptiveUiTest.kt", "remote_attachment_protection_notice"),
             ),
             "confirmed_device_actions" to listOf(
