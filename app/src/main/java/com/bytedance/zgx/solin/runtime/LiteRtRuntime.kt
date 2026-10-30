@@ -25,6 +25,7 @@ import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
@@ -172,12 +173,125 @@ object DisabledLiteRtRuntime : LocalChatRuntime {
     override fun close() = Unit
 }
 
-class RealLiteRtRuntime(
+/**
+ * Minimal seam over the native LiteRT [Conversation] so the runtime's lifecycle bookkeeping can
+ * be exercised on the JVM without loading the native engine.
+ */
+internal interface LiteRtConversationHandle {
+    fun sendMessageAsync(request: LocalModelRequest): Flow<String>
+
+    @OptIn(ExperimentalApi::class)
+    fun benchmarkInfo(): BenchmarkInfo
+
+    fun cancelProcess()
+
+    fun close()
+}
+
+/** Minimal seam over the native LiteRT [Engine]; see [LiteRtConversationHandle]. */
+internal interface LiteRtEngineHandle {
+    fun initialize()
+
+    fun createConversation(config: LiteRtConversationSpec): LiteRtConversationHandle
+
+    fun close()
+}
+
+internal data class LiteRtConversationSpec(
+    val history: List<ChatMessage>,
+    val parameters: GenerationParameters,
+    val currentPrompt: String = "",
+    val maxInputTokens: Int? = null,
+)
+
+internal fun interface LiteRtEngineFactory {
+    fun create(
+        modelPath: String,
+        backend: BackendChoice,
+        cacheDir: File,
+        capabilities: LocalModelRuntimeCapabilities,
+    ): LiteRtEngineHandle
+}
+
+internal object NativeLiteRtEngineFactory : LiteRtEngineFactory {
+    override fun create(
+        modelPath: String,
+        backend: BackendChoice,
+        cacheDir: File,
+        capabilities: LocalModelRuntimeCapabilities,
+    ): LiteRtEngineHandle =
+        NativeLiteRtEngineHandle(
+            Engine(
+                defaultEngineConfig(
+                    modelPath = modelPath,
+                    backend = backend,
+                    cacheDir = cacheDir,
+                    capabilities = capabilities,
+                ),
+            ),
+        )
+}
+
+private class NativeLiteRtEngineHandle(
+    private val engine: Engine,
+) : LiteRtEngineHandle {
+    override fun initialize() {
+        engine.initialize()
+    }
+
+    override fun createConversation(config: LiteRtConversationSpec): LiteRtConversationHandle =
+        NativeLiteRtConversationHandle(
+            engine.createConversation(
+                defaultConversationConfig(
+                    messages = config.history,
+                    parameters = config.parameters,
+                    currentPrompt = config.currentPrompt,
+                    maxInputTokens = config.maxInputTokens,
+                ),
+            ),
+        )
+
+    override fun close() {
+        engine.close()
+    }
+}
+
+private class NativeLiteRtConversationHandle(
+    private val conversation: Conversation,
+) : LiteRtConversationHandle {
+    override fun sendMessageAsync(request: LocalModelRequest): Flow<String> {
+        val responseFlow = if (request.imageAttachments.isEmpty()) {
+            conversation.sendMessageAsync(request.prompt)
+        } else {
+            conversation.sendMessageAsync(request.toLiteRtContents())
+        }
+        return responseFlow.map { chunk -> chunk.textContent().ifBlank { chunk.toString() } }
+    }
+
+    @OptIn(ExperimentalApi::class)
+    override fun benchmarkInfo(): BenchmarkInfo = conversation.getBenchmarkInfo()
+
+    override fun cancelProcess() {
+        conversation.cancelProcess()
+    }
+
+    override fun close() {
+        conversation.close()
+    }
+}
+
+class RealLiteRtRuntime internal constructor(
     private val cacheDir: File,
-    private val contextCompactor: ContextCompactor? = null,
+    private val contextCompactor: ContextCompactor?,
+    private val engineFactory: LiteRtEngineFactory,
 ) : LocalChatRuntime {
-    private var engine: Engine? = null
-    private var conversation: Conversation? = null
+    constructor(
+        cacheDir: File,
+        contextCompactor: ContextCompactor? = null,
+    ) : this(cacheDir, contextCompactor, NativeLiteRtEngineFactory)
+
+    private var engine: LiteRtEngineHandle? = null
+    private var conversation: LiteRtConversationHandle? = null
     private var currentBackend: BackendChoice? = null
     private var lastLoadMs: Long? = null
     private var lastFirstTokenMs: Long? = null
@@ -200,23 +314,27 @@ class RealLiteRtRuntime(
     ) {
         close()
         val loadStartedAtNanos = System.nanoTime()
-        val createdEngine = Engine(
-            defaultEngineConfig(
-                modelPath = modelPath,
-                backend = backend,
-                cacheDir = cacheDir,
-                capabilities = capabilities,
-            ),
+        val createdEngine = engineFactory.create(
+            modelPath = modelPath,
+            backend = backend,
+            cacheDir = cacheDir,
+            capabilities = capabilities,
         )
         try {
             createdEngine.initialize()
+            val createdConversation =
+                createdEngine.createConversation(LiteRtConversationSpec(history, parameters))
+            // Publish the native handles only once both exist, so a failed load never leaves a
+            // closed engine reachable from recreate/close.
             engine = createdEngine
-            conversation = createdEngine.createConversation(defaultConversationConfig(history, parameters))
+            conversation = createdConversation
             currentBackend = backend
             lastLoadMs = elapsedMillisSince(loadStartedAtNanos)
             lastFirstTokenMs = null
         } catch (throwable: Throwable) {
             runCatching { createdEngine.close() }
+            engine = null
+            conversation = null
             currentBackend = null
             lastLoadMs = null
             lastFirstTokenMs = null
@@ -253,9 +371,13 @@ class RealLiteRtRuntime(
         // System instruction is out-of-band via ConversationConfig.systemInstruction, so the
         // history passed here contains only user/assistant turns — no system prefix to preserve.
         val compactedHistory = compactHistoryIfRequested(history, currentPrompt, maxInputTokens)
-        conversation?.close()
+        // Detach the old conversation before closing it: if creating the replacement fails, the
+        // runtime must report not-loaded instead of keeping a closed native conversation.
+        val previousConversation = conversation
+        conversation = null
+        previousConversation?.close()
         conversation = currentEngine.createConversation(
-            defaultConversationConfig(compactedHistory, parameters, currentPrompt, maxInputTokens),
+            LiteRtConversationSpec(compactedHistory, parameters, currentPrompt, maxInputTokens),
         )
     }
 
@@ -304,6 +426,8 @@ class RealLiteRtRuntime(
                 )
             }
             result.messages
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (t: Throwable) {
             Log.w(TAG, "Context compaction failed, falling through to budget heuristic", t)
             history
@@ -320,14 +444,8 @@ class RealLiteRtRuntime(
         }
         val startedAtNanos = System.nanoTime()
         lastFirstTokenMs = null
-        val responseFlow = if (request.imageAttachments.isEmpty()) {
-            activeConversation.sendMessageAsync(request.prompt)
-        } else {
-            activeConversation.sendMessageAsync(request.toLiteRtContents())
-        }
-        return responseFlow
-            .map { chunk ->
-                val text = chunk.textContent().ifBlank { chunk.toString() }
+        return activeConversation.sendMessageAsync(request)
+            .map { text ->
                 if (text.isNotBlank() && lastFirstTokenMs == null) {
                     lastFirstTokenMs = elapsedMillisSince(startedAtNanos)
                 }
@@ -355,7 +473,7 @@ class RealLiteRtRuntime(
     override fun lastBenchmarkResult(): RuntimeBenchmarkResult {
         val conversation = conversation
             ?: return RuntimeBenchmarkResult.Unavailable("no active conversation")
-        val benchmark = runCatching { conversation.getBenchmarkInfo() }
+        val benchmark = runCatching { conversation.benchmarkInfo() }
             .getOrElse { throwable ->
                 return RuntimeBenchmarkResult.Unavailable(
                     "getBenchmarkInfo failed: ${throwable.message ?: throwable::class.java.simpleName}",
@@ -372,13 +490,18 @@ class RealLiteRtRuntime(
         runCatching { conversation?.cancelProcess() }
 
     override fun close() {
-        conversation?.close()
+        val closingConversation = conversation
+        val closingEngine = engine
         conversation = null
-        engine?.close()
         engine = null
         currentBackend = null
         lastLoadMs = null
         lastFirstTokenMs = null
+        try {
+            closingConversation?.close()
+        } finally {
+            closingEngine?.close()
+        }
     }
 
     companion object {
