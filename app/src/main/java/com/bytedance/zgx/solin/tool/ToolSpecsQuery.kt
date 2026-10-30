@@ -1,0 +1,186 @@
+package com.bytedance.zgx.solin.tool
+
+import com.bytedance.zgx.solin.action.MobileActionFunctions
+
+/**
+ * Built-in specs for local device-context queries (calendar, foreground app, notifications,
+ * files, OCR and screen-text reads).
+ *
+ * Moved verbatim out of ToolRegistry.kt. [builtInToolSpecs] concatenates the chunks in the
+ * original order — that order feeds planning prompts and the capability matrix, and is
+ * pinned by BuiltInToolSpecSnapshotTest. Keep each chunk contiguous and in place.
+ */
+internal val deviceQueryToolSpecs: List<ToolSpec> = listOf(
+    ToolSpec(
+        name = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+        title = "查询日历忙闲",
+        description = "只读查询本机日历在指定 ISO 时间窗口内的忙闲区间，不读取标题、地点或参与人。",
+        inputSchemaJson = calendarAvailabilitySchemaJson,
+        outputSchemaJson = calendarAvailabilityOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsCalendar,
+            ToolPermission.RequiresAndroidRuntimePermission,
+        ),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("start", "end"),
+        privateOutputKeys = setOf("start", "end", "busyBlockCount", "freeBlockCount", "blocksJson"),
+        redactedResultSummary = "已读取日历忙闲摘要",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        androidRuntimePermissions = listOf(
+            AndroidRuntimePermissionSpec(AndroidRuntimePermissionKind.ReadCalendar),
+        ),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.QUERY_FOREGROUND_APP,
+        title = "查询当前前台应用",
+        description = "通过 Android UsageStats 读取当前前台应用的应用名与包名估计值；不是窗口管理器真值，也不读取屏幕内容。",
+        inputSchemaJson = emptyObjectSchemaJson,
+        outputSchemaJson = foregroundAppOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+        ),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        privateOutputKeys = setOf("packageName", "appLabel", "lastTimeUsedMillis"),
+        redactedResultSummary = "已读取当前前台应用",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        tags = usageStatsSpecialAccessTags,
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+        title = "查询近期通知",
+        description = "读取当前应用最近一段时间的通知摘要，默认返回最近 5 条。",
+        inputSchemaJson = recentNotificationSchemaJson,
+        outputSchemaJson = notificationsOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+        ),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("maxCount"),
+        privateOutputKeys = setOf("notificationCount", "notificationsJson"),
+        redactedResultSummary = "已读取近期通知摘要",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.QUERY_RECENT_FILES,
+        title = "查询最近文件",
+        description = "读取本机最近媒体文件摘要，仅返回文件名与文件类型等最小信息。Android 13 及以上没有 documents/downloads/others 的可执行直接读取授权路径；非媒体文件应由用户通过系统文件选择器或分享入口主动提供。",
+        inputSchemaJson = recentFilesSchemaJson,
+        outputSchemaJson = recentFilesOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsFiles,
+            ToolPermission.RequiresAndroidRuntimePermission,
+        ),
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("kind", "maxCount"),
+        privateOutputKeys = setOf("fileCount", "filesJson"),
+        redactedResultSummary = "已读取最近文件摘要",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        androidRuntimePermissions = listOf(
+            AndroidRuntimePermissionSpec(
+                kind = AndroidRuntimePermissionKind.RecentFiles,
+                argumentName = "kind",
+            ),
+        ),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+        title = "读取最近截图 OCR",
+        description = "在用户确认后读取最近 1 张截图像素并在本地提取 OCR 文本；不保存 URI、路径、原图或像素。",
+        inputSchemaJson = recentScreenshotOcrSchemaJson,
+        outputSchemaJson = recentScreenshotOcrOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsFiles,
+            ToolPermission.RequiresAndroidRuntimePermission,
+        ),
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("maxCount"),
+        privateOutputKeys = recentImageOcrPrivateOutputKeys,
+        redactedResultSummary = "已读取最近截图 OCR 摘录",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        tags = sequentialLocalContinuationTags,
+        androidRuntimePermissions = listOf(
+            AndroidRuntimePermissionSpec(
+                kind = AndroidRuntimePermissionKind.RecentImages,
+                rationale = "用于在你确认后读取最近 1 张截图像素，并在本地提取 OCR 文本。",
+            ),
+        ),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+        title = "读取最近图片 OCR",
+        description = "在用户确认后扫描最近图片像素并在本地提取第一条 OCR 文本；不保存 URI、路径、原图或像素。",
+        inputSchemaJson = recentImageOcrSchemaJson,
+        outputSchemaJson = recentImageOcrOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsFiles,
+            ToolPermission.RequiresAndroidRuntimePermission,
+        ),
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("maxCount"),
+        privateOutputKeys = recentImageOcrPrivateOutputKeys,
+        redactedResultSummary = "已读取最近图片 OCR 摘录",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        tags = sequentialLocalContinuationTags,
+        androidRuntimePermissions = listOf(
+            AndroidRuntimePermissionSpec(
+                kind = AndroidRuntimePermissionKind.RecentImages,
+                rationale = "用于在你确认后最多扫描最近 3 张图片像素，并在本地提取第一条 OCR 文本。",
+            ),
+        ),
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+        title = "读取当前屏幕 Accessibility 可访问文本快照",
+        description = "在用户确认后读取当前 active window 暴露的 Accessibility 可访问文本快照和粗粒度结构摘要；不是截图、OCR、视觉/VLM 或语义屏幕理解，不读取像素、坐标、节点 ID 或完整节点树。",
+        inputSchemaJson = currentScreenTextSchemaJson,
+        outputSchemaJson = currentScreenTextOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsAccessibilityText,
+        ),
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("maxChars"),
+        privateOutputKeys = setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
+        redactedResultSummary = "已读取当前屏幕可访问文本快照",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        tags = accessibilityScreenTextSequentialTags,
+    ),
+    ToolSpec(
+        name = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+        title = "截取当前屏幕 OCR",
+        description = "在用户确认并完成 Android MediaProjection 前台同意后，单次截取当前可见屏幕并本地提取有界 OCR 文本；可融合临时 Accessibility 节点形成本地结构化观测；不保存图片、像素、URI、路径或窗口标题，不做视觉语义理解。",
+        inputSchemaJson = currentScreenshotOcrSchemaJson,
+        outputSchemaJson = currentScreenshotOcrOutputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+        permissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsAccessibilityText,
+            ToolPermission.RequiresMediaProjectionConsent,
+        ),
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        pendingArgumentAllowlist = setOf("captureMode"),
+        privateOutputKeys = setOf("ocrText", "ocrBlocksJson", "screenObservationJson"),
+        redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
+        resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        tags = sequentialLocalContinuationTags,
+    ),
+)
