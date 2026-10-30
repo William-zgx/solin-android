@@ -116,7 +116,6 @@ private const val SUBMIT_CANDIDATE_BELOW_SPAN = 3
 
 /** Symmetric horizontal reach, in anchor-heights, on each side of a search field. */
 private const val SUBMIT_CANDIDATE_HORIZONTAL_SPAN = 4
-private const val SOLIN_PASTE_CLIP_LABEL = "Solin输入"
 private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
     "提交搜索",
     "搜索",
@@ -215,20 +214,6 @@ private fun clampedNormalizedTarget(x: Int, y: Int): NormalizedTarget =
         y = y.coerceIn(MIN_NORMALIZED_COORD, MAX_NORMALIZED_COORD),
     )
 
-/**
- * True when the clipboard's primary clip is still the exact text Solin pasted.
- *
- * Compared by value rather than by clip identity because the system hands back a fresh [ClipData]
- * instance on every read. Any failure to read is reported as "not ours", so an unreadable clipboard
- * never causes us to overwrite it.
- */
-private fun ClipboardManager.holdsSolinText(writtenText: String): Boolean =
-    runCatching {
-        val clip = primaryClip ?: return false
-        if (clip.itemCount != 1) return false
-        clip.getItemAt(0)?.text?.toString() == writtenText
-    }.getOrDefault(false)
-
 class SolinAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var controlOverlayView: TextView? = null
@@ -242,6 +227,16 @@ class SolinAccessibilityService : AccessibilityService() {
         Thread(runnable, "SolinScreenshotCallback").apply { isDaemon = true }
     }
 
+    /**
+     * Clipboard content Solin wrote and still owes a restore for.
+     *
+     * Held on the service (not captured per-callback) so [onInterrupt] / [onDestroy] / [onUnbind]
+     * can drain it: the delayed restore runs through `runCleanupIfCurrent`, which deliberately skips
+     * when the task was interrupted or the service torn down or reconnected — exactly the cases
+     * where the pasted text would otherwise leak permanently.
+     */
+    private val clipboardRestorer = ClipboardPasteRestorer<ClipData>()
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         deviceControlTasks.connect(this)?.let { previous ->
@@ -253,7 +248,22 @@ class SolinAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         deviceControlTasks.interrupt(this)
+        scheduleClipboardDrainAfterInterrupt()
         hideControlProgressOverlay()
+    }
+
+    /**
+     * Interrupt bumps the lease generation, so the paste's own delayed restore is refused. Drain the
+     * restore owed at interrupt time after the usual post-paste settle window (an in-flight
+     * `ACTION_PASTE` binder call cannot be interrupted and must still read Solin's text). Token
+     * scoped: if a newer paste has started by then, its own restore handles the clipboard.
+     */
+    private fun scheduleClipboardDrainAfterInterrupt() {
+        val token = clipboardRestorer.pendingToken() ?: return
+        mainHandler.postDelayed(
+            { drainPendingClipboardOnTeardown(token) },
+            DEFAULT_POST_ACTION_WAIT_MILLIS,
+        )
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -1134,87 +1144,50 @@ class SolinAccessibilityService : AccessibilityService() {
 
     private fun pasteTextIntoEditable(editableNode: AccessibilityNodeInfo, text: String): Boolean {
         throwIfInterrupted()
-        val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
-        val previousClip = runCatching { clipboard.primaryClip }.getOrNull()
-        submitUiSideEffect {
-            clipboard.setPrimaryClip(ClipData.newPlainText(SOLIN_PASTE_CLIP_LABEL, text))
-        }
-        // Remember what we wrote so the restore can verify it is still ours, and so lifecycle teardown
-        // can finish the job: whatever the user was typing (a search term, an address) must not be left
-        // sitting in the system clipboard for other apps to read.
-        pendingClipboardRestore = PendingClipboardRestore(
-            previousClip = previousClip,
-            writtenText = text,
-        )
-        val pasted = submitUiSideEffect {
-            editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        val clipboard = getSystemService(ClipboardManager::class.java)
+            ?.let(::AndroidPasteClipboard)
+            ?: return false
+        // Remember what we displaced so the restore can verify the clipboard is still ours, and so
+        // lifecycle teardown can finish the job: whatever the user was typing (a search term, an
+        // address) must not be left sitting in the system clipboard for other apps to read.
+        val restoreToken = clipboardRestorer.writeForPaste(clipboard, text) {
+            submitUiSideEffect { clipboard.setText(text) }
         }
         val task = deviceControlTask.get()
-        mainHandler.postDelayed(
-            {
-                task?.runCleanupIfCurrent {
-                    restorePendingClipboard(clipboard)
-                }
-            },
-            DEFAULT_POST_ACTION_WAIT_MILLIS,
-        )
-        return pasted
-    }
-
-    /**
-     * Clipboard content Solin wrote and still owes a restore for.
-     *
-     * Held on the service (not captured per-callback) so [onDestroy] / [onUnbind] can drain it: the
-     * delayed restore runs through `runCleanupIfCurrent`, which deliberately skips when the service has
-     * been torn down or reconnected — exactly the cases where the pasted text would otherwise leak
-     * permanently.
-     */
-    private data class PendingClipboardRestore(
-        val previousClip: ClipData?,
-        val writtenText: String,
-    )
-
-    @Volatile
-    private var pendingClipboardRestore: PendingClipboardRestore? = null
-
-    /**
-     * Restores the pre-paste clipboard, but only while the clipboard still holds what we wrote.
-     *
-     * Between the paste and this delayed restore the user may have copied something of their own;
-     * blindly re-setting the old clip would destroy it. Comparing first means a lost restore is the
-     * worst case, never a lost user clip.
-     */
-    private fun restorePendingClipboard(clipboard: ClipboardManager) {
-        val pending = pendingClipboardRestore ?: return
-        pendingClipboardRestore = null
-        runCatching {
-            if (!clipboard.holdsSolinText(pending.writtenText)) return
-            val previousClip = pending.previousClip
-            if (previousClip != null) {
-                clipboard.setPrimaryClip(previousClip)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                clipboard.clearPrimaryClip()
-            } else {
-                clipboard.setPrimaryClip(ClipData.newPlainText(SOLIN_PASTE_CLIP_LABEL, ""))
+        try {
+            return submitUiSideEffect {
+                editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
             }
+        } finally {
+            // Scheduled even when the paste itself is refused or throws: the clipboard already holds
+            // the user's text at this point and must be handed back.
+            mainHandler.postDelayed(
+                {
+                    if (task == null) {
+                        clipboardRestorer.restore(clipboard, restoreToken)
+                    } else {
+                        task.runCleanupIfCurrent { clipboardRestorer.restore(clipboard, restoreToken) }
+                    }
+                },
+                DEFAULT_POST_ACTION_WAIT_MILLIS,
+            )
         }
     }
 
     /**
-     * Last-resort clipboard drain for service teardown.
+     * Last-resort clipboard drain for interrupt and service teardown.
      *
-     * Runs outside the task-lease guard on purpose: by the time [onDestroy] / [onUnbind] fires the
-     * lease is already invalidated, so the normal restore path would decline and the pasted text would
-     * survive the service. Still content-checked, so a clip the user created after us is untouched.
+     * Runs outside the task-lease guard on purpose: by the time [onInterrupt] / [onDestroy] /
+     * [onUnbind] fires the lease is already invalidated, so the normal restore path would decline and
+     * the pasted text would survive. Still content-checked, so a clip the user created after us is
+     * untouched.
      */
-    private fun drainPendingClipboardOnTeardown() {
-        if (pendingClipboardRestore == null) return
-        val clipboard = runCatching { getSystemService(ClipboardManager::class.java) }.getOrNull()
-        if (clipboard == null) {
-            pendingClipboardRestore = null
-            return
-        }
-        restorePendingClipboard(clipboard)
+    private fun drainPendingClipboardOnTeardown(token: Long? = null) {
+        if (clipboardRestorer.pendingToken() == null) return
+        val clipboard = runCatching { getSystemService(ClipboardManager::class.java) }
+            .getOrNull()
+            ?.let(::AndroidPasteClipboard)
+        clipboardRestorer.drain(clipboard, token)
     }
 
     private fun findEditableForTextInput(
