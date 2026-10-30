@@ -14,6 +14,7 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 import com.bytedance.zgx.solin.logging.solinW
+import java.io.BufferedReader
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -22,7 +23,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
@@ -170,74 +173,29 @@ class OkHttpRemoteChatRuntime(
         parameters: GenerationParameters,
         config: RemoteModelConfig,
         imageAttachments: List<ChatImageAttachment>,
-    ): Flow<String> = callbackFlow {
-        val normalized = config.normalized()
-        require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
-        val credential = runCatching { credentialResolver.resolve(normalized) }
-            .getOrElse { throwable ->
-                close(IllegalStateException("凭证解析失败：${throwable.message ?: throwable.javaClass.simpleName}", throwable))
-                return@callbackFlow
-            }
-        val request = Request.Builder()
-            .url(normalized.chatCompletionsUrl())
-            .post(
+    ): Flow<String> =
+        streamChatCompletion(
+            config = config,
+            imageAttachments = imageAttachments,
+            body = { normalized ->
                 buildChatCompletionBody(prompt, history, parameters, normalized, imageAttachments = imageAttachments)
-                    .toString()
-                    .toRequestBody(JSON),
-            )
-            .header("Accept", "text/event-stream, application/json")
-            .header("Content-Type", "application/json")
-            .apply {
-                credential.authorizationHeader.takeIf { credential.hasAuthorization() }?.let {
-                    header("Authorization", it)
-                }
-            }
-            .build()
-        val currentCall = AtomicReference<Call?>(null)
-        val worker = launch(ioDispatcher) {
-            try {
-                runWithRetry(request, currentCall) { call, markEmitted ->
-                    call.execute().use { response ->
-                        if (!response.isSuccessful) {
-                            throw response.toStatusFailure(imageAttachments)
-                        }
-                        val body = response.body
-                        if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
-                            body.charStream().buffered().use { reader ->
-                                while (isActive) {
-                                    val line = reader.readLine() ?: break
-                                    if (!line.startsWith("data:")) continue
-                                    val payload = line.removePrefix("data:").trim()
-                                    if (payload == "[DONE]") break
-                                    val chunk = parseChatCompletionChunkText(payload)
-                                    if (chunk.isNotEmpty()) {
-                                        markEmitted()
-                                        send(chunk)
-                                    }
-                                }
-                            }
-                        } else {
+            },
+        ) { response, markEmitted ->
+            if (response.isEventStream()) {
+                response.body.charStream().buffered().use { reader ->
+                    reader.forEachSsePayload { payload ->
+                        val chunk = parseChatCompletionChunkText(payload)
+                        if (chunk.isNotEmpty()) {
                             markEmitted()
-                            send(parseChatCompletionText(body.string()))
+                            send(chunk)
                         }
                     }
                 }
-                close()
-            } catch (throwable: Throwable) {
-                if (throwable is RemoteGenerationStoppedException) {
-                    close(throwable)
-                } else if (currentCall.get()?.isCanceled() == true) {
-                    close(CancellationException("远程生成已取消", throwable))
-                } else {
-                    close(throwable)
-                }
+            } else {
+                markEmitted()
+                send(parseChatCompletionText(response.body.string()))
             }
         }
-        awaitClose {
-            currentCall.get()?.cancel()
-            worker.cancel()
-        }
-    }
 
     override fun sendWithTools(
         prompt: String,
@@ -246,7 +204,47 @@ class OkHttpRemoteChatRuntime(
         config: RemoteModelConfig,
         tools: List<ToolSpec>,
         imageAttachments: List<ChatImageAttachment>,
-    ): Flow<RemoteChatEvent> = callbackFlow {
+    ): Flow<RemoteChatEvent> =
+        streamChatCompletion(
+            config = config,
+            imageAttachments = imageAttachments,
+            body = { normalized ->
+                buildChatCompletionBody(prompt, history, parameters, normalized, tools, imageAttachments)
+            },
+        ) { response, markEmitted ->
+            if (response.isEventStream()) {
+                val accumulator = RemoteToolCallAccumulator()
+                response.body.charStream().buffered().use { reader ->
+                    reader.forEachSsePayload { payload ->
+                        accumulator.absorb(payload).forEach { event ->
+                            markEmitted()
+                            send(event)
+                        }
+                    }
+                }
+                accumulator.finish().forEach { event ->
+                    markEmitted()
+                    send(event)
+                }
+            } else {
+                parseChatCompletionEvents(response.body.string()).forEach { event ->
+                    markEmitted()
+                    send(event)
+                }
+            }
+        }
+
+    /**
+     * Shared plumbing for both chat paths: config validation, credential resolution, request
+     * building, the retrying worker, cancellation mapping and `awaitClose`. [handleResponse] reads one
+     * successful response and must call `markEmitted` before each downstream emission.
+     */
+    private fun <T> streamChatCompletion(
+        config: RemoteModelConfig,
+        imageAttachments: List<ChatImageAttachment>,
+        body: (normalized: RemoteModelConfig) -> JSONObject,
+        handleResponse: suspend ProducerScope<T>.(response: Response, markEmitted: () -> Unit) -> Unit,
+    ): Flow<T> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
         val credential = runCatching { credentialResolver.resolve(normalized) }
@@ -254,28 +252,7 @@ class OkHttpRemoteChatRuntime(
                 close(IllegalStateException("凭证解析失败：${throwable.message ?: throwable.javaClass.simpleName}", throwable))
                 return@callbackFlow
             }
-        val request = Request.Builder()
-            .url(normalized.chatCompletionsUrl())
-            .post(
-                buildChatCompletionBody(
-                    prompt,
-                    history,
-                    parameters,
-                    normalized,
-                    tools,
-                    imageAttachments,
-                )
-                    .toString()
-                    .toRequestBody(JSON),
-            )
-            .header("Accept", "text/event-stream, application/json")
-            .header("Content-Type", "application/json")
-            .apply {
-                credential.authorizationHeader.takeIf { credential.hasAuthorization() }?.let {
-                    header("Authorization", it)
-                }
-            }
-            .build()
+        val request = buildChatCompletionRequest(normalized, credential, body(normalized))
         val currentCall = AtomicReference<Call?>(null)
         val worker = launch(ioDispatcher) {
             try {
@@ -284,31 +261,7 @@ class OkHttpRemoteChatRuntime(
                         if (!response.isSuccessful) {
                             throw response.toStatusFailure(imageAttachments)
                         }
-                        val body = response.body
-                        if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
-                            val accumulator = RemoteToolCallAccumulator()
-                            body.charStream().buffered().use { reader ->
-                                while (isActive) {
-                                    val line = reader.readLine() ?: break
-                                    if (!line.startsWith("data:")) continue
-                                    val payload = line.removePrefix("data:").trim()
-                                    if (payload == "[DONE]") break
-                                    accumulator.absorb(payload).forEach { event ->
-                                        markEmitted()
-                                        send(event)
-                                    }
-                                }
-                            }
-                            accumulator.finish().forEach { event ->
-                                markEmitted()
-                                send(event)
-                            }
-                        } else {
-                            parseChatCompletionEvents(body.string()).forEach { event ->
-                                markEmitted()
-                                send(event)
-                            }
-                        }
+                        handleResponse(response, markEmitted)
                     }
                 }
                 close()
@@ -331,6 +284,40 @@ class OkHttpRemoteChatRuntime(
     override fun stop() {
         stopGeneration.update { it + 1 }
         activeCalls.toList().forEach(Call::cancel)
+    }
+}
+
+private fun buildChatCompletionRequest(
+    normalized: RemoteModelConfig,
+    credential: Credential,
+    body: JSONObject,
+): Request =
+    Request.Builder()
+        .url(normalized.chatCompletionsUrl())
+        .post(body.toString().toRequestBody(JSON))
+        .header("Accept", "text/event-stream, application/json")
+        .header("Content-Type", "application/json")
+        .apply {
+            credential.authorizationHeader.takeIf { credential.hasAuthorization() }?.let {
+                header("Authorization", it)
+            }
+        }
+        .build()
+
+private fun Response.isEventStream(): Boolean =
+    header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)
+
+/**
+ * Reads server-sent-event `data:` payloads until `[DONE]`, end of stream, or cancellation of the
+ * calling coroutine. Non-`data:` lines (comments, `event:`, blank separators) are skipped.
+ */
+private suspend inline fun BufferedReader.forEachSsePayload(onPayload: (String) -> Unit) {
+    while (currentCoroutineContext().isActive) {
+        val line = readLine() ?: break
+        if (!line.startsWith("data:")) continue
+        val payload = line.removePrefix("data:").trim()
+        if (payload == "[DONE]") break
+        onPayload(payload)
     }
 }
 
