@@ -38,7 +38,7 @@ internal class ModelToolRequestCoordinator(
         fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot
         fun auditRejectedTool(runId: String, result: ToolResult)
         fun clearEphemeralRunState(runId: String)
-        fun markStepStart(stepType: String)
+        fun markStepStart(runId: String, stepType: String)
     }
 
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
@@ -261,7 +261,7 @@ internal class ModelToolRequestCoordinator(
         ) ?: return null
         plans.forEach { plan -> toolObservationCoordinator.appendToolPlanSteps(runId, plan) }
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        host.markStepStart("tool_execution")
+        host.markStepStart(runId, "tool_execution")
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,

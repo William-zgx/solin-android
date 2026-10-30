@@ -90,7 +90,7 @@ internal class ToolObservationCoordinator(
         )
         fun publishRunEnded(runId: String, finalText: String? = null)
         fun publishRunFailed(runId: String, code: AgentErrorCode, message: String)
-        fun markStepStart(stepType: String)
+        fun markStepStart(runId: String, stepType: String)
         fun recordVerboseTrace(
             runId: String,
             thinkText: String? = null,
@@ -802,10 +802,10 @@ internal class ToolObservationCoordinator(
                 eventBus.publish(
                     SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
                 )
-                host.markStepStart("model_generation")
+                host.markStepStart(runId, "model_generation")
             }
-            AgentRunState.RetryingTool -> host.markStepStart("tool_execution")
-            AgentRunState.ExecutingTool -> host.markStepStart("tool_execution")
+            AgentRunState.RetryingTool -> host.markStepStart(runId, "tool_execution")
+            AgentRunState.ExecutingTool -> host.markStepStart(runId, "tool_execution")
             else -> Unit
         }
     }

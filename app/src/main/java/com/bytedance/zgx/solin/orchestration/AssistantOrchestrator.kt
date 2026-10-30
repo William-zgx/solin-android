@@ -480,8 +480,8 @@ class AssistantOrchestrator(
         agentLoopRuntime.recordCompactionTriggered(runId, reason, contextBefore, contextAfter)
     }
 
-    fun markStepStart(stepType: String) {
-        agentLoopRuntime.markStepStart(stepType)
+    fun markStepStart(runId: String, stepType: String) {
+        agentLoopRuntime.markStepStart(runId, stepType)
     }
 
     /**

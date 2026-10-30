@@ -429,8 +429,8 @@ class AgentLoopRuntime(
                 this@AgentLoopRuntime.publishRunFailed(runId, code, message)
             }
 
-            override fun markStepStart(stepType: String) {
-                this@AgentLoopRuntime.markStepStart(stepType)
+            override fun markStepStart(runId: String, stepType: String) {
+                this@AgentLoopRuntime.markStepStart(runId, stepType)
             }
 
             override fun recordVerboseTrace(
@@ -623,8 +623,8 @@ class AgentLoopRuntime(
             override fun clearEphemeralRunState(runId: String) =
                 this@AgentLoopRuntime.clearEphemeralRunState(runId)
 
-            override fun markStepStart(stepType: String) =
-                this@AgentLoopRuntime.markStepStart(stepType)
+            override fun markStepStart(runId: String, stepType: String) =
+                this@AgentLoopRuntime.markStepStart(runId, stepType)
         },
     )
 
@@ -685,9 +685,10 @@ class AgentLoopRuntime(
     // requestId, so ToolCompleted telemetry can record latencyMs. Entries are cleared when the
     // corresponding tool result is observed so the map stays bounded by in-flight tool count.
     private val toolDispatchStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    // Wave 4 telemetry: stepType -> last started-at epoch millis, so StepLatency samples can
-    // record deltas when the next step boundary arrives.
-    private val stepStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // Wave 4 telemetry: (runId, stepType) -> last started-at epoch millis, so StepLatency samples can
+    // record deltas when the next step boundary arrives. Keyed per run: concurrent runs (e.g.
+    // subagents) would otherwise clobber each other's start marker and drop or mis-measure samples.
+    private val stepStartedAtMillis = java.util.concurrent.ConcurrentHashMap<StepStartKey, Long>()
 
     fun runOnce(
         input: String,
@@ -858,7 +859,7 @@ class AgentLoopRuntime(
         )
         traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(answerPlan))
         val generatingRun = traceStore.updateState(createdRun.id, AgentRunState.GeneratingAnswer)
-        markStepStart("model_generation")
+        markStepStart(createdRun.id, "model_generation")
         return AgentLoopResult(
             run = generatingRun,
             plan = answerPlan,
@@ -1487,7 +1488,7 @@ class AgentLoopRuntime(
             expectedState = AgentRunState.AwaitingUserConfirmation,
             state = AgentRunState.ExecutingTool,
         ) ?: return null
-        markStepStart("tool_execution")
+        markStepStart(runId, "tool_execution")
         traceStore.clearPendingConfirmation(runId, requestId)
         return executingRun
     }
@@ -1853,10 +1854,10 @@ class AgentLoopRuntime(
                 eventBus.publish(
                     SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
                 )
-                markStepStart("model_generation")
+                markStepStart(runId, "model_generation")
             }
-            AgentRunState.RetryingTool -> markStepStart("tool_execution")
-            AgentRunState.ExecutingTool -> markStepStart("tool_execution")
+            AgentRunState.RetryingTool -> markStepStart(runId, "tool_execution")
+            AgentRunState.ExecutingTool -> markStepStart(runId, "tool_execution")
             else -> Unit
         }
         if (finalState in terminalRunStates) {
@@ -2005,13 +2006,13 @@ class AgentLoopRuntime(
     }
 
     /**
-     * Mark a step boundary so the next [recordStepLatency] with the same [stepType] can compute a
-     * delta. Callers that drive the outer loop (ViewModel/orchestrator) can use this to bracket
+     * Mark a step boundary so the next [recordStepLatency] for the same [runId] and [stepType] can
+     * compute a delta. Callers that drive the outer loop (ViewModel/orchestrator) can use this to bracket
      * long-running phases (e.g. mark "model_generation" before sending a prompt, recordStepLatency
      * after observeModelResult).
      */
-    fun markStepStart(stepType: String) {
-        stepStartedAtMillis[stepType] = System.currentTimeMillis()
+    fun markStepStart(runId: String, stepType: String) {
+        stepStartedAtMillis[StepStartKey(runId, stepType)] = System.currentTimeMillis()
     }
 
     // -----------------------------------------------------------------------
@@ -3042,6 +3043,8 @@ class AgentLoopRuntime(
         AgentRunState.AwaitingExternalOutcome,
     )
 
+    private data class StepStartKey(val runId: String, val stepType: String)
+
     private companion object {
         const val RUN_DELETED_SESSION_REASON = "Session deleted before this Agent run completed."
     }
@@ -3556,7 +3559,7 @@ class AgentLoopRuntime(
     }
 
     private fun recordStepLatency(stepType: String, runId: String?) {
-        val start = stepStartedAtMillis.remove(stepType) ?: return
+        val start = runId?.let { id -> stepStartedAtMillis.remove(StepStartKey(id, stepType)) } ?: return
         val latency = System.currentTimeMillis() - start
         safeRecordTelemetry(
             MetricSample.StepLatency(
