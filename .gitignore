@@ -2,6 +2,8 @@
 .kotlin/
 .codex/
 build/
+# Source packages named "build" (e.g. the build-config drift tests) are not outputs.
+!app/src/**/build/
 app/.cxx/
 local.properties
 *.iml
@@ -14,3 +16,17 @@ app/build/
 models/
 
 .trae/
+
+# Model weights, tokenizers and MediaPipe task bundles (*.litertlm is listed above).
+*.tflite
+*.task
+sentencepiece*.model
+
+# Signing material and release artifacts.
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# Local agent tooling state and worktrees.
+.claude/
