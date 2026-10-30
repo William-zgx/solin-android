@@ -20,8 +20,7 @@ import kotlinx.coroutines.sync.withLock
 /**
  * Owns chat-session lifecycle: create / select / delete, and local runtime conversation restore.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 3 Track C3). The ViewModel keeps
- * thin public wrappers and owns cross-cutting remote-pending / confirmation restore via callbacks.
+ * The ViewModel keeps thin public wrappers and owns cross-cutting remote-pending / confirmation restore via callbacks.
  */
 class SessionController(
     private val sessionRepository: SessionStore,

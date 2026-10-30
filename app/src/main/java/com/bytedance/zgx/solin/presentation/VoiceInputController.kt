@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.update
 /**
  * Owns voice-input capture state and transcript draft handoff into the composer.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 6 Track C6b). Draft IDs come from
+ * Draft IDs come from
  * [ChatController.allocateVoiceInputDraftId] so shared-input and voice drafts stay on one counter.
  */
 class VoiceInputController(

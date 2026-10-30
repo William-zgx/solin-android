@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.update
 /**
  * Owns background-task list refresh, cancellation, and periodic-check policy updates.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 6 Track C6b). Memory sync stays
+ * Memory sync stays
  * injected so task-state long-term memories remain coordinated with MemoryController.
  * Constructed before `_uiState` so [createInitialState] can snapshot tasks; [bindUiState] is
  * called once the ViewModel state flow exists.

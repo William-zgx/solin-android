@@ -12,9 +12,7 @@ import com.bytedance.zgx.solin.device.DeviceContextToolReadiness
 import com.bytedance.zgx.solin.device.DeviceContextToolReadinessState
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 
-/**
- * Device-context snapshot / tool-readiness helpers extracted from SolinViewModel (Wave 6 Track C6b).
- */
+/** Device-context snapshot / tool-readiness helpers. */
 
 internal fun ChatUiState.toDeviceContextSnapshot(
     authorization: DeviceContextAuthorizationSnapshot,

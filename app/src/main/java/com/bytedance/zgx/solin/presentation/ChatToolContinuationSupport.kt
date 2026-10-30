@@ -61,7 +61,7 @@ internal fun resolveBoundToolContinuation(
 /**
  * Owns post-tool-observation model continuation (local + remote tool-result re-entry).
  *
- * Extracted from [ChatController] (Wave 6 Track C6). Generation I/O helpers live on
+ * Generation I/O helpers live on
  * [ChatGenerationSupport]; remote disclosure/audit on [ChatRemoteSendSupport]. Job lifecycle
  * and tool-plan handoff stay injected so this collaborator does not own generation jobs.
  */

@@ -84,12 +84,10 @@ private const val LOCAL_ONLY_INPUT_KEPT_LOCAL_REPLY =
 /**
  * Owns chat send/stop and generation job lifecycle.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 4 Track C4). Wave 5 Track C5
- * further extracts remote-send disclosure/audit to [ChatRemoteSendSupport] and shared-input
- * staging to [ChatSharedInputSupport]. Wave 6 Track C6 extracts tool-observation continuation
- * to [ChatToolContinuationSupport] and generation streaming/quality helpers to
- * [ChatGenerationSupport]. The ViewModel keeps thin public wrappers and owns tool-execution /
- * session / model-load coupling via callbacks.
+ * Collaborators: remote-send disclosure/audit in [ChatRemoteSendSupport], shared-input staging in
+ * [ChatSharedInputSupport], tool-observation continuation in [ChatToolContinuationSupport], and
+ * generation streaming/quality in [ChatGenerationSupport]. Tool execution, session and model-load
+ * coupling are injected.
  */
 class ChatController internal constructor(
     private val modelRepository: ModelRepositoryFacade,

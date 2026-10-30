@@ -40,7 +40,7 @@ internal data class PendingRemoteContinuation(
 /**
  * Owns remote-send disclosure, pending-continuation markers, and egress audit recording.
  *
- * Extracted from [ChatController] (Wave 5 Track C5). Resume-send after confirm is injected via
+ * Resume-send after confirm is injected via
  * callbacks so this collaborator does not form a circular type with [ChatController].
  */
 internal class ChatRemoteSendSupport(

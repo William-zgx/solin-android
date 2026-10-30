@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.update
 /**
  * Owns shared-input ingest / staging / protect / reject / send-pending draft flow.
  *
- * Extracted from [ChatController] (Wave 5 Track C5). [ChatController] keeps thin public forwards
+ * [ChatController] keeps thin public forwards
  * and owns the send path that shared input ultimately resumes into.
  */
 internal data class PendingSharedInputRemoteSendRestore(

@@ -107,7 +107,7 @@ internal object BoundGenerationStopResolver {
  * Owns local/remote generation streaming, output-quality guard application, stop cleanup,
  * and remote context-overflow retry helpers.
  *
- * Extracted from [ChatController] (Wave 6 Track C6). Callers keep orchestration and job
+ * Callers keep orchestration and job
  * lifecycle ownership; this collaborator only mutates UI/session state for generation I/O.
  */
 /** Mutable state of one guarded generation turn, shared across its streaming callbacks. */

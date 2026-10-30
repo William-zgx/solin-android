@@ -55,8 +55,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * Package-level helpers shared by [ChatController] and its Wave 5 collaborators.
- * Behavior-preserving extract only — not a public API surface.
+ * Package-level helpers shared by [ChatController] and its collaborators; not a public API surface.
  */
 
 internal interface ChatServingCall {

@@ -22,8 +22,7 @@ private const val AUDIT_FULL_TRACE_STEP_LIMIT = Int.MAX_VALUE
 /**
  * Owns audit-event and agent-trace list loading for Trust / background UI surfaces.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 6 Track C6b). Constructed before
- * `_uiState` so [createInitialState] can load audit/trace snapshots; [bindUiState] is called once
+ * Constructed before `_uiState` so [createInitialState] can load audit/trace snapshots; [bindUiState] is called once
  * the ViewModel state flow exists.
  */
 class AuditUiController(

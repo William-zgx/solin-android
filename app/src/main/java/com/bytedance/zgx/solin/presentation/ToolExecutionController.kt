@@ -53,8 +53,7 @@ private const val MISSING_TOOL_REQUEST_REASON =
 /**
  * Owns tool confirmation, execution, public-evidence batching, and pending-action restore.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 3 Track C3b). The ViewModel keeps
- * thin public wrappers and owns generation / remote-continuation coupling via callbacks.
+ * The ViewModel keeps thin public wrappers and owns generation / remote-continuation coupling via callbacks.
  */
 class ToolExecutionController(
     private val assistantOrchestrator: AssistantRouter,

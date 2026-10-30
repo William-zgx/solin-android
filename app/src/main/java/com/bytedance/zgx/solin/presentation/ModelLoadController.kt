@@ -55,8 +55,7 @@ import kotlinx.coroutines.withContext
  * Owns local/remote model selection, download/import, HF auth, first-run setup download queue,
  * bundled install, and model load readiness.
  *
- * Extracted from [com.bytedance.zgx.solin.SolinViewModel] (Wave 2 Track C2). The ViewModel keeps
- * thin public wrappers and owns chat-side pending-remote state machines via callbacks.
+ * The ViewModel keeps thin public wrappers and owns chat-side pending-remote state machines via callbacks.
  */
 internal class ModelLoadController(
     private val modelRepository: ModelRepositoryFacade,
