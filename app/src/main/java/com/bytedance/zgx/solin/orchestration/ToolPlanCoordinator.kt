@@ -369,6 +369,7 @@ internal class ToolPlanCoordinator(
             textSummary = textDigest,
             elementCount = observation.elements.size,
             capturedAtMillis = observation.capturedAtMillis,
+            requestId = requestId,
         )
     }
 

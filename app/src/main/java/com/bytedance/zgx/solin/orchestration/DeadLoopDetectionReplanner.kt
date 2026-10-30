@@ -15,7 +15,12 @@ import com.bytedance.zgx.solin.tool.ToolRequest
  * Detection rules:
  * 1. Same action repeated [maxRepeatActions] times with same target → force back
  * 2. Same screen observed [maxSameScreen] times without progress → (TODO: needs runtime support)
- * 3. Same scroll direction repeated → force direction change or back
+ * 3. Same scroll direction repeated without screen progress → force direction change or back
+ *
+ * Scroll progress is judged from [AgentObservationReplanContext.screenObservationHistory]: a scroll
+ * whose post-action fingerprint differs from the fingerprint observed just before it is "making
+ * progress" (e.g. walking down a long list) and must not be reversed. Identical fingerprints, or no
+ * fingerprint at all for the scroll, keep the original fail-safe behaviour (reverse/back).
  */
 class DeadLoopDetectionReplanner(
     private val maxRepeatActions: Int = AgentSurvivalRules.MAX_REPEAT_ACTIONS,
@@ -37,8 +42,12 @@ class DeadLoopDetectionReplanner(
             val lastRequest = mutatingRequests.last()
             val allSame = recent.all { it.toolName == lastRequest.toolName &&
                 it.sameTargetAs(lastRequest) }
+            // Scrolls: directional scroll loops are owned by Rule 3 (which reverses direction), and
+            // a scroll that is still changing the screen is progress, not a loop.
+            val deferScrollToRule3 = lastRequest.toolName == MobileActionFunctions.UI_SCROLL &&
+                (lastRequest.arguments["direction"] != null || context.scrollMadeProgress(lastRequest))
 
-            if (allSame) {
+            if (allSame && !deferScrollToRule3) {
                 val lastTool = lastRequest.toolName
 
                 // If repeating back press, let normal flow fail — we're at the root
@@ -105,7 +114,11 @@ class DeadLoopDetectionReplanner(
         if (scrollRequests.size >= AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION) {
             val recentScrolls = scrollRequests.takeLast(AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION)
             val direction = recentScrolls.last().arguments["direction"]
-            if (direction != null && recentScrolls.all { it.arguments["direction"] == direction }) {
+            if (
+                direction != null &&
+                recentScrolls.all { it.arguments["direction"] == direction } &&
+                !context.scrollMadeProgress(recentScrolls.last())
+            ) {
                 val oppositeDirection = OPPOSITE_SCROLL_DIRECTIONS[direction]
                 val reason = "dead_loop: repeated scroll $direction"
 
@@ -152,6 +165,18 @@ class DeadLoopDetectionReplanner(
         return null // No dead loop detected
     }
 
+    /**
+     * True only when [scroll] has its own fingerprint in the history AND that fingerprint differs from
+     * the screen observed immediately before it. Missing evidence is NOT progress (fail-safe: the
+     * original reverse/back behaviour applies).
+     */
+    private fun AgentObservationReplanContext.scrollMadeProgress(scroll: ToolRequest): Boolean {
+        val history = screenObservationHistory
+        val index = history.indexOfLast { fingerprint -> fingerprint.requestId == scroll.id }
+        if (index <= 0) return false
+        return !history[index].sameSurfaceAs(history[index - 1])
+    }
+
     private fun ToolRequest.sameTargetAs(other: ToolRequest): Boolean {
         val thisTarget = arguments["target"] ?: arguments["query"] ?: arguments["appName"] ?: ""
         val otherTarget = other.arguments["target"] ?: other.arguments["query"] ?: other.arguments["appName"] ?: ""
@@ -190,6 +215,8 @@ data class ScreenObservationFingerprint(
     val textSummary: String?,
     val elementCount: Int,
     val capturedAtMillis: Long,
+    /** Id of the tool request whose observed result produced this fingerprint, when known. */
+    val requestId: String? = null,
 ) {
     /**
      * Whether two fingerprints describe the same surface with no progress. Compares package,

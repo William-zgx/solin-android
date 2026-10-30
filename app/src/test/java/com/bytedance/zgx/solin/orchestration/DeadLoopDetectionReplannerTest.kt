@@ -102,6 +102,118 @@ class DeadLoopDetectionReplannerTest {
         }
     }
 
+    @Test
+    fun rule3DoesNotReverseWhileSameDirectionScrollsKeepChangingTheScreen() {
+        val scrolls = scrollRequests(direction = "down")
+        val history = listOf(
+            fingerprint(digest = "start", requestId = "observe-0"),
+            fingerprint(digest = "page-1", requestId = scrolls[0].id),
+            fingerprint(digest = "page-2", requestId = scrolls[1].id),
+            fingerprint(digest = "page-3", requestId = scrolls[2].id),
+        )
+
+        assertNull(
+            "progressing scrolls must not be reversed",
+            replanner.planNext(scrollContext(scrolls, history)),
+        )
+    }
+
+    @Test
+    fun rule3ReversesWhenTheLatestScrollLeftTheScreenUnchanged() {
+        val scrolls = scrollRequests(direction = "down")
+        val history = listOf(
+            fingerprint(digest = "start", requestId = "observe-0"),
+            fingerprint(digest = "page-1", requestId = scrolls[0].id),
+            fingerprint(digest = "page-2", requestId = scrolls[1].id),
+            fingerprint(digest = "page-2", requestId = scrolls[2].id),
+        )
+
+        val replan = replanner.planNext(scrollContext(scrolls, history))
+
+        assertNotNull("an identical post-scroll fingerprint is the end-of-list signal", replan)
+        assertEquals(MobileActionFunctions.UI_SCROLL, replan!!.request.toolName)
+        assertEquals("up", replan.request.arguments["direction"])
+    }
+
+    @Test
+    fun rule3KeepsFailSafeReversalWhenScrollFingerprintsAreMissing() {
+        val scrolls = scrollRequests(direction = "down")
+
+        val replan = replanner.planNext(scrollContext(scrolls, history = emptyList()))
+
+        assertNotNull(replan)
+        assertEquals("up", replan!!.request.arguments["direction"])
+    }
+
+    @Test
+    fun rule1DoesNotForceBackForUndirectedScrollsThatMakeProgress() {
+        val scrolls = scrollRequests(direction = null)
+        val history = listOf(
+            fingerprint(digest = "start", requestId = "observe-0"),
+            fingerprint(digest = "page-1", requestId = scrolls[0].id),
+            fingerprint(digest = "page-2", requestId = scrolls[1].id),
+            fingerprint(digest = "page-3", requestId = scrolls[2].id),
+        )
+
+        assertNull(replanner.planNext(scrollContext(scrolls, history)))
+    }
+
+    @Test
+    fun rule1StillForcesBackForUndirectedScrollsWithoutProgress() {
+        val scrolls = scrollRequests(direction = null)
+        val history = listOf(
+            fingerprint(digest = "start", requestId = "observe-0"),
+            fingerprint(digest = "page-1", requestId = scrolls[0].id),
+            fingerprint(digest = "page-2", requestId = scrolls[1].id),
+            fingerprint(digest = "page-2", requestId = scrolls[2].id),
+        )
+
+        val replan = replanner.planNext(scrollContext(scrolls, history))
+
+        assertNotNull(replan)
+        assertEquals(MobileActionFunctions.UI_PRESS_BACK, replan!!.request.toolName)
+    }
+
+    private fun scrollRequests(direction: String?): List<ToolRequest> =
+        List(3) { index ->
+            ToolRequest(
+                id = "scroll-$index",
+                toolName = MobileActionFunctions.UI_SCROLL,
+                arguments = direction?.let { mapOf("direction" to it) } ?: emptyMap(),
+            )
+        }
+
+    private fun fingerprint(digest: String, requestId: String): ScreenObservationFingerprint =
+        ScreenObservationFingerprint(
+            packageName = "com.example.app",
+            textSummary = digest,
+            elementCount = 12,
+            capturedAtMillis = 0L,
+            requestId = requestId,
+        )
+
+    private fun scrollContext(
+        scrolls: List<ToolRequest>,
+        history: List<ScreenObservationFingerprint>,
+    ): AgentObservationReplanContext =
+        AgentObservationReplanContext(
+            run = AgentRun(
+                id = "run-scroll",
+                input = "向下翻找设置项",
+                state = AgentRunState.Observing,
+                createdAtMillis = 1L,
+                updatedAtMillis = 1L,
+            ),
+            previousRequest = scrolls.last(),
+            observedResult = ToolResult(
+                requestId = scrolls.last().id,
+                status = ToolStatus.Succeeded,
+                summary = "scrolled",
+            ),
+            priorRequests = scrolls,
+            screenObservationHistory = history,
+        )
+
     private fun frozenFingerprint(
         elementCount: Int = 8,
         capturedAtMillis: Long = 0L,
