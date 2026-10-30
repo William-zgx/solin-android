@@ -105,90 +105,35 @@ class MobileActionPlanner(
         val systemTimerDraft by lazy { SystemTimerActionParser.draft(input) }
         val absoluteReminderDraft by lazy { AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId) }
         return when {
-            DeviceSettingsActionParser.matches(input) ->
-                DeviceSettingsActionParser.draft(input)
-
-            SystemSettingsActionParser.matches(input) ->
-                SystemSettingsActionParser.draft(input)
-
-            MapSearchActionParser.matches(input) ->
-                MapSearchActionParser.draft(input)
-
-            EmailDraftActionParser.matches(input) ->
-                EmailDraftActionParser.draft(input)
-
-            DeepLinkActionParser.matches(input) ->
-                DeepLinkActionParser.draft(input)
-
-            CameraActionParser.matches(input) ->
-                CameraActionParser.draft()
-
-            systemAlarmDraft != null ->
-                systemAlarmDraft
-
-            systemTimerDraft != null ->
-                systemTimerDraft
-
-            AppNavigationActionParser.matches(input) ->
-                AppNavigationActionParser.draft(input)
-
-            ReminderActionParser.matches(input) ->
-                ReminderActionParser.draft(input)
-
-            absoluteReminderDraft != null ->
-                absoluteReminderDraft
-
-            PeriodicCheckActionParser.matches(input) ->
-                PeriodicCheckActionParser.draft(input)
-
-            BackgroundTasksQueryActionParser.matches(input) ->
-                BackgroundTasksQueryActionParser.draft(input)
-
+            DeviceSettingsActionParser.matches(input) -> DeviceSettingsActionParser.draft(input)
+            SystemSettingsActionParser.matches(input) -> SystemSettingsActionParser.draft(input)
+            MapSearchActionParser.matches(input) -> MapSearchActionParser.draft(input)
+            EmailDraftActionParser.matches(input) -> EmailDraftActionParser.draft(input)
+            DeepLinkActionParser.matches(input) -> DeepLinkActionParser.draft(input)
+            CameraActionParser.matches(input) -> CameraActionParser.draft()
+            systemAlarmDraft != null -> systemAlarmDraft
+            systemTimerDraft != null -> systemTimerDraft
+            AppNavigationActionParser.matches(input) -> AppNavigationActionParser.draft(input)
+            ReminderActionParser.matches(input) -> ReminderActionParser.draft(input)
+            absoluteReminderDraft != null -> absoluteReminderDraft
+            PeriodicCheckActionParser.matches(input) -> PeriodicCheckActionParser.draft(input)
+            BackgroundTasksQueryActionParser.matches(input) -> BackgroundTasksQueryActionParser.draft(input)
             ("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction() ->
                 MobileActionFunctions.READ_CLIPBOARD.toDraft(emptyMap())
-
-            ShareTextActionParser.matches(input) ->
-                ShareTextActionParser.draft(input)
-
-            ForegroundAppActionParser.matches(input) ->
-                ForegroundAppActionParser.draft()
-
-            RecentNotificationsActionParser.matches(input) ->
-                RecentNotificationsActionParser.draft(input)
-
-            RecentScreenshotOcrActionParser.matches(input) ->
-                RecentScreenshotOcrActionParser.draft(input)
-
-            RecentImageOcrActionParser.matches(input) ->
-                RecentImageOcrActionParser.draft(input)
-
-            CurrentScreenshotOcrActionParser.matches(input) ->
-                CurrentScreenshotOcrActionParser.draft()
-
-            CurrentScreenTextActionParser.matches(input) ->
-                CurrentScreenTextActionParser.draft(input)
-
-            RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ->
-                RecentFilesActionParser.draft(input)
-
-            CalendarAvailabilityActionParser.matches(input) ->
-                CalendarAvailabilityActionParser.draft(input)
-
-            ContactQueryActionParser.matches(input) ->
-                ContactQueryActionParser.draft(input)
-
-            CancelReminderActionParser.matches(input) ->
-                CancelReminderActionParser.draft(input)
-
-            CalendarDraftActionParser.matches(input) ->
-                CalendarDraftActionParser.draft(input)
-
-            ContactDraftActionParser.matches(input) ->
-                ContactDraftActionParser.draft(input)
-
-            WebSearchActionParser.matches(input) ->
-                WebSearchActionParser.draft(input)
-
+            ShareTextActionParser.matches(input) -> ShareTextActionParser.draft(input)
+            ForegroundAppActionParser.matches(input) -> ForegroundAppActionParser.draft()
+            RecentNotificationsActionParser.matches(input) -> RecentNotificationsActionParser.draft(input)
+            RecentScreenshotOcrActionParser.matches(input) -> RecentScreenshotOcrActionParser.draft(input)
+            RecentImageOcrActionParser.matches(input) -> RecentImageOcrActionParser.draft(input)
+            CurrentScreenshotOcrActionParser.matches(input) -> CurrentScreenshotOcrActionParser.draft()
+            CurrentScreenTextActionParser.matches(input) -> CurrentScreenTextActionParser.draft(input)
+            RecentFilesActionParser.matches(input, includeNonMediaKinds = true) -> RecentFilesActionParser.draft(input)
+            CalendarAvailabilityActionParser.matches(input) -> CalendarAvailabilityActionParser.draft(input)
+            ContactQueryActionParser.matches(input) -> ContactQueryActionParser.draft(input)
+            CancelReminderActionParser.matches(input) -> CancelReminderActionParser.draft(input)
+            CalendarDraftActionParser.matches(input) -> CalendarDraftActionParser.draft(input)
+            ContactDraftActionParser.matches(input) -> ContactDraftActionParser.draft(input)
+            WebSearchActionParser.matches(input) -> WebSearchActionParser.draft(input)
             else -> null
         }
     }

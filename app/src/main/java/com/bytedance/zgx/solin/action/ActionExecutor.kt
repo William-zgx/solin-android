@@ -46,27 +46,14 @@ class ActionExecutor(
     private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
-        if (request.toolName == MobileActionFunctions.SCHEDULE_REMINDER) {
-            return scheduleReminder(request)
-        }
-        if (request.toolName == MobileActionFunctions.CONFIGURE_PERIODIC_CHECK) {
-            return configurePeriodicCheck(request)
-        }
-        if (request.toolName == MobileActionFunctions.CANCEL_REMINDER) {
-            return cancelReminder(request)
-        }
-        if (request.toolName == MobileActionFunctions.READ_CLIPBOARD) {
-            return readClipboard(request)
-        }
-        // ── Open-AutoGLM-inspired expanded action vocabulary ──
-        if (request.toolName == MobileActionFunctions.NOTE) {
-            return executeNote(request)
-        }
-        if (request.toolName == MobileActionFunctions.FINISH) {
-            return executeFinish(request)
-        }
-        if (request.toolName == MobileActionFunctions.TAKE_OVER) {
-            return executeTakeOver(request)
+        when (request.toolName) {
+            MobileActionFunctions.SCHEDULE_REMINDER -> return scheduleReminder(request)
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK -> return configurePeriodicCheck(request)
+            MobileActionFunctions.CANCEL_REMINDER -> return cancelReminder(request)
+            MobileActionFunctions.READ_CLIPBOARD -> return readClipboard(request)
+            MobileActionFunctions.NOTE -> return executeNote(request)
+            MobileActionFunctions.FINISH -> return executeFinish(request)
+            MobileActionFunctions.TAKE_OVER -> return executeTakeOver(request)
         }
         externalIntentInvalidReason(request)?.let { reason -> return request.invalidRequest(reason) }
         executeExternalActivityWithInjectedStarter(request)?.let { result -> return result }
@@ -97,8 +84,6 @@ class ActionExecutor(
             ),
         )
     }
-
-    // ── Open-AutoGLM-inspired expanded action vocabulary handlers ──
 
     /**
      * Handle the `note` action: record content to the per-run scratchpad.
