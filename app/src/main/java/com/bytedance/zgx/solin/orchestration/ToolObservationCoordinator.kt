@@ -46,6 +46,12 @@ internal class ToolObservationCoordinator(
      * on the runtime facade.
      */
     interface Host {
+        /**
+         * True while the user has sent mid-run input (steer/queue) for [runId] that is not yet
+         * drained. The observation path then plans no further tool step on its own, so the run
+         * yields to the user's new input right after the current tool's result is observed.
+         */
+        fun hasPendingUserInput(runId: String): Boolean = false
 
         fun toolRequestFor(runId: String, requestId: String): ToolRequest?
         fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch?
@@ -568,7 +574,10 @@ internal class ToolObservationCoordinator(
         retryRequested: Boolean,
         searchResultVerified: Boolean,
     ): NextObservationPlan =
-        if (
+        if (host.hasPendingUserInput(run.id)) {
+            // Mid-run user input is waiting: stop autonomous planning after this observation.
+            NextObservationPlan.None
+        } else if (
             observedResult.status == ToolStatus.Succeeded &&
             !retryRequested
         ) {

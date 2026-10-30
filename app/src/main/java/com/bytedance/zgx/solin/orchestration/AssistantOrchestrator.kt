@@ -85,6 +85,27 @@ interface AssistantRouter : AutoCloseable {
      */
     fun steerRun(runId: String, messages: List<ChatMessage>): Boolean = false
 
+    /** Current state of [runId], or null when unknown. Used to classify mid-run steering. */
+    fun runState(runId: String): AgentRunState? = null
+
+    /**
+     * High-priority steer for [runId]: enqueue [messages] and cooperatively cancel the registered
+     * in-flight model call when the run is generating. Never interrupts tool execution.
+     */
+    fun steer(runId: String, messages: List<ChatMessage>): Boolean = steerRun(runId, messages)
+
+    /** Normal-priority mid-run input for [runId]; never cancels anything. */
+    fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean = false
+
+    /** Register the in-flight model streaming Job for [runId] (never a tool-execution Job). */
+    fun registerModelCallJob(runId: String, job: kotlinx.coroutines.Job) = Unit
+
+    /** Unregister [job] (or any registered Job when null) for [runId]. */
+    fun unregisterModelCallJob(runId: String, job: kotlinx.coroutines.Job?) = Unit
+
+    /** Drain (and thereby discard from the runtime) pending steer/queued input for [runId]. */
+    fun drainPendingMessages(runId: String): PendingMessagesDrain = PendingMessagesDrain(emptyList(), emptyList())
+
     fun confirmToolRequest(runId: String, requestId: String): AgentRun?
 
     fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult?
@@ -273,8 +294,10 @@ class AssistantOrchestrator(
      * user turn on the immediately-following model call. Mirrors [steerRun] on AssistantRouter
      * but returns the boolean accepted/active flag from the runtime.
      */
-    fun steer(runId: String, messages: List<ChatMessage>): Boolean =
+    override fun steer(runId: String, messages: List<ChatMessage>): Boolean =
         agentLoopRuntime.steer(messages = messages, runId = runId)
+
+    override fun runState(runId: String): AgentRunState? = traceStore.run(runId)?.state
 
     /**
      * Normal-priority queued user input: appends [messages] as fresh user turns at the next drain
@@ -282,7 +305,7 @@ class AssistantOrchestrator(
      * anything. Returns true if the run was active and the batch was accepted; false if unknown
      * or terminal (messages dropped).
      */
-    fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean =
+    override fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean =
         agentLoopRuntime.queue(messages = messages, runId = runId)
 
     /**
@@ -294,11 +317,11 @@ class AssistantOrchestrator(
      * Tool-execution Jobs must NOT be registered (tool execution is non-cancellable in v1 for
      * safety). Only model streaming collection Jobs should be registered.
      */
-    fun registerModelCallJob(runId: String, job: kotlinx.coroutines.Job) {
+    override fun registerModelCallJob(runId: String, job: kotlinx.coroutines.Job) {
         agentLoopRuntime.registerModelCallJob(runId, job)
     }
 
-    fun unregisterModelCallJob(runId: String, job: kotlinx.coroutines.Job? = null) {
+    override fun unregisterModelCallJob(runId: String, job: kotlinx.coroutines.Job?) {
         agentLoopRuntime.unregisterModelCallJob(runId, job)
     }
 
@@ -311,7 +334,7 @@ class AssistantOrchestrator(
      * want to distinguish high-priority steer interruptions (e.g. to mark them in UI or flush
      * partial model output) should prefer this over the legacy single-list [drainSteeringMessages].
      */
-    fun drainPendingMessages(runId: String): PendingMessagesDrain =
+    override fun drainPendingMessages(runId: String): PendingMessagesDrain =
         agentLoopRuntime.drainPendingMessages(runId)
 
     override fun confirmToolRequest(runId: String, requestId: String): AgentRun? =

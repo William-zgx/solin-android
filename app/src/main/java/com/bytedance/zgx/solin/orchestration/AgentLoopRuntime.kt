@@ -338,6 +338,9 @@ class AgentLoopRuntime(
         runBudget = runBudget,
         maxToolRetryAttempts = maxToolRetryAttempts,
         host = object : ToolObservationCoordinator.Host {
+            override fun hasPendingUserInput(runId: String): Boolean =
+                runScopedState.pendingUserInputByRunId[runId] == true
+
             override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
                 this@AgentLoopRuntime.toolRequestFor(runId, requestId)
 
@@ -537,9 +540,10 @@ class AgentLoopRuntime(
     // must run to completion); batches arriving during ExecutingTool/RetryingTool wait on the
     // channel until the tool's result is observed.
     //
-    // The producers (steer, queue, steerRun, registerModelCallJob) have no production caller yet;
-    // only SteerQueueTest drives them. Kept as the ChatController integration seam, so do not
-    // assume steer/queue is live when reasoning about run behaviour.
+    // Producers are live via ChatController (presentation/ChatMidRunSteering): it registers model
+    // streaming Jobs, steers/queues a LocalOnly copy of mid-run input and re-sends the user's
+    // message through the normal send pipeline once the run yields. The channels only carry the
+    // pending marker (see pendingUserInputByRunId); nothing here injects them into a prompt.
     private val steerMessages = Channel<PendingMessageBatch>(capacity = Channel.UNLIMITED)
     private val queuedMessages = Channel<PendingMessageBatch>(capacity = Channel.UNLIMITED)
 
@@ -951,6 +955,7 @@ class AgentLoopRuntime(
         if (run.state.isTerminal()) return false
         val enqueued = steerMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
         if (!enqueued) return false
+        runScopedState.pendingUserInputByRunId[id] = true
         // Only cancel a model-streaming job; never interrupt tool execution. The state check is
         // racy (a tool could start between this line and .cancel()) so additionally rely on the
         // register/unregister pairing in the model-stream call sites: tool-execution Jobs are
@@ -977,7 +982,9 @@ class AgentLoopRuntime(
         val id = runId ?: return false
         val run = traceStore.run(id) ?: return false
         if (run.state.isTerminal()) return false
-        return queuedMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
+        val enqueued = queuedMessages.trySend(PendingMessageBatch(id, messages)).isSuccess
+        if (enqueued) runScopedState.pendingUserInputByRunId[id] = true
+        return enqueued
     }
 
     /**
@@ -1074,6 +1081,7 @@ class AgentLoopRuntime(
      * them as the most recent user turns, rather than being prepended before existing history.
      */
     fun drainPendingMessages(runId: String): PendingMessagesDrain {
+        runScopedState.pendingUserInputByRunId.remove(runId)
         val steer = mutableListOf<ChatMessage>()
         val queued = mutableListOf<ChatMessage>()
         // Two-phase pump for each channel: pull everything available off the channel with

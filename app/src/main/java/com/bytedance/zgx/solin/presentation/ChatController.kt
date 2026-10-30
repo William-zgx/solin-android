@@ -63,6 +63,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -124,6 +125,7 @@ class ChatController internal constructor(
     private var activeGenerationRunId: String? = null
     private val generationStreams = GenerationStreamCoordinator()
     private var nextVoiceInputDraftId = 0L
+    private val midRunSteering = ChatMidRunSteering(router = assistantOrchestrator, uiState = uiState)
 
     private val generationSupport = ChatGenerationSupport(
         uiState = uiState,
@@ -239,7 +241,7 @@ class ChatController internal constructor(
         assistantOrchestrator = assistantOrchestrator,
         generationSupport = generationSupport,
         remoteSendSupport = remoteSendSupport,
-        launchGenerationJob = { runId, block -> launchToolGenerationJob(runId, block) },
+        launchGenerationJob = { runId, block -> launchGenerationJob(runId, modelCall = true, block = block) },
         cancelActiveGenerationRun = { runId -> cancelActiveGenerationRun(runId) },
         executePublicEvidenceToolBatchAfterRunIsExecuting = executePublicEvidenceToolBatchAfterRunIsExecutingCallback,
         handleNextToolPlan = handleNextToolPlanCallback,
@@ -291,6 +293,7 @@ class ChatController internal constructor(
         preparedChatExecutions.clear()
         runIds.forEach(deferredAudit::discard)
         activeGenerationRunId = null
+        midRunSteering.clear()
         generationJob?.cancel()
         return runIds
     }
@@ -307,6 +310,7 @@ class ChatController internal constructor(
             uiState.value.pendingExternalOutcome?.runId?.let(::add)
         }.forEach { runId -> chatPlacementRuntime.stop(runId, AgentRunState.Cancelled) }
         preparedChatRunCoordinator.teardownSession(sessionId)
+        midRunSteering.clearSession(sessionId)
         preparedChatExecutions.entries.removeIf { (_, execution) ->
             execution.stateBeforeSend.activeSessionId == sessionId
         }
@@ -341,7 +345,22 @@ class ChatController internal constructor(
         preparedPlacement: RunPlacement? = null,
         preparedJobLaunched: ((Deferred<Unit>) -> Unit)? = null,
         onRemoteServingStarted: (() -> Unit)? = null,
+        heldMessagesOnly: Boolean = false,
     ) {
+        if (
+            preparedExecution == null &&
+            !heldMessagesOnly &&
+            holdMidRunMessageIfGenerating(
+                prompt = prompt,
+                explicitMessagePrivacy = explicitMessagePrivacy,
+                remoteSendConfirmed = remoteSendConfirmed,
+                hasAttachmentsOrEvidence = imageAttachments.isNotEmpty() ||
+                    localImageAttachments.isNotEmpty() ||
+                    currentPromptEvidenceSummary != null,
+            )
+        ) {
+            return
+        }
         if (
             preparedExecution == null && sessionHost.dispatchPersistenceWorkIfNeeded {
                 sendMessageInternal(
@@ -351,6 +370,7 @@ class ChatController internal constructor(
                     localImageAttachments = localImageAttachments,
                     remoteSendConfirmed = remoteSendConfirmed,
                     currentPromptEvidenceSummary = currentPromptEvidenceSummary,
+                    heldMessagesOnly = heldMessagesOnly,
                 )
             }
         ) {
@@ -372,14 +392,17 @@ class ChatController internal constructor(
                     return
                 }
                 InitialSendDecision.ForgetMemoryCommand -> {
+                    if (heldMessagesOnly) midRunSteering.clear()
                     sessionHost.handleExplicitMemoryForgetCommand(trimmed)
                     return
                 }
                 InitialSendDecision.UserFactCommand -> {
+                    if (heldMessagesOnly) midRunSteering.clear()
                     sessionHost.handleExplicitUserFactCommand(trimmed)
                     return
                 }
                 InitialSendDecision.PreferenceCommand -> {
+                    if (heldMessagesOnly) midRunSteering.clear()
                     sessionHost.handleExplicitPreferenceCommand(trimmed)
                     return
                 }
@@ -388,6 +411,25 @@ class ChatController internal constructor(
                     return
                 }
                 InitialSendDecision.Proceed -> Unit
+            }
+            if (!remoteSendConfirmed) {
+                // Mid-run messages held during the previous run are sent now as one NORMAL send, so
+                // they get the full privacy classification / disclosure / audit pipeline.
+                midRunSteering.takeMerged(
+                    sessionId = uiState.value.activeSessionId,
+                    prompt = trimmed.takeUnless { heldMessagesOnly },
+                    explicitMessagePrivacy = explicitMessagePrivacy.takeUnless { heldMessagesOnly },
+                )?.let { merged ->
+                    sendMessageInternal(
+                        prompt = merged.prompt,
+                        explicitMessagePrivacy = merged.explicitMessagePrivacy,
+                        imageAttachments = imageAttachments,
+                        localImageAttachments = localImageAttachments,
+                        currentPromptEvidenceSummary = currentPromptEvidenceSummary,
+                    )
+                    return
+                }
+                if (heldMessagesOnly) return
             }
         }
 
@@ -716,45 +758,51 @@ class ChatController internal constructor(
                         streamingAssistantUpdates = streamingUpdates
                         val turn = GuardedTurn(streamingUpdates)
                         val acceptDelta = { chunk: String -> generationStreams.acceptDelta(streamKey, chunk) }
-                        if (useRemoteModel) {
-                            val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(agentRunOptions.remoteToolScope)
-                            route.runId?.let { runId ->
-                                assistantOrchestrator.recordRemoteToolsExposed(
-                                    runId = runId,
-                                    scope = agentRunOptions.remoteToolScope,
-                                    toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name },
-                                )
-                            }
-                            if (!remoteSendConfirmed) {
-                                remoteSendSupport.recordRemoteSendAuditEvent(
-                                    decision = RemoteSendDecision.Confirmed,
-                                    modelName = remoteConfig.normalized().modelName,
+                        val modelCallJob = currentCoroutineContext()[Job]
+                        route.runId?.let { runId -> modelCallJob?.let { job -> midRunSteering.onModelCallStarted(runId, job) } }
+                        try {
+                            if (useRemoteModel) {
+                                val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(agentRunOptions.remoteToolScope)
+                                route.runId?.let { runId ->
+                                    assistantOrchestrator.recordRemoteToolsExposed(
+                                        runId = runId,
+                                        scope = agentRunOptions.remoteToolScope,
+                                        toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name },
+                                    )
+                                }
+                                if (!remoteSendConfirmed) {
+                                    remoteSendSupport.recordRemoteSendAuditEvent(
+                                        decision = RemoteSendDecision.Confirmed,
+                                        modelName = remoteConfig.normalized().modelName,
+                                        prompt = route.promptForModel,
+                                        imageCount = imageAttachments.size,
+                                        remoteHistoryCount = remoteHistory.size,
+                                    )
+                                }
+                                remoteHistory = generationSupport.streamRemoteTurn(
+                                    turn = turn,
+                                    runId = route.runId,
                                     prompt = route.promptForModel,
-                                    imageCount = imageAttachments.size,
-                                    remoteHistoryCount = remoteHistory.size,
+                                    history = remoteHistory,
+                                    parameters = stateBeforeSend.generationParameters,
+                                    config = remoteConfig,
+                                    tools = remoteTools,
+                                    imageAttachments = imageAttachments,
+                                    acceptDelta = acceptDelta,
+                                    onServingStarted = { onRemoteServingStarted?.invoke() },
+                                )
+                            } else {
+                                generationSupport.streamLocalTurn(
+                                    turn = turn,
+                                    prompt = route.promptForModel,
+                                    history = stateBeforeSend.messages,
+                                    parameters = stateBeforeSend.generationParameters,
+                                    imageAttachments = localImageAttachments,
+                                    acceptDelta = acceptDelta,
                                 )
                             }
-                            remoteHistory = generationSupport.streamRemoteTurn(
-                                turn = turn,
-                                runId = route.runId,
-                                prompt = route.promptForModel,
-                                history = remoteHistory,
-                                parameters = stateBeforeSend.generationParameters,
-                                config = remoteConfig,
-                                tools = remoteTools,
-                                imageAttachments = imageAttachments,
-                                acceptDelta = acceptDelta,
-                                onServingStarted = { onRemoteServingStarted?.invoke() },
-                            )
-                        } else {
-                            generationSupport.streamLocalTurn(
-                                turn = turn,
-                                prompt = route.promptForModel,
-                                history = stateBeforeSend.messages,
-                                parameters = stateBeforeSend.generationParameters,
-                                imageAttachments = localImageAttachments,
-                                acceptDelta = acceptDelta,
-                            )
+                        } finally {
+                            route.runId?.let { runId -> modelCallJob?.let { job -> midRunSteering.onModelCallFinished(runId, job) } }
                         }
                         generationSupport.guardCompletedTurn(turn, useRemoteModel, remoteConfig)
                         val outputQualityDecision = turn.qualityDecision
@@ -818,13 +866,7 @@ class ChatController internal constructor(
         preparedJob?.let { launched ->
             requireNotNull(preparedJobLaunched) { "Prepared Chat job owner is missing" }(launched)
         }
-        generationJob = job
-        job.invokeOnCompletion {
-            if (generationJob == job) {
-                generationJob = null
-                activeGenerationRunId = null
-            }
-        }
+        trackGenerationJob(job)
         if (preparedJob == null) job.start()
     }
 
@@ -1232,6 +1274,8 @@ class ChatController internal constructor(
     fun stopGeneration() {
         val job = generationJob
         val runId = activeGenerationRunId ?: preparedChatExecutions.keys.singleOrNull()
+        // An explicit stop discards input sent mid-run: the user asked the run to end, not to adjust.
+        midRunSteering.clear()
         if (job == null && runId == null) return
         if (runId != null) {
             chatPlacementRuntime.stop(runId, AgentRunState.Cancelled)
@@ -1245,18 +1289,68 @@ class ChatController internal constructor(
     }
 
     fun launchToolGenerationJob(runId: String?, block: suspend () -> Unit) {
+        launchGenerationJob(runId, modelCall = false, block = block)
+    }
+
+    /**
+     * [modelCall] marks a job that streams a model turn (tool continuation); only such jobs are
+     * registered for steer cancellation. Tool-execution jobs never are, so steer cannot interrupt them.
+     */
+    private fun launchGenerationJob(runId: String?, modelCall: Boolean, block: suspend () -> Unit) {
         activeGenerationRunId = runId
         val job = scope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
-            block()
+            val modelCallJob = currentCoroutineContext()[Job].takeIf { modelCall && runId != null }
+            modelCallJob?.let { job -> midRunSteering.onModelCallStarted(requireNotNull(runId), job) }
+            try {
+                block()
+            } finally {
+                modelCallJob?.let { job -> midRunSteering.onModelCallFinished(requireNotNull(runId), job) }
+            }
         }
+        trackGenerationJob(job)
+        job.start()
+    }
+
+    private fun trackGenerationJob(job: Job) {
         generationJob = job
+        uiState.update { it.copy(midRunSteeringAvailable = true) }
         job.invokeOnCompletion {
             if (generationJob == job) {
                 generationJob = null
                 activeGenerationRunId = null
+                uiState.update { it.copy(midRunSteeringAvailable = false) }
+                dispatchHeldMidRunMessagesWhenIdle()
             }
         }
-        job.start()
+    }
+
+    /**
+     * Mid-run send: while a generation job is in flight, hold the message (steer the model stream or
+     * queue behind the running tool) instead of dropping it. Sends that carry attachments/evidence or
+     * a confirmed remote send keep the old busy semantics.
+     */
+    private fun holdMidRunMessageIfGenerating(
+        prompt: String,
+        explicitMessagePrivacy: MessagePrivacy?,
+        remoteSendConfirmed: Boolean,
+        hasAttachmentsOrEvidence: Boolean,
+    ): Boolean {
+        if (remoteSendConfirmed || hasAttachmentsOrEvidence || generationJob?.isActive != true) return false
+        val trimmed = prompt.trim()
+        if (trimmed.isEmpty()) return false
+        val action = midRunSteering.offer(trimmed, explicitMessagePrivacy, activeGenerationRunId)
+        solinD(TAG_LIFECYCLE, "midRunSteering: held len=${trimmed.length} action=${action.name}")
+        return true
+    }
+
+    /** Once the run yields (job done, nothing pending on the user), send held input normally. */
+    private fun dispatchHeldMidRunMessagesWhenIdle() {
+        if (!midRunSteering.hasHeldMessages()) return
+        scope.launch {
+            if (generationJob?.isActive == true) return@launch
+            val preview = midRunSteering.heldPromptPreview() ?: return@launch
+            sendMessageInternal(prompt = preview, explicitMessagePrivacy = null, heldMessagesOnly = true)
+        }
     }
 
     fun continueAfterToolObservation(

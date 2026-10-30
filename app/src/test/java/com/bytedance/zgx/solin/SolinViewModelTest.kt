@@ -4713,6 +4713,183 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun midRunSteerCancelsTheLocalModelStreamAndResendsAsANormalTurn() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
+        val router = MidRunSteeringRouter(FakeAssistantRouter(), state = AgentRunState.GeneratingAnswer)
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            assistantRouter = router,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("第一个问题")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isGenerating)
+        assertTrue(viewModel.uiState.value.midRunSteeringAvailable)
+
+        viewModel.sendMessage("改成第二个问题")
+        advanceUntilIdle()
+
+        val steered = router.steered.single()
+        assertEquals(listOf("改成第二个问题"), steered.second.map(ChatMessage::text))
+        assertTrue(steered.second.all { message -> message.privacy == MessagePrivacy.LocalOnly })
+        assertTrue(router.queued.isEmpty())
+        assertEquals(2, localRuntime.prompts.size)
+        assertTrue(localRuntime.prompts.last().contains("改成第二个问题"))
+        assertEquals(
+            listOf("第一个问题", "改成第二个问题"),
+            viewModel.uiState.value.messages.filter { it.role == MessageRole.User }.map(ChatMessage::text),
+        )
+        assertEquals(0, viewModel.uiState.value.pendingSteerMessageCount)
+        assertTrue(viewModel.uiState.value.isGenerating)
+    }
+
+    @Test
+    fun midRunMessageDuringToolPhaseIsQueuedWithoutInterruptingAndSentAfterTheRunYields() = runTest(dispatcher) {
+        val firstCallGate = CompletableDeferred<Unit>()
+        val remoteRuntime = RecordingRemoteChatRuntime(eventBatchStartGates = listOf(firstCallGate))
+        val router = MidRunSteeringRouter(FakeAssistantRouter(), state = AgentRunState.ExecutingTool)
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            assistantRouter = router,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("先查一下天气")
+        advanceUntilIdle()
+        assertEquals(1, remoteRuntime.calls.size)
+
+        viewModel.sendMessage("顺便看明天")
+        advanceUntilIdle()
+
+        assertEquals(listOf("顺便看明天"), router.queued.single().second.map(ChatMessage::text))
+        assertTrue(router.steered.isEmpty())
+        assertEquals(0, router.cancelledModelCalls)
+        assertEquals(0, remoteRuntime.stopCallCount)
+        assertEquals(1, remoteRuntime.calls.size)
+        assertEquals(1, viewModel.uiState.value.pendingSteerMessageCount)
+        assertFalse(viewModel.uiState.value.messages.any { it.text == "顺便看明天" })
+
+        firstCallGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals("顺便看明天", remoteRuntime.calls.last().prompt)
+        assertEquals(0, viewModel.uiState.value.pendingSteerMessageCount)
+        assertEquals(
+            listOf("先查一下天气", "顺便看明天"),
+            viewModel.uiState.value.messages.filter { it.role == MessageRole.User }.map(ChatMessage::text),
+        )
+    }
+
+    @Test
+    fun midRunSteerOfARemoteRunGoesThroughTheNormalRemoteSendDisclosure() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true)
+        val router = MidRunSteeringRouter(FakeAssistantRouter(), state = AgentRunState.GeneratingAnswer)
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            assistantRouter = router,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+        assertEquals(1, remoteRuntime.calls.size)
+        assertTrue(viewModel.uiState.value.isGenerating)
+
+        viewModel.sendMessage("换个问法")
+        advanceUntilIdle()
+
+        assertEquals(1, router.steered.size)
+        assertEquals(1, remoteRuntime.calls.size)
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertTrue(viewModel.uiState.value.pendingRemoteSendDisclosure != null)
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals("换个问法", remoteRuntime.calls.last().prompt)
+    }
+
+    @Test
+    fun stopGenerationDiscardsMidRunMessages() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
+        val router = MidRunSteeringRouter(FakeAssistantRouter(), state = AgentRunState.ExecutingTool)
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            assistantRouter = router,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("第一个问题")
+        advanceUntilIdle()
+        viewModel.sendMessage("排队的消息")
+        advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.pendingSteerMessageCount)
+        assertEquals(0, localRuntime.stopCallCount)
+
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+
+        assertEquals(0, viewModel.uiState.value.pendingSteerMessageCount)
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertFalse(viewModel.uiState.value.midRunSteeringAvailable)
+        assertEquals(1, localRuntime.prompts.size)
+        assertFalse(viewModel.uiState.value.messages.any { it.text == "排队的消息" })
+    }
+
+    /** Emulates the runtime's steer contract: steer cancels the registered model call only while generating. */
+    private class MidRunSteeringRouter(
+        delegate: AssistantRouter,
+        var state: AgentRunState?,
+    ) : AssistantRouter by delegate {
+        val steered = mutableListOf<Pair<String, List<ChatMessage>>>()
+        val queued = mutableListOf<Pair<String, List<ChatMessage>>>()
+        var cancelledModelCalls = 0
+            private set
+        private val registered = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+
+        override fun runState(runId: String): AgentRunState? = state
+
+        override fun steer(runId: String, messages: List<ChatMessage>): Boolean {
+            steered += runId to messages
+            if (state == AgentRunState.GeneratingAnswer) {
+                registered[runId]?.let { job ->
+                    cancelledModelCalls += 1
+                    job.cancel()
+                }
+            }
+            return true
+        }
+
+        override fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean {
+            queued += runId to messages
+            return true
+        }
+
+        override fun registerModelCallJob(runId: String, job: kotlinx.coroutines.Job) {
+            registered[runId] = job
+        }
+
+        override fun unregisterModelCallJob(runId: String, job: kotlinx.coroutines.Job?) {
+            if (job == null) registered.remove(runId) else registered.remove(runId, job)
+        }
+    }
+
+    @Test
     fun stopGenerationUsesBoundRemoteAfterPreferenceProjectionChanges() = runTest(dispatcher) {
         val localRuntime = FakeLiteRtRuntime()
         val remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true)

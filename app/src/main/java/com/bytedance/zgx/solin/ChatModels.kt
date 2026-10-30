@@ -474,6 +474,10 @@ data class ChatUiState(
     val availableModelStorageBytes: Long = 0L,
     val isBusy: Boolean = false,
     val isGenerating: Boolean = false,
+    /** A chat/tool generation job is in flight, so a send now becomes a mid-run steer/queue. */
+    val midRunSteeringAvailable: Boolean = false,
+    /** User messages sent mid-run that are held until the run yields (steer/queue). */
+    val pendingSteerMessageCount: Int = 0,
     val isPreparingDownload: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgressPercent: Int? = null,

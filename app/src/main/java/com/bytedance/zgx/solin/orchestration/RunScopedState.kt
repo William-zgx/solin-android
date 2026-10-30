@@ -40,6 +40,12 @@ internal class RunScopedState {
     /** Monotonic per-run turn counter for TurnStarted / RunEnded / RunFailed events. */
     val runTurnIndex = ConcurrentHashMap<String, Int>()
 
+    /**
+     * Runs holding user input sent mid-run (steer/queue) that has not been drained yet. While set,
+     * the observation path stops autonomously planning further tool steps for the run.
+     */
+    val pendingUserInputByRunId = ConcurrentHashMap<String, Boolean>()
+
     /** (runId, stepType) -> last started-at epoch millis for StepLatency telemetry. */
     val stepStartedAtMillis = ConcurrentHashMap<StepStartKey, Long>()
 
@@ -55,6 +61,7 @@ internal class RunScopedState {
         parkedMillisByRunId,
         lastParkSampleAtMillis,
         runTurnIndex,
+        pendingUserInputByRunId,
     )
 
     /** Drops every entry recorded for [runId]. */

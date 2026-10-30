@@ -27,12 +27,14 @@ import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
+import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.BindAndReserveResult
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.ModelCandidateSnapshot
 import com.bytedance.zgx.solin.orchestration.ModelRequirements
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeAdapters
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
+import com.bytedance.zgx.solin.orchestration.MidRunSteeringAction
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.PreparedChatBindingStore
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
@@ -50,6 +52,7 @@ import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
 import com.bytedance.zgx.solin.orchestration.RunPlacementBindingStore
 import com.bytedance.zgx.solin.orchestration.RunningModelRuntimeCall
 import com.bytedance.zgx.solin.orchestration.estimateTokensApproximate
+import com.bytedance.zgx.solin.orchestration.midRunSteeringActionFor
 import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.orchestration.toContextPrivacySegments
 import com.bytedance.zgx.solin.runtime.GenerationQualityIssue
@@ -57,6 +60,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -615,3 +619,141 @@ internal fun nextToolAssistantText(partial: CharSequence, plan: AgentPlan.UseToo
             "正在使用工具：${plan.draft.title}"
         },
     )
+
+/** A user message sent while a run was active, held until the run yields (mid-run steering). */
+internal data class HeldMidRunMessage(
+    val prompt: String,
+    val explicitMessagePrivacy: MessagePrivacy?,
+    val sessionId: String?,
+)
+
+/** Held messages merged into one normal send. */
+internal data class MergedMidRunSend(
+    val prompt: String,
+    val explicitMessagePrivacy: MessagePrivacy?,
+)
+
+/**
+ * Mid-run steering for [ChatController].
+ *
+ * A message sent while a generation job is in flight is held here and later dispatched as a NORMAL
+ * send (same LocalOnly classification, remote-send disclosure and audit pipeline), so steering can
+ * never bypass disclosure. What happens to the active run depends on its phase
+ * ([midRunSteeringActionFor]):
+ *  - Steer (model streaming): the registered model-call Job is cancelled cooperatively.
+ *  - Queue (tool phases): nothing is cancelled; the runtime stops autonomous next-tool planning and
+ *    the message preempts the run at its next model call ([onModelCallStarted]).
+ *  - NotSteerable: the message only waits.
+ * The runtime only receives a LocalOnly in-memory copy (used for the pending marker); it never
+ * reaches a prompt or an audit record from there.
+ */
+internal class ChatMidRunSteering(
+    private val router: AssistantRouter,
+    private val uiState: MutableStateFlow<ChatUiState>,
+) {
+    private val lock = Any()
+    private val held = mutableListOf<HeldMidRunMessage>()
+
+    fun offer(prompt: String, explicitMessagePrivacy: MessagePrivacy?, runId: String?): MidRunSteeringAction {
+        val message = HeldMidRunMessage(prompt, explicitMessagePrivacy, uiState.value.activeSessionId)
+        synchronized(lock) { held += message }
+        val action = runId
+            ?.let { id -> runCatching { midRunSteeringActionFor(router.runState(id)) }.getOrNull() }
+            ?: MidRunSteeringAction.NotSteerable
+        val copy = listOf(runtimeCopy(prompt))
+        runCatching {
+            when (action) {
+                MidRunSteeringAction.Steer -> router.steer(requireNotNull(runId), copy)
+                MidRunSteeringAction.Queue -> router.queueUserInput(requireNotNull(runId), copy)
+                MidRunSteeringAction.NotSteerable -> Unit
+            }
+        }
+        publish(statusText = when (action) {
+            MidRunSteeringAction.Steer -> "已插话，正在调整"
+            else -> "已插话，当前步骤完成后发送"
+        })
+        return action
+    }
+
+    /**
+     * Registers the model streaming [job] of [runId] (never a tool-execution Job). Held input
+     * preempts the run here: the steer cancels the just-registered model call.
+     */
+    fun onModelCallStarted(runId: String, job: Job) {
+        runCatching { router.registerModelCallJob(runId, job) }
+        val pending = synchronized(lock) { held.map { message -> runtimeCopy(message.prompt) } }
+        if (pending.isNotEmpty()) runCatching { router.steer(runId, pending) }
+    }
+
+    fun onModelCallFinished(runId: String, job: Job) {
+        runCatching { router.unregisterModelCallJob(runId, job) }
+    }
+
+    fun hasHeldMessages(): Boolean = synchronized(lock) { held.isNotEmpty() }
+
+    /** Prompt preview of all held messages, used to re-enter the normal send path. */
+    fun heldPromptPreview(): String? = synchronized(lock) { held.toList() }.mergedPrompt()
+
+    /**
+     * Takes every held message of [sessionId] (dropping other sessions' leftovers) merged with an
+     * optional fresh [prompt]; null when nothing was held.
+     */
+    fun takeMerged(
+        sessionId: String?,
+        prompt: String?,
+        explicitMessagePrivacy: MessagePrivacy?,
+    ): MergedMidRunSend? {
+        val taken = synchronized(lock) {
+            if (held.isEmpty()) return null
+            val snapshot = held.toList()
+            held.clear()
+            snapshot
+        }
+        publish(statusText = null)
+        val messages = taken.filter { message -> message.sessionId == sessionId } +
+            listOfNotNull(prompt?.takeIf(String::isNotBlank)?.let { HeldMidRunMessage(it, explicitMessagePrivacy, sessionId) })
+        if (messages.isEmpty()) return null
+        return MergedMidRunSend(
+            prompt = requireNotNull(messages.mergedPrompt()),
+            explicitMessagePrivacy = mergedMidRunPrivacy(messages.map(HeldMidRunMessage::explicitMessagePrivacy)),
+        )
+    }
+
+    fun clear() {
+        synchronized(lock) { held.clear() }
+        publish(statusText = null)
+    }
+
+    fun clearSession(sessionId: String) {
+        synchronized(lock) { held.removeAll { message -> message.sessionId == sessionId } }
+        publish(statusText = null)
+    }
+
+    private fun publish(statusText: String?) {
+        val count = synchronized(lock) { held.size }
+        uiState.update { state ->
+            state.copy(
+                pendingSteerMessageCount = count,
+                statusText = statusText ?: state.statusText,
+            )
+        }
+    }
+
+    private fun runtimeCopy(prompt: String) =
+        ChatMessage(role = MessageRole.User, text = prompt, privacy = MessagePrivacy.LocalOnly)
+
+    private fun List<HeldMidRunMessage>.mergedPrompt(): String? =
+        takeIf(List<HeldMidRunMessage>::isNotEmpty)?.joinToString(separator = "\n") { message -> message.prompt }
+}
+
+/**
+ * Most restrictive explicit privacy of merged messages: any LocalOnly wins; a uniform explicit
+ * choice is kept; otherwise null so the normal pipeline classifies the merged text (fail closed).
+ */
+internal fun mergedMidRunPrivacy(privacies: List<MessagePrivacy?>): MessagePrivacy? =
+    when {
+        MessagePrivacy.LocalOnly in privacies -> MessagePrivacy.LocalOnly
+        privacies.isNotEmpty() && privacies.all { privacy -> privacy != null && privacy == privacies.first() } ->
+            privacies.first()
+        else -> null
+    }

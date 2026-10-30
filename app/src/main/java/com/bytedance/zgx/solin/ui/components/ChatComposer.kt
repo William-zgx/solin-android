@@ -58,6 +58,47 @@ import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
+internal const val MID_RUN_STEERING_COMPOSER_HINT = "运行中发送将插话调整"
+
+/** Input/send-button state of the composer, including mid-run steering. */
+internal data class ComposerActionState(
+    val inputEnabled: Boolean,
+    val canSend: Boolean,
+    val actionIsStop: Boolean,
+    val placeholder: String,
+)
+
+/**
+ * While a run is active and steering is available the input stays enabled: non-blank text turns the
+ * stop button into send (the message steers or queues, see ChatMidRunSteering); blank input keeps
+ * stop. Shared-input drafts are never sent mid-run.
+ */
+internal fun composerActionState(state: ChatUiState, input: String): ComposerActionState {
+    val hasPendingSharedInput = state.pendingSharedInputDraft != null
+    val steering = state.isBusy && state.midRunSteeringAvailable && !hasPendingSharedInput
+    val inputEnabled = !state.isBusy || steering
+    val canSend = if (steering) {
+        input.isNotBlank()
+    } else {
+        inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
+    }
+    val placeholder = when {
+        steering && state.pendingSteerMessageCount > 0 ->
+            "已插话 ${state.pendingSteerMessageCount} 条 · $MID_RUN_STEERING_COMPOSER_HINT"
+        steering -> MID_RUN_STEERING_COMPOSER_HINT
+        state.isBusy -> state.statusText
+        !state.isReady -> "配置远程或下载本地后提问"
+        hasPendingSharedInput -> "补充说明"
+        else -> "输入问题"
+    }
+    return ComposerActionState(
+        inputEnabled = inputEnabled,
+        canSend = canSend,
+        actionIsStop = state.isGenerating && !(steering && canSend),
+        placeholder = placeholder,
+    )
+}
+
 @Composable
 internal fun Composer(
     state: ChatUiState,
@@ -74,20 +115,15 @@ internal fun Composer(
     activeRunPlacement: RunPlacement?,
     activeRunPlacementReason: PlacementReasonCode?,
 ) {
-    val inputEnabled = !state.isBusy
     val attachmentEnabled = !state.isBusy
     val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
     var showVoicePermissionDisclosure by rememberSaveable { mutableStateOf(false) }
-    val actionIsStop = state.isGenerating
     val composerEdge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
-    val hasPendingSharedInput = state.pendingSharedInputDraft != null
-    val canSend = inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
-    val placeholder = when {
-        state.isBusy -> state.statusText
-        !state.isReady -> "配置远程或下载本地后提问"
-        hasPendingSharedInput -> "补充说明"
-        else -> "输入问题"
-    }
+    val composerAction = composerActionState(state, input)
+    val inputEnabled = composerAction.inputEnabled
+    val actionIsStop = composerAction.actionIsStop
+    val canSend = composerAction.canSend
+    val placeholder = composerAction.placeholder
     val showCompactStatus = state.isBusy ||
         state.statusText.isVoiceStatusText() ||
         state.statusText.isAgentExecutionOutcomeStatusText()

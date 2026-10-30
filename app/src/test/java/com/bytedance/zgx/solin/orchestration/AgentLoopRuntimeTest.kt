@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.ChatMessage
+import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.LocalModelTokenLimits
@@ -6165,6 +6167,82 @@ class AgentLoopRuntimeTest {
         requireNotNull(completed)
         assertEquals(AgentRunState.Completed, completed.run.state)
         assertEquals(AgentObservationDecision.Complete, completed.decision)
+    }
+
+    @Test
+    fun userInputQueuedDuringToolExecutionStopsAutonomousNextToolPlanning() {
+        var replannerCalls = 0
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = InMemoryToolAuditSink(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { _ ->
+                replannerCalls += 1
+                AgentObservationReplan(
+                    request = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS, reason = "next"),
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "继续打开 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    ),
+                    plannedByModel = false,
+                    fallbackReason = "test replan",
+                )
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        // The tool is executing: steer must not cancel anything; the input is queued.
+        val queued = runtime.queue(
+            messages = listOf(ChatMessage(role = MessageRole.User, text = "改成只搜 Kotlin 协程")),
+            runId = planned.run.id,
+        )
+        assertTrue(queued)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(0, replannerCalls)
+        assertFalse(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertFalse(observed.run.state == AgentRunState.AwaitingUserConfirmation)
+        assertEquals(
+            listOf(MobileActionFunctions.WEB_SEARCH),
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
     }
 
     @Test
