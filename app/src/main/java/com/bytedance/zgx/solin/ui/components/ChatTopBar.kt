@@ -211,6 +211,24 @@ internal fun ChatTopBar(
     }
 }
 
+/** Container/content colours for the model status chip and badge: busy, bound remote/local, or neutral. */
+@Composable
+private fun modelStatusColors(
+    state: ChatUiState,
+    active: Boolean,
+    activeRunPlacement: RunPlacement?,
+): Pair<Color, Color> {
+    val semanticColors = LocalSolinColors.current
+    return when {
+        state.isBusy || state.isDownloading -> semanticColors.busyContainer to semanticColors.onBusyContainer
+        active && activeRunPlacement == RunPlacement.Remote ->
+            semanticColors.remoteContainer to semanticColors.onRemoteContainer
+        active && activeRunPlacement == RunPlacement.Local ->
+            semanticColors.localContainer to semanticColors.onLocalContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
 @Composable
 internal fun CompactModelStatusChip(
     state: ChatUiState,
@@ -221,19 +239,7 @@ internal fun CompactModelStatusChip(
     activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     val active = state.isReady && !state.isBusy
-    val semanticColors = LocalSolinColors.current
-    val container = when {
-        state.isBusy || state.isDownloading -> semanticColors.busyContainer
-        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.remoteContainer
-        active && activeRunPlacement == RunPlacement.Local -> semanticColors.localContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    val content = when {
-        state.isBusy || state.isDownloading -> semanticColors.onBusyContainer
-        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.onRemoteContainer
-        active && activeRunPlacement == RunPlacement.Local -> semanticColors.onLocalContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val (container, content) = modelStatusColors(state, active, activeRunPlacement)
 
     Surface(
         onClick = onClick,
@@ -369,19 +375,7 @@ internal fun RuntimeStatusBadge(
         state.modelPath != null -> "可加载"
         else -> "待准备"
     }
-    val semanticColors = LocalSolinColors.current
-    val container = when {
-        state.isBusy || state.isDownloading -> semanticColors.busyContainer
-        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.remoteContainer
-        active && activeRunPlacement == RunPlacement.Local -> semanticColors.localContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    val content = when {
-        state.isBusy || state.isDownloading -> semanticColors.onBusyContainer
-        active && activeRunPlacement == RunPlacement.Remote -> semanticColors.onRemoteContainer
-        active && activeRunPlacement == RunPlacement.Local -> semanticColors.onLocalContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val (container, content) = modelStatusColors(state, active, activeRunPlacement)
 
     Surface(
         shape = CircleShape,

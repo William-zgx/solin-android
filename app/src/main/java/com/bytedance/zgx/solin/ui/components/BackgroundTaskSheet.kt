@@ -6,17 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -32,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,14 +55,7 @@ internal fun BackgroundTaskSheet(
     onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
     onDisablePeriodicCheckPolicy: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    SheetColumn(spacing = 12.dp) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -186,19 +173,7 @@ internal fun BackgroundTaskSheet(
 
 @Composable
 internal fun AgentTraceRunRow(run: AgentTraceRunUiSummary) {
-    val shape = MaterialTheme.shapes.medium
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("agent_trace_run_${run.id}"),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
-        ),
-        tonalElevation = 0.dp,
-    ) {
+    TaskCardSurface(testTag = "agent_trace_run_${run.id}") {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -458,19 +433,7 @@ internal fun PeriodicCheckChoiceRow(
 
 @Composable
 internal fun AuditEventRow(event: AuditEventSummary) {
-    val shape = MaterialTheme.shapes.medium
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("audit_event_${event.id}"),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
-        ),
-        tonalElevation = 0.dp,
-    ) {
+    TaskCardSurface(testTag = "audit_event_${event.id}") {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -559,19 +522,7 @@ internal fun BackgroundTaskRow(
     enabled: Boolean,
     onCancel: (() -> Unit)?,
 ) {
-    val shape = MaterialTheme.shapes.medium
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("background_task_${task.id}"),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
-        ),
-        tonalElevation = 0.dp,
-    ) {
+    TaskCardSurface(testTag = "background_task_${task.id}") {
         Row(
             modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -606,19 +557,12 @@ internal fun BackgroundTaskRow(
                 }
             }
             if (onCancel != null) {
-                IconButton(
-                    modifier = Modifier
-                        .testTag("background_task_cancel_${task.id}")
-                        .semantics { contentDescription = "取消后台任务" },
-                    onClick = onCancel,
+                CloseIconButton(
+                    testTag = "background_task_cancel_${task.id}",
+                    contentDescription = "取消后台任务",
                     enabled = enabled,
-                ) {
-                    SolinGlyph(
-                        kind = SolinGlyphKind.Close,
-                        tint = LocalContentColor.current,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+                    onClick = onCancel,
+                )
             }
         }
     }
@@ -665,3 +609,20 @@ internal fun AgentRunState.label(): String =
         AgentRunState.Failed -> "失败"
     }
 
+/** Card chrome shared by trace, audit and background-task rows. */
+@Composable
+private fun TaskCardSurface(testTag: String, content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(testTag),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
+        ),
+        tonalElevation = 0.dp,
+        content = content,
+    )
+}

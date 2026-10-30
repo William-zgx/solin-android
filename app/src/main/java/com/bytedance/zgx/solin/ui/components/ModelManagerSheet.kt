@@ -4,15 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -100,15 +95,7 @@ internal fun ModelManagerSheet(
     ).autoSelectable
     val tabs = listOf("当前", "模型", "远程", "高级", "隐私")
     val sheetTitle = if (selectedTab == MODEL_MANAGER_PRIVACY_TAB_INDEX) "隐私说明" else "模型管理"
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("model_manager_sheet")
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    SheetColumn(modifier = Modifier.testTag("model_manager_sheet"), spacing = 14.dp) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -131,19 +118,12 @@ internal fun ModelManagerSheet(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(
-                modifier = Modifier
-                    .testTag("model_manager_close_button")
-                    .semantics { contentDescription = "关闭$sheetTitle" },
-                onClick = onDismiss,
+            CloseIconButton(
+                testTag = "model_manager_close_button",
+                contentDescription = "关闭$sheetTitle",
                 enabled = !state.isBusy,
-            ) {
-                SolinGlyph(
-                    kind = SolinGlyphKind.Close,
-                    tint = LocalContentColor.current,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+                onClick = onDismiss,
+            )
         }
 
         PrimaryTabRow(
