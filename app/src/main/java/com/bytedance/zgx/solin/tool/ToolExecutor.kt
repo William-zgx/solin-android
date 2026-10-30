@@ -48,24 +48,8 @@ interface ToolExecutor {
         requests.map { request ->
             try {
                 execute(request)
-            } catch (cancellation: CancellationException) {
-                request.cancelled(
-                    summary = "Tool ${request.toolName} was cancelled: ${cancellation.cleanMessage()}",
-                    data = buildMap {
-                        put("toolName", request.toolName)
-                        putAll(request.localOnlyData())
-                    },
-                )
             } catch (t: Throwable) {
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "Tool ${request.toolName} failed in batch: ${t.cleanMessage()}",
-                    retryable = true,
-                    data = buildMap {
-                        put("toolName", request.toolName)
-                        putAll(request.localOnlyData())
-                    },
-                )
+                request.batchThrowableResult(t, concurrent = false)
             }
         }
 }
@@ -217,23 +201,7 @@ class RoutingToolExecutor(
                         async(Dispatchers.IO) {
                             val request = requests[index]
                             runCatching { bound(executeUnvalidated(request)) }
-                                .getOrElse { t ->
-                                    when (t) {
-                                        is CancellationException -> request.cancelled(
-                                            summary = "Tool ${request.toolName} was cancelled in concurrent batch: ${t.cleanMessage()}",
-                                            data = buildMap {
-                                                put("toolName", request.toolName)
-                                                putAll(request.localOnlyData())
-                                            },
-                                        )
-                                        else -> request.failed(
-                                            code = ToolErrorCode.ExecutionFailed,
-                                            summary = "Tool ${request.toolName} failed in concurrent batch: ${t.cleanMessage()}",
-                                            retryable = true,
-                                            data = request.localOnlyData(),
-                                        )
-                                    }
-                                }
+                                .getOrElse { t -> request.batchThrowableResult(t, concurrent = true) }
                         }
                     }
                     val concurrentResults = deferreds.awaitAll()
@@ -380,6 +348,49 @@ class RoutingToolExecutor(
     private fun ToolRequest.isDeviceControlTool(): Boolean =
         toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
 }
+
+/**
+ * Maps a throwable escaping one batched tool call to that call's terminal result, so one tool's
+ * failure never aborts its siblings. Cancellation becomes Cancelled; anything else Failed
+ * (retryable). The summary wording differs between the default sequential batch and the
+ * concurrent segment of [RoutingToolExecutor.executeBatch] and is kept as it was.
+ */
+internal fun ToolRequest.batchThrowableResult(t: Throwable, concurrent: Boolean): ToolResult {
+    val data = buildMap {
+        put("toolName", toolName)
+        putAll(localOnlyData())
+    }
+    return if (t is CancellationException) {
+        val where = if (concurrent) " in concurrent batch" else ""
+        cancelled(
+            summary = "Tool $toolName was cancelled$where: ${t.cleanMessage()}",
+            data = data,
+        )
+    } else {
+        val where = if (concurrent) "concurrent batch" else "batch"
+        failed(
+            code = ToolErrorCode.ExecutionFailed,
+            summary = "Tool $toolName failed in $where: ${t.cleanMessage()}",
+            retryable = true,
+            data = data,
+        )
+    }
+}
+
+/** The standard "this executor does not handle that tool" failure. */
+internal fun ToolRequest.unknownToolFailure(): ToolResult =
+    failed(
+        code = ToolErrorCode.UnknownTool,
+        summary = "Unknown tool: $toolName",
+        retryable = false,
+    )
+
+/**
+ * Reads an optional integer argument (trimmed), falling back to [default] when absent or not an
+ * integer, then clamps it to [range].
+ */
+internal fun ToolRequest.boundedIntArgument(name: String, default: Int, range: IntRange): Int =
+    (arguments[name]?.trim()?.toIntOrNull() ?: default).coerceIn(range)
 
 internal fun ToolRequest.localOnlyData(): Map<String, String> =
     mapOf(

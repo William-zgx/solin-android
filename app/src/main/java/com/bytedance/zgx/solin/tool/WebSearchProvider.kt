@@ -18,8 +18,8 @@ import java.util.concurrent.TimeUnit
 private const val MAX_WEB_SEARCH_SUMMARY_CHARS = 1_200
 private const val MAX_WEB_SEARCH_RESULTS_JSON_CHARS = 4_000
 private const val WEB_SEARCH_EVIDENCE_SCHEMA_VERSION = 1
-private const val DEFAULT_WEB_SEARCH_MAX_RESULTS = 3
-private const val MAX_WEB_SEARCH_MAX_RESULTS = 5
+internal const val DEFAULT_WEB_SEARCH_MAX_RESULTS = 3
+internal const val MAX_WEB_SEARCH_MAX_RESULTS = 5
 private const val WEB_SEARCH_USER_AGENT = "Solin/0.1 Android WebSearch"
 private val currentFreshnessTermRegex =
     Regex(

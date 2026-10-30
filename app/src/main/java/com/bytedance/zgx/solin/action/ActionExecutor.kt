@@ -29,6 +29,7 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.failed
 import com.bytedance.zgx.solin.tool.succeeded
+import com.bytedance.zgx.solin.tool.unknownToolFailure
 import java.net.URI
 import java.util.Calendar
 
@@ -70,11 +71,7 @@ class ActionExecutor(
         executeExternalActivityWithInjectedStarter(request)?.let { result -> return result }
 
         val intents = intentsFor(request)
-            ?: return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            ?: return request.unknownToolFailure()
         return executeExternalActivityIntents(request, intents)
     }
 

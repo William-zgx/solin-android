@@ -54,11 +54,7 @@ class DeviceControlToolExecutor(
             MobileActionFunctions.UI_PRESS_KEY -> executePressKey(request, controlProvider)
             MobileActionFunctions.UI_PRESS_BACK -> executePressBack(request, controlProvider)
             MobileActionFunctions.UI_WAIT -> executeWait(request, controlProvider)
-            else -> request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            else -> request.unknownToolFailure()
         }
     }
 
@@ -880,32 +876,29 @@ class DeviceControlToolExecutor(
     }
 
     private fun ScreenStateSnapshot.toAfterObservationData(): Map<String, String> =
-        mapOf(
-            "afterPackageName" to packageName.orEmpty(),
-            "afterCapturedAtMillis" to capturedAtMillis.toString(),
-            "afterNodeCount" to nodeCount.toString(),
-            "afterActionableNodeCount" to actionableNodeCount.toString(),
-            "afterTextSummary" to textSummary,
-            "afterTruncated" to truncated.toString(),
-            "afterNodesJson" to nodes.toScreenNodesJsonString(),
-            "afterScreenObservationJson" to toScreenObservationJsonString(),
-        ) + widthPx?.let { mapOf("afterScreenWidthPx" to it.toString()) }.orEmpty() +
-            heightPx?.let { mapOf("afterScreenHeightPx" to it.toString()) }.orEmpty() +
-            toScreenshotPerception()?.let { mapOf("afterScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
+        toPrefixedObservationData(prefix = "after")
 
     private fun ScreenStateSnapshot.toBeforeObservationData(): Map<String, String> =
+        toPrefixedObservationData(prefix = "before")
+
+    /**
+     * Before/after observation fields, keyed `<prefix>PackageName`, `<prefix>NodesJson`, … .
+     * These key names are part of the private-output contract (uiActionPrivateOutputKeys and
+     * the ui action output schema) and must not change.
+     */
+    private fun ScreenStateSnapshot.toPrefixedObservationData(prefix: String): Map<String, String> =
         mapOf(
-            "beforePackageName" to packageName.orEmpty(),
-            "beforeCapturedAtMillis" to capturedAtMillis.toString(),
-            "beforeNodeCount" to nodeCount.toString(),
-            "beforeActionableNodeCount" to actionableNodeCount.toString(),
-            "beforeTextSummary" to textSummary,
-            "beforeTruncated" to truncated.toString(),
-            "beforeNodesJson" to nodes.toScreenNodesJsonString(),
-            "beforeScreenObservationJson" to toScreenObservationJsonString(),
-        ) + widthPx?.let { mapOf("beforeScreenWidthPx" to it.toString()) }.orEmpty() +
-            heightPx?.let { mapOf("beforeScreenHeightPx" to it.toString()) }.orEmpty() +
-            toScreenshotPerception()?.let { mapOf("beforeScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
+            "${prefix}PackageName" to packageName.orEmpty(),
+            "${prefix}CapturedAtMillis" to capturedAtMillis.toString(),
+            "${prefix}NodeCount" to nodeCount.toString(),
+            "${prefix}ActionableNodeCount" to actionableNodeCount.toString(),
+            "${prefix}TextSummary" to textSummary,
+            "${prefix}Truncated" to truncated.toString(),
+            "${prefix}NodesJson" to nodes.toScreenNodesJsonString(),
+            "${prefix}ScreenObservationJson" to toScreenObservationJsonString(),
+        ) + widthPx?.let { mapOf("${prefix}ScreenWidthPx" to it.toString()) }.orEmpty() +
+            heightPx?.let { mapOf("${prefix}ScreenHeightPx" to it.toString()) }.orEmpty() +
+            toScreenshotPerception()?.let { mapOf("${prefix}ScreenshotPerception" to it.formatForPrompt()) }.orEmpty()
 
     private fun ScreenStateSnapshot.observationSummary(): String {
         val packagePart = packageName?.takeIf { it.isNotBlank() }?.let { "包名 $it，" }.orEmpty()

@@ -15,11 +15,7 @@ class ValidatingToolExecutor(
         registry.validate(request)?.let { rejection ->
             // Pre-execution schema rejection — no tool handler was invoked; still publish a
             // terminal fail event so subscribers see the lifecycle close out.
-            progressPublisher.fail(
-                toolCallId = request.id,
-                toolName = request.toolName,
-                error = rejection.error?.message ?: "request rejected by registry",
-            )
+            publishRejected(request, rejection)
             return rejection
         }
         progressPublisher.start(toolCallId = request.id, toolName = request.toolName)
@@ -39,16 +35,7 @@ class ValidatingToolExecutor(
             )
         }.withToolExecutionContext(request.toolName)
         val validated = registry.validateResult(request, result) ?: result
-        when (validated.status) {
-            ToolStatus.Succeeded ->
-                progressPublisher.complete(toolCallId = request.id, toolName = request.toolName)
-            ToolStatus.Failed, ToolStatus.Rejected, ToolStatus.Cancelled ->
-                progressPublisher.fail(
-                    toolCallId = request.id,
-                    toolName = request.toolName,
-                    error = validated.error?.message ?: validated.summary,
-                )
-        }
+        publishTerminal(request, validated)
         return validated
     }
 
@@ -69,11 +56,7 @@ class ValidatingToolExecutor(
         requests.forEach { request ->
             registry.validate(request)?.let { rejection ->
                 rejections[request.id] = rejection
-                progressPublisher.fail(
-                    toolCallId = request.id,
-                    toolName = request.toolName,
-                    error = rejection.error?.message ?: "request rejected by registry",
-                )
+                publishRejected(request, rejection)
             }
         }
 
@@ -118,16 +101,7 @@ class ValidatingToolExecutor(
             }
             val withCtx = raw.withToolExecutionContext(request.toolName)
             val validated = registry.validateResult(request, withCtx) ?: withCtx
-            when (validated.status) {
-                ToolStatus.Succeeded ->
-                    progressPublisher.complete(toolCallId = request.id, toolName = request.toolName)
-                ToolStatus.Failed, ToolStatus.Rejected, ToolStatus.Cancelled ->
-                    progressPublisher.fail(
-                        toolCallId = request.id,
-                        toolName = request.toolName,
-                        error = validated.error?.message ?: validated.summary,
-                    )
-            }
+            publishTerminal(request, validated)
             resultsByRequestId[request.id] = validated
         }
 
@@ -139,6 +113,28 @@ class ValidatingToolExecutor(
                 retryable = false,
                 data = request.toolExecutionContext(),
             )
+        }
+    }
+
+    private fun publishRejected(request: ToolRequest, rejection: ToolResult) {
+        progressPublisher.fail(
+            toolCallId = request.id,
+            toolName = request.toolName,
+            error = rejection.error?.message ?: "request rejected by registry",
+        )
+    }
+
+    /** Publishes the terminal lifecycle event for a validated result. */
+    private fun publishTerminal(request: ToolRequest, validated: ToolResult) {
+        when (validated.status) {
+            ToolStatus.Succeeded ->
+                progressPublisher.complete(toolCallId = request.id, toolName = request.toolName)
+            ToolStatus.Failed, ToolStatus.Rejected, ToolStatus.Cancelled ->
+                progressPublisher.fail(
+                    toolCallId = request.id,
+                    toolName = request.toolName,
+                    error = validated.error?.message ?: validated.summary,
+                )
         }
     }
 }

@@ -18,11 +18,7 @@ class CurrentScreenshotOcrToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
         val nowMillis = clockMillis()

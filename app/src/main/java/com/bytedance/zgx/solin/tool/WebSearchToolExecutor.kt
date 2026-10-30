@@ -8,11 +8,7 @@ class WebSearchToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.WEB_SEARCH) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
         val query = request.arguments["query"].orEmpty().trim()
         if (query.isBlank()) {
@@ -48,7 +44,7 @@ class WebSearchToolExecutor(
         val maxResultsArgument = request.arguments["maxResults"]
         val maxResults = maxResultsArgument?.toIntOrNull()
             ?: if (maxResultsArgument.isNullOrBlank()) {
-                3
+                DEFAULT_WEB_SEARCH_MAX_RESULTS
             } else {
                 return request.failed(
                     code = ToolErrorCode.InvalidRequest,
@@ -57,10 +53,10 @@ class WebSearchToolExecutor(
                     data = mapOf("toolName" to request.toolName),
                 )
             }
-        if (maxResults !in 1..5) {
+        if (maxResults !in 1..MAX_WEB_SEARCH_MAX_RESULTS) {
             return request.failed(
                 code = ToolErrorCode.InvalidRequest,
-                summary = "搜索结果数量必须在 1 到 5 之间：$maxResults",
+                summary = "搜索结果数量必须在 1 到 $MAX_WEB_SEARCH_MAX_RESULTS 之间：$maxResults",
                 retryable = false,
                 data = mapOf("toolName" to request.toolName),
             )

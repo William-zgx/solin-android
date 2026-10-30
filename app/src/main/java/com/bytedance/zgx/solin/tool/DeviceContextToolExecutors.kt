@@ -39,11 +39,7 @@ class CalendarAvailabilityToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
         return when (
@@ -106,11 +102,7 @@ class ForegroundAppToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.QUERY_FOREGROUND_APP) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
         return when (val result = provider.currentForegroundApp()) {
@@ -154,16 +146,11 @@ class ContactSummaryToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.QUERY_CONTACTS) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
         val query = request.arguments["query"]?.trim().orEmpty()
-        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5)
-            .coerceIn(1, MAX_CONTACT_SUMMARY_COUNT)
+        val maxCount = request.boundedIntArgument("maxCount", default = 5, range = 1..MAX_CONTACT_SUMMARY_COUNT)
         return when (val result = provider.queryContacts(query, maxCount)) {
             is ContactSummaryReadResult.Available ->
                 request.succeeded(
@@ -200,15 +187,10 @@ class NotificationSummaryToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
-        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5)
-            .coerceIn(1, MAX_NOTIFICATION_SUMMARY_COUNT)
+        val maxCount = request.boundedIntArgument("maxCount", default = 5, range = 1..MAX_NOTIFICATION_SUMMARY_COUNT)
         return when (val result = provider.recentNotifications(maxCount)) {
             is NotificationSummaryReadResult.Available ->
                 request.succeeded(
@@ -258,11 +240,7 @@ class RecentFilesToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.QUERY_RECENT_FILES) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
         val kind = request.arguments["kind"]?.trim().orEmpty().ifBlank { "all" }
@@ -304,16 +282,15 @@ class BackgroundTasksToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.QUERY_BACKGROUND_TASKS) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
         val scope = request.arguments["scope"]?.trim()?.lowercase().orEmpty().ifBlank { "active" }
-        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: DEFAULT_BACKGROUND_TASK_QUERY_COUNT)
-            .coerceIn(1, MAX_BACKGROUND_TASK_QUERY_COUNT)
+        val maxCount = request.boundedIntArgument(
+            "maxCount",
+            default = DEFAULT_BACKGROUND_TASK_QUERY_COUNT,
+            range = 1..MAX_BACKGROUND_TASK_QUERY_COUNT,
+        )
 
         val activeTasks = if (scope == "active" || scope == "all") {
             scheduler.scheduledTasks(maxCount)
@@ -369,14 +346,9 @@ class RecentScreenshotOcrToolExecutor(
     private val provider: RecentImageTextProvider,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
-        val config = recentImageOcrToolConfigFor(request.toolName) ?: return request.failed(
-            code = ToolErrorCode.UnknownTool,
-            summary = "Unknown tool: ${request.toolName}",
-            retryable = false,
-        )
+        val config = recentImageOcrToolConfigFor(request.toolName) ?: return request.unknownToolFailure()
 
-        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: config.defaultMaxCount)
-            .coerceIn(1, config.maxMaxCount)
+        val maxCount = request.boundedIntArgument("maxCount", default = config.defaultMaxCount, range = 1..config.maxMaxCount)
         return when (val result = provider.extractRecentImageText(kind = config.kind, maxCount = maxCount)) {
             is RecentImageTextReadResult.Available -> {
                 val item = result.item
@@ -461,15 +433,10 @@ class CurrentScreenTextToolExecutor(
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.READ_CURRENT_SCREEN_TEXT) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
+            return request.unknownToolFailure()
         }
 
-        val maxChars = (request.arguments["maxChars"]?.trim()?.toIntOrNull() ?: DEFAULT_MAX_SCREEN_TEXT_CHARS)
-            .coerceIn(1, MAX_SCREEN_TEXT_CHARS)
+        val maxChars = request.boundedIntArgument("maxChars", default = DEFAULT_MAX_SCREEN_TEXT_CHARS, range = 1..MAX_SCREEN_TEXT_CHARS)
         return when (val result = provider.currentScreenText(maxChars)) {
             is CurrentScreenTextReadResult.Available -> {
                 val snapshot = result.snapshot
