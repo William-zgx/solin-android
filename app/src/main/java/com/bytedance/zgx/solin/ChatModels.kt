@@ -429,7 +429,6 @@ data class ChatUiState(
     val activeInstalledModelId: String? = null,
     val installedModels: List<InstalledModelSummary> = emptyList(),
     val selectedModelId: String = DEFAULT_CHAT_MODEL_ID,
-    val recommendedModels: List<RecommendedModel> = RECOMMENDED_MODELS,
     val setupSelectedModelIds: Set<String> = ModelCatalog.defaultSetupModelIds(),
     val showFirstRunSetup: Boolean = false,
     val memoryEnabled: Boolean = true,

@@ -41,6 +41,7 @@ import com.bytedance.zgx.solin.HUGGING_FACE_TOKEN_SETTINGS_URL
 import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
+import com.bytedance.zgx.solin.RECOMMENDED_MODELS
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.SetupTier
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
@@ -68,7 +69,7 @@ internal fun ModelInventoryPanel(
     onOpenModelPage: (String) -> Unit,
 ) {
     var pendingDeleteModel by remember { mutableStateOf<InstalledModelSummary?>(null) }
-    val firstHuggingFaceModel = state.recommendedModels.firstOrNull { it.requiresHuggingFaceAccessToken() }
+    val firstHuggingFaceModel = RECOMMENDED_MODELS.firstOrNull { it.requiresHuggingFaceAccessToken() }
     pendingDeleteModel?.let { model ->
         AlertDialog(
             onDismissRequest = { pendingDeleteModel = null },
