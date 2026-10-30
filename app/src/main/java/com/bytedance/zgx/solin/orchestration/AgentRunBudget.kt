@@ -134,13 +134,10 @@ internal class AgentRunBudget(
     }
 
     /**
-     * Wave 7 step-budget hint: when the tool step budget is exhausted, look up the current
-     * session plan (if present) and append up to 5 still-pending/in-progress items as a
-     * numbered hint so the assistant-facing failure message carries context about outstanding
-     * work. The base [reason] is returned unchanged when there is no plan or no pending items.
-     *
-     * Implementation uses concatenation with explicit \n characters (no Kotlin string templates
-     * at this call site for plan lines) per Wave 6 directive to avoid template pitfalls.
+     * Step-budget hint: when the tool step budget is exhausted, look up the current session plan
+     * (if present) and append up to 5 still-pending/in-progress items as a numbered hint so the
+     * assistant-facing failure message carries context about outstanding work. The base [reason]
+     * is returned unchanged when there is no plan or no pending items.
      */
     fun augmentReasonWithStepBudgetHint(runId: String, reason: String): String {
         if (reason != TOOL_STEP_BUDGET_EXCEEDED_REASON) return reason

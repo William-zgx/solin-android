@@ -28,11 +28,8 @@ data class SystemPrompt(
 /**
  * Builds the per-turn [SystemPrompt] by invoking each registered [SystemContextContributor] and
  * collecting non-null [EvidenceCard] results. Contributors are isolated via [runCatching] so that a
- * misbehaving/throwing contributor cannot crash an agent run.
- *
- * This is the Wave 2 seam that replaces inline memory/device context assembly in [AgentLoopRuntime].
- * Future waves will migrate the built-in memory and device-context providers to proper
- * [SystemContextContributor] implementations; for the initial wave the contributor list is empty.
+ * misbehaving/throwing contributor cannot crash an agent run. Contributors are wired by the
+ * composition root.
  */
 class SystemPromptBuilder(
     private val defaultSystemInstruction: String = DEFAULT_CHAT_SYSTEM_INSTRUCTION,

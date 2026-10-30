@@ -307,7 +307,7 @@ class AssistantOrchestrator(
         agentLoopRuntime.drainSteeringMessages(runId)
 
     /**
-     * Wave 8: structured drain returning steer vs queued messages separately. Upper layers that
+     * Structured drain returning steer vs queued messages separately. Upper layers that
      * want to distinguish high-priority steer interruptions (e.g. to mark them in UI or flush
      * partial model output) should prefer this over the legacy single-list [drainSteeringMessages].
      */

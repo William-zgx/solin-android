@@ -201,10 +201,8 @@ class AgentLoopRuntime(
     private val profilesByRunId = runScopedState.profilesByRunId
     private val scratchpad = com.bytedance.zgx.solin.memory.PerRunScratchpad()
 
-    // Wave 2 SolinEvent lifecycle bookkeeping: per-run wall-clock start time, so
-    // TurnStarted/TurnEnded/RunEnded events carry monotonic counters without disturbing the
-    // existing traceStore contract. Declared ahead of [runBudget] because the budget's wall-clock
-    // deadline reads it (a property initializer may not forward-reference a later property).
+    // Per-run wall-clock start time for lifecycle events. Declared ahead of [runBudget] because the
+    // budget's wall-clock deadline reads it (a property initializer may not forward-reference).
     private val runStartedAtMillis = runScopedState.runStartedAtMillis
 
     /**
@@ -526,34 +524,18 @@ class AgentLoopRuntime(
         },
     )
 
-    // Wave 2 SolinEvent lifecycle bookkeeping. runStartedAtMillis is declared above (the run budget
-    // reads it for the wall-clock deadline); runTurnIndex tracks the per-run monotonic turn counter.
+    // Per-run monotonic turn counter for lifecycle events.
     private val runTurnIndex = runScopedState.runTurnIndex
 
-    // Wave 3 mid-run steering: ChatMessages injected via steerRun()/steer() are queued here and
-    // drained (prepended to the model message list) on the next model call.
+    // Mid-run steering: steer batches are drained before queued batches at every drain point, and
+    // steer() also cancels the registered in-flight model-call Job so the next turn starts against
+    // the new direction. Tool execution is NEVER cancelled by steer (safety-critical device actions
+    // must run to completion); batches arriving during ExecutingTool/RetryingTool wait on the
+    // channel until the tool's result is observed.
     //
-    // Wave 8 (real steer / high-priority queue): two in-memory Channels replace the prior
-    // ConcurrentHashMap-of-CopyOnWriteArrayList pendingSteeringMessages store. steerMessages gets
-    // first-class priority at every drain point (drain all steer batches before queued batches) and
-    // steer() additionally cooperatively cancels the registered in-flight model-call Job when the
-    // run is mid-model-stream so the next turn begins immediately against the new direction.
-    // Tool execution is NEVER cancelled by steer (safety-critical device actions must run to
-    // completion); steer batches that arrive during ExecutingTool/RetryingTool are held on the
-    // channel and injected after the current tool's result is observed, before the next model turn.
-    //
-    // RETENTION NOTE (audited): the *producer* half of this surface has NO production caller —
-    // steer(), queue(), steerRun(), and registerModelCallJob() are reached only through the
-    // AssistantOrchestrator forwarders, which SolinViewModel and the UI layer never invoke; only
-    // SteerQueueTest exercises the semantics. The *consumer* half is partially live:
-    // drainPendingMessages() is called from clearEphemeralRunState() to discard batches for a
-    // terminating run, and cancelAndClearModelCallJob() runs on cancelRun/terminateRun/close. Net
-    // effect today: nothing is ever enqueued, so the drains are no-ops.
-    //
-    // It is intentionally KEPT (not deleted) as the ChatController integration seam: deleting it
-    // would also delete its tests, i.e. an architecture decision beyond this fix batch. Do not
-    // "optimize" it away without that decision, and do not assume steer/queue is live when
-    // reasoning about run behavior.
+    // The producers (steer, queue, steerRun, registerModelCallJob) have no production caller yet;
+    // only SteerQueueTest drives them. Kept as the ChatController integration seam, so do not
+    // assume steer/queue is live when reasoning about run behaviour.
     private val steerMessages = Channel<PendingMessageBatch>(capacity = Channel.UNLIMITED)
     private val queuedMessages = Channel<PendingMessageBatch>(capacity = Channel.UNLIMITED)
 
@@ -579,11 +561,10 @@ class AgentLoopRuntime(
     )
     private val pendingUserQuestionsByRunId = java.util.concurrent.ConcurrentHashMap<String, PendingUserQuestionState>()
 
-    // Wave 4 telemetry bookkeeping: wall-clock time a ToolRequested step was appended, keyed by
-    // requestId, so ToolCompleted telemetry can record latencyMs. Entries are cleared when the
+    // Wall-clock time a ToolRequested step was appended, keyed by requestId, so ToolCompleted telemetry can record latencyMs. Entries are cleared when the
     // corresponding tool result is observed so the map stays bounded by in-flight tool count.
     private val toolDispatchStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    // Wave 4 telemetry: (runId, stepType) -> last started-at epoch millis, so StepLatency samples can
+    // (runId, stepType) -> last started-at epoch millis, so StepLatency samples can
     // record deltas when the next step boundary arrives. Keyed per run: concurrent runs (e.g.
     // subagents) would otherwise clobber each other's start marker and drop or mis-measure samples.
     private val stepStartedAtMillis = runScopedState.stepStartedAtMillis
@@ -955,9 +936,6 @@ class AgentLoopRuntime(
      * starts against the new direction. Returns true if the run is active (so messages will be
      * delivered); false if the run is unknown or terminal (messages are dropped).
      *
-     * NOTE: no production caller yet — see the RETENTION NOTE on [steerMessages]. Kept as the
-     * ChatController integration seam; covered only by SteerQueueTest today.
-     *
      * Safety: when the run is currently executing/retries a tool (ExecutingTool / RetryingTool),
      * the in-flight tool Job is NOT cancelled — safety-critical device actions must run to
      * completion. The steer batch is still enqueued and will be injected after the tool's result
@@ -993,8 +971,6 @@ class AgentLoopRuntime(
      * Normal-priority queue: enqueue [messages] to be picked up at the next drain point AFTER all
      * steer batches have been consumed. Never cancels anything. Returns true on successful
      * enqueue to an active run; false otherwise.
-     *
-     * NOTE: no production caller yet — see the RETENTION NOTE on [steerMessages].
      */
     fun queue(messages: List<ChatMessage>, runId: String? = activeRunIdForSteer()): Boolean {
         if (messages.isEmpty()) return false
@@ -1015,8 +991,7 @@ class AgentLoopRuntime(
      * safety). Only model streaming Jobs (the `.collect { chunk -> ... }` over the local LiteRt
      * or remote chat runtime Flow) should be registered.
      *
-     * NOTE: no production caller yet — see the RETENTION NOTE on [steerMessages]. Registration is
-     * still honoured by [cancelRun] / [terminateRun], which cancel any registered Job.
+     * [cancelRun] / [terminateRun] also cancel any registered Job.
      */
     fun registerModelCallJob(runId: String, job: Job) {
         activeModelCallJobs[runId] = job
@@ -1082,7 +1057,7 @@ class AgentLoopRuntime(
     }
 
     /**
-     * Wave 8: drain point for the steer/queued channels for [runId]. Drains ALL pending steer
+     * Drain point for the steer/queued channels for [runId]. Drains ALL pending steer
      * batches first (high priority), then ALL pending normal-queued batches. The returned lists
      * are ordered by arrival (FIFO) within each priority class. Hook-supplied steering messages
      * ([AgentHooks.getSteeringMessages]) are NOT appended here because this method is non-suspend;
@@ -1091,9 +1066,7 @@ class AgentLoopRuntime(
      *
      * Publishes [SolinEvent.Agent.RunSteered] once when the combined injected count is non-empty.
      *
-     * NOTE: this drain IS called in production — from [clearEphemeralRunState], to discard batches
-     * addressed to a terminating run. But because nothing enqueues today (see the RETENTION NOTE on
-     * [steerMessages]), it is effectively a no-op there rather than a real injection point.
+     * [clearEphemeralRunState] also calls it to discard batches addressed to a terminating run.
      *
      * Callers (typically the ViewModel immediately before building the ChatMessage list for the
      * model) should concatenate `steer + queued` messages and APPEND them to the outgoing history
@@ -1182,20 +1155,11 @@ class AgentLoopRuntime(
         }
     }
 
-    // -------------------------------------------------------------------------------------------
-    // Back-compat shims: preserve Wave 3 steerRun / drainSteeringMessages / drainSteeringMessagesSuspend
-    // API surface so existing callers (ViewModel, tests) keep compiling without modification.
-    // steerRun is the high-priority entry (equivalent to steer()); drainSteeringMessages returns
-    // the concatenated steer+queued lists (matching the prior "all pending steering" contract).
-    //
-    // As of this audit these shims also have no production caller (see the RETENTION NOTE on
-    // [steerMessages]); they are kept alongside the primary API so a future ChatController can adopt
-    // either shape without a second migration.
-    // -------------------------------------------------------------------------------------------
+    // Single-list steering API: steerRun is equivalent to steer(); drainSteeringMessages returns
+    // steer + queued concatenated.
 
     /**
-     * Wave 3 mid-run steering (back-compat): enqueue [messages] at high priority. Now a thin
-     * wrapper over [steer] which cooperatively cancels the in-flight model call when the run is
+     * Enqueue [messages] at high priority; a thin wrapper over [steer] which cooperatively cancels the in-flight model call when the run is
      * mid-model-stream. Returns true if the run is active; false otherwise.
      */
     fun steerRun(runId: String, messages: List<ChatMessage>): Boolean {
@@ -1206,9 +1170,8 @@ class AgentLoopRuntime(
     }
 
     /**
-     * Back-compat non-suspend drain: returns ALL pending (steer + queued + prior-API steer)
-     * messages for [runId] in arrival order. Hook-supplied messages are NOT included (same as
-     * prior behavior — hooks are suspend). Replaces the old pendingSteeringMessages map drain.
+     * Non-suspend drain: returns all pending steer + queued messages for [runId] in arrival order.
+     * Hook-supplied messages are not included (hooks are suspend).
      */
     fun drainSteeringMessages(runId: String): List<ChatMessage> {
         val drain = drainPendingMessages(runId)
@@ -1216,9 +1179,7 @@ class AgentLoopRuntime(
     }
 
     /**
-     * Wave 3 / Wave 4 back-compat: returns steer+queued+hook messages combined. Hook messages
-     * are appended after the high-priority steer batches (consistent with how the suspend
-     * overload of the Wave 3 drain behaved).
+     * Returns steer + queued + hook messages combined; hook messages follow the steer batches.
      */
     suspend fun drainSteeringMessagesSuspend(runId: String): List<ChatMessage> {
         val drain = drainPendingMessagesSuspend(runId)
@@ -1633,8 +1594,7 @@ class AgentLoopRuntime(
         if (runDeadlineExceeded(runId)) {
             return failRunBudget(runId, RUN_WALL_CLOCK_DEADLINE_EXCEEDED_REASON)
         }
-        // Wave 4 telemetry: record step latency for model_generation (delta since
-        // step boundary was marked by the caller, with 0L fallback).
+        // Step latency for model_generation (delta since the caller marked the step, 0L fallback).
         recordStepLatency("model_generation", runId)
         val nextToolPlan = when {
             text.isNotBlank() -> toolPlanCoordinator.planNextToolAfterModelResult(
@@ -1683,9 +1643,8 @@ class AgentLoopRuntime(
         ) ?: return null
         val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-        // Wave 4 telemetry: GenerationComplete recorded with placeholder zeros for token/ttft stats.
-        // TODO(Wave 5+): populate ttftMs/inputTokens/outputTokens/thinkingTokens/tps from streaming
-        //   runtime callbacks once those metrics are surfaced to the orchestration layer.
+        // GenerationComplete carries placeholder zeros: token/ttft stats are not surfaced to the
+        // orchestration layer yet.
         safeRecordTelemetry(
             MetricSample.GenerationComplete(
                 ttftMs = 0L,
@@ -1700,7 +1659,6 @@ class AgentLoopRuntime(
             ),
             "GenerationComplete",
         )
-        // Wave 2: publish terminal events after observeModelResult.
         runEvents.publishTransition(
             runId = runId,
             finalState = finalState,
@@ -2144,7 +2102,7 @@ class AgentLoopRuntime(
             questionId = questionId,
             request = plan.request,
         )
-        // Wave 4 telemetry: count ask_user interception (question parked in AwaitingUserAnswer).
+        // Count ask_user interception (question parked in AwaitingUserAnswer).
         safeRecordTelemetry(
             MetricSample.CounterInc(
                 name = TelemetryCounter.AskUserQuestions,
@@ -2164,10 +2122,7 @@ class AgentLoopRuntime(
         safeRecordTelemetry(MetricSample.CounterInc(name = TelemetryCounter.AskUserQuestions, runId = runId), "TakeOver parking")
     }
 
-    // -----------------------------------------------------------------------
-    // Wave 4 telemetry helpers. Telemetry recordings MUST go through
-    // safeRecordTelemetry so a throwing sink cannot crash the agent run.
-    // -----------------------------------------------------------------------
+    // Telemetry recordings MUST go through safeRecordTelemetry so a throwing sink cannot crash the run.
 
     private fun safeRecordTelemetry(
         sample: MetricSample,

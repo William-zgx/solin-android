@@ -1,7 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
 /**
- * Wave 2 SolinEvent lifecycle publishing, dual-written alongside the trace store.
+ * SolinEvent lifecycle publishing, dual-written alongside the trace store.
  *
  * Owns the per-run turn counter reads/bumps and the "run moved to state X" event mapping that the
  * model-result and tool-observation paths both publish after their state transition. Reads the

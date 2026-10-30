@@ -675,7 +675,7 @@ internal class ToolObservationCoordinator(
                         retryable = false,
                     ),
                 )
-                // Wave 4 telemetry: count safety-policy rejections distinct from user-cancel / exec failures.
+                // Count safety-policy rejections distinct from user-cancel / exec failures.
                 host.safeRecordTelemetry(
                     MetricSample.CounterInc(
                         name = TelemetryCounter.SafetyBlocks,
@@ -699,7 +699,7 @@ internal class ToolObservationCoordinator(
     }
 
     /**
-     * Wave 4 telemetry: record ToolCompleted sample with wall-clock latency since ToolRequested was
+     * Record a ToolCompleted sample with wall-clock latency since ToolRequested was
      * appended (0L fallback if no start marker exists, e.g. restored runs).
      */
     private fun recordToolCompletedTelemetry(
@@ -774,8 +774,7 @@ internal class ToolObservationCoordinator(
         }
         traceStore.appendStep(runId, AgentStep.SafetyChecked(plan.safetyDecision))
         traceStore.appendStep(runId, AgentStep.ToolRequested(plan.request, plan.draft))
-        // Wave 4 telemetry: record tool dispatch start for latency measurement, and
-        // bump the ToolCalls monotonic counter. ToolStarted events are still published by
+        // Record tool dispatch start for latency measurement and bump the ToolCalls counter. ToolStarted events are still published by
         // ToolProgressPublisher at actual executor entry; this counter is orchestration-side.
         host.markToolDispatchStarted(plan.request.id)
         host.safeRecordTelemetry(
@@ -785,7 +784,7 @@ internal class ToolObservationCoordinator(
             ),
             "ToolCalls counter",
         )
-        // Wave 2 lifecycle: dual-write ToolPlanned. ToolStarted is published by the
+        // ToolStarted is published by the
         // ToolProgressPublisher wired into ValidatingToolExecutor once the tool handler
         // actually begins executing; this event represents the planning decision only.
         eventBus.publish(

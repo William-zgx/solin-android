@@ -8,8 +8,7 @@ import com.bytedance.zgx.solin.tool.ToolStatus
 
 /**
  * Writes one tool audit event to the [ToolAuditSink] and publishes the identical event as
- * [SolinEvent.Audit.ToolAudited] (Wave 4 dual-write: the direct record() stays until the bus path is
- * verified). Risk level and permissions come from the tool's spec; an unknown or null tool name
+ * [SolinEvent.Audit.ToolAudited] (the direct record() stays until the bus path is verified). Risk level and permissions come from the tool's spec; an unknown or null tool name
  * records neither.
  *
  * AUDIT: callers pass only value-free summaries; this class never adds payload of its own. Both
