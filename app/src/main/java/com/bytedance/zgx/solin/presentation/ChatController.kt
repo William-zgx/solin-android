@@ -19,7 +19,6 @@ import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
-import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
@@ -81,11 +80,6 @@ private const val USER_STOPPED_AGENT_RUN_REASON =
 
 private const val LOCAL_ONLY_INPUT_KEPT_LOCAL_REPLY =
     "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。"
-
-private fun RemoteSendDecision.isSuccessfulRemoteSendDecision(): Boolean =
-    this == RemoteSendDecision.Confirmed ||
-        this == RemoteSendDecision.MaskedSend ||
-        this == RemoteSendDecision.SentAnyway
 
 /**
  * Owns chat send/stop and generation job lifecycle.
@@ -155,19 +149,14 @@ class ChatController internal constructor(
     )
 
     private val preparedChatExecutions = ConcurrentHashMap<String, PreparedChatExecution>()
-    private val deferredRemoteSendAudits = ConcurrentHashMap<String, RemoteSendAuditEvent>()
-    private val deferredRemoteSendAuditNotes = ConcurrentHashMap<String, String>()
-    private val deferredAuditRunId = ThreadLocal<String?>()
-    private val claimGatedRemoteSendAuditSink = object : RemoteSendAuditSink {
-        override fun record(event: RemoteSendAuditEvent) {
-            val runId = deferredAuditRunId.get()
-            if (runId != null && event.decision.isSuccessfulRemoteSendDecision()) {
-                deferredRemoteSendAudits[runId] = event
-            } else {
-                remoteSendAuditSink.record(event)
-            }
-        }
-    }
+    private val deferredAudit: DeferredRemoteSendAudit = DeferredRemoteSendAudit(
+        auditSink = remoteSendAuditSink,
+        uiState = uiState,
+        replaceActiveSessionMessages = { messages, persistNow ->
+            sessionHost.replaceActiveSessionMessages(messages, persistNow)
+        },
+        refreshAuditEvents = { remoteSendSupport.refreshRemoteSendAuditEvents() },
+    )
     private val preparedChatRunCoordinator = PreparedChatRunCoordinator(
         policy = PreparedChatPlacementPolicy(ModelPlacementPolicy::decide),
         bindingStore = object : PreparedChatBindingStore {
@@ -186,7 +175,7 @@ class ChatController internal constructor(
                         dispatchPreparedExecution(prepared, execution)
                     } finally {
                         preparedChatExecutions.remove(prepared.runId, execution)
-                        discardDeferredRemoteSend(prepared.runId)
+                        deferredAudit.discard(prepared.runId)
                     }
                 }
 
@@ -218,9 +207,9 @@ class ChatController internal constructor(
         },
     )
 
-    private val remoteSendSupport = ChatRemoteSendSupport(
+    private val remoteSendSupport: ChatRemoteSendSupport = ChatRemoteSendSupport(
         uiState = uiState,
-        remoteSendAuditSink = claimGatedRemoteSendAuditSink,
+        remoteSendAuditSink = deferredAudit.claimGatedSink,
         remoteSendAuditLog = remoteSendAuditLog,
         remoteSendPendingStore = remoteSendPendingStore,
         requireRemoteSendDisclosure = requireRemoteSendDisclosure,
@@ -249,14 +238,7 @@ class ChatController internal constructor(
                 remoteSendConfirmed = true,
             )
         },
-        deferRemoteSendAuditNote = { runId, note ->
-            if (runId.isNullOrBlank()) {
-                false
-            } else {
-                deferredRemoteSendAuditNotes[runId] = note
-                true
-            }
-        },
+        deferRemoteSendAuditNote = deferredAudit::deferNote,
     )
 
     private val toolContinuationSupport = ChatToolContinuationSupport(
@@ -269,12 +251,8 @@ class ChatController internal constructor(
         remoteSendSupport = remoteSendSupport,
         launchGenerationJob = { runId, block -> launchToolGenerationJob(runId, block) },
         cancelActiveGenerationRun = { runId -> cancelActiveGenerationRun(runId) },
-        executePublicEvidenceToolBatchAfterRunIsExecuting = { runId, plans ->
-            executePublicEvidenceToolBatchAfterRunIsExecuting(runId, plans)
-        },
-        handleNextToolPlan = { runId, plan, pendingStatusText ->
-            handleNextToolPlan(runId, plan, pendingStatusText)
-        },
+        executePublicEvidenceToolBatchAfterRunIsExecuting = executePublicEvidenceToolBatchAfterRunIsExecutingCallback,
+        handleNextToolPlan = handleNextToolPlanCallback,
         persistActiveSessionFromUi = { sessionHost.persistActiveSessionFromUi() },
         rebuildMemoryIndex = { sessionHost.rebuildMemoryIndex() },
         loadAuditEvents = { sessionHost.loadAuditEvents() },
@@ -282,8 +260,8 @@ class ChatController internal constructor(
         activeRunTimelineFor = { runId -> sessionHost.activeRunTimelineFor(runId) },
         activePublicWebEvidenceFor = { runId -> sessionHost.activePublicWebEvidenceFor(runId) },
         activeRunPlacement = chatPlacementRuntime::activeBinding,
-        onRemoteServingStarted = { runId -> runId?.let(::commitDeferredRemoteSend) },
-        discardDeferredRemoteSend = { runId -> runId?.let(::discardDeferredRemoteSend) },
+        onRemoteServingStarted = { runId -> runId?.let(deferredAudit::commit) },
+        discardDeferredRemoteSend = { runId -> runId?.let(deferredAudit::discard) },
     )
 
     private val generationCompletion = ChatGenerationCompletion(
@@ -291,12 +269,8 @@ class ChatController internal constructor(
         sessionHost = sessionHost,
         assistantOrchestrator = assistantOrchestrator,
         runtime = runtime,
-        executePublicEvidenceToolBatchAfterRunIsExecuting = { runId, plans ->
-            executePublicEvidenceToolBatchAfterRunIsExecuting(runId, plans)
-        },
-        handleNextToolPlan = { runId, plan, pendingStatusText ->
-            handleNextToolPlan(runId, plan, pendingStatusText)
-        },
+        executePublicEvidenceToolBatchAfterRunIsExecuting = executePublicEvidenceToolBatchAfterRunIsExecutingCallback,
+        handleNextToolPlan = handleNextToolPlanCallback,
         continueAfterToolObservation = { runId, promptForModel, responsePrivacy, remoteToolScope ->
             continueAfterToolObservation(
                 runId = runId,
@@ -310,9 +284,7 @@ class ChatController internal constructor(
     private val routeOutcomes = ChatRouteOutcomeHandler(
         uiState = uiState,
         sessionHost = sessionHost,
-        executeToolRequestAfterRunIsExecuting = { confirmation, request ->
-            executeToolRequestAfterRunIsExecuting(confirmation, request)
-        },
+        executeToolRequestAfterRunIsExecuting = executeToolRequestAfterRunIsExecutingCallback,
     )
 
     val isGenerationJobActive: Boolean
@@ -327,7 +299,7 @@ class ChatController internal constructor(
             ?.let(::teardownSession)
         preparedChatExecutions.keys.toList().forEach(preparedChatRunCoordinator::cancel)
         preparedChatExecutions.clear()
-        runIds.forEach(::discardDeferredRemoteSend)
+        runIds.forEach(deferredAudit::discard)
         activeGenerationRunId = null
         generationJob?.cancel()
         return runIds
@@ -348,8 +320,7 @@ class ChatController internal constructor(
         preparedChatExecutions.entries.removeIf { (_, execution) ->
             execution.stateBeforeSend.activeSessionId == sessionId
         }
-        deferredRemoteSendAudits.keys.removeAll { runId -> !preparedChatExecutions.containsKey(runId) }
-        deferredRemoteSendAuditNotes.keys.removeAll { runId -> !preparedChatExecutions.containsKey(runId) }
+        deferredAudit.retainOnly(preparedChatExecutions::containsKey)
     }
 
     private fun activeRunIdsForTeardown(): Set<String> =
@@ -360,28 +331,6 @@ class ChatController internal constructor(
             uiState.value.pendingConfirmation?.runId?.let(::add)
             uiState.value.pendingExternalOutcome?.runId?.let(::add)
         }
-
-    private suspend fun executeToolRequestAfterRunIsExecuting(
-        confirmation: PendingAgentConfirmation,
-        request: ToolRequest,
-    ) {
-        executeToolRequestAfterRunIsExecutingCallback(confirmation, request)
-    }
-
-    private suspend fun executePublicEvidenceToolBatchAfterRunIsExecuting(
-        runId: String,
-        plans: List<AgentPlan.UseTool>,
-    ) {
-        executePublicEvidenceToolBatchAfterRunIsExecutingCallback(runId, plans)
-    }
-
-    private fun handleNextToolPlan(
-        runId: String,
-        plan: AgentPlan.UseTool,
-        pendingStatusText: String,
-    ) {
-        handleNextToolPlanCallback(runId, plan, pendingStatusText)
-    }
 
     fun sendMessage(prompt: String) {
         sendMessageInternal(prompt = prompt, explicitMessagePrivacy = null)
@@ -1165,7 +1114,7 @@ class ChatController internal constructor(
         if (uiState.value.activeSessionId != execution.stateBeforeSend.activeSessionId) {
             preparedChatRunCoordinator.cancel(runId)
             preparedChatExecutions.remove(runId, execution)
-            discardDeferredRemoteSend(runId)
+            deferredAudit.discard(runId)
             failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             return
         }
@@ -1183,7 +1132,7 @@ class ChatController internal constructor(
         launchToolGenerationJob(runId) {
             if (!preparedChatRunCoordinator.confirmAndDispatch(runId, revision)) {
                 preparedChatExecutions.remove(runId, execution)
-                discardDeferredRemoteSend(runId)
+                deferredAudit.discard(runId)
                 failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
             }
         }
@@ -1192,7 +1141,7 @@ class ChatController internal constructor(
     private fun discardPreparedChat(runId: String) {
         preparedChatRunCoordinator.cancel(runId)
         preparedChatExecutions.remove(runId)
-        discardDeferredRemoteSend(runId)
+        deferredAudit.discard(runId)
         assistantOrchestrator.failModelGeneration(runId, "Remote send disclosure cancelled")
     }
 
@@ -1250,7 +1199,7 @@ class ChatController internal constructor(
                 preparedJobLaunched = { launched ->
                     check(job.compareAndSet(null, launched)) { "Prepared Chat job was already assigned" }
                 },
-                onRemoteServingStarted = { commitDeferredRemoteSend(prepared.runId) },
+                onRemoteServingStarted = { deferredAudit.commit(prepared.runId) },
             )
             val launched = job.get() ?: error("Prepared Chat generation did not start")
             if (stopped.get()) {
@@ -1275,55 +1224,17 @@ class ChatController internal constructor(
     }
 
     fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
-        deferSuccessfulRemoteSendAudit {
+        deferredAudit.deferSuccessfulAudit {
             remoteSendSupport.confirmRemoteSendDisclosure(suppressForSession)
         }
     }
 
     fun confirmRemoteSendWithMasking() {
-        deferSuccessfulRemoteSendAudit(remoteSendSupport::confirmRemoteSendWithMasking)
+        deferredAudit.deferSuccessfulAudit(remoteSendSupport::confirmRemoteSendWithMasking)
     }
 
     fun confirmRemoteSendDespiteSensitive() {
-        deferSuccessfulRemoteSendAudit(remoteSendSupport::confirmRemoteSendDespiteSensitive)
-    }
-
-    private inline fun deferSuccessfulRemoteSendAudit(confirm: () -> Unit) {
-        val runId = uiState.value.pendingRemoteSendDisclosure?.runId
-        if (runId.isNullOrBlank()) {
-            confirm()
-            return
-        }
-        val previous = deferredAuditRunId.get()
-        deferredAuditRunId.set(runId)
-        try {
-            confirm()
-        } finally {
-            if (previous == null) deferredAuditRunId.remove() else deferredAuditRunId.set(previous)
-        }
-    }
-
-    private fun commitDeferredRemoteSend(runId: String) {
-        deferredRemoteSendAuditNotes.remove(runId)?.let(::insertRemoteSendAuditNoteBeforeActiveResponse)
-        deferredRemoteSendAudits.remove(runId)?.let { event ->
-            remoteSendAuditSink.record(event)
-            remoteSendSupport.refreshRemoteSendAuditEvents()
-        }
-    }
-
-    private fun discardDeferredRemoteSend(runId: String) {
-        deferredRemoteSendAudits.remove(runId)
-        deferredRemoteSendAuditNotes.remove(runId)
-    }
-
-    private fun insertRemoteSendAuditNoteBeforeActiveResponse(note: String) {
-        val messages = uiState.value.messages.toMutableList()
-        messages.add((messages.size - 2).coerceAtLeast(0), ChatMessage(
-            role = MessageRole.Assistant,
-            text = note,
-            privacy = MessagePrivacy.LocalOnly,
-        ))
-        sessionHost.replaceActiveSessionMessages(messages, persistNow = true)
+        deferredAudit.deferSuccessfulAudit(remoteSendSupport::confirmRemoteSendDespiteSensitive)
     }
 
     fun failClosedPendingRemoteSendOnStartup() {
@@ -1408,7 +1319,7 @@ class ChatController internal constructor(
             chatPlacementRuntime.stop(runId, AgentRunState.Cancelled)
             preparedChatRunCoordinator.cancel(runId)
             preparedChatExecutions.remove(runId)
-            discardDeferredRemoteSend(runId)
+            deferredAudit.discard(runId)
         }
         cancelActiveGenerationRun(runId)
         job?.cancel()
