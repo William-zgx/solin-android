@@ -8,7 +8,6 @@ import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LocalImageAttachment
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
-import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
@@ -32,9 +31,6 @@ import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
-import com.bytedance.zgx.solin.memory.explicitUserFactFrom
-import com.bytedance.zgx.solin.memory.explicitUserPreferenceFrom
-import com.bytedance.zgx.solin.memory.explicitUserPreferenceForgetFrom
 import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.multimodal.SharedInput
 import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
@@ -299,6 +295,14 @@ class ChatController internal constructor(
         discardDeferredRemoteSend = { runId -> runId?.let(::discardDeferredRemoteSend) },
     )
 
+    private val routeOutcomes = ChatRouteOutcomeHandler(
+        uiState = uiState,
+        sessionHost = sessionHost,
+        executeToolRequestAfterRunIsExecuting = { confirmation, request ->
+            executeToolRequestAfterRunIsExecuting(confirmation, request)
+        },
+    )
+
     val isGenerationJobActive: Boolean
         get() = generationJob?.isActive == true
 
@@ -402,56 +406,38 @@ class ChatController internal constructor(
             return
         }
         val trimmed = preparedExecution?.promptForDispatch ?: prompt.trim()
-        if (preparedExecution == null && trimmed.isNotEmpty() && uiState.value.pendingConfirmation != null) {
-            uiState.update {
-                it.copy(statusText = "请先确认或取消待执行动作")
+        if (preparedExecution == null) {
+            when (
+                val decision = ChatSendPreflight.initialSend(
+                    trimmedPrompt = trimmed,
+                    state = uiState.value,
+                    remoteSendConfirmed = remoteSendConfirmed,
+                    generationActive = generationJob?.isActive == true,
+                )
+            ) {
+                InitialSendDecision.Ignore -> return
+                is InitialSendDecision.Blocked -> {
+                    uiState.update { it.copy(statusText = decision.statusText) }
+                    return
+                }
+                InitialSendDecision.ForgetMemoryCommand -> {
+                    sessionHost.handleExplicitMemoryForgetCommand(trimmed)
+                    return
+                }
+                InitialSendDecision.UserFactCommand -> {
+                    sessionHost.handleExplicitUserFactCommand(trimmed)
+                    return
+                }
+                InitialSendDecision.PreferenceCommand -> {
+                    sessionHost.handleExplicitPreferenceCommand(trimmed)
+                    return
+                }
+                InitialSendDecision.NotReady -> {
+                    handleNotReadySendAttempt()
+                    return
+                }
+                InitialSendDecision.Proceed -> Unit
             }
-            return
-        }
-        if (preparedExecution == null && trimmed.isNotEmpty() &&
-            uiState.value.pendingRemoteModeDisclosure != null &&
-            !remoteSendConfirmed
-        ) {
-            uiState.update {
-                it.copy(statusText = "请先确认远程模式提醒")
-            }
-            return
-        }
-        if (preparedExecution == null && trimmed.isNotEmpty() &&
-            uiState.value.pendingRemoteSendDisclosure != null &&
-            !remoteSendConfirmed
-        ) {
-            uiState.update {
-                it.copy(statusText = "请先确认或取消远程发送")
-            }
-            return
-        }
-        if (preparedExecution == null && trimmed.isNotEmpty() && uiState.value.pendingExternalOutcome != null) {
-            uiState.update {
-                it.copy(statusText = "请先确认外部动作结果")
-            }
-            return
-        }
-        if (preparedExecution == null &&
-            (trimmed.isEmpty() || uiState.value.isBusy || generationJob?.isActive == true)
-        ) {
-            return
-        }
-        if (preparedExecution == null && explicitUserPreferenceForgetFrom(trimmed) != null) {
-            sessionHost.handleExplicitMemoryForgetCommand(trimmed)
-            return
-        }
-        if (preparedExecution == null && explicitUserFactFrom(trimmed) != null) {
-            sessionHost.handleExplicitUserFactCommand(trimmed)
-            return
-        }
-        if (preparedExecution == null && explicitUserPreferenceFrom(trimmed) != null) {
-            sessionHost.handleExplicitPreferenceCommand(trimmed)
-            return
-        }
-        if (preparedExecution == null && !uiState.value.isReady) {
-            handleNotReadySendAttempt()
-            return
         }
 
         solinD(
@@ -500,133 +486,131 @@ class ChatController internal constructor(
                 reduceDeviceActionConfirmations = stateBeforeSend.reduceDeviceActionConfirmations,
             )
         }
-        if (preparedExecution != null && useRemoteModel && effectiveMessagePrivacy == MessagePrivacy.LocalOnly) {
-            val userMessage = ChatMessage(
-                role = MessageRole.User,
-                text = trimmed,
-                privacy = MessagePrivacy.LocalOnly,
-            )
-            sessionHost.persistMessagesAndRebuildMemory(
-                messages = stateBeforeSend.messages + userMessage + ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
-                    privacy = MessagePrivacy.LocalOnly,
-                ),
-                memoryUserMessage = userMessage,
-            )
-            uiState.update {
-                it.copy(statusText = "已保护本地内容")
-            }
-            return
-        }
-        if (preparedExecution != null && useRemoteModel &&
-            effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
-            remoteConfig.isConfigured &&
-            remoteConfig.hasKnownConnectivityFailure
-        ) {
-            val userMessage = ChatMessage(
-                role = MessageRole.User,
-                text = trimmed,
-                privacy = MessagePrivacy.RemoteEligible,
-            )
-            remoteSendSupport.recordRemoteSendAuditEvent(
-                decision = RemoteSendDecision.Blocked,
-                modelName = remoteConfig.normalized().modelName,
-                prompt = trimmed,
-                imageCount = imageAttachments.size,
-                remoteHistoryCount = remoteHistory.size,
-            )
-            sessionHost.persistMessagesAndRebuildMemory(
-                messages = stateBeforeSend.messages + userMessage + ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。",
-                    privacy = MessagePrivacy.LocalOnly,
-                ),
-                memoryUserMessage = userMessage,
-            )
-            uiState.update {
-                it.copy(statusText = "远程连接不可用")
-            }
-            return
-        }
-        if (preparedExecution != null && useRemoteModel &&
-            effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
-            !remoteSendConfirmed &&
-            remoteConfig.isConfigured &&
-            remoteSendSupport.containsSensitivePersonalOrSecretContent(trimmed)
-        ) {
-            // Tiered handling (P1): instead of hard-rejecting sensitive content, surface a
-            // forced disclosure that offers graded choices — mask & send, send anyway
-            // (audited), or cancel. This is always force-shown (fail-closed) and can never be
-            // silenced by the session-suppression flag.
-            val disclosure = remoteSendSupport.buildSensitiveRemoteSendDisclosure(
-                prompt = trimmed,
+        if (preparedExecution != null && useRemoteModel) {
+            val remoteDecision = ChatSendPreflight.preparedRemoteSend(
                 messagePrivacy = effectiveMessagePrivacy,
                 remoteConfig = remoteConfig,
-                remoteHistory = remoteHistory,
-                imageAttachments = imageAttachments,
-                stateBeforeSend = stateBeforeSend,
+                remoteSendConfirmed = remoteSendConfirmed,
+                containsSensitiveContent = {
+                    remoteSendSupport.containsSensitivePersonalOrSecretContent(trimmed)
+                },
+                requiresSendDisclosure = {
+                    remoteSendSupport.shouldRequireRemoteSendDisclosure(imageAttachmentCount = imageAttachments.size)
+                },
             )
-            remoteSendSupport.savePendingRemoteSendMarker(disclosure)
-            uiState.update {
-                it.copy(
-                    pendingRemoteSendDisclosure = disclosure,
-                    pendingExternalOutcome = null,
-                    latestRecoveryAction = null,
-                    statusText = "敏感内容待确认",
-                )
+            when (remoteDecision) {
+                RemoteSendPreflightDecision.KeepLocalOnlyContent -> {
+                    val userMessage = ChatMessage(
+                        role = MessageRole.User,
+                        text = trimmed,
+                        privacy = MessagePrivacy.LocalOnly,
+                    )
+                    sessionHost.persistMessagesAndRebuildMemory(
+                        messages = stateBeforeSend.messages + userMessage + ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
+                            privacy = MessagePrivacy.LocalOnly,
+                        ),
+                        memoryUserMessage = userMessage,
+                    )
+                    uiState.update {
+                        it.copy(statusText = "已保护本地内容")
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.BlockKnownConnectivityFailure -> {
+                    val userMessage = ChatMessage(
+                        role = MessageRole.User,
+                        text = trimmed,
+                        privacy = MessagePrivacy.RemoteEligible,
+                    )
+                    remoteSendSupport.recordRemoteSendAuditEvent(
+                        decision = RemoteSendDecision.Blocked,
+                        modelName = remoteConfig.normalized().modelName,
+                        prompt = trimmed,
+                        imageCount = imageAttachments.size,
+                        remoteHistoryCount = remoteHistory.size,
+                    )
+                    sessionHost.persistMessagesAndRebuildMemory(
+                        messages = stateBeforeSend.messages + userMessage + ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。",
+                            privacy = MessagePrivacy.LocalOnly,
+                        ),
+                        memoryUserMessage = userMessage,
+                    )
+                    uiState.update {
+                        it.copy(statusText = "远程连接不可用")
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.RequireSensitiveContentConsent -> {
+                    // Tiered handling (P1): instead of hard-rejecting sensitive content, surface a
+                    // forced disclosure that offers graded choices — mask & send, send anyway
+                    // (audited), or cancel. This is always force-shown (fail-closed) and can never be
+                    // silenced by the session-suppression flag.
+                    val disclosure = remoteSendSupport.buildSensitiveRemoteSendDisclosure(
+                        prompt = trimmed,
+                        messagePrivacy = effectiveMessagePrivacy,
+                        remoteConfig = remoteConfig,
+                        remoteHistory = remoteHistory,
+                        imageAttachments = imageAttachments,
+                        stateBeforeSend = stateBeforeSend,
+                    )
+                    remoteSendSupport.savePendingRemoteSendMarker(disclosure)
+                    uiState.update {
+                        it.copy(
+                            pendingRemoteSendDisclosure = disclosure,
+                            pendingExternalOutcome = null,
+                            latestRecoveryAction = null,
+                            statusText = "敏感内容待确认",
+                        )
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.ProtectSensitiveContentWithoutRemote -> {
+                    // Remote not configured: keep the original protect-and-explain behavior since there
+                    // is no destination to send to anyway.
+                    val userMessage = ChatMessage(
+                        role = MessageRole.User,
+                        text = trimmed,
+                        privacy = MessagePrivacy.LocalOnly,
+                    )
+                    sessionHost.persistMessagesAndRebuildMemory(
+                        messages = stateBeforeSend.messages + userMessage + ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "这条内容疑似包含个人信息或密钥。当前为远程模型模式，我不会把它发送到远程模型；请切换到本地模型，或删去敏感内容后再发送。",
+                            privacy = MessagePrivacy.LocalOnly,
+                        ),
+                    )
+                    uiState.update {
+                        it.copy(statusText = "已保护敏感内容")
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.RequireSendDisclosure -> {
+                    val disclosure = remoteSendSupport.buildPendingRemoteSendDisclosure(
+                        kind = RemoteSendDisclosureKind.CurrentInput,
+                        prompt = trimmed,
+                        messagePrivacy = effectiveMessagePrivacy,
+                        remoteConfig = remoteConfig,
+                        remoteHistory = remoteHistory,
+                        imageAttachments = imageAttachments,
+                        stateBeforeSend = stateBeforeSend,
+                    )
+                    remoteSendSupport.savePendingRemoteSendMarker(disclosure)
+                    uiState.update {
+                        it.copy(
+                            pendingRemoteSendDisclosure = disclosure,
+                            pendingExternalOutcome = null,
+                            latestRecoveryAction = null,
+                            statusText = "远程发送待确认",
+                        )
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.Proceed -> Unit
             }
-            return
-        }
-        if (preparedExecution != null && useRemoteModel &&
-            effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
-            !remoteConfig.isConfigured &&
-            remoteSendSupport.containsSensitivePersonalOrSecretContent(trimmed)
-        ) {
-            // Remote not configured: keep the original protect-and-explain behavior since there
-            // is no destination to send to anyway.
-            val userMessage = ChatMessage(
-                role = MessageRole.User,
-                text = trimmed,
-                privacy = MessagePrivacy.LocalOnly,
-            )
-            sessionHost.persistMessagesAndRebuildMemory(
-                messages = stateBeforeSend.messages + userMessage + ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = "这条内容疑似包含个人信息或密钥。当前为远程模型模式，我不会把它发送到远程模型；请切换到本地模型，或删去敏感内容后再发送。",
-                    privacy = MessagePrivacy.LocalOnly,
-                ),
-            )
-            uiState.update {
-                it.copy(statusText = "已保护敏感内容")
-            }
-            return
-        }
-        if (preparedExecution != null && useRemoteModel &&
-            effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
-            remoteConfig.isConfigured &&
-            !remoteSendConfirmed &&
-            remoteSendSupport.shouldRequireRemoteSendDisclosure(imageAttachmentCount = imageAttachments.size)
-        ) {
-            val disclosure = remoteSendSupport.buildPendingRemoteSendDisclosure(
-                kind = RemoteSendDisclosureKind.CurrentInput,
-                prompt = trimmed,
-                messagePrivacy = effectiveMessagePrivacy,
-                remoteConfig = remoteConfig,
-                remoteHistory = remoteHistory,
-                imageAttachments = imageAttachments,
-                stateBeforeSend = stateBeforeSend,
-            )
-            remoteSendSupport.savePendingRemoteSendMarker(disclosure)
-            uiState.update {
-                it.copy(
-                    pendingRemoteSendDisclosure = disclosure,
-                    pendingExternalOutcome = null,
-                    latestRecoveryAction = null,
-                    statusText = "远程发送待确认",
-                )
-            }
-            return
         }
         if (preparedExecution == null) {
             uiState.update {
@@ -714,125 +698,17 @@ class ChatController internal constructor(
                 }
                 when (route) {
                     is AssistantRoute.Action -> {
-                        val localUserMessage = userMessage.copy(privacy = MessagePrivacy.LocalOnly)
-                        val planningLabel = if (route.plannedByModel) {
-                            "动作规划模型"
-                        } else {
-                            "规则回退"
-                        }
-                        if (!route.requiresUserConfirmation) {
-                            val request = route.toolRequest ?: ToolRequest(
-                                toolName = route.draft.functionName,
-                                arguments = route.draft.parameters,
-                                reason = route.draft.summary,
-                            )
-                            val assistantMessage = ChatMessage(
-                                role = MessageRole.Assistant,
-                                text = "正在使用工具：${route.draft.title}",
-                                privacy = MessagePrivacy.LocalOnly,
-                            )
-                            sessionHost.persistMessagesAndRebuildMemory(
-                                messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
-                                memoryUserMessage = localUserMessage,
-                            )
-                            uiState.update {
-                                it.clearedEvidence().copy(
-                                    isBusy = true,
-                                    isGenerating = false,
-                                    pendingConfirmation = null,
-                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                    statusText = "工具执行中",
-                                )
-                            }
-                            executeToolRequestAfterRunIsExecuting(
-                                confirmation = PendingAgentConfirmation(
-                                    runId = route.runId,
-                                    draft = route.draft,
-                                    toolRequest = route.toolRequest,
-                                    skillId = route.skillId,
-                                    plannedByModel = route.plannedByModel,
-                                    fallbackReason = route.fallbackReason,
-                                ),
-                                request = request,
-                            )
-                            return@generation
-                        }
-                        val assistantMessage = ChatMessage(
-                            role = MessageRole.Assistant,
-                            text = "已准备本地动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
-                            privacy = MessagePrivacy.LocalOnly,
-                        )
-                        sessionHost.persistMessagesAndRebuildMemory(
-                            messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
-                            memoryUserMessage = localUserMessage,
-                        )
-                        uiState.update {
-                            it.clearedEvidence().copy(
-                                isBusy = false,
-                                isGenerating = false,
-                                pendingConfirmation = PendingAgentConfirmation(
-                                    runId = route.runId,
-                                    draft = route.draft,
-                                    toolRequest = route.toolRequest,
-                                    skillId = route.skillId,
-                                    plannedByModel = route.plannedByModel,
-                                    fallbackReason = route.fallbackReason,
-                                ),
-                                activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                statusText = "动作草稿待确认 · $planningLabel",
-                            )
-                        }
+                        routeOutcomes.handleAction(route, userMessage, stateBeforeSend)
                         return@generation
                     }
 
                     is AssistantRoute.ToolRejected -> {
-                        val localUserMessage = userMessage.copy(privacy = MessagePrivacy.LocalOnly)
-                        val assistantMessage = ChatMessage(
-                            role = MessageRole.Assistant,
-                            text = "无法准备这个动作：${route.summary}",
-                            privacy = MessagePrivacy.LocalOnly,
-                        )
-                        sessionHost.persistMessagesAndRebuildMemory(
-                            messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
-                            memoryUserMessage = localUserMessage,
-                        )
-                        uiState.update {
-                            it.clearedEvidence().copy(
-                                isBusy = false,
-                                isGenerating = false,
-                                statusText = "动作不可执行",
-                            )
-                        }
+                        routeOutcomes.handleToolRejected(route, userMessage, stateBeforeSend)
                         return@generation
                     }
 
                     is AssistantRoute.MissingModel -> {
-                        val capabilityName = when (route.capability) {
-                            ModelCapability.Chat -> "对话模型"
-                            ModelCapability.MemoryEmbedding -> "记忆模型"
-                            ModelCapability.MobileAction -> "动作规划模型"
-                        }
-                        val installHint = if (route.capability == ModelCapability.MobileAction) {
-                            "请到模型管理安装本地 Chat 模型，或可选低资源动作模型。"
-                        } else {
-                            "请到模型管理安装基础能力包。"
-                        }
-                        val assistantMessage = ChatMessage(
-                            role = MessageRole.Assistant,
-                            text = "需要先安装$capabilityName，才能完成这个请求。$installHint",
-                            privacy = effectiveMessagePrivacy,
-                        )
-                        sessionHost.persistMessagesAndRebuildMemory(
-                            messages = stateBeforeSend.messages + userMessage + assistantMessage,
-                            memoryUserMessage = userMessage,
-                        )
-                        uiState.update {
-                            it.clearedEvidence().copy(
-                                isBusy = false,
-                                isGenerating = false,
-                                statusText = "缺少$capabilityName",
-                            )
-                        }
+                        routeOutcomes.handleMissingModel(route, userMessage, stateBeforeSend, effectiveMessagePrivacy)
                         return@generation
                     }
 
