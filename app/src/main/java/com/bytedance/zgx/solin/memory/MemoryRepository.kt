@@ -172,16 +172,37 @@ class MemoryRepository(
     private val deletionEventStore: MemoryDeletionEventStore = NoOpMemoryDeletionEventStore,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController {
+    /**
+     * Guards every piece of mutable state below (the entry map, the active embedding runtime and
+     * the semantic status fields) and serialises all store mutations issued by this repository.
+     *
+     * Writers (rebuild, model switching, re-embedding, forget/clear) usually run under the
+     * presentation-layer memory mutex, but [search] is also called directly by the agent loop. A
+     * single monitor is deliberately held across embedding calls: the semantic runtime is closed
+     * by [useMemoryModel] / [failActiveSemanticRuntime], so releasing the lock around a native
+     * `embed` would allow a use-after-close. Correctness wins over search throughput here; a
+     * search simply waits for an in-progress rebuild. The monitor is reentrant, so public methods
+     * may call each other.
+     */
+    private val lock = Any()
     private val entries = linkedMapOf<String, MemoryEntry>()
     private val defaultEmbeddingRuntime = embeddingRuntime
     private var activeEmbeddingRuntime: EmbeddingRuntime = embeddingRuntime
+
+    @Volatile
     override var activeMemoryModelPath: String? = null
         private set
+
+    @Volatile
     override var semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus =
         SemanticMemoryRuntimeStatus.NoVerifiedModel
         private set
+
+    @Volatile
     override var semanticMemoryIndexedRecordCount: Int = 0
         private set
+
+    @Volatile
     override var semanticMemoryLastRebuiltAtMillis: Long? = null
         private set
     override val semanticMemoryEnabled: Boolean
@@ -189,7 +210,7 @@ class MemoryRepository(
     override val canLoadSemanticMemoryRuntime: Boolean
         get() = semanticRuntimeFactory != null
 
-    override fun clearSemanticMemoryForModel(modelId: String) {
+    override fun clearSemanticMemoryForModel(modelId: String): Unit = synchronized(lock) {
         embeddingStore.deleteForModel(modelId)
         if (activeEmbeddingRuntime.modelId == modelId) {
             activeEmbeddingRuntime.close()
@@ -199,9 +220,10 @@ class MemoryRepository(
             reembedEntries()
         }
     }
+    @Volatile
     override var enabled: Boolean = true
 
-    override fun useMemoryModel(path: String?) {
+    override fun useMemoryModel(path: String?): Unit = synchronized(lock) {
         val normalizedPath = path?.trim()?.takeIf { it.isNotBlank() }
         if (normalizedPath == activeMemoryModelPath && semanticMemoryEnabled) return
         if (normalizedPath == null && activeMemoryModelPath == null && activeEmbeddingRuntime === defaultEmbeddingRuntime) {
@@ -260,7 +282,7 @@ class MemoryRepository(
         }
     }
 
-    override fun rebuild(messages: List<ChatMessage>) {
+    override fun rebuild(messages: List<ChatMessage>): Unit = synchronized(lock) {
         entries.clear()
         visibleRecords().forEach { record ->
             indexRecord(
@@ -292,7 +314,7 @@ class MemoryRepository(
         }
     }
 
-    override fun index(id: String, text: String) {
+    override fun index(id: String, text: String): Unit = synchronized(lock) {
         indexRecord(
             id = id,
             text = text,
@@ -303,10 +325,11 @@ class MemoryRepository(
         )
     }
 
-    override fun savedRecords(): List<PersistedMemoryRecord> =
+    override fun savedRecords(): List<PersistedMemoryRecord> = synchronized(lock) {
         visibleRecords()
+    }
 
-    override fun indexPreference(id: String, text: String) {
+    override fun indexPreference(id: String, text: String): Unit = synchronized(lock) {
         if (text.isBlank()) return
         forgetConflictingPreferences(id, text)
         indexRecord(
@@ -321,7 +344,7 @@ class MemoryRepository(
         )
     }
 
-    override fun indexUserFact(id: String, text: String) {
+    override fun indexUserFact(id: String, text: String): Unit = synchronized(lock) {
         if (text.isBlank()) return
         forgetConflictingUserFacts(id, text)
         indexRecord(
@@ -336,7 +359,7 @@ class MemoryRepository(
         )
     }
 
-    override fun indexTaskState(id: String, text: String) {
+    override fun indexTaskState(id: String, text: String): Unit = synchronized(lock) {
         if (isAutoManagedTaskStateSuppressed(id)) return
         indexRecord(
             id = id,
@@ -350,7 +373,7 @@ class MemoryRepository(
         )
     }
 
-    override fun suppressAutoManagedTaskState(id: String) {
+    override fun suppressAutoManagedTaskState(id: String): Unit = synchronized(lock) {
         if (!id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) return
         entries.remove(id)
         recordStore.delete(id)
@@ -369,26 +392,27 @@ class MemoryRepository(
         )
     }
 
-    override fun unsuppressAutoManagedTaskState(id: String) {
+    override fun unsuppressAutoManagedTaskState(id: String): Unit = synchronized(lock) {
         recordStore.delete(suppressedTaskStateMemoryRecordId(id))
     }
 
-    override fun isAutoManagedTaskStateSuppressed(id: String): Boolean =
+    override fun isAutoManagedTaskStateSuppressed(id: String): Boolean = synchronized(lock) {
         recordStore.records().any { record ->
             record.type == MemoryRecordType.SuppressedTaskState &&
                 record.text == id
         }
+    }
 
-    override fun forget(id: String): Boolean {
+    override fun forget(id: String): Boolean = synchronized(lock) {
         return forget(id, MemoryDeletionOperation.Forget)
     }
 
-    override fun forgetAutoManagedTaskState(id: String): Boolean {
+    override fun forgetAutoManagedTaskState(id: String): Boolean = synchronized(lock) {
         if (!id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) return false
         return forgetWithoutDeletionAudit(id)
     }
 
-    override fun forgetPreference(target: String): Boolean {
+    override fun forgetPreference(target: String): Boolean = synchronized(lock) {
         val normalizedTarget = target.trim()
         if (normalizedTarget.isBlank()) return false
         val exactRemoved = forget(explicitUserPreferenceRecordId(normalizedTarget))
@@ -410,7 +434,7 @@ class MemoryRepository(
         return exactRemoved || removedConflict
     }
 
-    override fun forgetUserFact(target: String): Boolean {
+    override fun forgetUserFact(target: String): Boolean = synchronized(lock) {
         val normalizedTarget = target.trim()
         if (normalizedTarget.isBlank()) return false
         val exactRemoved = forget(explicitUserFactRecordId(normalizedTarget))
@@ -432,7 +456,7 @@ class MemoryRepository(
         return exactRemoved || removedMatching
     }
 
-    override fun clear() {
+    override fun clear(): Unit = synchronized(lock) {
         val recordsForDeletionAudit = deletionAuditableRecords()
         val deletedAtMillis = clockMillis()
         val events = recordsForDeletionAudit.map { record ->
@@ -511,7 +535,7 @@ class MemoryRepository(
         refreshSemanticIndexStats()
     }
 
-    override fun search(query: String, topK: Int): List<MemoryHit> {
+    override fun search(query: String, topK: Int): List<MemoryHit> = synchronized(lock) {
         if (!enabled || query.isBlank() || topK <= 0 || entries.isEmpty()) return emptyList()
         val queryTokens = tokenize(query).toSet()
         if (queryTokens.isEmpty()) return emptyList()
@@ -579,10 +603,11 @@ class MemoryRepository(
             .take(topK)
     }
 
-    override fun buildContext(hits: List<MemoryHit>): String =
+    override fun buildContext(hits: List<MemoryHit>): String = synchronized(lock) {
         hits
             .filter { hit -> hit.isAvailableForLocalContext(clockMillis()) }
             .joinToString(separator = "\n") { "- ${it.text}" }
+    }
 
     private fun semanticEmbeddingFor(
         id: String,
