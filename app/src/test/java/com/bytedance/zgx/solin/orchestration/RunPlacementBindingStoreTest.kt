@@ -435,6 +435,27 @@ class RunPlacementBindingStoreTest {
     }
 
     @Test
+    fun terminalizationPrunesTheRunLifecycleLock() {
+        val dao = FakeRunPlacementBindingDao()
+        val store = store(dao)
+        assertTrue(store.createCriticalRun(testRun("run-lock-prune")))
+        assertTrue(store.bindAndReserve(testBinding("run-lock-prune")) is BindAndReserveResult.Bound)
+        assertEquals(1, store.lifecycleLockCount())
+
+        val terminalized = store.terminalizeRun("run-lock-prune", AgentRunState.Cancelled, 2_000L)
+
+        assertTrue(terminalized is TerminalizeRunResult.Terminalized)
+        assertEquals(0, store.lifecycleLockCount())
+        // Post-terminal transitions stay idempotent / rejected without the lock.
+        assertTrue(
+            store.terminalizeRun("run-lock-prune", AgentRunState.Cancelled, 3_000L) is
+                TerminalizeRunResult.Terminalized,
+        )
+        assertTrue(store.bindAndReserve(testBinding("run-lock-prune")) is BindAndReserveResult.Rejected)
+        assertEquals("Cancelled", dao.run("run-lock-prune")?.state)
+    }
+
+    @Test
     fun finishIsIdempotentForMatchingIdleAndTerminalAttempts() {
         val dao = FakeRunPlacementBindingDao()
         val store = store(dao)

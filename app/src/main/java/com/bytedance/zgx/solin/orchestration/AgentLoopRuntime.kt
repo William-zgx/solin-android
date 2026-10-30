@@ -194,20 +194,23 @@ class AgentLoopRuntime(
 
     private val undoStack = java.util.ArrayDeque<UndoEntry>()
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
-    private val valueFreeCompletedStepFrontiersByRunId = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
-    private val remoteToolScopesByRunId = java.util.concurrent.ConcurrentHashMap<String, RemoteToolScope>()
-    private val remoteExposedToolNamesByRunId = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
-    private val lowRiskDeviceActionConfirmationBypassByRunId = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
-    private val remoteGuiDrivingEnabledByRunId = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
-    private val installedCapabilityProfilesByRunId = java.util.concurrent.ConcurrentHashMap<String, List<ModelCapabilityProfile>>()
-    private val profilesByRunId = java.util.concurrent.ConcurrentHashMap<String, AgentProfile>()
+    // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
+    // call sites unchanged.
+    private val runScopedState = RunScopedState()
+    private val valueFreeCompletedStepFrontiersByRunId = runScopedState.valueFreeCompletedStepFrontiersByRunId
+    private val remoteToolScopesByRunId = runScopedState.remoteToolScopesByRunId
+    private val remoteExposedToolNamesByRunId = runScopedState.remoteExposedToolNamesByRunId
+    private val lowRiskDeviceActionConfirmationBypassByRunId = runScopedState.lowRiskDeviceActionConfirmationBypassByRunId
+    private val remoteGuiDrivingEnabledByRunId = runScopedState.remoteGuiDrivingEnabledByRunId
+    private val installedCapabilityProfilesByRunId = runScopedState.installedCapabilityProfilesByRunId
+    private val profilesByRunId = runScopedState.profilesByRunId
     private val scratchpad = com.bytedance.zgx.solin.memory.PerRunScratchpad()
 
     // Wave 2 SolinEvent lifecycle bookkeeping: per-run wall-clock start time, so
     // TurnStarted/TurnEnded/RunEnded events carry monotonic counters without disturbing the
     // existing traceStore contract. Declared ahead of [runBudget] because the budget's wall-clock
     // deadline reads it (a property initializer may not forward-reference a later property).
-    private val runStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val runStartedAtMillis = runScopedState.runStartedAtMillis
 
     /**
      * Per-run accounting of time spent parked on a user or an external app, so the wall-clock
@@ -219,8 +222,8 @@ class AgentLoopRuntime(
      * budget-check time needs no such coverage — while a run sits parked, `updatedAtMillis` is the
      * moment it parked, so the parked stretch is directly measurable.
      */
-    private val parkedMillisByRunId = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val lastParkSampleAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val parkedMillisByRunId = runScopedState.parkedMillisByRunId
+    private val lastParkSampleAtMillis = runScopedState.lastParkSampleAtMillis
 
     /**
      * Total parked milliseconds for [runId], advancing the accumulator when the run is parked now.
@@ -630,7 +633,7 @@ class AgentLoopRuntime(
 
     // Wave 2 SolinEvent lifecycle bookkeeping. runStartedAtMillis is declared above (the run budget
     // reads it for the wall-clock deadline); runTurnIndex tracks the per-run monotonic turn counter.
-    private val runTurnIndex = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val runTurnIndex = runScopedState.runTurnIndex
 
     // Wave 3 mid-run steering: ChatMessages injected via steerRun()/steer() are queued here and
     // drained (prepended to the model message list) on the next model call.
@@ -688,7 +691,7 @@ class AgentLoopRuntime(
     // Wave 4 telemetry: (runId, stepType) -> last started-at epoch millis, so StepLatency samples can
     // record deltas when the next step boundary arrives. Keyed per run: concurrent runs (e.g.
     // subagents) would otherwise clobber each other's start marker and drop or mis-measure samples.
-    private val stepStartedAtMillis = java.util.concurrent.ConcurrentHashMap<StepStartKey, Long>()
+    private val stepStartedAtMillis = runScopedState.stepStartedAtMillis
 
     fun runOnce(
         input: String,
@@ -1149,23 +1152,12 @@ class AgentLoopRuntime(
         steerMessages.close()
         queuedMessages.close()
         runtimeJob.cancel()
-        valueFreeCompletedStepFrontiersByRunId.clear()
-        remoteToolScopesByRunId.clear()
-        remoteExposedToolNamesByRunId.clear()
-        lowRiskDeviceActionConfirmationBypassByRunId.clear()
-        remoteGuiDrivingEnabledByRunId.clear()
-        installedCapabilityProfilesByRunId.clear()
-        profilesByRunId.clear()
         pendingUserQuestionsByRunId.clear()
         toolDispatchStartedAtMillis.clear()
-        stepStartedAtMillis.clear()
         runStartedAtMillis.keys.toList().forEach { runId ->
             runCatching { scratchpad.clear(runId) }
         }
-        runStartedAtMillis.clear()
-        parkedMillisByRunId.clear()
-        lastParkSampleAtMillis.clear()
-        runTurnIndex.clear()
+        runScopedState.clear()
         synchronized(undoStack) {
             undoStack.clear()
         }
@@ -2932,12 +2924,10 @@ class AgentLoopRuntime(
         toolRequestsFor(runId).forEach { request ->
             toolDispatchStartedAtMillis.remove(request.id)
         }
-        valueFreeCompletedStepFrontiersByRunId.remove(runId)
-        remoteToolScopesByRunId.remove(runId)
-        remoteExposedToolNamesByRunId.remove(runId)
-        lowRiskDeviceActionConfirmationBypassByRunId.remove(runId)
-        installedCapabilityProfilesByRunId.remove(runId)
-        profilesByRunId.remove(runId)
+        // Every per-run map, including the lifecycle timestamps / turn counter / parked time /
+        // step markers that used to survive until session delete. Lifecycle events that read them
+        // (RunEnded, RunFailed) are always published before this cleanup runs.
+        runScopedState.forgetRun(runId)
         // Best-effort drain of queued steer/queued batches for the terminating run so the
         // channels don't accumulate messages for dead runs. Off-target batches are re-enqueued
         // by pumpChannel; this is safe to call after the run has gone terminal.
@@ -2955,17 +2945,15 @@ class AgentLoopRuntime(
                 }
             }
         }
-        // Wave 2 lifecycle metadata: keep briefly for post-terminal subscribers; clear on next
-        // run or close. Left intentionally out of the strict clear to allow late subscribers to
-        // still read start-time; bounded by process memory.
     }
 
     private fun clearDeletedRunState(runId: String) {
-        runStartedAtMillis.remove(runId)
-        parkedMillisByRunId.remove(runId)
-        lastParkSampleAtMillis.remove(runId)
-        runTurnIndex.remove(runId)
+        runScopedState.forgetRun(runId)
     }
+
+    /** Run ids that still hold in-memory per-run state; test hook for terminal-cleanup coverage. */
+    internal fun runIdsWithScopedState(): Set<String> =
+        runScopedState.trackedRunIds() + pendingUserQuestionsByRunId.keys + activeModelCallJobs.keys
 
     /**
      * Wave 7: return the currently-live undo entry (compensating tool) if one exists and its
@@ -3042,8 +3030,6 @@ class AgentLoopRuntime(
         AgentRunState.AwaitingUserAnswer,
         AgentRunState.AwaitingExternalOutcome,
     )
-
-    private data class StepStartKey(val runId: String, val stepType: String)
 
     private companion object {
         const val RUN_DELETED_SESSION_REASON = "Session deleted before this Agent run completed."

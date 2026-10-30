@@ -78,15 +78,24 @@ class RoomRunPlacementBindingStore(
         updatedAtMillis: Long,
     ): TerminalizeRunResult {
         if (!state.isTerminalPlacementRunState()) return TerminalizeRunResult.Rejected
-        return synchronized(lifecycleLock(runId)) {
+        val lock = lifecycleLock(runId)
+        return synchronized(lock) {
             val permit = activeBindings[runId]
-            if (permit == null) {
+            val result = if (permit == null) {
                 terminalizePersisted(runId, state, updatedAtMillis, permit = null)
             } else {
                 synchronized(permit.entry) {
                     terminalizePersisted(runId, state, updatedAtMillis, permit)
                 }
             }
+            // The lock only serializes lifecycle transitions of a live run. Once the run is durably
+            // terminal every later transition is a DB-side no-op (bindAndReserve/activate re-read the
+            // persisted terminal state and reject), so drop it instead of keeping one per run forever.
+            // A caller already waiting on this lock still observes the terminal state afterwards.
+            if (result is TerminalizeRunResult.Terminalized) {
+                lifecycleLocks.remove(runId, lock)
+            }
+            result
         }
     }
 
@@ -374,6 +383,9 @@ class RoomRunPlacementBindingStore(
         permit.activationToken === storeToken && activeBindings[permit.binding.runId] === permit
 
     private fun lifecycleLock(runId: String): Any = lifecycleLocks.computeIfAbsent(runId) { Any() }
+
+    /** Number of per-run lifecycle locks currently held; test hook for pruning coverage. */
+    internal fun lifecycleLockCount(): Int = lifecycleLocks.size
 
     private fun isDurablyPublishable(binding: RunPlacementBinding): Boolean = runCatching {
         val snapshot = dao.recoverySnapshot(binding.runId) ?: return@runCatching false
