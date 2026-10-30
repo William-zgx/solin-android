@@ -134,9 +134,9 @@ class HashingEmbeddingRuntime(
 
     override fun embed(text: String): FloatArray {
         val vector = FloatArray(dimensions)
-        tokenize(text).forEach { token ->
-            val index = (token.hashCode() and Int.MAX_VALUE) % dimensions
-            vector[index] += 1f
+        memoryTokens(text).forEach { token ->
+            val index = (token.text.hashCode() and Int.MAX_VALUE) % dimensions
+            vector[index] += token.weight
         }
         val norm = sqrt(vector.sumOf { (it * it).toDouble() }).toFloat()
         if (norm > 0f) {
@@ -170,6 +170,9 @@ class MemoryRepository(
      */
     private val lock = Any()
     private val entries = linkedMapOf<String, MemoryEntry>()
+
+    /** Monotonic insertion counter; a higher value means more recently indexed (recency tie-break). */
+    private var nextEntrySequence = 0L
     private val defaultEmbeddingRuntime = embeddingRuntime
     private var activeEmbeddingRuntime: EmbeddingRuntime = embeddingRuntime
 
@@ -480,17 +483,16 @@ class MemoryRepository(
         if (normalized.isBlank()) return
         if (expiresAtMillis != null && expiresAtMillis <= clockMillis()) return
         val searchText = searchTextFor(type, normalized)
-        val originalTokens = tokenize(normalized).toSet()
-        val tokens = tokenize(searchText).toSet()
-        if (tokens.isEmpty()) return
+        val lexicalVector = MemoryTermVector.of(withoutMemoryRecordLabel(searchText))
+        // Conversation snippets with no searchable content are not worth an entry. Explicit
+        // records are always kept (and persisted) even if every token is a stop word.
+        if (lexicalVector.tokens.isEmpty() && type == MemoryRecordType.Conversation) return
         entries[id] = MemoryEntry(
             id = id,
             text = normalized,
             type = type,
-            originalTokens = originalTokens,
-            tokens = tokens,
-            searchText = searchText,
-            lexicalEmbedding = defaultEmbeddingRuntime.embed(searchText),
+            lexicalVector = lexicalVector,
+            sequence = entries[id]?.sequence ?: nextEntrySequence++,
             semanticEmbedding = semanticEmbeddingFor(
                 id = id,
                 text = normalized,
@@ -519,72 +521,68 @@ class MemoryRepository(
         refreshSemanticIndexStats()
     }
 
+    /**
+     * Ranks local memory for [query].
+     *
+     * 1. The lexical score blends query coverage with exact term-vector cosine. Candidates must pass the overlap gate in [MemoryLexicalMatch] and cover at least
+     *    [MIN_LEXICAL_QUERY_COVERAGE] of the query's token weight, so unrelated queries that only
+     *    share a stray character or a generic word return nothing.
+     * 2. Semantic candidates must clear the runtime's own score threshold (unchanged).
+     * 3. Each mode is ranked by its score times a record-type weight that favours explicit
+     *    UserFact / Preference records, and the two rankings are combined with reciprocal-rank
+     *    fusion. Ties fall back to the raw score, semantic-first, then the most recently indexed.
+     *
+     * [MemoryHit.score] / [MemoryHit.finalScore] stay the raw relevance (max of the two modes) so
+     * user-facing score labels keep their meaning; only the order uses the fused rank.
+     */
     override fun search(query: String, topK: Int): List<MemoryHit> = synchronized(lock) {
         if (!enabled || query.isBlank() || topK <= 0 || entries.isEmpty()) return emptyList()
-        val queryTokens = tokenize(query).toSet()
-        if (queryTokens.isEmpty()) return emptyList()
+        val queryTokens = MemoryQueryTokens(query)
+        if (queryTokens.isEmpty) return emptyList()
         val normalizedQuery = query.lowercase(Locale.ROOT)
-        val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
         val supportsSemanticRecall = activeEmbeddingRuntime.supportsSemanticRecall
         val semanticScoreThreshold = activeEmbeddingRuntime.semanticScoreThreshold
-        val lexicalQueryEmbedding = defaultEmbeddingRuntime.embed(query)
         val semanticQueryEmbedding = if (supportsSemanticRecall) embedSemanticQuery(query) else null
-        return entries.values
-            .mapNotNull { entry ->
-                if (entry.isExpired(clockMillis())) return@mapNotNull null
-                if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
-                val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
-                val lexicalScore = if (hasLexicalOverlap) {
-                    cosine(lexicalQueryEmbedding, entry.lexicalEmbedding).takeIf { score -> score > 0f }
-                } else {
-                    null
-                }
-                val semanticEmbedding = entry.semanticEmbedding
-                val queryEmbedding = semanticQueryEmbedding
-                val semanticScore = if (
-                    semanticEmbedding == null ||
-                    queryEmbedding == null ||
-                    !entry.type.isSemanticRecallEligible()
-                ) {
-                    null
-                } else {
-                    cosine(queryEmbedding, semanticEmbedding)
-                        .takeIf { score -> score > 0f && score >= semanticScoreThreshold }
-                }
-                if (lexicalScore == null && semanticScore == null) return@mapNotNull null
-                val recallMode = if ((semanticScore ?: -1f) >= (lexicalScore ?: -1f)) {
-                    MemoryRecallMode.Semantic
-                } else {
-                    MemoryRecallMode.Lexical
-                }
-                val finalScore = maxOf(lexicalScore ?: 0f, semanticScore ?: 0f)
-                val rankingReason = when {
-                    lexicalScore != null && semanticScore != null -> "lexical token overlap + semantic vector similarity"
-                    semanticScore != null -> "semantic vector similarity"
-                    else -> "lexical token overlap"
-                }
-                MemoryHit(
-                    id = entry.id,
-                    text = entry.text,
-                    score = finalScore,
-                    recallMode = recallMode,
-                    recordType = entry.type,
-                    lexicalScore = lexicalScore,
-                    semanticScore = semanticScore,
-                    finalScore = finalScore,
-                    rankingReason = rankingReason,
-                    source = entry.source,
-                    sensitivity = entry.sensitivity,
-                    privacy = entry.privacy,
-                    expiresAtMillis = entry.expiresAtMillis,
-                    conflictKey = entry.conflictKey,
-                )
+        val nowMillis = clockMillis()
+        val candidates = entries.values.mapNotNull { entry ->
+            if (entry.isExpired(nowMillis)) return@mapNotNull null
+            if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
+            val lexicalMatch = queryTokens.match(entry.lexicalVector.tokens)
+            val lexicalScore = if (lexicalMatch.qualifies && lexicalMatch.coverage >= MIN_LEXICAL_QUERY_COVERAGE) {
+                // Coverage (how much of the query the record answers) dominates; cosine breaks ties
+                // in favour of tighter records without penalising long addresses too much.
+                (
+                    LEXICAL_COVERAGE_WEIGHT * lexicalMatch.coverage +
+                        (1f - LEXICAL_COVERAGE_WEIGHT) * queryTokens.vector.cosine(entry.lexicalVector)
+                    ).takeIf { score -> score > 0f }
+            } else {
+                null
             }
+            val semanticEmbedding = entry.semanticEmbedding
+            val queryEmbedding = semanticQueryEmbedding
+            val semanticScore = if (
+                semanticEmbedding == null ||
+                queryEmbedding == null ||
+                !entry.type.isSemanticRecallEligible()
+            ) {
+                null
+            } else {
+                cosine(queryEmbedding, semanticEmbedding)
+                    .takeIf { score -> score > 0f && score >= semanticScoreThreshold }
+            }
+            if (lexicalScore == null && semanticScore == null) return@mapNotNull null
+            RankingCandidate(entry, lexicalScore, semanticScore)
+        }
+        val fusedScores = reciprocalRankFusion(candidates)
+        return candidates
             .sortedWith(
-                compareByDescending<MemoryHit> { it.finalScore }
-                    .thenBy { if (it.recallMode == MemoryRecallMode.Semantic) 0 else 1 },
+                compareByDescending<RankingCandidate> { fusedScores.getValue(it.entry.id) }
+                    .thenByDescending { it.relevance }
+                    .thenBy { if (it.recallMode == MemoryRecallMode.Semantic) 0 else 1 }
+                    .thenByDescending { it.entry.sequence },
             )
             .take(topK)
+            .map { candidate -> candidate.toHit() }
     }
 
     override fun buildContext(hits: List<MemoryHit>): String = synchronized(lock) {
@@ -643,7 +641,6 @@ class MemoryRepository(
         entries.keys.toList().forEach { id ->
             entries[id]?.let { entry ->
                 entries[id] = entry.copy(
-                    lexicalEmbedding = defaultEmbeddingRuntime.embed(entry.searchText),
                     semanticEmbedding = semanticEmbeddingFor(
                         id = entry.id,
                         text = entry.text,
@@ -787,10 +784,10 @@ private data class MemoryEntry(
     val id: String,
     val text: String,
     val type: MemoryRecordType,
-    val originalTokens: Set<String>,
-    val tokens: Set<String>,
-    val searchText: String,
-    val lexicalEmbedding: FloatArray,
+    /** Exact term vector of the search text (record text plus local aliases), label prefix removed. */
+    val lexicalVector: MemoryTermVector,
+    /** Monotonic index order; higher is more recent. */
+    val sequence: Long,
     val semanticEmbedding: FloatArray?,
     val source: MemoryRecordSource,
     val sensitivity: MemoryRecordSensitivity,
@@ -798,6 +795,81 @@ private data class MemoryEntry(
     val expiresAtMillis: Long?,
     val conflictKey: String?,
 )
+
+private class RankingCandidate(
+    val entry: MemoryEntry,
+    val lexicalScore: Float?,
+    val semanticScore: Float?,
+) {
+    val relevance: Float = maxOf(lexicalScore ?: 0f, semanticScore ?: 0f)
+    val recallMode: MemoryRecallMode =
+        if ((semanticScore ?: -1f) >= (lexicalScore ?: -1f)) MemoryRecallMode.Semantic else MemoryRecallMode.Lexical
+
+    fun toHit(): MemoryHit =
+        MemoryHit(
+            id = entry.id,
+            text = entry.text,
+            score = relevance,
+            recallMode = recallMode,
+            recordType = entry.type,
+            lexicalScore = lexicalScore,
+            semanticScore = semanticScore,
+            finalScore = relevance,
+            rankingReason = when {
+                lexicalScore != null && semanticScore != null -> "lexical token overlap + semantic vector similarity"
+                semanticScore != null -> "semantic vector similarity"
+                else -> "lexical token overlap"
+            },
+            source = entry.source,
+            sensitivity = entry.sensitivity,
+            privacy = entry.privacy,
+            expiresAtMillis = entry.expiresAtMillis,
+            conflictKey = entry.conflictKey,
+        )
+}
+
+/**
+ * Reciprocal-rank fusion of the lexical and semantic rankings. Within each mode candidates are
+ * ordered by score times [memoryTypeRankWeight]; ties share the better rank.
+ */
+private fun reciprocalRankFusion(candidates: List<RankingCandidate>): Map<String, Double> {
+    val fused = candidates.associate { candidate -> candidate.entry.id to 0.0 }.toMutableMap()
+    fun addRanks(score: (RankingCandidate) -> Float?) {
+        val ranked = candidates
+            .mapNotNull { candidate -> score(candidate)?.let { candidate to it * candidate.entry.type.memoryTypeRankWeight() } }
+            .sortedByDescending { (_, weighted) -> weighted }
+        var previous: Float? = null
+        var rank = 0
+        ranked.forEachIndexed { index, (candidate, weighted) ->
+            if (weighted != previous) rank = index + 1
+            previous = weighted
+            fused[candidate.entry.id] = fused.getValue(candidate.entry.id) + 1.0 / (RRF_K + rank)
+        }
+    }
+    addRanks { it.lexicalScore }
+    addRanks { it.semanticScore }
+    return fused
+}
+
+/** Explicit, user-stated records outrank incidental conversation snippets and task bookkeeping. */
+internal fun MemoryRecordType.memoryTypeRankWeight(): Float =
+    when (this) {
+        MemoryRecordType.UserFact,
+        MemoryRecordType.Preference -> EXPLICIT_RECORD_RANK_WEIGHT
+        MemoryRecordType.Conversation,
+        MemoryRecordType.TaskState,
+        MemoryRecordType.SuppressedTaskState -> 1f
+    }
+
+/** RRF damping constant; 60 is the value from the original RRF paper. */
+private const val RRF_K = 60.0
+private const val EXPLICIT_RECORD_RANK_WEIGHT = 1.25f
+
+/** Share of the lexical score taken from query coverage; the rest is exact term-vector cosine. */
+private const val LEXICAL_COVERAGE_WEIGHT = 0.6f
+
+/** Minimum share of the query's token weight a lexical hit must cover. */
+internal const val MIN_LEXICAL_QUERY_COVERAGE = 0.2f
 
 private fun MemoryEntry.toPersistedRecord(): PersistedMemoryRecord =
     PersistedMemoryRecord(

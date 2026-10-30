@@ -57,10 +57,14 @@ class MemoryRecallQualityFixtureTest {
         // Floors/ceilings guard against regressions; see the class kdoc for metric definitions.
         // Baseline (single-char CJK unigrams, max(lexical, semantic) fusion, no minimum score):
         // precision@1=0.929 hit@3=0.976 falsePositiveRate=0.389 noise@3=0.690
-        const val MIN_PRECISION_AT_1 = 0.92
+        // After CJK stop lists, run-bounded bigrams, exact term vectors with coverage blending,
+        // type-weighted reciprocal-rank fusion and the overlap/coverage minimum:
+        // precision@1=1.000 hit@3=1.000 falsePositiveRate=0.000 noise@3=0.286
+        // Floors leave a small margin so one borderline query does not fail the build.
+        const val MIN_PRECISION_AT_1 = 0.95
         const val MIN_HIT_AT_3 = 0.97
-        const val MAX_FALSE_POSITIVE_RATE = 0.39
-        const val MAX_NOISE_AT_3 = 0.70
+        const val MAX_FALSE_POSITIVE_RATE = 0.06
+        const val MAX_NOISE_AT_3 = 0.35
 
         val RECORDS = listOf(
             FixtureRecord("home", "我家在北京市朝阳区望京西园三区"),
@@ -111,7 +115,8 @@ class MemoryRecallQualityFixtureTest {
 
         val POSITIVE_QUERIES = listOf(
             FixtureQuery("导航回家，我家在哪", setOf("home")),
-            FixtureQuery("我家住哪里", setOf("home")),
+            // live_en ("I live in Shanghai Pudong") is the English home-location record; either answers.
+            FixtureQuery("我家住哪里", setOf("home", "live_en")),
             FixtureQuery("公司地址是什么", setOf("work")),
             FixtureQuery("给老婆打电话", setOf("wife_phone", "wife_name")),
             FixtureQuery("老婆的电话多少", setOf("wife_phone")),
@@ -200,7 +205,8 @@ class MemoryRecallQualityFixtureTest {
             var top3 = 0
             var noise = 0
             POSITIVE_QUERIES.forEach { fixtureQuery ->
-                val labels = repository.search(fixtureQuery.query, topK = 3).map { hit -> labelsById[hit.id] ?: hit.id }
+                val hits = repository.search(fixtureQuery.query, topK = 3)
+                val labels = hits.map { hit -> labelsById[hit.id] ?: hit.id }
                 if (labels.firstOrNull() in fixtureQuery.expected) top1++
                 if (labels.any { it in fixtureQuery.expected }) top3++
                 noise += labels.count { it !in fixtureQuery.expected }
@@ -209,7 +215,8 @@ class MemoryRecallQualityFixtureTest {
                     labels.any { it in fixtureQuery.expected } -> "TOP3"
                     else -> "MISS"
                 }
-                details += "$mark ${fixtureQuery.query} -> $labels expected=${fixtureQuery.expected}"
+                val scores = hits.joinToString { hit -> "%.2f".format(hit.finalScore) }
+                details += "$mark ${fixtureQuery.query} -> $labels [$scores] expected=${fixtureQuery.expected}"
             }
             var falsePositives = 0
             UNRELATED_QUERIES.forEach { query ->
