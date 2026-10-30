@@ -1,0 +1,245 @@
+package com.bytedance.zgx.solin.action
+
+/*
+ * Rule parsers for Wi-Fi / flashlight / usage-access and allowlisted system settings pages.
+ *
+ * Moved verbatim out of BasicDraftActionParsers.kt.
+ */
+
+internal object DeviceSettingsActionParser {
+    private val wifiPattern =
+        Regex("""(?i)(^|[^a-z0-9])(?:wi[-\s]?fi|wifi|wlan|wireless)(?=$|[^a-z0-9])""")
+    private val englishWifiSettingsPattern =
+        Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?)|(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
+    private val englishFlashlightSettingsPattern =
+        Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:flashlight|torch)\s+(?:settings?|preferences?)|(?:flashlight|torch)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
+    private val englishUsageAccessPattern =
+        Regex("""\b(?:(?:open|show|go\s+to|launch|grant)\s+(?:the\s+)?(?:usage\s+access|usage\s+stats(?:\s+permission)?)(?:\s+(?:settings?|permissions?|preferences?))?|(?:usage\s+access|usage\s+stats(?:\s+permission)?)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean = targetTool(input) != null
+
+    fun draft(input: String): ActionDraft {
+        val toolName = targetTool(input) ?: MobileActionFunctions.OPEN_WIFI_SETTINGS
+        return when (toolName) {
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                title = "打开使用情况访问权限设置",
+                summary = "将打开系统使用情况访问权限设置页，由你手动为Solin授权。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                title = "打开手电筒设置",
+                summary = "将打开系统设置，由你手动确认手电筒相关操作。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            else -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "将打开系统 Wi-Fi 设置页。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+        }
+    }
+
+    private fun targetTool(input: String): String? {
+        if (input.looksLikeDiscussion() || input.looksLikeDeviceSettingsNonAction()) return null
+        if (input.looksLikeExplicitAppNameOpen()) return null
+        return when {
+            input.requestsWifiSettings() -> MobileActionFunctions.OPEN_WIFI_SETTINGS
+            input.requestsUsageAccessSettings() -> MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS
+            input.requestsFlashlightSettings() -> MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
+            else -> null
+        }
+    }
+
+    private fun String.looksLikeExplicitAppNameOpen(): Boolean {
+        val normalized = lowercase()
+        val referencesApp = listOf("app", "应用", "应用程序").any { it in this } ||
+            Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val namesTarget = listOf("名为", "叫做", "叫").any { it in this } ||
+            Regex("""\b(?:named|called)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesApp && namesTarget
+    }
+
+    private fun String.requestsWifiSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesWifi = wifiPattern.containsMatchIn(normalized) || "无线" in this
+        val referencesSettings = "设置" in this ||
+            Regex("""\b(settings?|preferences?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val hasChineseOpenTrigger = listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置").any { it in this }
+        val hasEnglishOpenTrigger =
+            Regex("""\b(?:open|show|go\s+to|launch|enable|turn\s+on)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        return referencesWifi && (
+            (referencesSettings && (hasChineseOpenTrigger || englishWifiSettingsPattern.containsMatchIn(normalized))) ||
+                hasChineseOpenTrigger ||
+                hasEnglishOpenTrigger
+            )
+    }
+
+    private fun String.requestsFlashlightSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesFlashlight = "手电筒" in this ||
+            Regex("""\b(flashlight|torch)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val referencesSettings = "设置" in this ||
+            Regex("""\b(settings?|preferences?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesFlashlight && referencesSettings && (
+            listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
+                englishFlashlightSettingsPattern.containsMatchIn(normalized)
+            )
+    }
+
+    private fun String.requestsUsageAccessSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesUsageAccess = listOf(
+            "使用情况访问权限",
+            "应用使用情况权限",
+            "查看应用使用情况",
+        ).any { it in this } ||
+            Regex("""\b(?:usage\s+access|usage\s+stats(?:\s+permission)?)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        return referencesUsageAccess && (
+            listOf("打开", "进入", "跳转", "前往", "去", "设置", "开启", "授权").any { it in this } ||
+                englishUsageAccessPattern.containsMatchIn(normalized)
+            )
+    }
+}
+
+internal object SystemSettingsActionParser {
+    private val englishOpenPattern =
+        Regex("""\b(?:open|show|go\s+to|launch|enable|turn\s+on)\b""", RegexOption.IGNORE_CASE)
+    private val englishSettingsPattern =
+        Regex("""\b(?:settings?|preferences?)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean = targetFor(input) != null
+
+    fun draft(input: String): ActionDraft {
+        val target = targetFor(input) ?: SystemSettingsTargets.GENERAL
+        val label = SystemSettingsTargets.pageLabel(target)
+        return ActionDraft(
+            functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+            title = "打开 $label",
+            summary = "将打开$label，由你手动完成后续操作。",
+            parameters = mapOf("target" to target),
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun targetFor(input: String): String? {
+        if (input.looksLikeDiscussion() || input.looksLikeDeviceSettingsNonAction()) return null
+        if (input.looksLikeAppScopedSystemSettings()) return null
+        val target = referencedTarget(input) ?: return null
+        return target.takeIf { input.hasSettingsOpenIntent() }
+    }
+
+    private fun referencedTarget(input: String): String? {
+        val normalized = input.lowercase()
+        return when {
+            listOf("蓝牙").any { it in input } ||
+                Regex("""\bbluetooth\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.BLUETOOTH
+
+            listOf("定位", "位置信息", "位置服务", "gps", "GPS").any { it in input } ||
+                Regex("""\blocation\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.LOCATION
+
+            listOf("通知设置", "通知权限", "系统通知").any { it in input } ||
+                Regex("""\bnotifications?\s+(?:settings?|preferences?|permissions?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?notifications?\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.NOTIFICATION
+
+            listOf("显示设置", "屏幕设置", "亮度", "屏幕亮度").any { it in input } ||
+                Regex("""\b(?:display|brightness)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:display|brightness)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.DISPLAY
+
+            listOf("声音设置", "音量设置", "铃声设置").any { it in input } ||
+                Regex("""\b(?:sound|volume|ringtone)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:sound|volume|ringtone)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.SOUND
+
+            listOf("省电", "省电模式", "电池设置", "电量设置").any { it in input } ||
+                Regex("""\b(?:battery|battery\s+saver|power\s+saver)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:battery|battery\s+saver|power\s+saver)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.BATTERY_SAVER
+
+            listOf("网络设置", "移动网络", "蜂窝网络", "数据网络").any { it in input } ||
+                Regex("""\b(?:network|mobile\s+data|cellular)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:network|mobile\s+data|cellular)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.NETWORK
+
+            listOf("飞行模式").any { it in input } ||
+                Regex("""\bairplane\s+mode\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.AIRPLANE_MODE
+
+            listOf("输入法", "键盘设置").any { it in input } ||
+                Regex("""\b(?:input\s+method|keyboard)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:input\s+method|keyboard)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.INPUT_METHOD
+
+            listOf("无障碍", "辅助功能").any { it in input } ||
+                Regex("""\baccessibility\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?accessibility\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.ACCESSIBILITY
+
+            listOf("系统设置", "手机设置", "设置页").any { it in input } ||
+                Regex("""\b(?:system|phone|android)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?settings?\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.GENERAL
+
+            else -> null
+        }
+    }
+
+    private fun String.hasSettingsOpenIntent(): Boolean {
+        val normalized = lowercase()
+        return listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置", "调出", "启动").any { it in this } ||
+            englishOpenPattern.containsMatchIn(normalized) ||
+            englishSettingsPattern.containsMatchIn(normalized)
+    }
+
+    private fun String.looksLikeAppScopedSystemSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesAppScope = listOf(
+            "微信",
+            "wechat",
+            "支付宝",
+            "alipay",
+            "抖音",
+            "douyin",
+            "淘宝",
+            "taobao",
+            "应用",
+            "app",
+        ).any { it in normalized }
+        val referencesScopedSettings = listOf("通知设置", "权限", "应用设置", "app settings").any { it in normalized }
+        return referencesAppScope && referencesScopedSettings
+    }
+}
+
+private fun String.looksLikeDeviceSettingsNonAction(): Boolean {
+    val normalized = lowercase()
+    return startsWithActionNegation() ||
+        listOf(
+        "不要打开",
+        "别打开",
+        "不要进入",
+        "别进入",
+        "不要去",
+        "在哪里",
+        "在哪",
+        "哪里",
+        "怎么实现",
+        "如何实现",
+        "怎么设计",
+        "代码",
+        "组件",
+        "接口",
+    ).any { it in this } ||
+        normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|show|go\s+to|launch)\b""")) ||
+        normalized.contains(Regex("""\b(how\s+to|implement|design|api|code|compose)\b"""))
+}
