@@ -75,7 +75,6 @@ data class ToolResult(
     val data: Map<String, String> = emptyMap(),
     val error: ToolError? = null,
     val retryable: Boolean = false,
-    val userVisible: Boolean = true,
     /**
      * Content-addressed overflow payloads (ev://<sha256>) for results whose
      * summary/data were truncated by prompt-budget limits. Populated by

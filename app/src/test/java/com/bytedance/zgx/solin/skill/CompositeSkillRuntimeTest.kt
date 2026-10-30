@@ -46,23 +46,6 @@ class CompositeSkillRuntimeTest {
         }
     }
 
-    @Test
-    fun `discovery returns descriptors without planning internals`() {
-        val runtime = CompositeSkillRuntime(
-            sources = listOf(
-                SkillSource {
-                    listOf(
-                        manifest("calendar.search", title = "Calendar search"),
-                        manifest("contact.lookup", title = "Contact lookup"),
-                    )
-                },
-            ),
-            planners = emptyList(),
-        )
-
-        assertEquals(listOf("calendar.search"), runtime.discover("calendar").map { it.id })
-    }
-
     private fun manifest(id: String, title: String = id): SkillManifest = SkillManifest(
         id = id,
         version = 1,

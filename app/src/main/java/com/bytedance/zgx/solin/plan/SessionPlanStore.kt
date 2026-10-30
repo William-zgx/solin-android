@@ -32,9 +32,6 @@ class SessionPlanStore {
         return snap
     }
 
-    fun markDone(runId: String, planItemId: String): PlanSnapshot? =
-        updateItem(runId, planItemId) { it.copy(status = PlanItemStatus.DONE) }
-
     fun updateItem(
         runId: String,
         planItemId: String,
@@ -47,9 +44,5 @@ class SessionPlanStore {
 
     fun clear(runId: String) {
         plans.remove(runId)
-    }
-
-    fun clearAll() {
-        plans.clear()
     }
 }

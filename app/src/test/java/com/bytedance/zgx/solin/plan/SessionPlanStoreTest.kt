@@ -8,7 +8,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionPlanStoreTest {
@@ -42,21 +41,6 @@ class SessionPlanStoreTest {
         store.clear("r1")
         assertNull(store.get("r1"))
         assertNotNull(store.get("r2"))
-        store.clearAll()
-        assertEquals(0, store.list().size)
-    }
-
-    @Test
-    fun markDoneSetsStatusToDone() {
-        val store = SessionPlanStore()
-        val before = System.currentTimeMillis() - 1
-        val items = listOf(PlanItem(planItemId = "a", runId = "r", position = 0, title = "A"))
-        store.replaceAll("r", items)
-        val updated = store.markDone("r", "a")
-        assertNotNull(updated)
-        val item = updated!!.items.first { it.planItemId == "a" }
-        assertEquals(PlanItemStatus.DONE, item.status)
-        assertTrue(item.updatedAtMillis >= before)
     }
 
     @Test

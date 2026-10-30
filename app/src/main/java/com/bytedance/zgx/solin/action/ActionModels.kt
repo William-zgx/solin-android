@@ -75,10 +75,6 @@ data class ScreenshotPerception(
     val ocrText: String? = null,
     val visionSummary: String? = null,
 ) {
-    /** Non-empty if we have any visual perception data to feed the model. */
-    val hasPerceptionData: Boolean
-        get() = !ocrText.isNullOrBlank() || !visionSummary.isNullOrBlank()
-
     /** Format for inclusion in observation prompt context. */
     fun formatForPrompt(): String = buildString {
         append("screenshotPerception(")
