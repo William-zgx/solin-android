@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
+import com.bytedance.zgx.solin.device.UiScrollDirection
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.multimodal.RawScreenshotProvider
@@ -23,18 +24,26 @@ private const val REMOTE_VISION_MAX_NORMALIZED = 1_000
 /**
  * The strict-JSON decision instruction handed to the remote vision model. It receives the current
  * screenshot as an image attachment plus this prompt, and must reply with a single JSON object:
- * `{"action":"tap","x":<0-1000>,"y":<0-1000>}` or `{"action":"stop"}`. The stop clause mirrors the
- * local action model's dangerous-control guard: the model is told to stop rather than tap on
- * payment/send/delete/publish/purchase/transfer/authorization controls, so those never auto-execute.
+ * `{"action":"tap","x":<0-1000>,"y":<0-1000>}`, `{"action":"back"}`,
+ * `{"action":"scroll","direction":"up|down|left|right"}` or `{"action":"stop"}`. The stop clause
+ * mirrors the local action model's dangerous-control guard: the model is told to stop rather than tap
+ * on payment/send/delete/publish/purchase/transfer/authorization controls, so those never
+ * auto-execute.
+ *
+ * Deliberately carries ONLY the intent: no prior steps, decisions or screen text. Sending step history
+ * would be new egress beyond the disclosed "screenshot + intent" contract; repeated-decision detection
+ * is done locally instead (see [RemoteVisionObservationReplanner]).
  */
-private fun remoteVisionDecisionPrompt(intent: String): String =
+internal fun remoteVisionDecisionPrompt(intent: String): String =
     """
     你在帮助用户完成手机操作（已获用户授权）。下面附带的是当前手机屏幕的截图。
     用户意图：$intent
-    请判断为完成用户意图，下一步应该点击屏幕上的哪个位置。
+    请判断为完成用户意图，下一步应该做什么。
     坐标使用 0-1000 归一化：x 从左(0)到右(1000)，y 从上(0)到下(1000)。
     只输出一个 JSON 对象，不要解释：
     - 需要点击时：{"action":"tap","x":<0-1000整数>,"y":<0-1000整数>}
+    - 需要返回上一页或关闭当前浮层时：{"action":"back"}
+    - 需要滚动查看更多内容时：{"action":"scroll","direction":"down"}（direction 取 up/down/left/right；down 表示查看下方内容）
     - 任务已完成或无需继续时：{"action":"stop"}
     遇到支付、发送、删除、发布、下单、购买、转账、授权等危险操作控件时，输出 {"action":"stop"}，不要点击。
     """.trimIndent()
@@ -94,7 +103,7 @@ class AndroidRemoteVisionDecider(
                 decision = RemoteSendDecision.Confirmed,
                 modelName = config.modelName,
                 imageCount = 1,
-                summary = "远程视觉 GUI 操作：当前屏幕截图外发给远程视觉模型以规划点击。",
+                summary = "远程视觉 GUI 操作：当前屏幕截图外发给远程视觉模型以规划下一步操作。",
             ),
         )
 
@@ -131,6 +140,13 @@ internal fun parseRemoteVisionDecision(raw: String): RemoteVisionDecision {
         ?: return RemoteVisionDecision.Unavailable("unparseable_json")
     return when (json.optString("action").trim().lowercase()) {
         "stop" -> RemoteVisionDecision.Stop
+        "back" -> RemoteVisionDecision.Back
+        "scroll" -> {
+            val direction = UiScrollDirection.fromSchemaValue(json.optString("direction").trim().lowercase())
+                ?.takeIf { it in REMOTE_VISION_SCROLL_DIRECTIONS }
+                ?: return RemoteVisionDecision.Unavailable("scroll_invalid_direction")
+            RemoteVisionDecision.Scroll(direction)
+        }
         "tap" -> {
             val x = json.optIntOrNull("x") ?: return RemoteVisionDecision.Unavailable("tap_missing_x")
             val y = json.optIntOrNull("y") ?: return RemoteVisionDecision.Unavailable("tap_missing_y")
