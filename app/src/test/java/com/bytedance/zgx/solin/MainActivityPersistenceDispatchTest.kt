@@ -47,6 +47,22 @@ class MainActivityPersistenceDispatchTest {
         }
     }
 
+    @Test
+    fun coldStartInitializationSyncsAuthorizationSnapshot() {
+        // onResume() returns early while the app container is still loading, so the ready-content
+        // initialization must sync permissions itself or a cold start reports nothing granted.
+        val source = ProductionSourceScanner.kotlinFile("MainActivity.kt").readText()
+        val start = source.indexOf("private fun initializeReadyContent(")
+        assertTrue("initializeReadyContent not found", start >= 0)
+        val end = source.indexOf("\n    }\n", start)
+        val body = source.substring(start, end)
+
+        assertTrue(
+            "initializeReadyContent must sync the device-context authorization snapshot",
+            body.contains("syncDeviceContextAuthorizationSnapshot()"),
+        )
+    }
+
     private companion object {
         val DIRECT_VIEW_MODEL_BINDING = Regex("""\b(on\w+)\s*=\s*viewModel::(\w+)""")
 

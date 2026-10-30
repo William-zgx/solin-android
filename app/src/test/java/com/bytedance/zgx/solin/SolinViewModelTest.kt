@@ -310,6 +310,27 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun deferredStartupRestoreKeepsAuthorizationSnapshotSyncedBeforeInitialization() = runTest(dispatcher) {
+        val ioDispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = createViewModel(
+            ioDispatcher = ioDispatcher,
+            deferPersistenceInitialization = true,
+        )
+        val grantedIds = setOf(SPECIAL_ACCESS_USAGE_STATS, SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT)
+
+        // MainActivity syncs the permission snapshot as soon as the ViewModel exists, which can be
+        // before the deferred persistence initialization has built the initial state.
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        viewModel.updateDeviceContextAuthorizationSnapshot(
+            DeviceContextAuthorizationSnapshot(grantedSpecialAccessIds = grantedIds),
+        )
+        advanceUntilIdle()
+        viewModel.awaitPersistenceInitialization()
+
+        assertEquals(grantedIds, viewModel.uiState.value.grantedSpecialAccessIds)
+    }
+
+    @Test
     fun inferenceModeSwitchQueuedAsPersistenceWorkRunsAfterEarlierQueuedDisclosureConfirm() = runTest(dispatcher) {
         val ioDispatcher = StandardTestDispatcher(testScheduler)
         val pendingStore = FakeRemoteSendPendingStore()
@@ -8690,6 +8711,7 @@ class SolinViewModelTest {
         remoteSendPendingStore: RemoteSendPendingStore = FakeRemoteSendPendingStore(),
         bundledModelInstaller: BundledModelInstaller = FakeBundledModelInstaller(),
         skipStartupModelRuntimeWork: Boolean = false,
+        deferPersistenceInitialization: Boolean = false,
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -8737,6 +8759,7 @@ class SolinViewModelTest {
             remoteSendPendingStore = remoteSendPendingStore,
             bundledModelInstaller = bundledModelInstaller,
             skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+            deferPersistenceInitialization = deferPersistenceInitialization,
         )
 
     private class FakeChatPlacementRuntime(

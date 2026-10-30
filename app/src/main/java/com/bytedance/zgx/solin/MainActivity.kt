@@ -227,6 +227,9 @@ class MainActivity : ComponentActivity() {
         viewModel.restoreStartupState(
             skipModelRuntimeWork = skipStartupModelRuntimeWork,
         )
+        // onResume skips the permission sync while the container is still loading, so a cold
+        // start would otherwise report nothing granted until the next resume.
+        syncDeviceContextAuthorizationSnapshot()
         contentInitialization = SolinAppContainerInitialization.Ready(appContainer)
         lifecycleScope.launch {
             runCatching { viewModel.awaitPersistenceInitialization() }

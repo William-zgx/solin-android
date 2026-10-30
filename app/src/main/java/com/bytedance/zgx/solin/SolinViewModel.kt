@@ -524,7 +524,12 @@ class SolinViewModel internal constructor(
         if (deferPersistenceInitialization) {
             viewModelScope.launch(ioDispatcher) {
                 runCatching {
-                    _uiState.value = createInitialState()
+                    val initialState = createInitialState()
+                    // The Activity may already have synced the permission snapshot while the
+                    // deferred initialization was pending; do not reset it to "nothing granted".
+                    _uiState.update { current ->
+                        initialState.copy(grantedSpecialAccessIds = current.grantedSpecialAccessIds)
+                    }
                     restoreStartupStateAfterInitialization(skipModelRuntimeWork)
                     persistenceInitialization.complete(Unit)
                 }.onFailure { error ->
