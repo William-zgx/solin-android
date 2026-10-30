@@ -9,7 +9,12 @@ import com.bytedance.zgx.solin.background.ScheduledTask
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.SessionStore
+import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.memory.FakeMemoryRecordStore
+import com.bytedance.zgx.solin.memory.MemoryArgumentResolver
+import com.bytedance.zgx.solin.memory.MemoryArgumentSlot
 import com.bytedance.zgx.solin.memory.MemoryController
+import com.bytedance.zgx.solin.memory.MemoryRecordSource
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.orchestration.MemoryRetrievalOutcome
 import java.lang.reflect.Proxy
@@ -57,13 +62,103 @@ class MemoryUiControllerTest {
         controller.onMemoryRetrievalOutcome(null)
         assertFalse(controller.memoryPanelState.value.retrievalDegraded)
     }
+
+    @Test
+    fun userMessageProducesSuggestionWithoutStoringAnything() {
+        val harness = MemoryUiControllerHarness()
+
+        harness.controller.onUserMessage("对了，我对花生过敏，推荐几家餐厅")
+
+        assertEquals(listOf("我对花生过敏"), harness.controller.memoryPanelState.value.suggestions.map { it.fact })
+        assertTrue(harness.repository.savedRecords().isEmpty())
+        assertTrue(harness.uiState.value.longTermMemories.isEmpty())
+    }
+
+    @Test
+    fun confirmStoresTheSuggestedFactLocallyAndClearsTheChip() {
+        val harness = MemoryUiControllerHarness()
+        harness.controller.onUserMessage("我家在北京市朝阳区望京西园三区")
+        val suggestion = harness.controller.memoryPanelState.value.suggestions.single()
+
+        harness.controller.confirmMemorySuggestion(suggestion.id)
+
+        val saved = harness.repository.savedRecords().single()
+        assertEquals("用户偏好：我家在北京市朝阳区望京西园三区", saved.text)
+        assertEquals(MessagePrivacy.LocalOnly, saved.privacy)
+        assertEquals(MemoryRecordSource.ExplicitUser, saved.source)
+        assertEquals(listOf(saved.id), harness.uiState.value.longTermMemories.map { it.id })
+        assertTrue(harness.controller.memoryPanelState.value.suggestions.isEmpty())
+        assertTrue(harness.sessionStore.activeMessages().isEmpty())
+        assertEquals(
+            "北京市朝阳区望京西园三区",
+            MemoryArgumentResolver.resolve(MemoryArgumentSlot.HomeAddress, harness.repository)?.value,
+        )
+
+        // Already saved: the same fact is not suggested again.
+        harness.controller.onUserMessage("我家在北京市朝阳区望京西园三区")
+        assertTrue(harness.controller.memoryPanelState.value.suggestions.isEmpty())
+    }
+
+    @Test
+    fun confirmIsIgnoredWhileBusyAndForUnknownIds() {
+        val harness = MemoryUiControllerHarness()
+        harness.controller.onUserMessage("我对花生过敏")
+        val suggestion = harness.controller.memoryPanelState.value.suggestions.single()
+
+        harness.controller.confirmMemorySuggestion("unknown")
+        harness.uiState.value = harness.uiState.value.copy(isBusy = true)
+        harness.controller.confirmMemorySuggestion(suggestion.id)
+
+        assertTrue(harness.repository.savedRecords().isEmpty())
+        assertEquals(listOf(suggestion.id), harness.controller.memoryPanelState.value.suggestions.map { it.id })
+    }
+
+    @Test
+    fun dismissIsRememberedForThatFactText() {
+        val harness = MemoryUiControllerHarness()
+        harness.controller.onUserMessage("我对花生过敏")
+        val suggestion = harness.controller.memoryPanelState.value.suggestions.single()
+
+        harness.controller.dismissMemorySuggestion(suggestion.id)
+        harness.controller.onUserMessage("我对花生过敏。")
+
+        assertTrue(harness.controller.memoryPanelState.value.suggestions.isEmpty())
+        assertTrue(harness.repository.savedRecords().isEmpty())
+
+        harness.controller.onUserMessage("我对青霉素过敏")
+        assertEquals(listOf("我对青霉素过敏"), harness.controller.memoryPanelState.value.suggestions.map { it.fact })
+    }
+
+    @Test
+    fun noSuggestionsWhileMemoryIsDisabledAndDisablingClearsPendingOnes() {
+        val disabled = MemoryUiControllerHarness(memoryEnabled = false)
+        disabled.controller.onUserMessage("我对花生过敏")
+        assertTrue(disabled.controller.memoryPanelState.value.suggestions.isEmpty())
+
+        val enabled = MemoryUiControllerHarness()
+        enabled.controller.onUserMessage("我对花生过敏")
+        enabled.controller.updateMemoryEnabled(false)
+        assertTrue(enabled.controller.memoryPanelState.value.suggestions.isEmpty())
+        assertTrue(enabled.repository.savedRecords().isEmpty())
+    }
+
+    @Test
+    fun pendingSuggestionsAreCappedNewestFirst() {
+        val harness = MemoryUiControllerHarness()
+        listOf("我对花生过敏", "我对青霉素过敏", "我不吃辣", "我住在上海浦东").forEach(harness.controller::onUserMessage)
+
+        assertEquals(
+            listOf("我住在上海浦东", "我不吃辣", "我对青霉素过敏"),
+            harness.controller.memoryPanelState.value.suggestions.map { it.fact },
+        )
+    }
 }
 
 /** Minimal real [MemoryController] + [MemoryUiController] wiring over in-memory fakes. */
 internal class MemoryUiControllerHarness(
     memoryEnabled: Boolean = true,
 ) {
-    val repository = MemoryRepository()
+    val repository = MemoryRepository(recordStore = FakeMemoryRecordStore())
     val sessionStore = InMemorySessionStore()
     val uiState = MutableStateFlow(ChatUiState(memoryEnabled = memoryEnabled))
     private val memoryController = MemoryController(

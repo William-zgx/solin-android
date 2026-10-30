@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.LongTermMemorySummary
 import com.bytedance.zgx.solin.ModelCapability
+import com.bytedance.zgx.solin.memory.MemoryFactSuggestion
 import com.bytedance.zgx.solin.memory.MemoryRecordType
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
 
@@ -45,6 +46,10 @@ internal fun MemoryTogglePanel(
     onClearLongTermMemory: () -> Unit,
     /** Shown when the last agent-run memory retrieval degraded (see `MemoryPanelState`). */
     retrievalStatusText: String? = null,
+    /** "Remember this?" suggestions; nothing is stored until [onConfirmSuggestion] is tapped. */
+    suggestions: List<MemoryFactSuggestion> = emptyList(),
+    onConfirmSuggestion: (String) -> Unit = {},
+    onDismissSuggestion: (String) -> Unit = {},
 ) {
     val memoryModelInstalled = ModelCapability.MemoryEmbedding in state.installedCapabilities
     var confirmClear by rememberSaveable { mutableStateOf(false) }
@@ -113,6 +118,24 @@ internal fun MemoryTogglePanel(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
 
+            if (suggestions.isNotEmpty() && state.memoryEnabled) {
+                SectionTitle(
+                    text = "要记住吗？",
+                    subtitle = "从你的消息中发现的信息；确认后才会保存在本机。",
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    suggestions.forEach { suggestion ->
+                        MemorySuggestionRow(
+                            suggestion = suggestion,
+                            enabled = enabled,
+                            onConfirm = { onConfirmSuggestion(suggestion.id) },
+                            onDismiss = { onDismissSuggestion(suggestion.id) },
+                        )
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -172,6 +195,56 @@ internal fun MemoryTogglePanel(
                 }
             },
         )
+    }
+}
+
+@Composable
+internal fun MemorySuggestionRow(
+    suggestion: MemoryFactSuggestion,
+    enabled: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("memory_suggestion_${suggestion.id}"),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                modifier = Modifier.weight(1f),
+                text = suggestion.fact,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            TextButton(
+                modifier = Modifier.testTag("memory_suggestion_dismiss_${suggestion.id}"),
+                onClick = onDismiss,
+                enabled = enabled,
+            ) {
+                Text("忽略")
+            }
+            TextButton(
+                modifier = Modifier.testTag("memory_suggestion_confirm_${suggestion.id}"),
+                onClick = onConfirm,
+                enabled = enabled,
+            ) {
+                Text("记住")
+            }
+        }
     }
 }
 

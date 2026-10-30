@@ -294,6 +294,40 @@ class MemoryController(
         )
 
     /**
+     * Stores a fact the user explicitly confirmed from a [MemoryFactSuggestion] chip.
+     *
+     * Uses the same routing as an explicit "记住…" command (UserFact when it parses as
+     * "我的X是Y", otherwise Preference), so the record is LocalOnly and conflict-replaced exactly
+     * like a typed command. Unlike the command path it does not write chat messages. Nothing is
+     * stored when memory is disabled or the fact cannot be parsed.
+     */
+    fun rememberSuggestedFact(
+        fact: String,
+        memoryEnabled: Boolean,
+        skipModelRuntimeWork: Boolean = false,
+    ): MemorySuggestionResult {
+        val command = "记住${fact.trim()}"
+        val persisted = memoryEnabled && runCatching {
+            val message = ChatMessage(role = MessageRole.User, text = command, privacy = MessagePrivacy.LocalOnly)
+            persistExplicitUserFactMemory(message) || persistExplicitPreferenceMemory(message)
+        }.getOrDefault(false)
+        val rebuildResult = rebuildMemoryIndex(
+            memoryEnabled = memoryEnabled,
+            skipModelRuntimeWork = skipModelRuntimeWork,
+        )
+        return MemorySuggestionResult(
+            persisted = persisted,
+            longTermMemories = loadLongTermMemories(),
+            rebuildResult = rebuildResult,
+            statusText = when {
+                persisted -> "已记住这条本地信息"
+                !memoryEnabled -> "本地记忆已关闭，未保存"
+                else -> "本地记忆暂不可用，未保存"
+            },
+        )
+    }
+
+    /**
      * Handles an explicit "remember this preference" command.
      *
      * Session message writes go through [sessionStore]; the ViewModel applies the
@@ -500,6 +534,14 @@ class MemoryController(
             "触发时间=$triggerAtMillis",
         ).joinToString(separator = "；")
 }
+
+/** Result of storing a user-confirmed [MemoryFactSuggestion]. */
+data class MemorySuggestionResult(
+    val persisted: Boolean,
+    val longTermMemories: List<LongTermMemorySummary>,
+    val rebuildResult: MemoryControllerResult,
+    val statusText: String,
+)
 
 /**
  * Result of an explicit memory command (preference/fact/forget) handled by

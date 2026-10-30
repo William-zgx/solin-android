@@ -12,6 +12,8 @@ import com.bytedance.zgx.solin.logging.solinW
 import com.bytedance.zgx.solin.memory.MemoryCommandResult
 import com.bytedance.zgx.solin.memory.MemoryController
 import com.bytedance.zgx.solin.memory.MemoryControllerResult
+import com.bytedance.zgx.solin.memory.MemoryFactSuggestion
+import com.bytedance.zgx.solin.memory.MemoryFactSuggestionDetector
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.orchestration.MemoryRetrievalOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,10 +25,13 @@ import kotlinx.coroutines.flow.update
  * Memory-panel-only state that does not belong in [ChatUiState] (kept separate so this controller
  * does not have to grow the shared chat state model).
  *
- * [retrievalDegraded] reflects the most recent agent-run memory retrieval.
+ * [retrievalDegraded] reflects the most recent agent-run memory retrieval. [suggestions] are
+ * "remember this?" chips detected in the user's own messages; nothing is stored until the user
+ * confirms one.
  */
 data class MemoryPanelState(
     val retrievalDegraded: Boolean = false,
+    val suggestions: List<MemoryFactSuggestion> = emptyList(),
 ) {
     /** Short status line for the memory panel, or null when retrieval is healthy. */
     val retrievalStatusText: String?
@@ -34,6 +39,18 @@ data class MemoryPanelState(
 }
 
 internal const val MEMORY_RETRIEVAL_DEGRADED_TEXT = "记忆暂不可用"
+
+private const val MAX_PENDING_SUGGESTIONS = 3
+
+/** Comparable key for a saved record text or a suggested fact (label prefix, case, spacing). */
+private fun String.savedFactKey(): String =
+    trim()
+        .removePrefix("用户事实：")
+        .removePrefix("用户偏好：")
+        .trim()
+        .trimEnd('。', '.', '！', '!')
+        .lowercase()
+        .replace(Regex("""\s+"""), "")
 
 /**
  * UI-state side of the memory paths: applies [MemoryController] results to [ChatUiState].
@@ -60,6 +77,64 @@ internal class MemoryUiController(
     fun onMemoryRetrievalOutcome(outcome: MemoryRetrievalOutcome?) {
         val degraded = outcome?.degraded == true
         panelState.update { state -> state.copy(retrievalDegraded = degraded) }
+    }
+
+    /** Suggestion ids the user dismissed; the same fact text is not suggested again. */
+    private val dismissedSuggestionIds = mutableSetOf<String>()
+
+    /**
+     * Offers "remember this?" suggestions for durable facts in a user message. Detection is local
+     * and pure; nothing is stored here. Skipped while memory is disabled, for dismissed facts and
+     * for facts already saved.
+     */
+    fun onUserMessage(text: String) {
+        if (!uiState.value.memoryEnabled) return
+        val detected = MemoryFactSuggestionDetector.detect(text)
+        if (detected.isEmpty()) return
+        val saved = uiState.value.longTermMemories.mapTo(mutableSetOf()) { memory -> memory.text.savedFactKey() }
+        val dismissed = synchronized(dismissedSuggestionIds) { dismissedSuggestionIds.toSet() }
+        panelState.update { state ->
+            val pendingIds = state.suggestions.mapTo(mutableSetOf()) { it.id }
+            val fresh = detected.filter { suggestion ->
+                suggestion.id !in pendingIds &&
+                    suggestion.id !in dismissed &&
+                    suggestion.fact.savedFactKey() !in saved
+            }
+            state.copy(suggestions = (fresh + state.suggestions).take(MAX_PENDING_SUGGESTIONS))
+        }
+    }
+
+    /** Stores the pending suggestion [suggestionId] after an explicit user tap. */
+    fun confirmMemorySuggestion(suggestionId: String) {
+        if (uiState.value.isBusy) return
+        val suggestion = panelState.value.suggestions.firstOrNull { it.id == suggestionId } ?: return
+        panelState.update { state -> state.copy(suggestions = state.suggestions.filterNot { it.id == suggestionId }) }
+        val result = memoryController.rememberSuggestedFact(
+            fact = suggestion.fact,
+            memoryEnabled = uiState.value.memoryEnabled,
+            skipModelRuntimeWork = skipModelRuntimeWork,
+        )
+        uiState.update { state ->
+            state.withMemoryResult(
+                rebuild = result.rebuildResult,
+                longTermMemories = if (result.rebuildResult.memoryHitsCleared) {
+                    result.rebuildResult.longTermMemories
+                } else {
+                    result.longTermMemories
+                },
+                statusText = result.statusText,
+            )
+        }
+    }
+
+    /** Hides the suggestion and remembers the dismissal for that fact text. Stores nothing. */
+    fun dismissMemorySuggestion(suggestionId: String) {
+        synchronized(dismissedSuggestionIds) { dismissedSuggestionIds += suggestionId }
+        panelState.update { state -> state.copy(suggestions = state.suggestions.filterNot { it.id == suggestionId }) }
+    }
+
+    private fun clearMemorySuggestions() {
+        panelState.update { state -> state.copy(suggestions = emptyList()) }
     }
 
     fun semanticMemoryStatus(): SemanticMemoryStatus =
@@ -95,6 +170,7 @@ internal class MemoryUiController(
                 statusText = rebuild.statusText ?: result.statusText,
             ).copy(memoryEnabled = result.enabled)
         }
+        if (!result.enabled) clearMemorySuggestions()
     }
 
     fun forgetLongTermMemory(memoryId: String) {
