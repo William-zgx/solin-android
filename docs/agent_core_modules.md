@@ -178,9 +178,12 @@ Current status:
   uses `RemoteVisionObservationReplanner` + `AndroidRemoteVisionDecider`
   instead of the local action model. It captures the screen via
   `AccessibilityService.takeScreenshot` (transient JPEG, never persisted),
-  sends it to the remote vision model, and applies the returned tap coordinate
-  as a local `ui_tap` under the same confirmation, preflight, and 5-step
-  checkpoint rules. Capture or send failures fail closed and stop the loop.
+  sends it to the remote vision model, and applies the returned tap, back, or
+  scroll decision as a local `ui_tap` / `ui_press_back` / `ui_scroll` under the
+  same confirmation, preflight, and 5-step checkpoint rules. A `stop` decision,
+  or a repeat of the last action on an unchanged screen, ends the run with a
+  local `finish` instead of falling back to the local action model. Capture or
+  send failures fail closed and stop the loop.
   Owned by `orchestration/RemoteVisionObservationReplanner.kt`,
   `orchestration/AndroidRemoteVisionDecider.kt`, and
   `device/AccessibilityRawScreenshotProvider.kt`.
@@ -1045,19 +1048,30 @@ Responsibilities:
 
 Boundaries:
 
-- No servers are shipped with v1; users add servers explicitly through a
-  future management UI.
-- MCP tools default to `High` risk and `Required` confirmation until the user
-  approves a lower risk level.
+- Off by default. The Trust Center "MCP 扩展工具" toggle
+  (`McpCapabilityController`) must be enabled, and the first enable requires
+  accepting a disclosure that tool arguments leave Solin. Turning it off takes
+  effect immediately; turning it on takes effect after an app restart because
+  the tool registry is frozen at startup.
+- No servers are shipped. A server is trusted only when it holds the
+  signature-level `MCP_SERVER` permission and exports a service for the
+  `com.bytedance.zgx.solin.MCP_SERVER` action at the registered component
+  (`McpServerVerifier`); the manifest `<queries>` intent makes such services
+  visible on API 30+.
+- Every MCP tool maps to `HighExternalSend` risk with `Required` confirmation.
+  Results are `LocalOnly` with `requiresLocalModel=true` unless the user marked
+  the server's results public.
 
 Current status:
 
+- `McpCapabilitySettings` persists the toggle, disclosure acknowledgement, and
+  the server catalog; `McpCapabilityController` backs the Trust Center toggle.
 - `McpClient` manages server connections and approved tool specs.
 - `McpModule` registers approved MCP tool specs and handlers with the module
-  registry at startup.
+  registry at startup when the toggle was on.
 - `McpConsentStore` persists user approval decisions per server.
-- `BinderMcpTransport` provides the in-process IPC seam for future
-  out-of-process servers.
+- `BinderMcpTransport` binds verified out-of-process servers.
+- No server management UI yet; the catalog is empty until servers are added.
 
 Tests:
 
@@ -1065,6 +1079,9 @@ Tests:
 - `McpServerRegistryTest`
 - `McpModuleTest`
 - `McpConsentStoreTest`
+- `McpCapabilitySettingsTest`
+- `McpToolSpecsTest`
+- `McpClientTest`
 
 ## Storage
 

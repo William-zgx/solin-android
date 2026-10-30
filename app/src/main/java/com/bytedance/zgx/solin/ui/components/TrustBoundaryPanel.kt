@@ -228,7 +228,7 @@ internal fun TrustBoundaryPanel(
 }
 
 /** Trust Center view of the MCP opt-in capability (mirrors `mcp.McpCapabilityState`). */
-internal data class McpCapabilityToggleUiState(
+data class McpCapabilityToggleUiState(
     val enabled: Boolean,
     val disclosureAcknowledged: Boolean,
     val restartRequired: Boolean,

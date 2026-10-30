@@ -85,6 +85,8 @@ internal fun ModelManagerSheet(
     onClearLongTermMemory: () -> Unit,
     onReduceDeviceActionConfirmationsChanged: (Boolean) -> Unit,
     onRemoteGuiAutomationEnabledChanged: (Boolean) -> Unit,
+    mcpCapability: McpCapabilityToggleUiState? = null,
+    onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
     onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
     onOpenModelPage: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -187,6 +189,8 @@ internal fun ModelManagerSheet(
                 onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
                 onReduceDeviceActionConfirmationsChanged = onReduceDeviceActionConfirmationsChanged,
                 onRemoteGuiAutomationEnabledChanged = onRemoteGuiAutomationEnabledChanged,
+                mcpCapability = mcpCapability,
+                onMcpCapabilityEnabledChanged = onMcpCapabilityEnabledChanged,
             )
         }
 

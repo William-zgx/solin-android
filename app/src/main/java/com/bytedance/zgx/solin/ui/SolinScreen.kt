@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ui.components.BackgroundTaskSheet
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_CURRENT_TAB_INDEX
+import com.bytedance.zgx.solin.ui.components.McpCapabilityToggleUiState
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_PRIVACY_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_REMOTE_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.ModelManagerSheet
@@ -99,6 +100,8 @@ fun SolinScreen(
     onClearLongTermMemory: () -> Unit,
     onReduceDeviceActionConfirmationsChanged: (Boolean) -> Unit,
     onRemoteGuiAutomationEnabledChanged: (Boolean) -> Unit,
+    mcpCapability: McpCapabilityToggleUiState? = null,
+    onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
     onRefreshBackgroundTasks: () -> Unit,
     onRefreshAuditEvents: () -> Unit,
     onCancelBackgroundTask: (String) -> Unit,
@@ -363,6 +366,8 @@ fun SolinScreen(
                         onClearLongTermMemory = onClearLongTermMemory,
                         onReduceDeviceActionConfirmationsChanged = onReduceDeviceActionConfirmationsChanged,
                         onRemoteGuiAutomationEnabledChanged = onRemoteGuiAutomationEnabledChanged,
+                        mcpCapability = mcpCapability,
+                        onMcpCapabilityEnabledChanged = onMcpCapabilityEnabledChanged,
                         onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
                         onOpenModelPage = onOpenModelPage,
                         onDismiss = { showModelManager = false },

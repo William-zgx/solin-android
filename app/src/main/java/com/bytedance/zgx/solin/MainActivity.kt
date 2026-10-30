@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +31,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
 import com.bytedance.zgx.solin.ui.SolinScreen
+import com.bytedance.zgx.solin.ui.components.McpCapabilityToggleUiState
+import com.bytedance.zgx.solin.ui.components.toToggleUiState
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -162,8 +166,21 @@ class MainActivity : ComponentActivity() {
     private fun ReadySolinContent(skipStartupModelRuntimeWork: Boolean) {
         val context = LocalContext.current
         val state by viewModel.uiState.collectAsStateWithLifecycle()
+        val mcpController = appContainer.mcpCapabilityController
+        var mcpCapability by remember { mutableStateOf<McpCapabilityToggleUiState?>(null) }
+        LaunchedEffect(mcpController) {
+            mcpCapability = withContext(Dispatchers.IO) { mcpController.state().toToggleUiState() }
+        }
         SolinScreen(
                     state = state,
+                    mcpCapability = mcpCapability,
+                    onMcpCapabilityEnabledChanged = { enabled, disclosureAccepted ->
+                        lifecycleScope.launch {
+                            mcpCapability = withContext(Dispatchers.IO) {
+                                mcpController.setEnabled(enabled, disclosureAccepted).toToggleUiState()
+                            }
+                        }
+                    },
                     onImportModel = { uri -> viewModel.launchPersistenceWork { viewModel.importModel(uri) } },
                     onDownloadModel = { viewModel.launchPersistenceWork(viewModel::startModelDownload) },
                     onDownloadRecommendedModel = { modelId ->
