@@ -6,11 +6,11 @@ skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统 Wi-Fi 
 action: Draft open_wifi_settings {} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。
 intent: open_wifi_settings High
 ## 帮我建个日程：周五评审
-skill[StaticSkill]: calendar_draft_skill reason=将打开日历新建事件页面。
-    - create_calendar_event deps=[] tool=create_calendar_event args={title=周五评审} bind={} title=日程草稿 summary=将打开日历新建事件页面。 reason=将打开日历新建事件页面。
-skill[ModelDrivenBootstrap]: calendar_draft_skill reason=将打开日历新建事件页面。
-    - create_calendar_event deps=[] tool=create_calendar_event args={title=周五评审} bind={} title=日程草稿 summary=将打开日历新建事件页面。 reason=将打开日历新建事件页面。
-action: Draft create_calendar_event {title=周五评审} title=日程草稿 summary=将打开日历新建事件页面。
+skill[StaticSkill]: calendar_draft_skill reason=将打开日历新建事件页面，时间：6月19日 周五 全天。
+    - create_calendar_event deps=[] tool=create_calendar_event args={allDay=true, beginTimeMillis=1781827200000, endTimeMillis=1781913600000, title=周五评审} bind={} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 全天。 reason=将打开日历新建事件页面，时间：6月19日 周五 全天。
+skill[ModelDrivenBootstrap]: calendar_draft_skill reason=将打开日历新建事件页面，时间：6月19日 周五 全天。
+    - create_calendar_event deps=[] tool=create_calendar_event args={allDay=true, beginTimeMillis=1781827200000, endTimeMillis=1781913600000, title=周五评审} bind={} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 全天。 reason=将打开日历新建事件页面，时间：6月19日 周五 全天。
+action: Draft create_calendar_event {allDay=true, beginTimeMillis=1781827200000, endTimeMillis=1781913600000, title=周五评审} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 全天。
 intent: create_calendar_event High
 ## 帮我搜一下 Kotlin 协程最新用法
 skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法
@@ -839,11 +839,11 @@ skill[ModelDrivenBootstrap]: null
 action: NoAction null
 intent: null None
 ## 明天早上8点提醒我开会
-skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：开会
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
-skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：开会
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
-action: Draft schedule_reminder {body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} title=后台提醒 summary=将在指定时间提醒：开会
+skill[StaticSkill]: reminder_skill reason=将在 6月15日 周一 08:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} bind={} title=后台提醒 summary=将在 6月15日 周一 08:00 提醒：开会 reason=将在 6月15日 周一 08:00 提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月15日 周一 08:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} bind={} title=后台提醒 summary=将在 6月15日 周一 08:00 提醒：开会 reason=将在 6月15日 周一 08:00 提醒：开会
+action: Draft schedule_reminder {body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} title=后台提醒 summary=将在 6月15日 周一 08:00 提醒：开会
 intent: schedule_reminder High
 ## 你能帮我搜一下 Kotlin 吗？
 skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin
@@ -1057,11 +1057,11 @@ skill[ModelDrivenBootstrap]: reminder_skill reason=将在 30 分钟后提醒：�
 action: Draft schedule_reminder {body=提醒我 30 分钟后检查 2 小时后开始的会议资料, delayMinutes=30, title=检查 2 小时后开始的会议资料} title=后台提醒 summary=将在 30 分钟后提醒：检查 2 小时后开始的会议资料
 intent: schedule_reminder High
 ## 提醒我今天9:00开会
-skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：开会
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
-skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：开会
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
-action: Draft schedule_reminder {body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} title=后台提醒 summary=将在指定时间提醒：开会
+skill[StaticSkill]: reminder_skill reason=将在 6月14日 周日 09:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} bind={} title=后台提醒 summary=将在 6月14日 周日 09:00 提醒：开会 reason=将在 6月14日 周日 09:00 提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月14日 周日 09:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} bind={} title=后台提醒 summary=将在 6月14日 周日 09:00 提醒：开会 reason=将在 6月14日 周日 09:00 提醒：开会
+action: Draft schedule_reminder {body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} title=后台提醒 summary=将在 6月14日 周日 09:00 提醒：开会
 intent: schedule_reminder High
 ## 提醒我一下，“15 分钟后”是什么意思
 skill[StaticSkill]: null
@@ -1967,32 +1967,32 @@ skill[ModelDrivenBootstrap]: null
 action: NoAction null
 intent: null None
 ## 提醒我明天9点开会
-skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：开会
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
-skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：开会
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
-action: Draft schedule_reminder {body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} title=后台提醒 summary=将在指定时间提醒：开会
+skill[StaticSkill]: reminder_skill reason=将在 6月15日 周一 09:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在 6月15日 周一 09:00 提醒：开会 reason=将在 6月15日 周一 09:00 提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月15日 周一 09:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在 6月15日 周一 09:00 提醒：开会 reason=将在 6月15日 周一 09:00 提醒：开会
+action: Draft schedule_reminder {body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} title=后台提醒 summary=将在 6月15日 周一 09:00 提醒：开会
 intent: schedule_reminder High
 ## 提醒我今天下午3点喝水
-skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：喝水
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} bind={} title=后台提醒 summary=将在指定时间提醒：喝水 reason=将在指定时间提醒：喝水
-skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：喝水
-    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} bind={} title=后台提醒 summary=将在指定时间提醒：喝水 reason=将在指定时间提醒：喝水
-action: Draft schedule_reminder {body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} title=后台提醒 summary=将在指定时间提醒：喝水
+skill[StaticSkill]: reminder_skill reason=将在 6月14日 周日 15:00 提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} bind={} title=后台提醒 summary=将在 6月14日 周日 15:00 提醒：喝水 reason=将在 6月14日 周日 15:00 提醒：喝水
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月14日 周日 15:00 提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} bind={} title=后台提醒 summary=将在 6月14日 周日 15:00 提醒：喝水 reason=将在 6月14日 周日 15:00 提醒：喝水
+action: Draft schedule_reminder {body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} title=后台提醒 summary=将在 6月14日 周日 15:00 提醒：喝水
 intent: schedule_reminder High
 ## 设置明天7点的闹钟
 skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
-    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=的, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。 reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。 reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
 skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
-    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=的, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。 reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
-action: Draft set_system_alarm {hour=7, message=的, minutes=0, recurrence=once} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。 reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
+action: Draft set_system_alarm {hour=7, minutes=0, recurrence=once} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。
 intent: set_system_alarm High
 ## 每天7:30叫醒我
 skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
-    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=叫醒我, minutes=30, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。 reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, minutes=30, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。 reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
 skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
-    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=叫醒我, minutes=30, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。 reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
-action: Draft set_system_alarm {hour=7, message=叫醒我, minutes=30, recurrence=daily} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, minutes=30, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。 reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
+action: Draft set_system_alarm {hour=7, minutes=30, recurrence=daily} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。
 intent: set_system_alarm High
 ## 倒计时5分钟
 skill[StaticSkill]: time_action_skill reason=将打开系统计时器界面设置 300 秒倒计时。
@@ -2113,3 +2113,128 @@ skill[ModelDrivenBootstrap]: current_screen_text_summary_share_skill reason=总�
     - share_screen_summary deps=[summarize_current_screen_text] tool=share_text args={} bind={text=summarize_current_screen_text.shareText} title=分享屏幕摘要 summary=将打开系统分享面板并填入上一步生成的屏幕文本摘要。 reason=将打开系统分享面板并填入上一步生成的屏幕文本摘要。
 action: Draft read_current_screen_text {maxChars=2000} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
 intent: read_current_screen_text High
+## 提醒我三点半开会
+skill[StaticSkill]: reminder_skill reason=将在 6月14日 周日 03:30 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我三点半开会, title=开会, triggerAtMillis=1781407800000} bind={} title=后台提醒 summary=将在 6月14日 周日 03:30 提醒：开会 reason=将在 6月14日 周日 03:30 提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月14日 周日 03:30 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我三点半开会, title=开会, triggerAtMillis=1781407800000} bind={} title=后台提醒 summary=将在 6月14日 周日 03:30 提醒：开会 reason=将在 6月14日 周日 03:30 提醒：开会
+action: Draft schedule_reminder {body=提醒我三点半开会, title=开会, triggerAtMillis=1781407800000} title=后台提醒 summary=将在 6月14日 周日 03:30 提醒：开会
+intent: schedule_reminder High
+## 提醒我晚上十一点半睡觉
+skill[StaticSkill]: reminder_skill reason=将在 6月14日 周日 23:30 提醒：睡觉
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我晚上十一点半睡觉, title=睡觉, triggerAtMillis=1781479800000} bind={} title=后台提醒 summary=将在 6月14日 周日 23:30 提醒：睡觉 reason=将在 6月14日 周日 23:30 提醒：睡觉
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月14日 周日 23:30 提醒：睡觉
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我晚上十一点半睡觉, title=睡觉, triggerAtMillis=1781479800000} bind={} title=后台提醒 summary=将在 6月14日 周日 23:30 提醒：睡觉 reason=将在 6月14日 周日 23:30 提醒：睡觉
+action: Draft schedule_reminder {body=提醒我晚上十一点半睡觉, title=睡觉, triggerAtMillis=1781479800000} title=后台提醒 summary=将在 6月14日 周日 23:30 提醒：睡觉
+intent: schedule_reminder High
+## 提醒我差五分四点开会
+skill[StaticSkill]: reminder_skill reason=将在 6月14日 周日 03:55 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我差五分四点开会, title=开会, triggerAtMillis=1781409300000} bind={} title=后台提醒 summary=将在 6月14日 周日 03:55 提醒：开会 reason=将在 6月14日 周日 03:55 提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月14日 周日 03:55 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我差五分四点开会, title=开会, triggerAtMillis=1781409300000} bind={} title=后台提醒 summary=将在 6月14日 周日 03:55 提醒：开会 reason=将在 6月14日 周日 03:55 提醒：开会
+action: Draft schedule_reminder {body=提醒我差五分四点开会, title=开会, triggerAtMillis=1781409300000} title=后台提醒 summary=将在 6月14日 周日 03:55 提醒：开会
+intent: schedule_reminder High
+## 提醒我周五下午三点开会
+skill[StaticSkill]: reminder_skill reason=将在 6月19日 周五 15:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我周五下午三点开会, title=开会, triggerAtMillis=1781881200000} bind={} title=后台提醒 summary=将在 6月19日 周五 15:00 提醒：开会 reason=将在 6月19日 周五 15:00 提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月19日 周五 15:00 提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我周五下午三点开会, title=开会, triggerAtMillis=1781881200000} bind={} title=后台提醒 summary=将在 6月19日 周五 15:00 提醒：开会 reason=将在 6月19日 周五 15:00 提醒：开会
+action: Draft schedule_reminder {body=提醒我周五下午三点开会, title=开会, triggerAtMillis=1781881200000} title=后台提醒 summary=将在 6月19日 周五 15:00 提醒：开会
+intent: schedule_reminder High
+## 提醒我下周一上午九点交报告
+skill[StaticSkill]: reminder_skill reason=将在 6月15日 周一 09:00 提醒：交报告
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我下周一上午九点交报告, title=交报告, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在 6月15日 周一 09:00 提醒：交报告 reason=将在 6月15日 周一 09:00 提醒：交报告
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月15日 周一 09:00 提醒：交报告
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我下周一上午九点交报告, title=交报告, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在 6月15日 周一 09:00 提醒：交报告 reason=将在 6月15日 周一 09:00 提醒：交报告
+action: Draft schedule_reminder {body=提醒我下周一上午九点交报告, title=交报告, triggerAtMillis=1781514000000} title=后台提醒 summary=将在 6月15日 周一 09:00 提醒：交报告
+intent: schedule_reminder High
+## 提醒我6月20日下午三点交房租
+skill[StaticSkill]: reminder_skill reason=将在 6月20日 周六 15:00 提醒：交房租
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我6月20日下午三点交房租, title=交房租, triggerAtMillis=1781967600000} bind={} title=后台提醒 summary=将在 6月20日 周六 15:00 提醒：交房租 reason=将在 6月20日 周六 15:00 提醒：交房租
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月20日 周六 15:00 提醒：交房租
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我6月20日下午三点交房租, title=交房租, triggerAtMillis=1781967600000} bind={} title=后台提醒 summary=将在 6月20日 周六 15:00 提醒：交房租 reason=将在 6月20日 周六 15:00 提醒：交房租
+action: Draft schedule_reminder {body=提醒我6月20日下午三点交房租, title=交房租, triggerAtMillis=1781967600000} title=后台提醒 summary=将在 6月20日 周六 15:00 提醒：交房租
+intent: schedule_reminder High
+## 提醒我大后天早上八点出发
+skill[StaticSkill]: reminder_skill reason=将在 6月17日 周三 08:00 提醒：出发
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我大后天早上八点出发, title=出发, triggerAtMillis=1781683200000} bind={} title=后台提醒 summary=将在 6月17日 周三 08:00 提醒：出发 reason=将在 6月17日 周三 08:00 提醒：出发
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 6月17日 周三 08:00 提醒：出发
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我大后天早上八点出发, title=出发, triggerAtMillis=1781683200000} bind={} title=后台提醒 summary=将在 6月17日 周三 08:00 提醒：出发 reason=将在 6月17日 周三 08:00 提醒：出发
+action: Draft schedule_reminder {body=提醒我大后天早上八点出发, title=出发, triggerAtMillis=1781683200000} title=后台提醒 summary=将在 6月17日 周三 08:00 提醒：出发
+intent: schedule_reminder High
+## 提醒我这周一上午十点开会
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 半小时后提醒我喝水
+skill[StaticSkill]: reminder_skill reason=将在 30 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=半小时后提醒我喝水, delayMinutes=30, title=喝水} bind={} title=后台提醒 summary=将在 30 分钟后提醒：喝水 reason=将在 30 分钟后提醒：喝水
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 30 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=半小时后提醒我喝水, delayMinutes=30, title=喝水} bind={} title=后台提醒 summary=将在 30 分钟后提醒：喝水 reason=将在 30 分钟后提醒：喝水
+action: Draft schedule_reminder {body=半小时后提醒我喝水, delayMinutes=30, title=喝水} title=后台提醒 summary=将在 30 分钟后提醒：喝水
+intent: schedule_reminder High
+## 提醒我一个半小时后出门
+skill[StaticSkill]: reminder_skill reason=将在 90 分钟后提醒：出门
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我一个半小时后出门, delayMinutes=90, title=出门} bind={} title=后台提醒 summary=将在 90 分钟后提醒：出门 reason=将在 90 分钟后提醒：出门
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 90 分钟后提醒：出门
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我一个半小时后出门, delayMinutes=90, title=出门} bind={} title=后台提醒 summary=将在 90 分钟后提醒：出门 reason=将在 90 分钟后提醒：出门
+action: Draft schedule_reminder {body=提醒我一个半小时后出门, delayMinutes=90, title=出门} title=后台提醒 summary=将在 90 分钟后提醒：出门
+intent: schedule_reminder High
+## 90秒后提醒我关火
+skill[StaticSkill]: reminder_skill reason=将在 2 分钟后提醒：关火
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=90秒后提醒我关火, delayMinutes=2, title=关火} bind={} title=后台提醒 summary=将在 2 分钟后提醒：关火 reason=将在 2 分钟后提醒：关火
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 2 分钟后提醒：关火
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=90秒后提醒我关火, delayMinutes=2, title=关火} bind={} title=后台提醒 summary=将在 2 分钟后提醒：关火 reason=将在 2 分钟后提醒：关火
+action: Draft schedule_reminder {body=90秒后提醒我关火, delayMinutes=2, title=关火} title=后台提醒 summary=将在 2 分钟后提醒：关火
+intent: schedule_reminder High
+## 提醒我喝一点水
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 倒计时一个半小时
+skill[StaticSkill]: time_action_skill reason=将打开系统计时器界面设置 5400 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=5400} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 5400 秒倒计时。 reason=将打开系统计时器界面设置 5400 秒倒计时。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统计时器界面设置 5400 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=5400} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 5400 秒倒计时。 reason=将打开系统计时器界面设置 5400 秒倒计时。
+action: Draft set_system_timer {lengthSeconds=5400} title=系统倒计时 summary=将打开系统计时器界面设置 5400 秒倒计时。
+intent: set_system_timer High
+## 倒计时一刻钟
+skill[StaticSkill]: time_action_skill reason=将打开系统计时器界面设置 900 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=900} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 900 秒倒计时。 reason=将打开系统计时器界面设置 900 秒倒计时。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统计时器界面设置 900 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=900} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 900 秒倒计时。 reason=将打开系统计时器界面设置 900 秒倒计时。
+action: Draft set_system_timer {lengthSeconds=900} title=系统倒计时 summary=将打开系统计时器界面设置 900 秒倒计时。
+intent: set_system_timer High
+## 凌晨一点的闹钟
+skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置下次 01:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=1, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 01:00 的闹钟。 reason=将打开系统闹钟界面设置下次 01:00 的闹钟。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置下次 01:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=1, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 01:00 的闹钟。 reason=将打开系统闹钟界面设置下次 01:00 的闹钟。
+action: Draft set_system_alarm {hour=1, minutes=0, recurrence=once} title=系统闹钟 summary=将打开系统闹钟界面设置下次 01:00 的闹钟。
+intent: set_system_alarm High
+## 中午十二点的闹钟
+skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置下次 12:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=12, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 12:00 的闹钟。 reason=将打开系统闹钟界面设置下次 12:00 的闹钟。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置下次 12:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=12, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 12:00 的闹钟。 reason=将打开系统闹钟界面设置下次 12:00 的闹钟。
+action: Draft set_system_alarm {hour=12, minutes=0, recurrence=once} title=系统闹钟 summary=将打开系统闹钟界面设置下次 12:00 的闹钟。
+intent: set_system_alarm High
+## 晚上十二点的闹钟
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 后天早上七点叫醒我
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 帮我建个日程：周五下午三点评审
+skill[StaticSkill]: calendar_draft_skill reason=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
+    - create_calendar_event deps=[] tool=create_calendar_event args={allDay=false, beginTimeMillis=1781881200000, endTimeMillis=1781884800000, title=周五下午三点评审} bind={} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。 reason=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
+skill[ModelDrivenBootstrap]: calendar_draft_skill reason=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
+    - create_calendar_event deps=[] tool=create_calendar_event args={allDay=false, beginTimeMillis=1781881200000, endTimeMillis=1781884800000, title=周五下午三点评审} bind={} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。 reason=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
+action: Draft create_calendar_event {allDay=false, beginTimeMillis=1781881200000, endTimeMillis=1781884800000, title=周五下午三点评审} title=日程草稿 summary=将打开日历新建事件页面，时间：6月19日 周五 15:00–16:00。
+intent: create_calendar_event High

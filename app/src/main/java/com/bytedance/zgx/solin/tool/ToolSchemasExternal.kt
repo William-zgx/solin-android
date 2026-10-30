@@ -152,6 +152,17 @@ internal val calendarDraftSchemaJson = """
         },
         "description": {
           "type": "string"
+        },
+        "beginTimeMillis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endTimeMillis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "allDay": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

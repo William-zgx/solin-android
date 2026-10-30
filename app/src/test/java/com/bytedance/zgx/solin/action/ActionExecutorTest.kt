@@ -175,6 +175,36 @@ class ActionExecutorTest {
     }
 
     @Test
+    fun rejectsInconsistentCalendarDraftTimesBeforeStartingActivity() {
+        val launched = mutableListOf<Intent>()
+        val executor = ActionExecutor(
+            context = null,
+            activityStarter = { intent ->
+                launched += intent
+                true
+            },
+        )
+        val invalidArguments = listOf(
+            mapOf("title" to "评审", "beginTimeMillis" to "2000", "endTimeMillis" to "1000"),
+            mapOf("title" to "评审", "endTimeMillis" to "1000"),
+            mapOf("title" to "评审", "beginTimeMillis" to "soon"),
+        )
+
+        invalidArguments.forEachIndexed { index, arguments ->
+            val result = executor.execute(
+                ToolRequest(
+                    id = "request-invalid-calendar-$index",
+                    toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
+                    arguments = arguments,
+                    reason = "test",
+                ),
+            )
+            assertEquals(arguments.toString(), ToolErrorCode.InvalidRequest, result.error?.code)
+        }
+        assertTrue(launched.isEmpty())
+    }
+
+    @Test
     fun configuresPeriodicCheckThroughBackgroundScheduler() {
         val scheduler = RecordingBackgroundTaskScheduler()
         val executor = ActionExecutor(

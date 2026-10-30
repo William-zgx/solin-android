@@ -73,7 +73,8 @@ class BuiltInSkillRuntime(
             input.requestsOpenAppThenUiSearch() -> planOpenAppThenUiSearch(input)
             MapSearchActionParser.matches(input) -> single(MapSearchActionParser.draft(input))
             EmailDraftActionParser.matches(input) -> single(EmailDraftActionParser.draft(input))
-            CalendarDraftActionParser.matches(input) -> single(CalendarDraftActionParser.draft(input))
+            CalendarDraftActionParser.matches(input) ->
+                single(CalendarDraftActionParser.draft(input, clockMillis(), zoneId))
             CalendarAvailabilityActionParser.matches(input) -> single(CalendarAvailabilityActionParser.draft(input))
             DeviceSettingsActionParser.matches(input) -> single(DeviceSettingsActionParser.draft(input))
             SystemSettingsActionParser.matches(input) -> single(SystemSettingsActionParser.draft(input))

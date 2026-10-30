@@ -1,19 +1,23 @@
 package com.bytedance.zgx.solin.action
 
-import java.time.Instant
 import java.time.ZoneId
 import kotlin.math.roundToLong
 
 internal object SystemAlarmActionParser {
     fun draft(input: String): ActionDraft? {
         if (!input.hasAlarmTrigger() || input.looksLikeTimeActionDiscussion()) return null
-        val parsedTime = ClockTimeParser.parse(input) ?: return null
+        val parsedTime = ChineseTimeExpressions.parseClockTime(input) ?: return null
         val recurrence = if (input.hasDailyRecurrence()) "daily" else "once"
+        // The system alarm intent only takes hh:mm and rings at its next occurrence, so a date
+        // beyond today/tomorrow (后天, 周五, 6月20日) cannot be honoured: fail closed instead of
+        // silently ringing on the wrong day.
+        val date = parsedTime.date
+        if (date != null && recurrence == "once" && !date.isTodayOrTomorrow) return null
         val parameters = buildMap {
             put("hour", parsedTime.hour.toString())
             put("minutes", parsedTime.minute.toString())
             put("recurrence", recurrence)
-            cleanedAlarmLabel(input, parsedTime.range)?.let { put("message", it) }
+            cleanedAlarmLabel(input, parsedTime.removalRanges)?.let { put("message", it) }
         }
         val timeText = "%02d:%02d".format(parsedTime.hour, parsedTime.minute)
         val recurrenceText = if (recurrence == "daily") "每天" else "下次"
@@ -36,15 +40,16 @@ internal object SystemAlarmActionParser {
                 )
     }
 
-    private fun cleanedAlarmLabel(input: String, timeRange: IntRange): String? =
-        input.removeRange(timeRange.first, timeRange.last + 1)
+    private fun cleanedAlarmLabel(input: String, timeRanges: List<IntRange>): String? =
+        input.removeRanges(timeRanges)
             .replace(Regex("""每天\s*(?:一次)?"""), "")
             .replace(
                 Regex("""(?i)^\s*(please\s+)?(?:(can|could)\s+you\s+)?(?:set|create|add)\s+(?:an?\s+)?alarm\s*(?:for)?\s*"""),
                 "",
             )
-            .replace(Regex("""^(请|帮我|麻烦你?|给我)?\s*(设置|设定|定|创建|加|添加)?\s*"""), "")
-            .replace(Regex("""(一个|个)?\s*(闹钟|alarm)\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^(请|帮我|麻烦你?|给我)?\s*(设置|设定|设(?=[一个的]|\s|$)|定|创建|加|添加)?\s*"""), "")
+            .replace(Regex("""(一个|个)?\s*的?\s*(闹钟|alarm)\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^\s*叫醒我\s*"""), "")
             .replace(Regex("""(?i)^\s*(for|at)\s+"""), "")
             .trimActionLabel()
             .takeIf { it.isNotBlank() }
@@ -78,7 +83,7 @@ internal object SystemTimerActionParser {
     }
 
     private fun cleanedTimerLabel(input: String): String? =
-        input.replace(Regex("""(?<![\d.])\d+(?:\.\d+)?\s*(秒钟?|分钟|小时)"""), "")
+        input.removeRanges(ChineseTimeExpressions.durations(input).map { it.range })
             .replace(
                 Regex(
                     """(?i)(?<![\d.])\d+(?:\.\d+)?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)""",
@@ -89,8 +94,8 @@ internal object SystemTimerActionParser {
                 Regex("""(?i)^\s*(please\s+)?(?:(can|could)\s+you\s+)?(?:set|create|start)\s+(?:a\s+)?timer\s*(?:for)?\s*"""),
                 "",
             )
-            .replace(Regex("""^(请|帮我|麻烦你?)?\s*(设置|设定|开始|开|做|创建)?\s*"""), "")
-            .replace(Regex("""(一个|个)?\s*(倒计时|计时器|timer)\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^(请|帮我|麻烦你?)?\s*(设置|设定|设(?=[一个的]|\s|$)|开始|开|做|创建)?\s*"""), "")
+            .replace(Regex("""(一个|个)?\s*的?\s*(倒计时|计时器|timer)\s*""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""(?i)^\s*for\s+"""), "")
             .trimActionLabel()
             .takeIf { it.isNotBlank() }
@@ -100,13 +105,13 @@ internal object AbsoluteReminderActionParser {
     fun draft(input: String, nowMillis: Long, zoneId: ZoneId): ActionDraft? {
         if (!input.hasAbsoluteReminderTrigger() || input.looksLikeTimeActionDiscussion()) return null
         if (input.hasDailyRecurrence()) return null
-        val parsedTime = ClockTimeParser.parse(input) ?: return null
+        val parsedTime = ChineseTimeExpressions.parseClockTime(input) ?: return null
         val triggerAtMillis = parsedTime.triggerAtMillis(nowMillis, zoneId) ?: return null
-        val title = cleanedReminderTitle(input, parsedTime.range)
+        val title = cleanedReminderTitle(input, parsedTime.removalRanges)
         return ActionDraft(
             functionName = MobileActionFunctions.SCHEDULE_REMINDER,
             title = "后台提醒",
-            summary = "将在指定时间提醒：$title",
+            summary = "将在 ${ChineseTimeExpressions.formatDateTime(triggerAtMillis, zoneId)} 提醒：$title",
             parameters = mapOf(
                 "title" to title,
                 "body" to input.trim(),
@@ -124,8 +129,8 @@ internal object AbsoluteReminderActionParser {
                     lowercase().contains(Regex("""\bremind me\b"""))
                 )
 
-    private fun cleanedReminderTitle(input: String, timeRange: IntRange): String =
-        input.removeRange(timeRange.first, timeRange.last + 1)
+    private fun cleanedReminderTitle(input: String, timeRanges: List<IntRange>): String =
+        input.removeRanges(timeRanges)
             .replace(Regex("""^(请\s*)?(帮我\s*)?提醒我\s*"""), "")
             .replace(Regex("""(?i)^(please\s+)?(?:(can|could)\s+you\s+)?remind me\s+"""), "")
             .replace(Regex("""^(设置|设定|创建|加|添加)?\s*(一个|条)?\s*(备忘录?|备忘)\s*"""), "")
@@ -135,93 +140,9 @@ internal object AbsoluteReminderActionParser {
             .ifBlank { "Solin提醒" }
 }
 
-private object ClockTimeParser {
-    private val clockTimePattern = Regex(
-        """(?:(今天|明天|后天|今晚|明早|明晚)\s*)?""" +
-            """(?:(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|夜晚)\s*)?""" +
-            """(?<!\d)(\d{1,2})(?:(?:[:：](\d{1,2}))|(?:点(?:钟)?\s*(?:(\d{1,2})\s*分?)?))""",
-    )
-
-    fun parse(input: String): ParsedClockTime? =
-        clockTimePattern.findAll(input)
-            .mapNotNull { match -> match.toParsedClockTime() }
-            .firstOrNull()
-
-    private fun MatchResult.toParsedClockTime(): ParsedClockTime? {
-        val dateWord = groupValues[1].takeIf { it.isNotBlank() }
-        val periodWord = groupValues[2].takeIf { it.isNotBlank() } ?: periodFromDateWord(dateWord)
-        val rawHour = groupValues[3].toIntOrNull() ?: return null
-        val minute = groupValues[4].ifBlank { groupValues[5] }.ifBlank { "0" }.toIntOrNull() ?: return null
-        if (minute !in 0..59 || rawHour !in 0..23) return null
-        val hour = normalizedHour(rawHour, periodWord) ?: return null
-        return ParsedClockTime(
-            hour = hour,
-            minute = minute,
-            explicitDayOffset = dayOffset(dateWord),
-            range = range,
-        )
-    }
-
-    private fun periodFromDateWord(dateWord: String?): String? =
-        when (dateWord) {
-            "今晚", "明晚" -> "晚上"
-            "明早" -> "早上"
-            else -> null
-        }
-
-    private fun dayOffset(dateWord: String?): Int? =
-        when (dateWord) {
-            "今天", "今晚" -> 0
-            "明天", "明早", "明晚" -> 1
-            "后天" -> 2
-            else -> null
-        }
-
-    private fun normalizedHour(rawHour: Int, periodWord: String?): Int? =
-        when (periodWord) {
-            "下午", "傍晚", "晚上", "夜里", "夜晚" -> when (rawHour) {
-                in 1..11 -> rawHour + 12
-                in 12..23 -> rawHour
-                else -> null
-            }
-
-            "中午" -> when (rawHour) {
-                in 1..10 -> rawHour + 12
-                in 11..12 -> rawHour
-                else -> null
-            }
-
-            "凌晨", "清晨", "早上", "上午" -> when (rawHour) {
-                12 -> 0
-                in 0..11 -> rawHour
-                else -> null
-            }
-
-            else -> rawHour
-        }
-}
-
-private data class ParsedClockTime(
-    val hour: Int,
-    val minute: Int,
-    val explicitDayOffset: Int?,
-    val range: IntRange,
-) {
-    fun triggerAtMillis(nowMillis: Long, zoneId: ZoneId): Long? {
-        val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
-        val baseDate = now.toLocalDate().plusDays((explicitDayOffset ?: 0).toLong())
-        var target = baseDate.atTime(hour, minute).atZone(zoneId)
-        if (explicitDayOffset == null && !target.isAfter(now)) {
-            target = target.plusDays(1)
-        }
-        return target.takeIf { it.isAfter(now) }?.toInstant()?.toEpochMilli()
-    }
-}
-
 private object DurationParser {
     private const val MAX_TIMER_SECONDS = 24 * 60 * 60
     private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
-    private val chineseDurationPattern = Regex("""(?<![\d.])($AMOUNT_PATTERN)\s*(秒钟?|分钟|小时)""")
     private val englishDurationPattern = Regex(
         """(?<![\d.])($AMOUNT_PATTERN)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b""",
         RegexOption.IGNORE_CASE,
@@ -229,7 +150,7 @@ private object DurationParser {
 
     fun durationSeconds(input: String): Long? {
         val seconds = (
-            chineseDurationPattern.findAll(input).mapNotNull { it.toSeconds(amountIndex = 1, unitIndex = 2) } +
+            ChineseTimeExpressions.durations(input).map { ChineseTimeExpressions.roundSeconds(it.seconds) } +
                 englishDurationPattern.findAll(input).mapNotNull { it.toSeconds(amountIndex = 1, unitIndex = 2) }
             ).sum()
         return seconds.takeIf { it in 1..MAX_TIMER_SECONDS }
@@ -239,13 +160,18 @@ private object DurationParser {
         val amount = groupValues.getOrNull(amountIndex)?.toDoubleOrNull() ?: return null
         val unit = groupValues.getOrNull(unitIndex)?.lowercase().orEmpty()
         val seconds = when {
-            unit.startsWith("小时") || unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0 * 60.0
-            unit.startsWith("分钟") || unit.startsWith("minute") || unit.startsWith("min") -> amount * 60.0
+            unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0 * 60.0
+            unit.startsWith("minute") || unit.startsWith("min") -> amount * 60.0
             else -> amount
         }
         return seconds.roundToLong().coerceAtLeast(1L)
     }
 }
+
+/** Removes [ranges] (any order, non-overlapping) from the string. */
+internal fun String.removeRanges(ranges: List<IntRange>): String =
+    ranges.sortedByDescending { it.first }
+        .fold(this) { text, range -> text.removeRange(range.first, range.last + 1) }
 
 private fun String.hasDailyRecurrence(): Boolean {
     val normalized = lowercase()
@@ -279,3 +205,6 @@ private fun String.looksLikeTimeActionDiscussion(): Boolean {
 private fun String.trimActionLabel(): String =
     replace(Regex("""\s{2,}"""), " ")
         .trim { it <= ' ' || it == '，' || it == ',' || it == ':' || it == '：' || it == '。' || it == '.' }
+        // "设置明天7点的闹钟" leaves a dangling 的 once the time and trigger words are cut out.
+        .removePrefix("的")
+        .trim()

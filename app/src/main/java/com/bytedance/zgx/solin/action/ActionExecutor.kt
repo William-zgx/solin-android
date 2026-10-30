@@ -412,6 +412,15 @@ class ActionExecutor(
                         data = CalendarContract.Events.CONTENT_URI
                         putExtra(CalendarContract.Events.TITLE, request.arguments["title"].orEmpty())
                         putExtra(CalendarContract.Events.DESCRIPTION, request.arguments["description"].orEmpty())
+                        request.arguments["beginTimeMillis"]?.toLongOrNull()?.let { begin ->
+                            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+                        }
+                        request.arguments["endTimeMillis"]?.toLongOrNull()?.let { end ->
+                            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end)
+                        }
+                        if (request.arguments["allDay"] == "true") {
+                            putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
+                        }
                     },
                 )
             MobileActionFunctions.CREATE_CONTACT_DRAFT ->
@@ -478,8 +487,23 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_CAMERA -> "打开相机不接受参数".takeIf { request.arguments.isNotEmpty() }
             MobileActionFunctions.SET_SYSTEM_ALARM -> systemAlarmInvalidReason(request)
             MobileActionFunctions.SET_SYSTEM_TIMER -> systemTimerInvalidReason(request)
+            MobileActionFunctions.CREATE_CALENDAR_EVENT -> calendarDraftInvalidReason(request)
             else -> null
         }
+
+    private fun calendarDraftInvalidReason(request: ToolRequest): String? {
+        val beginText = request.arguments["beginTimeMillis"]
+        val endText = request.arguments["endTimeMillis"]
+        val begin = beginText?.toLongOrNull()
+        val end = endText?.toLongOrNull()
+        return when {
+            beginText != null && begin == null -> "日程开始时间无效"
+            endText != null && end == null -> "日程结束时间无效"
+            end != null && begin == null -> "日程结束时间需要同时提供开始时间"
+            begin != null && end != null && end < begin -> "日程结束时间不能早于开始时间"
+            else -> null
+        }
+    }
 
     private fun systemAlarmInvalidReason(request: ToolRequest): String? {
         val unknownArguments = request.arguments.keys - setOf("hour", "minutes", "message", "recurrence")

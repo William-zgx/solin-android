@@ -5,8 +5,6 @@ import kotlin.math.roundToLong
 
 internal object ReminderActionParser {
     private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
-    private val chineseRelativeDelayPattern =
-        Regex("""(?:在\s*)?(?<![\d.])($AMOUNT_PATTERN)\s*(分钟|小时)\s*(?:后|以后|之后)""")
     private val englishRelativeDelayPattern =
         Regex("""\b(?:in|after)\s+(?<![\d.])($AMOUNT_PATTERN)\s*(minutes?|mins?|hours?|hrs?)\b""", RegexOption.IGNORE_CASE)
     private val chineseTimingQuestionAfterDelayPattern =
@@ -22,7 +20,12 @@ internal object ReminderActionParser {
 
     fun matches(input: String): Boolean {
         val delay = relativeDelay(input) ?: return false
-        return hasReminderCommand(input) && !looksLikeTimingDiscussion(input, delay)
+        // "半小时后提醒我喝水": a leading delay phrase may precede the command.
+        val withoutLeadingDelay = input.substring(delay.range.last + 1)
+            .takeIf { input.substring(0, delay.range.first).isBlank() }
+        val hasCommand = hasReminderCommand(input) ||
+            (withoutLeadingDelay != null && chineseReminderCommandPattern.containsMatchIn(withoutLeadingDelay))
+        return hasCommand && !looksLikeTimingDiscussion(input, delay)
     }
 
     fun parameters(input: String): Map<String, String> {
@@ -48,8 +51,8 @@ internal object ReminderActionParser {
 
     private fun relativeDelay(input: String): RelativeDelay? =
         (
-            chineseRelativeDelayPattern.findAll(input).mapNotNull { match ->
-                match.toRelativeDelay(amountGroupIndex = 1, unitGroupIndex = 2)
+            ChineseTimeExpressions.relativeDelays(input).asSequence().map { delay ->
+                RelativeDelay(minutes = ChineseTimeExpressions.ceilMinutes(delay.seconds), range = delay.range)
             } + englishRelativeDelayPattern.findAll(input).mapNotNull { match ->
                 match.toRelativeDelay(amountGroupIndex = 1, unitGroupIndex = 2)
             }
@@ -94,7 +97,7 @@ internal object ReminderActionParser {
         val amount = groupValues.getOrNull(amountGroupIndex)?.toDoubleOrNull() ?: return null
         val unit = groupValues.getOrNull(unitGroupIndex)?.lowercase().orEmpty()
         val minutes = when {
-            unit == "小时" || unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0
+            unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0
             else -> amount
         }.roundToLong().coerceAtLeast(1L)
         return RelativeDelay(minutes = minutes, range = range)
@@ -303,8 +306,7 @@ internal object PeriodicCheckActionParser {
     private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
     private val intervalPattern =
         Regex("""\b(?:every|interval)\s+(?<![\d.])($AMOUNT_PATTERN)\s*(minutes?|mins?|hours?|hrs?)\b""", RegexOption.IGNORE_CASE)
-    private val chineseIntervalPattern =
-        Regex("""(?:每|间隔)\s*(?<![\d.])($AMOUNT_PATTERN)\s*(分钟|小时)""")
+    private val chineseIntervalPrefixPattern = Regex("""(?:每隔?|间隔)\s*$""")
     private val enablePattern =
         Regex("""\b(?:enable|turn\s+on|start)\s+(?:local\s+)?periodic\s+checks?\b""", RegexOption.IGNORE_CASE)
     private val disablePattern =
@@ -364,25 +366,31 @@ internal object PeriodicCheckActionParser {
 
     private fun intervalMinutes(input: String): Long? =
         (
-            chineseIntervalPattern.findAll(input).mapNotNull { match ->
-                match.toIntervalMinutes(amountGroupIndex = 1, unitGroupIndex = 2)
-            } + intervalPattern.findAll(input).mapNotNull { match ->
-                match.toIntervalMinutes(amountGroupIndex = 1, unitGroupIndex = 2)
-            }
+            ChineseTimeExpressions.durations(input).asSequence()
+                .filter { duration ->
+                    chineseIntervalPrefixPattern.containsMatchIn(input.substring(0, duration.range.first))
+                }
+                .map { duration -> clampedIntervalMinutes(duration.seconds / 60.0) } +
+                intervalPattern.findAll(input).mapNotNull { match ->
+                    match.toIntervalMinutes(amountGroupIndex = 1, unitGroupIndex = 2)
+                }
             ).minOrNull()
 
     private fun MatchResult.toIntervalMinutes(amountGroupIndex: Int, unitGroupIndex: Int): Long? {
         val amount = groupValues.getOrNull(amountGroupIndex)?.toDoubleOrNull() ?: return null
         val unit = groupValues.getOrNull(unitGroupIndex)?.lowercase().orEmpty()
         val minutes = when {
-            unit == "小时" || unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0
+            unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0
             else -> amount
-        }.roundToLong()
-        return minutes.coerceIn(
+        }
+        return clampedIntervalMinutes(minutes)
+    }
+
+    private fun clampedIntervalMinutes(minutes: Double): Long =
+        minutes.roundToLong().coerceIn(
             PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES,
             PeriodicCheckScheduleRequest.MAX_INTERVAL_MINUTES,
         )
-    }
 
     private fun String.looksLikePeriodicCheckNonAction(): Boolean {
         val normalized = lowercase()

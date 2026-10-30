@@ -131,7 +131,7 @@ class MobileActionPlanner(
             CalendarAvailabilityActionParser.matches(input) -> CalendarAvailabilityActionParser.draft(input)
             ContactQueryActionParser.matches(input) -> ContactQueryActionParser.draft(input)
             CancelReminderActionParser.matches(input) -> CancelReminderActionParser.draft(input)
-            CalendarDraftActionParser.matches(input) -> CalendarDraftActionParser.draft(input)
+            CalendarDraftActionParser.matches(input) -> CalendarDraftActionParser.draft(input, clockMillis(), zoneId)
             ContactDraftActionParser.matches(input) -> ContactDraftActionParser.draft(input)
             WebSearchActionParser.matches(input) -> WebSearchActionParser.draft(input)
             else -> null

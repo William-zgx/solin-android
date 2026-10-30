@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.action
 
+import java.time.ZoneId
+
 internal object MapSearchActionParser {
     private val englishPattern =
         Regex("""\b(search\s+maps?\s+for|map\s+(?:search|route)\s+(?:to|for)|directions?\s+to|navigate\s+to|route\s+to)\b""", RegexOption.IGNORE_CASE)
@@ -89,13 +91,28 @@ internal object CalendarDraftActionParser {
             englishPattern.containsMatchIn(normalized)
     }
 
-    fun draft(input: String): ActionDraft {
+    /**
+     * [nowMillis] enables date/time pre-fill (周五下午三点 → begin/end millis). Without a clock, or
+     * when the phrase is ambiguous or in the past, the draft opens without a time (fail closed:
+     * never pre-fill a guessed time).
+     */
+    fun draft(input: String, nowMillis: Long? = null, zoneId: ZoneId = ZoneId.systemDefault()): ActionDraft {
         val title = cleanedCalendarTitle(input)
+        val timing = nowMillis?.let { CalendarDraftTiming.parse(input, it, zoneId) }
+        val parameters = buildMap {
+            put("title", title)
+            if (timing != null) {
+                put("beginTimeMillis", timing.beginTimeMillis.toString())
+                put("endTimeMillis", timing.endTimeMillis.toString())
+                put("allDay", timing.allDay.toString())
+            }
+        }
         return ActionDraft(
             functionName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
             title = "日程草稿",
-            summary = "将打开日历新建事件页面。",
-            parameters = mapOf("title" to title),
+            summary = timing?.let { "将打开日历新建事件页面，时间：${it.displayText(zoneId)}。" }
+                ?: "将打开日历新建事件页面。",
+            parameters = parameters,
             requiresConfirmation = true,
         )
     }
