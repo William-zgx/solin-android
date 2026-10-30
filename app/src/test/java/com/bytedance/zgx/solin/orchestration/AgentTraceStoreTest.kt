@@ -7,10 +7,7 @@ import com.bytedance.zgx.solin.action.IntentRoutingDecision
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.data.AgentSkillRunCheckpointEntity
-import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
-import com.bytedance.zgx.solin.data.AgentTraceDao
-import com.bytedance.zgx.solin.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
@@ -18,6 +15,7 @@ import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.skill.SkillRequest
 import com.bytedance.zgx.solin.skill.SkillStep
 import com.bytedance.zgx.solin.skill.valueFreeCheckpointForPendingTool
+import com.bytedance.zgx.solin.testing.FakeAgentTraceDao
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
@@ -3025,171 +3023,4 @@ class AgentTraceStoreTest {
             createdAtMillis = 1L,
             updatedAtMillis = 1L,
         )
-
-    private class FakeAgentTraceDao : AgentTraceDao {
-        private val runs = linkedMapOf<String, AgentRunEntity>()
-        private val steps = mutableListOf<AgentStepEntity>()
-        private val pendingConfirmations = linkedMapOf<String, PendingAgentConfirmationEntity>()
-        private val skillRunCheckpoints = linkedMapOf<Pair<String, String>, AgentSkillRunCheckpointEntity>()
-        var failNextStepInsert = false
-        var afterStepInserted: ((AgentStepEntity) -> Unit)? = null
-
-        /** When true, [steps] throws — simulating a DB read failure for the C3 degradation contract. */
-        var failStepReads = false
-
-        override fun run(runId: String): AgentRunEntity? =
-            runs[runId]
-
-        override fun recentRuns(limit: Int): List<AgentRunEntity> =
-            runs.values
-                .sortedWith(
-                    compareByDescending<AgentRunEntity> { run -> run.updatedAtMillis }
-                        .thenByDescending { run -> run.createdAtMillis }
-                        .thenByDescending { run -> run.id },
-                )
-                .take(limit)
-
-        override fun runIdsForSession(sessionId: String): List<String> =
-            runs.values
-                .filter { run -> run.sessionId == sessionId }
-                .map { run -> run.id }
-
-        override fun insertRunIfAbsent(run: AgentRunEntity): Long {
-            if (run.id in runs) return -1L
-            runs[run.id] = run
-            return 1L
-        }
-
-        override fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int {
-            val run = runs[runId] ?: return 0
-            if (run.state in setOf("Completed", "Cancelled", "Failed")) return 0
-            runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
-            return 1
-        }
-
-        fun forceRunState(runId: String, state: AgentRunState, updatedAtMillis: Long) {
-            val run = runs.getValue(runId)
-            runs[runId] = run.copy(state = state.name, updatedAtMillis = updatedAtMillis)
-        }
-
-        override fun compareAndSetRunStateIfExpected(
-            runId: String,
-            expectedState: String,
-            state: String,
-            updatedAtMillis: Long,
-        ): Int {
-            val run = runs[runId] ?: return 0
-            if (run.state in setOf("Completed", "Cancelled", "Failed")) return 0
-            if (run.state != expectedState) return 0
-            runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
-            return 1
-        }
-
-        override fun touchRun(runId: String, updatedAtMillis: Long): Int {
-            val run = runs[runId] ?: return 0
-            runs[runId] = run.copy(updatedAtMillis = updatedAtMillis)
-            return 1
-        }
-
-        override fun nextStepPosition(runId: String): Int =
-            steps
-                .filter { step -> step.runId == runId }
-                .maxOfOrNull { step -> step.position + 1 }
-                ?: 0
-
-        override fun insertStep(step: AgentStepEntity) {
-            if (failNextStepInsert) {
-                failNextStepInsert = false
-                error("injected step insert failure")
-            }
-            steps.removeAll { existing ->
-                existing.runId == step.runId && existing.position == step.position
-            }
-            steps += step
-            afterStepInserted?.invoke(step)
-        }
-
-        override fun steps(runId: String): List<AgentStepEntity> {
-            if (failStepReads) error("injected step read failure")
-            return steps
-                .filter { step -> step.runId == runId }
-                .sortedBy { step -> step.position }
-        }
-
-        override fun deleteStepsForSession(sessionId: String): Int {
-            val runIdSet = runIdsForSession(sessionId).toSet()
-            val before = steps.size
-            steps.removeAll { step -> step.runId in runIdSet }
-            return before - steps.size
-        }
-
-        override fun pendingConfirmations(): List<PendingAgentConfirmationEntity> =
-            pendingConfirmations.values.sortedWith(
-                compareByDescending<PendingAgentConfirmationEntity> { pending -> pending.updatedAtMillis }
-                    .thenByDescending { pending -> pending.createdAtMillis }
-                    .thenByDescending { pending -> pending.runId },
-            )
-
-        override fun latestPendingConfirmation(): PendingAgentConfirmationEntity? =
-            pendingConfirmations().firstOrNull()
-
-        override fun upsertPendingConfirmation(pending: PendingAgentConfirmationEntity) {
-            pendingConfirmations[pending.runId] = pending
-        }
-
-        override fun deletePendingConfirmation(runId: String, requestId: String): Int {
-            val existing = pendingConfirmations[runId] ?: return 0
-            if (existing.requestId != requestId) return 0
-            pendingConfirmations.remove(runId)
-            return 1
-        }
-
-        override fun deletePendingConfirmationsForSession(sessionId: String): Int {
-            val runIds = runIdsForSession(sessionId)
-            val before = pendingConfirmations.size
-            pendingConfirmations.keys.removeAll(runIds.toSet())
-            return before - pendingConfirmations.size
-        }
-
-        override fun skillRunCheckpoint(
-            runId: String,
-            requestId: String,
-        ): AgentSkillRunCheckpointEntity? =
-            skillRunCheckpoints[runId to requestId]
-
-        override fun skillRunCheckpointsForRun(runId: String): List<AgentSkillRunCheckpointEntity> =
-            skillRunCheckpoints.values
-                .filter { checkpoint -> checkpoint.runId == runId }
-                .sortedWith(
-                    compareByDescending<AgentSkillRunCheckpointEntity> { checkpoint -> checkpoint.updatedAtMillis }
-                        .thenByDescending { checkpoint -> checkpoint.requestId },
-                )
-
-        override fun upsertSkillRunCheckpoint(checkpoint: AgentSkillRunCheckpointEntity) {
-            skillRunCheckpoints[checkpoint.runId to checkpoint.requestId] = checkpoint
-        }
-
-        override fun deleteSkillRunCheckpoint(runId: String, requestId: String): Int =
-            if (skillRunCheckpoints.remove(runId to requestId) != null) 1 else 0
-
-        override fun deleteSkillRunCheckpointsForRun(runId: String): Int {
-            val before = skillRunCheckpoints.size
-            skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId == runId }
-            return before - skillRunCheckpoints.size
-        }
-
-        override fun deleteSkillRunCheckpointsForSession(sessionId: String): Int {
-            val runIdSet = runIdsForSession(sessionId).toSet()
-            val before = skillRunCheckpoints.size
-            skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId in runIdSet }
-            return before - skillRunCheckpoints.size
-        }
-
-        override fun deleteRunsForSession(sessionId: String): Int {
-            val runIds = runIdsForSession(sessionId)
-            val before = runs.size
-            runs.keys.removeAll(runIds.toSet())
-            return before - runs.size
-        }
-    }
 }

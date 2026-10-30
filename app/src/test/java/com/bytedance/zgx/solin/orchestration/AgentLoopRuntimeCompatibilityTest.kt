@@ -5,10 +5,10 @@ import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionPlan
 import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
-import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.memory.MemoryRecallMode
 import com.bytedance.zgx.solin.memory.MemoryRepository
+import com.bytedance.zgx.solin.testing.RecordingActionRuntime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -89,24 +89,5 @@ class AgentLoopRuntimeCompatibilityTest {
         assertTrue(!route.plannedByModel)
         assertEquals("skill-first", route.fallbackReason)
         assertEquals(0, actionRuntime.planCallCount)
-    }
-
-    private class RecordingActionRuntime(
-        private val likelyAction: Boolean,
-        private val planningResult: ActionPlanningResult = ActionPlanningResult(
-            plan = ActionPlan(ActionPlanKind.NoAction),
-            usedModel = false,
-            fallbackReason = null,
-        ),
-    ) : ActionPlanningRuntime {
-        var planCallCount: Int = 0
-            private set
-
-        override fun isLikelyAction(input: String): Boolean = likelyAction
-
-        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
-            planCallCount += 1
-            return planningResult
-        }
     }
 }
