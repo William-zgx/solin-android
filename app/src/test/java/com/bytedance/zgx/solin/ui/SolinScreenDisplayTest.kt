@@ -27,6 +27,7 @@ import com.bytedance.zgx.solin.ui.components.ACTION_SUMMARY_COLLAPSE_CHARS
 import com.bytedance.zgx.solin.ui.components.actionDataBoundaryDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionParameterDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionTextDisplay
+import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
 import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
 import com.bytedance.zgx.solin.ui.components.hasAnySavedValue
 import com.bytedance.zgx.solin.ui.components.inferencePreferenceDescription
