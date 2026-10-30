@@ -34,7 +34,6 @@ import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
 import com.bytedance.zgx.solin.modelProfile
 import com.bytedance.zgx.solin.multimodal.SharedInput
 import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
-import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
@@ -57,7 +56,6 @@ import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.toRunDataDestination
-import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.runtime.GenerationQualityDecision
 import com.bytedance.zgx.solin.runtime.GenerationRuntimeKind
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
@@ -293,6 +291,27 @@ class ChatController internal constructor(
         activeRunPlacement = chatPlacementRuntime::activeBinding,
         onRemoteServingStarted = { runId -> runId?.let(::commitDeferredRemoteSend) },
         discardDeferredRemoteSend = { runId -> runId?.let(::discardDeferredRemoteSend) },
+    )
+
+    private val generationCompletion = ChatGenerationCompletion(
+        uiState = uiState,
+        sessionHost = sessionHost,
+        assistantOrchestrator = assistantOrchestrator,
+        runtime = runtime,
+        executePublicEvidenceToolBatchAfterRunIsExecuting = { runId, plans ->
+            executePublicEvidenceToolBatchAfterRunIsExecuting(runId, plans)
+        },
+        handleNextToolPlan = { runId, plan, pendingStatusText ->
+            handleNextToolPlan(runId, plan, pendingStatusText)
+        },
+        continueAfterToolObservation = { runId, promptForModel, responsePrivacy, remoteToolScope ->
+            continueAfterToolObservation(
+                runId = runId,
+                promptForModel = promptForModel,
+                responsePrivacy = responsePrivacy,
+                remoteToolScope = remoteToolScope,
+            )
+        },
     )
 
     private val routeOutcomes = ChatRouteOutcomeHandler(
@@ -1008,153 +1027,13 @@ class ChatController internal constructor(
                         }
                         streamingUpdates.flush()
                         generationStreams.complete(streamKey)
-                        val observation = remoteToolObservation
-                        if (observation != null) {
-                            val toolBatch =
-                                (observation.decision as? AgentObservationDecision.PlanToolBatch)?.plans
-                            if (toolBatch != null) {
-                                val assistantText = buildString {
-                                    if (partial.isNotBlank()) {
-                                        append(partial)
-                                        append("\n\n")
-                                    }
-                                    append("正在并行使用工具：${toolBatch.batchToolTitle()}")
-                                }
-                                uiState.updateLastAssistantLocalOnly(assistantText)
-                                sessionHost.persistActiveSessionFromUi()
-                                executePublicEvidenceToolBatchAfterRunIsExecuting(
-                                    runId = observation.run.id,
-                                    plans = toolBatch,
-                                )
-                                return@generation
-                            }
-                            val nextToolPlan =
-                                (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
-                            if (nextToolPlan != null) {
-                                val assistantText = buildString {
-                                    if (partial.isNotBlank()) {
-                                        append(partial)
-                                        append("\n\n")
-                                    }
-                                    if (nextToolPlan.requiresUserConfirmation()) {
-                                        append("已准备远程动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
-                                    } else {
-                                        append("正在使用工具：${nextToolPlan.draft.title}")
-                                    }
-                                }
-                                uiState.updateLastAssistantLocalOnly(assistantText)
-                                sessionHost.persistActiveSessionFromUi()
-                                handleNextToolPlan(
-                                    runId = observation.run.id,
-                                    plan = nextToolPlan,
-                                    pendingStatusText = "动作草稿待确认 · 远程模型",
-                                )
-                                return@generation
-                            }
-                            uiState.updateLastAssistantLocalOnly(
-                                "无法准备这个动作：${(observation.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
-                            )
-                            sessionHost.persistActiveSessionFromUi()
-                            sessionHost.rebuildMemoryIndex()
-                            uiState.update {
-                                it.copy(
-                                    isBusy = false,
-                                    isGenerating = false,
-                                    isReady = true,
-                                    auditEvents = sessionHost.loadAuditEvents(),
-                                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                    statusText = "动作不可执行",
-                                )
-                            }
-                            return@generation
-                        } else {
-                            if (partial.isBlank()) {
-                                uiState.updateLastAssistant("没有生成内容")
-                            } else if (!useRemoteModel) {
-                                uiState.updateLastAssistantStats(
-                                    runCatching { runtime.lastGenerationStats() }.getOrNull(),
-                                )
-                            }
-                            route.runId?.let { runId ->
-                                val modelObservation = assistantOrchestrator.observeModelResult(
-                                    runId = runId,
-                                    text = partial.toString(),
-                                    allowInlineToolCalls = !useRemoteModel,
-                                )
-                                val nextToolPlan =
-                                    (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
-                                if (nextToolPlan != null) {
-                                    val assistantText = if (nextToolPlan.requiresUserConfirmation()) {
-                                        "已准备模型动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。"
-                                    } else {
-                                        "正在使用工具：${nextToolPlan.draft.title}"
-                                    }
-                                    uiState.updateLastAssistantLocalOnly(assistantText)
-                                    sessionHost.persistActiveSessionFromUi()
-                                    handleNextToolPlan(
-                                        runId = modelObservation.run.id,
-                                        plan = nextToolPlan,
-                                        pendingStatusText = "动作草稿待确认 · 本地模型",
-                                    )
-                                    return@generation
-                                }
-                                if (modelObservation?.decision is AgentObservationDecision.Fail) {
-                                    uiState.updateLastAssistantLocalOnly(
-                                        "无法准备这个动作：${modelObservation.decision.reason}",
-                                    )
-                                    sessionHost.persistActiveSessionFromUi()
-                                    sessionHost.rebuildMemoryIndex()
-                                    uiState.update {
-                                        it.copy(
-                                            isBusy = false,
-                                            isGenerating = false,
-                                            isReady = true,
-                                            auditEvents = sessionHost.loadAuditEvents(),
-                                            agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                                            activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                            statusText = "动作不可执行",
-                                        )
-                                    }
-                                    return@generation
-                                }
-                                val observedForContinuation = modelObservation
-                                val continuationPrompt = observedForContinuation?.continuationPromptForModel
-                                if (observedForContinuation?.decision is AgentObservationDecision.ContinueWithModel &&
-                                    continuationPrompt != null
-                                ) {
-                                    uiState.updateLastAssistant("正在根据公开来源补充引用…")
-                                    sessionHost.persistActiveSessionFromUi()
-                                    continueAfterToolObservation(
-                                        runId = observedForContinuation.run.id,
-                                        promptForModel = continuationPrompt,
-                                        responsePrivacy = MessagePrivacy.RemoteEligible,
-                                        remoteToolScope = observedForContinuation.continuationRemoteToolScope,
-                                    )
-                                    return@generation
-                                }
-                            }
-                        }
-                        sessionHost.persistActiveSessionFromUi()
-                        sessionHost.rebuildMemoryIndex()
-                        uiState.update {
-                            it.copy(
-                                isBusy = false,
-                                isGenerating = false,
-                                isReady = true,
-                                activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
-                                activePublicWebEvidence = sessionHost.activePublicWebEvidenceFor(route.runId),
-                                activeMemoryEvidence = sessionHost.activeMemoryEvidenceFor(
-                                    memoryHits = route.memoryHits,
-                                    includePrivateLocalContext = includePrivateLocalContext,
-                                ),
-                                statusText = if (useRemoteModel) {
-                                    "就绪 · 远程"
-                                } else {
-                                    "就绪 · ${it.backend.label()}"
-                                },
-                            )
-                        }
+                        generationCompletion.complete(
+                            route = route,
+                            observation = remoteToolObservation,
+                            partial = partial,
+                            useRemoteModel = useRemoteModel,
+                            includePrivateLocalContext = includePrivateLocalContext,
+                        )
                     }
                 }
             } catch (cancellation: CancellationException) {
