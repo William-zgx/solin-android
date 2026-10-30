@@ -1,0 +1,2115 @@
+## 帮我打开 Wi-Fi 设置
+skill[StaticSkill]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+action: Draft open_wifi_settings {} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。
+intent: open_wifi_settings High
+## 帮我建个日程：周五评审
+skill[StaticSkill]: calendar_draft_skill reason=将打开日历新建事件页面。
+    - create_calendar_event deps=[] tool=create_calendar_event args={title=周五评审} bind={} title=日程草稿 summary=将打开日历新建事件页面。 reason=将打开日历新建事件页面。
+skill[ModelDrivenBootstrap]: calendar_draft_skill reason=将打开日历新建事件页面。
+    - create_calendar_event deps=[] tool=create_calendar_event args={title=周五评审} bind={} title=日程草稿 summary=将打开日历新建事件页面。 reason=将打开日历新建事件页面。
+action: Draft create_calendar_event {title=周五评审} title=日程草稿 summary=将打开日历新建事件页面。
+intent: create_calendar_event High
+## 帮我搜一下 Kotlin 协程最新用法
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法
+    - web_search deps=[] tool=web_search args={query=Kotlin 协程最新用法} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法 reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法
+    - web_search deps=[] tool=web_search args={query=Kotlin 协程最新用法} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法 reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法
+action: Draft web_search {query=Kotlin 协程最新用法} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin 协程最新用法
+intent: web_search High
+## 帮我写邮件：明天延期到周五
+skill[StaticSkill]: email_draft_skill reason=将打开邮件 App 并填入草稿内容。
+    - compose_email deps=[] tool=compose_email args={body=明天延期到周五} bind={} title=邮件草稿 summary=将打开邮件 App 并填入草稿内容。 reason=将打开邮件 App 并填入草稿内容。
+skill[ModelDrivenBootstrap]: email_draft_skill reason=将打开邮件 App 并填入草稿内容。
+    - compose_email deps=[] tool=compose_email args={body=明天延期到周五} bind={} title=邮件草稿 summary=将打开邮件 App 并填入草稿内容。 reason=将打开邮件 App 并填入草稿内容。
+action: Draft compose_email {body=明天延期到周五} title=邮件草稿 summary=将打开邮件 App 并填入草稿内容。
+intent: compose_email High
+## 北京天气怎么样
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：北京天气
+    - web_search deps=[] tool=web_search args={query=北京天气} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：北京天气 reason=将使用 Web 搜索工具查询并整理结果：北京天气
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：北京天气
+    - web_search deps=[] tool=web_search args={query=北京天气} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：北京天气 reason=将使用 Web 搜索工具查询并整理结果：北京天气
+action: Draft web_search {query=北京天气} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：北京天气
+intent: web_search High
+## 编辑联系人 Alice
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 别读最近截图文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 别发邮件：明天延期到周五
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 别分享这段文字：明天十点开会
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 别启动微信
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不打开 Wi-Fi 设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不分享这段文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不启动微信
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不需要分享这段文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要把这段文字分享出去：明天十点开会
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要百度一下 Kotlin
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要查看当前屏幕内容
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要查联系人 Alice
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要查询当前应用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要查询文件列表
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要查询最近图片
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要打开蓝牙设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要打开使用情况访问权限设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要打开微信
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要打开相机
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要打开 https://example.com/path
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要打开 Wi-Fi 设置，只解释一下
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要导航到机场
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要读取当前屏幕文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要读取剪贴板
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要读取最近通知
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要发邮件，只帮我总结这段话
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要分享这段文字：明天十点开会
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要看我有空 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要取消提醒 task-123
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要设置闹钟
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要设置 Wi-Fi
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要识别当前屏幕截图文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要识别最近截图文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要识别最近图片文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要搜索联系人 Alice
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要搜索 Kotlin，只解释一下
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要添加日程：周五评审
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要跳转到 https://example.com/path
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要新建联系人 Alice
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要在当前浏览器搜索 Kotlin
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要在当前应用搜索 海河牛奶
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要总结当前屏幕文字并分享
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要总结剪贴板并分享
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 不要 OCR 最近图片
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查到这个错误原因了吗？
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查看后台任务
+skill[StaticSkill]: background_tasks_context_skill reason=将只读查询本地活动后台任务，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={scope=active} bind={} title=查询后台任务 summary=将只读查询本地活动后台任务，不返回提醒正文。 reason=将只读查询本地活动后台任务，不返回提醒正文。
+skill[ModelDrivenBootstrap]: background_tasks_context_skill reason=将只读查询本地活动后台任务，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={scope=active} bind={} title=查询后台任务 summary=将只读查询本地活动后台任务，不返回提醒正文。 reason=将只读查询本地活动后台任务，不返回提醒正文。
+action: Draft query_background_tasks {scope=active} title=查询后台任务 summary=将只读查询本地活动后台任务，不返回提醒正文。
+intent: query_background_tasks High
+## 查看最近 3 条后台任务历史
+skill[StaticSkill]: background_tasks_context_skill reason=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={maxCount=3, scope=history} bind={} title=查询后台任务 summary=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。 reason=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。
+skill[ModelDrivenBootstrap]: background_tasks_context_skill reason=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={maxCount=3, scope=history} bind={} title=查询后台任务 summary=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。 reason=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。
+action: Draft query_background_tasks {maxCount=3, scope=history} title=查询后台任务 summary=将只读查询本地后台任务历史最多 3 条，不返回提醒正文。
+intent: query_background_tasks High
+## 查联系人 Alice
+skill[StaticSkill]: contact_lookup_skill reason=将按“Alice”查询联系人。
+    - query_contacts deps=[] tool=query_contacts args={query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询联系人。 reason=将按“Alice”查询联系人。
+skill[ModelDrivenBootstrap]: contact_lookup_skill reason=将按“Alice”查询联系人。
+    - query_contacts deps=[] tool=query_contacts args={query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询联系人。 reason=将按“Alice”查询联系人。
+action: Draft query_contacts {query=Alice} title=查询联系人 summary=将按“Alice”查询联系人。
+intent: query_contacts High
+## 查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+skill[StaticSkill]: calendar_availability_skill reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+    - query_calendar_availability deps=[] tool=query_calendar_availability args={end=2026-06-01T10:00:00Z, start=2026-06-01T09:00:00Z} bind={} title=查询日历忙闲 summary=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+skill[ModelDrivenBootstrap]: calendar_availability_skill reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+    - query_calendar_availability deps=[] tool=query_calendar_availability args={end=2026-06-01T10:00:00Z, start=2026-06-01T09:00:00Z} bind={} title=查询日历忙闲 summary=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+action: Draft query_calendar_availability {end=2026-06-01T10:00:00Z, start=2026-06-01T09:00:00Z} title=查询日历忙闲 summary=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+intent: query_calendar_availability High
+## 查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查去机场的路线
+skill[StaticSkill]: map_search_skill reason=将在地图中搜索：机场的路线
+    - search_maps deps=[] tool=search_maps args={query=机场的路线} bind={} title=地图搜索 summary=将在地图中搜索：机场的路线 reason=将在地图中搜索：机场的路线
+skill[ModelDrivenBootstrap]: map_search_skill reason=将在地图中搜索：机场的路线
+    - search_maps deps=[] tool=search_maps args={query=机场的路线} bind={} title=地图搜索 summary=将在地图中搜索：机场的路线 reason=将在地图中搜索：机场的路线
+action: Draft search_maps {query=机场的路线} title=地图搜索 summary=将在地图中搜索：机场的路线
+intent: search_maps High
+## 查询联系人
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查询文件 API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查询最近3张截图
+skill[StaticSkill]: recent_files_context_skill reason=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=screenshots, maxCount=3} bind={} title=查询最近文件 summary=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+skill[ModelDrivenBootstrap]: recent_files_context_skill reason=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=screenshots, maxCount=3} bind={} title=查询最近文件 summary=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+action: Draft query_recent_files {kind=screenshots, maxCount=3} title=查询最近文件 summary=将读取最近 3 个截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+intent: query_recent_files High
+## 查询最近5个图片文件列表
+skill[StaticSkill]: recent_files_context_skill reason=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=images, maxCount=5} bind={} title=查询最近文件 summary=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+skill[ModelDrivenBootstrap]: recent_files_context_skill reason=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=images, maxCount=5} bind={} title=查询最近文件 summary=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+action: Draft query_recent_files {kind=images, maxCount=5} title=查询最近文件 summary=将读取最近 5 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+intent: query_recent_files High
+## 查询最近5个文档
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: Draft query_recent_files {kind=documents, maxCount=5} title=查询最近文件 summary=将读取最近 5 个文档文件摘要（仅返回文件名、类型、大小和修改时间；Android 13 及以上需要通过系统文件选择器授权非媒体文件）。
+intent: query_recent_files High
+## 查一下忙闲
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查一下这个错误原因了吗？
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查一下 Kotlin 协程
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 查一下 Kotlin 协程最新用法
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开蓝牙设置
+skill[StaticSkill]: device_settings_skill reason=将打开蓝牙设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=bluetooth} bind={} title=打开 蓝牙设置 summary=将打开蓝牙设置，由你手动完成后续操作。 reason=将打开蓝牙设置，由你手动完成后续操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开蓝牙设置，由你手动完成后续操作。
+    - open_system_settings deps=[] tool=open_system_settings args={target=bluetooth} bind={} title=打开 蓝牙设置 summary=将打开蓝牙设置，由你手动完成后续操作。 reason=将打开蓝牙设置，由你手动完成后续操作。
+action: Draft open_system_settings {target=bluetooth} title=打开 蓝牙设置 summary=将打开蓝牙设置，由你手动完成后续操作。
+intent: open_system_settings High
+## 打开链接 file:///tmp/a
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开链接 http://example.com/path
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开链接 https://example.com
+skill[StaticSkill]: deep_link_navigation_skill reason=将打开深度链接：https://example.com
+    - open_deep_link deps=[] tool=open_deep_link args={uri=https://example.com} bind={} title=打开深链 summary=将打开深度链接：https://example.com reason=将打开深度链接：https://example.com
+skill[ModelDrivenBootstrap]: deep_link_navigation_skill reason=将打开深度链接：https://example.com
+    - open_deep_link deps=[] tool=open_deep_link args={uri=https://example.com} bind={} title=打开深链 summary=将打开深度链接：https://example.com reason=将打开深度链接：https://example.com
+action: Draft open_deep_link {uri=https://example.com} title=打开深链 summary=将打开深度链接：https://example.com
+intent: open_deep_link High
+## 打开链接 https://example.com/path?q=agent
+skill[StaticSkill]: deep_link_navigation_skill reason=将打开深度链接：https://example.com/path?q=agent
+    - open_deep_link deps=[] tool=open_deep_link args={uri=https://example.com/path?q=agent} bind={} title=打开深链 summary=将打开深度链接：https://example.com/path?q=agent reason=将打开深度链接：https://example.com/path?q=agent
+skill[ModelDrivenBootstrap]: deep_link_navigation_skill reason=将打开深度链接：https://example.com/path?q=agent
+    - open_deep_link deps=[] tool=open_deep_link args={uri=https://example.com/path?q=agent} bind={} title=打开深链 summary=将打开深度链接：https://example.com/path?q=agent reason=将打开深度链接：https://example.com/path?q=agent
+action: Draft open_deep_link {uri=https://example.com/path?q=agent} title=打开深链 summary=将打开深度链接：https://example.com/path?q=agent
+intent: open_deep_link High
+## 打开链接 javascript:alert(1)
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开名为 WiFi 的 App
+skill[StaticSkill]: app_navigation_skill reason=将按本机应用名打开：名为 WiFi 的
+    - open_app_by_name deps=[] tool=open_app_by_name args={appName=名为 WiFi 的} bind={} title=打开应用 summary=将按本机应用名打开：名为 WiFi 的 reason=将按本机应用名打开：名为 WiFi 的
+skill[ModelDrivenBootstrap]: app_navigation_skill reason=将按本机应用名打开：名为 WiFi 的
+    - open_app_by_name deps=[] tool=open_app_by_name args={appName=名为 WiFi 的} bind={} title=打开应用 summary=将按本机应用名打开：名为 WiFi 的 reason=将按本机应用名打开：名为 WiFi 的
+action: Draft open_app_by_name {appName=名为 WiFi 的} title=打开应用 summary=将按本机应用名打开：名为 WiFi 的
+intent: open_app_by_name High
+## 打开使用情况访问权限设置
+skill[StaticSkill]: device_settings_skill reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+    - open_usage_access_settings deps=[] tool=open_usage_access_settings args={} bind={} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。 reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+    - open_usage_access_settings deps=[] tool=open_usage_access_settings args={} bind={} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。 reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+action: Draft open_usage_access_settings {} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+intent: open_usage_access_settings High
+## 打开手电筒
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开手电筒设置
+skill[StaticSkill]: device_settings_skill reason=将打开系统设置，由你手动确认手电筒相关操作。
+    - open_flashlight_settings deps=[] tool=open_flashlight_settings args={} bind={} title=打开手电筒设置 summary=将打开系统设置，由你手动确认手电筒相关操作。 reason=将打开系统设置，由你手动确认手电筒相关操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统设置，由你手动确认手电筒相关操作。
+    - open_flashlight_settings deps=[] tool=open_flashlight_settings args={} bind={} title=打开手电筒设置 summary=将打开系统设置，由你手动确认手电筒相关操作。 reason=将打开系统设置，由你手动确认手电筒相关操作。
+action: Draft open_flashlight_settings {} title=打开手电筒设置 summary=将打开系统设置，由你手动确认手电筒相关操作。
+intent: open_flashlight_settings High
+## 打开淘宝搜索耳机
+skill[StaticSkill]: open_app_ui_search_skill reason=将打开淘宝，再在应用内搜索并验证结果：耳机。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=淘宝} bind={} title=打开应用 summary=打开目标应用：淘宝。 reason=打开目标应用：淘宝。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=800} bind={} title=等待并验证 summary=等待淘宝前台界面稳定。 reason=等待淘宝前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_target_app] tool=ui_tap args={expectedPackageName=com.taobao.taobao, target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={expectedPackageName=com.taobao.taobao, target=搜索输入框, text=耳机, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：耳机。 reason=输入搜索关键词：耳机。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={expectedPackageName=com.taobao.taobao, timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：耳机。 reason=提交当前应用内搜索：耳机。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={expectedAppName=淘宝, expectedPackageName=com.taobao.taobao, timeoutMillis=800, verifySearchQuery=耳机} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_open_app_ui_search_skill reason=将打开淘宝并观察前台界面；后续由本地动作规划模型逐步规划低风险搜索动作：耳机。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=淘宝} bind={} title=打开应用 summary=打开目标应用：淘宝。 reason=打开目标应用：淘宝。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=4000} bind={} title=等待并验证 summary=等待淘宝前台界面稳定。 reason=等待淘宝前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: NoAction null
+intent: null None
+## 打开淘宝搜索耳机，然后返回
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开淘宝搜索海河牛奶
+skill[StaticSkill]: open_app_ui_search_skill reason=将打开淘宝，再在应用内搜索并验证结果：海河牛奶。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=淘宝} bind={} title=打开应用 summary=打开目标应用：淘宝。 reason=打开目标应用：淘宝。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=800} bind={} title=等待并验证 summary=等待淘宝前台界面稳定。 reason=等待淘宝前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_target_app] tool=ui_tap args={expectedPackageName=com.taobao.taobao, target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={expectedPackageName=com.taobao.taobao, target=搜索输入框, text=海河牛奶, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：海河牛奶。 reason=输入搜索关键词：海河牛奶。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={expectedPackageName=com.taobao.taobao, timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：海河牛奶。 reason=提交当前应用内搜索：海河牛奶。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={expectedAppName=淘宝, expectedPackageName=com.taobao.taobao, timeoutMillis=800, verifySearchQuery=海河牛奶} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_open_app_ui_search_skill reason=将打开淘宝并观察前台界面；后续由本地动作规划模型逐步规划低风险搜索动作：海河牛奶。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=淘宝} bind={} title=打开应用 summary=打开目标应用：淘宝。 reason=打开目标应用：淘宝。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=4000} bind={} title=等待并验证 summary=等待淘宝前台界面稳定。 reason=等待淘宝前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: NoAction null
+intent: null None
+## 打开微信聊天
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信朋友圈
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信权限页
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信扫一扫
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信通知设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信小程序
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信应用设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信应用详情设置
+skill[StaticSkill]: app_navigation_skill reason=将打开应用详情设置：com.tencent.mm
+    - open_app_deep_target deps=[] tool=open_app_deep_target args={packageName=com.tencent.mm, targetId=android_app_details_settings} bind={} title=打开应用深层目标 summary=将打开应用详情设置：com.tencent.mm reason=将打开应用详情设置：com.tencent.mm
+skill[ModelDrivenBootstrap]: app_navigation_skill reason=将打开应用详情设置：com.tencent.mm
+    - open_app_deep_target deps=[] tool=open_app_deep_target args={packageName=com.tencent.mm, targetId=android_app_details_settings} bind={} title=打开应用深层目标 summary=将打开应用详情设置：com.tencent.mm reason=将打开应用详情设置：com.tencent.mm
+action: Draft open_app_deep_target {packageName=com.tencent.mm, targetId=android_app_details_settings} title=打开应用深层目标 summary=将打开应用详情设置：com.tencent.mm
+intent: open_app_deep_target High
+## 打开微信应用详情设置然后发消息
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开微信支付收款码
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开应用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开应用详情设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开应用信息
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开 com.example.app
+skill[StaticSkill]: app_navigation_skill reason=将打开应用启动页：com.example.app
+    - open_app_intent deps=[] tool=open_app_intent args={packageName=com.example.app} bind={} title=打开应用 summary=将打开应用启动页：com.example.app reason=将打开应用启动页：com.example.app
+skill[ModelDrivenBootstrap]: app_navigation_skill reason=将打开应用启动页：com.example.app
+    - open_app_intent deps=[] tool=open_app_intent args={packageName=com.example.app} bind={} title=打开应用 summary=将打开应用启动页：com.example.app reason=将打开应用启动页：com.example.app
+action: Draft open_app_intent {packageName=com.example.app} title=打开应用 summary=将打开应用启动页：com.example.app
+intent: open_app_intent High
+## 打开 com.example.app 应用详情设置
+skill[StaticSkill]: app_navigation_skill reason=将打开应用详情设置：com.example.app
+    - open_app_deep_target deps=[] tool=open_app_deep_target args={packageName=com.example.app, targetId=android_app_details_settings} bind={} title=打开应用深层目标 summary=将打开应用详情设置：com.example.app reason=将打开应用详情设置：com.example.app
+skill[ModelDrivenBootstrap]: app_navigation_skill reason=将打开应用详情设置：com.example.app
+    - open_app_deep_target deps=[] tool=open_app_deep_target args={packageName=com.example.app, targetId=android_app_details_settings} bind={} title=打开应用深层目标 summary=将打开应用详情设置：com.example.app reason=将打开应用详情设置：com.example.app
+action: Draft open_app_deep_target {packageName=com.example.app, targetId=android_app_details_settings} title=打开应用深层目标 summary=将打开应用详情设置：com.example.app
+intent: open_app_deep_target High
+## 打开 com.example.app/.MainActivity 应用详情设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开 file:///sdcard/private.txt
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开 intent://scan/#Intent;scheme=zxing;end
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开 package:com.example.app
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 打开 Wi-Fi 设置
+skill[StaticSkill]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+action: Draft open_wifi_settings {} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。
+intent: open_wifi_settings High
+## 当前地图 API 怎么用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 当前屏幕截图
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 当前屏幕 OCR
+skill[StaticSkill]: current_screenshot_ocr_context_skill reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+    - capture_current_screenshot_ocr deps=[] tool=capture_current_screenshot_ocr args={captureMode=current_screen} bind={} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。 reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+skill[ModelDrivenBootstrap]: current_screenshot_ocr_context_skill reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+    - capture_current_screenshot_ocr deps=[] tool=capture_current_screenshot_ocr args={captureMode=current_screen} bind={} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。 reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+action: Draft capture_current_screenshot_ocr {captureMode=current_screen} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+intent: capture_current_screenshot_ocr High
+## 当前设置页怎么设计
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 当前页面返回
+skill[StaticSkill]: current_page_simple_interaction_skill reason=将在当前页面执行系统返回。
+    - press_current_page_back deps=[] tool=ui_press_back args={timeoutMillis=1000} bind={} title=返回 summary=执行系统返回。 reason=执行系统返回。
+    - verify_current_page_back deps=[press_current_page_back] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待返回后的页面稳定。 reason=等待返回后的页面稳定。
+skill[ModelDrivenBootstrap]: current_page_simple_interaction_skill reason=将在当前页面执行系统返回。
+    - press_current_page_back deps=[] tool=ui_press_back args={timeoutMillis=1000} bind={} title=返回 summary=执行系统返回。 reason=执行系统返回。
+    - verify_current_page_back deps=[press_current_page_back] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待返回后的页面稳定。 reason=等待返回后的页面稳定。
+action: NoAction null
+intent: null None
+## 当前页面搜索功能怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 当前页面往下滚动
+skill[StaticSkill]: current_page_simple_interaction_skill reason=将在当前页面观察并滚动。
+    - observe_current_page_scroll deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - scroll_current_page deps=[observe_current_page_scroll] tool=ui_scroll args={direction=down, timeoutMillis=1500} bind={} title=滚动页面 summary=滚动当前页面。 reason=滚动当前页面。
+    - verify_current_page_scroll deps=[scroll_current_page] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待滚动结果并重新观察。 reason=等待滚动结果并重新观察。
+skill[ModelDrivenBootstrap]: current_page_simple_interaction_skill reason=将在当前页面观察并滚动。
+    - observe_current_page_scroll deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - scroll_current_page deps=[observe_current_page_scroll] tool=ui_scroll args={direction=down, timeoutMillis=1500} bind={} title=滚动页面 summary=滚动当前页面。 reason=滚动当前页面。
+    - verify_current_page_scroll deps=[scroll_current_page] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待滚动结果并重新观察。 reason=等待滚动结果并重新观察。
+action: NoAction null
+intent: null None
+## 当前应用权限怎么申请
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 当前应用是什么
+skill[StaticSkill]: foreground_app_context_skill reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+    - query_foreground_app deps=[] tool=query_foreground_app args={} bind={} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。 reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+skill[ModelDrivenBootstrap]: foreground_app_context_skill reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+    - query_foreground_app deps=[] tool=query_foreground_app args={} bind={} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。 reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+action: Draft query_foreground_app {} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+intent: query_foreground_app High
+## 倒计时20分钟
+skill[StaticSkill]: time_action_skill reason=将打开系统计时器界面设置 1200 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=1200} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 1200 秒倒计时。 reason=将打开系统计时器界面设置 1200 秒倒计时。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统计时器界面设置 1200 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=1200} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 1200 秒倒计时。 reason=将打开系统计时器界面设置 1200 秒倒计时。
+action: Draft set_system_timer {lengthSeconds=1200} title=系统倒计时 summary=将打开系统计时器界面设置 1200 秒倒计时。
+intent: set_system_timer High
+## 导出联系人
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 地图是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 点击当前屏幕上的筛选
+skill[StaticSkill]: current_page_simple_interaction_skill reason=将在当前页面观察并点击可见元素：筛选。
+    - observe_current_page_tap deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - tap_current_page_target deps=[observe_current_page_tap] tool=ui_tap args={target=筛选, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=点击当前页面中的可见元素：筛选。 reason=点击当前页面中的可见元素：筛选。
+    - verify_current_page_tap deps=[tap_current_page_target] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待页面变化并重新观察。 reason=等待页面变化并重新观察。
+skill[ModelDrivenBootstrap]: current_page_simple_interaction_skill reason=将在当前页面观察并点击可见元素：筛选。
+    - observe_current_page_tap deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - tap_current_page_target deps=[observe_current_page_tap] tool=ui_tap args={target=筛选, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=点击当前页面中的可见元素：筛选。 reason=点击当前页面中的可见元素：筛选。
+    - verify_current_page_tap deps=[tap_current_page_target] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待页面变化并重新观察。 reason=等待页面变化并重新观察。
+action: NoAction null
+intent: null None
+## 点击当前页面的筛选
+skill[StaticSkill]: current_page_simple_interaction_skill reason=将在当前页面观察并点击可见元素：筛选。
+    - observe_current_page_tap deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - tap_current_page_target deps=[observe_current_page_tap] tool=ui_tap args={target=筛选, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=点击当前页面中的可见元素：筛选。 reason=点击当前页面中的可见元素：筛选。
+    - verify_current_page_tap deps=[tap_current_page_target] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待页面变化并重新观察。 reason=等待页面变化并重新观察。
+skill[ModelDrivenBootstrap]: current_page_simple_interaction_skill reason=将在当前页面观察并点击可见元素：筛选。
+    - observe_current_page_tap deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - tap_current_page_target deps=[observe_current_page_tap] tool=ui_tap args={target=筛选, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=点击当前页面中的可见元素：筛选。 reason=点击当前页面中的可见元素：筛选。
+    - verify_current_page_tap deps=[tap_current_page_target] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待页面变化并重新观察。 reason=等待页面变化并重新观察。
+action: NoAction null
+intent: null None
+## 定位设置页面怎么设计
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 读取剪贴板
+skill[StaticSkill]: clipboard_context_skill reason=将读取当前剪贴板文本。
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本。 reason=将读取当前剪贴板文本。
+skill[ModelDrivenBootstrap]: clipboard_context_skill reason=将读取当前剪贴板文本。
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本。 reason=将读取当前剪贴板文本。
+action: Draft read_clipboard {} title=读取剪贴板 summary=将读取当前剪贴板文本。
+intent: read_clipboard High
+## 读取剪贴板并总结
+skill[StaticSkill]: clipboard_context_skill reason=将读取当前剪贴板文本。
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本。 reason=将读取当前剪贴板文本。
+skill[ModelDrivenBootstrap]: clipboard_context_skill reason=将读取当前剪贴板文本。
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本。 reason=将读取当前剪贴板文本。
+action: Draft read_clipboard {} title=读取剪贴板 summary=将读取当前剪贴板文本。
+intent: read_clipboard High
+## 读取剪贴板，然后打开 Wi-Fi 设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 读取剪贴板再打开 Wi-Fi 设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 读取所有截图 OCR
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 读取所有图片 OCR
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 返回
+skill[StaticSkill]: current_page_simple_interaction_skill reason=将在当前页面执行系统返回。
+    - press_current_page_back deps=[] tool=ui_press_back args={timeoutMillis=1000} bind={} title=返回 summary=执行系统返回。 reason=执行系统返回。
+    - verify_current_page_back deps=[press_current_page_back] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待返回后的页面稳定。 reason=等待返回后的页面稳定。
+skill[ModelDrivenBootstrap]: current_page_simple_interaction_skill reason=将在当前页面执行系统返回。
+    - press_current_page_back deps=[] tool=ui_press_back args={timeoutMillis=1000} bind={} title=返回 summary=执行系统返回。 reason=执行系统返回。
+    - verify_current_page_back deps=[press_current_page_back] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待返回后的页面稳定。 reason=等待返回后的页面稳定。
+action: NoAction null
+intent: null None
+## 分享一下你对端侧 Agent 的看法
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 分享这段文字：不要分享内部资料
+skill[StaticSkill]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=不要分享内部资料} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+skill[ModelDrivenBootstrap]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=不要分享内部资料} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+action: Draft share_text {text=不要分享内部资料} title=系统分享 summary=将打开系统分享面板并填入文本。
+intent: share_text High
+## 分享这段文字：明天十点开会
+skill[StaticSkill]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=明天十点开会} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+skill[ModelDrivenBootstrap]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=明天十点开会} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+action: Draft share_text {text=明天十点开会} title=系统分享 summary=将打开系统分享面板并填入文本。
+intent: share_text High
+## 关闭周期检查
+skill[StaticSkill]: periodic_check_skill reason=将关闭本地提醒周期检查。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=false} bind={} title=关闭周期检查 summary=将关闭本地提醒周期检查。 reason=将关闭本地提醒周期检查。
+skill[ModelDrivenBootstrap]: periodic_check_skill reason=将关闭本地提醒周期检查。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=false} bind={} title=关闭周期检查 summary=将关闭本地提醒周期检查。 reason=将关闭本地提醒周期检查。
+action: Draft configure_periodic_check {enabled=false} title=关闭周期检查 summary=将关闭本地提醒周期检查。
+intent: configure_periodic_check High
+## 观察当前屏幕
+skill[StaticSkill]: device_control_skill reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+    - observe_current_screen deps=[] tool=observe_current_screen args={} bind={} title=观察当前屏幕 summary=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。 reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+skill[ModelDrivenBootstrap]: device_control_skill reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+    - observe_current_screen deps=[] tool=observe_current_screen args={} bind={} title=观察当前屏幕 summary=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。 reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+action: NoAction null
+intent: null None
+## 后台任务怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 截图 OCR 怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 解释一下 PACKAGE_USAGE_STATS
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 解释一下 Wi-Fi 设置 API 怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 解释 https://example.com/path 是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 进入无线设置
+skill[StaticSkill]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+action: Draft open_wifi_settings {} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。
+intent: open_wifi_settings High
+## 开启周期检查
+skill[StaticSkill]: periodic_check_skill reason=将开启本地提醒周期检查，间隔 360 分钟。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=true, intervalMinutes=360} bind={} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 360 分钟。 reason=将开启本地提醒周期检查，间隔 360 分钟。
+skill[ModelDrivenBootstrap]: periodic_check_skill reason=将开启本地提醒周期检查，间隔 360 分钟。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=true, intervalMinutes=360} bind={} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 360 分钟。 reason=将开启本地提醒周期检查，间隔 360 分钟。
+action: Draft configure_periodic_check {enabled=true, intervalMinutes=360} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 360 分钟。
+intent: configure_periodic_check High
+## 开启周期检查，每 2 小时
+skill[StaticSkill]: periodic_check_skill reason=将开启本地提醒周期检查，间隔 120 分钟。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=true, intervalMinutes=120} bind={} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 120 分钟。 reason=将开启本地提醒周期检查，间隔 120 分钟。
+skill[ModelDrivenBootstrap]: periodic_check_skill reason=将开启本地提醒周期检查，间隔 120 分钟。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=true, intervalMinutes=120} bind={} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 120 分钟。 reason=将开启本地提醒周期检查，间隔 120 分钟。
+action: Draft configure_periodic_check {enabled=true, intervalMinutes=120} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 120 分钟。
+intent: configure_periodic_check High
+## 看看当前屏幕
+skill[StaticSkill]: device_control_skill reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+    - observe_current_screen deps=[] tool=observe_current_screen args={} bind={} title=观察当前屏幕 summary=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。 reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+skill[ModelDrivenBootstrap]: device_control_skill reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+    - observe_current_screen deps=[] tool=observe_current_screen args={} bind={} title=观察当前屏幕 summary=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。 reason=将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。
+action: NoAction null
+intent: null None
+## 蓝牙是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 联系人
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 联系人权限
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 联系人权限怎么申请
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 每天晚上11:25设置闹钟
+skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置每天 23:25 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=23, minutes=25, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 23:25 的闹钟。 reason=将打开系统闹钟界面设置每天 23:25 的闹钟。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置每天 23:25 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=23, minutes=25, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 23:25 的闹钟。 reason=将打开系统闹钟界面设置每天 23:25 的闹钟。
+action: Draft set_system_alarm {hour=23, minutes=25, recurrence=daily} title=系统闹钟 summary=将打开系统闹钟界面设置每天 23:25 的闹钟。
+intent: set_system_alarm High
+## 描述最近图片
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 明天我有空吗
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 明天早上8点提醒我开会
+skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
+action: Draft schedule_reminder {body=明天早上8点提醒我开会, title=开会, triggerAtMillis=1781510400000} title=后台提醒 summary=将在指定时间提醒：开会
+intent: schedule_reminder High
+## 你能帮我搜一下 Kotlin 吗？
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin
+    - web_search deps=[] tool=web_search args={query=Kotlin} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin reason=将使用 Web 搜索工具查询并整理结果：Kotlin
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin
+    - web_search deps=[] tool=web_search args={query=Kotlin} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin reason=将使用 Web 搜索工具查询并整理结果：Kotlin
+action: Draft web_search {query=Kotlin} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin
+intent: web_search High
+## 启动微信
+skill[StaticSkill]: app_navigation_skill reason=将按本机应用名打开：微信
+    - open_app_by_name deps=[] tool=open_app_by_name args={appName=微信} bind={} title=打开应用 summary=将按本机应用名打开：微信 reason=将按本机应用名打开：微信
+skill[ModelDrivenBootstrap]: app_navigation_skill reason=将按本机应用名打开：微信
+    - open_app_by_name deps=[] tool=open_app_by_name args={appName=微信} bind={} title=打开应用 summary=将按本机应用名打开：微信 reason=将按本机应用名打开：微信
+action: Draft open_app_by_name {appName=微信} title=打开应用 summary=将按本机应用名打开：微信
+intent: open_app_by_name High
+## 启动 app
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 前台服务限制是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 前台应用 API 怎么用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 请解释“提醒我 15 分钟后喝水”这句话
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 请勿打开微信
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 请勿打开 Wi-Fi 设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 取消后台任务
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 取消日程 task-123
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 取消提醒
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 取消提醒 API task-123
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 取消提醒 task-123
+skill[StaticSkill]: reminder_skill reason=将取消提醒任务：task-123
+    - cancel_reminder deps=[] tool=cancel_reminder args={taskId=task-123} bind={} title=取消提醒 summary=将取消提醒任务：task-123 reason=将取消提醒任务：task-123
+skill[ModelDrivenBootstrap]: reminder_skill reason=将取消提醒任务：task-123
+    - cancel_reminder deps=[] tool=cancel_reminder args={taskId=task-123} bind={} title=取消提醒 summary=将取消提醒任务：task-123 reason=将取消提醒任务：task-123
+action: Draft cancel_reminder {taskId=task-123} title=取消提醒 summary=将取消提醒任务：task-123
+intent: cancel_reminder High
+## 日程这个词怎么理解
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 日历权限怎么申请
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 如何打开微信
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 如何读取剪贴板
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 如何分享这段文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 如何总结当前屏幕文字并分享
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: Draft read_current_screen_text {maxChars=2000} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+intent: read_current_screen_text High
+## 如何总结剪贴板并分享
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: Draft read_clipboard {} title=读取剪贴板 summary=将读取当前剪贴板文本。
+intent: read_clipboard High
+## 删除联系人 Alice
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 识别当前屏幕截图文字
+skill[StaticSkill]: current_screenshot_ocr_context_skill reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+    - capture_current_screenshot_ocr deps=[] tool=capture_current_screenshot_ocr args={captureMode=current_screen} bind={} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。 reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+skill[ModelDrivenBootstrap]: current_screenshot_ocr_context_skill reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+    - capture_current_screenshot_ocr deps=[] tool=capture_current_screenshot_ocr args={captureMode=current_screen} bind={} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。 reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+action: Draft capture_current_screenshot_ocr {captureMode=current_screen} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+intent: capture_current_screenshot_ocr High
+## 识别最近1张截图文字
+skill[StaticSkill]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_screenshot_ocr {maxCount=1} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_screenshot_ocr High
+## 识别最近2张截图文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 识别最近2张照片文字
+skill[StaticSkill]: recent_image_ocr_context_skill reason=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_image_ocr deps=[] tool=read_recent_image_ocr args={maxCount=2} bind={} title=读取最近图片 OCR summary=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。 reason=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_image_ocr_context_skill reason=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_image_ocr deps=[] tool=read_recent_image_ocr args={maxCount=2} bind={} title=读取最近图片 OCR summary=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。 reason=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_image_ocr {maxCount=2} title=读取最近图片 OCR summary=将扫描最近 2 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_image_ocr High
+## 识别最近4张图片文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 识别最近截图文字
+skill[StaticSkill]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_screenshot_ocr {maxCount=1} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_screenshot_ocr High
+## 识别最近两张截图文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 识别最近四张照片文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 识别最近图片文字
+skill[StaticSkill]: recent_image_ocr_context_skill reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_image_ocr deps=[] tool=read_recent_image_ocr args={maxCount=3} bind={} title=读取最近图片 OCR summary=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。 reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_image_ocr_context_skill reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_image_ocr deps=[] tool=read_recent_image_ocr args={maxCount=3} bind={} title=读取最近图片 OCR summary=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。 reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_image_ocr {maxCount=3} title=读取最近图片 OCR summary=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_image_ocr High
+## 手电筒 API 怎么用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 授权应用使用情况权限
+skill[StaticSkill]: device_settings_skill reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+    - open_usage_access_settings deps=[] tool=open_usage_access_settings args={} bind={} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。 reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+    - open_usage_access_settings deps=[] tool=open_usage_access_settings args={} bind={} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。 reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+action: Draft open_usage_access_settings {} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+intent: open_usage_access_settings High
+## 搜一下 Kotlin 协程
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程
+    - web_search deps=[] tool=web_search args={query=Kotlin 协程} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin 协程 reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程
+    - web_search deps=[] tool=web_search args={query=Kotlin 协程} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin 协程 reason=将使用 Web 搜索工具查询并整理结果：Kotlin 协程
+action: Draft web_search {query=Kotlin 协程} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin 协程
+intent: web_search High
+## 提醒我 10 分钟后喝水，然后提醒我 20 分钟后运动
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 提醒我 15 分钟后喝水
+skill[StaticSkill]: reminder_skill reason=将在 15 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我 15 分钟后喝水, delayMinutes=15, title=喝水} bind={} title=后台提醒 summary=将在 15 分钟后提醒：喝水 reason=将在 15 分钟后提醒：喝水
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 15 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我 15 分钟后喝水, delayMinutes=15, title=喝水} bind={} title=后台提醒 summary=将在 15 分钟后提醒：喝水 reason=将在 15 分钟后提醒：喝水
+action: Draft schedule_reminder {body=提醒我 15 分钟后喝水, delayMinutes=15, title=喝水} title=后台提醒 summary=将在 15 分钟后提醒：喝水
+intent: schedule_reminder High
+## 提醒我 1.5 小时后喝水
+skill[StaticSkill]: reminder_skill reason=将在 90 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我 1.5 小时后喝水, delayMinutes=90, title=喝水} bind={} title=后台提醒 summary=将在 90 分钟后提醒：喝水 reason=将在 90 分钟后提醒：喝水
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 90 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我 1.5 小时后喝水, delayMinutes=90, title=喝水} bind={} title=后台提醒 summary=将在 90 分钟后提醒：喝水 reason=将在 90 分钟后提醒：喝水
+action: Draft schedule_reminder {body=提醒我 1.5 小时后喝水, delayMinutes=90, title=喝水} title=后台提醒 summary=将在 90 分钟后提醒：喝水
+intent: schedule_reminder High
+## 提醒我 30 分钟后检查 2 小时后开始的会议资料
+skill[StaticSkill]: reminder_skill reason=将在 30 分钟后提醒：检查 2 小时后开始的会议资料
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我 30 分钟后检查 2 小时后开始的会议资料, delayMinutes=30, title=检查 2 小时后开始的会议资料} bind={} title=后台提醒 summary=将在 30 分钟后提醒：检查 2 小时后开始的会议资料 reason=将在 30 分钟后提醒：检查 2 小时后开始的会议资料
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 30 分钟后提醒：检查 2 小时后开始的会议资料
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我 30 分钟后检查 2 小时后开始的会议资料, delayMinutes=30, title=检查 2 小时后开始的会议资料} bind={} title=后台提醒 summary=将在 30 分钟后提醒：检查 2 小时后开始的会议资料 reason=将在 30 分钟后提醒：检查 2 小时后开始的会议资料
+action: Draft schedule_reminder {body=提醒我 30 分钟后检查 2 小时后开始的会议资料, delayMinutes=30, title=检查 2 小时后开始的会议资料} title=后台提醒 summary=将在 30 分钟后提醒：检查 2 小时后开始的会议资料
+intent: schedule_reminder High
+## 提醒我今天9:00开会
+skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
+action: Draft schedule_reminder {body=提醒我今天9:00开会, title=开会, triggerAtMillis=1781427600000} title=后台提醒 summary=将在指定时间提醒：开会
+intent: schedule_reminder High
+## 提醒我一下，“15 分钟后”是什么意思
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 提醒我一下，15 分钟英文怎么说
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 提醒我在15分钟以后喝水
+skill[StaticSkill]: reminder_skill reason=将在 15 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我在15分钟以后喝水, delayMinutes=15, title=喝水} bind={} title=后台提醒 summary=将在 15 分钟后提醒：喝水 reason=将在 15 分钟后提醒：喝水
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 15 分钟后提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我在15分钟以后喝水, delayMinutes=15, title=喝水} bind={} title=后台提醒 summary=将在 15 分钟后提醒：喝水 reason=将在 15 分钟后提醒：喝水
+action: Draft schedule_reminder {body=提醒我在15分钟以后喝水, delayMinutes=15, title=喝水} title=后台提醒 summary=将在 15 分钟后提醒：喝水
+intent: schedule_reminder High
+## 天气是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 通知栏
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 图片里有什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 图片 OCR API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 晚上11:25是什么意思
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 网上查一下 Kotlin Flow debounce
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce
+    - web_search deps=[] tool=web_search args={query=Kotlin Flow debounce} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce reason=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce
+    - web_search deps=[] tool=web_search args={query=Kotlin Flow debounce} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce reason=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce
+action: Draft web_search {query=Kotlin Flow debounce} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin Flow debounce
+intent: web_search High
+## 网页搜索是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 微信打不开怎么办
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 微信打开方式
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 文件列表怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 我不想分享这段文字
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 系统通知
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 相机 API 怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 新建联系人
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 新建联系人 Alice
+skill[StaticSkill]: contact_draft_skill reason=将打开联系人新建页面。
+    - create_contact_draft deps=[] tool=create_contact_draft args={name=Alice} bind={} title=联系人草稿 summary=将打开联系人新建页面。 reason=将打开联系人新建页面。
+skill[ModelDrivenBootstrap]: contact_draft_skill reason=将打开联系人新建页面。
+    - create_contact_draft deps=[] tool=create_contact_draft args={name=Alice} bind={} title=联系人草稿 summary=将打开联系人新建页面。 reason=将打开联系人新建页面。
+action: Draft create_contact_draft {name=Alice} title=联系人草稿 summary=将打开联系人新建页面。
+intent: create_contact_draft High
+## 邮件草稿怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 邮件是什么意思
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 在当前地图查去机场的路线
+skill[StaticSkill]: maps_ui_route_skill reason=将在当前地图页观察、聚焦搜索框、输入地点或路线目标并提交搜索：机场。
+    - observe_maps deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_maps_search deps=[observe_maps] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前地图页面的搜索输入框。 reason=聚焦当前地图页面的搜索输入框。
+    - wait_maps_search_field deps=[focus_maps_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待地图搜索输入框获得焦点或搜索页稳定。 reason=等待地图搜索输入框获得焦点或搜索页稳定。
+    - type_maps_query deps=[wait_maps_search_field] tool=ui_type_text args={target=搜索输入框, text=机场, timeoutMillis=1500} bind={} title=输入文本 summary=在当前地图页面输入路线或地点关键词：机场。 reason=在当前地图页面输入路线或地点关键词：机场。
+    - submit_maps_search deps=[type_maps_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交地图搜索：机场。 reason=提交地图搜索：机场。
+    - verify_maps_results deps=[submit_maps_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=机场} bind={} title=等待并验证 summary=等待地图搜索结果或路线入口更新并重新观察。 reason=等待地图搜索结果或路线入口更新并重新观察。
+skill[ModelDrivenBootstrap]: maps_ui_route_skill reason=将在当前地图页观察、聚焦搜索框、输入地点或路线目标并提交搜索：机场。
+    - observe_maps deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_maps_search deps=[observe_maps] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前地图页面的搜索输入框。 reason=聚焦当前地图页面的搜索输入框。
+    - wait_maps_search_field deps=[focus_maps_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待地图搜索输入框获得焦点或搜索页稳定。 reason=等待地图搜索输入框获得焦点或搜索页稳定。
+    - type_maps_query deps=[wait_maps_search_field] tool=ui_type_text args={target=搜索输入框, text=机场, timeoutMillis=1500} bind={} title=输入文本 summary=在当前地图页面输入路线或地点关键词：机场。 reason=在当前地图页面输入路线或地点关键词：机场。
+    - submit_maps_search deps=[type_maps_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交地图搜索：机场。 reason=提交地图搜索：机场。
+    - verify_maps_results deps=[submit_maps_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=机场} bind={} title=等待并验证 summary=等待地图搜索结果或路线入口更新并重新观察。 reason=等待地图搜索结果或路线入口更新并重新观察。
+action: NoAction null
+intent: null None
+## 在当前浏览器搜索 Kotlin 协程
+skill[StaticSkill]: browser_ui_search_skill reason=将在当前浏览器页观察、聚焦搜索框、输入关键词并提交搜索：Kotlin 协程。
+    - observe_browser deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_browser_search deps=[observe_browser] tool=ui_tap args={target=地址栏, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前浏览器页面的地址栏或搜索栏。 reason=聚焦当前浏览器页面的地址栏或搜索栏。
+    - wait_browser_search_field deps=[focus_browser_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待浏览器搜索输入框获得焦点或搜索页稳定。 reason=等待浏览器搜索输入框获得焦点或搜索页稳定。
+    - type_browser_query deps=[wait_browser_search_field] tool=ui_type_text args={target=地址栏, text=Kotlin 协程, timeoutMillis=1500} bind={} title=输入文本 summary=在当前浏览器输入搜索关键词：Kotlin 协程。 reason=在当前浏览器输入搜索关键词：Kotlin 协程。
+    - submit_browser_search deps=[type_browser_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交浏览器搜索：Kotlin 协程。 reason=提交浏览器搜索：Kotlin 协程。
+    - verify_browser_results deps=[submit_browser_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=Kotlin 协程} bind={} title=等待并验证 summary=等待浏览器搜索结果更新并重新观察。 reason=等待浏览器搜索结果更新并重新观察。
+skill[ModelDrivenBootstrap]: browser_ui_search_skill reason=将在当前浏览器页观察、聚焦搜索框、输入关键词并提交搜索：Kotlin 协程。
+    - observe_browser deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_browser_search deps=[observe_browser] tool=ui_tap args={target=地址栏, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前浏览器页面的地址栏或搜索栏。 reason=聚焦当前浏览器页面的地址栏或搜索栏。
+    - wait_browser_search_field deps=[focus_browser_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待浏览器搜索输入框获得焦点或搜索页稳定。 reason=等待浏览器搜索输入框获得焦点或搜索页稳定。
+    - type_browser_query deps=[wait_browser_search_field] tool=ui_type_text args={target=地址栏, text=Kotlin 协程, timeoutMillis=1500} bind={} title=输入文本 summary=在当前浏览器输入搜索关键词：Kotlin 协程。 reason=在当前浏览器输入搜索关键词：Kotlin 协程。
+    - submit_browser_search deps=[type_browser_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交浏览器搜索：Kotlin 协程。 reason=提交浏览器搜索：Kotlin 协程。
+    - verify_browser_results deps=[submit_browser_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=Kotlin 协程} bind={} title=等待并验证 summary=等待浏览器搜索结果更新并重新观察。 reason=等待浏览器搜索结果更新并重新观察。
+action: NoAction null
+intent: null None
+## 在当前日历表单填写 项目评审
+skill[StaticSkill]: draft_form_ui_skill reason=将在当前日历草稿页观察并填写标题；不会发送、保存或发布。
+    - observe_draft_form deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - type_draft_field deps=[observe_draft_form] tool=ui_type_text args={target=标题, text=项目评审, timeoutMillis=1500} bind={} title=输入文本 summary=在当前日历草稿页填写标题。 reason=在当前日历草稿页填写标题。
+    - verify_draft_field deps=[type_draft_field] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待草稿字段更新并重新观察。 reason=等待草稿字段更新并重新观察。
+skill[ModelDrivenBootstrap]: draft_form_ui_skill reason=将在当前日历草稿页观察并填写标题；不会发送、保存或发布。
+    - observe_draft_form deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - type_draft_field deps=[observe_draft_form] tool=ui_type_text args={target=标题, text=项目评审, timeoutMillis=1500} bind={} title=输入文本 summary=在当前日历草稿页填写标题。 reason=在当前日历草稿页填写标题。
+    - verify_draft_field deps=[type_draft_field] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待草稿字段更新并重新观察。 reason=等待草稿字段更新并重新观察。
+action: NoAction null
+intent: null None
+## 在当前设置页点击 Wi-Fi
+skill[StaticSkill]: settings_ui_control_skill reason=将在当前设置页先观察屏幕，再点击可见设置项：Wi-Fi。
+    - observe_settings deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - tap_settings_target deps=[observe_settings] tool=ui_tap args={target=Wi-Fi, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=点击当前设置页中的可见设置项：Wi-Fi。 reason=点击当前设置页中的可见设置项：Wi-Fi。
+    - verify_settings_target deps=[tap_settings_target] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待设置页面变化并重新观察。 reason=等待设置页面变化并重新观察。
+skill[ModelDrivenBootstrap]: settings_ui_control_skill reason=将在当前设置页先观察屏幕，再点击可见设置项：Wi-Fi。
+    - observe_settings deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - tap_settings_target deps=[observe_settings] tool=ui_tap args={target=Wi-Fi, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=点击当前设置页中的可见设置项：Wi-Fi。 reason=点击当前设置页中的可见设置项：Wi-Fi。
+    - verify_settings_target deps=[tap_settings_target] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待设置页面变化并重新观察。 reason=等待设置页面变化并重新观察。
+action: Draft open_wifi_settings {} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。
+intent: open_wifi_settings High
+## 在当前应用搜索 耳机
+skill[StaticSkill]: current_app_ui_search_skill reason=将在当前应用内观察、聚焦搜索入口、输入关键词、提交搜索并验证结果：耳机。
+    - observe_current_app_search deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_current_app_search] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={target=搜索输入框, text=耳机, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：耳机。 reason=输入搜索关键词：耳机。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：耳机。 reason=提交当前应用内搜索：耳机。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=耳机} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_current_app_ui_search_skill reason=将在当前应用内先观察屏幕；后续由本地动作规划模型逐步规划低风险搜索动作：耳机。
+    - observe_current_app_search deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: Draft query_foreground_app {} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+intent: query_foreground_app High
+## 在当前应用搜索 海河牛奶
+skill[StaticSkill]: current_app_ui_search_skill reason=将在当前应用内观察、聚焦搜索入口、输入关键词、提交搜索并验证结果：海河牛奶。
+    - observe_current_app_search deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_current_app_search] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={target=搜索输入框, text=海河牛奶, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：海河牛奶。 reason=输入搜索关键词：海河牛奶。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：海河牛奶。 reason=提交当前应用内搜索：海河牛奶。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=海河牛奶} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_current_app_ui_search_skill reason=将在当前应用内先观察屏幕；后续由本地动作规划模型逐步规划低风险搜索动作：海河牛奶。
+    - observe_current_app_search deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: Draft query_foreground_app {} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+intent: query_foreground_app High
+## 在当前邮件草稿填写 明天延期
+skill[StaticSkill]: draft_form_ui_skill reason=将在当前邮件草稿页观察并填写正文；不会发送、保存或发布。
+    - observe_draft_form deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - type_draft_field deps=[observe_draft_form] tool=ui_type_text args={target=正文, text=明天延期, timeoutMillis=1500} bind={} title=输入文本 summary=在当前邮件草稿页填写正文。 reason=在当前邮件草稿页填写正文。
+    - verify_draft_field deps=[type_draft_field] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待草稿字段更新并重新观察。 reason=等待草稿字段更新并重新观察。
+skill[ModelDrivenBootstrap]: draft_form_ui_skill reason=将在当前邮件草稿页观察并填写正文；不会发送、保存或发布。
+    - observe_draft_form deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - type_draft_field deps=[observe_draft_form] tool=ui_type_text args={target=正文, text=明天延期, timeoutMillis=1500} bind={} title=输入文本 summary=在当前邮件草稿页填写正文。 reason=在当前邮件草稿页填写正文。
+    - verify_draft_field deps=[type_draft_field] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待草稿字段更新并重新观察。 reason=等待草稿字段更新并重新观察。
+action: Draft compose_email {body=在当前邮件草稿填写 明天延期} title=邮件草稿 summary=将打开邮件 App 并填入草稿内容。
+intent: compose_email High
+## 怎么打开微信
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 怎么实现倒计时20分钟
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 周期检查是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 周期检查状态
+skill[StaticSkill]: background_tasks_context_skill reason=将只读查询本地提醒周期检查策略，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={scope=policy} bind={} title=查询后台任务 summary=将只读查询本地提醒周期检查策略，不返回提醒正文。 reason=将只读查询本地提醒周期检查策略，不返回提醒正文。
+skill[ModelDrivenBootstrap]: background_tasks_context_skill reason=将只读查询本地提醒周期检查策略，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={scope=policy} bind={} title=查询后台任务 summary=将只读查询本地提醒周期检查策略，不返回提醒正文。 reason=将只读查询本地提醒周期检查策略，不返回提醒正文。
+action: Draft query_background_tasks {scope=policy} title=查询后台任务 summary=将只读查询本地提醒周期检查策略，不返回提醒正文。
+intent: query_background_tasks High
+## 周期检查 API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结当前屏幕内容
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结当前屏幕内容并分享
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结当前屏幕文字
+skill[StaticSkill]: current_screen_text_context_skill reason=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=2000} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+skill[ModelDrivenBootstrap]: current_screen_text_context_skill reason=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=2000} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+action: Draft read_current_screen_text {maxChars=2000} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+intent: read_current_screen_text High
+## 总结当前屏幕文字并分享
+skill[StaticSkill]: current_screen_text_summary_share_skill reason=总结当前屏幕文字并分享
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=2000} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。
+    - summarize_current_screen_text deps=[read_current_screen_text] ModelStep(id=summarize_current_screen_text, dependsOn=[read_current_screen_text], title=摘要当前屏幕文本, instruction=把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={screenText=read_current_screen_text.screenText}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_screen_summary deps=[summarize_current_screen_text] tool=share_text args={} bind={text=summarize_current_screen_text.shareText} title=分享屏幕摘要 summary=将打开系统分享面板并填入上一步生成的屏幕文本摘要。 reason=将打开系统分享面板并填入上一步生成的屏幕文本摘要。
+skill[ModelDrivenBootstrap]: current_screen_text_summary_share_skill reason=总结当前屏幕文字并分享
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=2000} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。
+    - summarize_current_screen_text deps=[read_current_screen_text] ModelStep(id=summarize_current_screen_text, dependsOn=[read_current_screen_text], title=摘要当前屏幕文本, instruction=把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={screenText=read_current_screen_text.screenText}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_screen_summary deps=[summarize_current_screen_text] tool=share_text args={} bind={text=summarize_current_screen_text.shareText} title=分享屏幕摘要 summary=将打开系统分享面板并填入上一步生成的屏幕文本摘要。 reason=将打开系统分享面板并填入上一步生成的屏幕文本摘要。
+action: Draft read_current_screen_text {maxChars=2000} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+intent: read_current_screen_text High
+## 总结当前屏幕文字，最多1200字
+skill[StaticSkill]: current_screen_text_context_skill reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=1200} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+skill[ModelDrivenBootstrap]: current_screen_text_context_skill reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=1200} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+action: Draft read_current_screen_text {maxChars=1200} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+intent: read_current_screen_text High
+## 总结剪贴板并分享
+skill[StaticSkill]: clipboard_summary_share_skill reason=总结剪贴板并分享
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本，用于生成可分享摘要。 reason=将读取当前剪贴板文本，用于生成可分享摘要。
+    - summarize_clipboard deps=[read_clipboard] ModelStep(id=summarize_clipboard, dependsOn=[read_clipboard], title=摘要剪贴板内容, instruction=把用户确认读取的剪贴板文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={clipboardText=read_clipboard.text}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_summary deps=[summarize_clipboard] tool=share_text args={} bind={text=summarize_clipboard.shareText} title=分享摘要 summary=将打开系统分享面板并填入上一步生成的摘要。 reason=将打开系统分享面板并填入上一步生成的摘要。
+skill[ModelDrivenBootstrap]: clipboard_summary_share_skill reason=总结剪贴板并分享
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本，用于生成可分享摘要。 reason=将读取当前剪贴板文本，用于生成可分享摘要。
+    - summarize_clipboard deps=[read_clipboard] ModelStep(id=summarize_clipboard, dependsOn=[read_clipboard], title=摘要剪贴板内容, instruction=把用户确认读取的剪贴板文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={clipboardText=read_clipboard.text}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_summary deps=[summarize_clipboard] tool=share_text args={} bind={text=summarize_clipboard.shareText} title=分享摘要 summary=将打开系统分享面板并填入上一步生成的摘要。 reason=将打开系统分享面板并填入上一步生成的摘要。
+action: Draft read_clipboard {} title=读取剪贴板 summary=将读取当前剪贴板文本。
+intent: read_clipboard High
+## 总结剪贴板并分享，然后打开 Wi-Fi 设置
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结页面内容
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结这个界面
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结这个界面并分享
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 总结这页内容
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 最多 3 个联系人里查 Alice
+skill[StaticSkill]: contact_lookup_skill reason=将按“Alice”查询最多 3 个联系人。
+    - query_contacts deps=[] tool=query_contacts args={maxCount=3, query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询最多 3 个联系人。 reason=将按“Alice”查询最多 3 个联系人。
+skill[ModelDrivenBootstrap]: contact_lookup_skill reason=将按“Alice”查询最多 3 个联系人。
+    - query_contacts deps=[] tool=query_contacts args={maxCount=3, query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询最多 3 个联系人。 reason=将按“Alice”查询最多 3 个联系人。
+action: Draft query_contacts {maxCount=3, query=Alice} title=查询联系人 summary=将按“Alice”查询最多 3 个联系人。
+intent: query_contacts High
+## 最近 3 条通知
+skill[StaticSkill]: recent_notifications_context_skill reason=将读取当前应用最近 3 条通知的摘要。
+    - query_recent_notifications deps=[] tool=query_recent_notifications args={maxCount=3} bind={} title=查询最近通知 summary=将读取当前应用最近 3 条通知的摘要。 reason=将读取当前应用最近 3 条通知的摘要。
+skill[ModelDrivenBootstrap]: recent_notifications_context_skill reason=将读取当前应用最近 3 条通知的摘要。
+    - query_recent_notifications deps=[] tool=query_recent_notifications args={maxCount=3} bind={} title=查询最近通知 summary=将读取当前应用最近 3 条通知的摘要。 reason=将读取当前应用最近 3 条通知的摘要。
+action: Draft query_recent_notifications {maxCount=3} title=查询最近通知 summary=将读取当前应用最近 3 条通知的摘要。
+intent: query_recent_notifications High
+## 最近 3 张图片
+skill[StaticSkill]: recent_files_context_skill reason=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=images, maxCount=3} bind={} title=查询最近文件 summary=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+skill[ModelDrivenBootstrap]: recent_files_context_skill reason=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=images, maxCount=3} bind={} title=查询最近文件 summary=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+action: Draft query_recent_files {kind=images, maxCount=3} title=查询最近文件 summary=将读取最近 3 个图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+intent: query_recent_files High
+## 最近截图
+skill[StaticSkill]: recent_files_context_skill reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=screenshots} bind={} title=查询最近文件 summary=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+skill[ModelDrivenBootstrap]: recent_files_context_skill reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=screenshots} bind={} title=查询最近文件 summary=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+action: Draft query_recent_files {kind=screenshots} title=查询最近文件 summary=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+intent: query_recent_files High
+## 最近通知
+skill[StaticSkill]: recent_notifications_context_skill reason=将读取当前应用最近通知的摘要。
+    - query_recent_notifications deps=[] tool=query_recent_notifications args={} bind={} title=查询最近通知 summary=将读取当前应用最近通知的摘要。 reason=将读取当前应用最近通知的摘要。
+skill[ModelDrivenBootstrap]: recent_notifications_context_skill reason=将读取当前应用最近通知的摘要。
+    - query_recent_notifications deps=[] tool=query_recent_notifications args={} bind={} title=查询最近通知 summary=将读取当前应用最近通知的摘要。 reason=将读取当前应用最近通知的摘要。
+action: Draft query_recent_notifications {} title=查询最近通知 summary=将读取当前应用最近通知的摘要。
+intent: query_recent_notifications High
+## 最近图片
+skill[StaticSkill]: recent_files_context_skill reason=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=images} bind={} title=查询最近文件 summary=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+skill[ModelDrivenBootstrap]: recent_files_context_skill reason=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=images} bind={} title=查询最近文件 summary=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+action: Draft query_recent_files {kind=images} title=查询最近文件 summary=将读取最近的图片文件摘要（仅返回文件名、类型、大小和修改时间）。
+intent: query_recent_files High
+## 最近图片权限怎么申请
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 最近文件
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: Draft query_recent_files {} title=查询最近文件 summary=将读取最近的全部文件摘要（仅返回文件名、类型、大小和修改时间；Android 13 及以上仅包含已授权的图片、视频或音频媒体）。
+intent: query_recent_files High
+## add event listener to the button
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Android 分享到微信怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Android 使用情况访问权限怎么实现
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## background tasks API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z
+skill[StaticSkill]: calendar_availability_skill reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+    - query_calendar_availability deps=[] tool=query_calendar_availability args={end=2026-06-01T10:00:00Z, start=2026-06-01T09:00:00Z} bind={} title=查询日历忙闲 summary=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+skill[ModelDrivenBootstrap]: calendar_availability_skill reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+    - query_calendar_availability deps=[] tool=query_calendar_availability args={end=2026-06-01T10:00:00Z, start=2026-06-01T09:00:00Z} bind={} title=查询日历忙闲 summary=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z reason=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+action: Draft query_calendar_availability {end=2026-06-01T10:00:00Z, start=2026-06-01T09:00:00Z} title=查询日历忙闲 summary=将只读查询本机日历忙闲：2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+intent: query_calendar_availability High
+## calendar availability API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## cancel reminder task-abc_123
+skill[StaticSkill]: reminder_skill reason=将取消提醒任务：task-abc_123
+    - cancel_reminder deps=[] tool=cancel_reminder args={taskId=task-abc_123} bind={} title=取消提醒 summary=将取消提醒任务：task-abc_123 reason=将取消提醒任务：task-abc_123
+skill[ModelDrivenBootstrap]: reminder_skill reason=将取消提醒任务：task-abc_123
+    - cancel_reminder deps=[] tool=cancel_reminder args={taskId=task-abc_123} bind={} title=取消提醒 summary=将取消提醒任务：task-abc_123 reason=将取消提醒任务：task-abc_123
+action: Draft cancel_reminder {taskId=task-abc_123} title=取消提醒 summary=将取消提醒任务：task-abc_123
+intent: cancel_reminder High
+## contact
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## ContactsContract 怎么用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## could you remind me in 10 minutes to stretch
+skill[StaticSkill]: reminder_skill reason=将在 10 分钟后提醒：stretch
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=could you remind me in 10 minutes to stretch, delayMinutes=10, title=stretch} bind={} title=后台提醒 summary=将在 10 分钟后提醒：stretch reason=将在 10 分钟后提醒：stretch
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 10 分钟后提醒：stretch
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=could you remind me in 10 minutes to stretch, delayMinutes=10, title=stretch} bind={} title=后台提醒 summary=将在 10 分钟后提醒：stretch reason=将在 10 分钟后提醒：stretch
+action: Draft schedule_reminder {body=could you remind me in 10 minutes to stretch, delayMinutes=10, title=stretch} title=后台提醒 summary=将在 10 分钟后提醒：stretch
+intent: schedule_reminder High
+## create contact Bob bob@example.com +1 555 0100
+skill[StaticSkill]: contact_draft_skill reason=将打开联系人新建页面。
+    - create_contact_draft deps=[] tool=create_contact_draft args={email=bob@example.com, name=Bob, phone=+1 555 0100} bind={} title=联系人草稿 summary=将打开联系人新建页面。 reason=将打开联系人新建页面。
+skill[ModelDrivenBootstrap]: contact_draft_skill reason=将打开联系人新建页面。
+    - create_contact_draft deps=[] tool=create_contact_draft args={email=bob@example.com, name=Bob, phone=+1 555 0100} bind={} title=联系人草稿 summary=将打开联系人新建页面。 reason=将打开联系人新建页面。
+action: Draft create_contact_draft {email=bob@example.com, name=Bob, phone=+1 555 0100} title=联系人草稿 summary=将打开联系人新建页面。
+intent: create_contact_draft High
+## current app architecture
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## current app last 2 notifications
+skill[StaticSkill]: recent_notifications_context_skill reason=将读取当前应用最近 2 条通知的摘要。
+    - query_recent_notifications deps=[] tool=query_recent_notifications args={maxCount=2} bind={} title=查询最近通知 summary=将读取当前应用最近 2 条通知的摘要。 reason=将读取当前应用最近 2 条通知的摘要。
+skill[ModelDrivenBootstrap]: recent_notifications_context_skill reason=将读取当前应用最近 2 条通知的摘要。
+    - query_recent_notifications deps=[] tool=query_recent_notifications args={maxCount=2} bind={} title=查询最近通知 summary=将读取当前应用最近 2 条通知的摘要。 reason=将读取当前应用最近 2 条通知的摘要。
+action: Draft query_recent_notifications {maxCount=2} title=查询最近通知 summary=将读取当前应用最近 2 条通知的摘要。
+intent: query_recent_notifications High
+## current app notifications API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## current screen OCR API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## current screen screenshot
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## current screen screenshot text
+skill[StaticSkill]: current_screenshot_ocr_context_skill reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+    - capture_current_screenshot_ocr deps=[] tool=capture_current_screenshot_ocr args={captureMode=current_screen} bind={} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。 reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+skill[ModelDrivenBootstrap]: current_screenshot_ocr_context_skill reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+    - capture_current_screenshot_ocr deps=[] tool=capture_current_screenshot_ocr args={captureMode=current_screen} bind={} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。 reason=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+action: Draft capture_current_screenshot_ocr {captureMode=current_screen} title=截取当前屏幕 OCR summary=将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。
+intent: capture_current_screenshot_ocr High
+## current screen text API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## describe current screen
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## describe current screen and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## disable periodic check
+skill[StaticSkill]: periodic_check_skill reason=将关闭本地提醒周期检查。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=false} bind={} title=关闭周期检查 summary=将关闭本地提醒周期检查。 reason=将关闭本地提醒周期检查。
+skill[ModelDrivenBootstrap]: periodic_check_skill reason=将关闭本地提醒周期检查。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=false} bind={} title=关闭周期检查 summary=将关闭本地提醒周期检查。 reason=将关闭本地提醒周期检查。
+action: Draft configure_periodic_check {enabled=false} title=关闭周期检查 summary=将关闭本地提醒周期检查。
+intent: configure_periodic_check High
+## do not create calendar event: review
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## do not open usage access settings
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Do not open Wi-Fi settings; explain only
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## do not read recent images
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## do not search contacts for Alice
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Do not send email; summarize only
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## do not summarize clipboard and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## don't read current app notifications
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## don't share this text: meeting at ten
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## don't tell me the current app
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## enable periodic check every 6 hours
+skill[StaticSkill]: periodic_check_skill reason=将开启本地提醒周期检查，间隔 360 分钟。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=true, intervalMinutes=360} bind={} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 360 分钟。 reason=将开启本地提醒周期检查，间隔 360 分钟。
+skill[ModelDrivenBootstrap]: periodic_check_skill reason=将开启本地提醒周期检查，间隔 360 分钟。
+    - configure_periodic_check deps=[] tool=configure_periodic_check args={enabled=true, intervalMinutes=360} bind={} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 360 分钟。 reason=将开启本地提醒周期检查，间隔 360 分钟。
+action: Draft configure_periodic_check {enabled=true, intervalMinutes=360} title=开启周期检查 summary=将开启本地提醒周期检查，间隔 360 分钟。
+intent: configure_periodic_check High
+## explain how to summarize current screen text and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## find Alice contact number
+skill[StaticSkill]: contact_lookup_skill reason=将按“Alice”查询联系人。
+    - query_contacts deps=[] tool=query_contacts args={query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询联系人。 reason=将按“Alice”查询联系人。
+skill[ModelDrivenBootstrap]: contact_lookup_skill reason=将按“Alice”查询联系人。
+    - query_contacts deps=[] tool=query_contacts args={query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询联系人。 reason=将按“Alice”查询联系人。
+action: Draft query_contacts {query=Alice} title=查询联系人 summary=将按“Alice”查询联系人。
+intent: query_contacts High
+## free/busy schema 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how do I implement current app state
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## How do I navigate to a Compose screen?
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how do I open https://example.com/path
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how to implement current screen state
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how to implement free/busy
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how to read recent images
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how to share this text
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## how to summarize clipboard and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## https://example.com/path
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## I don't want to share this text
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## list background tasks
+skill[StaticSkill]: background_tasks_context_skill reason=将只读查询本地活动后台任务，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={scope=active} bind={} title=查询后台任务 summary=将只读查询本地活动后台任务，不返回提醒正文。 reason=将只读查询本地活动后台任务，不返回提醒正文。
+skill[ModelDrivenBootstrap]: background_tasks_context_skill reason=将只读查询本地活动后台任务，不返回提醒正文。
+    - query_background_tasks deps=[] tool=query_background_tasks args={scope=active} bind={} title=查询后台任务 summary=将只读查询本地活动后台任务，不返回提醒正文。 reason=将只读查询本地活动后台任务，不返回提醒正文。
+action: Draft query_background_tasks {scope=active} title=查询后台任务 summary=将只读查询本地活动后台任务，不返回提醒正文。
+intent: query_background_tasks High
+## look up Alice in contacts
+skill[StaticSkill]: contact_lookup_skill reason=将按“Alice”查询联系人。
+    - query_contacts deps=[] tool=query_contacts args={query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询联系人。 reason=将按“Alice”查询联系人。
+skill[ModelDrivenBootstrap]: contact_lookup_skill reason=将按“Alice”查询联系人。
+    - query_contacts deps=[] tool=query_contacts args={query=Alice} bind={} title=查询联系人 summary=将按“Alice”查询联系人。 reason=将按“Alice”查询联系人。
+action: Draft query_contacts {query=Alice} title=查询联系人 summary=将按“Alice”查询联系人。
+intent: query_contacts High
+## look up Kotlin coroutines
+skill[StaticSkill]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines
+    - web_search deps=[] tool=web_search args={query=Kotlin coroutines} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines reason=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines
+skill[ModelDrivenBootstrap]: information_lookup_skill reason=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines
+    - web_search deps=[] tool=web_search args={query=Kotlin coroutines} bind={} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines reason=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines
+action: Draft web_search {query=Kotlin coroutines} title=Web 搜索 summary=将使用 Web 搜索工具查询并整理结果：Kotlin coroutines
+intent: web_search High
+## never share this text
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## notification
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## notification channel
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## notification permission
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## notifications
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## notification settings API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## OCR 最近截图
+skill[StaticSkill]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_screenshot_ocr {maxCount=1} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_screenshot_ocr High
+## open flashlight settings
+skill[StaticSkill]: device_settings_skill reason=将打开系统设置，由你手动确认手电筒相关操作。
+    - open_flashlight_settings deps=[] tool=open_flashlight_settings args={} bind={} title=打开手电筒设置 summary=将打开系统设置，由你手动确认手电筒相关操作。 reason=将打开系统设置，由你手动确认手电筒相关操作。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统设置，由你手动确认手电筒相关操作。
+    - open_flashlight_settings deps=[] tool=open_flashlight_settings args={} bind={} title=打开手电筒设置 summary=将打开系统设置，由你手动确认手电筒相关操作。 reason=将打开系统设置，由你手动确认手电筒相关操作。
+action: Draft open_flashlight_settings {} title=打开手电筒设置 summary=将打开系统设置，由你手动确认手电筒相关操作。
+intent: open_flashlight_settings High
+## open https://example.com/path.
+skill[StaticSkill]: deep_link_navigation_skill reason=将打开深度链接：https://example.com/path
+    - open_deep_link deps=[] tool=open_deep_link args={uri=https://example.com/path} bind={} title=打开深链 summary=将打开深度链接：https://example.com/path reason=将打开深度链接：https://example.com/path
+skill[ModelDrivenBootstrap]: deep_link_navigation_skill reason=将打开深度链接：https://example.com/path
+    - open_deep_link deps=[] tool=open_deep_link args={uri=https://example.com/path} bind={} title=打开深链 summary=将打开深度链接：https://example.com/path reason=将打开深度链接：https://example.com/path
+action: Draft open_deep_link {uri=https://example.com/path} title=打开深链 summary=将打开深度链接：https://example.com/path
+intent: open_deep_link High
+## open Pinduoduo and search milk
+skill[StaticSkill]: open_app_ui_search_skill reason=将打开Pinduoduo，再在应用内搜索并验证结果：milk。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=Pinduoduo} bind={} title=打开应用 summary=打开目标应用：Pinduoduo。 reason=打开目标应用：Pinduoduo。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.xunmeng.pinduoduo, timeoutMillis=800} bind={} title=等待并验证 summary=等待Pinduoduo前台界面稳定。 reason=等待Pinduoduo前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_target_app] tool=ui_tap args={expectedPackageName=com.xunmeng.pinduoduo, target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={expectedPackageName=com.xunmeng.pinduoduo, timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={expectedPackageName=com.xunmeng.pinduoduo, target=搜索输入框, text=milk, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：milk。 reason=输入搜索关键词：milk。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={expectedPackageName=com.xunmeng.pinduoduo, timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：milk。 reason=提交当前应用内搜索：milk。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={expectedAppName=Pinduoduo, expectedPackageName=com.xunmeng.pinduoduo, timeoutMillis=800, verifySearchQuery=milk} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_open_app_ui_search_skill reason=将打开Pinduoduo并观察前台界面；后续由本地动作规划模型逐步规划低风险搜索动作：milk。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=Pinduoduo} bind={} title=打开应用 summary=打开目标应用：Pinduoduo。 reason=打开目标应用：Pinduoduo。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.xunmeng.pinduoduo, timeoutMillis=4000} bind={} title=等待并验证 summary=等待Pinduoduo前台界面稳定。 reason=等待Pinduoduo前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: Draft open_app_by_name {appName=Pinduoduo and search milk} title=打开应用 summary=将按本机应用名打开：Pinduoduo and search milk
+intent: open_app_by_name High
+## open source WeChat SDK
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## open usage access settings
+skill[StaticSkill]: device_settings_skill reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+    - open_usage_access_settings deps=[] tool=open_usage_access_settings args={} bind={} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。 reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+    - open_usage_access_settings deps=[] tool=open_usage_access_settings args={} bind={} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。 reason=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+action: Draft open_usage_access_settings {} title=打开使用情况访问权限设置 summary=将打开系统使用情况访问权限设置页，由你手动为Solin授权。
+intent: open_usage_access_settings High
+## open WeChat app settings
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## open Wi-Fi settings
+skill[StaticSkill]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+skill[ModelDrivenBootstrap]: device_settings_skill reason=将打开系统 Wi-Fi 设置页。
+    - open_wifi_settings deps=[] tool=open_wifi_settings args={} bind={} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。 reason=将打开系统 Wi-Fi 设置页。
+action: Draft open_wifi_settings {} title=打开 Wi-Fi 设置 summary=将打开系统 Wi-Fi 设置页。
+intent: open_wifi_settings High
+## please set a reminder in 1.5 hours to stretch
+skill[StaticSkill]: reminder_skill reason=将在 90 分钟后提醒：stretch
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=please set a reminder in 1.5 hours to stretch, delayMinutes=90, title=stretch} bind={} title=后台提醒 summary=将在 90 分钟后提醒：stretch reason=将在 90 分钟后提醒：stretch
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 90 分钟后提醒：stretch
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=please set a reminder in 1.5 hours to stretch, delayMinutes=90, title=stretch} bind={} title=后台提醒 summary=将在 90 分钟后提醒：stretch reason=将在 90 分钟后提醒：stretch
+action: Draft schedule_reminder {body=please set a reminder in 1.5 hours to stretch, delayMinutes=90, title=stretch} title=后台提醒 summary=将在 90 分钟后提醒：stretch
+intent: schedule_reminder High
+## push notification
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## read clipboard, then open Wi-Fi settings
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## read text from latest screenshot
+skill[StaticSkill]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_screenshot_ocr_context_skill reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_screenshot_ocr deps=[] tool=read_recent_screenshot_ocr args={maxCount=1} bind={} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。 reason=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_screenshot_ocr {maxCount=1} title=读取最近截图 OCR summary=将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_screenshot_ocr High
+## read text from recent 2 screenshots
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## read text from recent 4 photos
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## read text from recent photos
+skill[StaticSkill]: recent_image_ocr_context_skill reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_image_ocr deps=[] tool=read_recent_image_ocr args={maxCount=3} bind={} title=读取最近图片 OCR summary=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。 reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+skill[ModelDrivenBootstrap]: recent_image_ocr_context_skill reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+    - read_recent_image_ocr deps=[] tool=read_recent_image_ocr args={maxCount=3} bind={} title=读取最近图片 OCR summary=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。 reason=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+action: Draft read_recent_image_ocr {maxCount=3} title=读取最近图片 OCR summary=将扫描最近 3 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。
+intent: read_recent_image_ocr High
+## recent app notifications
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## recent screenshots
+skill[StaticSkill]: recent_files_context_skill reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=screenshots} bind={} title=查询最近文件 summary=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+skill[ModelDrivenBootstrap]: recent_files_context_skill reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+    - query_recent_files deps=[] tool=query_recent_files args={kind=screenshots} bind={} title=查询最近文件 summary=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。 reason=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+action: Draft query_recent_files {kind=screenshots} title=查询最近文件 summary=将读取最近的截图文件摘要（仅返回文件名、类型、大小和修改时间）。
+intent: query_recent_files High
+## recent screenshots API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## remind me in 1 hour to check build status
+skill[StaticSkill]: reminder_skill reason=将在 60 分钟后提醒：check build status
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=remind me in 1 hour to check build status, delayMinutes=60, title=check build status} bind={} title=后台提醒 summary=将在 60 分钟后提醒：check build status reason=将在 60 分钟后提醒：check build status
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在 60 分钟后提醒：check build status
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=remind me in 1 hour to check build status, delayMinutes=60, title=check build status} bind={} title=后台提醒 summary=将在 60 分钟后提醒：check build status reason=将在 60 分钟后提醒：check build status
+action: Draft schedule_reminder {body=remind me in 1 hour to check build status, delayMinutes=60, title=check build status} title=后台提醒 summary=将在 60 分钟后提醒：check build status
+intent: schedule_reminder High
+## remind me what a 1 hour SLA means
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## run
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## screenshot OCR API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## search contacts API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## share this text API
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## share this text: don't share credentials
+skill[StaticSkill]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=don't share credentials} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+skill[ModelDrivenBootstrap]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=don't share credentials} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+action: Draft share_text {text=don't share credentials} title=系统分享 summary=将打开系统分享面板并填入文本。
+intent: share_text High
+## start using WeChat
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize clipboard and share it, then open Wi-Fi settings
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current content
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current content and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current screen
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current screen and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current screen content
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current screen content and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize current screen text max 1200 chars
+skill[StaticSkill]: current_screen_text_context_skill reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=1200} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+skill[ModelDrivenBootstrap]: current_screen_text_context_skill reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=1200} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+action: Draft read_current_screen_text {maxChars=1200} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。
+intent: read_current_screen_text High
+## summarize this page
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## summarize this page and share it
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Usage Access API 怎么用
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## what app is currently open
+skill[StaticSkill]: foreground_app_context_skill reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+    - query_foreground_app deps=[] tool=query_foreground_app args={} bind={} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。 reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+skill[ModelDrivenBootstrap]: foreground_app_context_skill reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+    - query_foreground_app deps=[] tool=query_foreground_app args={} bind={} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。 reason=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+action: Draft query_foreground_app {} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+intent: query_foreground_app High
+## what is current screen text
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## what is free/busy
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## what is on my screen
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## what is web search
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Wi-Fi 设置页面怎么设计
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## Wi-Fi 是什么
+skill[StaticSkill]: null
+skill[ModelDrivenBootstrap]: null
+action: NoAction null
+intent: null None
+## 提醒我明天9点开会
+skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：开会
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} bind={} title=后台提醒 summary=将在指定时间提醒：开会 reason=将在指定时间提醒：开会
+action: Draft schedule_reminder {body=提醒我明天9点开会, title=开会, triggerAtMillis=1781514000000} title=后台提醒 summary=将在指定时间提醒：开会
+intent: schedule_reminder High
+## 提醒我今天下午3点喝水
+skill[StaticSkill]: reminder_skill reason=将在指定时间提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} bind={} title=后台提醒 summary=将在指定时间提醒：喝水 reason=将在指定时间提醒：喝水
+skill[ModelDrivenBootstrap]: reminder_skill reason=将在指定时间提醒：喝水
+    - schedule_reminder deps=[] tool=schedule_reminder args={body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} bind={} title=后台提醒 summary=将在指定时间提醒：喝水 reason=将在指定时间提醒：喝水
+action: Draft schedule_reminder {body=提醒我今天下午3点喝水, title=喝水, triggerAtMillis=1781449200000} title=后台提醒 summary=将在指定时间提醒：喝水
+intent: schedule_reminder High
+## 设置明天7点的闹钟
+skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=的, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。 reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=的, minutes=0, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。 reason=将打开系统闹钟界面设置下次 07:00 的闹钟。
+action: Draft set_system_alarm {hour=7, message=的, minutes=0, recurrence=once} title=系统闹钟 summary=将打开系统闹钟界面设置下次 07:00 的闹钟。
+intent: set_system_alarm High
+## 每天7:30叫醒我
+skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=叫醒我, minutes=30, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。 reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=7, message=叫醒我, minutes=30, recurrence=daily} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。 reason=将打开系统闹钟界面设置每天 07:30 的闹钟。
+action: Draft set_system_alarm {hour=7, message=叫醒我, minutes=30, recurrence=daily} title=系统闹钟 summary=将打开系统闹钟界面设置每天 07:30 的闹钟。
+intent: set_system_alarm High
+## 倒计时5分钟
+skill[StaticSkill]: time_action_skill reason=将打开系统计时器界面设置 300 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=300} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 300 秒倒计时。 reason=将打开系统计时器界面设置 300 秒倒计时。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统计时器界面设置 300 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=300} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 300 秒倒计时。 reason=将打开系统计时器界面设置 300 秒倒计时。
+action: Draft set_system_timer {lengthSeconds=300} title=系统倒计时 summary=将打开系统计时器界面设置 300 秒倒计时。
+intent: set_system_timer High
+## set a timer for 10 minutes
+skill[StaticSkill]: time_action_skill reason=将打开系统计时器界面设置 600 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=600} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 600 秒倒计时。 reason=将打开系统计时器界面设置 600 秒倒计时。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统计时器界面设置 600 秒倒计时。
+    - set_system_timer deps=[] tool=set_system_timer args={lengthSeconds=600} bind={} title=系统倒计时 summary=将打开系统计时器界面设置 600 秒倒计时。 reason=将打开系统计时器界面设置 600 秒倒计时。
+action: Draft set_system_timer {lengthSeconds=600} title=系统倒计时 summary=将打开系统计时器界面设置 600 秒倒计时。
+intent: set_system_timer High
+## set an alarm for 6:45
+skill[StaticSkill]: time_action_skill reason=将打开系统闹钟界面设置下次 06:45 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=6, minutes=45, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 06:45 的闹钟。 reason=将打开系统闹钟界面设置下次 06:45 的闹钟。
+skill[ModelDrivenBootstrap]: time_action_skill reason=将打开系统闹钟界面设置下次 06:45 的闹钟。
+    - set_system_alarm deps=[] tool=set_system_alarm args={hour=6, minutes=45, recurrence=once} bind={} title=系统闹钟 summary=将打开系统闹钟界面设置下次 06:45 的闹钟。 reason=将打开系统闹钟界面设置下次 06:45 的闹钟。
+action: Draft set_system_alarm {hour=6, minutes=45, recurrence=once} title=系统闹钟 summary=将打开系统闹钟界面设置下次 06:45 的闹钟。
+intent: set_system_alarm High
+## 在当前浏览器搜索 Kotlin 协程
+skill[StaticSkill]: browser_ui_search_skill reason=将在当前浏览器页观察、聚焦搜索框、输入关键词并提交搜索：Kotlin 协程。
+    - observe_browser deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_browser_search deps=[observe_browser] tool=ui_tap args={target=地址栏, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前浏览器页面的地址栏或搜索栏。 reason=聚焦当前浏览器页面的地址栏或搜索栏。
+    - wait_browser_search_field deps=[focus_browser_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待浏览器搜索输入框获得焦点或搜索页稳定。 reason=等待浏览器搜索输入框获得焦点或搜索页稳定。
+    - type_browser_query deps=[wait_browser_search_field] tool=ui_type_text args={target=地址栏, text=Kotlin 协程, timeoutMillis=1500} bind={} title=输入文本 summary=在当前浏览器输入搜索关键词：Kotlin 协程。 reason=在当前浏览器输入搜索关键词：Kotlin 协程。
+    - submit_browser_search deps=[type_browser_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交浏览器搜索：Kotlin 协程。 reason=提交浏览器搜索：Kotlin 协程。
+    - verify_browser_results deps=[submit_browser_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=Kotlin 协程} bind={} title=等待并验证 summary=等待浏览器搜索结果更新并重新观察。 reason=等待浏览器搜索结果更新并重新观察。
+skill[ModelDrivenBootstrap]: browser_ui_search_skill reason=将在当前浏览器页观察、聚焦搜索框、输入关键词并提交搜索：Kotlin 协程。
+    - observe_browser deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_browser_search deps=[observe_browser] tool=ui_tap args={target=地址栏, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前浏览器页面的地址栏或搜索栏。 reason=聚焦当前浏览器页面的地址栏或搜索栏。
+    - wait_browser_search_field deps=[focus_browser_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待浏览器搜索输入框获得焦点或搜索页稳定。 reason=等待浏览器搜索输入框获得焦点或搜索页稳定。
+    - type_browser_query deps=[wait_browser_search_field] tool=ui_type_text args={target=地址栏, text=Kotlin 协程, timeoutMillis=1500} bind={} title=输入文本 summary=在当前浏览器输入搜索关键词：Kotlin 协程。 reason=在当前浏览器输入搜索关键词：Kotlin 协程。
+    - submit_browser_search deps=[type_browser_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交浏览器搜索：Kotlin 协程。 reason=提交浏览器搜索：Kotlin 协程。
+    - verify_browser_results deps=[submit_browser_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=Kotlin 协程} bind={} title=等待并验证 summary=等待浏览器搜索结果更新并重新观察。 reason=等待浏览器搜索结果更新并重新观察。
+action: NoAction null
+intent: null None
+## 在当前地图搜索 天安门
+skill[StaticSkill]: maps_ui_route_skill reason=将在当前地图页观察、聚焦搜索框、输入地点或路线目标并提交搜索：天安门。
+    - observe_maps deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_maps_search deps=[observe_maps] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前地图页面的搜索输入框。 reason=聚焦当前地图页面的搜索输入框。
+    - wait_maps_search_field deps=[focus_maps_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待地图搜索输入框获得焦点或搜索页稳定。 reason=等待地图搜索输入框获得焦点或搜索页稳定。
+    - type_maps_query deps=[wait_maps_search_field] tool=ui_type_text args={target=搜索输入框, text=天安门, timeoutMillis=1500} bind={} title=输入文本 summary=在当前地图页面输入路线或地点关键词：天安门。 reason=在当前地图页面输入路线或地点关键词：天安门。
+    - submit_maps_search deps=[type_maps_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交地图搜索：天安门。 reason=提交地图搜索：天安门。
+    - verify_maps_results deps=[submit_maps_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=天安门} bind={} title=等待并验证 summary=等待地图搜索结果或路线入口更新并重新观察。 reason=等待地图搜索结果或路线入口更新并重新观察。
+skill[ModelDrivenBootstrap]: maps_ui_route_skill reason=将在当前地图页观察、聚焦搜索框、输入地点或路线目标并提交搜索：天安门。
+    - observe_maps deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_maps_search deps=[observe_maps] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前地图页面的搜索输入框。 reason=聚焦当前地图页面的搜索输入框。
+    - wait_maps_search_field deps=[focus_maps_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待地图搜索输入框获得焦点或搜索页稳定。 reason=等待地图搜索输入框获得焦点或搜索页稳定。
+    - type_maps_query deps=[wait_maps_search_field] tool=ui_type_text args={target=搜索输入框, text=天安门, timeoutMillis=1500} bind={} title=输入文本 summary=在当前地图页面输入路线或地点关键词：天安门。 reason=在当前地图页面输入路线或地点关键词：天安门。
+    - submit_maps_search deps=[type_maps_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交地图搜索：天安门。 reason=提交地图搜索：天安门。
+    - verify_maps_results deps=[submit_maps_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=天安门} bind={} title=等待并验证 summary=等待地图搜索结果或路线入口更新并重新观察。 reason=等待地图搜索结果或路线入口更新并重新观察。
+action: Draft search_maps {query=在当前地图搜索 天安门} title=地图搜索 summary=将在地图中搜索：在当前地图搜索 天安门
+intent: search_maps High
+## 打开淘宝搜索 机械键盘
+skill[StaticSkill]: open_app_ui_search_skill reason=将打开淘宝，再在应用内搜索并验证结果：机械键盘。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=淘宝} bind={} title=打开应用 summary=打开目标应用：淘宝。 reason=打开目标应用：淘宝。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=800} bind={} title=等待并验证 summary=等待淘宝前台界面稳定。 reason=等待淘宝前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_target_app] tool=ui_tap args={expectedPackageName=com.taobao.taobao, target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={expectedPackageName=com.taobao.taobao, target=搜索输入框, text=机械键盘, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：机械键盘。 reason=输入搜索关键词：机械键盘。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={expectedPackageName=com.taobao.taobao, timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：机械键盘。 reason=提交当前应用内搜索：机械键盘。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={expectedAppName=淘宝, expectedPackageName=com.taobao.taobao, timeoutMillis=800, verifySearchQuery=机械键盘} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_open_app_ui_search_skill reason=将打开淘宝并观察前台界面；后续由本地动作规划模型逐步规划低风险搜索动作：机械键盘。
+    - open_target_app deps=[] tool=open_app_by_name args={appName=淘宝} bind={} title=打开应用 summary=打开目标应用：淘宝。 reason=打开目标应用：淘宝。
+    - wait_target_app deps=[open_target_app] tool=ui_wait args={expectedPackageName=com.taobao.taobao, timeoutMillis=4000} bind={} title=等待并验证 summary=等待淘宝前台界面稳定。 reason=等待淘宝前台界面稳定。
+    - observe_target_app deps=[wait_target_app] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: NoAction null
+intent: null None
+## 在当前应用搜索 耳机
+skill[StaticSkill]: current_app_ui_search_skill reason=将在当前应用内观察、聚焦搜索入口、输入关键词、提交搜索并验证结果：耳机。
+    - observe_current_app_search deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+    - focus_app_search deps=[observe_current_app_search] tool=ui_tap args={target=搜索入口, timeoutMillis=1500} bind={} title=点击屏幕元素 summary=聚焦当前应用中的搜索入口。 reason=聚焦当前应用中的搜索入口。
+    - wait_app_search_field deps=[focus_app_search] tool=ui_wait args={timeoutMillis=800} bind={} title=等待并验证 summary=等待搜索输入框获得焦点或搜索页稳定。 reason=等待搜索输入框获得焦点或搜索页稳定。
+    - type_app_search_query deps=[wait_app_search_field] tool=ui_type_text args={target=搜索输入框, text=耳机, timeoutMillis=1500} bind={} title=输入文本 summary=输入搜索关键词：耳机。 reason=输入搜索关键词：耳机。
+    - submit_app_search deps=[type_app_search_query] tool=ui_submit_search args={timeoutMillis=1500} bind={} title=提交搜索 summary=提交当前应用内搜索：耳机。 reason=提交当前应用内搜索：耳机。
+    - verify_app_search_results deps=[submit_app_search] tool=ui_wait args={timeoutMillis=800, verifySearchQuery=耳机} bind={} title=等待并验证 summary=等待搜索结果页更新并重新观察。 reason=等待搜索结果页更新并重新观察。
+skill[ModelDrivenBootstrap]: model_driven_current_app_ui_search_skill reason=将在当前应用内先观察屏幕；后续由本地动作规划模型逐步规划低风险搜索动作：耳机。
+    - observe_current_app_search deps=[] tool=observe_current_screen args={maxNodes=80, maxTextChars=2000} bind={} title=观察当前屏幕 summary=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。 reason=先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。
+action: Draft query_foreground_app {} title=查询当前前台应用 summary=将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。
+intent: query_foreground_app High
+## 分享这段文字：明天见
+skill[StaticSkill]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=明天见} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+skill[ModelDrivenBootstrap]: share_text_skill reason=将打开系统分享面板并填入文本。
+    - share_text deps=[] tool=share_text args={text=明天见} bind={} title=系统分享 summary=将打开系统分享面板并填入文本。 reason=将打开系统分享面板并填入文本。
+action: Draft share_text {text=明天见} title=系统分享 summary=将打开系统分享面板并填入文本。
+intent: share_text High
+## 读取剪贴板
+skill[StaticSkill]: clipboard_context_skill reason=将读取当前剪贴板文本。
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本。 reason=将读取当前剪贴板文本。
+skill[ModelDrivenBootstrap]: clipboard_context_skill reason=将读取当前剪贴板文本。
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本。 reason=将读取当前剪贴板文本。
+action: Draft read_clipboard {} title=读取剪贴板 summary=将读取当前剪贴板文本。
+intent: read_clipboard High
+## 总结剪贴板内容并分享
+skill[StaticSkill]: clipboard_summary_share_skill reason=总结剪贴板内容并分享
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本，用于生成可分享摘要。 reason=将读取当前剪贴板文本，用于生成可分享摘要。
+    - summarize_clipboard deps=[read_clipboard] ModelStep(id=summarize_clipboard, dependsOn=[read_clipboard], title=摘要剪贴板内容, instruction=把用户确认读取的剪贴板文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={clipboardText=read_clipboard.text}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_summary deps=[summarize_clipboard] tool=share_text args={} bind={text=summarize_clipboard.shareText} title=分享摘要 summary=将打开系统分享面板并填入上一步生成的摘要。 reason=将打开系统分享面板并填入上一步生成的摘要。
+skill[ModelDrivenBootstrap]: clipboard_summary_share_skill reason=总结剪贴板内容并分享
+    - read_clipboard deps=[] tool=read_clipboard args={} bind={} title=读取剪贴板 summary=将读取当前剪贴板文本，用于生成可分享摘要。 reason=将读取当前剪贴板文本，用于生成可分享摘要。
+    - summarize_clipboard deps=[read_clipboard] ModelStep(id=summarize_clipboard, dependsOn=[read_clipboard], title=摘要剪贴板内容, instruction=把用户确认读取的剪贴板文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={clipboardText=read_clipboard.text}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_summary deps=[summarize_clipboard] tool=share_text args={} bind={text=summarize_clipboard.shareText} title=分享摘要 summary=将打开系统分享面板并填入上一步生成的摘要。 reason=将打开系统分享面板并填入上一步生成的摘要。
+action: Draft read_clipboard {} title=读取剪贴板 summary=将读取当前剪贴板文本。
+intent: read_clipboard High
+## 总结当前屏幕文字并分享
+skill[StaticSkill]: current_screen_text_summary_share_skill reason=总结当前屏幕文字并分享
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=2000} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。
+    - summarize_current_screen_text deps=[read_current_screen_text] ModelStep(id=summarize_current_screen_text, dependsOn=[read_current_screen_text], title=摘要当前屏幕文本, instruction=把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={screenText=read_current_screen_text.screenText}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_screen_summary deps=[summarize_current_screen_text] tool=share_text args={} bind={text=summarize_current_screen_text.shareText} title=分享屏幕摘要 summary=将打开系统分享面板并填入上一步生成的屏幕文本摘要。 reason=将打开系统分享面板并填入上一步生成的屏幕文本摘要。
+skill[ModelDrivenBootstrap]: current_screen_text_summary_share_skill reason=总结当前屏幕文字并分享
+    - read_current_screen_text deps=[] tool=read_current_screen_text args={maxChars=2000} bind={} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。 reason=将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。
+    - summarize_current_screen_text deps=[read_current_screen_text] ModelStep(id=summarize_current_screen_text, dependsOn=[read_current_screen_text], title=摘要当前屏幕文本, instruction=把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。, inputBindings={screenText=read_current_screen_text.screenText}, outputKey=shareText, keepsSensitiveInputLocal=true)
+    - share_screen_summary deps=[summarize_current_screen_text] tool=share_text args={} bind={text=summarize_current_screen_text.shareText} title=分享屏幕摘要 summary=将打开系统分享面板并填入上一步生成的屏幕文本摘要。 reason=将打开系统分享面板并填入上一步生成的屏幕文本摘要。
+action: Draft read_current_screen_text {maxChars=2000} title=读取当前屏幕文本 summary=将读取当前屏幕的可访问文本快照（最多 2000 字符）；不会读取截图、像素、坐标或完整节点树。
+intent: read_current_screen_text High

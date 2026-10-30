@@ -1,0 +1,348 @@
+帮我打开 Wi-Fi 设置
+帮我建个日程：周五评审
+帮我搜一下 Kotlin 协程最新用法
+帮我写邮件：明天延期到周五
+北京天气怎么样
+编辑联系人 Alice
+别读最近截图文字
+别发邮件：明天延期到周五
+别分享这段文字：明天十点开会
+别启动微信
+不打开 Wi-Fi 设置
+不分享这段文字
+不启动微信
+不需要分享这段文字
+不要把这段文字分享出去：明天十点开会
+不要百度一下 Kotlin
+不要查看当前屏幕内容
+不要查联系人 Alice
+不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+不要查询当前应用
+不要查询文件列表
+不要查询最近图片
+不要打开蓝牙设置
+不要打开使用情况访问权限设置
+不要打开微信
+不要打开相机
+不要打开 https://example.com/path
+不要打开 Wi-Fi 设置，只解释一下
+不要导航到机场
+不要读取当前屏幕文字
+不要读取剪贴板
+不要读取最近通知
+不要发邮件，只帮我总结这段话
+不要分享这段文字：明天十点开会
+不要看我有空 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+不要取消提醒 task-123
+不要设置闹钟
+不要设置 Wi-Fi
+不要识别当前屏幕截图文字
+不要识别最近截图文字
+不要识别最近图片文字
+不要搜索联系人 Alice
+不要搜索 Kotlin，只解释一下
+不要添加日程：周五评审
+不要跳转到 https://example.com/path
+不要新建联系人 Alice
+不要在当前浏览器搜索 Kotlin
+不要在当前应用搜索 海河牛奶
+不要总结当前屏幕文字并分享
+不要总结剪贴板并分享
+不要 OCR 最近图片
+查到这个错误原因了吗？
+查看后台任务
+查看最近 3 条后台任务历史
+查联系人 Alice
+查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z
+查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z
+查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z
+查去机场的路线
+查询联系人
+查询文件 API
+查询最近3张截图
+查询最近5个图片文件列表
+查询最近5个文档
+查一下忙闲
+查一下这个错误原因了吗？
+查一下 Kotlin 协程
+查一下 Kotlin 协程最新用法
+打开蓝牙设置
+打开链接 file:///tmp/a
+打开链接 http://example.com/path
+打开链接 https://example.com
+打开链接 https://example.com/path?q=agent
+打开链接 javascript:alert(1)
+打开名为 WiFi 的 App
+打开使用情况访问权限设置
+打开手电筒
+打开手电筒设置
+打开淘宝搜索耳机
+打开淘宝搜索耳机，然后返回
+打开淘宝搜索海河牛奶
+打开微信聊天
+打开微信朋友圈
+打开微信权限页
+打开微信扫一扫
+打开微信通知设置
+打开微信小程序
+打开微信应用设置
+打开微信应用详情设置
+打开微信应用详情设置然后发消息
+打开微信支付收款码
+打开应用
+打开应用详情设置
+打开应用信息
+打开 com.example.app
+打开 com.example.app 应用详情设置
+打开 com.example.app/.MainActivity 应用详情设置
+打开 file:///sdcard/private.txt
+打开 intent://scan/#Intent;scheme=zxing;end
+打开 package:com.example.app
+打开 Wi-Fi 设置
+当前地图 API 怎么用
+当前屏幕截图
+当前屏幕 OCR
+当前设置页怎么设计
+当前页面返回
+当前页面搜索功能怎么实现
+当前页面往下滚动
+当前应用权限怎么申请
+当前应用是什么
+倒计时20分钟
+导出联系人
+地图是什么
+点击当前屏幕上的筛选
+点击当前页面的筛选
+定位设置页面怎么设计
+读取剪贴板
+读取剪贴板并总结
+读取剪贴板，然后打开 Wi-Fi 设置
+读取剪贴板再打开 Wi-Fi 设置
+读取所有截图 OCR
+读取所有图片 OCR
+返回
+分享一下你对端侧 Agent 的看法
+分享这段文字：不要分享内部资料
+分享这段文字：明天十点开会
+关闭周期检查
+观察当前屏幕
+后台任务怎么实现
+截图 OCR 怎么实现
+解释一下 PACKAGE_USAGE_STATS
+解释一下 Wi-Fi 设置 API 怎么实现
+解释 https://example.com/path 是什么
+进入无线设置
+开启周期检查
+开启周期检查，每 2 小时
+看看当前屏幕
+蓝牙是什么
+联系人
+联系人权限
+联系人权限怎么申请
+每天晚上11:25设置闹钟
+描述最近图片
+明天我有空吗
+明天早上8点提醒我开会
+你能帮我搜一下 Kotlin 吗？
+启动微信
+启动 app
+前台服务限制是什么
+前台应用 API 怎么用
+请解释“提醒我 15 分钟后喝水”这句话
+请勿打开微信
+请勿打开 Wi-Fi 设置
+取消后台任务
+取消日程 task-123
+取消提醒
+取消提醒 API task-123
+取消提醒 task-123
+日程这个词怎么理解
+日历权限怎么申请
+如何打开微信
+如何读取剪贴板
+如何分享这段文字
+如何总结当前屏幕文字并分享
+如何总结剪贴板并分享
+删除联系人 Alice
+识别当前屏幕截图文字
+识别最近1张截图文字
+识别最近2张截图文字
+识别最近2张照片文字
+识别最近4张图片文字
+识别最近截图文字
+识别最近两张截图文字
+识别最近四张照片文字
+识别最近图片文字
+手电筒 API 怎么用
+授权应用使用情况权限
+搜一下 Kotlin 协程
+提醒我 10 分钟后喝水，然后提醒我 20 分钟后运动
+提醒我 15 分钟后喝水
+提醒我 1.5 小时后喝水
+提醒我 30 分钟后检查 2 小时后开始的会议资料
+提醒我今天9:00开会
+提醒我一下，“15 分钟后”是什么意思
+提醒我一下，15 分钟英文怎么说
+提醒我在15分钟以后喝水
+天气是什么
+通知栏
+图片里有什么
+图片 OCR API
+晚上11:25是什么意思
+网上查一下 Kotlin Flow debounce
+网页搜索是什么
+微信打不开怎么办
+微信打开方式
+文件列表怎么实现
+我不想分享这段文字
+系统通知
+相机 API 怎么实现
+新建联系人
+新建联系人 Alice
+邮件草稿怎么实现
+邮件是什么意思
+在当前地图查去机场的路线
+在当前浏览器搜索 Kotlin 协程
+在当前日历表单填写 项目评审
+在当前设置页点击 Wi-Fi
+在当前应用搜索 耳机
+在当前应用搜索 海河牛奶
+在当前邮件草稿填写 明天延期
+怎么打开微信
+怎么实现倒计时20分钟
+周期检查是什么
+周期检查状态
+周期检查 API
+总结当前屏幕内容
+总结当前屏幕内容并分享
+总结当前屏幕文字
+总结当前屏幕文字并分享
+总结当前屏幕文字，最多1200字
+总结剪贴板并分享
+总结剪贴板并分享，然后打开 Wi-Fi 设置
+总结页面内容
+总结这个界面
+总结这个界面并分享
+总结这页内容
+最多 3 个联系人里查 Alice
+最近 3 条通知
+最近 3 张图片
+最近截图
+最近通知
+最近图片
+最近图片权限怎么申请
+最近文件
+add event listener to the button
+Android 分享到微信怎么实现
+Android 使用情况访问权限怎么实现
+API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z
+background tasks API
+calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z
+calendar availability API
+cancel reminder task-abc_123
+contact
+ContactsContract 怎么用
+could you remind me in 10 minutes to stretch
+create contact Bob bob@example.com +1 555 0100
+current app architecture
+current app last 2 notifications
+current app notifications API
+current screen OCR API
+current screen screenshot
+current screen screenshot text
+current screen text API
+describe current screen
+describe current screen and share it
+disable periodic check
+do not create calendar event: review
+do not open usage access settings
+Do not open Wi-Fi settings; explain only
+do not read recent images
+do not search contacts for Alice
+Do not send email; summarize only
+do not summarize clipboard and share it
+don't read current app notifications
+don't share this text: meeting at ten
+don't tell me the current app
+enable periodic check every 6 hours
+explain how to summarize current screen text and share it
+find Alice contact number
+free/busy schema 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z
+how do I implement current app state
+How do I navigate to a Compose screen?
+how do I open https://example.com/path
+how to implement current screen state
+how to implement free/busy
+how to read recent images
+how to share this text
+how to summarize clipboard and share it
+https://example.com/path
+I don't want to share this text
+list background tasks
+look up Alice in contacts
+look up Kotlin coroutines
+never share this text
+notification
+notification channel
+notification permission
+notifications
+notification settings API
+OCR 最近截图
+open flashlight settings
+open https://example.com/path.
+open Pinduoduo and search milk
+open source WeChat SDK
+open usage access settings
+open WeChat app settings
+open Wi-Fi settings
+please set a reminder in 1.5 hours to stretch
+push notification
+read clipboard, then open Wi-Fi settings
+read text from latest screenshot
+read text from recent 2 screenshots
+read text from recent 4 photos
+read text from recent photos
+recent app notifications
+recent screenshots
+recent screenshots API
+remind me in 1 hour to check build status
+remind me what a 1 hour SLA means
+run
+screenshot OCR API
+search contacts API
+share this text API
+share this text: don't share credentials
+start using WeChat
+summarize clipboard and share it, then open Wi-Fi settings
+summarize current content
+summarize current content and share it
+summarize current screen
+summarize current screen and share it
+summarize current screen content
+summarize current screen content and share it
+summarize current screen text max 1200 chars
+summarize this page
+summarize this page and share it
+Usage Access API 怎么用
+what app is currently open
+what is current screen text
+what is free/busy
+what is on my screen
+what is web search
+Wi-Fi 设置页面怎么设计
+Wi-Fi 是什么
+提醒我明天9点开会
+提醒我今天下午3点喝水
+设置明天7点的闹钟
+每天7:30叫醒我
+倒计时5分钟
+set a timer for 10 minutes
+set an alarm for 6:45
+在当前浏览器搜索 Kotlin 协程
+在当前地图搜索 天安门
+打开淘宝搜索 机械键盘
+在当前应用搜索 耳机
+分享这段文字：明天见
+读取剪贴板
+总结剪贴板内容并分享
+总结当前屏幕文字并分享
