@@ -346,7 +346,6 @@ internal class ToolObservationCoordinator(
             }
         }
         val shouldFinish = safeResult.data["shouldFinish"] == "true"
-        val finishMessage = safeResult.data["finishMessage"]
         val shouldTakeOver = safeResult.data["shouldTakeOver"] == "true"
         val takeOverPrompt = safeResult.data["takeOverPrompt"]
         val localPlanningResult = if (
@@ -360,39 +359,8 @@ internal class ToolObservationCoordinator(
         val budgetExceeded = runBudget.observationDecisionBudgetExceeded(runId)
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
-        traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
-        // Wave 2 lifecycle: dual-write ToolSucceeded / ToolFailed based on observed status.
-        // Note: ToolStarted is published by ToolProgressPublisher at actual execution start
-        // (ValidatingToolExecutor), so these are the terminal counterpart events.
-        publishToolOutcomeEvent(runId, request, observedResult, retryAttempt)
-        recordToolCompletedTelemetry(runId, request, observedResult, retryAttempt)
-        // Wave 4 telemetry: record step latency for tool_execution boundary.
-        host.recordStepLatency("tool_execution", runId)
-        toolPlanCoordinator.recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
-        val resolvedSkillId = host.skillIdForRequest(runId, observedResult.requestId)
-        val observationSummary = observedResult.auditSummaryForObservation(request)
-        auditRecorder.record(
-            runId = runId,
-            requestId = observedResult.requestId,
-            toolName = request.toolName,
-            skillId = resolvedSkillId,
-            eventType = ToolAuditEventType.ToolObserved,
-            status = observedResult.status,
-            summary = observationSummary,
-        )
-        val recoveryAction = recoveryActionForObservation(request, observedResult)
+        val recoveryAction = recordToolObserved(run, request, observedResult, retryAttempt)
         val assistantMessage = messageForObservation(observedResult, retryAttempt, recoveryAction)
-        traceStore.appendStep(
-            runId,
-            AgentStep.AssistantResponded(
-                traceMessageForObservation(
-                    request = request,
-                    result = observedResult,
-                    retryAttempt = retryAttempt,
-                    recoveryAction = recoveryAction,
-                ),
-            ),
-        )
         if (budgetExceeded) {
             return host.failObservationBudget(
                 runId = runId,
@@ -401,39 +369,15 @@ internal class ToolObservationCoordinator(
                 reason = OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON,
             )
         }
-        val nextToolPlan = if (
-            observedResult.status == ToolStatus.Succeeded &&
-            retryRequest == null
-        ) {
-            val deterministicPlan = toolPlanCoordinator.planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, localPlanningResult)
-                ?: toolPlanCoordinator.planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, localPlanningResult)
-                ?: toolPlanCoordinator.planNextCompositeSkillSegmentBeforeContinuation(
-                    run = run,
-                    canPlanNextToolBeforeModel = continuation?.canPlanNextToolBeforeModel == true,
-                    blocksSequentialTail = continuation?.blocksSequentialTail == true,
-                )
-            deterministicPlan ?: if (searchResultVerified) {
-                NextObservationPlan.None
-            } else if (
-                (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
-                toolPlanCoordinator.canPlanNextToolAfterObservation(run, request, localPlanningResult)
-            ) {
-                toolPlanCoordinator.planNextToolAfterObservation(run, request, localPlanningResult)
-            } else {
-                NextObservationPlan.None
-            }
-        } else if (
-            observedResult.status == ToolStatus.Failed &&
-            toolPlanCoordinator.isDeviceControlTool(request) &&
-            !observedResult.isPermissionFailure() &&
-            !observedResult.isForegroundPackageGateFailure() &&
-            retryRequest == null
-        ) {
-            toolPlanCoordinator.planModelDeviceControlRecoveryAfterFailure(run, request, localPlanningResult)
-                ?: toolPlanCoordinator.planSafeDeviceControlRecoveryAfterFailure(run, request, observedResult)
-        } else {
-            NextObservationPlan.None
-        }
+        val nextToolPlan = planNextToolForObservation(
+            run = run,
+            request = request,
+            observedResult = observedResult,
+            localPlanningResult = localPlanningResult,
+            continuation = continuation,
+            retryRequested = retryRequest != null,
+            searchResultVerified = searchResultVerified,
+        )
         // [baseDecision] is the decision derived purely from the observed result. It is deliberately
         // NOT used past the [effectiveDecision] computation below: shouldFinish / shouldTakeOver /
         // post-launch continuation can override it, and mixing the two produced a real state-machine
@@ -472,33 +416,7 @@ internal class ToolObservationCoordinator(
             postLaunchContinuation != null -> postLaunchContinuation
             else -> baseDecision
         }
-        when (effectiveDecision) {
-            is AgentObservationDecision.RetryTool -> traceStore.appendStep(
-                runId,
-                AgentStep.ToolRetryScheduled(
-                    request = effectiveDecision.request,
-                    attempt = effectiveDecision.attempt,
-                    reason = effectiveDecision.reason,
-                ),
-            )
-
-            is AgentObservationDecision.PlanNextTool -> appendToolPlanSteps(
-                runId = runId,
-                plan = effectiveDecision.plan,
-            )
-
-            else -> Unit
-        }
-        traceStore.appendStep(runId, AgentStep.ObservationDecided(effectiveDecision))
-        if (effectiveDecision is AgentObservationDecision.RetryTool) {
-            host.auditToolRequest(
-                runId = runId,
-                request = effectiveDecision.request,
-                eventType = ToolAuditEventType.ToolRetryScheduled,
-                status = ToolStatus.Failed,
-                summary = "Retry ${effectiveDecision.attempt} scheduled.",
-            )
-        }
+        recordObservationDecision(runId, effectiveDecision)
         val shouldAwaitExternalOutcome = host.shouldAwaitExternalOutcomeConfirmation(
             runId = runId,
             request = request,
@@ -539,13 +457,8 @@ internal class ToolObservationCoordinator(
             expectedState = observingRun.state,
             state = finalState,
         ) ?: return null
-        // Wave 2 lifecycle: publish terminal / transition events alongside trace. Note that
-        // TurnEnded requires tokensIn/tokensOut/ttft/duration which are known only when a model
-        // generation completes; that is published from observeModelResult (and via run budget
-        // fail paths here using zeros where unknown).
-        // Wave 2 lifecycle: publish terminal / transition events alongside trace. TurnEnded requires
-        // token/ttft stats known only when a model generation completes, so it is published from
-        // observeModelResult instead.
+        // TurnEnded needs token/ttft stats known only when a model generation completes, so it is
+        // published from observeModelResult instead.
         runEvents.publishTransition(
             runId = runId,
             finalState = finalState,
@@ -586,8 +499,8 @@ internal class ToolObservationCoordinator(
             decision = effectiveDecision,
             recoveryAction = recoveryAction,
             // Deliberately NOT gated on the decision: a PlanNextTool decision legitimately carries a
-            // continuation prompt (see the `continuationPrompt == null || canPlanNextToolBeforeContinuation`
-            // gate above), and ToolExecutionController consumes the next-tool plan first, so the prompt
+            // continuation prompt (see the `continuation == null || continuation.canPlanNextToolBeforeModel`
+            // gate in planNextToolForObservation), and ToolExecutionController consumes the next-tool plan first, so the prompt
             // is only read when no plan took precedence. Gating it here would silently drop
             // local-evidence continuations that today work.
             continuationPromptForModel = continuationPrompt,
@@ -602,6 +515,122 @@ internal class ToolObservationCoordinator(
             retryAttempt = retryAttempt,
             steps = traceStore.steps(runId),
         )
+    }
+
+    /** Appends the ToolObserved trace and publishes the per-tool outcome event, telemetry and audit. */
+    private fun recordToolObserved(
+        run: AgentRun,
+        request: ToolRequest,
+        observedResult: ToolResult,
+        retryAttempt: Int,
+    ): AgentRecoveryAction? {
+        val runId = run.id
+        traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
+        // ToolStarted is published by ToolProgressPublisher at actual execution start
+        // (ValidatingToolExecutor); these are the terminal counterpart events.
+        publishToolOutcomeEvent(runId, request, observedResult, retryAttempt)
+        recordToolCompletedTelemetry(runId, request, observedResult, retryAttempt)
+        host.recordStepLatency("tool_execution", runId)
+        toolPlanCoordinator.recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
+        val resolvedSkillId = host.skillIdForRequest(runId, observedResult.requestId)
+        val observationSummary = observedResult.auditSummaryForObservation(request)
+        auditRecorder.record(
+            runId = runId,
+            requestId = observedResult.requestId,
+            toolName = request.toolName,
+            skillId = resolvedSkillId,
+            eventType = ToolAuditEventType.ToolObserved,
+            status = observedResult.status,
+            summary = observationSummary,
+        )
+        val recoveryAction = recoveryActionForObservation(request, observedResult)
+        traceStore.appendStep(
+            runId,
+            AgentStep.AssistantResponded(
+                traceMessageForObservation(
+                    request = request,
+                    result = observedResult,
+                    retryAttempt = retryAttempt,
+                    recoveryAction = recoveryAction,
+                ),
+            ),
+        )
+        return recoveryAction
+    }
+
+    /** Deterministic or replanned next tool for a successful observation, or recovery after a device-control failure. */
+    private fun planNextToolForObservation(
+        run: AgentRun,
+        request: ToolRequest,
+        observedResult: ToolResult,
+        localPlanningResult: ToolResult,
+        continuation: ToolObservationContinuation?,
+        retryRequested: Boolean,
+        searchResultVerified: Boolean,
+    ): NextObservationPlan =
+        if (
+            observedResult.status == ToolStatus.Succeeded &&
+            !retryRequested
+        ) {
+            val deterministicPlan = toolPlanCoordinator.planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, localPlanningResult)
+                ?: toolPlanCoordinator.planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, localPlanningResult)
+                ?: toolPlanCoordinator.planNextCompositeSkillSegmentBeforeContinuation(
+                    run = run,
+                    canPlanNextToolBeforeModel = continuation?.canPlanNextToolBeforeModel == true,
+                    blocksSequentialTail = continuation?.blocksSequentialTail == true,
+                )
+            deterministicPlan ?: if (searchResultVerified) {
+                NextObservationPlan.None
+            } else if (
+                (continuation == null || continuation.canPlanNextToolBeforeModel) &&
+                toolPlanCoordinator.canPlanNextToolAfterObservation(run, request, localPlanningResult)
+            ) {
+                toolPlanCoordinator.planNextToolAfterObservation(run, request, localPlanningResult)
+            } else {
+                NextObservationPlan.None
+            }
+        } else if (
+            observedResult.status == ToolStatus.Failed &&
+            toolPlanCoordinator.isDeviceControlTool(request) &&
+            !observedResult.isPermissionFailure() &&
+            !observedResult.isForegroundPackageGateFailure() &&
+            !retryRequested
+        ) {
+            toolPlanCoordinator.planModelDeviceControlRecoveryAfterFailure(run, request, localPlanningResult)
+                ?: toolPlanCoordinator.planSafeDeviceControlRecoveryAfterFailure(run, request, observedResult)
+        } else {
+            NextObservationPlan.None
+        }
+
+    /** Appends the decision's trace steps and audits a scheduled retry. */
+    private fun recordObservationDecision(runId: String, effectiveDecision: AgentObservationDecision) {
+        when (effectiveDecision) {
+            is AgentObservationDecision.RetryTool -> traceStore.appendStep(
+                runId,
+                AgentStep.ToolRetryScheduled(
+                    request = effectiveDecision.request,
+                    attempt = effectiveDecision.attempt,
+                    reason = effectiveDecision.reason,
+                ),
+            )
+
+            is AgentObservationDecision.PlanNextTool -> appendToolPlanSteps(
+                runId = runId,
+                plan = effectiveDecision.plan,
+            )
+
+            else -> Unit
+        }
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(effectiveDecision))
+        if (effectiveDecision is AgentObservationDecision.RetryTool) {
+            host.auditToolRequest(
+                runId = runId,
+                request = effectiveDecision.request,
+                eventType = ToolAuditEventType.ToolRetryScheduled,
+                status = ToolStatus.Failed,
+                summary = "Retry ${effectiveDecision.attempt} scheduled.",
+            )
+        }
     }
 
     /**
