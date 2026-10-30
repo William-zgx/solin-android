@@ -1,89 +1,46 @@
 package com.bytedance.zgx.solin
 
-import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Looper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.solin.action.ActionDraft
-import com.bytedance.zgx.solin.action.ActionExecutor
-import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
-import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import com.bytedance.zgx.solin.audit.ToolAuditLog
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.BackgroundTaskUseCases
 import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.solin.data.BundledModelInstaller
-import com.bytedance.zgx.solin.data.FirstRunSetupRepository
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.GenerationParametersStore
 import com.bytedance.zgx.solin.data.HuggingFaceAuthStore
 import com.bytedance.zgx.solin.data.ModelDownloadSource
-import com.bytedance.zgx.solin.data.ModelRepository
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.ModelSelectionState
-import com.bytedance.zgx.solin.data.ModelVerificationStatus
-import com.bytedance.zgx.solin.data.RemoteModelRepository
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.solin.download.ModelDownloadClient
-import com.bytedance.zgx.solin.download.ModelDownloadService
-import com.bytedance.zgx.solin.evidence.EvidenceCard
-import com.bytedance.zgx.solin.evidence.EvidenceQuality
-import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
-import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
-import com.bytedance.zgx.solin.evidence.EvidenceSourceType
-import com.bytedance.zgx.solin.evidence.toEvidenceReceiptSummary
 import com.bytedance.zgx.solin.logging.solinD
-import com.bytedance.zgx.solin.logging.solinE
-import com.bytedance.zgx.solin.logging.solinI
 import com.bytedance.zgx.solin.logging.solinW
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_AUDIT
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MEMORY
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryController
 import com.bytedance.zgx.solin.memory.MemoryControllerResult
 import com.bytedance.zgx.solin.memory.MemoryCommandResult
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
-import com.bytedance.zgx.solin.memory.MemoryRecallMode
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeController
-import com.bytedance.zgx.solin.memory.explicitUserFactFrom
-import com.bytedance.zgx.solin.memory.explicitUserPreferenceFrom
-import com.bytedance.zgx.solin.memory.explicitUserPreferenceForgetFrom
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
-import com.bytedance.zgx.solin.multimodal.SharedAttachment
-import com.bytedance.zgx.solin.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.solin.multimodal.SharedInput
 import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
-import com.bytedance.zgx.solin.multimodal.toSharedEvidenceReceiptSummary
-import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
-import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
-import com.bytedance.zgx.solin.orchestration.AgentObservationResult
-import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
-import com.bytedance.zgx.solin.orchestration.AgentRunOptions
-import com.bytedance.zgx.solin.orchestration.AgentRunState
-import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
-import com.bytedance.zgx.solin.orchestration.AssistantRoute
-import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
-import com.bytedance.zgx.solin.orchestration.ModelOutputQualityTrace
-import com.bytedance.zgx.solin.orchestration.PendingExternalOutcomeSnapshot
-import com.bytedance.zgx.solin.orchestration.RemoteToolScope
-import com.bytedance.zgx.solin.orchestration.RunDataDestination
-import com.bytedance.zgx.solin.orchestration.RunDataReceipt
 import com.bytedance.zgx.solin.presentation.AuditUiController
 import com.bytedance.zgx.solin.presentation.AutoInferenceAuthorizationCoordinator
 import com.bytedance.zgx.solin.presentation.BackgroundTaskController
@@ -96,75 +53,39 @@ import com.bytedance.zgx.solin.presentation.VoiceInputController
 import com.bytedance.zgx.solin.presentation.activeModelProfileId
 import com.bytedance.zgx.solin.presentation.localContextWindowTokens
 import com.bytedance.zgx.solin.presentation.localPreferredBackends
-import com.bytedance.zgx.solin.presentation.actionName
-import com.bytedance.zgx.solin.presentation.backendAllowedForActiveModel
-import com.bytedance.zgx.solin.presentation.composerSummary
-import com.bytedance.zgx.solin.presentation.hasLocalImageAttachment
-import com.bytedance.zgx.solin.presentation.hasProtectedImageSource
-import com.bytedance.zgx.solin.presentation.hasRemoteImageAttachment
-import com.bytedance.zgx.solin.presentation.isRemoteVisionSendable
-import com.bytedance.zgx.solin.presentation.localImageAttachments
-import com.bytedance.zgx.solin.presentation.localModelRuntimeCapabilitiesFor
 import com.bytedance.zgx.solin.presentation.modelHealthForCurrentSelection
-import com.bytedance.zgx.solin.presentation.preferredBackendForActiveModel
-import com.bytedance.zgx.solin.presentation.remoteImageAttachments
-import com.bytedance.zgx.solin.presentation.reportOrNull
 import com.bytedance.zgx.solin.presentation.toDeviceContextSnapshot
-import com.bytedance.zgx.solin.presentation.toTrace
-import com.bytedance.zgx.solin.presentation.visibleAssistantText
-import com.bytedance.zgx.solin.presentation.withOutputQualityDecision
-import com.bytedance.zgx.solin.runtime.GenerationQualityDecision
-import com.bytedance.zgx.solin.runtime.GenerationQualityIssue
-import com.bytedance.zgx.solin.runtime.GenerationQualityReport
-import com.bytedance.zgx.solin.runtime.GenerationRuntimeKind
-import com.bytedance.zgx.solin.runtime.AdaptiveGenerationPolicy
-import com.bytedance.zgx.solin.runtime.AdaptiveGenerationPolicyInput
-import com.bytedance.zgx.solin.runtime.LocalModelRequest
-import com.bytedance.zgx.solin.runtime.LocalModelRuntimeCapabilities
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteModelConnectivityProbe
-import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
-import com.bytedance.zgx.solin.safety.SafetyOutcome
-import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.tool.ToolExecutor
-import com.bytedance.zgx.solin.tool.ToolRequest
-import java.io.File
-import java.io.IOException
-import java.net.URI
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 private const val STALE_AGENT_RUN_STARTUP_REASON =
     "App restarted before this Agent step completed."
 private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON =
     "ViewModel cleared before this Agent run completed."
-private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
 internal const val STREAMING_UI_UPDATE_INTERVAL_MILLIS = 75L
 internal const val NO_MODEL_READY_STATUS_TEXT =
     "选择远程模型或下载本地模型后即可开始"
-
 
 class StreamingAssistantUpdateCoalescer(
     private val publish: (String) -> Unit,
@@ -615,7 +536,6 @@ class SolinViewModel internal constructor(
         toolExecutionController.restorePendingExternalOutcomeIfAny()
     }
 
-
     fun configureDebugRemoteModelForScreenshotEvidence(
         baseUrl: String,
         modelName: String,
@@ -628,7 +548,6 @@ class SolinViewModel internal constructor(
         )
     }
 
-
     private fun recoverBackgroundTasksOnStartup() {
         backgroundTaskController.recoverBackgroundTasksOnStartup()
     }
@@ -637,37 +556,29 @@ class SolinViewModel internal constructor(
         modelLoadController.startModelDownload()
     }
 
-
     fun startRecommendedModelDownload(modelId: String) {
         modelLoadController.startRecommendedModelDownload(modelId)
     }
-
 
     fun saveHuggingFaceAccessToken(token: String) {
         modelLoadController.saveHuggingFaceAccessToken(token)
     }
 
-
     fun clearHuggingFaceAccessToken() {
         modelLoadController.clearHuggingFaceAccessToken()
     }
-
 
     fun toggleSetupModel(modelId: String, selected: Boolean) {
         modelLoadController.toggleSetupModel(modelId, selected)
     }
 
-
     fun startSetupModelDownload() {
         modelLoadController.startSetupModelDownload()
     }
 
-
-
     fun skipFirstRunSetup() {
         modelLoadController.skipFirstRunSetup()
     }
-
 
     fun updateMemoryEnabled(enabled: Boolean) {
         firstRunSetupRepository.setMemoryEnabled(enabled)
@@ -851,21 +762,17 @@ class SolinViewModel internal constructor(
         modelLoadController.startCustomModelDownload(downloadUrl)
     }
 
-
     fun cancelModelDownload() {
         modelLoadController.cancelModelDownload()
     }
-
 
     fun importModel(uri: Uri) {
         modelLoadController.importModel(uri)
     }
 
-
     fun selectBackend(choice: BackendChoice) {
         modelLoadController.selectBackend(choice)
     }
-
 
     fun updateGenerationParameters(parameters: GenerationParameters) {
         if (_uiState.value.isBusy) return
@@ -962,7 +869,6 @@ class SolinViewModel internal constructor(
         modelLoadController.updateRemoteModelConfig(config)
     }
 
-
     fun testRemoteModelConnectivity() {
         modelLoadController.testRemoteModelConnectivity()
     }
@@ -971,26 +877,21 @@ class SolinViewModel internal constructor(
         modelLoadController.refreshRemoteConnectivityIfStale()
     }
 
-
     fun selectRecommendedModel(modelId: String) {
         modelLoadController.selectRecommendedModel(modelId)
     }
-
 
     fun selectInstalledModel(modelId: String) {
         modelLoadController.selectInstalledModel(modelId)
     }
 
-
     fun deleteInstalledModel(modelId: String) {
         modelLoadController.deleteInstalledModel(modelId)
     }
 
-
     fun loadModel() {
         modelLoadController.loadModel()
     }
-
 
     fun resetConversation() {
         sessionController.resetConversation()
@@ -1007,7 +908,6 @@ class SolinViewModel internal constructor(
     fun deleteActiveSession() {
         sessionController.deleteActiveSession()
     }
-
 
     fun confirmRemoteModeDisclosure(disclosure: PendingRemoteModeDisclosure) {
         var refreshConnectivity = false
@@ -1165,7 +1065,6 @@ class SolinViewModel internal constructor(
         toolExecutionController.dismissActionDraft()
     }
 
-
     override fun onCleared() {
         if (hasCleared) return
         hasCleared = true
@@ -1193,13 +1092,6 @@ class SolinViewModel internal constructor(
 
     private fun Throwable.cleanMessage(): String =
         message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
-
-
-
-
-
-
-
 
     private fun createInitialState(): ChatUiState {
         val modelState = modelRepository.currentState()
@@ -1262,11 +1154,6 @@ class SolinViewModel internal constructor(
         remoteConfig: RemoteModelConfig,
     ): Boolean =
         modelState.activeModelPath != null || remoteConfig.isConfigured
-
-
-
-
-
 
     // Memory paths: thin UI wrappers over MemoryController (Wave 2 Track C2b).
     private fun rebuildMemoryIndex() {
@@ -1519,6 +1406,4 @@ class SolinViewModel internal constructor(
         }
         rebuildMemoryIndex()
     }
-
-
 }

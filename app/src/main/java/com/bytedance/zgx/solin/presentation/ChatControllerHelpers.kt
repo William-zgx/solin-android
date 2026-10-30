@@ -41,7 +41,6 @@ import com.bytedance.zgx.solin.orchestration.PromptSegmentSource
 import com.bytedance.zgx.solin.orchestration.RequestComplexity
 import com.bytedance.zgx.solin.orchestration.RequestComplexityAggregator
 import com.bytedance.zgx.solin.orchestration.RequestComplexityInput
-import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
 import com.bytedance.zgx.solin.orchestration.RunPlacementBindingStore
 import com.bytedance.zgx.solin.orchestration.RunDataDestination

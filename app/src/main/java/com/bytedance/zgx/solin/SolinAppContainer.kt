@@ -53,7 +53,6 @@ import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
 import com.bytedance.zgx.solin.download.ModelDownloadService
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
-import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.OnDeviceEvidenceBlobStore
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryRepository
@@ -124,7 +123,6 @@ import com.bytedance.zgx.solin.tool.OkHttpWebSearchProvider
 import com.bytedance.zgx.solin.plan.PlanToolHandler
 import com.bytedance.zgx.solin.plan.PlanToolsModule
 import com.bytedance.zgx.solin.plan.SessionPlanStore
-import org.json.JSONObject
 
 class SolinAppContainer(
     context: Context,
