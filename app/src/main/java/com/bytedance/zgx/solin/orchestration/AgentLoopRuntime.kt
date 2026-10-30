@@ -194,6 +194,9 @@ class AgentLoopRuntime(
     // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
     // call sites unchanged.
     private val runScopedState = RunScopedState()
+    private val runEvents = RunTransitionEventPublisher(eventBus, runScopedState) { runId, stepType ->
+        markStepStart(runId, stepType)
+    }
     private val valueFreeCompletedStepFrontiersByRunId = runScopedState.valueFreeCompletedStepFrontiersByRunId
     private val remoteToolScopesByRunId = runScopedState.remoteToolScopesByRunId
     private val remoteExposedToolNamesByRunId = runScopedState.remoteExposedToolNamesByRunId
@@ -335,6 +338,7 @@ class AgentLoopRuntime(
     private val toolObservationCoordinator = ToolObservationCoordinator(
         toolRegistry = toolRegistry,
         auditRecorder = auditRecorder,
+        runEvents = runEvents,
         eventBus = eventBus,
         traceStore = traceStore,
         toolPlanCoordinator = toolPlanCoordinator,
@@ -418,18 +422,6 @@ class AgentLoopRuntime(
                 this@AgentLoopRuntime.auditToolEvent(runId, plan, eventType, status, summary)
             }
 
-            override fun publishRunEnded(runId: String, finalText: String?) {
-                this@AgentLoopRuntime.publishRunEnded(runId, finalText = finalText)
-            }
-
-            override fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) {
-                this@AgentLoopRuntime.publishRunFailed(runId, code, message)
-            }
-
-            override fun markStepStart(runId: String, stepType: String) {
-                this@AgentLoopRuntime.markStepStart(runId, stepType)
-            }
-
             override fun recordVerboseTrace(
                 runId: String,
                 thinkText: String?,
@@ -476,9 +468,6 @@ class AgentLoopRuntime(
                 val toolStartMs = toolDispatchStartedAtMillis.remove(requestId)
                 return toolStartMs?.let { System.currentTimeMillis() - it } ?: 0L
             }
-
-            override fun bumpAndGetTurnIndex(runId: String): Int =
-                runTurnIndex.compute(runId) { _, old -> (old ?: 0) + 1 }!!
 
             override fun setRemoteToolScope(runId: String, scope: RemoteToolScope) {
                 remoteToolScopesByRunId[runId] = scope
@@ -1751,39 +1740,14 @@ class AgentLoopRuntime(
             "GenerationComplete",
         )
         // Wave 2: publish terminal events after observeModelResult.
-        when (finalState) {
-            AgentRunState.Completed -> {
-                val turnIdx = runTurnIndex[runId] ?: 0
-                eventBus.publish(
-                    SolinEvent.Agent.TurnEnded(
-                        runId = runId,
-                        turnIndex = turnIdx,
-                        tokensIn = 0,
-                        tokensOut = 0,
-                        ttftMs = 0L,
-                        durationMs = 0L,
-                    ),
-                )
-                publishRunEnded(runId)
-            }
-            AgentRunState.Failed -> {
-                val msg = (decision as? AgentObservationDecision.Fail)?.reason
-                    ?: "observation failed"
-                publishRunFailed(runId, AgentErrorCode.Unknown("model_observation"), msg)
-            }
-            AgentRunState.Cancelled ->
-                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
-            AgentRunState.GeneratingAnswer -> {
-                val nextTurn = runTurnIndex.compute(runId) { _, old -> (old ?: 0) + 1 }!!
-                eventBus.publish(
-                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
-                )
-                markStepStart(runId, "model_generation")
-            }
-            AgentRunState.RetryingTool -> markStepStart(runId, "tool_execution")
-            AgentRunState.ExecutingTool -> markStepStart(runId, "tool_execution")
-            else -> Unit
-        }
+        runEvents.publishTransition(
+            runId = runId,
+            finalState = finalState,
+            completedText = null,
+            publishTurnEndedOnCompletion = true,
+            failureCode = AgentErrorCode.Unknown("model_observation"),
+            failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: "observation failed",
+        )
         if (finalState in terminalRunStates) {
             clearEphemeralRunState(runId)
         }
@@ -2828,42 +2792,8 @@ class AgentLoopRuntime(
         const val RUN_DELETED_SESSION_REASON = "Session deleted before this Agent run completed."
     }
 
-    // -----------------------------------------------------------------------
-    // Wave 2 SolinEvent lifecycle helpers — dual-write alongside traceStore.
-    // -----------------------------------------------------------------------
-
-    private fun publishRunFailed(
-        runId: String,
-        code: AgentErrorCode,
-        message: String,
-        terminalTurnIndex: Int? = runTurnIndex[runId],
-    ) {
-        eventBus.publish(
-            SolinEvent.Agent.RunFailed(
-                runId = runId,
-                code = code,
-                message = message,
-                terminalTurnIndex = terminalTurnIndex,
-            ),
-        )
-    }
-
-    private fun publishRunEnded(
-        runId: String,
-        finalText: String? = null,
-    ) {
-        val start = runStartedAtMillis[runId]
-        val durationMs = start?.let { System.currentTimeMillis() - it }
-        val turns = runTurnIndex[runId] ?: 0
-        eventBus.publish(
-            SolinEvent.Agent.RunEnded(
-                runId = runId,
-                totalTurns = turns,
-                finalText = finalText,
-                durationMs = durationMs,
-            ),
-        )
-    }
+    private fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) =
+        runEvents.publishRunFailed(runId, code, message)
 
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
         data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||

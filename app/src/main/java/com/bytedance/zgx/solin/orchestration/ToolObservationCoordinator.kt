@@ -32,6 +32,7 @@ internal const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
 internal class ToolObservationCoordinator(
     private val toolRegistry: ToolRegistry,
     private val auditRecorder: ToolAuditRecorder,
+    private val runEvents: RunTransitionEventPublisher,
     private val eventBus: SolinEventBus,
     private val traceStore: AgentTraceStore,
     private val toolPlanCoordinator: ToolPlanCoordinator,
@@ -85,9 +86,6 @@ internal class ToolObservationCoordinator(
             status: ToolStatus?,
             summary: String,
         )
-        fun publishRunEnded(runId: String, finalText: String? = null)
-        fun publishRunFailed(runId: String, code: AgentErrorCode, message: String)
-        fun markStepStart(runId: String, stepType: String)
         fun recordVerboseTrace(
             runId: String,
             thinkText: String? = null,
@@ -103,7 +101,6 @@ internal class ToolObservationCoordinator(
         fun addScratchpadNote(runId: String, noteContent: String)
         fun markToolDispatchStarted(requestId: String)
         fun consumeToolDispatchLatencyMs(requestId: String): Long
-        fun bumpAndGetTurnIndex(runId: String): Int
         fun setRemoteToolScope(runId: String, scope: RemoteToolScope)
         fun publicEvidenceBatchResultOrFailure(result: ToolResult, request: ToolRequest): ToolResult
         fun publicEvidenceBatchAuditSummary(
@@ -248,10 +245,12 @@ internal class ToolObservationCoordinator(
         if (decision is AgentObservationDecision.ContinueWithModel) {
             host.setRemoteToolScope(runId, RemoteToolScope.PublicEvidenceOnly)
         }
-        publishRunTransition(
+        runEvents.publishTransition(
             runId = runId,
             finalState = updatedRun.state,
             completedText = assistantMessage,
+            publishTurnEndedOnCompletion = false,
+            failureCode = AgentErrorCode.Unknown("tool_failure"),
             failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: assistantMessage,
         )
         if (updatedRun.state in host.terminalRunStates) {
@@ -573,10 +572,15 @@ internal class ToolObservationCoordinator(
         // TurnEnded requires tokensIn/tokensOut/ttft/duration which are known only when a model
         // generation completes; that is published from observeModelResult (and via run budget
         // fail paths here using zeros where unknown).
-        publishRunTransition(
+        // Wave 2 lifecycle: publish terminal / transition events alongside trace. TurnEnded requires
+        // token/ttft stats known only when a model generation completes, so it is published from
+        // observeModelResult instead.
+        runEvents.publishTransition(
             runId = runId,
             finalState = finalState,
             completedText = assistantMessage,
+            publishTurnEndedOnCompletion = false,
+            failureCode = AgentErrorCode.Unknown("tool_failure"),
             failureMessage = (effectiveDecision as? AgentObservationDecision.Fail)?.reason
                 ?: observedResult.summary,
         )
@@ -716,37 +720,6 @@ internal class ToolObservationCoordinator(
             ),
             "ToolCompleted",
         )
-    }
-
-    /**
-     * Wave 2 lifecycle: publish terminal / transition events alongside the trace once the run state
-     * has moved. TurnEnded requires token/ttft stats known only when a model generation completes, so
-     * it is published from observeModelResult instead.
-     */
-    private fun publishRunTransition(
-        runId: String,
-        finalState: AgentRunState,
-        completedText: String,
-        failureMessage: String,
-    ) {
-        when (finalState) {
-            AgentRunState.Completed -> host.publishRunEnded(runId, finalText = completedText)
-            AgentRunState.Failed ->
-                host.publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), failureMessage)
-            AgentRunState.Cancelled ->
-                eventBus.publish(SolinEvent.Agent.RunCancelled(runId = runId, byUser = false))
-            AgentRunState.GeneratingAnswer -> {
-                // Starting a new model turn — bump the turn counter and publish TurnStarted.
-                val nextTurn = host.bumpAndGetTurnIndex(runId)
-                eventBus.publish(
-                    SolinEvent.Agent.TurnStarted(runId = runId, turnIndex = nextTurn),
-                )
-                host.markStepStart(runId, "model_generation")
-            }
-            AgentRunState.RetryingTool -> host.markStepStart(runId, "tool_execution")
-            AgentRunState.ExecutingTool -> host.markStepStart(runId, "tool_execution")
-            else -> Unit
-        }
     }
 
     private fun observationDecision(
