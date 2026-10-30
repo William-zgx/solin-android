@@ -55,6 +55,31 @@ class ModelDownloadServiceTest {
     }
 
     @Test
+    fun localDebugDownloadStopsAndDeletesPartialFileWhenCancelled() {
+        withTempDownloadFile { targetFile ->
+            var cancelled = false
+            val progress = mutableListOf<Long>()
+
+            val failure = runCatching {
+                downloadStreamToFileWithByteLimit(
+                    input = ByteArrayInputStream(ByteArray(DEFAULT_BUFFER_SIZE * 4)),
+                    targetFile = targetFile,
+                    maximumBytes = Long.MAX_VALUE,
+                    shouldCancel = { cancelled },
+                    onBytesCopied = { copied ->
+                        progress += copied
+                        cancelled = true
+                    },
+                )
+            }
+
+            assertTrue(failure.exceptionOrNull() is java.util.concurrent.CancellationException)
+            assertFalse(targetFile.exists())
+            assertEquals(listOf(DEFAULT_BUFFER_SIZE.toLong()), progress)
+        }
+    }
+
+    @Test
     fun downloadManagerDeclaredOversizeCancelsTaskBeforeMoreBytesArrive() {
         var cancelCount = 0
         val info = DownloadInfo(

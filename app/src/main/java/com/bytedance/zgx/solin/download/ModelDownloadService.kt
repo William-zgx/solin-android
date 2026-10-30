@@ -162,10 +162,13 @@ class ModelDownloadService(
                 throw ModelTransferSizeLimitExceededException(maximumBytes)
             }
             targetFile.parentFile?.mkdirs()
+            // The loopback debug download runs synchronously inside enqueue(), before the caller
+            // has a download id to cancel; cancelModelDownload() reaches it via cancelPreflight().
             downloadStreamToFileWithByteLimit(
                 input = connection.getInputStream(),
                 targetFile = targetFile,
                 maximumBytes = maximumBytes,
+                shouldCancel = { preflightCancelled },
             ) { copiedBytes ->
                 downloadedBytes = copiedBytes
                 directDownloads[downloadId] = DownloadInfo(
@@ -203,12 +206,17 @@ internal fun downloadStreamToFileWithByteLimit(
     input: InputStream,
     targetFile: File,
     maximumBytes: Long,
+    shouldCancel: () -> Boolean = { false },
     onBytesCopied: (Long) -> Unit = {},
 ): Long =
     try {
+        if (shouldCancel()) throw CancellationException("下载已取消")
         input.use {
             targetFile.outputStream().use { output ->
-                copyStreamWithByteLimit(it, output, maximumBytes, onBytesCopied)
+                copyStreamWithByteLimit(it, output, maximumBytes) { copiedBytes ->
+                    onBytesCopied(copiedBytes)
+                    if (shouldCancel()) throw CancellationException("下载已取消")
+                }
             }
         }
     } catch (throwable: Throwable) {
