@@ -25,13 +25,8 @@ private val currentFreshnessTermRegex =
     Regex(
         """(?i)(最新|目前|当前|现在|近期|最近|今日|今天|今年|当下|热搜|热点|热门|火热|榜单|排行|排名|趋势|\blatest\b|\bcurrent\b|\bcurrently\b|\brecent\b|\btrending\b|\bhottest\b|\bpopular\b|\branking\b|\brankings\b|\bleaderboard\b|\btoday\b|\bnow\b)""",
     )
-private val cjkAndAsciiBoundaryRegex =
-    Regex("""(?<=[\u4E00-\u9FFF])(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])(?=[\u4E00-\u9FFF])""")
-private val searchPunctuationRegex = Regex("""[，。！？、；;:：,.?()（）\[\]{}"'“”]+""")
 private val cjkSearchNoiseRegex =
     Regex("""(搜索一下|搜一下|查一下|看一下|帮我看看|帮我查查|帮我|帮忙|麻烦|请问|请|给我|告诉我|网页搜索|网络搜索|互联网搜索|上网搜索|网上搜索|上网查|网上查|百度一下|搜索|查询|查找|分别是什么|是什么|有哪些|怎么样|如何|多少|一下|分别|目前|当前|现在|当下|吗|呢|的)""")
-private val englishSearchNoiseRegex =
-    Regex("""(?i)\b(?:please|can\s+you|could\s+you|search\s+for|search|look\s+up|google|bing|tell\s+me|what\s+is|what\s+are|what's|which|who\s+is)\b""")
 
 interface WebSearchProvider {
     fun search(request: WebSearchRequest): WebSearchReadResult
@@ -733,9 +728,9 @@ private fun String.hasCurrentFreshnessIntent(currentYear: Int): Boolean =
 
 private fun String.optimizedWebSearchKeywords(): String {
     val optimized = trim()
-        .replace(cjkAndAsciiBoundaryRegex, " ")
-        .replace(searchPunctuationRegex, " ")
-        .replace(englishSearchNoiseRegex, " ")
+        .replace(webSearchCjkAsciiBoundaryRegex, " ")
+        .replace(webSearchPunctuationRegex, " ")
+        .replace(webSearchEnglishNoiseRegex, " ")
         .replace(cjkSearchNoiseRegex, " ")
         .replace(Regex("""\s+"""), " ")
         .trim()

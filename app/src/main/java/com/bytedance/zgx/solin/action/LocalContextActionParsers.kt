@@ -237,21 +237,8 @@ internal object RecentScreenshotOcrActionParser {
             englishCountPattern.containsMatchIn(normalized)
     }
 
-    private fun String.asksForOcrTextExtraction(): Boolean {
-        val normalized = lowercase()
-        return listOf(
-            "识别",
-            "提取",
-            "摘录",
-            "读取文字",
-            "读文字",
-            "文字",
-            "文本",
-            "ocr",
-        ).any { marker -> marker in normalized } ||
-            normalized.contains(Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")) ||
-            normalized.contains(Regex("""\btext\b.*\b(?:from|in)\b.*\b(?:screenshot|screen\s+capture)\b"""))
-    }
+    private fun String.asksForOcrTextExtraction(): Boolean =
+        asksForOcrTextExtraction(sourceNounPattern = """(?:screenshot|screen\s+capture)""")
 
     private fun requestedScreenshotCount(input: String): Int? {
         val normalized = input.lowercase()
@@ -335,21 +322,8 @@ internal object RecentImageOcrActionParser {
             englishRecentImagePattern.containsMatchIn(normalized)
     }
 
-    private fun String.asksForOcrTextExtraction(): Boolean {
-        val normalized = lowercase()
-        return listOf(
-            "识别",
-            "提取",
-            "摘录",
-            "读取文字",
-            "读文字",
-            "文字",
-            "文本",
-            "ocr",
-        ).any { marker -> marker in normalized } ||
-            normalized.contains(Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")) ||
-            normalized.contains(Regex("""\btext\b.*\b(?:from|in)\b.*\b(?:images?|photos?|pictures?)\b"""))
-    }
+    private fun String.asksForOcrTextExtraction(): Boolean =
+        asksForOcrTextExtraction(sourceNounPattern = """(?:images?|photos?|pictures?)""")
 
     private fun requestedImageCount(input: String): Int? {
         val normalized = input.lowercase()
@@ -693,4 +667,25 @@ internal object CurrentScreenTextActionParser {
             normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:screen|visible|accessibility|accessible)\s+text\b""")) ||
             normalized.contains(Regex("""\b(?:how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b"""))
     }
+}
+
+/**
+ * True when the request asks to extract text (OCR) from a [sourceNounPattern] source, e.g.
+ * "识别文字" or "extract the text from my screenshot". Shared by the recent-screenshot and
+ * recent-image OCR parsers, which differ only in the source noun.
+ */
+private fun String.asksForOcrTextExtraction(sourceNounPattern: String): Boolean {
+    val normalized = lowercase()
+    return listOf(
+        "识别",
+        "提取",
+        "摘录",
+        "读取文字",
+        "读文字",
+        "文字",
+        "文本",
+        "ocr",
+    ).any { marker -> marker in normalized } ||
+        normalized.contains(Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")) ||
+        normalized.contains(Regex("""\btext\b.*\b(?:from|in)\b.*\b""" + sourceNounPattern + """\b"""))
 }
