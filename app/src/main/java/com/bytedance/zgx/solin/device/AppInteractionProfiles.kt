@@ -67,7 +67,7 @@ object AppInteractionProfiles {
             submitHints = setOf("搜索", "검색", "前往", "转到", "search"),
             resultHints = setOf("搜索结果", "검색결과", "网页", "相关搜索", "百度", "全部", "综合", "图片", "资讯", "文档", "问答", "经验"),
         ),
-    )
+    ) + AppInteractionProfileCatalog.lifestyleAndMediaProfiles
 
     fun forPackage(packageName: String?): AppInteractionProfile? =
         packageName?.takeIf { it.isNotBlank() }?.let { packageValue ->
