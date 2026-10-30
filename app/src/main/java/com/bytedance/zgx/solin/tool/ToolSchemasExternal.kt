@@ -10,7 +10,7 @@ import com.bytedance.zgx.solin.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
  * JSON Schemas for tools that hand off to something outside Solin: web search, system
  * settings, drafts (email / calendar / contact), share, deep links, and app launches.
  *
- * Moved verbatim out of ToolRegistry.kt; see ToolSchemasUi.kt for why these are `internal`.
+ * See ToolSchemasUi.kt for why these are `internal`.
  * ToolSchemaContractTest guards the schema contract.
  */
 

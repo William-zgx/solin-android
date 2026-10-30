@@ -80,9 +80,8 @@ class RoutingToolExecutor(
     /**
      * Privacy label stamped on evidence blobs spilled by [bound].
      *
-     * WHY a parameter and not a literal: privacy classification is a policy decision and
-     * used to be hardcoded inside the routing layer, where it was invisible to reviewers of
-     * the privacy boundary. Hoisting it makes the decision explicit at the composition root.
+     * WHY a parameter and not a literal: privacy classification is a policy decision, so it is
+     * made explicit at the composition root where privacy-boundary reviewers can see it.
      *
      * The default MUST stay [MessagePrivacy.LocalOnly] and callers MUST NOT widen it: tool
      * evidence includes screen text, OCR, and private tool output, which the project's

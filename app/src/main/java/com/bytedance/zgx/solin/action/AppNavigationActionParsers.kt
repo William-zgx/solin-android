@@ -3,8 +3,6 @@ package com.bytedance.zgx.solin.action
 /*
  * Rule parsers for deep links, camera, app navigation (incl. knownAppPackages) and the
  * foreground-app query.
- *
- * Moved verbatim out of BasicDraftActionParsers.kt.
  */
 
 internal object DeepLinkActionParser {

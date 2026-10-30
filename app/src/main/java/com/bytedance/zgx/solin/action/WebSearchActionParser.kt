@@ -7,8 +7,6 @@ import com.bytedance.zgx.solin.tool.webSearchPunctuationRegex
 
 /*
  * Rule parser for explicit web search and weather lookups.
- *
- * Moved verbatim out of BasicDraftActionParsers.kt.
  */
 
 internal object WebSearchActionParser {

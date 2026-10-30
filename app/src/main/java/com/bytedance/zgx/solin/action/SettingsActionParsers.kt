@@ -2,8 +2,6 @@ package com.bytedance.zgx.solin.action
 
 /*
  * Rule parsers for Wi-Fi / flashlight / usage-access and allowlisted system settings pages.
- *
- * Moved verbatim out of BasicDraftActionParsers.kt.
  */
 
 internal object DeviceSettingsActionParser {

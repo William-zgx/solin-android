@@ -3,8 +3,6 @@ package com.bytedance.zgx.solin.action
 /*
  * Rule parsers for local device-context reads: recent files, screenshot/image OCR,
  * notifications, current-screen OCR and current-screen text.
- *
- * Moved verbatim out of BasicDraftActionParsers.kt.
  */
 
 internal object RecentFilesActionParser {

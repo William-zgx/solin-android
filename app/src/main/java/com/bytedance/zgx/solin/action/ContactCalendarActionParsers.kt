@@ -5,8 +5,6 @@ import com.bytedance.zgx.solin.device.CalendarAvailabilityQueryValidation
 
 /*
  * Rule parsers for contact lookup, contact drafts and calendar availability.
- *
- * Moved verbatim out of BasicDraftActionParsers.kt.
  */
 
 internal object ContactQueryActionParser {

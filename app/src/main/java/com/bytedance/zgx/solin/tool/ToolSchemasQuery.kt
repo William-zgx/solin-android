@@ -4,7 +4,7 @@ package com.bytedance.zgx.solin.tool
  * JSON Schemas for the read-only local query tools (calendar availability, contacts,
  * notifications, recent files, recent-image OCR, clipboard, background tasks, foreground app).
  *
- * Moved verbatim out of ToolRegistry.kt; see ToolSchemasUi.kt for why these are `internal`.
+ * See ToolSchemasUi.kt for why these are `internal`.
  * ToolSchemaContractTest guards the schema contract.
  */
 

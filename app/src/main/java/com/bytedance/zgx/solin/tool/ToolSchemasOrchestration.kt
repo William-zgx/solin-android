@@ -4,7 +4,7 @@ package com.bytedance.zgx.solin.tool
  * JSON Schemas for the agent's own control-flow and scheduling tools: reminders, alarms,
  * timers, periodic checks, ask-user, note, finish, and human take-over.
  *
- * Moved verbatim out of ToolRegistry.kt; see ToolSchemasUi.kt for why these are `internal`.
+ * See ToolSchemasUi.kt for why these are `internal`.
  * ToolSchemaContractTest guards the schema contract.
  */
 

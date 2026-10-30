@@ -2,7 +2,7 @@ package com.bytedance.zgx.solin.tool
 
 /*
  * Shared private-output key sets and capability tag sets referenced by the built-in specs
- * (ToolSpecs*.kt). Moved verbatim out of ToolRegistry.kt; `internal` only so the spec files
+ * (ToolSpecs*.kt); `internal` only so the spec files
  * can reference them.
  */
 

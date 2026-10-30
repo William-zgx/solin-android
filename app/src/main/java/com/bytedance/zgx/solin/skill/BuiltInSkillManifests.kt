@@ -4,8 +4,8 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.RiskLevel
 
 /*
- * Built-in skill manifests, catalog and module registration. Moved verbatim out of
- * BuiltInSkills.kt. Manifest order is preserved (it feeds the skill catalog).
+ * Built-in skill manifests, catalog and module registration. Manifest order is preserved
+ * (it feeds the skill catalog).
  */
 
 private val simpleTextInputSchema = """

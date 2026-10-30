@@ -6,7 +6,7 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
  * Built-in specs for the tail of the registry: reminder cancellation followed by the
  * agent orchestration tools (ask_user, note, finish, take_over).
  *
- * Moved verbatim out of ToolRegistry.kt. [builtInToolSpecs] concatenates the chunks in the
+ * [builtInToolSpecs] concatenates the chunks in the
  * original order — that order feeds planning prompts and the capability matrix, and is
  * pinned by BuiltInToolSpecSnapshotTest. Keep each chunk contiguous and in place.
  */

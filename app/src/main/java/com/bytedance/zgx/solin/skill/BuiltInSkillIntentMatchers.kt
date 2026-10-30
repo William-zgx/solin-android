@@ -7,8 +7,8 @@ import com.bytedance.zgx.solin.action.startsWithActionNegation
 import com.bytedance.zgx.solin.tool.ToolRequest
 
 /*
- * Intent matchers and slot extractors used by BuiltInSkillRuntime.plan(). Moved verbatim out of
- * BuiltInSkills.kt; `internal` only where the runtime needs them.
+ * Intent matchers and slot extractors used by BuiltInSkillRuntime.plan(); `internal` only where
+ * the runtime needs them.
  */
 
 internal data class DraftFormUiFill(

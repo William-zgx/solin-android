@@ -6,7 +6,7 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
  * Built-in specs for local device-context queries (calendar, foreground app, notifications,
  * files, OCR and screen-text reads).
  *
- * Moved verbatim out of ToolRegistry.kt. [builtInToolSpecs] concatenates the chunks in the
+ * [builtInToolSpecs] concatenates the chunks in the
  * original order — that order feeds planning prompts and the capability matrix, and is
  * pinned by BuiltInToolSpecSnapshotTest. Keep each chunk contiguous and in place.
  */

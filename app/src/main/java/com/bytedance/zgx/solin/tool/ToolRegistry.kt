@@ -346,9 +346,8 @@ private fun validateExactlyOneOfContract(spec: ToolSpec) {
 /**
  * Enforces declarative argument invariants that the closed JSON Schema dialect cannot express.
  *
- * Currently only [ToolSpec.exactlyOneOf]. This used to be a `when (request.toolName)` with one
- * hard-coded branch per tool; keep it table-driven so a new mutual-exclusion rule is a spec
- * declaration, not an edit to shared validation code.
+ * Currently only [ToolSpec.exactlyOneOf]. Keep it table-driven so a new mutual-exclusion rule is
+ * a spec declaration, not an edit to shared validation code.
  */
 private fun toolSpecificArgumentInvariant(spec: ToolSpec, request: ToolRequest): String? {
     spec.exactlyOneOf.forEach { group ->
