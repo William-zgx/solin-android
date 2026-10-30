@@ -25,9 +25,14 @@ import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 
 data class LocalModelRequest(
@@ -201,6 +206,8 @@ internal data class LiteRtConversationSpec(
     val parameters: GenerationParameters,
     val currentPrompt: String = "",
     val maxInputTokens: Int? = null,
+    /** Overrides the default chat system instruction (used by shared-engine one-shots). */
+    val systemInstruction: String? = null,
 )
 
 internal fun interface LiteRtEngineFactory {
@@ -246,6 +253,7 @@ private class NativeLiteRtEngineHandle(
                     parameters = config.parameters,
                     currentPrompt = config.currentPrompt,
                     maxInputTokens = config.maxInputTokens,
+                    systemInstruction = config.systemInstruction,
                 ),
             ),
         )
@@ -283,11 +291,16 @@ class RealLiteRtRuntime internal constructor(
     private val cacheDir: File,
     private val contextCompactor: ContextCompactor?,
     private val engineFactory: LiteRtEngineFactory,
-) : LocalChatRuntime {
+) : LocalChatRuntime, SharedLocalEngineProvider {
     constructor(
         cacheDir: File,
         contextCompactor: ContextCompactor? = null,
     ) : this(cacheDir, contextCompactor, NativeLiteRtEngineFactory)
+
+    private var loadedModelPath: String? = null
+    private var lastConversationSpec: LiteRtConversationSpec? = null
+    private val activeGenerations = AtomicInteger(0)
+    private val oneShotInFlight = AtomicBoolean(false)
 
     private var engine: LiteRtEngineHandle? = null
     private var conversation: LiteRtConversationHandle? = null
@@ -321,18 +334,18 @@ class RealLiteRtRuntime internal constructor(
         )
         try {
             createdEngine.initialize()
-            val createdConversation =
-                createdEngine.createConversation(
-                    LiteRtConversationSpec(
-                        history,
-                        parameters,
-                        maxInputTokens = profileMaxInputTokens(),
-                    ),
-                )
+            val loadSpec = LiteRtConversationSpec(
+                history,
+                parameters,
+                maxInputTokens = profileMaxInputTokens(),
+            )
+            val createdConversation = createdEngine.createConversation(loadSpec)
+            lastConversationSpec = loadSpec
             // Publish the native handles only once both exist, so a failed load never leaves a
             // closed engine reachable from recreate/close.
             engine = createdEngine
             conversation = createdConversation
+            loadedModelPath = modelPath
             currentBackend = backend
             lastLoadMs = elapsedMillisSince(loadStartedAtNanos)
             lastFirstTokenMs = null
@@ -370,6 +383,7 @@ class RealLiteRtRuntime internal constructor(
         maxInputTokens: Int? = null,
     ) {
         val currentEngine = engine ?: error("模型尚未就绪")
+        check(!oneShotInFlight.get()) { LOCAL_ENGINE_BUSY_MESSAGE }
         // Wave 2: opt-in context compaction. If a compactor is supplied and a token budget is
         // known, run it BEFORE constructing the ConversationConfig. The existing
         // budgetLocalRuntimeHistory heuristic still runs afterwards as a safety net (coexistence).
@@ -381,14 +395,14 @@ class RealLiteRtRuntime internal constructor(
         val previousConversation = conversation
         conversation = null
         previousConversation?.close()
-        conversation = currentEngine.createConversation(
-            LiteRtConversationSpec(
-                compactedHistory,
-                parameters,
-                currentPrompt,
-                maxInputTokens ?: profileMaxInputTokens(),
-            ),
+        val spec = LiteRtConversationSpec(
+            compactedHistory,
+            parameters,
+            currentPrompt,
+            maxInputTokens ?: profileMaxInputTokens(),
         )
+        conversation = currentEngine.createConversation(spec)
+        lastConversationSpec = spec
     }
 
     /**
@@ -455,6 +469,7 @@ class RealLiteRtRuntime internal constructor(
         send(LocalModelRequest(prompt = prompt))
 
     override fun send(request: LocalModelRequest): Flow<String> {
+        check(!oneShotInFlight.get()) { LOCAL_ENGINE_BUSY_MESSAGE }
         val activeConversation = conversation ?: error("模型尚未就绪")
         if (request.imageAttachments.isNotEmpty() && !capabilities.supportsVisionInput) {
             error("当前本地模型不支持图片输入")
@@ -462,12 +477,75 @@ class RealLiteRtRuntime internal constructor(
         val startedAtNanos = System.nanoTime()
         lastFirstTokenMs = null
         return activeConversation.sendMessageAsync(request)
+            .onStart { activeGenerations.incrementAndGet() }
+            .onCompletion { activeGenerations.decrementAndGet() }
             .map { text ->
                 if (text.isNotBlank() && lastFirstTokenMs == null) {
                     lastFirstTokenMs = elapsedMillisSince(startedAtNanos)
                 }
                 text
             }
+    }
+
+    /**
+     * [SharedLocalEngineProvider] implementation: runs one short generation on the loaded engine
+     * so the action planner does not need its own native Engine. See [SharedLocalEngineProvider]
+     * for the contract; this never preempts a chat generation and always restores the chat
+     * conversation from its last spec.
+     */
+    override fun generateOneShot(request: SharedEngineOneShotRequest): SharedEngineOneShotResult {
+        val currentEngine = engine
+            ?: return SharedEngineOneShotResult.Unavailable(SharedEngineUnavailableReason.NoEngineLoaded)
+        if (loadedModelPath != request.modelPath) {
+            return SharedEngineOneShotResult.Unavailable(SharedEngineUnavailableReason.DifferentModel)
+        }
+        if (activeGenerations.get() > 0 || !oneShotInFlight.compareAndSet(false, true)) {
+            return SharedEngineOneShotResult.Unavailable(SharedEngineUnavailableReason.Busy)
+        }
+        try {
+            // LiteRT-LM engines host one conversation at a time: park the chat conversation.
+            val parked = conversation
+            conversation = null
+            parked?.close()
+            return try {
+                val oneShot = currentEngine.createConversation(
+                    LiteRtConversationSpec(
+                        history = emptyList(),
+                        parameters = GenerationParameters(
+                            temperature = request.temperature,
+                            topP = request.topP,
+                            topK = request.topK,
+                        ),
+                        systemInstruction = request.systemInstruction,
+                    ),
+                )
+                try {
+                    val text = runBlocking {
+                        oneShot.sendMessageAsync(LocalModelRequest(prompt = request.prompt))
+                            .toList()
+                            .joinToString(separator = "")
+                    }
+                    SharedEngineOneShotResult.Generated(text)
+                } finally {
+                    oneShot.close()
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                SharedEngineOneShotResult.Unavailable(
+                    SharedEngineUnavailableReason.Failed,
+                    throwable.message ?: throwable.javaClass.simpleName,
+                )
+            } finally {
+                conversation = runCatching {
+                    currentEngine.createConversation(
+                        lastConversationSpec ?: LiteRtConversationSpec(emptyList(), GenerationParameters()),
+                    )
+                }.getOrNull()
+            }
+        } finally {
+            oneShotInFlight.set(false)
+        }
     }
 
     @OptIn(ExperimentalApi::class)
@@ -511,6 +589,8 @@ class RealLiteRtRuntime internal constructor(
         val closingEngine = engine
         conversation = null
         engine = null
+        loadedModelPath = null
+        lastConversationSpec = null
         currentBackend = null
         lastLoadMs = null
         lastFirstTokenMs = null
@@ -523,6 +603,7 @@ class RealLiteRtRuntime internal constructor(
 
     companion object {
         private const val TAG = "LiteRtRuntime"
+        private const val LOCAL_ENGINE_BUSY_MESSAGE = "本地模型正忙，请稍后重试"
 
         fun configureNativeLogging() {
             Engine.setNativeMinLogSeverity(LogSeverity.ERROR)
@@ -614,9 +695,10 @@ private fun defaultConversationConfig(
     parameters: GenerationParameters,
     currentPrompt: String = "",
     maxInputTokens: Int? = null,
+    systemInstruction: String? = null,
 ): ConversationConfig =
     ConversationConfig(
-        systemInstruction = Contents.of(DEFAULT_CHAT_SYSTEM_INSTRUCTION),
+        systemInstruction = Contents.of(systemInstruction ?: DEFAULT_CHAT_SYSTEM_INSTRUCTION),
         initialMessages = budgetLocalRuntimeHistory(messages, currentPrompt, maxInputTokens).toLiteRtInitialMessages(),
         samplerConfig = SamplerConfig(
             topK = parameters.topK,
