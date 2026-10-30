@@ -2379,6 +2379,101 @@ class AgentTraceStoreTest {
         }
     }
 
+    /**
+     * Restart restore and the UI snapshot must agree: a run left in AwaitingExternalOutcome after
+     * startup repair has to be one the user can actually confirm (latestPendingExternalOutcome is
+     * non-null), otherwise it can never leave that state.
+     */
+    private fun awaitingExternalOutcomeAfterRestart(
+        toolName: String,
+        extraSteps: (RoomAgentTraceStore, String) -> Unit = { _, _ -> },
+    ): Triple<RoomAgentTraceStore, String, PendingExternalOutcomeSnapshot?> {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(traceDao = dao, runIdFactory = { "run-external-$toolName" })
+        val request = ToolRequest(id = "request-launch", toolName = toolName, reason = "launch")
+        val run = store.createRun("打开外部界面")
+        store.appendStep(
+            run.id,
+            AgentStep.ToolRequested(
+                request,
+                ActionDraft(functionName = toolName, title = "外部界面", summary = "打开外部界面。", parameters = emptyMap()),
+            ),
+        )
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开外部界面",
+                    data = unverifiedExternalLaunchData(toolName),
+                ),
+            ),
+        )
+        extraSteps(store, run.id)
+        store.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        restartedStore.failStaleInFlightRuns("process restarted")
+        val uiSnapshot = AgentLoopRuntime(
+            memoryIndex = com.bytedance.zgx.solin.memory.MemoryRepository(),
+            actionPlanningRuntime = ScriptedActionRuntime(),
+            traceStore = restartedStore,
+        ).latestPendingExternalOutcome()
+        return Triple(restartedStore, run.id, uiSnapshot)
+    }
+
+    private fun assertRestoreAgreesWithUiSnapshot(
+        store: RoomAgentTraceStore,
+        runId: String,
+        uiSnapshot: PendingExternalOutcomeSnapshot?,
+    ) {
+        val state = store.run(runId)?.state
+        assertEquals(
+            "run state $state disagrees with UI pending external outcome $uiSnapshot",
+            state == AgentRunState.AwaitingExternalOutcome,
+            uiSnapshot?.runId == runId,
+        )
+    }
+
+    @Test
+    fun restartKeepsConfirmableExternalOutcomeAndUiRestoresIt() {
+        val (store, runId, uiSnapshot) = awaitingExternalOutcomeAfterRestart(MobileActionFunctions.SHARE_TEXT)
+
+        assertEquals(AgentRunState.AwaitingExternalOutcome, store.run(runId)?.state)
+        assertRestoreAgreesWithUiSnapshot(store, runId, uiSnapshot)
+    }
+
+    @Test
+    fun restartFailsExternalOutcomeFollowedByALaterToolRequest() {
+        val (store, runId, uiSnapshot) = awaitingExternalOutcomeAfterRestart(MobileActionFunctions.SHARE_TEXT) { s, id ->
+            s.appendStep(
+                id,
+                AgentStep.ToolRequested(
+                    ToolRequest(id = "request-next", toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS, reason = "next"),
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "Wi-Fi",
+                        summary = "打开 Wi-Fi 设置。",
+                        parameters = emptyMap(),
+                    ),
+                ),
+            )
+        }
+
+        assertNull(uiSnapshot)
+        assertRestoreAgreesWithUiSnapshot(store, runId, uiSnapshot)
+        assertEquals(AgentRunState.Failed, store.run(runId)?.state)
+    }
+
+    @Test
+    fun restartFailsExternalOutcomeWhoseRestorePopupIsSkipped() {
+        val (store, runId, uiSnapshot) = awaitingExternalOutcomeAfterRestart(MobileActionFunctions.SEARCH_MAPS)
+
+        assertNull(uiSnapshot)
+        assertRestoreAgreesWithUiSnapshot(store, runId, uiSnapshot)
+        assertEquals(AgentRunState.Failed, store.run(runId)?.state)
+    }
+
     @Test
     fun roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair() {
         val dao = FakeAgentTraceDao()

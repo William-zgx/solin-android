@@ -1,5 +1,10 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolResult
+import com.bytedance.zgx.solin.tool.ToolStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -309,6 +314,81 @@ class RunPlacementBindingStoreTest {
                 (inspection as RecoveryInspection.NotRestorable).rejection,
             )
         }
+    }
+
+    private fun externalOutcomeInspection(
+        toolName: String,
+        extraSteps: (FakeRunPlacementBindingDao, String) -> Unit = { _, _ -> },
+    ): RecoveryInspection {
+        val dao = FakeRunPlacementBindingDao()
+        val runId = "run-external-$toolName"
+        prepareIdleRemoteRun(dao, runId)
+        dao.addStep(
+            AgentStep.ToolRequested(
+                ToolRequest(id = "request-launch", toolName = toolName, reason = "launch"),
+                ActionDraft(functionName = toolName, title = "外部界面", summary = "打开外部界面。", parameters = emptyMap()),
+            ).toTraceEntity(runId, position = 0, createdAtMillis = 1L),
+        )
+        dao.addStep(
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = "request-launch",
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开外部界面",
+                    data = mapOf(
+                        "toolName" to toolName,
+                        "completionState" to "ExternalActivityOpened",
+                        "completionVerified" to "false",
+                        "externalOutcome" to "Unknown",
+                        "externalOutcomeSource" to "Unknown",
+                    ),
+                ),
+            ).toTraceEntity(runId, position = 0, createdAtMillis = 1L),
+        )
+        extraSteps(dao, runId)
+        dao.mutateRun(runId) { run -> run.copy(state = AgentRunState.AwaitingExternalOutcome.name) }
+        return store(dao).inspectForRecovery(runId, validRecoveryContext())
+    }
+
+    @Test
+    fun externalOutcomeRecoveryAcceptsUnconfirmedLaunchEvidence() {
+        val inspection = externalOutcomeInspection(MobileActionFunctions.SHARE_TEXT)
+
+        assertTrue(inspection is RecoveryInspection.ContinuationCandidate)
+    }
+
+    @Test
+    fun externalOutcomeRecoveryRejectsLaunchFollowedByALaterToolRequest() {
+        val inspection = externalOutcomeInspection(MobileActionFunctions.SHARE_TEXT) { dao, runId ->
+            dao.addStep(
+                AgentStep.ToolRequested(
+                    ToolRequest(id = "request-next", toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS, reason = "next"),
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "Wi-Fi",
+                        summary = "打开 Wi-Fi 设置。",
+                        parameters = emptyMap(),
+                    ),
+                ).toTraceEntity(runId, position = 0, createdAtMillis = 1L),
+            )
+        }
+
+        assertEquals(
+            RunPlacementRecoveryRejection.ContinuationEvidenceMissing,
+            (inspection as RecoveryInspection.NotRestorable).rejection,
+        )
+    }
+
+    @Test
+    fun externalOutcomeRecoveryRejectsLaunchWhoseRestorePopupIsSkipped() {
+        // The UI never offers a confirmation for this launch after restart, so the placement must
+        // not be re-activated for it either.
+        val inspection = externalOutcomeInspection(MobileActionFunctions.SEARCH_MAPS)
+
+        assertEquals(
+            RunPlacementRecoveryRejection.ContinuationEvidenceMissing,
+            (inspection as RecoveryInspection.NotRestorable).rejection,
+        )
     }
 
     @Test

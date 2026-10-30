@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.RunPlacementRecoverySnapshotEntity
 import com.bytedance.zgx.solin.data.RunPlacementBindingDao
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -51,6 +52,8 @@ class RoomRunPlacementBindingStore(
     private val dao: RunPlacementBindingDao,
     private val currentRecoveryContext: () -> RunPlacementRecoveryContext,
     private val traceClockMillis: () -> Long = { System.currentTimeMillis() },
+    /** Supplies the restored-popup policy for [pendingUnverifiedExternalOutcomeOrNull]. */
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : RunPlacementBindingStore {
     private val storeToken = Any()
     private val activeBindings = ConcurrentHashMap<String, ActiveRunPlacementPermit>()
@@ -199,7 +202,7 @@ class RoomRunPlacementBindingStore(
         if (!runState.isRestorablePlacementContinuationState()) {
             return notRestorable(RunPlacementRecoveryRejection.RunStateNotRestorable)
         }
-        if (!snapshot.hasRestorablePlacementContinuationEvidence(runState)) {
+        if (!snapshot.hasRestorablePlacementContinuationEvidence(runState, toolRegistry)) {
             return notRestorable(RunPlacementRecoveryRejection.ContinuationEvidenceMissing)
         }
         return RecoveryInspection.ContinuationCandidate(binding, context, storeToken)
@@ -428,9 +431,18 @@ private fun List<AgentStepEntity>.haveConsistentPlacementTrace(binding: RunPlace
 
 private fun RunPlacementRecoverySnapshotEntity.hasRestorablePlacementContinuationEvidence(
     runState: AgentRunState,
+    toolRegistry: ToolRegistry,
 ): Boolean = when (runState) {
     AgentRunState.AwaitingUserConfirmation -> hasPendingConfirmationEvidence()
-    AgentRunState.AwaitingExternalOutcome -> steps.havePendingExternalOutcomeEvidence()
+    // Two layers, both required: the strict trace-shape check below (exact key sets, the launch must
+    // be the last observation) is this store's own fail-closed guard against tampered rows, and the
+    // shared predicate is the one definition of "the user can still confirm this outcome" that the
+    // UI restore and startup repair use. The strict check alone accepted launches whose restored
+    // popup is skipped, re-activating a placement for a run the UI would never surface.
+    AgentRunState.AwaitingExternalOutcome ->
+        steps.havePendingExternalOutcomeEvidence() &&
+            steps.map { step -> step.toTraceStepSummary() }
+                .pendingUnverifiedExternalOutcomeOrNull(toolRegistry) != null
     else -> false
 }
 

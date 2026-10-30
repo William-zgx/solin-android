@@ -4,11 +4,8 @@ import com.bytedance.zgx.solin.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
-import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.solin.tool.rejected
-import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 private val PENDING_EXTERNAL_OUTCOME_RESTORE_STATES = setOf(
@@ -74,49 +71,18 @@ internal class PendingConfirmationSupport(
         get() = PENDING_EXTERNAL_OUTCOME_RESTORE_STATES
 
     fun pendingExternalOutcomeSnapshotFor(run: AgentRun): PendingExternalOutcomeSnapshot? {
-        val steps = traceStore.stepSummaries(run.id)
-        val confirmedRequestIds = steps
-            .asSequence()
-            .filter { step -> step.type == "ExternalOutcomeConfirmed" }
-            .mapNotNull { step -> step.requestIdFromJson() }
-            .toSet()
-        val requestsById = steps
-            .asSequence()
-            .filter { step -> step.type == "ToolRequested" }
-            .mapNotNull { step -> step.restoredToolRequestSummaryOrNull() }
-            .associateBy { request -> request.requestId }
-        val observationEntry = steps
-            .withIndex()
-            .toList()
-            .asReversed()
-            .asSequence()
-            .filter { indexedStep -> indexedStep.value.type == "ToolObserved" }
-            .mapNotNull { indexedStep ->
-                indexedStep.value.restoredExternalObservationOrNull()?.let { observation ->
-                    indexedStep.index to observation
-                }
-            }
-            .firstOrNull { (_, observation) ->
-                observation.requestId !in confirmedRequestIds &&
-                    observation.result.isUnverifiedExternalLaunch()
-            } ?: return null
-        val laterToolRequested = steps
-            .drop(observationEntry.first + 1)
-            .any { step -> step.type == "ToolRequested" }
-        if (laterToolRequested) return null
-        val observation = observationEntry.second
-        val request = requestsById[observation.requestId] ?: return null
-        if (request.isLowRiskRestoredExternalOutcomePopupSkippable(observation.result, toolRegistry)) return null
-        val summary = if (observation.result.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
-            observation.result.summary
+        val evidence = traceStore.stepSummaries(run.id).pendingUnverifiedExternalOutcomeOrNull(toolRegistry)
+            ?: return null
+        val summary = if (evidence.result.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
+            evidence.result.summary
         } else {
-            "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：${observation.result.summary}"
+            "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：${evidence.result.summary}"
         }
         return PendingExternalOutcomeSnapshot(
             runId = run.id,
-            requestId = observation.requestId,
-            toolName = request.toolName,
-            title = request.title,
+            requestId = evidence.requestId,
+            toolName = evidence.toolName,
+            title = evidence.title,
             summary = summary,
         )
     }
@@ -207,67 +173,4 @@ internal class PendingConfirmationSupport(
     /** Shared restore path used by [AgentLoopRuntime.latestUnverifiedExternalResult]. */
     fun restoreUnverifiedExternalResult(step: AgentTraceStepSummary): ToolResult? =
         step.restoredUnverifiedExternalResultOrNull()
-
-    private data class RestoredToolRequestSummary(
-        val requestId: String,
-        val toolName: String,
-        val title: String,
-    ) {
-        fun isLowRiskRestoredExternalOutcomePopupSkippable(
-            result: ToolResult,
-            toolRegistry: ToolRegistry,
-        ): Boolean =
-            toolRegistry.isLowRiskRestoredExternalOutcomePopupSkippable(toolName, result)
-    }
-
-    private data class RestoredExternalObservation(
-        val requestId: String,
-        val result: ToolResult,
-    )
-
-    private fun AgentTraceStepSummary.restoredToolRequestSummaryOrNull(): RestoredToolRequestSummary? {
-        val json = jsonObjectOrNull() ?: return null
-        val requestId = json.optString("requestId").takeIf { it.isNotBlank() } ?: return null
-        val toolName = json.optString("toolName").takeIf { it.isNotBlank() } ?: return null
-        val title = json.optString("draftTitle").takeIf { it.isNotBlank() } ?: toolName
-        return RestoredToolRequestSummary(
-            requestId = requestId,
-            toolName = toolName,
-            title = title,
-        )
-    }
-
-    private fun AgentTraceStepSummary.restoredExternalObservationOrNull(): RestoredExternalObservation? {
-        val result = restoredUnverifiedExternalResultOrNull() ?: return null
-        return RestoredExternalObservation(
-            requestId = result.requestId,
-            result = result,
-        )
-    }
-
-    private fun AgentTraceStepSummary.restoredUnverifiedExternalResultOrNull(): ToolResult? {
-        val json = jsonObjectOrNull() ?: return null
-        if (json.optString("status") != ToolStatus.Succeeded.name) return null
-        val requestId = json.optString("requestId").takeIf { it.isNotBlank() } ?: return null
-        val metadata = json.optJSONObject("completionMetadata") ?: return null
-        val data = buildMap {
-            metadata.keys().forEach { key ->
-                val value = metadata.optString(key)
-                if (value.isNotBlank()) put(key, value)
-            }
-        }
-        val result = ToolResult(
-            requestId = requestId,
-            status = ToolStatus.Succeeded,
-            summary = UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX,
-            data = data,
-        )
-        return result.takeIf { it.isUnverifiedExternalLaunch() }
-    }
-
-    private fun AgentTraceStepSummary.requestIdFromJson(): String? =
-        jsonObjectOrNull()?.optString("requestId")?.takeIf { it.isNotBlank() }
-
-    private fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
-        runCatching { JSONObject(json) }.getOrNull()
 }
