@@ -942,7 +942,9 @@ class AgentLoopRuntime(
             }
             traceStore.clearPendingConfirmationsForRun(runId)
         } else if (run.state == AgentRunState.AwaitingUserAnswer) {
-            val pending = pendingUserQuestionsByRunId.remove(runId)
+            // Read, do not remove: cancelUserQuestion looks the pending question up itself (and
+            // removes it once the cancellation has been observed).
+            val pending = pendingUserQuestionsByRunId[runId]
             if (pending != null) {
                 val cancelled = cancelUserQuestion(runId, pending.questionId) ?: return null
                 return AgentModelObservationResult(
@@ -1710,17 +1712,16 @@ class AgentLoopRuntime(
             expectedState = AgentRunState.AwaitingExternalOutcome,
             state = finalState,
         ) ?: return null
-        if (decision is AgentObservationDecision.PlanNextTool) {
-            toolObservationCoordinator.appendToolPlanSteps(
-                runId = runId,
-                plan = decision.plan,
-            )
-        }
+        val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         if (finalState in terminalRunStates) {
             clearEphemeralRunState(runId)
         }
-        if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
+        if (
+            !parkedForAskUser &&
+            decision is AgentObservationDecision.PlanNextTool &&
+            decision.plan.requiresUserConfirmation()
+        ) {
             traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(decision.plan, updatedRun))
         }
         return AgentExternalOutcomeResult(
@@ -1805,12 +1806,7 @@ class AgentLoopRuntime(
             expectedState = AgentRunState.GeneratingAnswer,
             state = finalState,
         ) ?: return null
-        if (decision is AgentObservationDecision.PlanNextTool) {
-            toolObservationCoordinator.appendToolPlanSteps(
-                runId = runId,
-                plan = decision.plan,
-            )
-        }
+        val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         // Wave 4 telemetry: GenerationComplete recorded with placeholder zeros for token/ttft stats.
         // TODO(Wave 5+): populate ttftMs/inputTokens/outputTokens/thinkingTokens/tps from streaming
@@ -1866,7 +1862,11 @@ class AgentLoopRuntime(
         if (finalState in terminalRunStates) {
             clearEphemeralRunState(runId)
         }
-        if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
+        if (
+            !parkedForAskUser &&
+            decision is AgentObservationDecision.PlanNextTool &&
+            decision.plan.requiresUserConfirmation()
+        ) {
             traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(decision.plan, updatedRun))
         }
         return AgentModelObservationResult(
@@ -1877,6 +1877,24 @@ class AgentLoopRuntime(
             continuationRequiresLocalModel = false,
             continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
         )
+    }
+
+    /**
+     * Appends the plan steps for a [AgentObservationDecision.PlanNextTool] decision and, when the
+     * planned tool is `ask_user`, registers the pending question. Returns true when the run was
+     * parked on a question (callers must then skip the pending-confirmation snapshot).
+     *
+     * Every path whose next state comes from [AgentPlan.UseTool.nextExecutionState] can land in
+     * [AgentRunState.AwaitingUserAnswer]; parking here keeps the model-text and external-outcome
+     * paths consistent with the observation / remote-tool / initial-plan paths, which park too.
+     */
+    private fun appendPlannedNextToolSteps(runId: String, decision: AgentObservationDecision): Boolean {
+        if (decision !is AgentObservationDecision.PlanNextTool) return false
+        toolObservationCoordinator.appendToolPlanSteps(
+            runId = runId,
+            plan = decision.plan,
+        )
+        return parkForAskUserIfNeeded(runId, decision.plan)
     }
 
     fun recordRemoteToolsExposed(
