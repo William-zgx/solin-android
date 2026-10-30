@@ -54,98 +54,100 @@ class BuiltInSkillRuntime(
     override fun manifests(): List<SkillManifest> = catalog.manifests()
 
     override fun plan(input: String): SkillPlan? {
-        val isSingleActionRequest = !input.looksLikeSequentialAction()
         // Each draft is computed at most once, and only when its branch is reached. The
         // absolute reminder reads the clock exactly once: matching and drafting against two
         // different readings could cross the trigger time and make the draft null.
         val systemAlarmDraft by lazy { SystemAlarmActionParser.draft(input) }
         val systemTimerDraft by lazy { SystemTimerActionParser.draft(input) }
         val absoluteReminderDraft by lazy { AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId) }
+        if (input.looksLikeCurrentScreenTextSummaryShareNonAction(input.lowercase())) return null
+        // Every rule below handles a single action only; sequential requests are left to the
+        // Agent loop. Branch ORDER is significant: the first matching rule wins.
+        if (input.looksLikeSequentialAction()) return null
         return when {
-            input.looksLikeCurrentScreenTextSummaryShareNonAction(input.lowercase()) -> null
-            isSingleActionRequest && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
-            isSingleActionRequest && input.requestsCurrentScreenTextSummaryShare() ->
+            input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            input.requestsCurrentScreenTextSummaryShare() ->
                 planCurrentScreenTextSummaryShare(input)
 
-            isSingleActionRequest && input.requestsCurrentSettingsUiControl() ->
+            input.requestsCurrentSettingsUiControl() ->
                 planCurrentSettingsUiControl(input)
 
-            isSingleActionRequest && input.requestsCurrentBrowserUiSearch() ->
+            input.requestsCurrentBrowserUiSearch() ->
                 planCurrentBrowserUiSearch(input)
 
-            isSingleActionRequest && input.requestsCurrentMapsUiRoute() ->
+            input.requestsCurrentMapsUiRoute() ->
                 planCurrentMapsUiRoute(input)
 
-            isSingleActionRequest && input.requestsCurrentDraftFormUiFill() ->
+            input.requestsCurrentDraftFormUiFill() ->
                 planCurrentDraftFormUiFill(input)
 
-            isSingleActionRequest && input.requestsOpenAppThenUiSearch() ->
+            input.requestsOpenAppThenUiSearch() ->
                 planOpenAppThenUiSearch(input)
 
-            isSingleActionRequest && MapSearchActionParser.matches(input) ->
+            MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && EmailDraftActionParser.matches(input) ->
+            EmailDraftActionParser.matches(input) ->
                 plan(input, EmailDraftActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && CalendarDraftActionParser.matches(input) ->
+            CalendarDraftActionParser.matches(input) ->
                 plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && CalendarAvailabilityActionParser.matches(input) ->
+            CalendarAvailabilityActionParser.matches(input) ->
                 plan(input, CalendarAvailabilityActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && DeviceSettingsActionParser.matches(input) ->
+            DeviceSettingsActionParser.matches(input) ->
                 plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && SystemSettingsActionParser.matches(input) ->
+            SystemSettingsActionParser.matches(input) ->
                 plan(input, SystemSettingsActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && ContactQueryActionParser.matches(input) ->
+            ContactQueryActionParser.matches(input) ->
                 plan(input, ContactQueryActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && ContactDraftActionParser.matches(input) ->
+            ContactDraftActionParser.matches(input) ->
                 plan(input, ContactDraftActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && WebSearchActionParser.matches(input) ->
+            WebSearchActionParser.matches(input) ->
                 plan(input, WebSearchActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && RecentScreenshotOcrActionParser.matches(input) ->
+            RecentScreenshotOcrActionParser.matches(input) ->
                 plan(input, RecentScreenshotOcrActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && RecentImageOcrActionParser.matches(input) ->
+            RecentImageOcrActionParser.matches(input) ->
                 plan(input, RecentImageOcrActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && CurrentScreenshotOcrActionParser.matches(input) ->
+            CurrentScreenshotOcrActionParser.matches(input) ->
                 plan(input, CurrentScreenshotOcrActionParser.draft().toRequestPair())
 
-            isSingleActionRequest && RecentFilesActionParser.matches(input) ->
+            RecentFilesActionParser.matches(input) ->
                 plan(input, RecentFilesActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && DeepLinkActionParser.matches(input) ->
+            DeepLinkActionParser.matches(input) ->
                 plan(input, DeepLinkActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && CameraActionParser.matches(input) ->
+            CameraActionParser.matches(input) ->
                 plan(input, CameraActionParser.draft().toRequestPair())
 
-            isSingleActionRequest && systemAlarmDraft != null ->
+            systemAlarmDraft != null ->
                 plan(input, requireNotNull(systemAlarmDraft).toRequestPair())
 
-            isSingleActionRequest && systemTimerDraft != null ->
+            systemTimerDraft != null ->
                 plan(input, requireNotNull(systemTimerDraft).toRequestPair())
 
-            isSingleActionRequest && AppNavigationActionParser.matches(input) ->
+            AppNavigationActionParser.matches(input) ->
                 plan(input, AppNavigationActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && input.requestsCurrentAppUiSearch() ->
+            input.requestsCurrentAppUiSearch() ->
                 planCurrentAppUiSearch(input)
 
-            isSingleActionRequest && ForegroundAppActionParser.matches(input) ->
+            ForegroundAppActionParser.matches(input) ->
                 plan(input, ForegroundAppActionParser.draft().toRequestPair())
 
-            isSingleActionRequest && RecentNotificationsActionParser.matches(input) ->
+            RecentNotificationsActionParser.matches(input) ->
                 plan(input, RecentNotificationsActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && input.requestsCurrentScreenObservation() -> {
+            input.requestsCurrentScreenObservation() -> {
                 val draft = ActionDraft(
                     functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     title = "观察当前屏幕",
@@ -155,49 +157,28 @@ class BuiltInSkillRuntime(
                 plan(input, draft.toRequestPair())
             }
 
-            isSingleActionRequest && CurrentScreenTextActionParser.matches(input) ->
+            CurrentScreenTextActionParser.matches(input) ->
                 plan(input, CurrentScreenTextActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && CancelReminderActionParser.matches(input) ->
+            CancelReminderActionParser.matches(input) ->
                 plan(input, CancelReminderActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && PeriodicCheckActionParser.matches(input) ->
+            PeriodicCheckActionParser.matches(input) ->
                 plan(input, PeriodicCheckActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && BackgroundTasksQueryActionParser.matches(input) ->
+            BackgroundTasksQueryActionParser.matches(input) ->
                 plan(input, BackgroundTasksQueryActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && ShareTextActionParser.matches(input) -> {
-                val draft = ShareTextActionParser.draft(input)
-                val request = ToolRequest(
-                    toolName = draft.functionName,
-                    arguments = draft.parameters,
-                    reason = draft.summary,
-                )
-                plan(input, draft, request)
-            }
+            ShareTextActionParser.matches(input) ->
+                plan(input, ShareTextActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && absoluteReminderDraft != null -> {
-                val draft = requireNotNull(absoluteReminderDraft)
-                val request = ToolRequest(
-                    toolName = draft.functionName,
-                    arguments = draft.parameters,
-                    reason = draft.summary,
-                )
-                plan(input, draft, request)
-            }
+            absoluteReminderDraft != null ->
+                plan(input, requireNotNull(absoluteReminderDraft).toRequestPair())
 
-            isSingleActionRequest && ReminderActionParser.matches(input) -> {
-                val draft = ReminderActionParser.draft(input)
-                val request = ToolRequest(
-                    toolName = draft.functionName,
-                    arguments = draft.parameters,
-                    reason = draft.summary,
-                )
-                plan(input, draft, request)
-            }
+            ReminderActionParser.matches(input) ->
+                plan(input, ReminderActionParser.draft(input).toRequestPair())
 
-            isSingleActionRequest && input.requestsClipboardContext() -> {
+            input.requestsClipboardContext() -> {
                 val draft = ActionDraft(
                     functionName = MobileActionFunctions.READ_CLIPBOARD,
                     title = "读取剪贴板",
@@ -211,7 +192,7 @@ class BuiltInSkillRuntime(
                 plan(input, draft, request)
             }
 
-            isSingleActionRequest && input.requestsCurrentPageSimpleInteraction() ->
+            input.requestsCurrentPageSimpleInteraction() ->
                 planCurrentPageSimpleInteraction(input)
 
             else -> null
@@ -404,37 +385,23 @@ class BuiltInSkillRuntime(
             input = input,
             skillId = BROWSER_UI_SEARCH_SKILL,
             reason = "将在当前浏览器页观察、聚焦搜索框、输入关键词并提交搜索：$query。",
-            steps = listOf(
-                observeScreenStep("observe_browser"),
-                tapStep(
-                    id = "focus_browser_search",
-                    dependsOn = listOf("observe_browser"),
-                    target = "地址栏",
-                    summary = "聚焦当前浏览器页面的地址栏或搜索栏。",
+            steps = uiSearchSteps(
+                observeId = "observe_browser",
+                query = query,
+                ids = UiSearchStepIds(
+                    focus = "focus_browser_search",
+                    waitField = "wait_browser_search_field",
+                    type = "type_browser_query",
+                    submit = "submit_browser_search",
+                    verify = "verify_browser_results",
                 ),
-                waitStep(
-                    id = "wait_browser_search_field",
-                    dependsOn = listOf("focus_browser_search"),
-                    summary = "等待浏览器搜索输入框获得焦点或搜索页稳定。",
-                ),
-                typeTextStep(
-                    id = "type_browser_query",
-                    dependsOn = listOf("wait_browser_search_field"),
-                    text = query,
-                    target = "地址栏",
-                    summary = "在当前浏览器输入搜索关键词：$query。",
-                ),
-                submitSearchStep(
-                    id = "submit_browser_search",
-                    dependsOn = listOf("type_browser_query"),
-                    summary = "提交浏览器搜索：$query。",
-                ),
-                waitStep(
-                    id = "verify_browser_results",
-                    dependsOn = listOf("submit_browser_search"),
-                    summary = "等待浏览器搜索结果更新并重新观察。",
-                    verifySearchQuery = query,
-                ),
+                focusTarget = "地址栏",
+                focusSummary = "聚焦当前浏览器页面的地址栏或搜索栏。",
+                waitFieldSummary = "等待浏览器搜索输入框获得焦点或搜索页稳定。",
+                typeTarget = "地址栏",
+                typeSummary = "在当前浏览器输入搜索关键词：$query。",
+                submitSummary = "提交浏览器搜索：$query。",
+                verifySummary = "等待浏览器搜索结果更新并重新观察。",
             ),
         )
     }
@@ -445,37 +412,23 @@ class BuiltInSkillRuntime(
             input = input,
             skillId = MAPS_UI_ROUTE_SKILL,
             reason = "将在当前地图页观察、聚焦搜索框、输入地点或路线目标并提交搜索：$query。",
-            steps = listOf(
-                observeScreenStep("observe_maps"),
-                tapStep(
-                    id = "focus_maps_search",
-                    dependsOn = listOf("observe_maps"),
-                    target = "搜索入口",
-                    summary = "聚焦当前地图页面的搜索输入框。",
+            steps = uiSearchSteps(
+                observeId = "observe_maps",
+                query = query,
+                ids = UiSearchStepIds(
+                    focus = "focus_maps_search",
+                    waitField = "wait_maps_search_field",
+                    type = "type_maps_query",
+                    submit = "submit_maps_search",
+                    verify = "verify_maps_results",
                 ),
-                waitStep(
-                    id = "wait_maps_search_field",
-                    dependsOn = listOf("focus_maps_search"),
-                    summary = "等待地图搜索输入框获得焦点或搜索页稳定。",
-                ),
-                typeTextStep(
-                    id = "type_maps_query",
-                    dependsOn = listOf("wait_maps_search_field"),
-                    text = query,
-                    target = "搜索输入框",
-                    summary = "在当前地图页面输入路线或地点关键词：$query。",
-                ),
-                submitSearchStep(
-                    id = "submit_maps_search",
-                    dependsOn = listOf("type_maps_query"),
-                    summary = "提交地图搜索：$query。",
-                ),
-                waitStep(
-                    id = "verify_maps_results",
-                    dependsOn = listOf("submit_maps_search"),
-                    summary = "等待地图搜索结果或路线入口更新并重新观察。",
-                    verifySearchQuery = query,
-                ),
+                focusTarget = "搜索入口",
+                focusSummary = "聚焦当前地图页面的搜索输入框。",
+                waitFieldSummary = "等待地图搜索输入框获得焦点或搜索页稳定。",
+                typeTarget = "搜索输入框",
+                typeSummary = "在当前地图页面输入路线或地点关键词：$query。",
+                submitSummary = "提交地图搜索：$query。",
+                verifySummary = "等待地图搜索结果或路线入口更新并重新观察。",
             ),
         )
     }
@@ -681,39 +634,82 @@ class BuiltInSkillRuntime(
         expectedPackageName: String? = null,
         expectedAppName: String? = null,
     ): List<SkillStep> =
+        uiSearchSteps(
+            observeId = observeId,
+            query = query,
+            ids = UiSearchStepIds(
+                focus = "focus_app_search",
+                waitField = "wait_app_search_field",
+                type = "type_app_search_query",
+                submit = "submit_app_search",
+                verify = "verify_app_search_results",
+            ),
+            focusTarget = "搜索入口",
+            focusSummary = "聚焦当前应用中的搜索入口。",
+            waitFieldSummary = "等待搜索输入框获得焦点或搜索页稳定。",
+            typeTarget = "搜索输入框",
+            typeSummary = "输入搜索关键词：$query。",
+            submitSummary = "提交当前应用内搜索：$query。",
+            verifySummary = "等待搜索结果页更新并重新观察。",
+            firstDependsOn = firstDependsOn,
+            expectedPackageName = expectedPackageName,
+            expectedAppName = expectedAppName,
+        )
+
+    /**
+     * observe → focus search → wait for field → type query → submit → verify results.
+     *
+     * Step IDs are passed in explicitly because they are persisted in skill-run checkpoints:
+     * each template keeps the IDs it has always used.
+     */
+    private fun uiSearchSteps(
+        observeId: String,
+        query: String,
+        ids: UiSearchStepIds,
+        focusTarget: String,
+        focusSummary: String,
+        waitFieldSummary: String,
+        typeTarget: String,
+        typeSummary: String,
+        submitSummary: String,
+        verifySummary: String,
+        firstDependsOn: List<String> = emptyList(),
+        expectedPackageName: String? = null,
+        expectedAppName: String? = null,
+    ): List<SkillStep> =
         listOf(
             observeScreenStep(observeId).copy(dependsOn = firstDependsOn),
             tapStep(
-                id = "focus_app_search",
+                id = ids.focus,
                 dependsOn = listOf(observeId),
-                target = "搜索入口",
-                summary = "聚焦当前应用中的搜索入口。",
+                target = focusTarget,
+                summary = focusSummary,
                 expectedPackageName = expectedPackageName,
             ),
             waitStep(
-                id = "wait_app_search_field",
-                dependsOn = listOf("focus_app_search"),
-                summary = "等待搜索输入框获得焦点或搜索页稳定。",
+                id = ids.waitField,
+                dependsOn = listOf(ids.focus),
+                summary = waitFieldSummary,
                 expectedPackageName = expectedPackageName,
             ),
             typeTextStep(
-                id = "type_app_search_query",
-                dependsOn = listOf("wait_app_search_field"),
+                id = ids.type,
+                dependsOn = listOf(ids.waitField),
                 text = query,
-                target = "搜索输入框",
-                summary = "输入搜索关键词：$query。",
+                target = typeTarget,
+                summary = typeSummary,
                 expectedPackageName = expectedPackageName,
             ),
             submitSearchStep(
-                id = "submit_app_search",
-                dependsOn = listOf("type_app_search_query"),
-                summary = "提交当前应用内搜索：$query。",
+                id = ids.submit,
+                dependsOn = listOf(ids.type),
+                summary = submitSummary,
                 expectedPackageName = expectedPackageName,
             ),
             waitStep(
-                id = "verify_app_search_results",
-                dependsOn = listOf("submit_app_search"),
-                summary = "等待搜索结果页更新并重新观察。",
+                id = ids.verify,
+                dependsOn = listOf(ids.submit),
+                summary = verifySummary,
                 verifySearchQuery = query,
                 expectedPackageName = expectedPackageName,
                 expectedAppName = expectedAppName,
@@ -743,46 +739,26 @@ class BuiltInSkillRuntime(
         id: String,
         appName: String,
         summary: String,
-    ): SkillStep.ToolStep {
-        val parameters = mapOf("appName" to appName)
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.OPEN_APP_BY_NAME,
+    ): SkillStep.ToolStep =
+        uiToolStep(
+            id = id,
+            toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
             title = "打开应用",
             summary = summary,
-            parameters = parameters,
+            parameters = mapOf("appName" to appName),
         )
-        return SkillStep.ToolStep(
-            id = id,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
-                arguments = parameters,
-                reason = summary,
-            ),
-            draft = draft,
-        )
-    }
 
-    private fun observeScreenStep(id: String): SkillStep.ToolStep {
-        val parameters = mapOf(
-            "maxTextChars" to "2000",
-            "maxNodes" to "80",
-        )
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+    private fun observeScreenStep(id: String): SkillStep.ToolStep =
+        uiToolStep(
+            id = id,
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             title = "观察当前屏幕",
             summary = "先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。",
-            parameters = parameters,
-        )
-        return SkillStep.ToolStep(
-            id = id,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-                arguments = parameters,
-                reason = draft.summary,
+            parameters = mapOf(
+                "maxTextChars" to "2000",
+                "maxNodes" to "80",
             ),
-            draft = draft,
         )
-    }
 
     private fun tapStep(
         id: String,
@@ -790,29 +766,19 @@ class BuiltInSkillRuntime(
         target: String,
         summary: String,
         expectedPackageName: String? = null,
-    ): SkillStep.ToolStep {
-        val parameters = buildMap {
-            put("target", target)
-            put("timeoutMillis", "1500")
-            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
-        }
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.UI_TAP,
-            title = "点击屏幕元素",
-            summary = summary,
-            parameters = parameters,
-        )
-        return SkillStep.ToolStep(
+    ): SkillStep.ToolStep =
+        uiToolStep(
             id = id,
             dependsOn = dependsOn,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.UI_TAP,
-                arguments = parameters,
-                reason = summary,
-            ),
-            draft = draft,
+            toolName = MobileActionFunctions.UI_TAP,
+            title = "点击屏幕元素",
+            summary = summary,
+            parameters = buildMap {
+                put("target", target)
+                put("timeoutMillis", "1500")
+                expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+            },
         )
-    }
 
     private fun typeTextStep(
         id: String,
@@ -821,58 +787,38 @@ class BuiltInSkillRuntime(
         summary: String,
         target: String? = null,
         expectedPackageName: String? = null,
-    ): SkillStep.ToolStep {
-        val parameters = buildMap {
-            put("text", text)
-            target?.takeIf { it.isNotBlank() }?.let { put("target", it) }
-            put("timeoutMillis", "1500")
-            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
-        }
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.UI_TYPE_TEXT,
-            title = "输入文本",
-            summary = summary,
-            parameters = parameters,
-        )
-        return SkillStep.ToolStep(
+    ): SkillStep.ToolStep =
+        uiToolStep(
             id = id,
             dependsOn = dependsOn,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.UI_TYPE_TEXT,
-                arguments = parameters,
-                reason = summary,
-            ),
-            draft = draft,
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            title = "输入文本",
+            summary = summary,
+            parameters = buildMap {
+                put("text", text)
+                target?.takeIf { it.isNotBlank() }?.let { put("target", it) }
+                put("timeoutMillis", "1500")
+                expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+            },
         )
-    }
 
     private fun submitSearchStep(
         id: String,
         dependsOn: List<String>,
         summary: String,
         expectedPackageName: String? = null,
-    ): SkillStep.ToolStep {
-        val parameters = buildMap {
-            put("timeoutMillis", "1500")
-            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
-        }
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.UI_SUBMIT_SEARCH,
-            title = "提交搜索",
-            summary = summary,
-            parameters = parameters,
-        )
-        return SkillStep.ToolStep(
+    ): SkillStep.ToolStep =
+        uiToolStep(
             id = id,
             dependsOn = dependsOn,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
-                arguments = parameters,
-                reason = summary,
-            ),
-            draft = draft,
+            toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+            title = "提交搜索",
+            summary = summary,
+            parameters = buildMap {
+                put("timeoutMillis", "1500")
+                expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+            },
         )
-    }
 
     private fun waitStep(
         id: String,
@@ -882,30 +828,20 @@ class BuiltInSkillRuntime(
         expectedPackageName: String? = null,
         expectedAppName: String? = null,
         timeoutMillis: String = "800",
-    ): SkillStep.ToolStep {
-        val parameters = buildMap {
-            put("timeoutMillis", timeoutMillis)
-            verifySearchQuery?.takeIf { it.isNotBlank() }?.let { put("verifySearchQuery", it) }
-            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
-            expectedAppName?.takeIf { it.isNotBlank() }?.let { put("expectedAppName", it) }
-        }
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.UI_WAIT,
-            title = "等待并验证",
-            summary = summary,
-            parameters = parameters,
-        )
-        return SkillStep.ToolStep(
+    ): SkillStep.ToolStep =
+        uiToolStep(
             id = id,
             dependsOn = dependsOn,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.UI_WAIT,
-                arguments = parameters,
-                reason = summary,
-            ),
-            draft = draft,
+            toolName = MobileActionFunctions.UI_WAIT,
+            title = "等待并验证",
+            summary = summary,
+            parameters = buildMap {
+                put("timeoutMillis", timeoutMillis)
+                verifySearchQuery?.takeIf { it.isNotBlank() }?.let { put("verifySearchQuery", it) }
+                expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+                expectedAppName?.takeIf { it.isNotBlank() }?.let { put("expectedAppName", it) }
+            },
         )
-    }
 
     private fun scrollStep(
         id: String,
@@ -913,51 +849,56 @@ class BuiltInSkillRuntime(
         direction: String,
         summary: String,
         expectedPackageName: String? = null,
-    ): SkillStep.ToolStep {
-        val parameters = buildMap {
-            put("direction", direction)
-            put("timeoutMillis", "1500")
-            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
-        }
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.UI_SCROLL,
-            title = "滚动页面",
-            summary = summary,
-            parameters = parameters,
-        )
-        return SkillStep.ToolStep(
+    ): SkillStep.ToolStep =
+        uiToolStep(
             id = id,
             dependsOn = dependsOn,
-            request = ToolRequest(
-                toolName = MobileActionFunctions.UI_SCROLL,
-                arguments = parameters,
-                reason = summary,
-            ),
-            draft = draft,
+            toolName = MobileActionFunctions.UI_SCROLL,
+            title = "滚动页面",
+            summary = summary,
+            parameters = buildMap {
+                put("direction", direction)
+                put("timeoutMillis", "1500")
+                expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+            },
         )
-    }
 
     private fun pressBackStep(
         id: String,
         summary: String,
-    ): SkillStep.ToolStep {
-        val parameters = mapOf("timeoutMillis" to "1000")
-        val draft = ActionDraft(
-            functionName = MobileActionFunctions.UI_PRESS_BACK,
+    ): SkillStep.ToolStep =
+        uiToolStep(
+            id = id,
+            toolName = MobileActionFunctions.UI_PRESS_BACK,
             title = "返回",
             summary = summary,
-            parameters = parameters,
+            parameters = mapOf("timeoutMillis" to "1000"),
         )
-        return SkillStep.ToolStep(
+
+    /** One tool step whose draft and request carry the same tool, parameters and summary. */
+    private fun uiToolStep(
+        id: String,
+        dependsOn: List<String> = emptyList(),
+        toolName: String,
+        title: String,
+        summary: String,
+        parameters: Map<String, String>,
+    ): SkillStep.ToolStep =
+        SkillStep.ToolStep(
             id = id,
+            dependsOn = dependsOn,
             request = ToolRequest(
-                toolName = MobileActionFunctions.UI_PRESS_BACK,
+                toolName = toolName,
                 arguments = parameters,
                 reason = summary,
             ),
-            draft = draft,
+            draft = ActionDraft(
+                functionName = toolName,
+                title = title,
+                summary = summary,
+                parameters = parameters,
+            ),
         )
-    }
 
     companion object {
         const val EMAIL_DRAFT_SKILL = "email_draft_skill"
@@ -997,6 +938,15 @@ class BuiltInSkillRuntime(
         const val APP_NAVIGATION_SKILL = "app_navigation_skill"
     }
 }
+
+/** Persisted step IDs of one search-UI template (see uiSearchSteps). */
+private data class UiSearchStepIds(
+    val focus: String,
+    val waitField: String,
+    val type: String,
+    val submit: String,
+    val verify: String,
+)
 
 private data class DraftFormUiFill(
     val formTitle: String,
