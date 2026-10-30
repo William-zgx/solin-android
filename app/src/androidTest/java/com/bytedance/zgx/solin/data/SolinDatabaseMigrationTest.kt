@@ -41,23 +41,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_3_4,
-                SolinDatabase.MIGRATION_4_5,
-                SolinDatabase.MIGRATION_5_6,
-                SolinDatabase.MIGRATION_6_7,
-                SolinDatabase.MIGRATION_7_8,
-                SolinDatabase.MIGRATION_8_9,
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(3))
             .allowMainThreadQueries()
             .build()
 
@@ -320,22 +304,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_4_5,
-                SolinDatabase.MIGRATION_5_6,
-                SolinDatabase.MIGRATION_6_7,
-                SolinDatabase.MIGRATION_7_8,
-                SolinDatabase.MIGRATION_8_9,
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(4))
             .allowMainThreadQueries()
             .build()
 
@@ -372,21 +341,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_5_6,
-                SolinDatabase.MIGRATION_6_7,
-                SolinDatabase.MIGRATION_7_8,
-                SolinDatabase.MIGRATION_8_9,
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(5))
             .allowMainThreadQueries()
             .build()
 
@@ -436,20 +391,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_6_7,
-                SolinDatabase.MIGRATION_7_8,
-                SolinDatabase.MIGRATION_8_9,
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(6))
             .allowMainThreadQueries()
             .build()
 
@@ -554,19 +496,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_7_8,
-                SolinDatabase.MIGRATION_8_9,
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(7))
             .allowMainThreadQueries()
             .build()
 
@@ -597,18 +527,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_8_9,
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(8))
             .allowMainThreadQueries()
             .build()
 
@@ -665,17 +584,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_9_10,
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(9))
             .allowMainThreadQueries()
             .build()
 
@@ -751,16 +660,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_10_11,
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(10))
             .allowMainThreadQueries()
             .build()
 
@@ -803,15 +703,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_11_12,
-                SolinDatabase.MIGRATION_12_13,
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(11))
             .allowMainThreadQueries()
             .build()
 
@@ -858,13 +750,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_13_14,
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(13))
             .allowMainThreadQueries()
             .build()
 
@@ -927,12 +813,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_14_15,
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(14))
             .allowMainThreadQueries()
             .build()
 
@@ -966,11 +847,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_15_16,
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(15))
             .allowMainThreadQueries()
             .build()
 
@@ -1016,10 +893,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(
-                SolinDatabase.MIGRATION_16_17,
-                SolinDatabase.MIGRATION_17_18,
-            )
+            .addMigrations(*migrationsFrom(16))
             .allowMainThreadQueries()
             .build()
 
@@ -1092,7 +966,7 @@ class SolinDatabaseMigrationTest {
             SolinDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(SolinDatabase.MIGRATION_17_18)
+            .addMigrations(*migrationsFrom(17))
             .allowMainThreadQueries()
             .build()
 
