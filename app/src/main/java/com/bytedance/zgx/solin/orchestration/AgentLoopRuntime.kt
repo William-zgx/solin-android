@@ -28,7 +28,6 @@ import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.safety.SafetyContext
-import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
@@ -36,7 +35,6 @@ import com.bytedance.zgx.solin.skill.SkillModelStepBinding
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.skill.SkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRunProgressor
-import com.bytedance.zgx.solin.skill.SkillStep
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.orchestration.ToolErrorCode as OrchestrationToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRegistry
@@ -69,7 +67,6 @@ import kotlinx.coroutines.launch
 
 private const val RUN_CANCELLED_REASON = "Agent run was cancelled by the user."
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
-private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
 private const val TAG = "AgentLoopRuntime"
 private const val MAX_VERBOSE_TRACE_THINK_TEXT_CHARS = 4_000
 
@@ -320,13 +317,14 @@ class AgentLoopRuntime(
                 valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()
 
             override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-                plan.withConfirmationBypassForRun(runId)
+                confirmationBypassPolicy.withConfirmationBypass(runId, plan)
 
             override fun withLowRiskAppControlContinuationBypass(
                 runId: String,
                 plan: AgentPlan.UseTool,
                 skillPlan: SkillPlan?,
-            ): AgentPlan.UseTool = plan.withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
+            ): AgentPlan.UseTool =
+                confirmationBypassPolicy.withLowRiskAppControlContinuationBypass(runId, plan, skillPlan)
 
             override fun auditRejectedTool(runId: String, result: ToolResult) =
                 this@AgentLoopRuntime.auditRejectedTool(runId, result)
@@ -445,7 +443,7 @@ class AgentLoopRuntime(
             }
 
             override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-                plan.withConfirmationBypassForRun(runId)
+                confirmationBypassPolicy.withConfirmationBypass(runId, plan)
 
             override fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
                 pendingConfirmationSupport.toPendingSnapshot(plan, run)
@@ -533,7 +531,7 @@ class AgentLoopRuntime(
                 this@AgentLoopRuntime.failRunBudget(runId, reason)
 
             override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-                plan.withConfirmationBypassForRun(runId)
+                confirmationBypassPolicy.withConfirmationBypass(runId, plan)
 
             override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
                 this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
@@ -1954,72 +1952,6 @@ class AgentLoopRuntime(
             RemoteToolScope.ModelPlanning -> isRemoteModelPlanningEligible()
         }
 
-    private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
-        if (lowRiskDeviceActionConfirmationBypassByRunId[runId] != true) return this
-        if (!request.isLowRiskDeviceActionConfirmationSkippable()) return this
-        if (exceedsLowRiskAppControlCheckpointForRun(runId)) return this
-        if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
-        val bypassDecision = SafetyDecision(
-            outcome = SafetyOutcome.Allow,
-            reason = "Low-risk device action confirmation was skipped by the user's settings.",
-        )
-        return copy(
-            draft = draft.copy(requiresConfirmation = false),
-            safetyDecision = bypassDecision,
-        )
-    }
-
-    private fun AgentPlan.UseTool.withLowRiskAppControlContinuationBypassForRun(
-        runId: String,
-        skillPlan: SkillPlan?,
-    ): AgentPlan.UseTool {
-        val activeSkillPlan = lowRiskAppControlSkillPlanForRun(runId, skillPlan ?: this.skillPlan) ?: return this
-        appControlSessionForRun(runId, activeSkillPlan)?.takeIf { it.lowRisk } ?: return this
-        if (!request.isLowRiskAppControlContinuationTool()) return this
-        if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
-        if (!activeSkillPlan.hasConfirmedToolStep(runId)) return this
-        if (exceedsLowRiskAppControlCheckpointForRun(runId, activeSkillPlan)) return this
-        val bypassDecision = SafetyDecision(
-            outcome = SafetyOutcome.Allow,
-            reason = "Low-risk app control continuation was allowed after the user's initial confirmation.",
-        )
-        return copy(
-            draft = draft.copy(requiresConfirmation = false),
-            safetyDecision = bypassDecision,
-        )
-    }
-
-    private fun lowRiskAppControlSkillPlanForRun(runId: String, preferred: SkillPlan?): SkillPlan? =
-        preferred?.takeIf { plan -> plan.isLowRiskAppControlSkill() }
-            ?: latestLowRiskAppControlSkillPlan(runId)
-
-    private fun AgentPlan.UseTool.exceedsLowRiskAppControlCheckpointForRun(
-        runId: String,
-        activeSkillPlan: SkillPlan? = skillPlan ?: latestSkillPlan(runId),
-    ): Boolean {
-        val session = appControlSessionForRun(runId, activeSkillPlan) ?: return false
-        return request.isLowRiskAppControlContinuationTool() &&
-            request.isCheckpointedUiActionTool() &&
-            session.checkpointRequired
-    }
-
-    private fun appControlSessionForRun(
-        runId: String,
-        activeSkillPlan: SkillPlan? = latestSkillPlan(runId),
-    ): AppControlSession? {
-        val plan = activeSkillPlan ?: return null
-        if (!plan.isLowRiskAppControlSkill()) return null
-        val checkpointedStepCount = plan.requestedCheckpointedUiActionCount(runId)
-        return AppControlSession(
-            runId = runId,
-            skillId = plan.manifest.id,
-            targetPackage = plan.expectedPackageName(),
-            lowRisk = true,
-            stepCount = checkpointedStepCount,
-            checkpointRequired = checkpointedStepCount >= LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT,
-        )
-    }
-
     private fun shouldAwaitExternalOutcomeConfirmation(
         runId: String,
         request: ToolRequest,
@@ -2032,32 +1964,6 @@ class AgentLoopRuntime(
 
     private fun ToolRequest.isLowRiskDeviceActionConfirmationSkippable(): Boolean =
         toolRegistry.isLowRiskDeviceActionConfirmationSkippable(this)
-
-    private fun ToolRequest.isLowRiskAppControlContinuationTool(): Boolean =
-        toolRegistry.isLowRiskAppControlContinuationTool(this)
-
-    private fun ToolRequest.isCheckpointedUiActionTool(): Boolean =
-        toolRegistry.isCheckpointedUiActionTool(toolName)
-
-    private fun SkillPlan.hasConfirmedToolStep(runId: String): Boolean {
-        val stepRequestIds = toolStepRequestIds()
-        return traceStore.steps(runId).any { step ->
-            step is AgentStep.UserConfirmed && step.requestId in stepRequestIds
-        }
-    }
-
-    private fun SkillPlan.requestedCheckpointedUiActionCount(runId: String): Int {
-        val stepRequestIds = toolStepRequestIds()
-        return toolRequestsFor(runId).count { request ->
-            request.id in stepRequestIds && request.isCheckpointedUiActionTool()
-        }
-    }
-
-    private fun SkillPlan.expectedPackageName(): String? =
-        steps.filterIsInstance<SkillStep.ToolStep>()
-            .firstNotNullOfOrNull { step ->
-                step.request.arguments["expectedPackageName"]?.takeIf { it.isNotBlank() }
-            }
 
     private fun clearEphemeralRunState(runId: String) {
         if (runUsedDeviceControlSession(runId)) {
@@ -2092,15 +1998,6 @@ class AgentLoopRuntime(
             toolRegistry.startsDeviceControlSession(request.toolName) ||
                 toolPlanCoordinator.isDeviceControlTool(request)
         }
-
-    private data class AppControlSession(
-        val runId: String,
-        val skillId: String,
-        val targetPackage: String?,
-        val lowRisk: Boolean,
-        val stepCount: Int,
-        val checkpointRequired: Boolean,
-    )
 
     private val terminalRunStates = setOf(
         AgentRunState.Completed,
@@ -2177,6 +2074,12 @@ class AgentLoopRuntime(
     }
 
     private val traceQueries = AgentTraceQueries(traceStore)
+    private val confirmationBypassPolicy = LowRiskConfirmationBypassPolicy(
+        toolRegistry = toolRegistry,
+        traceStore = traceStore,
+        traceQueries = traceQueries,
+        isDeviceActionBypassEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
+    )
     private val toolObservationContinuationBuilder by lazy {
         ToolObservationContinuationBuilder(
             toolRegistry = toolRegistry,
@@ -2210,8 +2113,6 @@ class AgentLoopRuntime(
     private fun skillIdForRequest(runId: String, requestId: String): String? =
         traceQueries.skillIdForRequest(runId, requestId)
     private fun latestSkillPlan(runId: String): SkillPlan? = traceQueries.latestSkillPlan(runId)
-    private fun latestLowRiskAppControlSkillPlan(runId: String): SkillPlan? =
-        traceQueries.latestLowRiskAppControlSkillPlan(runId)
     private fun latestModelDrivenAppSearchSkillPlan(runId: String): SkillPlan? =
         traceQueries.latestModelDrivenAppSearchSkillPlan(runId)
 
