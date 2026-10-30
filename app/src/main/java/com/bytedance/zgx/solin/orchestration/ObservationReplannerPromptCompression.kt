@@ -176,15 +176,13 @@ private fun String.targetShortlistTargetValues(): List<String> {
 }
 
 internal fun String.targetShortlistSummariesForPrompt(): String =
-    Regex("""targetShortlist\([^)]*\)""")
-        .findAll(this)
-        .map { match -> match.value }
-        .distinct()
-        .joinToString(separator = " ")
-        .ifBlank { "none" }
+    distinctPromptMatches(Regex("""targetShortlist\([^)]*\)"""))
 
 internal fun String.targetEvidenceSummariesForPrompt(): String =
-    Regex("""targetEvidence\([^)]*\)""")
+    distinctPromptMatches(Regex("""targetEvidence\([^)]*\)"""))
+
+private fun String.distinctPromptMatches(pattern: Regex): String =
+    pattern
         .findAll(this)
         .map { match -> match.value }
         .distinct()

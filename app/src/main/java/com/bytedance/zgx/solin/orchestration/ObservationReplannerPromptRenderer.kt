@@ -422,9 +422,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
     val role = optString("role", "unknown")
     if (source == "ocr" && optJSONObject("bounds") == null) return null
     val modeTags = buildList {
-        if (clickability?.optBoolean("editable", false) == true) add("type")
-        if (clickability?.optBoolean("clickable", false) == true) add("tap")
-        if (clickability?.optBoolean("scrollable", false) == true) add("scroll")
+        addAll(clickability.clickabilityModeTags())
         if (source == "ocr") add("ocrFallback")
     }
     if (modeTags.isEmpty()) return null
@@ -458,6 +456,16 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         role = role,
         promptText = promptText,
     )
+}
+
+/** Target mode tags implied by a `clickability` object, in prompt order: type, tap, scroll. */
+private fun JSONObject?.clickabilityModeTags(): List<String> {
+    val clickability = this
+    return buildList {
+        if (clickability?.optBoolean("editable", false) == true) add("type")
+        if (clickability?.optBoolean("clickable", false) == true) add("tap")
+        if (clickability?.optBoolean("scrollable", false) == true) add("scroll")
+    }
 }
 
 private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(): List<LocalTargetCandidatePrompt> {
@@ -505,11 +513,7 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         ?: return null
     val clickability = optJSONObject("clickability")
     val role = optString("role", "unknown")
-    val modeTags = buildList {
-        if (clickability?.optBoolean("editable", false) == true) add("type")
-        if (clickability?.optBoolean("clickable", false) == true) add("tap")
-        if (clickability?.optBoolean("scrollable", false) == true) add("scroll")
-    }
+    val modeTags = clickability.clickabilityModeTags()
     if (modeTags.isEmpty()) return null
     val promptText = buildString {
         append(ocrText)
