@@ -29,12 +29,7 @@ class CurrentScreenshotOcrToolExecutor(
             }
         return when (val result = provider?.captureCurrentScreenshotOcr(request.id, nowMillis)) {
             null ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "当前屏幕截图 OCR 服务不可用",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "当前屏幕截图 OCR 服务不可用")
 
             CurrentScreenshotOcrReadResult.MissingConsent ->
                 request.failed(

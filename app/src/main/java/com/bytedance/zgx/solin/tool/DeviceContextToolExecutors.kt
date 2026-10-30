@@ -80,20 +80,10 @@ class CalendarAvailabilityToolExecutor(
                 )
 
             CalendarAvailabilityReadResult.MissingPermission ->
-                request.failed(
-                    code = ToolErrorCode.PermissionDenied,
-                    summary = "需要日历读取权限才能查询忙闲区间",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.PermissionDenied, "需要日历读取权限才能查询忙闲区间")
 
             is CalendarAvailabilityReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "日历忙闲查询失败：${result.reason}",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "日历忙闲查询失败：${result.reason}")
         }
 }
 
@@ -131,12 +121,7 @@ class ForegroundAppToolExecutor(
                 )
 
             is ForegroundAppReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "查询前台应用失败：${result.reason}",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "查询前台应用失败：${result.reason}")
         }
     }
 }
@@ -164,20 +149,10 @@ class ContactSummaryToolExecutor(
                 )
 
             is ContactSummaryReadResult.PermissionDenied ->
-                request.failed(
-                    code = ToolErrorCode.PermissionDenied,
-                    summary = "未授权“读取联系人”权限，无法查询联系人",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.PermissionDenied, "未授权“读取联系人”权限，无法查询联系人")
 
             is ContactSummaryReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "联系人查询失败：${result.reason}",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "联系人查询失败：${result.reason}")
         }
     }
 }
@@ -203,20 +178,10 @@ class NotificationSummaryToolExecutor(
                 )
 
             is NotificationSummaryReadResult.PermissionDenied ->
-                request.failed(
-                    code = ToolErrorCode.PermissionDenied,
-                    summary = "未开启应用通知权限，无法读取通知摘要",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.PermissionDenied, "未开启应用通知权限，无法读取通知摘要")
 
             is NotificationSummaryReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "通知摘要查询失败：${result.reason}",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "通知摘要查询失败：${result.reason}")
         }
     }
 
@@ -267,12 +232,7 @@ class RecentFilesToolExecutor(
                 )
 
             is RecentFileReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "最近文件查询失败：${result.reason}",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "最近文件查询失败：${result.reason}")
         }
     }
 }
@@ -384,20 +344,10 @@ class RecentScreenshotOcrToolExecutor(
             }
 
             is RecentImageTextReadResult.PermissionDenied ->
-                request.failed(
-                    code = ToolErrorCode.PermissionDenied,
-                    summary = "未授权“读取图片”权限，无法识别最近${config.sourceLabel}文字",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.PermissionDenied, "未授权“读取图片”权限，无法识别最近${config.sourceLabel}文字")
 
             is RecentImageTextReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "最近${config.sourceLabel} OCR 失败",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "最近${config.sourceLabel} OCR 失败")
         }
     }
 
@@ -484,12 +434,7 @@ class CurrentScreenTextToolExecutor(
                 )
 
             is CurrentScreenTextReadResult.Failed ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "当前屏幕文本读取失败",
-                    retryable = true,
-                    data = request.localOnlyData(),
-                )
+                request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "当前屏幕文本读取失败")
         }
     }
 

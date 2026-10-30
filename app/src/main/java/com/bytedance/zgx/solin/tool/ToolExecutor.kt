@@ -140,11 +140,9 @@ class RoutingToolExecutor(
                 runCatching { handler.execute(request) }
                     .getOrElse { t ->
                         if (t is CancellationException) throw t
-                        request.failed(
-                            code = ToolErrorCode.ExecutionFailed,
-                            summary = "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}",
-                            retryable = true,
-                            data = request.localOnlyData(),
+                        request.localOnlyFailure(
+                            ToolErrorCode.ExecutionFailed,
+                            "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}",
                         )
                     }
             }
@@ -240,54 +238,24 @@ class RoutingToolExecutor(
      * policy decision is at least explicit at the composition root.
      */
     private fun bound(result: ToolResult): ToolResult {
-        val sourceType = EvidenceSourceType.ToolResult
-        val privacy = evidencePrivacy
-
-        // Bound summary
-        val boundedSummaryResult = EvidenceBounds.headTail(
-            text = result.summary,
-            maxChars = maxSummaryChars,
-            sourceType = sourceType,
-            privacy = privacy,
+        fun headTail(text: String, maxChars: Int) = EvidenceBounds.headTail(
+            text = text,
+            maxChars = maxChars,
+            sourceType = EvidenceSourceType.ToolResult,
+            privacy = evidencePrivacy,
             store = evidenceBlobStore,
         )
 
-        // Bound each data value
-        val dataRefs = mutableListOf<com.bytedance.zgx.solin.evidence.EvidenceBlobRef>()
-        var boundedData: MutableMap<String, String>? = null
-        for ((key, value) in result.data) {
-            val boundedValue = EvidenceBounds.headTail(
-                text = value,
-                maxChars = maxDataValueChars,
-                sourceType = sourceType,
-                privacy = privacy,
-                store = evidenceBlobStore,
-            )
-            if (boundedValue.truncated) {
-                if (boundedData == null) {
-                    boundedData = result.data.toMutableMap()
-                }
-                boundedData[key] = boundedValue.text
-                boundedValue.ref?.let { dataRefs.add(it) }
-            }
-        }
-
-        val summaryChanged = boundedSummaryResult.truncated
-        val dataChanged = boundedData != null || dataRefs.isNotEmpty()
-        val overflowRefsFromSummary = if (boundedSummaryResult.truncated) {
-            listOfNotNull(boundedSummaryResult.ref)
-        } else {
-            emptyList()
-        }
-        val newOverflowRefs = overflowRefsFromSummary + dataRefs
-
-        if (!summaryChanged && !dataChanged && newOverflowRefs.isEmpty()) {
-            return result
-        }
+        val summary = headTail(result.summary, maxSummaryChars)
+        val truncatedData = result.data.mapValues { (_, value) -> headTail(value, maxDataValueChars) }
+            .filterValues { bounded -> bounded.truncated }
+        if (!summary.truncated && truncatedData.isEmpty()) return result
+        val newRefs = listOfNotNull(summary.ref.takeIf { summary.truncated }) +
+            truncatedData.values.mapNotNull { bounded -> bounded.ref }
         return result.copy(
-            summary = if (summaryChanged) boundedSummaryResult.text else result.summary,
-            data = boundedData ?: result.data,
-            overflowRefs = result.overflowRefs + newOverflowRefs,
+            summary = if (summary.truncated) summary.text else result.summary,
+            data = result.data + truncatedData.mapValues { (_, bounded) -> bounded.text },
+            overflowRefs = result.overflowRefs + newRefs,
         )
     }
 
@@ -311,30 +279,15 @@ class RoutingToolExecutor(
                 webSearchToolExecutor.execute(request)
             MobileActionFunctions.QUERY_BACKGROUND_TASKS ->
                 backgroundTasksToolExecutor?.execute(request)
-                    ?: request.failed(
-                        code = ToolErrorCode.ExecutionFailed,
-                        summary = "后台任务本地存储不可用",
-                        retryable = true,
-                        data = request.localOnlyData(),
-                    )
+                    ?: request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "后台任务本地存储不可用")
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
                 recentScreenshotOcrToolExecutor?.execute(request)
-                    ?: request.failed(
-                        code = ToolErrorCode.ExecutionFailed,
-                        summary = "图片 OCR 服务不可用",
-                        retryable = true,
-                        data = request.localOnlyData(),
-                    )
+                    ?: request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "图片 OCR 服务不可用")
 
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT ->
                 currentScreenTextToolExecutor?.execute(request)
-                    ?: request.failed(
-                        code = ToolErrorCode.ExecutionFailed,
-                        summary = "当前屏幕文本服务不可用",
-                        retryable = true,
-                        data = request.localOnlyData(),
-                    )
+                    ?: request.localOnlyFailure(ToolErrorCode.ExecutionFailed, "当前屏幕文本服务不可用")
 
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
                 currentScreenshotOcrToolExecutor.execute(request).also { result ->
@@ -398,6 +351,10 @@ internal fun ToolRequest.localOnlyData(): Map<String, String> =
         "privacy" to MessagePrivacy.LocalOnly.name,
         "requiresLocalModel" to true.toString(),
     )
+
+/** Retryable failure whose data marks the result local-only. */
+internal fun ToolRequest.localOnlyFailure(code: ToolErrorCode, summary: String): ToolResult =
+    failed(code = code, summary = summary, retryable = true, data = localOnlyData())
 
 internal fun Throwable.cleanMessage(): String =
     message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
