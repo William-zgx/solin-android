@@ -118,9 +118,10 @@ class OkHttpRemoteChatRuntime(
         request: Request,
         /** Holds the call for the attempt currently in flight so the caller can cancel just it. */
         currentCall: AtomicReference<Call?> = AtomicReference(null),
+        /** [stopGeneration] observed when collection started; a later stop() ends this run. */
+        generation: Long = stopGeneration.value,
         attemptBlock: suspend (call: Call, markEmitted: () -> Unit) -> Unit,
     ) {
-        val generation = stopGeneration.value
         var attempt = 1
         var hasEmittedOutput = false
         while (true) {
@@ -252,11 +253,13 @@ class OkHttpRemoteChatRuntime(
                 close(IllegalStateException("凭证解析失败：${throwable.message ?: throwable.javaClass.simpleName}", throwable))
                 return@callbackFlow
             }
+        // Captured before the IO worker starts so a stop() racing the worker launch is not lost.
+        val generation = stopGeneration.value
         val request = buildChatCompletionRequest(normalized, credential, body(normalized))
         val currentCall = AtomicReference<Call?>(null)
         val worker = launch(ioDispatcher) {
             try {
-                runWithRetry(request, currentCall) { call, markEmitted ->
+                runWithRetry(request, currentCall, generation) { call, markEmitted ->
                     call.execute().use { response ->
                         if (!response.isSuccessful) {
                             throw response.toStatusFailure(imageAttachments)

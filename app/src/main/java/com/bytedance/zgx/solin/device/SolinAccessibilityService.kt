@@ -188,9 +188,10 @@ class SolinAccessibilityService : AccessibilityService() {
      * Clipboard content Solin wrote and still owes a restore for.
      *
      * Held on the service (not captured per-callback) so [onInterrupt] / [onDestroy] / [onUnbind]
-     * can drain it: the delayed restore runs through `runCleanupIfCurrent`, which deliberately skips
-     * when the task was interrupted or the service torn down or reconnected — exactly the cases
-     * where the pasted text would otherwise leak permanently.
+     * can drain it. The paste's own delayed restore is deliberately NOT lease-guarded: interrupt,
+     * reconnect and teardown are exactly the cases where pasted user text would otherwise stay in
+     * the system clipboard. Every restore is token-scoped and content-checked, so running more than
+     * one is harmless.
      */
     private val clipboardRestorer = ClipboardPasteRestorer<ClipData>()
 
@@ -210,10 +211,10 @@ class SolinAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Interrupt bumps the lease generation, so the paste's own delayed restore is refused. Drain the
-     * restore owed at interrupt time after the usual post-paste settle window (an in-flight
-     * `ACTION_PASTE` binder call cannot be interrupted and must still read Solin's text). Token
-     * scoped: if a newer paste has started by then, its own restore handles the clipboard.
+     * Backstop for the paste's delayed restore: drains the restore owed at interrupt time after the
+     * usual post-paste settle window (an in-flight `ACTION_PASTE` binder call cannot be interrupted
+     * and must still read Solin's text). Token-scoped: if a newer paste has started by then, its own
+     * restore handles the clipboard.
      */
     private fun scheduleClipboardDrainAfterInterrupt() {
         val token = clipboardRestorer.pendingToken() ?: return
@@ -1069,7 +1070,6 @@ class SolinAccessibilityService : AccessibilityService() {
         val restoreToken = clipboardRestorer.writeForPaste(clipboard, text) {
             submitUiSideEffect { clipboard.setText(text) }
         }
-        val task = deviceControlTask.get()
         try {
             return submitUiSideEffect {
                 editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
@@ -1079,11 +1079,10 @@ class SolinAccessibilityService : AccessibilityService() {
             // the user's text at this point and must be handed back.
             mainHandler.postDelayed(
                 {
-                    if (task == null) {
-                        clipboardRestorer.restore(clipboard, restoreToken)
-                    } else {
-                        task.runCleanupIfCurrent { clipboardRestorer.restore(clipboard, restoreToken) }
-                    }
+                    // Not lease-guarded: an interrupt, reconnect or teardown racing the paste must
+                    // still hand the clipboard back. Token-scoped and content-checked, so a newer
+                    // paste or a clip the user copied since is never touched.
+                    clipboardRestorer.restore(clipboard, restoreToken)
                 },
                 DEFAULT_POST_ACTION_WAIT_MILLIS,
             )
