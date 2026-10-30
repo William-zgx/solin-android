@@ -1,15 +1,11 @@
 package com.bytedance.zgx.solin.presentation
 
-import com.bytedance.zgx.solin.AgentTraceRunUiSummary
 import com.bytedance.zgx.solin.AdaptiveInferenceRollout
-import com.bytedance.zgx.solin.AuditEventSummary
 import com.bytedance.zgx.solin.ChatImageAttachment
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.LocalImageAttachment
-import com.bytedance.zgx.solin.LongTermMemorySummary
-import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapability
@@ -17,12 +13,10 @@ import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
-import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
-import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
@@ -38,7 +32,6 @@ import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
-import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.explicitUserFactFrom
 import com.bytedance.zgx.solin.memory.explicitUserPreferenceFrom
 import com.bytedance.zgx.solin.memory.explicitUserPreferenceForgetFrom
@@ -144,28 +137,7 @@ class ChatController internal constructor(
         plan: AgentPlan.UseTool,
         pendingStatusText: String,
     ) -> Unit,
-    private val dispatchPersistenceWorkIfNeededCallback: (work: () -> Unit) -> Boolean,
-    private val replaceActiveSessionMessagesCallback: (messages: List<ChatMessage>, persistNow: Boolean) -> Unit,
-    private val persistActiveSessionFromUiCallback: () -> Unit,
-    private val persistMessagesAndRebuildMemoryImpl: (
-        messages: List<ChatMessage>,
-        memoryUserMessage: ChatMessage?,
-    ) -> Unit,
-    private val rebuildMemoryIndexCallback: () -> Unit,
-    private val syncTaskStateMemoriesCallback: () -> Unit,
-    private val persistExplicitPreferenceMemoryCallback: (ChatMessage) -> Boolean,
-    private val handleExplicitPreferenceCommandCallback: (String) -> Unit,
-    private val handleExplicitUserFactCommandCallback: (String) -> Unit,
-    private val handleExplicitMemoryForgetCommandCallback: (String) -> Unit,
-    private val loadAuditEventsCallback: () -> List<AuditEventSummary>,
-    private val loadAgentTraceRunsCallback: () -> List<AgentTraceRunUiSummary>,
-    private val loadLongTermMemoriesCallback: () -> List<LongTermMemorySummary>,
-    private val activeRunTimelineForCallback: (String?) -> List<RunTimelineItemUiSummary>,
-    private val activePublicWebEvidenceForCallback: (String?) -> List<PublicWebEvidencePack>,
-    private val activeMemoryEvidenceForCallback: (
-        memoryHits: List<MemoryHit>,
-        includePrivateLocalContext: Boolean,
-    ) -> List<MemoryEvidenceUiSummary>,
+    private val sessionHost: PresentationSessionHost,
     private val deviceContextSnapshot: () -> DeviceContextSnapshot,
 ) {
     private var generationJob: Job? = null
@@ -179,12 +151,12 @@ class ChatController internal constructor(
         assistantOrchestrator = assistantOrchestrator,
         outputQualityGuard = outputQualityGuard,
         runtimeLock = runtimeLock,
-        persistActiveSessionFromUi = { persistActiveSessionFromUi() },
+        persistActiveSessionFromUi = { sessionHost.persistActiveSessionFromUi() },
         persistMessagesAndRebuildMemory = { messages, memoryUserMessage ->
-            persistMessagesAndRebuildMemory(messages, memoryUserMessage)
+            sessionHost.persistMessagesAndRebuildMemory(messages, memoryUserMessage)
         },
-        loadAgentTraceRuns = { loadAgentTraceRuns() },
-        activeRunTimelineFor = { runId -> activeRunTimelineFor(runId) },
+        loadAgentTraceRuns = { sessionHost.loadAgentTraceRuns() },
+        activeRunTimelineFor = { runId -> sessionHost.activeRunTimelineFor(runId) },
     )
 
     private val preparedChatExecutions = ConcurrentHashMap<String, PreparedChatExecution>()
@@ -244,7 +216,7 @@ class ChatController internal constructor(
     private val sharedInputSupport = ChatSharedInputSupport(
         uiState = uiState,
         replaceActiveSessionMessages = { messages, persistNow ->
-            replaceActiveSessionMessages(messages, persistNow)
+            sessionHost.replaceActiveSessionMessages(messages, persistNow)
         },
         isGenerationActive = { generationJob?.isActive == true },
         allocateVoiceInputDraftId = { allocateVoiceInputDraftId() },
@@ -266,10 +238,10 @@ class ChatController internal constructor(
         remoteSendPendingStore = remoteSendPendingStore,
         requireRemoteSendDisclosure = requireRemoteSendDisclosure,
         replaceActiveSessionMessages = { messages, persistNow ->
-            replaceActiveSessionMessages(messages, persistNow)
+            sessionHost.replaceActiveSessionMessages(messages, persistNow)
         },
-        persistActiveSessionFromUi = { persistActiveSessionFromUi() },
-        loadAgentTraceRuns = { loadAgentTraceRuns() },
+        persistActiveSessionFromUi = { sessionHost.persistActiveSessionFromUi() },
+        loadAgentTraceRuns = { sessionHost.loadAgentTraceRuns() },
         failModelGeneration = { runId, reason ->
             assistantOrchestrator.failModelGeneration(runId, reason)
         },
@@ -316,12 +288,12 @@ class ChatController internal constructor(
         handleNextToolPlan = { runId, plan, pendingStatusText ->
             handleNextToolPlan(runId, plan, pendingStatusText)
         },
-        persistActiveSessionFromUi = { persistActiveSessionFromUi() },
-        rebuildMemoryIndex = { rebuildMemoryIndex() },
-        loadAuditEvents = { loadAuditEvents() },
-        loadAgentTraceRuns = { loadAgentTraceRuns() },
-        activeRunTimelineFor = { runId -> activeRunTimelineFor(runId) },
-        activePublicWebEvidenceFor = { runId -> activePublicWebEvidenceFor(runId) },
+        persistActiveSessionFromUi = { sessionHost.persistActiveSessionFromUi() },
+        rebuildMemoryIndex = { sessionHost.rebuildMemoryIndex() },
+        loadAuditEvents = { sessionHost.loadAuditEvents() },
+        loadAgentTraceRuns = { sessionHost.loadAgentTraceRuns() },
+        activeRunTimelineFor = { runId -> sessionHost.activeRunTimelineFor(runId) },
+        activePublicWebEvidenceFor = { runId -> sessionHost.activePublicWebEvidenceFor(runId) },
         activeRunPlacement = chatPlacementRuntime::activeBinding,
         onRemoteServingStarted = { runId -> runId?.let(::commitDeferredRemoteSend) },
         discardDeferredRemoteSend = { runId -> runId?.let(::discardDeferredRemoteSend) },
@@ -373,66 +345,6 @@ class ChatController internal constructor(
             uiState.value.pendingExternalOutcome?.runId?.let(::add)
         }
 
-    private fun persistMessagesAndRebuildMemory(
-        messages: List<ChatMessage>,
-        memoryUserMessage: ChatMessage? = null,
-    ) {
-        persistMessagesAndRebuildMemoryImpl(messages, memoryUserMessage)
-    }
-
-
-    private fun dispatchPersistenceWorkIfNeeded(work: () -> Unit): Boolean =
-        dispatchPersistenceWorkIfNeededCallback(work)
-
-    private fun replaceActiveSessionMessages(messages: List<ChatMessage>, persistNow: Boolean) {
-        replaceActiveSessionMessagesCallback(messages, persistNow)
-    }
-
-    private fun persistActiveSessionFromUi() {
-        persistActiveSessionFromUiCallback()
-    }
-
-    private fun rebuildMemoryIndex() {
-        rebuildMemoryIndexCallback()
-    }
-
-    private fun syncTaskStateMemories() {
-        syncTaskStateMemoriesCallback()
-    }
-
-    private fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean =
-        persistExplicitPreferenceMemoryCallback(message)
-
-    private fun handleExplicitPreferenceCommand(trimmed: String) {
-        handleExplicitPreferenceCommandCallback(trimmed)
-    }
-
-    private fun handleExplicitUserFactCommand(trimmed: String) {
-        handleExplicitUserFactCommandCallback(trimmed)
-    }
-
-    private fun handleExplicitMemoryForgetCommand(trimmed: String) {
-        handleExplicitMemoryForgetCommandCallback(trimmed)
-    }
-
-    private fun loadAuditEvents(): List<AuditEventSummary> = loadAuditEventsCallback()
-
-    private fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> = loadAgentTraceRunsCallback()
-
-    private fun loadLongTermMemories(): List<LongTermMemorySummary> = loadLongTermMemoriesCallback()
-
-    private fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> =
-        activeRunTimelineForCallback(runId)
-
-    private fun activePublicWebEvidenceFor(runId: String?): List<PublicWebEvidencePack> =
-        activePublicWebEvidenceForCallback(runId)
-
-    private fun activeMemoryEvidenceFor(
-        memoryHits: List<MemoryHit>,
-        includePrivateLocalContext: Boolean,
-    ): List<MemoryEvidenceUiSummary> =
-        activeMemoryEvidenceForCallback(memoryHits, includePrivateLocalContext)
-
     private suspend fun executeToolRequestAfterRunIsExecuting(
         confirmation: PendingAgentConfirmation,
         request: ToolRequest,
@@ -476,7 +388,7 @@ class ChatController internal constructor(
         onRemoteServingStarted: (() -> Unit)? = null,
     ) {
         if (
-            preparedExecution == null && dispatchPersistenceWorkIfNeeded {
+            preparedExecution == null && sessionHost.dispatchPersistenceWorkIfNeeded {
                 sendMessageInternal(
                     prompt = prompt,
                     explicitMessagePrivacy = explicitMessagePrivacy,
@@ -526,15 +438,15 @@ class ChatController internal constructor(
             return
         }
         if (preparedExecution == null && explicitUserPreferenceForgetFrom(trimmed) != null) {
-            handleExplicitMemoryForgetCommand(trimmed)
+            sessionHost.handleExplicitMemoryForgetCommand(trimmed)
             return
         }
         if (preparedExecution == null && explicitUserFactFrom(trimmed) != null) {
-            handleExplicitUserFactCommand(trimmed)
+            sessionHost.handleExplicitUserFactCommand(trimmed)
             return
         }
         if (preparedExecution == null && explicitUserPreferenceFrom(trimmed) != null) {
-            handleExplicitPreferenceCommand(trimmed)
+            sessionHost.handleExplicitPreferenceCommand(trimmed)
             return
         }
         if (preparedExecution == null && !uiState.value.isReady) {
@@ -550,9 +462,9 @@ class ChatController internal constructor(
         )
 
         if (preparedExecution == null) {
-            syncTaskStateMemories()
-            rebuildMemoryIndex()
-            uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
+            sessionHost.syncTaskStateMemories()
+            sessionHost.rebuildMemoryIndex()
+            uiState.update { it.copy(longTermMemories = sessionHost.loadLongTermMemories()) }
         }
         val stateBeforeSend = preparedExecution?.stateBeforeDispatch ?: uiState.value
         val useRemoteModel = preparedPlacement?.let { it == RunPlacement.Remote }
@@ -594,7 +506,7 @@ class ChatController internal constructor(
                 text = trimmed,
                 privacy = MessagePrivacy.LocalOnly,
             )
-            persistMessagesAndRebuildMemory(
+            sessionHost.persistMessagesAndRebuildMemory(
                 messages = stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
@@ -624,7 +536,7 @@ class ChatController internal constructor(
                 imageCount = imageAttachments.size,
                 remoteHistoryCount = remoteHistory.size,
             )
-            persistMessagesAndRebuildMemory(
+            sessionHost.persistMessagesAndRebuildMemory(
                 messages = stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。",
@@ -678,7 +590,7 @@ class ChatController internal constructor(
                 text = trimmed,
                 privacy = MessagePrivacy.LocalOnly,
             )
-            persistMessagesAndRebuildMemory(
+            sessionHost.persistMessagesAndRebuildMemory(
                 messages = stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "这条内容疑似包含个人信息或密钥。当前为远程模型模式，我不会把它发送到远程模型；请切换到本地模型，或删去敏感内容后再发送。",
@@ -819,7 +731,7 @@ class ChatController internal constructor(
                                 text = "正在使用工具：${route.draft.title}",
                                 privacy = MessagePrivacy.LocalOnly,
                             )
-                            persistMessagesAndRebuildMemory(
+                            sessionHost.persistMessagesAndRebuildMemory(
                                 messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
                                 memoryUserMessage = localUserMessage,
                             )
@@ -828,7 +740,7 @@ class ChatController internal constructor(
                                     isBusy = true,
                                     isGenerating = false,
                                     pendingConfirmation = null,
-                                    activeRunTimeline = activeRunTimelineFor(route.runId),
+                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                     statusText = "工具执行中",
                                 )
                             }
@@ -850,7 +762,7 @@ class ChatController internal constructor(
                             text = "已准备本地动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
                             privacy = MessagePrivacy.LocalOnly,
                         )
-                        persistMessagesAndRebuildMemory(
+                        sessionHost.persistMessagesAndRebuildMemory(
                             messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
                             memoryUserMessage = localUserMessage,
                         )
@@ -866,7 +778,7 @@ class ChatController internal constructor(
                                     plannedByModel = route.plannedByModel,
                                     fallbackReason = route.fallbackReason,
                                 ),
-                                activeRunTimeline = activeRunTimelineFor(route.runId),
+                                activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                 statusText = "动作草稿待确认 · $planningLabel",
                             )
                         }
@@ -880,7 +792,7 @@ class ChatController internal constructor(
                             text = "无法准备这个动作：${route.summary}",
                             privacy = MessagePrivacy.LocalOnly,
                         )
-                        persistMessagesAndRebuildMemory(
+                        sessionHost.persistMessagesAndRebuildMemory(
                             messages = stateBeforeSend.messages + localUserMessage + assistantMessage,
                             memoryUserMessage = localUserMessage,
                         )
@@ -910,7 +822,7 @@ class ChatController internal constructor(
                             text = "需要先安装$capabilityName，才能完成这个请求。$installHint",
                             privacy = effectiveMessagePrivacy,
                         )
-                        persistMessagesAndRebuildMemory(
+                        sessionHost.persistMessagesAndRebuildMemory(
                             messages = stateBeforeSend.messages + userMessage + assistantMessage,
                             memoryUserMessage = userMessage,
                         )
@@ -966,17 +878,17 @@ class ChatController internal constructor(
                             text = "",
                             privacy = responsePrivacy,
                         )
-                        replaceActiveSessionMessages(
+                        sessionHost.replaceActiveSessionMessages(
                             stateBeforeSend.messages + chatUserMessage + assistantPlaceholder,
                             persistNow = true,
                         )
-                        persistExplicitPreferenceMemory(chatUserMessage)
+                        sessionHost.persistExplicitPreferenceMemory(chatUserMessage)
                         uiState.update {
                             it.copy(
                                 isGenerating = true,
                                 memoryHits = route.memoryHits,
-                                activeRunTimeline = activeRunTimelineFor(route.runId),
-                                activeMemoryEvidence = activeMemoryEvidenceFor(
+                                activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
+                                activeMemoryEvidence = sessionHost.activeMemoryEvidenceFor(
                                     memoryHits = route.memoryHits,
                                     includePrivateLocalContext = includePrivateLocalContext,
                                 ),
@@ -988,15 +900,15 @@ class ChatController internal constructor(
                                 assistantOrchestrator.failModelGeneration(runId, "本地模型尚未就绪")
                             }
                             uiState.updateLastAssistant("模型尚未就绪")
-                            persistActiveSessionFromUi()
+                            sessionHost.persistActiveSessionFromUi()
                             uiState.update {
                                 it.copy(
                                     isBusy = false,
                                     isGenerating = false,
                                     isReady = false,
                                     pendingConfirmation = null,
-                                    agentTraceRuns = loadAgentTraceRuns(),
-                                    activeRunTimeline = activeRunTimelineFor(route.runId),
+                                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                     statusText = "未加载模型",
                                 )
                             }
@@ -1007,15 +919,15 @@ class ChatController internal constructor(
                                 assistantOrchestrator.failModelGeneration(runId, "远程模型未配置")
                             }
                             uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
-                            persistActiveSessionFromUi()
+                            sessionHost.persistActiveSessionFromUi()
                             uiState.update {
                                 it.copy(
                                     isBusy = false,
                                     isGenerating = false,
                                     isReady = false,
                                     pendingConfirmation = null,
-                                    agentTraceRuns = loadAgentTraceRuns(),
-                                    activeRunTimeline = activeRunTimelineFor(route.runId),
+                                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                     statusText = "请配置远程模型",
                                 )
                             }
@@ -1038,7 +950,7 @@ class ChatController internal constructor(
                                     remoteHistoryCount = remoteHistory.size,
                                 )
                                 uiState.updateLastAssistantLocalOnly(boundaryFailure)
-                                persistActiveSessionFromUi()
+                                sessionHost.persistActiveSessionFromUi()
                                 uiState.update {
                                     it.copy(
                                         isBusy = false,
@@ -1046,8 +958,8 @@ class ChatController internal constructor(
                                         isReady = remoteConfig.isConfigured,
                                         pendingConfirmation = null,
                                         memoryHits = emptyList(),
-                                        agentTraceRuns = loadAgentTraceRuns(),
-                                        activeRunTimeline = activeRunTimelineFor(route.runId),
+                                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                                        activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                         activeMemoryEvidence = emptyList(),
                                         statusText = "已阻止远程发送",
                                     )
@@ -1233,7 +1145,7 @@ class ChatController internal constructor(
                                     append("正在并行使用工具：${toolBatch.batchToolTitle()}")
                                 }
                                 uiState.updateLastAssistantLocalOnly(assistantText)
-                                persistActiveSessionFromUi()
+                                sessionHost.persistActiveSessionFromUi()
                                 executePublicEvidenceToolBatchAfterRunIsExecuting(
                                     runId = observation.run.id,
                                     plans = toolBatch,
@@ -1255,7 +1167,7 @@ class ChatController internal constructor(
                                     }
                                 }
                                 uiState.updateLastAssistantLocalOnly(assistantText)
-                                persistActiveSessionFromUi()
+                                sessionHost.persistActiveSessionFromUi()
                                 handleNextToolPlan(
                                     runId = observation.run.id,
                                     plan = nextToolPlan,
@@ -1266,16 +1178,16 @@ class ChatController internal constructor(
                             uiState.updateLastAssistantLocalOnly(
                                 "无法准备这个动作：${(observation.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
                             )
-                            persistActiveSessionFromUi()
-                            rebuildMemoryIndex()
+                            sessionHost.persistActiveSessionFromUi()
+                            sessionHost.rebuildMemoryIndex()
                             uiState.update {
                                 it.copy(
                                     isBusy = false,
                                     isGenerating = false,
                                     isReady = true,
-                                    auditEvents = loadAuditEvents(),
-                                    agentTraceRuns = loadAgentTraceRuns(),
-                                    activeRunTimeline = activeRunTimelineFor(route.runId),
+                                    auditEvents = sessionHost.loadAuditEvents(),
+                                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                                    activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                     statusText = "动作不可执行",
                                 )
                             }
@@ -1303,7 +1215,7 @@ class ChatController internal constructor(
                                         "正在使用工具：${nextToolPlan.draft.title}"
                                     }
                                     uiState.updateLastAssistantLocalOnly(assistantText)
-                                    persistActiveSessionFromUi()
+                                    sessionHost.persistActiveSessionFromUi()
                                     handleNextToolPlan(
                                         runId = modelObservation.run.id,
                                         plan = nextToolPlan,
@@ -1315,16 +1227,16 @@ class ChatController internal constructor(
                                     uiState.updateLastAssistantLocalOnly(
                                         "无法准备这个动作：${modelObservation.decision.reason}",
                                     )
-                                    persistActiveSessionFromUi()
-                                    rebuildMemoryIndex()
+                                    sessionHost.persistActiveSessionFromUi()
+                                    sessionHost.rebuildMemoryIndex()
                                     uiState.update {
                                         it.copy(
                                             isBusy = false,
                                             isGenerating = false,
                                             isReady = true,
-                                            auditEvents = loadAuditEvents(),
-                                            agentTraceRuns = loadAgentTraceRuns(),
-                                            activeRunTimeline = activeRunTimelineFor(route.runId),
+                                            auditEvents = sessionHost.loadAuditEvents(),
+                                            agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                                            activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                             statusText = "动作不可执行",
                                         )
                                     }
@@ -1336,7 +1248,7 @@ class ChatController internal constructor(
                                     continuationPrompt != null
                                 ) {
                                     uiState.updateLastAssistant("正在根据公开来源补充引用…")
-                                    persistActiveSessionFromUi()
+                                    sessionHost.persistActiveSessionFromUi()
                                     continueAfterToolObservation(
                                         runId = observedForContinuation.run.id,
                                         promptForModel = continuationPrompt,
@@ -1347,16 +1259,16 @@ class ChatController internal constructor(
                                 }
                             }
                         }
-                        persistActiveSessionFromUi()
-                        rebuildMemoryIndex()
+                        sessionHost.persistActiveSessionFromUi()
+                        sessionHost.rebuildMemoryIndex()
                         uiState.update {
                             it.copy(
                                 isBusy = false,
                                 isGenerating = false,
                                 isReady = true,
-                                activeRunTimeline = activeRunTimelineFor(route.runId),
-                                activePublicWebEvidence = activePublicWebEvidenceFor(route.runId),
-                                activeMemoryEvidence = activeMemoryEvidenceFor(
+                                activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
+                                activePublicWebEvidence = sessionHost.activePublicWebEvidenceFor(route.runId),
+                                activeMemoryEvidence = sessionHost.activeMemoryEvidenceFor(
                                     memoryHits = route.memoryHits,
                                     includePrivateLocalContext = includePrivateLocalContext,
                                 ),
@@ -1396,7 +1308,7 @@ class ChatController internal constructor(
                 }
                 if (uiState.value.isGenerating) {
                     uiState.updateLastAssistant("出错了：$errorMessage")
-                    persistActiveSessionFromUi()
+                    sessionHost.persistActiveSessionFromUi()
                 }
                 uiState.update {
                     it.copy(
@@ -1404,8 +1316,8 @@ class ChatController internal constructor(
                         isGenerating = false,
                         isReady = useRemoteModel && remoteConfig.isConfigured,
                         pendingConfirmation = null,
-                        agentTraceRuns = loadAgentTraceRuns(),
-                        activeRunTimeline = activeRunTimelineFor(activeModelRunId),
+                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                        activeRunTimeline = sessionHost.activeRunTimelineFor(activeModelRunId),
                         modelHealth = it.failedGenerationModelHealth(
                             useRemoteModel = useRemoteModel,
                             reason = errorMessage,
@@ -1527,7 +1439,7 @@ class ChatController internal constructor(
                     privacy = MessagePrivacy.LocalOnly,
                 )
                 assistantOrchestrator.failModelGeneration(runId, "LocalOnly input cannot use remote serving")
-                persistMessagesAndRebuildMemory(
+                sessionHost.persistMessagesAndRebuildMemory(
                     messages = stateBeforeSend.messages + userMessage + ChatMessage(
                         role = MessageRole.Assistant,
                         text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
@@ -1560,7 +1472,7 @@ class ChatController internal constructor(
                     imageCount = imageAttachments.size,
                     remoteHistoryCount = remoteHistory.size,
                 )
-                persistMessagesAndRebuildMemory(
+                sessionHost.persistMessagesAndRebuildMemory(
                     messages = stateBeforeSend.messages + userMessage + ChatMessage(
                         role = MessageRole.Assistant,
                         text = boundaryFailure,
@@ -1884,7 +1796,7 @@ class ChatController internal constructor(
             text = note,
             privacy = MessagePrivacy.LocalOnly,
         ))
-        replaceActiveSessionMessages(messages, persistNow = true)
+        sessionHost.replaceActiveSessionMessages(messages, persistNow = true)
     }
 
     fun failClosedPendingRemoteSendOnStartup() {
@@ -1928,7 +1840,7 @@ class ChatController internal constructor(
                     privacy = MessagePrivacy.LocalOnly,
                 )
             }
-            replaceActiveSessionMessages(messages, persistNow = true)
+            sessionHost.replaceActiveSessionMessages(messages, persistNow = true)
             uiState.update {
                 it.copy(
                     isReady = false,

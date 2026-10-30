@@ -67,17 +67,17 @@ internal fun MemoryTogglePanel(
                             !state.memoryEnabled ->
                                 "本地记忆已关闭；已有记录仍可查看和清除，不会参与召回，也不会自动发送到远程模型。"
 
-                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active ->
+                            state.semanticMemory.runtimeStatus == SemanticMemoryRuntimeStatus.Active ->
                                 "语义记忆运行时已启用；记忆仍只在本机检索，不会自动发送到远程模型。"
 
-                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.BuildingIndex ->
+                            state.semanticMemory.runtimeStatus == SemanticMemoryRuntimeStatus.BuildingIndex ->
                                 "正在建立语义记忆索引；完成前仍可使用轻量索引。"
 
-                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.ProbeFailed ||
-                                state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.DegradedLexical ->
+                            state.semanticMemory.runtimeStatus == SemanticMemoryRuntimeStatus.ProbeFailed ||
+                                state.semanticMemory.runtimeStatus == SemanticMemoryRuntimeStatus.DegradedLexical ->
                                 "记忆模型已安装但语义运行时未通过探测，已回退轻量索引。"
 
-                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.RuntimeUnavailable &&
+                            state.semanticMemory.runtimeStatus == SemanticMemoryRuntimeStatus.RuntimeUnavailable &&
                                 memoryModelInstalled ->
                                 "记忆模型资产已安装；当前没有可用 embedding runtime，语义运行时未启用。"
 

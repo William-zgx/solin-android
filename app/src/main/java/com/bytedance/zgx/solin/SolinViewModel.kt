@@ -25,14 +25,8 @@ import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.solin.download.ModelDownloadClient
-import com.bytedance.zgx.solin.logging.solinD
-import com.bytedance.zgx.solin.logging.solinW
-import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MEMORY
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryController
-import com.bytedance.zgx.solin.memory.MemoryControllerResult
-import com.bytedance.zgx.solin.memory.MemoryCommandResult
-import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
@@ -45,6 +39,10 @@ import com.bytedance.zgx.solin.presentation.AuditUiController
 import com.bytedance.zgx.solin.presentation.AutoInferenceAuthorizationCoordinator
 import com.bytedance.zgx.solin.presentation.BackgroundTaskController
 import com.bytedance.zgx.solin.presentation.ChatController
+import com.bytedance.zgx.solin.presentation.DefaultPresentationSessionHost
+import com.bytedance.zgx.solin.presentation.MemoryUiController
+import com.bytedance.zgx.solin.presentation.PresentationSessionHost
+import com.bytedance.zgx.solin.presentation.toSemanticMemoryStatus
 import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.ModelLoadController
 import com.bytedance.zgx.solin.presentation.SessionController
@@ -230,6 +228,24 @@ class SolinViewModel internal constructor(
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
+    private val memoryUiController = MemoryUiController(
+        memoryController = memoryController,
+        firstRunSetupStore = firstRunSetupRepository,
+        sessionStore = sessionRepository,
+        uiState = _uiState,
+        skipModelRuntimeWork = skipStartupModelRuntimeWork,
+    )
+
+    private val sessionHost: PresentationSessionHost = DefaultPresentationSessionHost(
+        sessionStore = sessionRepository,
+        uiState = _uiState,
+        assistantOrchestrator = assistantOrchestrator,
+        memoryUiController = memoryUiController,
+        auditUiController = auditUiController,
+        backgroundTaskController = backgroundTaskController,
+        dispatchPersistenceWork = ::dispatchPersistenceWorkIfNeeded,
+    )
+
     // ChatController is constructed before ToolExecutionController; tool methods are late-bound
     // lambdas so both sides can call each other after initialization completes.
     private val chatController: ChatController = ChatController(
@@ -266,24 +282,7 @@ class SolinViewModel internal constructor(
                 pendingStatusText = pendingStatusText,
             )
         },
-        dispatchPersistenceWorkIfNeededCallback = ::dispatchPersistenceWorkIfNeeded,
-        replaceActiveSessionMessagesCallback = ::replaceActiveSessionMessages,
-        persistActiveSessionFromUiCallback = ::persistActiveSessionFromUi,
-        persistMessagesAndRebuildMemoryImpl = { messages, memoryUserMessage ->
-            persistMessagesAndRebuildMemory(messages, memoryUserMessage)
-        },
-        rebuildMemoryIndexCallback = ::rebuildMemoryIndex,
-        syncTaskStateMemoriesCallback = { syncTaskStateMemories() },
-        persistExplicitPreferenceMemoryCallback = ::persistExplicitPreferenceMemory,
-        handleExplicitPreferenceCommandCallback = ::handleExplicitPreferenceCommand,
-        handleExplicitUserFactCommandCallback = ::handleExplicitUserFactCommand,
-        handleExplicitMemoryForgetCommandCallback = ::handleExplicitMemoryForgetCommand,
-        loadAuditEventsCallback = ::loadAuditEvents,
-        loadAgentTraceRunsCallback = ::loadAgentTraceRuns,
-        loadLongTermMemoriesCallback = ::loadLongTermMemories,
-        activeRunTimelineForCallback = ::activeRunTimelineFor,
-        activePublicWebEvidenceForCallback = ::activePublicWebEvidenceFor,
-        activeMemoryEvidenceForCallback = ::activeMemoryEvidenceFor,
+        sessionHost = sessionHost,
         deviceContextSnapshot = {
             _uiState.value.toDeviceContextSnapshot(deviceContextAuthorizationSnapshot)
         },
@@ -306,20 +305,7 @@ class SolinViewModel internal constructor(
                 remoteSendConfirmed = remoteSendConfirmed,
             )
         },
-        dispatchPersistenceWorkIfNeeded = ::dispatchPersistenceWorkIfNeeded,
-        replaceActiveSessionMessages = ::replaceActiveSessionMessages,
-        persistActiveSessionFromUi = ::persistActiveSessionFromUi,
-        rebuildMemoryIndex = ::rebuildMemoryIndex,
-        syncTaskStateMemories = { syncTaskStateMemories() },
-        loadAuditEvents = ::loadAuditEvents,
-        loadAgentTraceRuns = ::loadAgentTraceRuns,
-        activeRunTimelineFor = ::activeRunTimelineFor,
-        activePublicWebEvidenceFor = ::activePublicWebEvidenceFor,
-        loadBackgroundTasks = ::loadBackgroundTasks,
-        loadBackgroundTaskHistory = ::loadBackgroundTaskHistory,
-        loadPeriodicCheckPolicy = ::loadPeriodicCheckPolicy,
-        loadLongTermMemories = ::loadLongTermMemories,
-        activeSessionId = { sessionRepository.activeSessionId },
+        sessionHost = sessionHost,
         activeRunPlacement = chatPlacementRuntime::activeBinding,
     )
 
@@ -347,7 +333,7 @@ class SolinViewModel internal constructor(
             chatController.clearPendingRemoteChatState()
         },
         resetRemoteSendDisclosureSuppression = chatController::resetRemoteSendDisclosureSuppression,
-        rebuildMemoryIndex = ::rebuildMemoryIndex,
+        rebuildMemoryIndex = sessionHost::rebuildMemoryIndex,
     )
 
     private val sessionController = SessionController(
@@ -583,32 +569,7 @@ class SolinViewModel internal constructor(
     }
 
     fun updateMemoryEnabled(enabled: Boolean) {
-        firstRunSetupRepository.setMemoryEnabled(enabled)
-        val result = memoryController.setMemoryEnabled(
-            enabled = enabled,
-            skipModelRuntimeWork = skipStartupModelRuntimeWork,
-        )
-        val rebuild = result.rebuildResult
-        _uiState.update { state ->
-            state.copy(
-                memoryEnabled = result.enabled,
-                memoryHits = when {
-                    rebuild.memoryHitsCleared -> emptyList()
-                    result.clearMemoryHits -> emptyList()
-                    else -> state.memoryHits
-                },
-                longTermMemories = if (rebuild.memoryHitsCleared) {
-                    rebuild.longTermMemories
-                } else {
-                    result.longTermMemories
-                },
-                statusText = rebuild.statusText ?: result.statusText,
-                semanticMemoryEnabled = rebuild.semanticMemoryEnabled,
-                semanticMemoryRuntimeStatus = rebuild.semanticMemoryRuntimeStatus,
-                semanticMemoryIndexedRecordCount = rebuild.semanticMemoryIndexedRecordCount,
-                semanticMemoryLastRebuiltAtMillis = rebuild.semanticMemoryLastRebuiltAtMillis,
-            )
-        }
+        memoryUiController.updateMemoryEnabled(enabled)
     }
 
     fun updateReduceDeviceActionConfirmations(enabled: Boolean) {
@@ -640,50 +601,11 @@ class SolinViewModel internal constructor(
     }
 
     fun forgetLongTermMemory(memoryId: String) {
-        if (_uiState.value.isBusy) return
-        val result = memoryController.forgetLongTermMemory(
-            memoryId = memoryId,
-            memoryEnabled = _uiState.value.memoryEnabled,
-            skipModelRuntimeWork = skipStartupModelRuntimeWork,
-        )
-        val rebuild = result.rebuildResult
-        _uiState.update { state ->
-            state.copy(
-                longTermMemories = result.longTermMemories,
-                memoryHits = if (rebuild.memoryHitsCleared) {
-                    emptyList()
-                } else {
-                    state.memoryHits.filterNot { hit -> hit.id == memoryId }
-                },
-                // Match prior behavior: forget status overwrites rebuild failure text.
-                statusText = result.statusText,
-                semanticMemoryEnabled = rebuild.semanticMemoryEnabled,
-                semanticMemoryRuntimeStatus = rebuild.semanticMemoryRuntimeStatus,
-                semanticMemoryIndexedRecordCount = rebuild.semanticMemoryIndexedRecordCount,
-                semanticMemoryLastRebuiltAtMillis = rebuild.semanticMemoryLastRebuiltAtMillis,
-            )
-        }
+        memoryUiController.forgetLongTermMemory(memoryId)
     }
 
     fun clearLongTermMemory() {
-        if (_uiState.value.isBusy) return
-        val result = memoryController.clearLongTermMemory(
-            memoryEnabled = _uiState.value.memoryEnabled,
-            skipModelRuntimeWork = skipStartupModelRuntimeWork,
-        )
-        val rebuild = result.rebuildResult
-        _uiState.update { state ->
-            state.copy(
-                longTermMemories = emptyList(),
-                memoryHits = emptyList(),
-                // Match prior behavior: clear status overwrites rebuild failure text.
-                statusText = result.statusText,
-                semanticMemoryEnabled = rebuild.semanticMemoryEnabled,
-                semanticMemoryRuntimeStatus = rebuild.semanticMemoryRuntimeStatus,
-                semanticMemoryIndexedRecordCount = rebuild.semanticMemoryIndexedRecordCount,
-                semanticMemoryLastRebuiltAtMillis = rebuild.semanticMemoryLastRebuiltAtMillis,
-            )
-        }
+        memoryUiController.clearLongTermMemory()
     }
 
     fun refreshBackgroundTasks() {
@@ -1095,7 +1017,7 @@ class SolinViewModel internal constructor(
         val showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed() && !hasUsableEndpoint
         memoryRepository.enabled = memoryEnabled
         syncTaskStateMemories(memoryEnabled = memoryEnabled)
-        val semanticMemory = memoryController.semanticMemoryState()
+        val semanticMemory = memoryController.semanticMemoryState().toSemanticMemoryStatus()
         return ChatUiState(
             modelPath = modelState.activeModelPath,
             activeInstalledModelId = modelState.activeInstalledModelId,
@@ -1111,10 +1033,7 @@ class SolinViewModel internal constructor(
             memoryEnabled = memoryEnabled,
             reduceDeviceActionConfirmations = reduceDeviceActionConfirmations,
             remoteGuiAutomationEnabled = remoteGuiAutomationEnabled,
-            semanticMemoryEnabled = semanticMemory.semanticMemoryEnabled,
-            semanticMemoryRuntimeStatus = semanticMemory.semanticMemoryRuntimeStatus,
-            semanticMemoryIndexedRecordCount = semanticMemory.semanticMemoryIndexedRecordCount,
-            semanticMemoryLastRebuiltAtMillis = semanticMemory.semanticMemoryLastRebuiltAtMillis,
+            semanticMemory = semanticMemory,
             huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
@@ -1143,127 +1062,12 @@ class SolinViewModel internal constructor(
     ): Boolean =
         modelState.activeModelPath != null || remoteConfig.isConfigured
 
-    // Memory paths: thin UI wrappers over MemoryController (Wave 2 Track C2b).
-    private fun rebuildMemoryIndex() {
-        val startMs = System.currentTimeMillis()
-        val result = memoryController.rebuildMemoryIndex(
-            memoryEnabled = _uiState.value.memoryEnabled,
-            skipModelRuntimeWork = skipStartupModelRuntimeWork,
-        )
-        val durationMs = System.currentTimeMillis() - startMs
-        applyMemoryControllerResult(result, logRebuild = true, durationMs = durationMs)
-    }
-
     private fun syncTaskStateMemories(memoryEnabled: Boolean = _uiState.value.memoryEnabled) {
         memoryController.syncTaskStateMemories(memoryEnabled = memoryEnabled)
     }
 
     private fun loadLongTermMemories(): List<LongTermMemorySummary> =
         memoryController.loadLongTermMemories()
-
-    private fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean =
-        runCatching {
-            memoryController.persistExplicitPreferenceMemory(message).also { persisted ->
-                if (persisted) {
-                    _uiState.update { state ->
-                        state.copy(longTermMemories = loadLongTermMemories())
-                    }
-                }
-            }
-        }.onFailure {
-            _uiState.update { state ->
-                state.copy(
-                    longTermMemories = emptyList(),
-                    statusText = "本地记忆暂不可用",
-                )
-            }
-        }.getOrDefault(false)
-
-    private fun handleExplicitPreferenceCommand(trimmed: String) {
-        applyMemoryCommandResult(
-            memoryController.handleExplicitPreferenceCommand(
-                trimmed = trimmed,
-                memoryEnabled = _uiState.value.memoryEnabled,
-                skipModelRuntimeWork = skipStartupModelRuntimeWork,
-            ),
-        )
-    }
-
-    private fun handleExplicitUserFactCommand(trimmed: String) {
-        applyMemoryCommandResult(
-            memoryController.handleExplicitUserFactCommand(
-                trimmed = trimmed,
-                memoryEnabled = _uiState.value.memoryEnabled,
-                skipModelRuntimeWork = skipStartupModelRuntimeWork,
-            ),
-        )
-    }
-
-    private fun handleExplicitMemoryForgetCommand(trimmed: String) {
-        applyMemoryCommandResult(
-            memoryController.handleExplicitMemoryForgetCommand(
-                trimmed = trimmed,
-                memoryEnabled = _uiState.value.memoryEnabled,
-                skipModelRuntimeWork = skipStartupModelRuntimeWork,
-            ),
-        )
-    }
-
-    private fun applyMemoryCommandResult(result: MemoryCommandResult) {
-        val rebuild = result.rebuildResult
-        _uiState.update { state ->
-            state.copy(
-                sessions = sessionRepository.summaries(),
-                activeSessionId = sessionRepository.activeSessionId,
-                messages = sessionRepository.activeMessages(),
-                memoryHits = emptyList(),
-                longTermMemories = if (rebuild.memoryHitsCleared) {
-                    rebuild.longTermMemories
-                } else {
-                    result.longTermMemories
-                },
-                // Match prior behavior: command status overwrites rebuild failure text.
-                statusText = result.statusText,
-                semanticMemoryEnabled = rebuild.semanticMemoryEnabled,
-                semanticMemoryRuntimeStatus = rebuild.semanticMemoryRuntimeStatus,
-                semanticMemoryIndexedRecordCount = rebuild.semanticMemoryIndexedRecordCount,
-                semanticMemoryLastRebuiltAtMillis = rebuild.semanticMemoryLastRebuiltAtMillis,
-            )
-        }
-    }
-
-    private fun applyMemoryControllerResult(
-        result: MemoryControllerResult,
-        logRebuild: Boolean = false,
-        durationMs: Long = 0L,
-    ) {
-        if (logRebuild) {
-            if (result.memoryHitsCleared || result.statusText != null) {
-                solinW(TAG_MEMORY, "rebuildMemoryIndex: failed status=${result.statusText}")
-            } else {
-                solinD(
-                    TAG_MEMORY,
-                    "rebuildMemoryIndex: success hits=${result.semanticMemoryIndexedRecordCount} " +
-                        "durationMs=$durationMs",
-                )
-            }
-        }
-        _uiState.update { state ->
-            state.copy(
-                semanticMemoryEnabled = result.semanticMemoryEnabled,
-                semanticMemoryRuntimeStatus = result.semanticMemoryRuntimeStatus,
-                semanticMemoryIndexedRecordCount = result.semanticMemoryIndexedRecordCount,
-                semanticMemoryLastRebuiltAtMillis = result.semanticMemoryLastRebuiltAtMillis,
-                memoryHits = if (result.memoryHitsCleared) emptyList() else state.memoryHits,
-                longTermMemories = if (result.memoryHitsCleared) {
-                    result.longTermMemories
-                } else {
-                    state.longTermMemories
-                },
-                statusText = result.statusText ?: state.statusText,
-            )
-        }
-    }
 
     private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
         backgroundTaskController.loadBackgroundTasks()
@@ -1279,23 +1083,6 @@ class SolinViewModel internal constructor(
 
     private fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> =
         auditUiController.loadAgentTraceRuns()
-
-    private fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> =
-        runId
-            ?.let { id -> runCatching { assistantOrchestrator.runEvents(id) }.getOrDefault(emptyList()) }
-            ?.let(::runTimelineSummariesFor)
-            .orEmpty()
-
-    private fun activePublicWebEvidenceFor(runId: String?): List<PublicWebEvidencePack> =
-        runId
-            ?.let { id -> runCatching { assistantOrchestrator.publicWebEvidence(id) }.getOrDefault(emptyList()) }
-            .orEmpty()
-
-    private fun activeMemoryEvidenceFor(
-        memoryHits: List<MemoryHit>,
-        includePrivateLocalContext: Boolean,
-    ): List<MemoryEvidenceUiSummary> =
-        if (includePrivateLocalContext) memoryEvidenceSummariesFor(memoryHits) else emptyList()
 
     private fun failStaleAgentRunsOnStartup() {
         val failedCount = assistantOrchestrator.failStaleInFlightRuns(STALE_AGENT_RUN_STARTUP_REASON)
@@ -1347,51 +1134,5 @@ class SolinViewModel internal constructor(
         }
         launchPersistenceWork(work)
         return true
-    }
-
-    private fun replaceActiveSessionMessages(
-        messages: List<ChatMessage>,
-        persistNow: Boolean,
-    ) {
-        sessionRepository.replaceActiveSessionMessages(messages, persistNow)
-        _uiState.update {
-            it.copy(
-                sessions = sessionRepository.summaries(),
-                activeSessionId = sessionRepository.activeSessionId,
-                messages = messages,
-            )
-        }
-    }
-
-    private fun persistActiveSessionFromUi() {
-        val messages = _uiState.value.messages
-        sessionRepository.persistActiveSessionFrom(messages)
-        _uiState.update {
-            it.copy(
-                sessions = sessionRepository.summaries(),
-                activeSessionId = sessionRepository.activeSessionId,
-                messages = messages,
-            )
-        }
-    }
-
-    /**
-     * Combined "persist messages + optionally persist explicit preference memory +
-     * rebuild memory index" helper.  Extracts the repeated sequence that appears
-     * throughout send-message / tool-execution / command-handling paths.
-     *
-     * @param messages Final message list to write to the active session.
-     * @param memoryUserMessage When non-null, [persistExplicitPreferenceMemory] is
-     *   invoked for this message before the index rebuild.
-     */
-    private fun persistMessagesAndRebuildMemory(
-        messages: List<ChatMessage>,
-        memoryUserMessage: ChatMessage? = null,
-    ) {
-        replaceActiveSessionMessages(messages, persistNow = true)
-        if (memoryUserMessage != null) {
-            persistExplicitPreferenceMemory(memoryUserMessage)
-        }
-        rebuildMemoryIndex()
     }
 }

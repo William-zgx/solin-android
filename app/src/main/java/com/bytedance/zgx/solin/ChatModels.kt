@@ -424,6 +424,14 @@ data class InstalledModelSummary(
         }
 }
 
+/** Semantic-memory runtime/index status surfaced to the memory and trust panels. */
+data class SemanticMemoryStatus(
+    val enabled: Boolean = false,
+    val runtimeStatus: SemanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel,
+    val indexedRecordCount: Int = 0,
+    val lastRebuiltAtMillis: Long? = null,
+)
+
 data class ChatUiState(
     val modelPath: String? = null,
     val activeInstalledModelId: String? = null,
@@ -434,11 +442,7 @@ data class ChatUiState(
     val memoryEnabled: Boolean = true,
     val reduceDeviceActionConfirmations: Boolean = false,
     val remoteGuiAutomationEnabled: Boolean = false,
-    val semanticMemoryEnabled: Boolean = false,
-    val semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus =
-        SemanticMemoryRuntimeStatus.NoVerifiedModel,
-    val semanticMemoryIndexedRecordCount: Int = 0,
-    val semanticMemoryLastRebuiltAtMillis: Long? = null,
+    val semanticMemory: SemanticMemoryStatus = SemanticMemoryStatus(),
     val huggingFaceAccessTokenConfigured: Boolean = false,
     val pendingHuggingFaceAuthorizationModelId: String? = null,
     val memoryHits: List<MemoryHit> = emptyList(),

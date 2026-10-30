@@ -446,7 +446,7 @@ internal fun RecommendedModelCard(
             "需 HF 授权"
 
         model.capability == ModelCapability.MemoryEmbedding ->
-            memoryModelStatusText(installed, state.semanticMemoryRuntimeStatus)
+            memoryModelStatusText(installed, state.semanticMemory.runtimeStatus)
 
         installed && model.capability == ModelCapability.MobileAction -> "低资源实验已安装"
         installed -> "已安装"

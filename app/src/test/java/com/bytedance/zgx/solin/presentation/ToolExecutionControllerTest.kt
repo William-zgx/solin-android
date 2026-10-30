@@ -1,6 +1,15 @@
 package com.bytedance.zgx.solin.presentation
 
+import com.bytedance.zgx.solin.AgentTraceRunUiSummary
+import com.bytedance.zgx.solin.AuditEventSummary
+import com.bytedance.zgx.solin.BackgroundTaskSummary
+import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.LongTermMemorySummary
+import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
+import com.bytedance.zgx.solin.PublicWebEvidencePack
+import com.bytedance.zgx.solin.RunTimelineItemUiSummary
+import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.PendingAgentConfirmation
@@ -354,22 +363,7 @@ class ToolExecutionControllerTest {
         isGenerationJobActive = { false },
         launchToolGenerationJob = launchToolGenerationJob,
         continueAfterToolObservation = { _, _, _, _, _ -> continueAfterObservation() },
-        dispatchPersistenceWorkIfNeeded = { false },
-        replaceActiveSessionMessages = { messages, _ ->
-            uiState.update { state -> state.copy(messages = messages) }
-        },
-        persistActiveSessionFromUi = {},
-        rebuildMemoryIndex = {},
-        syncTaskStateMemories = {},
-        loadAuditEvents = { emptyList() },
-        loadAgentTraceRuns = { emptyList() },
-        activeRunTimelineFor = { emptyList() },
-        activePublicWebEvidenceFor = { emptyList() },
-        loadBackgroundTasks = { emptyList() },
-        loadBackgroundTaskHistory = { emptyList() },
-        loadPeriodicCheckPolicy = { PeriodicCheckPolicySummary.disabled() },
-        loadLongTermMemories = { emptyList() },
-        activeSessionId = { "session-test" },
+        sessionHost = FakeSessionHost(uiState),
         activeRunPlacement = activeRunPlacement,
     )
 
@@ -447,5 +441,59 @@ class ToolExecutionControllerTest {
     private class ObservationRouter {
         lateinit var router: AssistantRouter
         var failModelGenerationCalls: Int = 0
+    }
+
+    private class FakeSessionHost(
+        private val uiState: MutableStateFlow<ChatUiState>,
+    ) : PresentationSessionHost {
+        override fun dispatchPersistenceWorkIfNeeded(work: () -> Unit): Boolean = false
+
+        override fun replaceActiveSessionMessages(messages: List<ChatMessage>, persistNow: Boolean) {
+            uiState.update { state -> state.copy(messages = messages) }
+        }
+
+        override fun persistActiveSessionFromUi() = Unit
+
+        override fun persistMessagesAndRebuildMemory(
+            messages: List<ChatMessage>,
+            memoryUserMessage: ChatMessage?,
+        ) {
+            replaceActiveSessionMessages(messages, persistNow = true)
+        }
+
+        override fun activeSessionId(): String = "session-test"
+
+        override fun rebuildMemoryIndex() = Unit
+
+        override fun syncTaskStateMemories() = Unit
+
+        override fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean = false
+
+        override fun handleExplicitPreferenceCommand(trimmed: String) = Unit
+
+        override fun handleExplicitUserFactCommand(trimmed: String) = Unit
+
+        override fun handleExplicitMemoryForgetCommand(trimmed: String) = Unit
+
+        override fun loadLongTermMemories(): List<LongTermMemorySummary> = emptyList()
+
+        override fun loadAuditEvents(): List<AuditEventSummary> = emptyList()
+
+        override fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> = emptyList()
+
+        override fun loadBackgroundTasks(): List<BackgroundTaskSummary> = emptyList()
+
+        override fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> = emptyList()
+
+        override fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled()
+
+        override fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> = emptyList()
+
+        override fun activePublicWebEvidenceFor(runId: String?): List<PublicWebEvidencePack> = emptyList()
+
+        override fun activeMemoryEvidenceFor(
+            memoryHits: List<MemoryHit>,
+            includePrivateLocalContext: Boolean,
+        ): List<MemoryEvidenceUiSummary> = emptyList()
     }
 }

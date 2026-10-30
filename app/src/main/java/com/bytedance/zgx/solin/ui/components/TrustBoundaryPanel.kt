@@ -361,14 +361,14 @@ internal fun trustDeletionBoundaryText(state: ChatUiState): String =
     "可清空长期记忆、删除当前会话、取消后台任务，并可一键清除远程服务地址、模型名和 API Key。当前已保存长期记忆 ${state.longTermMemories.size} 条。"
 
 internal fun semanticMemoryIndexStatusText(state: ChatUiState): String {
-    val mode = if (state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active) {
+    val mode = if (state.semanticMemory.runtimeStatus == SemanticMemoryRuntimeStatus.Active) {
         "语义记忆"
     } else {
         "轻量索引"
     }
-    val rebuilt = state.semanticMemoryLastRebuiltAtMillis
+    val rebuilt = state.semanticMemory.lastRebuiltAtMillis
         ?.let { millis -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(millis)) }
         ?: "尚未建立"
-    return "召回模式：$mode；索引：${state.semanticMemoryIndexedRecordCount} 条长期记忆；最近重建：$rebuilt"
+    return "召回模式：$mode；索引：${state.semanticMemory.indexedRecordCount} 条长期记忆；最近重建：$rebuilt"
 }
 

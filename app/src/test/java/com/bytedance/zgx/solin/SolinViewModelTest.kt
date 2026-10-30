@@ -6986,8 +6986,8 @@ class SolinViewModelTest {
             ),
         )
 
-        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+        assertFalse(viewModel.uiState.value.semanticMemory.enabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, viewModel.uiState.value.semanticMemory.runtimeStatus)
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -7000,7 +7000,7 @@ class SolinViewModelTest {
 
         assertTrue(memoryRepository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.Active, memoryRepository.semanticMemoryRuntimeStatus)
-        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemory.runtimeStatus)
         assertEquals(TEST_MEMORY_EMBEDDING_MODEL_PATH, memoryRepository.activeMemoryModelPath)
         val hits = memoryRepository.search("compressed responses")
         assertEquals(listOf("pref-1"), hits.map { it.id })
@@ -7029,8 +7029,8 @@ class SolinViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0, semanticRuntimeFactoryCalls)
-        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+        assertFalse(viewModel.uiState.value.semanticMemory.enabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, viewModel.uiState.value.semanticMemory.runtimeStatus)
         assertEquals(null, memoryRepository.activeMemoryModelPath)
         val lexicalHits = memoryRepository.search("concise answers")
         assertEquals(listOf("pref-1"), lexicalHits.map { it.id })
@@ -7056,10 +7056,10 @@ class SolinViewModelTest {
             ),
         )
 
-        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
+        assertFalse(viewModel.uiState.value.semanticMemory.enabled)
         assertEquals(
             SemanticMemoryRuntimeStatus.NoVerifiedModel,
-            viewModel.uiState.value.semanticMemoryRuntimeStatus,
+            viewModel.uiState.value.semanticMemory.runtimeStatus,
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7073,10 +7073,10 @@ class SolinViewModelTest {
         assertFalse(memoryRepository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, memoryRepository.semanticMemoryRuntimeStatus)
         assertEquals(null, memoryRepository.activeMemoryModelPath)
-        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
+        assertFalse(viewModel.uiState.value.semanticMemory.enabled)
         assertEquals(
             SemanticMemoryRuntimeStatus.RuntimeUnavailable,
-            viewModel.uiState.value.semanticMemoryRuntimeStatus,
+            viewModel.uiState.value.semanticMemory.runtimeStatus,
         )
         assertTrue(memoryRepository.search("laconic replies").isEmpty())
         val lexicalHits = memoryRepository.search("concise answers")
@@ -7116,8 +7116,8 @@ class SolinViewModelTest {
         viewModel.sendMessage("compressed responses")
         advanceUntilIdle()
 
-        assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+        assertTrue(viewModel.uiState.value.semanticMemory.enabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemory.runtimeStatus)
         val prompt = localRuntime.prompts.single()
         assertTrue(prompt.contains("本地记忆"))
         assertTrue(prompt.contains("I prefer concise answers"))
@@ -7215,8 +7215,8 @@ class SolinViewModelTest {
         viewModel.sendMessage("compressed responses")
         advanceUntilIdle()
 
-        assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+        assertTrue(viewModel.uiState.value.semanticMemory.enabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemory.runtimeStatus)
         assertTrue(viewModel.uiState.value.memoryHits.isEmpty())
         assertTrue(viewModel.uiState.value.activeMemoryEvidence.isEmpty())
         val call = remoteRuntime.calls.single()

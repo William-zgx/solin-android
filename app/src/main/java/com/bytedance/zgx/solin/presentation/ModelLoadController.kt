@@ -13,6 +13,7 @@ import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.SemanticMemoryStatus
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.destinationHostLabel
 import com.bytedance.zgx.solin.label
@@ -97,18 +98,15 @@ internal class ModelLoadController(
 
     private fun isArm64Device(): Boolean = isArm64DeviceProvider()
 
-    private fun semanticMemoryEnabled(): Boolean =
-        semanticMemoryRuntimeController?.semanticMemoryEnabled == true
-
-    private fun semanticMemoryRuntimeStatus(): SemanticMemoryRuntimeStatus =
-        semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
-            ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable
-
-    private fun semanticMemoryIndexedRecordCount(): Int =
-        semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0
-
-    private fun semanticMemoryLastRebuiltAtMillis(): Long? =
-        semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis
+    // Same read as MemoryController.semanticMemoryState(), without rebuilding the index.
+    private fun semanticMemoryStatus(): SemanticMemoryStatus =
+        SemanticMemoryStatus(
+            enabled = semanticMemoryRuntimeController?.semanticMemoryEnabled == true,
+            runtimeStatus = semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
+                ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+            indexedRecordCount = semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0,
+            lastRebuiltAtMillis = semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis,
+        )
 
     fun startBundledModelInstallOnStartup(skipModelRuntimeWork: Boolean): Boolean {
         if (skipModelRuntimeWork || !bundledModelInstaller.isEnabled || bundledModelInstallJob != null) {
@@ -1183,10 +1181,7 @@ internal class ModelLoadController(
                 localMaxTotalTokens = modelState.localContextWindowTokens(),
                 localPreferredBackends = modelState.localPreferredBackends(),
                 modelHealth = modelState.modelHealthForCurrentSelection(it.backend),
-                semanticMemoryEnabled = semanticMemoryEnabled(),
-                semanticMemoryRuntimeStatus = semanticMemoryRuntimeStatus(),
-                semanticMemoryIndexedRecordCount = semanticMemoryIndexedRecordCount(),
-                semanticMemoryLastRebuiltAtMillis = semanticMemoryLastRebuiltAtMillis(),
+                semanticMemory = semanticMemoryStatus(),
                 huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
             )
         }

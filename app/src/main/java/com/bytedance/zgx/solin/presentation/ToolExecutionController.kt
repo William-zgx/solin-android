@@ -1,22 +1,15 @@
 package com.bytedance.zgx.solin.presentation
 
-import com.bytedance.zgx.solin.AgentTraceRunUiSummary
-import com.bytedance.zgx.solin.AuditEventSummary
-import com.bytedance.zgx.solin.BackgroundTaskSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.MessageKind
 import com.bytedance.zgx.solin.ChatUiState
-import com.bytedance.zgx.solin.LongTermMemorySummary
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
-import com.bytedance.zgx.solin.PublicWebEvidencePack
-import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.SpecialAccessRequirement
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
-import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
 import com.bytedance.zgx.solin.matchesExecution
@@ -78,20 +71,7 @@ class ToolExecutionController(
         remoteToolScope: RemoteToolScope,
         remoteSendConfirmed: Boolean,
     ) -> Unit,
-    private val dispatchPersistenceWorkIfNeeded: (work: () -> Unit) -> Boolean,
-    private val replaceActiveSessionMessages: (messages: List<ChatMessage>, persistNow: Boolean) -> Unit,
-    private val persistActiveSessionFromUi: () -> Unit,
-    private val rebuildMemoryIndex: () -> Unit,
-    private val syncTaskStateMemories: () -> Unit,
-    private val loadAuditEvents: () -> List<AuditEventSummary>,
-    private val loadAgentTraceRuns: () -> List<AgentTraceRunUiSummary>,
-    private val activeRunTimelineFor: (String?) -> List<RunTimelineItemUiSummary>,
-    private val activePublicWebEvidenceFor: (String?) -> List<PublicWebEvidencePack>,
-    private val loadBackgroundTasks: () -> List<BackgroundTaskSummary>,
-    private val loadBackgroundTaskHistory: () -> List<BackgroundTaskSummary>,
-    private val loadPeriodicCheckPolicy: () -> PeriodicCheckPolicySummary,
-    private val loadLongTermMemories: () -> List<LongTermMemorySummary>,
-    private val activeSessionId: () -> String,
+    private val sessionHost: PresentationSessionHost,
     private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null },
 ) {
     private val toolExecutionBoundary = TimeoutToolExecutionBoundary(
@@ -105,7 +85,7 @@ class ToolExecutionController(
     )
 
     fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
-        if (dispatchPersistenceWorkIfNeeded { requestRecoveryActionConfirmation(action) }) return
+        if (sessionHost.dispatchPersistenceWorkIfNeeded { requestRecoveryActionConfirmation(action) }) return
         val state = uiState.value
         if (state.pendingConfirmation != null) {
             uiState.update {
@@ -149,8 +129,8 @@ class ToolExecutionController(
                             fallbackReason = route.fallbackReason,
                         ),
                         latestRecoveryAction = null,
-                        auditEvents = loadAuditEvents(),
-                        agentTraceRuns = loadAgentTraceRuns(),
+                        auditEvents = sessionHost.loadAuditEvents(),
+                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                         statusText = "撤销提醒待确认",
                     )
                 }
@@ -160,8 +140,8 @@ class ToolExecutionController(
                 uiState.update {
                     it.copy(
                         latestRecoveryAction = null,
-                        auditEvents = loadAuditEvents(),
-                        agentTraceRuns = loadAgentTraceRuns(),
+                        auditEvents = sessionHost.loadAuditEvents(),
+                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                         statusText = "撤销动作不可执行：${route.summary}",
                     )
                 }
@@ -176,7 +156,7 @@ class ToolExecutionController(
     }
 
     fun confirmAgentConfirmation(confirmation: PendingAgentConfirmation) {
-        if (dispatchPersistenceWorkIfNeeded { confirmAgentConfirmation(confirmation) }) return
+        if (sessionHost.dispatchPersistenceWorkIfNeeded { confirmAgentConfirmation(confirmation) }) return
         val pendingConfirmation = uiState.value.pendingConfirmation
         if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
             uiState.update {
@@ -202,16 +182,16 @@ class ToolExecutionController(
                     pendingConfirmation = pendingConfirmation,
                     isBusy = false,
                     isGenerating = false,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                     statusText = "工具确认失败，未执行动作。",
                 )
             }
             return
         }
         if (confirmation.runId != null && confirmedRun?.state != AgentRunState.ExecutingTool) {
-            replaceActiveSessionMessages(
+            sessionHost.replaceActiveSessionMessages(
                 uiState.value.messages + ChatMessage(
                     MessageRole.Assistant,
                     "工具确认失败，未执行动作。",
@@ -224,9 +204,9 @@ class ToolExecutionController(
                     pendingConfirmation = null,
                     isBusy = false,
                     isGenerating = false,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                     statusText = "工具未执行",
                 )
             }
@@ -237,7 +217,7 @@ class ToolExecutionController(
                 pendingConfirmation = null,
                 isBusy = true,
                 isGenerating = false,
-                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                 statusText = "工具执行中",
             )
         }
@@ -279,7 +259,7 @@ class ToolExecutionController(
             privacy = observationPrivacy,
             kind = messageKindFor(result),
         )
-        replaceActiveSessionMessages(
+        sessionHost.replaceActiveSessionMessages(
             messagesWithObservation,
             true,
         )
@@ -300,13 +280,13 @@ class ToolExecutionController(
                 privacy = observationPrivacy,
                 kind = messageKindFor(result),
             )
-            replaceActiveSessionMessages(
+            sessionHost.replaceActiveSessionMessages(
                 messagesWithObservation,
                 true,
             )
             retryRequest = observation?.retryRequest
         }
-        val publicWebEvidence = activePublicWebEvidenceFor(confirmation.runId)
+        val publicWebEvidence = sessionHost.activePublicWebEvidenceFor(confirmation.runId)
         val nextToolPlan = (observation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
         if (nextToolPlan != null) {
             handleNextToolPlan(
@@ -335,7 +315,7 @@ class ToolExecutionController(
                         "运行绑定不可恢复，已停止工具结果续写"
                     },
                 )
-                replaceActiveSessionMessages(
+                sessionHost.replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
                         text = if (privacyBlocked) {
@@ -347,15 +327,15 @@ class ToolExecutionController(
                     ),
                     true,
                 )
-                rebuildMemoryIndex()
+                sessionHost.rebuildMemoryIndex()
                 uiState.update {
                     it.copy(
                         pendingConfirmation = null,
                         isBusy = false,
                         isGenerating = false,
-                        auditEvents = loadAuditEvents(),
-                        agentTraceRuns = loadAgentTraceRuns(),
-                        activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                        auditEvents = sessionHost.loadAuditEvents(),
+                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                        activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                         activePublicWebEvidence = publicWebEvidence,
                         statusText = if (privacyBlocked) {
                             "已保护${protectedContentName}"
@@ -366,7 +346,7 @@ class ToolExecutionController(
                 }
                 return
             }
-            replaceActiveSessionMessages(
+            sessionHost.replaceActiveSessionMessages(
                 messagesWithObservation + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "",
@@ -379,9 +359,9 @@ class ToolExecutionController(
                     pendingConfirmation = null,
                     isBusy = true,
                     isGenerating = true,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                     activePublicWebEvidence = publicWebEvidence,
                     statusText = "生成中",
                 )
@@ -395,20 +375,20 @@ class ToolExecutionController(
             )
             return
         }
-        syncTaskStateMemories()
-        rebuildMemoryIndex()
+        sessionHost.syncTaskStateMemories()
+        sessionHost.rebuildMemoryIndex()
         val pendingExternalOutcome = observation?.pendingExternalOutcomeFor(confirmation, request)
         uiState.update {
             it.copy(
                 pendingConfirmation = null,
                 pendingExternalOutcome = pendingExternalOutcome,
-                backgroundTasks = loadBackgroundTasks(),
-                backgroundTaskHistory = loadBackgroundTaskHistory(),
-                periodicCheckPolicy = loadPeriodicCheckPolicy(),
-                longTermMemories = loadLongTermMemories(),
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                backgroundTasks = sessionHost.loadBackgroundTasks(),
+                backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
+                periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
+                longTermMemories = sessionHost.loadLongTermMemories(),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                 activePublicWebEvidence = publicWebEvidence,
                 latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
                 isBusy = false,
@@ -441,14 +421,14 @@ class ToolExecutionController(
         if (plans.isEmpty()) {
             assistantOrchestrator.failModelGeneration(runId, "远程模型返回了空工具批次")
             uiState.updateLastAssistantLocalOnly("远程模型返回了空工具批次，已停止执行。")
-            persistActiveSessionFromUi()
+            sessionHost.persistActiveSessionFromUi()
             uiState.update {
                 it.copy(
                     isBusy = false,
                     isGenerating = false,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                     statusText = "批量工具不可执行",
                 )
             }
@@ -460,9 +440,9 @@ class ToolExecutionController(
                 latestRecoveryAction = null,
                 isBusy = true,
                 isGenerating = false,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(runId),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                 statusText = "工具并发执行中",
             )
         }
@@ -471,29 +451,29 @@ class ToolExecutionController(
         if (observation == null) {
             assistantOrchestrator.cancelRun(runId, "批量工具结果无法进入观察流程")
             uiState.updateLastAssistantLocalOnly("批量工具结果无法进入观察流程，已停止执行。")
-            persistActiveSessionFromUi()
+            sessionHost.persistActiveSessionFromUi()
             uiState.update {
                 it.copy(
                     pendingConfirmation = null,
                     isBusy = false,
                     isGenerating = false,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                     statusText = "批量工具不可执行",
                 )
             }
             return
         }
         val observationPrivacy = observation.privacyForObservation(fallbackToolName = PUBLIC_EVIDENCE_BATCH_TOOL_NAME)
-        val publicWebEvidence = activePublicWebEvidenceFor(runId)
+        val publicWebEvidence = sessionHost.activePublicWebEvidenceFor(runId)
         val messagesWithObservation = uiState.value.messages + ChatMessage(
             role = MessageRole.Assistant,
             text = observation.assistantMessage,
             privacy = observationPrivacy,
             kind = messageKindFor(results),
         )
-        replaceActiveSessionMessages(
+        sessionHost.replaceActiveSessionMessages(
             messagesWithObservation,
             true,
         )
@@ -524,7 +504,7 @@ class ToolExecutionController(
                         "运行绑定不可恢复，已停止批量工具结果续写"
                     },
                 )
-                replaceActiveSessionMessages(
+                sessionHost.replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
                         text = if (privacyBlocked) {
@@ -536,15 +516,15 @@ class ToolExecutionController(
                     ),
                     true,
                 )
-                rebuildMemoryIndex()
+                sessionHost.rebuildMemoryIndex()
                 uiState.update {
                     it.copy(
                         pendingConfirmation = null,
                         isBusy = false,
                         isGenerating = false,
-                        auditEvents = loadAuditEvents(),
-                        agentTraceRuns = loadAgentTraceRuns(),
-                        activeRunTimeline = activeRunTimelineFor(runId),
+                        auditEvents = sessionHost.loadAuditEvents(),
+                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                        activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                         activePublicWebEvidence = publicWebEvidence,
                         statusText = if (privacyBlocked) {
                             "已保护批量工具结果"
@@ -555,7 +535,7 @@ class ToolExecutionController(
                 }
                 return
             }
-            replaceActiveSessionMessages(
+            sessionHost.replaceActiveSessionMessages(
                 messagesWithObservation + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "",
@@ -568,9 +548,9 @@ class ToolExecutionController(
                     pendingConfirmation = null,
                     isBusy = true,
                     isGenerating = true,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                     activePublicWebEvidence = publicWebEvidence,
                     statusText = "生成中",
                 )
@@ -584,18 +564,18 @@ class ToolExecutionController(
             )
             return
         }
-        syncTaskStateMemories()
-        rebuildMemoryIndex()
+        sessionHost.syncTaskStateMemories()
+        sessionHost.rebuildMemoryIndex()
         uiState.update {
             it.copy(
                 pendingConfirmation = null,
-                backgroundTasks = loadBackgroundTasks(),
-                backgroundTaskHistory = loadBackgroundTaskHistory(),
-                periodicCheckPolicy = loadPeriodicCheckPolicy(),
-                longTermMemories = loadLongTermMemories(),
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(runId),
+                backgroundTasks = sessionHost.loadBackgroundTasks(),
+                backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
+                periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
+                longTermMemories = sessionHost.loadLongTermMemories(),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                 activePublicWebEvidence = publicWebEvidence,
                 latestRecoveryAction = observation.recoveryAction,
                 isBusy = false,
@@ -621,7 +601,7 @@ class ToolExecutionController(
         plan: AgentPlan.UseTool,
         pendingStatusText: String,
     ) {
-        rebuildMemoryIndex()
+        sessionHost.rebuildMemoryIndex()
         val confirmation = PendingAgentConfirmation(
             runId = runId,
             draft = plan.draft,
@@ -637,9 +617,9 @@ class ToolExecutionController(
                     latestRecoveryAction = null,
                     isBusy = true,
                     isGenerating = false,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                     statusText = "工具执行中",
                 )
             }
@@ -666,9 +646,9 @@ class ToolExecutionController(
                 isBusy = false,
                 isGenerating = false,
                 isReady = true,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(runId),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                 statusText = pendingStatusText,
             )
         }
@@ -694,7 +674,7 @@ class ToolExecutionController(
         pending: PendingExternalOutcomeConfirmation,
         outcome: AgentExternalOutcome,
     ) {
-        if (dispatchPersistenceWorkIfNeeded { recordExternalOutcome(pending, outcome) }) return
+        if (sessionHost.dispatchPersistenceWorkIfNeeded { recordExternalOutcome(pending, outcome) }) return
         val current = uiState.value.pendingExternalOutcome
         if (current == null || current != pending) {
             uiState.update {
@@ -713,15 +693,15 @@ class ToolExecutionController(
             uiState.update {
                 it.copy(
                     pendingExternalOutcome = null,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(pending.runId),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(pending.runId),
                     statusText = "外部结果确认已过期",
                 )
             }
             return
         }
-        replaceActiveSessionMessages(
+        sessionHost.replaceActiveSessionMessages(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = recorded.assistantMessage,
@@ -729,16 +709,16 @@ class ToolExecutionController(
             ),
             true,
         )
-        rebuildMemoryIndex()
+        sessionHost.rebuildMemoryIndex()
         val nextToolPlan = (recorded.decision as? AgentObservationDecision.PlanNextTool)?.plan
         if (nextToolPlan != null) {
             uiState.update {
                 it.copy(
                     pendingExternalOutcome = null,
                     latestRecoveryAction = null,
-                    auditEvents = loadAuditEvents(),
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(recorded.run.id),
+                    auditEvents = sessionHost.loadAuditEvents(),
+                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(recorded.run.id),
                 )
             }
             handleNextToolPlan(
@@ -751,9 +731,9 @@ class ToolExecutionController(
         uiState.update {
             it.copy(
                 pendingExternalOutcome = null,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(recorded.run.id),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(recorded.run.id),
                 statusText = recorded.assistantMessage,
             )
         }
@@ -853,7 +833,7 @@ class ToolExecutionController(
         resultFor: (ToolRequest) -> ToolResult,
     ) {
         if (
-            dispatchPersistenceWorkIfNeeded {
+            sessionHost.dispatchPersistenceWorkIfNeeded {
                 rejectAgentConfirmationWithFailure(
                     confirmation = confirmation,
                     statusText = statusText,
@@ -882,7 +862,7 @@ class ToolExecutionController(
         val observation = confirmation.runId?.let { runId ->
             assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
         }
-        replaceActiveSessionMessages(
+        sessionHost.replaceActiveSessionMessages(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
@@ -890,15 +870,15 @@ class ToolExecutionController(
             ),
             true,
         )
-        rebuildMemoryIndex()
+        sessionHost.rebuildMemoryIndex()
         uiState.update {
             it.copy(
                 pendingConfirmation = null,
                 isBusy = false,
                 isGenerating = false,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(confirmation.runId),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
                 statusText = statusText,
             )
         }
@@ -932,7 +912,7 @@ class ToolExecutionController(
             return
         }
         if (appendFailureMessage) {
-            replaceActiveSessionMessages(
+            sessionHost.replaceActiveSessionMessages(
                 uiState.value.messages + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "工具确认缺少请求信息，已取消该动作，未执行。",
@@ -946,16 +926,16 @@ class ToolExecutionController(
                 pendingConfirmation = null,
                 isBusy = false,
                 isGenerating = false,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(runId),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
                 statusText = statusText,
             )
         }
     }
 
     fun dismissAgentConfirmation(confirmation: PendingAgentConfirmation? = uiState.value.pendingConfirmation) {
-        if (dispatchPersistenceWorkIfNeeded { dismissAgentConfirmation(confirmation) }) return
+        if (sessionHost.dispatchPersistenceWorkIfNeeded { dismissAgentConfirmation(confirmation) }) return
         val pendingConfirmation = uiState.value.pendingConfirmation
         if (confirmation == null || pendingConfirmation == null) {
             uiState.update {
@@ -985,9 +965,9 @@ class ToolExecutionController(
         uiState.update {
             it.copy(
                 pendingConfirmation = null,
-                auditEvents = loadAuditEvents(),
-                agentTraceRuns = loadAgentTraceRuns(),
-                activeRunTimeline = activeRunTimelineFor(pendingConfirmation.runId),
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(pendingConfirmation.runId),
                 statusText = observation?.assistantMessage ?: "已取消动作草稿",
             )
         }
@@ -1046,7 +1026,7 @@ class ToolExecutionController(
     }
 
     fun restorePendingAgentConfirmationIfAny(clearMissing: Boolean = false) {
-        val route = assistantOrchestrator.restorePendingAction(activeSessionId())
+        val route = assistantOrchestrator.restorePendingAction(sessionHost.activeSessionId())
         if (route == null) {
             if (clearMissing) {
                 uiState.update {
@@ -1079,7 +1059,7 @@ class ToolExecutionController(
             }
             return
         }
-        val pending = assistantOrchestrator.restorePendingExternalOutcome(activeSessionId())
+        val pending = assistantOrchestrator.restorePendingExternalOutcome(sessionHost.activeSessionId())
         if (pending == null) {
             if (clearMissing) {
                 uiState.update { it.copy(pendingExternalOutcome = null) }
