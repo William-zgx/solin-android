@@ -37,36 +37,12 @@ class SkillRunExecutor(
         result: ToolResult,
     ): SkillRunResult {
         validatePlanForExecution(plan)?.let { return it }
-        if (continuation.planRequestId != plan.request.id || continuation.skillId != plan.request.skillId) {
-            return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = emptyMap(),
-                trace = continuation.trace + SkillRunTrace.Failed("skill continuation does not match plan"),
-                error = "skill continuation does not match plan",
-            )
-        }
-        val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
-            ?: return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
-                trace = continuation.trace + SkillRunTrace.Failed("pending skill step is missing"),
-                error = "pending skill step is missing",
-            )
-        if (step.id != continuation.pendingStepId) {
-            return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
-                trace = continuation.trace + SkillRunTrace.Failed("pending skill step changed"),
-                error = "pending skill step changed",
-            )
+        val step = when (val pending = pendingToolStep(plan, continuation)) {
+            is PendingStep.Found -> pending.step
+            is PendingStep.Invalid -> return pending.result
         }
         if (result.requestId != continuation.pendingToolRequest.id) {
-            return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
-                trace = continuation.trace + SkillRunTrace.Failed("tool result does not match pending skill step"),
-                error = "tool result does not match pending skill step",
-            )
+            return continuation.failedResume("tool result does not match pending skill step")
         }
 
         val outputs = continuation.outputs.deepMutableCopy()
@@ -105,28 +81,9 @@ class SkillRunExecutor(
         reason: String = "user cancelled skill run",
     ): SkillRunResult {
         validatePlanForExecution(plan)?.let { return it }
-        if (continuation.planRequestId != plan.request.id || continuation.skillId != plan.request.skillId) {
-            return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = emptyMap(),
-                trace = continuation.trace + SkillRunTrace.Failed("skill continuation does not match plan"),
-                error = "skill continuation does not match plan",
-            )
-        }
-        val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
-            ?: return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
-                trace = continuation.trace + SkillRunTrace.Failed("pending skill step is missing"),
-                error = "pending skill step is missing",
-            )
-        if (step.id != continuation.pendingStepId) {
-            return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
-                trace = continuation.trace + SkillRunTrace.Failed("pending skill step changed"),
-                error = "pending skill step changed",
-            )
+        val step = when (val pending = pendingToolStep(plan, continuation)) {
+            is PendingStep.Found -> pending.step
+            is PendingStep.Invalid -> return pending.result
         }
 
         return SkillRunResult(
@@ -140,6 +97,40 @@ class SkillRunExecutor(
             error = reason,
         )
     }
+
+    private sealed interface PendingStep {
+        data class Found(val step: SkillStep.ToolStep) : PendingStep
+        data class Invalid(val result: SkillRunResult) : PendingStep
+    }
+
+    /**
+     * Fails closed unless [continuation] belongs to [plan] and still points at the same pending
+     * tool step. A plan mismatch exposes no outputs; later mismatches expose only public outputs.
+     */
+    private fun pendingToolStep(plan: SkillPlan, continuation: SkillRunContinuation): PendingStep {
+        if (continuation.planRequestId != plan.request.id || continuation.skillId != plan.request.skillId) {
+            return PendingStep.Invalid(
+                continuation.failedResume("skill continuation does not match plan", exposeOutputs = false),
+            )
+        }
+        val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
+            ?: return PendingStep.Invalid(continuation.failedResume("pending skill step is missing"))
+        if (step.id != continuation.pendingStepId) {
+            return PendingStep.Invalid(continuation.failedResume("pending skill step changed"))
+        }
+        return PendingStep.Found(step)
+    }
+
+    private fun SkillRunContinuation.failedResume(
+        reason: String,
+        exposeOutputs: Boolean = true,
+    ): SkillRunResult =
+        SkillRunResult(
+            state = SkillRunState.Failed,
+            outputs = if (exposeOutputs) progressor.publicOutputs(outputs, privateOutputRefs) else emptyMap(),
+            trace = trace + SkillRunTrace.Failed(reason),
+            error = reason,
+        )
 
     private fun validatePlanForExecution(plan: SkillPlan): SkillRunResult? {
         val validationError = progressor.validateForExecution(plan)
