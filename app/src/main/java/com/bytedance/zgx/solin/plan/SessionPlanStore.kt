@@ -32,16 +32,6 @@ class SessionPlanStore {
         return snap
     }
 
-    fun updateItem(
-        runId: String,
-        planItemId: String,
-        transform: (PlanItem) -> PlanItem,
-    ): PlanSnapshot? {
-        val current = plans[runId] ?: return null
-        val updatedItems = current.items.map { if (it.planItemId == planItemId) transform(it) else it }
-        return replaceAll(runId, updatedItems)
-    }
-
     fun clear(runId: String) {
         plans.remove(runId)
     }
