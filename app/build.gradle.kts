@@ -453,6 +453,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.litertlm.android)
     implementation(libs.localagents.rag)
+    // Not referenced from app code: localagents-rag needs protobuf-javalite at runtime but does
+    // not pull it in transitively (guarded by EmbeddingRuntimeDependencyTest).
     implementation(libs.protobuf.javalite)
     implementation(libs.sqlcipher.android)
     implementation(libs.mlkit.text.recognition)
@@ -462,13 +464,14 @@ dependencies {
 
     ksp(libs.androidx.room.compiler)
 
-    debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.androidx.room.testing)
+    // Real org.json for JVM unit tests: android.jar only ships throwing stubs, and tests/fixture
+    // parsers use JSONObject/JSONArray off-device. Not needed at runtime (Android provides it).
     testImplementation(libs.json)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
