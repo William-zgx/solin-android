@@ -47,6 +47,12 @@ internal class ModelToolRequestCoordinator(
         if (runBudget.observationDecisionBudgetExceeded(runId)) {
             return host.failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
         }
+        // A turn that ends in a tool call never reaches observeModelResult, so the wall-clock guard
+        // there would be skipped; check it here too or a remote model could keep issuing tool calls
+        // with no time bound at all.
+        if (runBudget.runDeadlineExceeded(runId)) {
+            return host.failRunBudget(runId, RUN_WALL_CLOCK_DEADLINE_EXCEEDED_REASON)
+        }
         if (runBudget.toolStepBudgetExceeded(runId)) {
             return host.failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
@@ -175,6 +181,11 @@ internal class ModelToolRequestCoordinator(
         if (run.state != AgentRunState.GeneratingAnswer) return null
         if (runBudget.observationDecisionBudgetExceeded(runId)) {
             return host.failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
+        }
+        // Same wall-clock guard as the single-request path: the batch path also ends the turn in a
+        // tool call (or a rejection) and never reaches observeModelResult's deadline check.
+        if (runBudget.runDeadlineExceeded(runId)) {
+            return host.failRunBudget(runId, RUN_WALL_CLOCK_DEADLINE_EXCEEDED_REASON)
         }
         if (requests.isEmpty()) {
             return toolObservationCoordinator.rejectModelToolBatch(
