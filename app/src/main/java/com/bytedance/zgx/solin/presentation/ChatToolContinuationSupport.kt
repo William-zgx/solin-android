@@ -153,37 +153,93 @@ internal class ChatToolContinuationSupport(
             remoteSendSupport.remoteHistoryForRemoteSend(stateAtStart.messages.dropLast(1))
         if (useRemoteModel &&
             responsePrivacy == MessagePrivacy.RemoteEligible &&
-            remoteConfig.isConfigured &&
-            remoteConfig.hasKnownConnectivityFailure
+            remoteConfig.isConfigured
         ) {
-            discardDeferredRemoteSend(runId)
-            runId?.let { id ->
-                assistantOrchestrator.failModelGeneration(id, "远程连接状态为${remoteConfig.connectivityStatus.label}")
-            }
-            remoteSendSupport.recordRemoteSendAuditEvent(
-                decision = RemoteSendDecision.Blocked,
-                modelName = remoteConfig.normalized().modelName,
-                prompt = promptForModel,
-                imageCount = 0,
-                remoteHistoryCount = remoteHistory.size,
+            // The continuation prompt carries the tool result. Run the SAME first-turn preflight,
+            // so a sensitive tool result cannot reach the remote model without the consent the
+            // first turn would demand.
+            val remoteDecision = ChatSendPreflight.preparedRemoteSend(
+                messagePrivacy = responsePrivacy,
+                remoteConfig = remoteConfig,
+                remoteSendConfirmed = remoteSendConfirmed,
+                containsSensitiveContent = {
+                    remoteSendSupport.containsSensitivePersonalOrSecretContent(promptForModel)
+                },
+                requiresSendDisclosure = {
+                    remoteSendSupport.shouldRequireRemoteSendDisclosure(imageAttachmentCount = 0)
+                },
             )
-            uiState.updateLastAssistantLocalOnly(
-                "远程连接状态为${remoteConfig.connectivityStatus.label}，工具结果续写没有发送。请在模型管理中测试连接或更新远程配置。",
-            )
-            persistActiveSessionFromUi()
-            uiState.update {
-                it.copy(
-                    isBusy = false,
-                    isGenerating = false,
-                    isReady = true,
-                    pendingConfirmation = null,
-                    pendingRemoteSendDisclosure = null,
-                    agentTraceRuns = loadAgentTraceRuns(),
-                    activeRunTimeline = activeRunTimelineFor(runId),
-                    statusText = "远程连接不可用",
-                )
+            when (remoteDecision) {
+                RemoteSendPreflightDecision.BlockKnownConnectivityFailure -> {
+                    discardDeferredRemoteSend(runId)
+                    runId?.let { id ->
+                        assistantOrchestrator.failModelGeneration(
+                            id,
+                            "远程连接状态为${remoteConfig.connectivityStatus.label}",
+                        )
+                    }
+                    remoteSendSupport.recordRemoteSendAuditEvent(
+                        decision = RemoteSendDecision.Blocked,
+                        modelName = remoteConfig.normalized().modelName,
+                        prompt = promptForModel,
+                        imageCount = 0,
+                        remoteHistoryCount = remoteHistory.size,
+                    )
+                    uiState.updateLastAssistantLocalOnly(
+                        "远程连接状态为${remoteConfig.connectivityStatus.label}，工具结果续写没有发送。请在模型管理中测试连接或更新远程配置。",
+                    )
+                    persistActiveSessionFromUi()
+                    uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isGenerating = false,
+                            isReady = true,
+                            pendingConfirmation = null,
+                            pendingRemoteSendDisclosure = null,
+                            agentTraceRuns = loadAgentTraceRuns(),
+                            activeRunTimeline = activeRunTimelineFor(runId),
+                            statusText = "远程连接不可用",
+                        )
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.RequireSensitiveContentConsent,
+                RemoteSendPreflightDecision.ProtectSensitiveContentWithoutRemote,
+                -> {
+                    // Keep it local: the graded sensitive actions (mask / send anyway) do not
+                    // apply to a tool-result continuation, so there is no consent this path could
+                    // honor. The tool result stays on the device and the run ends here.
+                    discardDeferredRemoteSend(runId)
+                    val reason = "工具结果疑似包含个人信息或密钥，未发送到远程模型。"
+                    runId?.let { id -> assistantOrchestrator.failModelGeneration(id, reason) }
+                    remoteSendSupport.recordRemoteSendAuditEvent(
+                        decision = RemoteSendDecision.Blocked,
+                        modelName = remoteConfig.normalized().modelName,
+                        prompt = promptForModel,
+                        imageCount = 0,
+                        remoteHistoryCount = remoteHistory.size,
+                    )
+                    uiState.updateLastAssistantLocalOnly(reason)
+                    persistActiveSessionFromUi()
+                    uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isGenerating = false,
+                            isReady = true,
+                            pendingConfirmation = null,
+                            pendingRemoteSendDisclosure = null,
+                            agentTraceRuns = loadAgentTraceRuns(),
+                            activeRunTimeline = activeRunTimelineFor(runId),
+                            statusText = "已保护工具结果",
+                        )
+                    }
+                    return
+                }
+                RemoteSendPreflightDecision.RequireSendDisclosure -> Unit
+                RemoteSendPreflightDecision.KeepLocalOnlyContent,
+                RemoteSendPreflightDecision.Proceed,
+                -> Unit
             }
-            return
         }
         if (useRemoteModel &&
             responsePrivacy == MessagePrivacy.RemoteEligible &&

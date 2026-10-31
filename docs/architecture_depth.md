@@ -132,12 +132,18 @@ partial implementations of the sensitive-text check:**
 | `SafetyPolicy` sensitive query | `web_search` only |
 | `ConfirmationBypassPolicy` network argument + run taint | `web_search`, `search_maps`, `open_deep_link`; typed text |
 | `DecisionModelPlacementPolicy.mayLeaveDevice` | router text |
-| Chat send preflight | first remote chat turn |
+| Chat send preflight | first remote chat turn and the remote tool-result continuation |
 
-Not covered: remote tool-result continuation, remote vision intent and
+Not covered: remote vision intent and
 screen text, and text handed to other apps (`share_text`, `compose_email`,
 SMS / calendar / contact drafts). Remote-send audit entries exist for remote
 chat, remote vision, the router and MCP, but not for web search or intents.
+
+**Remote tool-result continuation (gap 3, closed 2026-10-31).** The continuation
+prompt runs the same `ChatSendPreflight.preparedRemoteSend` as the first turn
+(`ChatToolContinuationSupport`). A sensitive tool result has no graded consent
+path here, so it stays local and the run fails closed instead of reaching the
+remote model.
 
 **Text handed to another app (gap 2, closed 2026-10-31).** `ConfirmationBypassPolicy`
 confirms any `ToolPermission.SendsTextToExternalApp` step
