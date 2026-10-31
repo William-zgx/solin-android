@@ -1,17 +1,22 @@
 package com.bytedance.zgx.solin.presentation
 
-import android.app.DownloadManager
 import android.net.Uri
+import android.app.DownloadManager
+import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
+import com.bytedance.zgx.solin.data.ModelDownloadSource
+import com.bytedance.zgx.solin.download.ModelDownloadClient
+import java.io.File
+import java.util.ArrayDeque
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
-import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
-import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.SemanticMemoryStatus
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
@@ -22,13 +27,11 @@ import com.bytedance.zgx.solin.data.BundledModelInstaller
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.GenerationParametersStore
 import com.bytedance.zgx.solin.data.HuggingFaceAuthStore
-import com.bytedance.zgx.solin.data.ModelDownloadSource
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.ModelSelectionState
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.data.RemoteModelStore
 import com.bytedance.zgx.solin.data.SessionStore
-import com.bytedance.zgx.solin.download.ModelDownloadClient
 import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.solinI
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
@@ -36,16 +39,12 @@ import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
-import java.io.File
-import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,10 +52,8 @@ import kotlinx.coroutines.withContext
 import com.bytedance.zgx.solin.logging.cleanMessage
 
 /**
- * Owns local/remote model selection, download/import, HF auth, first-run setup download queue,
- * bundled install, and model load readiness.
- *
- * The ViewModel keeps thin public wrappers and owns chat-side pending-remote state machines via callbacks.
+ * Owns local/remote model selection, download/import, HF auth, the first-run setup download
+ * queue, bundled install, and model load readiness.
  */
 internal class ModelLoadController(
     private val modelRepository: ModelRepositoryFacade,
@@ -82,12 +79,14 @@ internal class ModelLoadController(
     private val rebuildMemoryIndex: () -> Unit,
 ) {
     private var bundledModelInstallJob: Job? = null
+    private var remoteConnectivityUiJob: Job? = null
     private var downloadMonitorJob: Job? = null
     private var downloadPreflightJob: Job? = null
     private var activeDownloadId: Long? = null
+
+    /** Companion files (and further setup models) still to download after the current one. */
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
     private var setupDownloadInProgress = false
-    private var remoteConnectivityUiJob: Job? = null
 
     fun close() {
         downloadMonitorJob?.cancel()
@@ -95,8 +94,6 @@ internal class ModelLoadController(
         remoteConnectivityUiJob?.cancel()
         bundledModelInstallJob?.cancel()
     }
-
-    private fun isArm64Device(): Boolean = isArm64DeviceProvider()
 
     // Same read as MemoryController.semanticMemoryState(), without rebuilding the index.
     private fun semanticMemoryStatus(): SemanticMemoryStatus =
@@ -201,16 +198,15 @@ internal class ModelLoadController(
     }
 
     fun startModelDownload() {
-        beginRecommendedModelDownload(modelRepository.selectedRecommendedModel())
+        startDownloadQueue(ModelDownloadSource.recommendedBundle(modelRepository.selectedRecommendedModel()))
     }
 
     fun startRecommendedModelDownload(modelId: String) {
         val model = ModelCatalog.recommendedModelById(modelId)
         if (model.capability == ModelCapability.Chat) {
-            val result = modelRepository.selectRecommendedModel(model.id)
-            updateModelState(result.state)
+            updateModelState(modelRepository.selectRecommendedModel(model.id).state)
         }
-        beginRecommendedModelDownload(model)
+        startDownloadQueue(ModelDownloadSource.recommendedBundle(model))
     }
 
     fun saveHuggingFaceAccessToken(token: String) {
@@ -251,20 +247,23 @@ internal class ModelLoadController(
     fun toggleSetupModel(modelId: String, selected: Boolean) {
         if (uiState.value.isBusy) return
         uiState.update { state ->
-            val next = if (selected) {
-                state.setupSelectedModelIds + modelId
-            } else {
-                state.setupSelectedModelIds - modelId
-            }
-            state.copy(setupSelectedModelIds = next)
+            state.copy(
+                setupSelectedModelIds = if (selected) {
+                    state.setupSelectedModelIds + modelId
+                } else {
+                    state.setupSelectedModelIds - modelId
+                },
+            )
         }
     }
 
     fun startSetupModelDownload() {
-        if (uiState.value.isBusy || uiState.value.isDownloading) return
-        val selectedModels = uiState.value.basicSetupModels
-            .filter { it.id in uiState.value.setupSelectedModelIds && !uiState.value.isModelInstalled(it.id) }
-        if (selectedModels.isEmpty()) {
+        val state = uiState.value
+        if (state.isBusy || state.isDownloading) return
+        val selectedSources = state.basicSetupModels
+            .filter { it.id in state.setupSelectedModelIds && !state.isModelInstalled(it.id) }
+            .flatMap { ModelDownloadSource.recommendedBundle(it) }
+        if (selectedSources.isEmpty()) {
             firstRunSetupRepository.markSetupDismissed()
             uiState.update {
                 it.copy(
@@ -274,27 +273,28 @@ internal class ModelLoadController(
             }
             return
         }
-        val selectedSources = selectedModels.flatMap { ModelDownloadSource.recommendedBundle(it) }
         selectedSources.firstOrNull { source ->
             source.requiresHuggingFaceAuthorization && !huggingFaceAuthStore.hasAccessToken()
         }?.let { missingAuthSource ->
             blockDownloadForMissingHuggingFaceAuthorization(missingAuthSource)
             return
         }
-        setupDownloadQueue.clear()
-        selectedSources.drop(1).forEach(setupDownloadQueue::add)
-        setupDownloadInProgress = true
-        if (!beginModelDownload(selectedSources.first())) {
-            setupDownloadQueue.clear()
-            setupDownloadInProgress = false
-        }
+        startDownloadQueue(selectedSources, firstRunSetup = true)
     }
 
-    private fun beginRecommendedModelDownload(model: RecommendedModel): Boolean {
-        val sources = ModelDownloadSource.recommendedBundle(model)
+    /**
+     * Downloads [sources] in order. A running download keeps its own queue, and the new queue is
+     * dropped if its first file cannot start, so no stale companion file is fetched later.
+     */
+    private fun startDownloadQueue(sources: List<ModelDownloadSource>, firstRunSetup: Boolean = false) {
+        if (uiState.value.isBusy || uiState.value.isDownloading) return
         setupDownloadQueue.clear()
         sources.drop(1).forEach(setupDownloadQueue::add)
-        return beginModelDownload(sources.first())
+        if (firstRunSetup) setupDownloadInProgress = true
+        if (!beginModelDownload(sources.first())) {
+            setupDownloadQueue.clear()
+            if (firstRunSetup) setupDownloadInProgress = false
+        }
     }
 
     fun skipFirstRunSetup() {
@@ -326,28 +326,286 @@ internal class ModelLoadController(
         downloadMonitorJob?.cancel()
         downloadMonitorJob = null
         activeDownloadId = null
-        setupDownloadQueue.clear()
-        setupDownloadInProgress = false
+        clearSetupQueue()
         downloadService.cancelPreflight()
         downloadService.cancel(downloadId)
         modelRepository.clearPendingDownload()
+        uiState.update { it.downloadFinished("下载已取消").copy(isPreparingDownload = false) }
+    }
+
+    private fun clearSetupQueue() {
+        setupDownloadQueue.clear()
+        setupDownloadInProgress = false
+    }
+
+    private fun beginModelDownload(source: ModelDownloadSource): Boolean {
+        refreshDeviceStatus()
+        if (uiState.value.isBusy || uiState.value.isDownloading) return false
+        if (blockDownloadForMissingHuggingFaceAuthorization(source)) return false
+        if (!isArm64DeviceProvider()) {
+            uiState.update { it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型") }
+            return false
+        }
+
+        val target = modelRepository.downloadedModelFile(source.fileName)
+        if (target == null) {
+            uiState.update { it.copy(statusText = "下载目录不可用，请导入已有模型") }
+            return false
+        }
+        if (source.expectedBytes != null && target.exists() && source.hasExpectedSize(target.length())) {
+            verifyAndRegisterDownloadedModel(target, source)
+            return true
+        }
+        if (target.exists() && !target.delete()) {
+            uiState.update { it.copy(statusText = "无法清理未完成的下载") }
+            return false
+        }
+        val modelParent = target.parentFile
+        if (modelParent == null || (!modelParent.exists() && !modelParent.mkdirs())) {
+            uiState.update { it.copy(statusText = "无法创建模型下载目录") }
+            return false
+        }
+        val requiredBytes = source.expectedBytes ?: DEFAULT_CHAT_MODEL_BYTES
+        if (!ModelCatalog.hasEnoughSpace(modelParent.usableSpace, requiredBytes)) {
+            uiState.update {
+                it.copy(statusText = "存储空间不足，至少需要约 ${ModelCatalog.formatBytes(requiredBytes)}")
+            }
+            return false
+        }
+
+        if (!setupDownloadInProgress) {
+            firstRunSetupRepository.markSetupDismissed()
+        }
         uiState.update {
-            it.copy(
-                isBusy = false,
-                isPreparingDownload = false,
+            it.withDownloadProgressReset().copy(
+                isBusy = true,
+                isPreparingDownload = true,
                 isDownloading = false,
-                downloadProgressPercent = null,
-                downloadedBytes = 0L,
-                totalBytes = 0L,
-                statusText = "下载已取消",
+                statusText = if (source.requiresHuggingFaceAuthorization) {
+                    "正在验证 Hugging Face 授权"
+                } else {
+                    "正在准备模型下载"
+                },
+                isReady = false,
+                showFirstRunSetup = false,
             )
         }
+        val preflightJob = scope.launch(ioDispatcher) {
+            val downloadResult = downloadService.enqueue(source, target)
+            if (!isActive) {
+                downloadResult.getOrNull()?.let(downloadService::cancel)
+                return@launch
+            }
+            downloadPreflightJob = null
+            val downloadId = downloadResult.getOrElse { throwable ->
+                clearSetupQueue()
+                uiState.update {
+                    it.downloadFinished("下载启动失败：${throwable.cleanMessage()}").copy(isPreparingDownload = false)
+                }
+                return@launch
+            }
+            activeDownloadId = downloadId
+            modelRepository.savePendingDownload(downloadId, source)
+            uiState.update {
+                it.withDownloadProgressReset().copy(
+                    isBusy = true,
+                    isPreparingDownload = false,
+                    isDownloading = true,
+                    statusText = "模型下载中",
+                    isReady = false,
+                    showFirstRunSetup = false,
+                )
+            }
+            monitorDownload(downloadId, target, source)
+        }
+        downloadPreflightJob = preflightJob
+        preflightJob.invokeOnCompletion {
+            if (downloadPreflightJob == preflightJob) {
+                downloadPreflightJob = null
+            }
+        }
+        return true
     }
+
+    private fun blockDownloadForMissingHuggingFaceAuthorization(source: ModelDownloadSource): Boolean {
+        if (!source.requiresHuggingFaceAuthorization || huggingFaceAuthStore.hasAccessToken()) return false
+        clearSetupQueue()
+        uiState.update {
+            it.copy(
+                pendingHuggingFaceAuthorizationModelId = source.modelId,
+                huggingFaceAccessTokenConfigured = false,
+                statusText = "需要先登录 Hugging Face、接受模型许可，并保存 read token 后再下载",
+            )
+        }
+        return true
+    }
+
+    fun monitorDownload(
+        downloadId: Long,
+        targetFile: File,
+        source: ModelDownloadSource,
+    ) {
+        downloadMonitorJob?.cancel()
+        activeDownloadId = downloadId
+        downloadMonitorJob = scope.launch(ioDispatcher) {
+            while (isActive && activeDownloadId == downloadId) {
+                val info = downloadService.query(downloadId)
+                if (info == null) {
+                    if (activeDownloadId == downloadId) {
+                        activeDownloadId = null
+                        clearSetupQueue()
+                        modelRepository.clearPendingDownload()
+                        uiState.update { it.downloadStopped("下载任务不存在") }
+                    }
+                    return@launch
+                }
+                if (!isActive || activeDownloadId != downloadId) {
+                    return@launch
+                }
+
+                uiState.update {
+                    it.copy(
+                        isBusy = true,
+                        isDownloading = true,
+                        downloadProgressPercent = info.progressPercent,
+                        downloadedBytes = info.downloadedBytes,
+                        totalBytes = info.totalBytes,
+                        statusText = info.statusText,
+                    )
+                }
+
+                when (info.status) {
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        activeDownloadId = null
+                        if (!targetFile.exists() || !source.hasExpectedSize(targetFile.length())) {
+                            clearSetupQueue()
+                            modelRepository.clearPendingDownload()
+                            targetFile.delete()
+                            uiState.update { it.downloadStopped("下载文件不可用，请重新下载") }
+                            return@launch
+                        }
+                        uiState.update {
+                            it.copy(
+                                isBusy = true,
+                                isDownloading = false,
+                                downloadProgressPercent = null,
+                                statusText = "正在校验模型文件",
+                            )
+                        }
+                        modelRepository.clearPendingDownload()
+                        if (!registerVerifiedModel(targetFile, source)) return@launch
+                        updateModelState(modelRepository.currentState())
+                        uiState.update { it.downloadFinished("模型下载完成") }
+                        continueSetupDownloadOrLoad(source)
+                        return@launch
+                    }
+
+                    DownloadManager.STATUS_FAILED -> {
+                        val restoreFirstRunSetup = setupDownloadInProgress &&
+                            uiState.value.modelPath == null &&
+                            !uiState.value.isReady
+                        activeDownloadId = null
+                        clearSetupQueue()
+                        modelRepository.clearPendingDownload()
+                        targetFile.delete()
+                        uiState.update {
+                            it.downloadFinished(downloadFailureStatusText(info.reasonText, source))
+                                .copy(showFirstRunSetup = restoreFirstRunSetup)
+                        }
+                        return@launch
+                    }
+                }
+
+                delay(1_000L)
+            }
+        }
+    }
+
+    private fun verifyAndRegisterDownloadedModel(
+        targetFile: File,
+        source: ModelDownloadSource,
+    ) {
+        uiState.update {
+            it.copy(
+                isBusy = true,
+                isDownloading = false,
+                downloadProgressPercent = null,
+                statusText = "正在校验模型文件",
+                isReady = false,
+            )
+        }
+        scope.launch(ioDispatcher) {
+            if (!registerVerifiedModel(targetFile, source)) return@launch
+            firstRunSetupRepository.markSetupDismissed()
+            updateModelState(modelRepository.currentState())
+            uiState.update { it.downloadFinished("模型校验通过").copy(showFirstRunSetup = false) }
+            continueSetupDownloadOrLoad(source)
+        }
+    }
+
+    /**
+     * Checks [targetFile] against [source] and registers it when the source is an installable
+     * model. On a failed check the file is deleted, the queue dropped, and false is returned.
+     */
+    private fun registerVerifiedModel(targetFile: File, source: ModelDownloadSource): Boolean {
+        val verifiedSha256 = source.verifiedSha256(targetFile).getOrElse { throwable ->
+            clearSetupQueue()
+            targetFile.delete()
+            uiState.update { it.downloadFinished(throwable.cleanMessage()) }
+            return false
+        }
+        if (source.registerInstalledModel) {
+            modelRepository.registerInstalledModel(
+                path = targetFile.absolutePath,
+                displayName = source.installedDisplayName(targetFile),
+                recommendedModelId = source.modelId,
+                verifiedSha256 = verifiedSha256,
+                verificationStatus = if (source.modelId == null) {
+                    ModelVerificationStatus.UnverifiedCustom
+                } else {
+                    ModelVerificationStatus.VerifiedRecommended
+                },
+            )
+        }
+        return true
+    }
+
+    private fun continueSetupDownloadOrLoad(completedSource: ModelDownloadSource) {
+        if (setupDownloadQueue.isNotEmpty()) {
+            if (!beginModelDownload(setupDownloadQueue.removeFirst())) {
+                clearSetupQueue()
+            }
+            return
+        }
+
+        if (setupDownloadInProgress) {
+            setupDownloadInProgress = false
+            uiState.update { it.copy(statusText = "基础能力包已准备") }
+        }
+        rebuildMemoryIndex()
+        if (uiState.value.modelPath != null && !uiState.value.isReady) {
+            loadModel()
+        }
+        val completedChatModel = completedSource.modelId
+            ?.let { ModelCatalog.recommendedModelById(it).capability == ModelCapability.Chat }
+            ?: true
+        if (completedChatModel || uiState.value.modelPath != null) {
+            firstRunSetupRepository.markSetupDismissed()
+            uiState.update { it.copy(showFirstRunSetup = false) }
+        }
+    }
+
+    private fun downloadFailureStatusText(reasonText: String, source: ModelDownloadSource): String =
+        if (source.requiresHuggingFaceAuthorization) {
+            "Hugging Face 下载失败：请确认已登录、已接受模型许可，且 read token 有效（$reasonText）"
+        } else {
+            "下载失败：$reasonText"
+        }
 
     fun importModel(uri: Uri) {
         refreshDeviceStatus()
         if (uiState.value.isBusy) return
-        if (!isArm64Device()) {
+        if (!isArm64DeviceProvider()) {
             uiState.update {
                 it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
             }
@@ -647,11 +905,7 @@ internal class ModelLoadController(
                 isDownloading = false,
                 isReady = false,
                 statusText = "正在校验本地模型",
-                modelHealth = ModelHealth(
-                    profileId = it.activeModelProfileId(),
-                    state = ModelHealthState.Loading,
-                    backend = backendChoice,
-                ),
+                modelHealth = it.localModelHealth(ModelHealthState.Loading, backendChoice),
             )
         }
 
@@ -664,10 +918,9 @@ internal class ModelLoadController(
                         isBusy = false,
                         isReady = false,
                         statusText = "模型校验失败，请重新下载或重新导入",
-                        modelHealth = ModelHealth(
-                            profileId = it.activeModelProfileId(),
-                            state = ModelHealthState.LoadFailed,
-                            backend = backendChoice,
+                        modelHealth = it.localModelHealth(
+                            ModelHealthState.LoadFailed,
+                            backendChoice,
                             failureReason = "模型文件校验失败",
                         ),
                     )
@@ -675,465 +928,85 @@ internal class ModelLoadController(
                 return@launch
             }
 
-        uiState.update {
-            it.copy(
-                inferenceMode = InferenceMode.Local,
-                backend = backendChoice,
-                isBusy = true,
-                isDownloading = false,
-                isReady = false,
-                downloadProgressPercent = null,
-                downloadedBytes = 0L,
-                totalBytes = 0L,
-                statusText = "正在初始化 ${backendChoice.label()}",
-                modelHealth = ModelHealth(
-                    profileId = it.activeModelProfileId(),
-                    state = ModelHealthState.Loading,
+            uiState.update {
+                it.loadSettled(
+                    isReady = false,
+                    statusText = "正在初始化 ${backendChoice.label()}",
+                    modelHealth = it.localModelHealth(ModelHealthState.Loading, backendChoice),
+                ).copy(
+                    inferenceMode = InferenceMode.Local,
                     backend = backendChoice,
-                ),
-            )
-        }
+                    isBusy = true,
+                )
+            }
 
             val runtimeCapabilities = localModelRuntimeCapabilitiesFor(uiState.value)
-            val loadStartMs = System.currentTimeMillis()
-            val result = runCatching {
-                runtimeLock.withLock {
-                    runtime.configureModelCapabilities(runtimeCapabilities)
-                    runtime.load(
-                        modelPath = path,
-                        backend = backendChoice,
-                        history = sessionRepository.activeMessages(),
-                        parameters = uiState.value.generationParameters,
-                    )
+            val loadOn: suspend (BackendChoice) -> Result<Unit> = { backend ->
+                runCatching {
+                    runtimeLock.withLock {
+                        runtime.configureModelCapabilities(runtimeCapabilities)
+                        runtime.load(
+                            modelPath = path,
+                            backend = backend,
+                            history = sessionRepository.activeMessages(),
+                            parameters = uiState.value.generationParameters,
+                        )
+                    }
                 }
             }
-
-            result.fold(
-                onSuccess = {
-                    val durationMs = System.currentTimeMillis() - loadStartMs
-                    solinI(TAG_MODEL, "loadModel: success in ${durationMs}ms backend=${backendChoice.name}")
+            val loadStartMs = System.currentTimeMillis()
+            val failure = loadOn(backendChoice).exceptionOrNull()
+            if (failure == null) {
+                val durationMs = System.currentTimeMillis() - loadStartMs
+                solinI(TAG_MODEL, "loadModel: success in ${durationMs}ms backend=${backendChoice.name}")
+                uiState.update {
+                    it.loadSettled(
+                        isReady = true,
+                        statusText = "就绪 · ${it.backend.label()}",
+                        modelHealth = it.localModelHealth(ModelHealthState.Loaded, backendChoice),
+                    )
+                }
+                rebuildMemoryIndex()
+                return@launch
+            }
+            solinE(TAG_MODEL, "loadModel: failed backend=${backendChoice.name}", failure)
+            var cpuFailure: Throwable? = null
+            if (backendChoice == BackendChoice.GPU &&
+                backendAllowedForActiveModel(uiState.value, BackendChoice.CPU)
+            ) {
+                cpuFailure = loadOn(BackendChoice.CPU).exceptionOrNull()
+                if (cpuFailure == null) {
                     uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isDownloading = false,
+                        it.loadSettled(
                             isReady = true,
-                            downloadProgressPercent = null,
-                            downloadedBytes = 0L,
-                            totalBytes = 0L,
-                            statusText = "就绪 · ${it.backend.label()}",
-                            modelHealth = ModelHealth(
-                                profileId = it.activeModelProfileId(),
-                                state = ModelHealthState.Loaded,
-                                backend = backendChoice,
-                            ),
-                        )
+                            statusText = "GPU 不可用，已切到 CPU",
+                            modelHealth = it.localModelHealth(
+                                ModelHealthState.FallbackActive,
+                                BackendChoice.CPU,
+                                failureReason = "GPU 初始化失败：${failure.cleanMessage()}",
+                            ).copy(fallbackBackend = BackendChoice.CPU),
+                        ).copy(backend = BackendChoice.CPU)
                     }
                     rebuildMemoryIndex()
-                },
-                onFailure = { throwable ->
-                    solinE(TAG_MODEL, "loadModel: failed backend=${backendChoice.name}", throwable)
-                    var fallbackFailure: Throwable? = null
-                    if (backendChoice == BackendChoice.GPU &&
-                        backendAllowedForActiveModel(uiState.value, BackendChoice.CPU)
-                    ) {
-                        val cpuResult = runCatching {
-                            runtimeLock.withLock {
-                                runtime.configureModelCapabilities(runtimeCapabilities)
-                                runtime.load(
-                                    modelPath = path,
-                                    backend = BackendChoice.CPU,
-                                    history = sessionRepository.activeMessages(),
-                                    parameters = uiState.value.generationParameters,
-                                )
-                            }
-                        }
-                        if (cpuResult.isSuccess) {
-                            uiState.update {
-                                it.copy(
-                                    backend = BackendChoice.CPU,
-                                    isBusy = false,
-                                    isDownloading = false,
-                                    isReady = true,
-                                    downloadProgressPercent = null,
-                                    downloadedBytes = 0L,
-                                    totalBytes = 0L,
-                                    statusText = "GPU 不可用，已切到 CPU",
-                                    modelHealth = ModelHealth(
-                                        profileId = it.activeModelProfileId(),
-                                        state = ModelHealthState.FallbackActive,
-                                        backend = BackendChoice.CPU,
-                                        fallbackBackend = BackendChoice.CPU,
-                                        failureReason = "GPU 初始化失败：${throwable.cleanMessage()}",
-                                    ),
-                                )
-                            }
-                        rebuildMemoryIndex()
-                            return@launch
-                        }
-                        fallbackFailure = cpuResult.exceptionOrNull()
-                    }
-                    val failureReason = fallbackFailure?.let { cpuThrowable ->
-                        "GPU: ${throwable.cleanMessage()}；CPU: ${cpuThrowable.cleanMessage()}"
-                    } ?: throwable.cleanMessage()
-                    uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isDownloading = false,
-                            isReady = false,
-                            downloadProgressPercent = null,
-                            downloadedBytes = 0L,
-                            totalBytes = 0L,
-                            statusText = "初始化失败：$failureReason",
-                            modelHealth = ModelHealth(
-                                profileId = it.activeModelProfileId(),
-                                state = ModelHealthState.LoadFailed,
-                                backend = backendChoice,
-                                failureReason = failureReason,
-                            ),
-                        )
-                    }
-                },
-            )
-        }
-    }
-
-    private fun beginModelDownload(source: ModelDownloadSource): Boolean {
-        refreshDeviceStatus()
-        if (uiState.value.isBusy || uiState.value.isDownloading) return false
-        if (blockDownloadForMissingHuggingFaceAuthorization(source)) return false
-        if (!isArm64Device()) {
-            uiState.update {
-                it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
-            }
-            return false
-        }
-
-        val target = modelRepository.downloadedModelFile(source.fileName)
-        if (target == null) {
-            uiState.update {
-                it.copy(statusText = "下载目录不可用，请导入已有模型")
-            }
-            return false
-        }
-        if (source.expectedBytes != null && target.exists() && source.hasExpectedSize(target.length())) {
-            verifyAndRegisterDownloadedModel(target, source)
-            return true
-        }
-        if (target.exists() && !target.delete()) {
-            uiState.update {
-                it.copy(statusText = "无法清理未完成的下载")
-            }
-            return false
-        }
-
-        val modelParent = target.parentFile
-        if (modelParent == null || (!modelParent.exists() && !modelParent.mkdirs())) {
-            uiState.update {
-                it.copy(statusText = "无法创建模型下载目录")
-            }
-            return false
-        }
-        val requiredBytes = source.expectedBytes ?: DEFAULT_CHAT_MODEL_BYTES
-        if (!ModelCatalog.hasEnoughSpace(modelParent.usableSpace, requiredBytes)) {
-            uiState.update {
-                it.copy(statusText = "存储空间不足，至少需要约 ${ModelCatalog.formatBytes(requiredBytes)}")
-            }
-            return false
-        }
-
-        val isFirstRunSetupDownload = setupDownloadInProgress
-        if (!isFirstRunSetupDownload) {
-            firstRunSetupRepository.markSetupDismissed()
-        }
-        uiState.update {
-            it.copy(
-                isBusy = true,
-                isPreparingDownload = true,
-                isDownloading = false,
-                downloadProgressPercent = null,
-                downloadedBytes = 0L,
-                totalBytes = 0L,
-                statusText = if (source.requiresHuggingFaceAuthorization) {
-                    "正在验证 Hugging Face 授权"
-                } else {
-                    "正在准备模型下载"
-                },
-                isReady = false,
-                showFirstRunSetup = false,
-            )
-        }
-        val preflightJob = scope.launch(ioDispatcher) {
-            val downloadResult = downloadService.enqueue(source, target)
-            if (!isActive) {
-                downloadResult.getOrNull()?.let(downloadService::cancel)
-                return@launch
-            }
-            downloadPreflightJob = null
-            if (downloadResult.isFailure) {
-                val throwable = downloadResult.exceptionOrNull()
-                setupDownloadQueue.clear()
-                setupDownloadInProgress = false
-                uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isPreparingDownload = false,
-                        isDownloading = false,
-                        downloadProgressPercent = null,
-                        downloadedBytes = 0L,
-                        totalBytes = 0L,
-                        statusText = "下载启动失败：${throwable?.cleanMessage() ?: "未知错误"}",
-                    )
+                    return@launch
                 }
-                return@launch
             }
-            val downloadId = downloadResult.getOrThrow()
-            activeDownloadId = downloadId
-            modelRepository.savePendingDownload(downloadId, source)
+            val failureReason = cpuFailure?.let { cpuThrowable ->
+                "GPU: ${failure.cleanMessage()}；CPU: ${cpuThrowable.cleanMessage()}"
+            } ?: failure.cleanMessage()
             uiState.update {
-                it.copy(
-                    isBusy = true,
-                    isPreparingDownload = false,
-                    isDownloading = true,
-                    downloadProgressPercent = null,
-                    downloadedBytes = 0L,
-                    totalBytes = 0L,
-                    statusText = "模型下载中",
+                it.loadSettled(
                     isReady = false,
-                    showFirstRunSetup = false,
+                    statusText = "初始化失败：$failureReason",
+                    modelHealth = it.localModelHealth(
+                        ModelHealthState.LoadFailed,
+                        backendChoice,
+                        failureReason = failureReason,
+                    ),
                 )
             }
-            monitorDownload(downloadId, target, source)
-        }
-        downloadPreflightJob = preflightJob
-        preflightJob.invokeOnCompletion {
-            if (downloadPreflightJob == preflightJob) {
-                downloadPreflightJob = null
-            }
-        }
-        return true
-    }
-
-    private fun blockDownloadForMissingHuggingFaceAuthorization(source: ModelDownloadSource): Boolean {
-        if (!source.requiresHuggingFaceAuthorization || huggingFaceAuthStore.hasAccessToken()) return false
-        setupDownloadQueue.clear()
-        setupDownloadInProgress = false
-        uiState.update {
-            it.copy(
-                pendingHuggingFaceAuthorizationModelId = source.modelId,
-                huggingFaceAccessTokenConfigured = false,
-                statusText = "需要先登录 Hugging Face、接受模型许可，并保存 read token 后再下载",
-            )
-        }
-        return true
-    }
-
-    fun monitorDownload(
-        downloadId: Long,
-        targetFile: File,
-        source: ModelDownloadSource,
-    ) {
-        downloadMonitorJob?.cancel()
-        activeDownloadId = downloadId
-        downloadMonitorJob = scope.launch(ioDispatcher) {
-            while (isActive && activeDownloadId == downloadId) {
-                val info = downloadService.query(downloadId)
-                if (info == null) {
-                    if (activeDownloadId == downloadId) {
-                        activeDownloadId = null
-                        modelRepository.clearPendingDownload()
-                        uiState.update {
-                            it.copy(
-                                isBusy = false,
-                                isDownloading = false,
-                                downloadProgressPercent = null,
-                                statusText = "下载任务不存在",
-                            )
-                        }
-                    }
-                    return@launch
-                }
-                if (!isActive || activeDownloadId != downloadId) {
-                    return@launch
-                }
-
-                uiState.update {
-                    it.copy(
-                        isBusy = true,
-                        isDownloading = true,
-                        downloadProgressPercent = info.progressPercent,
-                        downloadedBytes = info.downloadedBytes,
-                        totalBytes = info.totalBytes,
-                        statusText = info.statusText,
-                    )
-                }
-
-                when (info.status) {
-                    DownloadManager.STATUS_SUCCESSFUL -> {
-                        activeDownloadId = null
-                        if (!targetFile.exists() || !source.hasExpectedSize(targetFile.length())) {
-                            modelRepository.clearPendingDownload()
-                            targetFile.delete()
-                            uiState.update {
-                                it.copy(
-                                    isBusy = false,
-                                    isDownloading = false,
-                                    downloadProgressPercent = null,
-                                    statusText = "下载文件不可用，请重新下载",
-                                )
-                            }
-                            return@launch
-                        }
-                        uiState.update {
-                            it.copy(
-                                isBusy = true,
-                                isDownloading = false,
-                                downloadProgressPercent = null,
-                                statusText = "正在校验模型文件",
-                            )
-                        }
-                        val verifiedSha256 = source.verifiedSha256(targetFile).getOrElse { throwable ->
-                            modelRepository.clearPendingDownload()
-                            setupDownloadQueue.clear()
-                            setupDownloadInProgress = false
-                            targetFile.delete()
-                            uiState.update { it.downloadFinished(throwable.cleanMessage()) }
-                            return@launch
-                        }
-                        modelRepository.clearPendingDownload()
-                        if (source.registerInstalledModel) {
-                            modelRepository.registerInstalledModel(
-                                path = targetFile.absolutePath,
-                                displayName = source.installedDisplayName(targetFile),
-                                recommendedModelId = source.modelId,
-                                verifiedSha256 = verifiedSha256,
-                                verificationStatus = if (source.modelId == null) {
-                                    ModelVerificationStatus.UnverifiedCustom
-                                } else {
-                                    ModelVerificationStatus.VerifiedRecommended
-                                },
-                            )
-                        }
-                        updateModelState(modelRepository.currentState())
-                        uiState.update { it.downloadFinished("模型下载完成") }
-                        continueSetupDownloadOrLoad(source)
-                        return@launch
-                    }
-
-                    DownloadManager.STATUS_FAILED -> {
-                        val restoreFirstRunSetup = shouldRestoreFirstRunSetupAfterDownloadFailure()
-                        activeDownloadId = null
-                        setupDownloadQueue.clear()
-                        setupDownloadInProgress = false
-                        modelRepository.clearPendingDownload()
-                        targetFile.delete()
-                        uiState.update {
-                            it.copy(
-                                isBusy = false,
-                                isDownloading = false,
-                                downloadProgressPercent = null,
-                                downloadedBytes = 0L,
-                                totalBytes = 0L,
-                                statusText = downloadFailureStatusText(info.reasonText, source),
-                                showFirstRunSetup = restoreFirstRunSetup,
-                            )
-                        }
-                        return@launch
-                    }
-                }
-
-                delay(1_000L)
-            }
         }
     }
-
-    private fun verifyAndRegisterDownloadedModel(
-        targetFile: File,
-        source: ModelDownloadSource,
-    ) {
-        uiState.update {
-            it.copy(
-                isBusy = true,
-                isDownloading = false,
-                downloadProgressPercent = null,
-                statusText = "正在校验模型文件",
-                isReady = false,
-            )
-        }
-        scope.launch(ioDispatcher) {
-            val verifiedSha256 = source.verifiedSha256(targetFile).getOrElse { throwable ->
-                targetFile.delete()
-                setupDownloadQueue.clear()
-                setupDownloadInProgress = false
-                uiState.update { it.downloadFinished(throwable.cleanMessage()) }
-                return@launch
-            }
-            if (source.registerInstalledModel) {
-                modelRepository.registerInstalledModel(
-                    path = targetFile.absolutePath,
-                    displayName = source.installedDisplayName(targetFile),
-                    recommendedModelId = source.modelId,
-                    verifiedSha256 = verifiedSha256,
-                    verificationStatus = if (source.modelId == null) {
-                        ModelVerificationStatus.UnverifiedCustom
-                    } else {
-                        ModelVerificationStatus.VerifiedRecommended
-                    },
-                )
-            }
-            firstRunSetupRepository.markSetupDismissed()
-            updateModelState(modelRepository.currentState())
-            uiState.update {
-                it.copy(
-                    isBusy = false,
-                    isDownloading = false,
-                    downloadProgressPercent = null,
-                    downloadedBytes = 0L,
-                    totalBytes = 0L,
-                    statusText = "模型校验通过",
-                    showFirstRunSetup = false,
-                )
-            }
-            continueSetupDownloadOrLoad(source)
-        }
-    }
-
-    private fun continueSetupDownloadOrLoad(completedSource: ModelDownloadSource) {
-        if (setupDownloadQueue.isNotEmpty()) {
-            val nextSource = setupDownloadQueue.removeFirst()
-            if (!beginModelDownload(nextSource)) {
-                setupDownloadQueue.clear()
-                setupDownloadInProgress = false
-            }
-            return
-        }
-
-        val completedCapability = completedSource.modelId
-            ?.let { ModelCatalog.recommendedModelById(it).capability }
-            ?: ModelCapability.Chat
-        if (setupDownloadInProgress) {
-            setupDownloadInProgress = false
-            uiState.update {
-                it.copy(statusText = "基础能力包已准备")
-            }
-        }
-        rebuildMemoryIndex()
-        if (
-            (completedCapability == ModelCapability.Chat || uiState.value.modelPath != null) &&
-            uiState.value.modelPath != null &&
-            !uiState.value.isReady
-        ) {
-            loadModel()
-        }
-        if (completedCapability == ModelCapability.Chat || uiState.value.modelPath != null) {
-            firstRunSetupRepository.markSetupDismissed()
-            uiState.update {
-                it.copy(showFirstRunSetup = false)
-            }
-        }
-    }
-
-    private fun shouldRestoreFirstRunSetupAfterDownloadFailure(): Boolean =
-        setupDownloadInProgress && uiState.value.modelPath == null && !uiState.value.isReady
 
     fun updateModelState(modelState: ModelSelectionState) {
         uiState.update {
@@ -1150,13 +1023,6 @@ internal class ModelLoadController(
             )
         }
     }
-
-    private fun downloadFailureStatusText(reasonText: String, source: ModelDownloadSource): String =
-        if (source.requiresHuggingFaceAuthorization) {
-            "Hugging Face 下载失败：请确认已登录、已接受模型许可，且 read token 有效（$reasonText）"
-        } else {
-            "下载失败：$reasonText"
-        }
 
     fun verifyLegacyModelsOnStartup(skipModelRuntimeWork: Boolean) {
         scope.launch(ioDispatcher) {
@@ -1234,20 +1100,49 @@ internal class ModelLoadController(
     fun refreshDeviceStatus() {
         uiState.update {
             it.copy(
-                isArm64Supported = isArm64Device(),
+                isArm64Supported = isArm64DeviceProvider(),
                 availableModelStorageBytes = modelRepository.resolveModelStorageBytes(),
             )
         }
     }
 }
 
-/** Clears all download progress and ends the busy state. */
-internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState =
+private fun ChatUiState.localModelHealth(
+    state: ModelHealthState,
+    backend: BackendChoice,
+    failureReason: String? = null,
+): ModelHealth =
+    ModelHealth(
+        profileId = activeModelProfileId(),
+        state = state,
+        backend = backend,
+        failureReason = failureReason,
+    )
+
+/** A local load step finished: not busy, no download progress, with the given readiness. */
+private fun ChatUiState.loadSettled(
+    isReady: Boolean,
+    statusText: String,
+    modelHealth: ModelHealth,
+): ChatUiState =
     copy(
         isBusy = false,
         isDownloading = false,
+        isReady = isReady,
         downloadProgressPercent = null,
         downloadedBytes = 0L,
         totalBytes = 0L,
         statusText = statusText,
+        modelHealth = modelHealth,
     )
+
+private fun ChatUiState.withDownloadProgressReset(): ChatUiState =
+    copy(downloadProgressPercent = null, downloadedBytes = 0L, totalBytes = 0L)
+
+/** Ends the busy download state but keeps the last byte counts on screen. */
+private fun ChatUiState.downloadStopped(statusText: String): ChatUiState =
+    copy(isBusy = false, isDownloading = false, downloadProgressPercent = null, statusText = statusText)
+
+/** Clears all download progress and ends the busy state. */
+internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState =
+    withDownloadProgressReset().downloadStopped(statusText)

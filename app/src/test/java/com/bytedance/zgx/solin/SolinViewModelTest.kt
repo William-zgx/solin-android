@@ -1564,6 +1564,57 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun missingDownloadTaskDropsQueuedCompanionFiles() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val customSource = ModelDownloadSource(
+                title = "自定义模型",
+                fileName = target.name,
+                downloadUrl = "https://models.example.com/custom.litertlm",
+                expectedBytes = 5L,
+                expectedSha256 = null,
+                modelId = null,
+            )
+            val modelRepository = FakeModelRepository(
+                customDownloadSource = customSource,
+                downloadedModelFileProvider = { target },
+            )
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    null,
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_SUCCESSFUL,
+                        reason = 0,
+                        downloadedBytes = 5L,
+                        totalBytes = 5L,
+                    ),
+                ),
+                onEnqueue = { source, file ->
+                    if (source.modelId == null) file.writeText("model", Charsets.UTF_8)
+                },
+            )
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+                huggingFaceAuthStore = FakeHuggingFaceAuthStore("hf_test_read_token"),
+            )
+
+            // The memory model queues its tokenizer behind the model file; the task then vanishes.
+            viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
+            advanceUntilIdle()
+            assertEquals("下载任务不存在", viewModel.uiState.value.statusText)
+
+            viewModel.startCustomModelDownload(customSource.downloadUrl)
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf(MEMORY_EMBEDDING_MODEL_ID, null),
+                downloadClient.enqueuedDownloads.map { (source, _) -> source.modelId },
+            )
+            assertFalse(viewModel.uiState.value.isDownloading)
+        }
+    }
+
+    @Test
     fun startCustomModelDownloadRejectsInvalidUrlWithoutEnqueueing() = runTest(dispatcher) {
         val modelRepository = FakeModelRepository(customDownloadSource = null)
         val downloadClient = FakeModelDownloadClient()
