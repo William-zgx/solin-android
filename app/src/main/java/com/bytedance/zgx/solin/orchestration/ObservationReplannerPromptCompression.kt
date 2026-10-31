@@ -2,6 +2,21 @@ package com.bytedance.zgx.solin.orchestration
 
 private const val MAX_OBSERVATION_MODEL_PROMPT_CHARS = 2_600
 
+/**
+ * Labels of prompt lines that carry user-authored text (`run.input`, the next sequential segment of
+ * it, or steering text). Same invariant as [DefaultContextCompactor]: compression never shortens or
+ * drops these lines; it shrinks the other lines instead, and if the user lines alone exceed
+ * `maxChars` the prompt comes out longer than `maxChars` rather than cutting user text.
+ */
+internal val userTextPromptLabels = listOf("User intent preview:", "用户请求:")
+
+private fun String.isUserTextPromptLine(): Boolean = userTextPromptLabels.any { label -> startsWith(label) }
+
+/**
+ * Shrinks an observation-replanner prompt to [maxChars]: per-label extractive compression first,
+ * then a priority-ordered line budget. User-text lines ([userTextPromptLabels]) pass through
+ * byte-identical; a final recovery check re-inserts any that went missing.
+ */
 internal fun String.compressForObservationModelContext(
     maxChars: Int = MAX_OBSERVATION_MODEL_PROMPT_CHARS,
 ): String {
@@ -43,22 +58,41 @@ internal fun String.compressForObservationModelContext(
                     protectedPatterns = emptyList(),
                 )
 
-            line.startsWith("User intent preview:") ->
-                line.compressLabeledPromptValue(
-                    label = "User intent preview:",
-                    valueBudget = valueBudgets.intent,
-                    protectedPatterns = emptyList(),
-                )
-
             else -> line
         }
     }
     val compressed = compressedLines.joinToString(separator = "\n")
-    if (compressed.length <= maxChars) return compressed
+    if (compressed.length <= maxChars) return compressed.withUserTextLinesFrom(normalized)
 
     return compressed.lines()
         .prioritizedForObservationPrompt()
         .joinPrioritizedObservationPrompt(maxChars)
+        .withUserTextLinesFrom(normalized)
+}
+
+/**
+ * Recovery check: every user-text line of [source] must appear in [this] byte-identical. An altered
+ * copy is removed and each missing line is re-inserted after the nearest preceding [source] line
+ * that survived (or first). Returns [this] unchanged when nothing was missing.
+ */
+internal fun String.withUserTextLinesFrom(source: String): String {
+    val sourceLines = source.lines()
+    val userLines = sourceLines.filter { line -> line.isUserTextPromptLine() }
+    if (userLines.isEmpty()) return this
+    val lines = lines()
+    val out = lines.filterNot { line -> line.isUserTextPromptLine() && line !in userLines }.toMutableList()
+    val unmatched = out.filter { line -> line.isUserTextPromptLine() }.toMutableList()
+    val missing = sourceLines.withIndex().filter { (_, line) ->
+        line.isUserTextPromptLine() && !unmatched.remove(line)
+    }
+    if (missing.isEmpty() && out.size == lines.size) return this
+    for ((sourceIndex, line) in missing) {
+        val anchor = (sourceIndex - 1 downTo 0)
+            .map { index -> out.indexOf(sourceLines[index]) }
+            .firstOrNull { index -> index >= 0 }
+        out.add(anchor?.plus(1) ?: 0, line)
+    }
+    return out.joinToString(separator = "\n")
 }
 
 private data class ObservationPromptValueBudgets(
@@ -66,7 +100,6 @@ private data class ObservationPromptValueBudgets(
     val diagnostics: Int,
     val priorRequests: Int,
     val summary: Int,
-    val intent: Int,
 ) {
     companion object {
         fun forPrompt(maxChars: Int): ObservationPromptValueBudgets =
@@ -75,7 +108,6 @@ private data class ObservationPromptValueBudgets(
                 diagnostics = (maxChars * 0.10).toInt().coerceIn(120, 360),
                 priorRequests = (maxChars * 0.08).toInt().coerceIn(96, 260),
                 summary = (maxChars * 0.06).toInt().coerceIn(80, 180),
-                intent = (maxChars * 0.06).toInt().coerceIn(80, 180),
             )
     }
 }
@@ -238,7 +270,7 @@ private fun List<String>.prioritizedForObservationPrompt(): List<String> {
         "LocalOnly observation evidence:",
     )
     return filter { line ->
-        line.isBlank() || requiredPrefixes.any { prefix -> line.startsWith(prefix) }
+        line.isBlank() || line.isUserTextPromptLine() || requiredPrefixes.any { prefix -> line.startsWith(prefix) }
     }
 }
 
@@ -269,14 +301,56 @@ private fun List<String>.joinPrioritizedObservationPrompt(maxChars: Int): String
         diagnosticsText?.let(::add)
         localEvidenceText?.let(::add)
     }
-    val joined = parts.joinToString(separator = "\n")
-    return if (joined.length <= maxChars) joined else joined.take(maxChars - 3).trimEnd() + "..."
+    return parts.joinToString(separator = "\n").capPreservingUserTextLines(maxChars)
+}
+
+/**
+ * Hard cap with "..." like before, except that a user-text line is never cut or dropped: when the
+ * plain cut would reach one, non-user lines are shortened or skipped instead, and the result may
+ * exceed [maxChars] only by user text.
+ */
+private fun String.capPreservingUserTextLines(maxChars: Int): String {
+    if (length <= maxChars) return this
+    val lines = lines()
+    val userLines = lines.filter { line -> line.isUserTextPromptLine() }
+    val plainCut = take(maxChars - 3).trimEnd() + "..."
+    val plainCutLines = plainCut.lines()
+    if (userLines.all { line -> line in plainCutLines }) return plainCut
+    var pendingUserChars = userLines.sumOf { line -> line.length + 1 }
+    var nonUserCut = false
+    val out = StringBuilder()
+    for (line in lines) {
+        val separator = if (out.isEmpty()) "" else "\n"
+        if (line.isUserTextPromptLine()) {
+            pendingUserChars -= line.length + 1
+            out.append(separator).append(line)
+            continue
+        }
+        if (nonUserCut) continue
+        val room = maxChars - out.length - separator.length - pendingUserChars
+        if (line.length <= room) {
+            out.append(separator).append(line)
+        } else {
+            nonUserCut = true
+            if (room > 3) out.append(separator).append(line.take(room - 3).trimEnd()).append("...")
+        }
+    }
+    return out.toString()
 }
 
 private fun List<String>.joinPromptLinesWithinBudget(maxChars: Int): String {
+    val lines = filter { value -> value.isNotBlank() }
     val accepted = mutableListOf<String>()
     var used = 0
-    for (line in filter { value -> value.isNotBlank() }) {
+    // User-text lines are always accepted whole; their room is reserved before lower-priority lines.
+    var pendingUserChars = lines.filter { line -> line.isUserTextPromptLine() }.sumOf { line -> line.length + 1 }
+    for (line in lines) {
+        if (line.isUserTextPromptLine()) {
+            pendingUserChars -= line.length + 1
+            used += line.length + if (accepted.isEmpty()) 0 else 1
+            accepted += line
+            continue
+        }
         // The tool-signature line is bounded by construction and must never be cut mid-list: a
         // truncated tool list would silently hide allowed tools from the model.
         val candidate = if (line.length > 180 && !line.startsWith("Allowed tools:")) {
@@ -288,7 +362,7 @@ private fun List<String>.joinPromptLinesWithinBudget(maxChars: Int): String {
             line
         }
         val nextUsed = used + candidate.length + if (accepted.isEmpty()) 0 else 1
-        if (nextUsed > maxChars) continue
+        if (nextUsed + pendingUserChars > maxChars) continue
         accepted += candidate
         used = nextUsed
     }
@@ -300,6 +374,7 @@ private fun List<String>.prioritizedBaseObservationLines(): List<String> {
         "This is user-authorized",
         "Examples:",
         "User intent preview:",
+        "用户请求:",
         "Previous tool:",
         "Observation status:",
         "App search progress:",
