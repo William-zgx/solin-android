@@ -753,19 +753,26 @@ private fun WebSearchRequest.evidenceJson(
     results: JSONArray,
     submittedQuery: String = query,
 ): String {
-    return JSONObject()
-        .put("schemaVersion", WEB_SEARCH_EVIDENCE_SCHEMA_VERSION)
-        .put("kind", "web_search_evidence")
-        .put("query", query)
-        .put("submittedQuery", submittedQuery)
-        .put("searchMode", searchMode.schemaValue)
-        .put("retrievedAt", retrievedAt.toString())
-        .put("freshness", freshness.schemaValue)
-        .put("maxResults", maxResults)
-        .put("sources", sources)
-        .put("results", results)
-        .toString()
-        .boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
+    fun serialize(resultCount: Int): String =
+        JSONObject()
+            .put("schemaVersion", WEB_SEARCH_EVIDENCE_SCHEMA_VERSION)
+            .put("kind", "web_search_evidence")
+            .put("query", query)
+            .put("submittedQuery", submittedQuery)
+            .put("searchMode", searchMode.schemaValue)
+            .put("retrievedAt", retrievedAt.toString())
+            .put("freshness", freshness.schemaValue)
+            .put("maxResults", maxResults)
+            .put("sources", sources)
+            .put("results", JSONArray((0 until resultCount).map(results::get)))
+            .toString()
+    // resultsJson is declared application/json, so drop trailing results instead of cutting
+    // the serialized string, which would fail output-schema validation.
+    for (count in results.length() downTo 0) {
+        val json = serialize(count)
+        if (json.length <= MAX_WEB_SEARCH_RESULTS_JSON_CHARS) return json
+    }
+    return serialize(0).boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
 }
 
 private fun openMeteoSources(): JSONArray =

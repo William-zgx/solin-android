@@ -493,6 +493,30 @@ class WebSearchProviderTest {
         }
     }
 
+    @Test
+    fun oversizedHtmlResultsKeepResultsJsonParseableUnderTheCap() {
+        MockWebServer().use { server ->
+            val longSnippet = "Kotlin coroutine dispatcher guide ".repeat(20)
+            val blocks = (1..5).joinToString("\n") { index ->
+                val url = "https%3A%2F%2Fexample.com%2F" + "very-long-path-segment-".repeat(12) + index
+                """<div class="result"><h2><a class="result__a" href="/l/?uddg=$url">Result $index ${"title ".repeat(20)}</a></h2>""" +
+                    """<a class="result__snippet">$longSnippet</a></div>"""
+            }
+            server.enqueue(jsonResponse("""{}"""))
+            server.enqueue(htmlResponse("<html><body>$blocks</body></html>"))
+            server.start()
+
+            val result = provider(server).search(
+                WebSearchRequest(query = "Kotlin coroutine dispatcher guide", maxResults = 5),
+            )
+
+            require(result is WebSearchReadResult.Available)
+            assertTrue(result.resultsJson.length <= 4_000)
+            val results = JSONObject(result.resultsJson).getJSONArray("results")
+            assertTrue(results.length() in 1..4)
+        }
+    }
+
     private fun provider(server: MockWebServer): OkHttpWebSearchProvider =
         OkHttpWebSearchProvider(
             client = OkHttpClient(),
