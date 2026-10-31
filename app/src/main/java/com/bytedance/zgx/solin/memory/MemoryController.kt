@@ -86,10 +86,7 @@ class MemoryController(
 
     /**
      * Enables or disables local memory, syncs task-state records, and rebuilds the index.
-     *
-     * Mirrors `SolinViewModel.updateMemoryEnabled()` business logic (preference write stays
-     * in the ViewModel). Synchronous so ViewModel mutators and unit tests keep the same
-     * call style (already dispatched onto IO via `launchPersistenceWork` / test dispatcher).
+     * Synchronous; callers already run it on an IO dispatcher.
      */
     fun setMemoryEnabled(
         enabled: Boolean,
@@ -114,8 +111,6 @@ class MemoryController(
     /**
      * Forgets a single long-term memory by id, suppresses auto-managed task-state if needed,
      * rebuilds the index, and returns the refreshed summary list.
-     *
-     * Mirrors `SolinViewModel.forgetLongTermMemory()` business logic (busy-gate stays in VM).
      */
     fun forgetLongTermMemory(
         memoryId: String,
@@ -141,8 +136,6 @@ class MemoryController(
 
     /**
      * Clears all long-term memories, suppresses active task-state auto-resync, and rebuilds.
-     *
-     * Mirrors `SolinViewModel.clearLongTermMemory()` business logic (busy-gate stays in VM).
      */
     fun clearLongTermMemory(
         memoryEnabled: Boolean,
@@ -166,8 +159,6 @@ class MemoryController(
     /**
      * Rebuilds the in-memory index from the last 500 session messages and returns
      * a [MemoryControllerResult] describing the new state.
-     *
-     * Mirrors `SolinViewModel.rebuildMemoryIndex()` business logic (UI apply stays in VM).
      */
     fun rebuildMemoryIndex(
         memoryEnabled: Boolean,
@@ -192,16 +183,15 @@ class MemoryController(
      */
     fun semanticMemoryState(): MemoryControllerResult =
         MemoryControllerResult(
-            semanticMemoryEnabled = currentSemanticMemoryEnabled(),
-            semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
-            semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
-            semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
+            semanticMemoryEnabled = semanticMemoryRuntimeController?.semanticMemoryEnabled == true,
+            semanticMemoryRuntimeStatus = semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
+                ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+            semanticMemoryIndexedRecordCount = semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0,
+            semanticMemoryLastRebuiltAtMillis = semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis,
         )
 
     /**
      * Returns the current list of long-term memory summaries.
-     *
-     * Mirrors `SolinViewModel.loadLongTermMemories()`.
      */
     fun loadLongTermMemories(): List<LongTermMemorySummary> =
         runCatching {
@@ -222,8 +212,6 @@ class MemoryController(
     /**
      * Syncs task-state memories: removes stale task-state records and indexes
      * currently-active scheduled tasks.
-     *
-     * Mirrors `SolinViewModel.syncTaskStateMemories()`.
      */
     fun syncTaskStateMemories(memoryEnabled: Boolean) {
         runCatching {
@@ -366,12 +354,8 @@ class MemoryController(
             failedText = "本地记忆暂不可用，未保存这条事实。",
         )
 
-    /**
-     * Generic handler for explicit memory commands (preference / fact).
-     *
-     * Session writes stay on [sessionStore]; callers apply [MemoryCommandResult] to UI.
-     */
-    fun handleExplicitMemoryCommand(
+    /** Saves an explicit preference or fact; session writes stay on [sessionStore]. */
+    private fun handleExplicitMemoryCommand(
         trimmed: String,
         memoryEnabled: Boolean,
         persist: (ChatMessage) -> Boolean,
@@ -379,103 +363,81 @@ class MemoryController(
         disabledText: String,
         failedText: String,
         skipModelRuntimeWork: Boolean = false,
-    ): MemoryCommandResult {
-        if (memoryEnabled) syncTaskStateMemories(memoryEnabled = true)
-        val userMessage = ChatMessage(
-            role = MessageRole.User,
-            text = trimmed,
-            privacy = MessagePrivacy.LocalOnly,
-        )
-        sessionStore.replaceActiveSessionMessages(
-            sessionStore.activeMessages() + userMessage,
-            persistNow = true,
-        )
-        val persisted = memoryEnabled && runCatching { persist(userMessage) }.getOrDefault(false)
-        val assistantText = when {
-            persisted -> savedText
-            !memoryEnabled -> disabledText
-            else -> failedText
+    ): MemoryCommandResult =
+        runExplicitMemoryCommand(trimmed, memoryEnabled, skipModelRuntimeWork) { userMessage ->
+            val persisted = memoryEnabled && runCatching { persist(userMessage) }.getOrDefault(false)
+            ExplicitMemoryOutcome(
+                changed = persisted,
+                assistantText = when {
+                    persisted -> savedText
+                    !memoryEnabled -> disabledText
+                    else -> failedText
+                },
+                statusText = when {
+                    persisted -> "长期记忆已更新"
+                    !memoryEnabled -> "本地记忆已关闭"
+                    else -> "本地记忆暂不可用"
+                },
+            )
         }
-        val assistantMessage = ChatMessage(
-            role = MessageRole.Assistant,
-            text = assistantText,
-            privacy = MessagePrivacy.LocalOnly,
-        )
-        sessionStore.replaceActiveSessionMessages(
-            sessionStore.activeMessages() + assistantMessage,
-            persistNow = true,
-        )
-        val rebuildResult = rebuildMemoryIndex(
-            memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
-        )
-        return MemoryCommandResult(
-            userMessage = userMessage,
-            assistantMessage = assistantMessage,
-            persisted = persisted,
-            memoryEnabled = memoryEnabled,
-            longTermMemories = loadLongTermMemories(),
-            rebuildResult = rebuildResult,
-            statusText = when {
-                persisted -> "长期记忆已更新"
-                !memoryEnabled -> "本地记忆已关闭"
-                else -> "本地记忆暂不可用"
-            },
-        )
-    }
 
-    /**
-     * Handles an explicit "forget this memory" command.
-     */
+    /** Handles an explicit "forget this memory" command. */
     fun handleExplicitMemoryForgetCommand(
         trimmed: String,
         memoryEnabled: Boolean,
         skipModelRuntimeWork: Boolean = false,
+    ): MemoryCommandResult =
+        runExplicitMemoryCommand(trimmed, memoryEnabled, skipModelRuntimeWork) {
+            val target = explicitUserPreferenceForgetFrom(trimmed)
+            val removed = target?.let {
+                runCatching {
+                    val removedPreference = longTermMemoryControls.forgetPreference(it)
+                    val removedFact = longTermMemoryControls.forgetUserFact(it)
+                    removedPreference || removedFact
+                }.getOrDefault(false)
+            } == true
+            ExplicitMemoryOutcome(
+                changed = removed,
+                assistantText = if (removed) "已遗忘这条本地记忆。" else "未找到这条本地记忆。",
+                statusText = if (removed) "长期记忆已更新" else "未找到这条记忆",
+            )
+        }
+
+    private class ExplicitMemoryOutcome(
+        val changed: Boolean,
+        val assistantText: String,
+        val statusText: String,
+    )
+
+    /**
+     * Appends the LocalOnly user message, runs [act], appends the LocalOnly assistant reply and
+     * rebuilds the index, in that order.
+     */
+    private fun runExplicitMemoryCommand(
+        trimmed: String,
+        memoryEnabled: Boolean,
+        skipModelRuntimeWork: Boolean,
+        act: (ChatMessage) -> ExplicitMemoryOutcome,
     ): MemoryCommandResult {
         if (memoryEnabled) syncTaskStateMemories(memoryEnabled = true)
-        val userMessage = ChatMessage(
-            role = MessageRole.User,
-            text = trimmed,
-            privacy = MessagePrivacy.LocalOnly,
-        )
-        sessionStore.replaceActiveSessionMessages(
-            sessionStore.activeMessages() + userMessage,
-            persistNow = true,
-        )
-        val target = explicitUserPreferenceForgetFrom(trimmed)
-        val removed = target?.let {
-            runCatching {
-                val removedPreference = longTermMemoryControls.forgetPreference(it)
-                val removedFact = longTermMemoryControls.forgetUserFact(it)
-                removedPreference || removedFact
-            }.getOrDefault(false)
-        } == true
-        val assistantText = if (removed) {
-            "已遗忘这条本地记忆。"
-        } else {
-            "未找到这条本地记忆。"
-        }
+        val userMessage = ChatMessage(role = MessageRole.User, text = trimmed, privacy = MessagePrivacy.LocalOnly)
+        sessionStore.replaceActiveSessionMessages(sessionStore.activeMessages() + userMessage, persistNow = true)
+        val outcome = act(userMessage)
         val assistantMessage = ChatMessage(
             role = MessageRole.Assistant,
-            text = assistantText,
+            text = outcome.assistantText,
             privacy = MessagePrivacy.LocalOnly,
         )
-        sessionStore.replaceActiveSessionMessages(
-            sessionStore.activeMessages() + assistantMessage,
-            persistNow = true,
-        )
-        val rebuildResult = rebuildMemoryIndex(
-            memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
-        )
+        sessionStore.replaceActiveSessionMessages(sessionStore.activeMessages() + assistantMessage, persistNow = true)
+        val rebuildResult = rebuildMemoryIndex(memoryEnabled = memoryEnabled, skipModelRuntimeWork = skipModelRuntimeWork)
         return MemoryCommandResult(
             userMessage = userMessage,
             assistantMessage = assistantMessage,
-            persisted = removed,
+            persisted = outcome.changed,
             memoryEnabled = memoryEnabled,
             longTermMemories = loadLongTermMemories(),
             rebuildResult = rebuildResult,
-            statusText = if (removed) "长期记忆已更新" else "未找到这条记忆",
+            statusText = outcome.statusText,
         )
     }
 
@@ -501,19 +463,6 @@ class MemoryController(
         }
         controller.useMemoryModel(modelRepository.verifiedMemoryEmbeddingModelPath())
     }
-
-    private fun currentSemanticMemoryEnabled(): Boolean =
-        semanticMemoryRuntimeController?.semanticMemoryEnabled == true
-
-    private fun currentSemanticMemoryRuntimeStatus(): SemanticMemoryRuntimeStatus =
-        semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
-            ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable
-
-    private fun currentSemanticMemoryIndexedRecordCount(): Int =
-        semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0
-
-    private fun currentSemanticMemoryLastRebuiltAtMillis(): Long? =
-        semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis
 
     private fun persistExplicitMemory(
         message: ChatMessage,

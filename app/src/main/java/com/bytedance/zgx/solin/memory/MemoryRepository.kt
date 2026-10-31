@@ -29,7 +29,7 @@ data class MemoryHit(
 )
 
 internal fun MemoryHit.isAvailableForLocalContext(nowMillis: Long = System.currentTimeMillis()): Boolean =
-    privacy == MessagePrivacy.LocalOnly && !isExpired(nowMillis)
+    privacy == MessagePrivacy.LocalOnly && !expiresAtMillis.isExpiredAt(nowMillis)
 
 enum class MemoryRecordType {
     Conversation,
@@ -200,10 +200,7 @@ class MemoryRepository(
     override fun clearSemanticMemoryForModel(modelId: String): Unit = synchronized(lock) {
         embeddingStore.deleteForModel(modelId)
         if (activeEmbeddingRuntime.modelId == modelId) {
-            activeEmbeddingRuntime.close()
-            activeMemoryModelPath = null
-            activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
+            fallBackToDefaultRuntime(SemanticMemoryRuntimeStatus.NoVerifiedModel)
             reembedEntries()
         }
     }
@@ -218,38 +215,27 @@ class MemoryRepository(
             refreshSemanticIndexStats()
             return
         }
-        if (normalizedPath == null) {
-            activeMemoryModelPath = null
-            activeEmbeddingRuntime.close()
-            activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
-            reembedEntries()
-            return
-        }
         val runtimeFactory = semanticRuntimeFactory
-        if (runtimeFactory == null) {
-            activeMemoryModelPath = null
-            activeEmbeddingRuntime.close()
-            activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeUnavailable
+        if (normalizedPath == null || runtimeFactory == null) {
+            fallBackToDefaultRuntime(
+                if (normalizedPath == null) {
+                    SemanticMemoryRuntimeStatus.NoVerifiedModel
+                } else {
+                    SemanticMemoryRuntimeStatus.RuntimeUnavailable
+                },
+            )
             reembedEntries()
             return
         }
         val semanticRuntime = runCatching { runtimeFactory(normalizedPath) }.getOrNull()
         if (semanticRuntime == null) {
-            activeMemoryModelPath = null
-            activeEmbeddingRuntime.close()
-            activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeUnavailable
+            fallBackToDefaultRuntime(SemanticMemoryRuntimeStatus.RuntimeUnavailable)
         } else {
             val probeSucceeded = semanticRuntime.supportsSemanticRecall &&
                 runCatching { semanticRuntime.probeSemanticVector() }.getOrDefault(false)
             if (!probeSucceeded) {
                 semanticRuntime.close()
-                activeMemoryModelPath = null
-                activeEmbeddingRuntime.close()
-                activeEmbeddingRuntime = defaultEmbeddingRuntime
-                semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.ProbeFailed
+                fallBackToDefaultRuntime(SemanticMemoryRuntimeStatus.ProbeFailed)
             } else {
                 activeMemoryModelPath = normalizedPath
                 activeEmbeddingRuntime.close()
@@ -257,13 +243,7 @@ class MemoryRepository(
                 semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.BuildingIndex
             }
         }
-        runCatching { reembedEntries() }.onFailure {
-            activeMemoryModelPath = null
-            activeEmbeddingRuntime.close()
-            activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.DegradedLexical
-            reembedEntries()
-        }
+        runCatching { reembedEntries() }.onFailure { failActiveSemanticRuntime() }
         if (semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.BuildingIndex) {
             semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.Active
         }
@@ -405,18 +385,8 @@ class MemoryRepository(
         val exactRemoved = forget(explicitUserPreferenceRecordId(normalizedTarget))
         val conflictKeys = explicitPreferenceForgetConflictKeys(normalizedTarget)
         if (conflictKeys.isEmpty()) return exactRemoved
-        val conflictIds = (entries.values.map { entry ->
-            entry.toPersistedRecord()
-        } + recordStore.records())
-            .filter { record ->
-                record.type == MemoryRecordType.Preference &&
-                    explicitPreferenceConflictKeys(record.text).any { key -> key in conflictKeys }
-            }
-            .map { record -> record.id }
-            .distinct()
-        var removedConflict = false
-        conflictIds.forEach { conflictId ->
-            removedConflict = forget(conflictId) || removedConflict
+        val removedConflict = forgetMatching(MemoryRecordType.Preference, MemoryDeletionOperation.Forget) { text ->
+            explicitPreferenceConflictKeys(text).any { key -> key in conflictKeys }
         }
         return exactRemoved || removedConflict
     }
@@ -425,20 +395,9 @@ class MemoryRepository(
         val normalizedTarget = target.trim()
         if (normalizedTarget.isBlank()) return false
         val exactRemoved = forget(explicitUserFactRecordId(normalizedTarget))
-        val targetKey = userFactKeyFrom(normalizedTarget)
-        if (targetKey == null) return exactRemoved
-        val matchingIds = (entries.values.map { entry ->
-            entry.toPersistedRecord()
-        } + recordStore.records())
-            .filter { record ->
-                record.type == MemoryRecordType.UserFact &&
-                    userFactKeyFrom(record.text) == targetKey
-            }
-            .map { record -> record.id }
-            .distinct()
-        var removedMatching = false
-        matchingIds.forEach { matchingId ->
-            removedMatching = forget(matchingId) || removedMatching
+        val targetKey = userFactKeyFrom(normalizedTarget) ?: return exactRemoved
+        val removedMatching = forgetMatching(MemoryRecordType.UserFact, MemoryDeletionOperation.Forget) { text ->
+            userFactKeyFrom(text) == targetKey
         }
         return exactRemoved || removedMatching
     }
@@ -459,14 +418,7 @@ class MemoryRepository(
     }
 
     private fun visibleRecords(): List<PersistedMemoryRecord> =
-        recordStore.records().filter { record ->
-            !record.isExpired(clockMillis()) &&
-                (
-                    record.type == MemoryRecordType.Preference ||
-                        record.type == MemoryRecordType.UserFact ||
-                        record.type == MemoryRecordType.TaskState
-                    )
-        }
+        recordStore.records().filter { record -> record.isLiveLongTermRecord(clockMillis()) }
 
     private fun indexRecord(
         id: String,
@@ -487,7 +439,7 @@ class MemoryRepository(
         // Conversation snippets with no searchable content are not worth an entry. Explicit
         // records are always kept (and persisted) even if every token is a stop word.
         if (lexicalVector.tokens.isEmpty() && type == MemoryRecordType.Conversation) return
-        entries[id] = MemoryEntry(
+        val entry = MemoryEntry(
             id = id,
             text = normalized,
             type = type,
@@ -504,30 +456,18 @@ class MemoryRepository(
             expiresAtMillis = expiresAtMillis,
             conflictKey = conflictKey,
         )
-        if (persist && type != MemoryRecordType.Conversation) {
-            recordStore.upsert(
-                PersistedMemoryRecord(
-                    id = id,
-                    type = type,
-                    text = normalized,
-                    source = source,
-                    sensitivity = sensitivity,
-                    privacy = privacy,
-                    expiresAtMillis = expiresAtMillis,
-                    conflictKey = conflictKey,
-                ),
-            )
-        }
+        entries[id] = entry
+        if (persist && type != MemoryRecordType.Conversation) recordStore.upsert(entry.toPersistedRecord())
         refreshSemanticIndexStats()
     }
 
     /**
      * Ranks local memory for [query].
      *
-     * 1. The lexical score blends query coverage with exact term-vector cosine. Candidates must pass the overlap gate in [MemoryLexicalMatch] and cover at least
-     *    [MIN_LEXICAL_QUERY_COVERAGE] of the query's token weight, so unrelated queries that only
-     *    share a stray character or a generic word return nothing.
-     * 2. Semantic candidates must clear the runtime's own score threshold (unchanged).
+     * 1. The lexical score blends query coverage with exact term-vector cosine. Candidates must pass
+     *    the overlap gate in [MemoryLexicalMatch] and cover at least [MIN_LEXICAL_QUERY_COVERAGE] of
+     *    the query's token weight, so a stray shared character or generic word returns nothing.
+     * 2. Semantic candidates must clear the runtime's own score threshold.
      * 3. Each mode is ranked by its score times a record-type weight that favours explicit
      *    UserFact / Preference records, and the two rankings are combined with reciprocal-rank
      *    fusion. Ties fall back to the raw score, semantic-first, then the most recently indexed.
@@ -545,7 +485,7 @@ class MemoryRepository(
         val semanticQueryEmbedding = if (supportsSemanticRecall) embedSemanticQuery(query) else null
         val nowMillis = clockMillis()
         val candidates = entries.values.mapNotNull { entry ->
-            if (entry.isExpired(nowMillis)) return@mapNotNull null
+            if (entry.expiresAtMillis.isExpiredAt(nowMillis)) return@mapNotNull null
             if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
             val lexicalMatch = queryTokens.match(entry.lexicalVector.tokens)
             val lexicalScore = if (lexicalMatch.qualifies && lexicalMatch.coverage >= MIN_LEXICAL_QUERY_COVERAGE) {
@@ -559,16 +499,13 @@ class MemoryRepository(
                 null
             }
             val semanticEmbedding = entry.semanticEmbedding
-            val queryEmbedding = semanticQueryEmbedding
             val semanticScore = if (
-                semanticEmbedding == null ||
-                queryEmbedding == null ||
-                !entry.type.isSemanticRecallEligible()
+                semanticEmbedding != null && semanticQueryEmbedding != null && entry.type.isLongTermRecordType()
             ) {
-                null
-            } else {
-                cosine(queryEmbedding, semanticEmbedding)
+                cosine(semanticQueryEmbedding, semanticEmbedding)
                     .takeIf { score -> score > 0f && score >= semanticScoreThreshold }
+            } else {
+                null
             }
             if (lexicalScore == null && semanticScore == null) return@mapNotNull null
             RankingCandidate(entry, lexicalScore, semanticScore)
@@ -597,7 +534,7 @@ class MemoryRepository(
         type: MemoryRecordType,
     ): FloatArray? {
         val runtime = activeEmbeddingRuntime
-        if (!runtime.supportsSemanticRecall || !type.isSemanticRecallEligible()) return null
+        if (!runtime.supportsSemanticRecall || !type.isLongTermRecordType()) return null
         val modelId = runtime.modelId
         val dimension = runtime.dimension
         if (modelId.isBlank() || dimension <= 0) return null
@@ -659,7 +596,7 @@ class MemoryRepository(
             return
         }
         semanticMemoryIndexedRecordCount = entries.values.count { entry ->
-            entry.type.isSemanticRecallEligible() && entry.semanticEmbedding != null
+            entry.type.isLongTermRecordType() && entry.semanticEmbedding != null
         }
         semanticMemoryLastRebuiltAtMillis = if (semanticMemoryIndexedRecordCount > 0) {
             clockMillis()
@@ -669,58 +606,46 @@ class MemoryRepository(
     }
 
     private fun failActiveSemanticRuntime() {
+        fallBackToDefaultRuntime(SemanticMemoryRuntimeStatus.DegradedLexical)
+        reembedEntries()
+    }
+
+    private fun fallBackToDefaultRuntime(status: SemanticMemoryRuntimeStatus) {
         activeMemoryModelPath = null
         activeEmbeddingRuntime.close()
         activeEmbeddingRuntime = defaultEmbeddingRuntime
-        semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.DegradedLexical
-        reembedEntries()
+        semanticMemoryRuntimeStatus = status
     }
 
     private fun forgetConflictingPreferences(id: String, text: String) {
         val conflictKeys = explicitPreferenceConflictKeys(text)
         if (conflictKeys.isEmpty()) return
-        val inMemoryConflictIds = entries.values
-            .filter { entry ->
-                entry.type == MemoryRecordType.Preference &&
-                    entry.id != id &&
-                    explicitPreferenceConflictKeys(entry.text).any { key -> key in conflictKeys }
-            }
-            .map { entry -> entry.id }
-        val persistedConflictIds = recordStore.records()
-            .filter { record ->
-                record.type == MemoryRecordType.Preference &&
-                    record.id != id &&
-                    explicitPreferenceConflictKeys(record.text).any { key -> key in conflictKeys }
-            }
-            .map { record -> record.id }
-        (inMemoryConflictIds + persistedConflictIds)
-            .distinct()
-            .forEach { conflictId ->
-                forget(conflictId, MemoryDeletionOperation.ConflictReplace)
-            }
+        forgetMatching(MemoryRecordType.Preference, MemoryDeletionOperation.ConflictReplace, exceptId = id) { other ->
+            explicitPreferenceConflictKeys(other).any { key -> key in conflictKeys }
+        }
     }
 
     private fun forgetConflictingUserFacts(id: String, text: String) {
         val factKey = userFactKeyFrom(text) ?: return
-        val inMemoryConflictIds = entries.values
-            .filter { entry ->
-                entry.type == MemoryRecordType.UserFact &&
-                    entry.id != id &&
-                    userFactKeyFrom(entry.text) == factKey
-            }
-            .map { entry -> entry.id }
-        val persistedConflictIds = recordStore.records()
-            .filter { record ->
-                record.type == MemoryRecordType.UserFact &&
-                    record.id != id &&
-                    userFactKeyFrom(record.text) == factKey
-            }
+        forgetMatching(MemoryRecordType.UserFact, MemoryDeletionOperation.ConflictReplace, exceptId = id) { other ->
+            userFactKeyFrom(other) == factKey
+        }
+    }
+
+    /** Forgets every in-memory or persisted record of [type] whose text matches; true if any was removed. */
+    private fun forgetMatching(
+        type: MemoryRecordType,
+        operation: MemoryDeletionOperation,
+        exceptId: String? = null,
+        textMatches: (String) -> Boolean,
+    ): Boolean {
+        val ids = (entries.values.map { entry -> entry.toPersistedRecord() } + recordStore.records())
+            .filter { record -> record.type == type && record.id != exceptId && textMatches(record.text) }
             .map { record -> record.id }
-        (inMemoryConflictIds + persistedConflictIds)
             .distinct()
-            .forEach { conflictId ->
-                forget(conflictId, MemoryDeletionOperation.ConflictReplace)
-            }
+        var removed = false
+        ids.forEach { id -> removed = forget(id, operation) || removed }
+        return removed
     }
 
     private fun forget(id: String, operation: MemoryDeletionOperation): Boolean {
@@ -760,7 +685,7 @@ class MemoryRepository(
             entries[id]?.toPersistedRecord()?.let(::listOf).orEmpty() +
                 recordStore.records().filter { record -> record.id == id }
             )
-            .firstOrNull { record -> record.isDeletionAuditable(clockMillis()) }
+            .firstOrNull { record -> record.isLiveLongTermRecord(clockMillis()) }
 
     private fun deletionAuditableRecords(): List<PersistedMemoryRecord> =
         (
@@ -768,7 +693,7 @@ class MemoryRepository(
                 recordStore.records()
             )
             .distinctBy { record -> record.id }
-            .filter { record -> record.isDeletionAuditable(clockMillis()) }
+            .filter { record -> record.isLiveLongTermRecord(clockMillis()) }
 
     private fun cosine(left: FloatArray, right: FloatArray): Float {
         val size = minOf(left.size, right.size)
@@ -883,16 +808,9 @@ private fun MemoryEntry.toPersistedRecord(): PersistedMemoryRecord =
         conflictKey = conflictKey,
     )
 
-private fun PersistedMemoryRecord.isExpired(nowMillis: Long): Boolean =
-    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
-
-private fun PersistedMemoryRecord.isDeletionAuditable(nowMillis: Long): Boolean =
-    !isExpired(nowMillis) &&
-        (
-            type == MemoryRecordType.Preference ||
-                type == MemoryRecordType.UserFact ||
-                type == MemoryRecordType.TaskState
-            )
+/** Unexpired Preference, UserFact or TaskState: visible after rebuild and audited on deletion. */
+private fun PersistedMemoryRecord.isLiveLongTermRecord(nowMillis: Long): Boolean =
+    !expiresAtMillis.isExpiredAt(nowMillis) && type.isLongTermRecordType()
 
 private fun PersistedMemoryRecord.toDeletionEvent(
     operation: MemoryDeletionOperation,
@@ -921,13 +839,10 @@ private fun PersistedMemoryRecord.toDeletionEvent(
     )
 }
 
-private fun MemoryHit.isExpired(nowMillis: Long): Boolean =
-    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
+private fun Long?.isExpiredAt(nowMillis: Long): Boolean = this != null && this <= nowMillis
 
-private fun MemoryEntry.isExpired(nowMillis: Long): Boolean =
-    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
-
-private fun MemoryRecordType.isSemanticRecallEligible(): Boolean =
+/** Explicit or task records; conversation snippets and suppression markers are excluded. */
+private fun MemoryRecordType.isLongTermRecordType(): Boolean =
     this == MemoryRecordType.Preference ||
         this == MemoryRecordType.UserFact ||
         this == MemoryRecordType.TaskState
