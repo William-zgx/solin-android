@@ -43,9 +43,9 @@ class AgentRunBudgetTest {
     }
 
     @Test
-    fun degradationProbeFailureItselfDoesNotOpenTheGate() {
-        // A store whose degradation probe throws must not crash the budget check; the fallback is the
-        // ordinary count-based decision, which here is still under the cap.
+    fun degradationProbeFailureItselfFailsClosed() {
+        // A probe that throws means the degradation signal is unavailable — exactly the situation
+        // this check defends against. Treating it as "not degraded" reopened the runaway gate.
         val budget = AgentRunBudget(
             maxRunToolSteps = 2,
             maxObservationDecisions = 2,
@@ -56,8 +56,14 @@ class AgentRunBudgetTest {
             stepHistoryDegraded = { error("probe blew up") },
         )
 
-        assertFalse(budget.toolStepBudgetExceeded(RUN_ID))
-        assertFalse(budget.observationDecisionBudgetExceeded(RUN_ID))
+        assertTrue(
+            "an unreadable degradation probe must fail the tool step budget closed",
+            budget.toolStepBudgetExceeded(RUN_ID),
+        )
+        assertTrue(
+            "an unreadable degradation probe must fail the observation budget closed",
+            budget.observationDecisionBudgetExceeded(RUN_ID),
+        )
     }
 
     @Test

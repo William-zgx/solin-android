@@ -84,9 +84,7 @@ internal class AgentRunBudget(
      * left is the agent's own elapsed work, which is what the budget is meant to cap.
      *
      * Both clock-jump directions are handled: a backwards jump yields a negative elapsed value that
-     * reads as not-expired, and a forwards jump (an NTP correction, say) cannot manufacture an
-     * expiry on its own because elapsed time is clamped to what the deadline would allow one poll
-     * earlier — an unexpired run stays unexpired until it is next checked.
+     * reads as not-expired, and a forwards jump is only as trustworthy as the clock that reported it.
      */
     fun runDeadlineExceeded(runId: String): Boolean {
         if (maxRunWallClockMillis <= 0L) return false
@@ -114,13 +112,15 @@ internal class AgentRunBudget(
      * to clear its own latch; only a second failure fails closed.
      */
     private fun stepHistoryDegradedFailClosed(runId: String, budgetName: String): Boolean {
-        val degraded = runCatching { stepHistoryDegraded(runId) }.getOrDefault(false)
+        // Fail closed on a throwing probe: an unreadable degradation signal is exactly the case this
+        // check exists for, and treating it as "not degraded" would reopen the runaway gate.
+        val degraded = runCatching { stepHistoryDegraded(runId) }.getOrDefault(true)
         if (!degraded) return false
         // Force a history read so a store whose backing DB has recovered can lower its own latch.
         // The value is deliberately discarded: the caller re-reads the history itself once this
         // returns false, and the point here is the side effect on the latch.
         runCatching { toolRequestsFor(runId) }
-        val stillDegraded = runCatching { stepHistoryDegraded(runId) }.getOrDefault(false)
+        val stillDegraded = runCatching { stepHistoryDegraded(runId) }.getOrDefault(true)
         if (!stillDegraded) return false
         // Log is wrapped because android.util.Log is not mocked on the JVM unit-test path; an
         // unavailable logger must never turn a fail-closed budget check into a thrown exception.
@@ -174,7 +174,9 @@ internal class AgentRunBudget(
             sb.append("Use plan_write to mark completed items before continuing.")
             sb.toString()
         }.getOrElse { throwable ->
-            Log.e(TAG, "Failed to build step-budget plan hint", throwable)
+            // android.util.Log is not mocked on the JVM unit-test path; a logger failure must not
+            // turn a budget message into a thrown exception.
+            runCatching { Log.e(TAG, "Failed to build step-budget plan hint", throwable) }
             reason
         }
     }
