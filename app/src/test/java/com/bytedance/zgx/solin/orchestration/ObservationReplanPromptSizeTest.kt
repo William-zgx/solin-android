@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.actionPrompt
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -80,6 +81,44 @@ class ObservationReplanPromptSizeTest {
             ungated.observationReplanToolSignatures(registry)
                 .endsWith("finish{message},ask_user{prompt},take_over{reason},note{content}"),
         )
+    }
+
+    @Test
+    fun longRunInputKeepsItsLateConstraintInBothPrompts() {
+        val input = "帮我在淘宝搜索海河牛奶，" + "比较一下价格、销量和评价，".repeat(30) + "但不要发送"
+        assertTrue(input.length >= 400)
+        val base = ObservationReplanPromptFixtures.searchEntryObserveContext()
+        val context = base.copy(run = base.run.copy(input = input))
+
+        val full = context.observationModelPrompt(registry)
+        val minimal = context.minimalObservationModelPrompt(registry)
+
+        assertEquals("User intent preview: $input", full.lines().single { it.startsWith("User intent preview:") })
+        assertEquals("用户请求: $input", minimal.lines().single { it.startsWith("用户请求:") })
+        // Rule lines still survive alongside the whole user line, in both prompts.
+        assertTrue(full, full.contains("Stop on payment"))
+        assertTrue(full, full.lines().single { it.startsWith("Allowed tools:") }.endsWith("ui_press_back"))
+        listOf("允许工具:", "当前屏幕可用目标:", "严格按 tap -> type -> submit", "call:ui_submit_search{}").forEach { expected ->
+            assertTrue("minimal lost '$expected':\n$minimal", minimal.contains(expected))
+        }
+        val shortMinimal = base.minimalObservationModelPrompt(registry)
+        // Only the user line grows; the rest of the minimal prompt is unchanged.
+        assertEquals(
+            shortMinimal.lines().filterNot { it.startsWith("用户请求:") },
+            minimal.lines().filterNot { it.startsWith("用户请求:") },
+        )
+        println("LongRunInputPrompt full=${full.length} minimal=${minimal.length} shortMinimal=${shortMinimal.length}")
+    }
+
+    @Test
+    fun runInputIsStillRedactedWhenUncapped() {
+        val base = ObservationReplanPromptFixtures.searchEntryObserveContext()
+        val context = base.copy(run = base.run.copy(input = "搜索牛奶 api_key=notARealKey000 后告诉 a.b@example.com"))
+
+        listOf(context.observationModelPrompt(registry), context.minimalObservationModelPrompt(registry)).forEach { prompt ->
+            assertFalse(prompt, prompt.contains("notARealKey000"))
+            assertFalse(prompt, prompt.contains("a.b@example.com"))
+        }
     }
 
     private companion object {
