@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
@@ -119,6 +120,14 @@ internal fun DeviceMetric(
         )
     }
 }
+
+/** A download is starting, running, or has byte counts left to show. */
+internal fun ChatUiState.hasDownloadProgress(): Boolean =
+    isPreparingDownload || isDownloading || downloadProgressPercent != null || totalBytes > 0L
+
+/** A local model is selected but not loaded yet. */
+internal fun ChatUiState.isLocalModelLoading(): Boolean =
+    inferenceMode != InferenceMode.Remote && modelPath != null && !isReady
 
 @Composable
 internal fun ProgressBlock(state: ChatUiState) {

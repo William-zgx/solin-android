@@ -18,8 +18,7 @@ import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
  * Hosts the modal sheets driven by pending decisions in [ChatUiState]: the remote-mode and
  * remote-send privacy disclosures, the device-action confirmation draft, and the external-outcome
  * record. Each sheet is shown while its pending value is non-null and is cleared only by the
- * callbacks it forwards, so the ordering and dismissal semantics match the original inline host
- * in SolinScreen.
+ * callbacks it forwards.
  */
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)

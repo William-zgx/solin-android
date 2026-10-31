@@ -48,8 +48,7 @@ internal fun ChatEmptyState(
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
 ) {
-    val localModelIsLoading =
-        state.inferenceMode != InferenceMode.Remote && state.modelPath != null && !state.isReady
+    val localModelIsLoading = state.isLocalModelLoading()
     val readyTitle = when {
         state.isReady -> "想让 Solin 做什么？"
         localModelIsLoading -> "正在校验并加载本地模型"
@@ -74,7 +73,7 @@ internal fun ChatEmptyState(
             .padding(start = 18.dp, top = 14.dp, end = 18.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (state.shouldShowFirstRunSetupPanel()) {
+        if (state.showFirstRunSetup) {
             FirstRunSetupPanel(
                 state = state,
                 onSetupModelToggled = onSetupModelToggled,
@@ -158,7 +157,6 @@ internal fun ChatEmptyState(
     }
 }
 
-internal fun ChatUiState.shouldShowFirstRunSetupPanel(): Boolean = showFirstRunSetup
 
 @Composable
 internal fun HomePositioningPanel() {

@@ -209,10 +209,7 @@ internal fun ModelManagerSheet(
         }
 
         if (
-            state.isPreparingDownload ||
-            state.isDownloading ||
-            state.downloadProgressPercent != null ||
-            state.totalBytes > 0L
+            state.hasDownloadProgress()
         ) {
             ProgressBlock(state)
             if (state.isPreparingDownload || state.isDownloading) {

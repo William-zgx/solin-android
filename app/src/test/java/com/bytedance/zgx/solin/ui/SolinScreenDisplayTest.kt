@@ -42,7 +42,6 @@ import com.bytedance.zgx.solin.ui.components.remoteSendDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.components.runTimelineItemDisplayText
 import com.bytedance.zgx.solin.ui.components.selectableInferencePreferences
 import com.bytedance.zgx.solin.ui.components.semanticMemoryIndexStatusText
-import com.bytedance.zgx.solin.ui.components.shouldShowFirstRunSetupPanel
 import com.bytedance.zgx.solin.ui.components.trustDeletionBoundaryText
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -385,8 +384,8 @@ class SolinScreenDisplayTest {
 
     @Test
     fun firstRunSetupVisibilityUsesExplicitStateFlag() {
-        assertFalse(ChatUiState(showFirstRunSetup = false).shouldShowFirstRunSetupPanel())
-        assertTrue(ChatUiState(showFirstRunSetup = true).shouldShowFirstRunSetupPanel())
+        assertFalse(ChatUiState(showFirstRunSetup = false).showFirstRunSetup)
+        assertTrue(ChatUiState(showFirstRunSetup = true).showFirstRunSetup)
     }
 
     @Test

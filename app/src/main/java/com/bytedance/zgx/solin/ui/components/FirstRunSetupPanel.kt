@@ -28,7 +28,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
-import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_DESCRIPTION
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_TITLE
@@ -165,8 +164,7 @@ internal fun QuickModelSetup(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
 ) {
-    val localModelIsLoading =
-        state.inferenceMode != InferenceMode.Remote && state.modelPath != null && !state.isReady
+    val localModelIsLoading = state.isLocalModelLoading()
     val startupBannerTitle = if (localModelIsLoading) {
         "正在校验并加载本地模型"
     } else {
@@ -261,10 +259,7 @@ internal fun QuickModelSetup(
                 overflow = TextOverflow.Ellipsis,
             )
             if (
-                state.isPreparingDownload ||
-                state.isDownloading ||
-                state.downloadProgressPercent != null ||
-                state.totalBytes > 0L
+                state.hasDownloadProgress()
             ) {
                 ProgressBlock(state)
             }
