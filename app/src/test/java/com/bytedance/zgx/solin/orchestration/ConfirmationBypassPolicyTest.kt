@@ -321,6 +321,93 @@ class ConfirmationBypassPolicyTest {
         )
     }
 
+    @Test
+    fun sensitiveTextHandedToAnotherAppIsConfirmed() {
+        val share = ToolRequest(
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "我的手机号是 13800138000，转给朋友"),
+        )
+        assertEquals(CriticalApprovalReason.TextHandedToExternalApp, policy.criticalApprovalReason("run", share))
+        val planned = policy.withConfirmationBypass("run", planOf(share, SafetyOutcome.Allow))
+        assertEquals(SafetyOutcome.RequireConfirmation, planned.safetyDecision.outcome)
+        assertTrue(planned.draft.requiresConfirmation)
+        // Confirm-every-step mode is never looser: a critical reason keeps its confirmation.
+        criticalOnly = false
+        assertEquals(
+            SafetyOutcome.RequireConfirmation,
+            policy.withConfirmationBypass("run", planOf(share, SafetyOutcome.Allow)).safetyDecision.outcome,
+        )
+        criticalOnly = true
+    }
+
+    @Test
+    fun draftTextComposedAfterAPrivateReadMustComeFromTheUser() {
+        val runId = readPrivateDataRun("把剪贴板里的地址发给小王")
+        val share = ToolRequest(
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "地址：北京市海淀区中关村大街 1 号"),
+        )
+        assertEquals(CriticalApprovalReason.TextHandedToExternalApp, policy.criticalApprovalReason(runId, share))
+        // The same tool with the user's own words stays auto-approved.
+        assertNull(
+            policy.criticalApprovalReason(
+                runId,
+                ToolRequest(
+                    toolName = MobileActionFunctions.SHARE_TEXT,
+                    arguments = mapOf("text" to "剪贴板里的地址"),
+                ),
+            ),
+        )
+        // Nothing private has been read yet, so there is nothing to smuggle.
+        assertNull(policy.criticalApprovalReason(traceStore.createRun("分享一段话").id, share))
+    }
+
+    @Test
+    fun userWordedEmailDraftAndPlainDraftsStayAutoApproved() {
+        listOf(
+            ToolRequest(
+                toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                arguments = mapOf("subject" to "周会改期", "body" to "明天的周会改到下午三点。"),
+            ),
+            ToolRequest(
+                toolName = MobileActionFunctions.COMPOSE_SMS,
+                arguments = mapOf("phoneNumber" to "10086", "body" to "查询话费"),
+            ),
+            ToolRequest(
+                toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
+                arguments = mapOf("title" to "周会", "description" to "下午三点"),
+            ),
+            ToolRequest(
+                toolName = MobileActionFunctions.DIAL_PHONE_NUMBER,
+                arguments = mapOf("phoneNumber" to "10086"),
+            ),
+        ).forEach { request ->
+            assertNull(request.toolName, policy.criticalApprovalReason("run", request))
+        }
+        // A user-worded email after a private read is still only the user's words.
+        val mailRun = readPrivateDataRun("给同事写邮件说周会改期")
+        assertNull(
+            policy.criticalApprovalReason(
+                mailRun,
+                ToolRequest(
+                    toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                    arguments = mapOf("subject" to "周会改期", "body" to "周会改期"),
+                ),
+            ),
+        )
+        // A body with words the user did not supply is new text after the private read.
+        assertEquals(
+            CriticalApprovalReason.TextHandedToExternalApp,
+            policy.criticalApprovalReason(
+                mailRun,
+                ToolRequest(
+                    toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                    arguments = mapOf("subject" to "周会改期", "body" to "周会改期，请知悉。"),
+                ),
+            ),
+        )
+    }
+
     private fun lowRiskSkillPlan(): SkillPlan {
         val manifest = SkillManifest(
             id = "test_low_risk_app_control",

@@ -144,7 +144,12 @@ tools that read clipboard, contacts, calendar, files, notifications, screen
 text, OCR, or other device context are not exposed to remote planning. A public
 read-only evidence tool such as `web_search` may run without confirmation for
 public queries; queries that appear to contain personal data or secrets require
-confirmation before network access.
+confirmation before network access. Text handed to another app — a system share
+(`share_text`), an email / SMS / calendar / contact draft — is also treated as
+egress: in the default critical-only mode it is confirmed when the text looks
+personal or secret, or when it was composed after a read of private device data
+and is not the user's own wording. A draft built only from the user's words
+stays auto-approved.
 
 Multiple tool calls in one remote model turn may run concurrently only when
 every requested tool is public/read-only, requires no confirmation, has no

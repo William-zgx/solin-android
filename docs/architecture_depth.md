@@ -139,6 +139,14 @@ screen text, and text handed to other apps (`share_text`, `compose_email`,
 SMS / calendar / contact drafts). Remote-send audit entries exist for remote
 chat, remote vision, the router and MCP, but not for web search or intents.
 
+**Text handed to another app (gap 2, closed 2026-10-31).** `ConfirmationBypassPolicy`
+confirms any `ToolPermission.SendsTextToExternalApp` step
+(`share_text`, `compose_email`, `compose_sms`, `create_calendar_event`,
+`create_contact_draft`) whose free-text argument looks sensitive or, after a
+private read in the same run, is not the user's own wording
+(`CriticalApprovalReason.TextHandedToExternalApp`). A draft built only from the
+user's words stays auto-approved.
+
 **Remote-vision screenshot egress (gap 1, closed 2026-10-31).** A screenshot
 leaves only after a `UserConfirmed` step exists in the run, in both
 confirmation modes (`AgentLoopRuntime.runHasUserConfirmedStep`). Critical-only

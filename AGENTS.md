@@ -69,11 +69,16 @@ Scripts: `scripts/`. Docs: `docs/`.
    (`orchestration/ConfirmationBypassPolicy.kt`) reversible steps run without a
    prompt; external sends, payments, unknown tools, model-flagged sensitive steps,
    network steps (web search, maps search, deep link) that carry sensitive text
-   or follow a private read in the same run, and typed text the user did not ask
-   for after a private read, are always confirmed, and the agent never taps a
+   or follow a private read in the same run, typed text the user did not ask
+   for after a private read, text handed to another app (`share_text`,
+   `compose_email`, `compose_sms`, calendar / contact drafts) that looks
+   sensitive or was composed after a private read from words the user did not
+   supply, and the first in-app step of a remote-vision run (which approves its
+   screenshots) are always confirmed, and the agent never taps a
    pay / send / delete / publish / order / transfer / authorize control itself
-   (the device-control executor stops and the user taps it). Do not widen what
-   runs without a prompt beyond this documented list.
+   (the device-control executor stops and the user taps it). A draft built only
+   from the user's own words stays auto-approved. Do not widen what runs
+   without a prompt beyond this documented list.
 4. **No raw prompts in remote audit** — remote audit events must not persist
    raw user prompts; keep redaction / summary-only surfaces.
 5. **Do not weaken `SafetyPolicy`** — tool risk levels, confirmation policy,

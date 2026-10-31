@@ -7,6 +7,7 @@ import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
+import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
@@ -48,6 +49,14 @@ enum class CriticalApprovalReason {
      * opt-in alone used to be treated as the approval.
      */
     RemoteVisionFirstSend,
+
+    /**
+     * The step hands text to another app ([ToolPermission.SendsTextToExternalApp]: share, mail,
+     * SMS, calendar or contact draft) and that text looks personal or secret, or was composed
+     * after this run read private data and is not the user's own wording. An injected instruction
+     * could otherwise move private data into another app's draft without a prompt.
+     */
+    TextHandedToExternalApp,
 }
 
 /** Tools that reach the network or an external app with free text, and the argument carrying it. */
@@ -67,6 +76,20 @@ private val remoteVisionStartingCapabilities = setOf(
     ToolCapability.ExternalNavigation,
 )
 
+/**
+ * The prose each tool hands to another app, keyed by tool. Structured identifiers (a phone number,
+ * an address) are not prose: the run-taint check covers them, so a draft built only from the
+ * user's own words stays auto-approved (AGENTS.md non-negotiable #3).
+ */
+private val externalAppFreeTextArguments: Map<String, Set<String>> = mapOf(
+    MobileActionFunctions.SHARE_TEXT to setOf("text", "title"),
+    MobileActionFunctions.COMPOSE_EMAIL to setOf("subject", "body"),
+    MobileActionFunctions.COMPOSE_SMS to setOf("body"),
+    MobileActionFunctions.CREATE_CALENDAR_EVENT to setOf("title", "description"),
+    MobileActionFunctions.CREATE_CONTACT_DRAFT to setOf("name"),
+    MobileActionFunctions.DIAL_PHONE_NUMBER to emptySet(),
+)
+
 private fun CriticalApprovalReason.confirmationReason(toolName: String): String = when (this) {
     CriticalApprovalReason.UnknownTool -> "Tool $toolName is not registered."
     CriticalApprovalReason.ExternalSendOrPayment -> "Tool $toolName sends data out or moves money."
@@ -77,6 +100,8 @@ private fun CriticalApprovalReason.confirmationReason(toolName: String): String 
         "This text was not in the user's request and follows a read of private data in the same run."
     CriticalApprovalReason.RemoteVisionFirstSend ->
         "This is the first step of a remote-vision run; confirming it also approves sending this run's screenshots."
+    CriticalApprovalReason.TextHandedToExternalApp ->
+        "This step hands text to another app, and the text is sensitive or was composed after a read of private data."
 }
 
 /** [text] split for [ConfirmationBypassPolicy]'s typed-text check, after NFKC and lowercasing. */
@@ -139,8 +164,32 @@ internal class ConfirmationBypassPolicy(
                 !isTextFromUser(runId, request.arguments["text"].orEmpty()) ->
                 CriticalApprovalReason.TypedTextNotFromUser
             isRemoteVisionFirstSend(runId, request, spec) -> CriticalApprovalReason.RemoteVisionFirstSend
+            handsSensitiveOrTaintedTextToExternalApp(runId, request, spec) ->
+                CriticalApprovalReason.TextHandedToExternalApp
             else -> null
         }
+    }
+
+    /**
+     * Text to another app is egress too, and no other check covers it. A draft is confirmed when
+     * any free-text argument looks personal or secret, or when this run already read private data
+     * and the text is not the user's own wording. A draft built only from the user's words stays
+     * auto-approved.
+     */
+    private fun handsSensitiveOrTaintedTextToExternalApp(
+        runId: String,
+        request: ToolRequest,
+        spec: ToolSpec,
+    ): Boolean {
+        if (ToolPermission.SendsTextToExternalApp !in spec.permissions) return false
+        val textArguments = externalAppFreeTextArguments[request.toolName].orEmpty()
+            .mapNotNull { name -> request.arguments[name]?.takeIf(String::isNotBlank) }
+        if (textArguments.isEmpty()) return false
+        if (textArguments.any { text -> safetyPolicy.containsSensitivePersonalOrSecretContent(text) }) {
+            return true
+        }
+        return runReadPrivateData(runId, before = request.id) &&
+            !textArguments.all { text -> isTextFromUser(runId, text) }
     }
 
     /**

@@ -530,8 +530,14 @@ Current status:
   read (every ASCII letter or digit run must be a whole token of the request,
   so numbers and addresses appear in full; every CJK or other non-ASCII
   character must appear in the request; case, punctuation and whitespace are
-  ignored). An `Allow` plan with any of these reasons is raised to
-  `RequireConfirmation` in either mode.
+  ignored), text handed to another app (`share_text`, `compose_email`,
+  `compose_sms`, `create_calendar_event`, `create_contact_draft` — tools with
+  `ToolPermission.SendsTextToExternalApp`) whose free-text argument looks
+  personal or secret or, after such a read, is not the user's own wording, and
+  the first in-app step (`DeviceControl` / `ExternalNavigation`) of a
+  remote-vision run (confirming it approves that run's screenshots). An `Allow`
+  plan with any of these reasons is raised to `RequireConfirmation` in either
+  mode. A draft built only from the user's own words stays auto-approved.
   Rejections are never relaxed. Auto-run external launches complete as
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
