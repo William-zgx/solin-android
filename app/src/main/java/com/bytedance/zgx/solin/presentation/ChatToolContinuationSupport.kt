@@ -322,23 +322,18 @@ internal class ChatToolContinuationSupport(
                 rebuildMemoryIndex()
                 val toolBatch = (modelObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
                 if (toolBatch != null) {
-                    val observedForBatch = modelObservation ?: error("远程批量工具调用缺少 Agent observation")
                     uiState.updateLastAssistantLocalOnly(toolBatchAssistantText(partial, toolBatch))
                     persistActiveSessionFromUi()
-                    executePublicEvidenceToolBatchAfterRunIsExecuting(
-                        observedForBatch.run.id,
-                        toolBatch,
-                    )
+                    executePublicEvidenceToolBatchAfterRunIsExecuting(modelObservation.run.id, toolBatch)
                     return@launchGenerationJob
                 }
                 val nextToolPlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                 if (nextToolPlan != null) {
-                    val observedForPending = modelObservation ?: error("远程工具调用缺少 Agent observation")
                     val draftSource = if (useRemoteModel) "远程" else "模型"
                     uiState.updateLastAssistantLocalOnly(nextToolAssistantText(partial, nextToolPlan, draftSource))
                     persistActiveSessionFromUi()
                     handleNextToolPlan(
-                        observedForPending.run.id,
+                        modelObservation.run.id,
                         nextToolPlan,
                         "下一步动作待确认",
                     )

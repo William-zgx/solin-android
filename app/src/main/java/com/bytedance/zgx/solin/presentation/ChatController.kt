@@ -291,7 +291,7 @@ class ChatController internal constructor(
     fun allocateVoiceInputDraftId(): Long = ++nextVoiceInputDraftId
 
     fun cancelGenerationForTeardown(): Set<String> {
-        val runIds = activeRunIdsForTeardown()
+        val runIds = ownedRunIds(preparedChatExecutions.keys)
         uiState.value.activeSessionId
             ?.takeIf(String::isNotBlank)
             ?.let(::teardownSession)
@@ -305,16 +305,11 @@ class ChatController internal constructor(
     }
 
     fun teardownSession(sessionId: String) {
-        buildSet {
+        ownedRunIds(
             preparedChatExecutions
                 .filterValues { execution -> execution.stateBeforeSend.activeSessionId == sessionId }
-                .keys
-                .let(::addAll)
-            activeGenerationRunId?.let(::add)
-            remoteSendSupport.pendingContinuationRunId?.let(::add)
-            uiState.value.pendingConfirmation?.runId?.let(::add)
-            uiState.value.pendingExternalOutcome?.runId?.let(::add)
-        }.forEach { runId -> chatPlacementRuntime.stop(runId, AgentRunState.Cancelled) }
+                .keys,
+        ).forEach { runId -> chatPlacementRuntime.stop(runId, AgentRunState.Cancelled) }
         preparedChatRunCoordinator.teardownSession(sessionId)
         midRunSteering.clearSession(sessionId)
         preparedChatExecutions.entries.removeIf { (_, execution) ->
@@ -323,10 +318,11 @@ class ChatController internal constructor(
         deferredAudit.retainOnly(preparedChatExecutions::containsKey)
     }
 
-    private fun activeRunIdsForTeardown(): Set<String> =
+    /** [preparedRunIds] plus every run this controller is generating for or waiting on the user for. */
+    private fun ownedRunIds(preparedRunIds: Collection<String>): Set<String> =
         buildSet {
             activeGenerationRunId?.let(::add)
-            addAll(preparedChatExecutions.keys)
+            addAll(preparedRunIds)
             remoteSendSupport.pendingContinuationRunId?.let(::add)
             uiState.value.pendingConfirmation?.runId?.let(::add)
             uiState.value.pendingExternalOutcome?.runId?.let(::add)
@@ -510,14 +506,15 @@ class ChatController internal constructor(
                     }
                     return
                 }
-                RemoteSendPreflightDecision.RequireSensitiveContentConsent -> {
-                    // Tiered handling (P1): instead of hard-rejecting sensitive content, surface a
-                    // forced disclosure that offers graded choices — mask & send, send anyway
-                    // (audited), or cancel. This is always force-shown (fail-closed) and can never be
-                    // silenced by the session-suppression flag.
+                RemoteSendPreflightDecision.RequireSensitiveContentConsent,
+                RemoteSendPreflightDecision.RequireSendDisclosure,
+                -> {
+                    // Sensitive content gets a forced disclosure with graded choices (mask & send,
+                    // send anyway with audit, or cancel); the session-suppression flag never hides it.
+                    val sensitive = remoteDecision == RemoteSendPreflightDecision.RequireSensitiveContentConsent
                     showRemoteSendDisclosure(
                         remoteSendSupport.buildCurrentInputDisclosure(
-                            sensitive = true,
+                            sensitive = sensitive,
                             prompt = trimmed,
                             messagePrivacy = effectiveMessagePrivacy,
                             remoteConfig = remoteConfig,
@@ -525,7 +522,7 @@ class ChatController internal constructor(
                             imageAttachments = imageAttachments,
                             stateBeforeSend = stateBeforeSend,
                         ),
-                        statusText = "敏感内容待确认",
+                        statusText = if (sensitive) "敏感内容待确认" else "远程发送待确认",
                     )
                     return
                 }
@@ -542,21 +539,6 @@ class ChatController internal constructor(
                     uiState.update {
                         it.copy(statusText = "已保护敏感内容")
                     }
-                    return
-                }
-                RemoteSendPreflightDecision.RequireSendDisclosure -> {
-                    showRemoteSendDisclosure(
-                        remoteSendSupport.buildCurrentInputDisclosure(
-                            sensitive = false,
-                            prompt = trimmed,
-                            messagePrivacy = effectiveMessagePrivacy,
-                            remoteConfig = remoteConfig,
-                            remoteHistory = remoteHistory,
-                            imageAttachments = imageAttachments,
-                            stateBeforeSend = stateBeforeSend,
-                        ),
-                        statusText = "远程发送待确认",
-                    )
                     return
                 }
                 RemoteSendPreflightDecision.Proceed -> Unit
@@ -1154,7 +1136,7 @@ class ChatController internal constructor(
                 statusText = "处理中",
             )
         }
-        launchToolGenerationJob(runId) {
+        launchGenerationJob(runId) {
             if (!preparedChatRunCoordinator.confirmAndDispatch(runId, revision)) {
                 preparedChatExecutions.remove(runId, execution)
                 deferredAudit.discard(runId)
@@ -1291,10 +1273,6 @@ class ChatController internal constructor(
         generationSupport.finishStoppedGeneration(runId)
     }
 
-    fun launchToolGenerationJob(runId: String?, block: suspend () -> Unit) {
-        launchGenerationJob(runId) { block() }
-    }
-
     /**
      * Launches a job that streams a model turn (tool continuation). Only such jobs are registered for
      * steer cancellation, and only until [block] calls its `endModelCall` argument (right after the
@@ -1318,7 +1296,7 @@ class ChatController internal constructor(
         }
     }
 
-    private fun launchGenerationJob(runId: String?, block: suspend () -> Unit) {
+    fun launchGenerationJob(runId: String?, block: suspend () -> Unit) {
         activeGenerationRunId = runId
         val job = scope.launch(ioDispatcher, start = CoroutineStart.LAZY) { block() }
         trackGenerationJob(job)

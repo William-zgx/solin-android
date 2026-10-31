@@ -306,7 +306,7 @@ class SolinViewModel internal constructor(
         uiState = _uiState,
         ioDispatcher = ioDispatcher,
         isGenerationJobActive = { chatController.isGenerationJobActive },
-        launchToolGenerationJob = chatController::launchToolGenerationJob,
+        launchToolGenerationJob = chatController::launchGenerationJob,
         continueAfterToolObservation = { runId, promptForModel, responsePrivacy, remoteToolScope, remoteSendConfirmed ->
             chatController.continueAfterToolObservation(
                 runId = runId,
