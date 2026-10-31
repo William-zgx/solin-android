@@ -30,8 +30,6 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ModelCatalog
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
-import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_DESCRIPTION
 import com.bytedance.zgx.solin.ui.LOCAL_SETUP_PANEL_TITLE
 import com.bytedance.zgx.solin.ui.MODEL_STARTUP_BANNER_DESCRIPTION
@@ -46,8 +44,6 @@ internal fun FirstRunSetupPanel(
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
     onSkip: () -> Unit,
-    activeRunPlacement: RunPlacement? = null,
-    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     Surface(
         modifier = Modifier
@@ -67,8 +63,6 @@ internal fun FirstRunSetupPanel(
             )
             StatusSummaryRow(
                 state = state,
-                activeRunPlacement = activeRunPlacement,
-                activeRunPlacementReason = activeRunPlacementReason,
             )
             state.basicSetupModels.forEach { model ->
                 val selected = model.id in state.setupSelectedModelIds
@@ -141,20 +135,18 @@ internal fun FirstRunSetupPanel(
 @Composable
 internal fun StatusSummaryRow(
     state: ChatUiState,
-    activeRunPlacement: RunPlacement? = null,
-    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RuntimeStatusBadge(state, activeRunPlacement, activeRunPlacementReason)
+        RuntimeStatusBadge(state)
         Text(
             modifier = Modifier.weight(1f),
             text = listOfNotNull(
                 currentModelStatus(state),
-                activePlacementDisplayText(activeRunPlacement, activeRunPlacementReason),
+                activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason),
             ).joinToString(separator = "\n"),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -172,8 +164,6 @@ internal fun QuickModelSetup(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
-    activeRunPlacement: RunPlacement? = null,
-    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     val localModelIsLoading =
         state.inferenceMode != InferenceMode.Remote && state.modelPath != null && !state.isReady
@@ -247,7 +237,7 @@ internal fun QuickModelSetup(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                RuntimeStatusBadge(state, activeRunPlacement, activeRunPlacementReason)
+                RuntimeStatusBadge(state)
                 Text(
                     modifier = Modifier.weight(1f),
                     text = startupBannerTitle,

@@ -46,7 +46,6 @@ import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.R
 import com.bytedance.zgx.solin.label
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.ui.activePlacementDisplayText
@@ -65,8 +64,6 @@ internal fun ChatTopBar(
     onOpenSessions: () -> Unit,
     onOpenBackgroundTasks: () -> Unit,
     onCreateSession: () -> Unit,
-    activeRunPlacement: RunPlacement?,
-    activeRunPlacementReason: PlacementReasonCode?,
 ) {
     val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -144,8 +141,6 @@ internal fun ChatTopBar(
                     ),
                     state = state,
                     compact = compactTopBar,
-                    activeRunPlacement = activeRunPlacement,
-                    activeRunPlacementReason = activeRunPlacementReason,
                     onClick = onOpenModelManager,
                 )
                 TopActionButton(
@@ -214,17 +209,14 @@ internal fun ChatTopBar(
 
 /** Container/content colours for the model status chip and badge: busy, bound remote/local, or neutral. */
 @Composable
-private fun modelStatusColors(
-    state: ChatUiState,
-    active: Boolean,
-    activeRunPlacement: RunPlacement?,
-): Pair<Color, Color> {
+private fun modelStatusColors(state: ChatUiState): Pair<Color, Color> {
     val semanticColors = LocalSolinColors.current
+    val active = state.isReady && !state.isBusy
     return when {
         state.isBusy || state.isDownloading -> semanticColors.busyContainer to semanticColors.onBusyContainer
-        active && activeRunPlacement == RunPlacement.Remote ->
+        active && state.activeRunPlacement == RunPlacement.Remote ->
             semanticColors.remoteContainer to semanticColors.onRemoteContainer
-        active && activeRunPlacement == RunPlacement.Local ->
+        active && state.activeRunPlacement == RunPlacement.Local ->
             semanticColors.localContainer to semanticColors.onLocalContainer
         else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -236,11 +228,8 @@ internal fun CompactModelStatusChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    activeRunPlacement: RunPlacement? = null,
-    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
-    val active = state.isReady && !state.isBusy
-    val (container, content) = modelStatusColors(state, active, activeRunPlacement)
+    val (container, content) = modelStatusColors(state)
 
     Surface(
         onClick = onClick,
@@ -248,11 +237,7 @@ internal fun CompactModelStatusChip(
             .testTag("top_model_button")
             .semantics {
                 contentDescription = "模型管理"
-                stateDescription = compactModelStatus(
-                    state = state,
-                    activeRunPlacement = activeRunPlacement,
-                    activeRunPlacementReason = activeRunPlacementReason,
-                )
+                stateDescription = compactModelStatus(state)
             },
         shape = CircleShape,
         color = container,
@@ -271,9 +256,9 @@ internal fun CompactModelStatusChip(
             )
             Text(
                 text = if (compact) {
-                    compactModelStatusShort(state, activeRunPlacement, activeRunPlacementReason)
+                    compactModelStatusShort(state)
                 } else {
-                    compactModelStatus(state, activeRunPlacement, activeRunPlacementReason)
+                    compactModelStatus(state)
                 },
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
@@ -360,23 +345,20 @@ internal fun TopActionButton(
 @Composable
 internal fun RuntimeStatusBadge(
     state: ChatUiState,
-    activeRunPlacement: RunPlacement? = null,
-    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
-    val active = state.isReady && !state.isBusy
     val label = when {
         state.isDownloading -> state.downloadStatusLabel()
         state.isBusy -> "处理中"
-        activeRunPlacement == RunPlacement.Remote -> "本次远程"
-        activeRunPlacement == RunPlacement.Local -> "本次本地"
-        activeRunPlacementReason != null -> "本次已阻断"
+        state.activeRunPlacement == RunPlacement.Remote -> "本次远程"
+        state.activeRunPlacement == RunPlacement.Local -> "本次本地"
+        state.activeRunPlacementReason != null -> "本次已阻断"
         state.inferenceMode == InferenceMode.Remote -> "远程偏好"
         state.inferenceMode == InferenceMode.Auto -> "自动偏好"
         state.isReady -> "本地偏好"
         state.modelPath != null -> "可加载"
         else -> "待准备"
     }
-    val (container, content) = modelStatusColors(state, active, activeRunPlacement)
+    val (container, content) = modelStatusColors(state)
 
     Surface(
         shape = CircleShape,
@@ -407,22 +389,18 @@ internal fun RuntimeStatusBadge(
 
 private fun compactModelStatus(
     state: ChatUiState,
-    activeRunPlacement: RunPlacement?,
-    activeRunPlacementReason: PlacementReasonCode?,
 ): String = listOfNotNull(
     inferencePreferenceDisplayText(state.inferenceMode),
-    activePlacementDisplayText(activeRunPlacement, activeRunPlacementReason),
+    activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason),
 ).joinToString(separator = "；")
 
 internal fun compactModelStatusShort(
     state: ChatUiState,
-    activeRunPlacement: RunPlacement?,
-    activeRunPlacementReason: PlacementReasonCode?,
 ): String = when {
     state.isDownloading -> state.downloadStatusLabel()
-    activeRunPlacement == RunPlacement.Remote -> "${state.inferenceMode.label()}→远程"
-    activeRunPlacement == RunPlacement.Local -> "${state.inferenceMode.label()}→本地"
-    activeRunPlacementReason != null -> "${state.inferenceMode.label()}·阻断"
+    state.activeRunPlacement == RunPlacement.Remote -> "${state.inferenceMode.label()}→远程"
+    state.activeRunPlacement == RunPlacement.Local -> "${state.inferenceMode.label()}→本地"
+    state.activeRunPlacementReason != null -> "${state.inferenceMode.label()}·阻断"
     state.isBusy -> "${state.inferenceMode.label()}·处理中"
     else -> "${state.inferenceMode.label()}偏好"
 }

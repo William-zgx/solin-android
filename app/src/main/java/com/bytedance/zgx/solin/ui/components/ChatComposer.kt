@@ -112,8 +112,6 @@ internal fun Composer(
     onClearPendingSharedInput: (Long) -> Unit,
     onSend: () -> Unit,
     onStopGeneration: () -> Unit,
-    activeRunPlacement: RunPlacement?,
-    activeRunPlacementReason: PlacementReasonCode?,
 ) {
     val attachmentEnabled = !state.isBusy
     val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
@@ -129,8 +127,8 @@ internal fun Composer(
         state.statusText.isAgentExecutionOutcomeStatusText()
     val attachmentNotice = attachmentProtectionNotice(
         preference = state.inferenceMode,
-        actualPlacement = activeRunPlacement,
-        actualReason = activeRunPlacementReason,
+        actualPlacement = state.activeRunPlacement,
+        actualReason = state.activeRunPlacementReason,
     )
     Column(
         modifier = Modifier
@@ -191,8 +189,8 @@ internal fun Composer(
                 ComposerAttachmentButton(
                     contentDescription = attachmentContentDescription(
                         preference = state.inferenceMode,
-                        actualPlacement = activeRunPlacement,
-                        actualReason = activeRunPlacementReason,
+                        actualPlacement = state.activeRunPlacement,
+                        actualReason = state.activeRunPlacementReason,
                     ),
                     enabled = attachmentEnabled,
                     onClick = onPickSharedAttachment,

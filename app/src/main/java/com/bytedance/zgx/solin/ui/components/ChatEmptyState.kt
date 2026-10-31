@@ -26,8 +26,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
-import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.HOME_CAPABILITY_PILLS
 import com.bytedance.zgx.solin.ui.HOME_VALUE_PROPOSITIONS
 import com.bytedance.zgx.solin.ui.HomeValueKind
@@ -49,8 +47,6 @@ internal fun ChatEmptyState(
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
-    activeRunPlacement: RunPlacement?,
-    activeRunPlacementReason: PlacementReasonCode?,
 ) {
     val localModelIsLoading =
         state.inferenceMode != InferenceMode.Remote && state.modelPath != null && !state.isReady
@@ -84,8 +80,6 @@ internal fun ChatEmptyState(
                 onSetupModelToggled = onSetupModelToggled,
                 onDownloadSetupModels = onDownloadSetupModels,
                 onSkip = onSkipFirstRunSetup,
-                activeRunPlacement = activeRunPlacement,
-                activeRunPlacementReason = activeRunPlacementReason,
             )
         }
         Surface(
@@ -121,7 +115,7 @@ internal fun ChatEmptyState(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.isReady) {
-                    StatusSummaryRow(state, activeRunPlacement, activeRunPlacementReason)
+                    StatusSummaryRow(state)
                     PromptSuggestionList(
                         enabled = !state.isBusy,
                         onSendPrompt = onSendPrompt,
@@ -134,8 +128,6 @@ internal fun ChatEmptyState(
                         onPickModel = onPickModel,
                         onDownloadModel = onDownloadModel,
                         onCancelDownload = onCancelDownload,
-                        activeRunPlacement = activeRunPlacement,
-                        activeRunPlacementReason = activeRunPlacementReason,
                     )
                     HomeCapabilityPills()
                 }

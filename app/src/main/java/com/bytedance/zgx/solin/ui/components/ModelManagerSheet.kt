@@ -65,7 +65,6 @@ internal fun ModelManagerSheet(
     customModelUrl: String,
     onCustomModelUrlChanged: (String) -> Unit,
     onPickModel: () -> Unit,
-    onDownloadModel: () -> Unit,
     onDownloadRecommendedModel: (String) -> Unit,
     onDownloadCustomModel: (String) -> Unit,
     huggingFaceAccessTokenInput: String,

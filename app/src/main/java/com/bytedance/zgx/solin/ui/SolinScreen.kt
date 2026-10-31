@@ -64,8 +64,6 @@ import com.bytedance.zgx.solin.SpecialAccessRequirement
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
-import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 import com.bytedance.zgx.solin.data.DecisionModelRoutingState
@@ -145,8 +143,6 @@ fun SolinScreen(
     onVoiceInputConsumed: (Long) -> Unit,
     onStopGeneration: () -> Unit,
     resourceSampler: (suspend () -> SystemResourceSnapshot?)? = null,
-    activeRunPlacement: RunPlacement? = null,
-    activeRunPlacementReason: PlacementReasonCode? = null,
 ) {
     val pickModel = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImportModel)
@@ -205,8 +201,6 @@ fun SolinScreen(
                         showBackgroundTasks = true
                     },
                     onCreateSession = onCreateSession,
-                    activeRunPlacement = activeRunPlacement,
-                    activeRunPlacementReason = activeRunPlacementReason,
                 )
 
                 Box(
@@ -236,8 +230,6 @@ fun SolinScreen(
                             onSetupModelToggled = onSetupModelToggled,
                             onDownloadSetupModels = onDownloadSetupModels,
                             onSkipFirstRunSetup = onSkipFirstRunSetup,
-                            activeRunPlacement = activeRunPlacement,
-                            activeRunPlacementReason = activeRunPlacementReason,
                         )
                     } else {
                         LazyColumn(
@@ -328,8 +320,6 @@ fun SolinScreen(
                         }
                     },
                     onStopGeneration = onStopGeneration,
-                    activeRunPlacement = activeRunPlacement,
-                    activeRunPlacementReason = activeRunPlacementReason,
                 )
             }
 
@@ -344,7 +334,6 @@ fun SolinScreen(
                         customModelUrl = customModelUrl,
                         onCustomModelUrlChanged = { customModelUrl = it },
                         onPickModel = { pickModel.launch(arrayOf("*/*")) },
-                        onDownloadModel = onDownloadModel,
                         onDownloadRecommendedModel = onDownloadRecommendedModel,
                         onDownloadCustomModel = onDownloadCustomModel,
                         huggingFaceAccessTokenInput = huggingFaceAccessTokenInput,

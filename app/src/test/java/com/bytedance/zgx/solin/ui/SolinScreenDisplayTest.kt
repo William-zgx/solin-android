@@ -463,20 +463,22 @@ class SolinScreenDisplayTest {
         assertEquals(
             "自动→本地",
             compactModelStatusShort(
-                state = busyAuto,
-                activeRunPlacement = RunPlacement.Local,
-                activeRunPlacementReason = PlacementReasonCode.AUTO_SIMPLE_LOCAL,
+                busyAuto.copy(
+                    activeRunPlacement = RunPlacement.Local,
+                    activeRunPlacementReason = PlacementReasonCode.AUTO_SIMPLE_LOCAL,
+                ),
             ),
         )
         assertEquals(
             "自动→远程",
             compactModelStatusShort(
-                state = busyAuto,
-                activeRunPlacement = RunPlacement.Remote,
-                activeRunPlacementReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+                busyAuto.copy(
+                    activeRunPlacement = RunPlacement.Remote,
+                    activeRunPlacementReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+                ),
             ),
         )
-        assertEquals("自动·处理中", compactModelStatusShort(busyAuto, null, null))
+        assertEquals("自动·处理中", compactModelStatusShort(busyAuto))
     }
 
     @Test
@@ -506,16 +508,19 @@ class SolinScreenDisplayTest {
     }
 
     @Test
-    fun mainActivityPassesActualRunPlacementIntoSolinScreen() {
-        val source = listOf(
-            File("src/main/java/com/bytedance/zgx/solin/MainActivity.kt"),
-            File("app/src/main/java/com/bytedance/zgx/solin/MainActivity.kt"),
-        ).first { it.isFile }.readText()
+    fun statusSurfacesReadActualRunPlacementFromUiState() {
+        val source = listOf("ChatComposer.kt", "ChatTopBar.kt", "FirstRunSetupPanel.kt").joinToString("\n") { name ->
+            listOf(
+                File("src/main/java/com/bytedance/zgx/solin/ui/components/$name"),
+                File("app/src/main/java/com/bytedance/zgx/solin/ui/components/$name"),
+            ).first { it.isFile }.readText()
+        }
 
         assertContainsAll(
             source,
-            "activeRunPlacement = state.activeRunPlacement",
-            "activeRunPlacementReason = state.activeRunPlacementReason",
+            "actualPlacement = state.activeRunPlacement",
+            "actualReason = state.activeRunPlacementReason",
+            "activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason)",
         )
     }
 
