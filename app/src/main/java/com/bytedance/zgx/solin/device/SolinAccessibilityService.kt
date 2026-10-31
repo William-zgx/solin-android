@@ -87,7 +87,7 @@ private const val TAP_GESTURE_STROKE_DURATION_MILLIS = 80L
 
 /** Grace added to a gesture's own duration before we stop waiting for its result callback. */
 private const val GESTURE_CALLBACK_GRACE_MILLIS = 500L
-private val deviceControlTask = ThreadLocal<DeviceControlTaskLease?>()
+private val deviceControlTask = ThreadLocal<DeviceControlTaskCoordinator.Lease?>()
 
 /**
  * What the framework reported about one dispatched gesture.
@@ -1605,7 +1605,7 @@ class SolinAccessibilityService : AccessibilityService() {
         }
 
         private fun showControlProgress(
-            task: DeviceControlTaskLease,
+            task: DeviceControlTaskCoordinator.Lease,
             service: SolinAccessibilityService,
             message: String,
         ) {
@@ -1621,7 +1621,7 @@ class SolinAccessibilityService : AccessibilityService() {
         }
 
         private fun <T> runDeviceControlWithTimeout(
-            task: DeviceControlTaskLease,
+            task: DeviceControlTaskCoordinator.Lease,
             timeoutMillis: Long,
             fallback: () -> T,
             operation: () -> T,
@@ -1651,7 +1651,7 @@ class SolinAccessibilityService : AccessibilityService() {
         }
 
         private fun runDeviceControlWithTimeout(
-            task: DeviceControlTaskLease,
+            task: DeviceControlTaskCoordinator.Lease,
             timeoutMillis: Long,
             operation: () -> UiActionReadResult,
         ): UiActionReadResult =
