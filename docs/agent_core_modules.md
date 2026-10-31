@@ -195,6 +195,18 @@ Current status:
   `device/AccessibilityRawScreenshotProvider.kt`.
 - Run-level step and observation budgets fail closed before another pending
   confirmation, retry, replan, or model continuation is saved.
+- **User text is never truncated by compaction.** History compaction
+  (`orchestration/ContextCompactor.kt`) and observation-replanner prompt
+  compression (`orchestration/ObservationReplannerPromptCompression.kt`)
+  shorten or drop only assistant text, tool observations, and summaries. The
+  original request, steer and queue messages, and ask_user answers stay
+  byte-identical. If user messages alone exceed the budget, the first request
+  and the most recent user message are kept in full, and every user message in
+  between is replaced by one line, `[较早的用户消息已省略：N 条，共 M 字]`.
+  No message is cut mid-way, so the result may exceed the budget. A recovery
+  check runs after every compaction and puts back, at its original position,
+  any user message or user-text prompt line that went missing. A summary or
+  omission line is `LocalOnly` when any message it covers is.
 - **Concurrency safety**: All 8 internal `mutableMapOf` fields in `AgentLoopRuntime` are now `ConcurrentHashMap` for safe multi-coroutine access.
 
 Tests:

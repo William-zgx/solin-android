@@ -2,9 +2,11 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.MessageKind
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -21,11 +23,16 @@ class DefaultContextCompactorTest {
     private fun user(text: String) = msg(MessageRole.User, text)
     private fun asst(text: String) = msg(MessageRole.Assistant, text)
 
-    /** Build a conversation of `turnCount` user-assistant pairs, each of length ~`charsPerMsg`. */
-    private fun history(turnCount: Int, charsPerMsg: Int = 80): List<ChatMessage> = buildList {
+    /**
+     * Build a conversation of `turnCount` user-assistant pairs, each of length ~`charsPerMsg`.
+     * [userChars] sizes user messages separately: user text is never shortened, so tests about
+     * shrinking assistant/tool content use short user messages.
+     */
+    private fun history(turnCount: Int, charsPerMsg: Int = 80, userChars: Int = charsPerMsg): List<ChatMessage> = buildList {
         val payload = "x".repeat(charsPerMsg)
+        val userPayload = "x".repeat(userChars)
         repeat(turnCount) { i ->
-            add(user("[u$i] $payload"))
+            add(user("[u$i] $userPayload"))
             add(asst("[a$i] $payload"))
         }
     }
@@ -77,15 +84,15 @@ class DefaultContextCompactorTest {
         val config = CompactionConfig(preserveRecentTurns = 2)
         val compactor = DefaultContextCompactor(config)
 
-        // Build history with long middle messages so compaction saves significant tokens.
-        // 10 turns (20 msgs), payload length 500 chars each ≈ 126 tokens/msg.
-        val messages = history(turnCount = 10, charsPerMsg = 500)
+        // Build history with long assistant messages so compaction saves significant tokens.
+        // 10 turns (20 msgs): assistant 600 chars ≈ 151 tokens, user ≈ 4 tokens (kept verbatim).
+        val messages = history(turnCount = 10, charsPerMsg = 600, userChars = 10)
         val tailExpected = messages.takeLast(4)
         val before = charEstimator(messages)
 
         // Choose budget such that:
-        //   - before (~2520) > 0.85*budget  => triggers compaction
-        //   - after (summary + 4-tail, ~1100 tokens) <= 0.85*budget  => fits
+        //   - before (~1550) > 0.85*budget  => triggers compaction
+        //   - after (summary + middle users + 4-tail, ~560 tokens) <= 0.85*budget  => fits
         val budget = 1500
         val threshold = (budget * config.compactionThresholdRatio).toInt()
         assertTrue(
@@ -194,7 +201,7 @@ class DefaultContextCompactorTest {
         // still over budget and the aggressive-truncation fallback runs. The failure must survive.
         val messages = buildList {
             add(failure)
-            addAll(history(turnCount = 20, charsPerMsg = 500))
+            addAll(history(turnCount = 20, charsPerMsg = 500, userChars = 10))
         }
         // Budget so tight that the summarize loop cannot fit -> fallback truncation path executes.
         val budget = 200
@@ -294,7 +301,7 @@ class DefaultContextCompactorTest {
         val compactor = DefaultContextCompactor(config)
 
         // Build a medium history.
-        val messages = history(turnCount = 12, charsPerMsg = 80)
+        val messages = history(turnCount = 12, charsPerMsg = 160, userChars = 8)
         val estimated = charEstimator(messages)
         // Set budget so estimated ~= 0.75 * budget (above 0.5 threshold, below budget).
         val budget = (estimated / 0.75).toInt()
@@ -339,7 +346,7 @@ class DefaultContextCompactorTest {
         )
         val messages = buildList {
             add(failure)
-            addAll(history(turnCount = 25, charsPerMsg = 400))
+            addAll(history(turnCount = 25, charsPerMsg = 400, userChars = 10))
         }
         val budget = 150
 
@@ -406,5 +413,166 @@ class DefaultContextCompactorTest {
             nonAdditive(result.messages),
             result.tokensAfter,
         )
+    }
+
+    // ── User-text invariant ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun constraintAtTheEndOfALongMiddleUserMessageSurvivesSummarization() = runTest {
+        val config = CompactionConfig(preserveRecentTurns = 2)
+        val request = user("帮我把这周的周报整理一下，" + "包括项目进展和风险。".repeat(30) + "但不要发送")
+        val messages = buildList {
+            add(request)
+            add(asst("好的。" + "a".repeat(800)))
+            addAll(history(turnCount = 8, charsPerMsg = 600, userChars = 10))
+        }
+        val budget = 1500
+        assertTrue("setup must trigger compaction", charEstimator(messages) > (budget * 0.85).toInt())
+        assertTrue("setup: request is longer than the old 200-char snippet", request.text.length > 200)
+
+        val result = DefaultContextCompactor(config).compact(messages, budget, charEstimator)
+
+        assertTrue("compaction must have run", result.compactionCount > 0)
+        assertTrue("request must survive byte-identical", result.messages.contains(request))
+        assertTrue(result.messages.first { it.role == MessageRole.User }.text.endsWith("但不要发送"))
+        assertTrue(
+            "the summary must not repeat user text",
+            result.messages.none { it.role == MessageRole.Assistant && "但不要发送" in it.text },
+        )
+    }
+
+    @Test
+    fun userTextAloneOverBudgetKeepsFirstAndLatestAndReplacesTheRestWithOneLine() = runTest {
+        val first = user("第一条请求：只看不要改。" + "q".repeat(300))
+        val middle = (1..3).map { i -> user("中间消息$i " + "m".repeat(200 + i)) }
+        val latest = user("最新消息：但不要发送。" + "z".repeat(300))
+        val messages = buildList {
+            add(first)
+            add(asst("a".repeat(400)))
+            middle.forEach { message ->
+                add(message)
+                add(asst("b".repeat(400)))
+            }
+            add(latest)
+        }
+
+        val result = DefaultContextCompactor(CompactionConfig(preserveRecentTurns = 2))
+            .compact(messages, tokenBudget = 220, charEstimator)
+
+        val expectedLine = omissionLineText(
+            omittedCount = 3,
+            omittedChars = middle.sumOf { it.text.codePointCount(0, it.text.length) },
+        )
+        assertEquals(listOf(first, result.messages[1], latest), result.messages)
+        assertEquals(expectedLine, result.messages[1].text)
+        assertEquals(MessageRole.User, result.messages[1].role)
+        assertEquals(CompactionTrigger.OverBudget, result.triggerReason)
+        assertEquals("every assistant message and the 3 middle user messages", 7, result.compactionCount)
+    }
+
+    @Test
+    fun forcedZeroBudgetKeepsTheFirstRequestAndTheLatestUserMessageWhole() = runTest {
+        val messages = history(turnCount = 8, charsPerMsg = 300)
+        val firstUser = messages.first()
+        val latestUser = messages.last { it.role == MessageRole.User }
+
+        val result = DefaultContextCompactor().compact(messages, tokenBudget = 0, charEstimator)
+
+        assertEquals(3, result.messages.size)
+        assertSame(firstUser, result.messages[0])
+        assertEquals(6, result.messages[1].omittedUserMessageCount())
+        assertSame(latestUser, result.messages[2])
+    }
+
+    @Test
+    fun omissionLineAndSummaryAreLocalOnlyWhenTheirSourcesAre() = runTest {
+        val privateReply = ChatMessage(
+            role = MessageRole.Assistant,
+            text = "剪贴板内容：" + "p".repeat(600),
+            privacy = MessagePrivacy.LocalOnly,
+        )
+        val summarized = buildList {
+            add(user("hi"))
+            add(privateReply)
+            addAll(history(turnCount = 8, charsPerMsg = 600, userChars = 10))
+        }
+        val summary = DefaultContextCompactor(CompactionConfig(preserveRecentTurns = 2))
+            .compact(summarized, tokenBudget = 1500, charEstimator)
+            .messages
+            .single { "summary" in it.text.lowercase() }
+        assertEquals(MessagePrivacy.LocalOnly, summary.privacy)
+
+        val privateUser = ChatMessage(role = MessageRole.User, text = "m".repeat(400), privacy = MessagePrivacy.LocalOnly)
+        val omitted = listOf(user("first " + "f".repeat(400)), privateUser, user("last " + "l".repeat(400)))
+        val line = DefaultContextCompactor().compact(omitted, tokenBudget = 0, charEstimator).messages[1]
+        assertEquals(1, line.omittedUserMessageCount())
+        assertEquals(MessagePrivacy.LocalOnly, line.privacy)
+    }
+
+    // ── Recovery check ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun recoveryReinsertsAMissingUserMessageAtItsOriginalPosition() {
+        val original = listOf(user("u0"), asst("a0"), user("u1 但不要发送"), asst("a1"), user("u2"), asst("a2"))
+        val compacted = listOf(original[0], original[1], original[3], original[4], original[5])
+
+        val restored = restoreMissingUserMessages(original, compacted)
+
+        assertEquals(original, restored)
+    }
+
+    @Test
+    fun recoveryReplacesATruncatedCopyWithTheOriginal() {
+        val steer = user("改成明天下午三点，只看不要改")
+        val original = listOf(user("u0"), asst("a0"), steer, asst("a1"))
+        val truncated = steer.copy(text = steer.text.take(5))
+        val compacted = listOf(original[0], original[1], truncated, original[3])
+
+        val restored = restoreMissingUserMessages(original, compacted)
+
+        assertEquals(original, restored)
+    }
+
+    @Test
+    fun recoveryLeavesUserMessagesCoveredByAMatchingOmissionLine() {
+        val original = listOf(user("u0"), user("u1"), user("u2"), user("u3"))
+        val line = ChatMessage(role = MessageRole.User, text = omissionLineText(2, 4))
+        val compacted = listOf(original[0], line, original[3])
+
+        assertSame(compacted, restoreMissingUserMessages(original, compacted, omittedIndices = setOf(1, 2)))
+    }
+
+    @Test
+    fun recoveryFailsClosedWhenTheOmissionLineIsAbsentOrDisagrees() {
+        val original = listOf(user("u0"), user("u1"), user("u2"), user("u3"))
+
+        val withoutLine = listOf(original[0], original[3])
+        assertEquals(original, restoreMissingUserMessages(original, withoutLine, omittedIndices = setOf(1, 2)))
+
+        val wrongCount = listOf(original[0], ChatMessage(role = MessageRole.User, text = omissionLineText(1, 2)), original[3])
+        val restored = restoreMissingUserMessages(original, wrongCount, omittedIndices = setOf(1, 2))
+        assertTrue(restored.containsAll(original))
+    }
+
+    @Test
+    fun recoveryNeverExcusesTheFirstOrLatestUserMessage() {
+        val original = listOf(user("first"), asst("a"), user("mid"), user("latest"))
+        val line = ChatMessage(role = MessageRole.User, text = omissionLineText(2, 9))
+        val compacted = listOf(line, original[1], original[2])
+
+        val restored = restoreMissingUserMessages(original, compacted, omittedIndices = setOf(0, 3))
+
+        assertTrue("first request restored", original[0] in restored)
+        assertTrue("first request back before what followed it", restored.indexOf(original[0]) < restored.indexOf(original[1]))
+        assertEquals(original[3], restored.last())
+    }
+
+    @Test
+    fun recoveryReturnsTheSameListWhenNothingIsMissing() {
+        val original = listOf(user("u0"), asst("a0"), user("u1"))
+        val compacted = listOf(ChatMessage(role = MessageRole.Assistant, text = "Previous conversation summary: a0"), original[0], original[2])
+
+        assertSame(compacted, restoreMissingUserMessages(original, compacted))
+        assertFalse(restoreMissingUserMessages(original, compacted).contains(original[1]))
     }
 }
