@@ -23,7 +23,8 @@ Always read only:
 Then read only what the task touches:
 
 - `docs/agent_core_modules.md` for Agent, tool, or lifecycle changes
-- `docs/optimization_plan_weaknesses.md` for structural or parallel work
+- `docs/architecture_depth.md` for structural, gate, or safety-rule work
+- `docs/optimization_plan_weaknesses.md` for parallel-work history and ownership
 - `docs/privacy_notice.md` for privacy-boundary changes
 - The relevant file under `docs/plans/` or the active feature specification
 
@@ -81,18 +82,23 @@ Scripts: `scripts/`. Docs: `docs/`.
 6. **No secrets in Git** — no API keys, HF tokens, keystores, model weights,
    user data, or release artifacts committed.
 
-## God objects — extract, do not grow
+## Deepen, do not scatter
 
-Do **not** add large new logic into these hotspots:
+The architecture goal is few, deep modules, and safety sits behind two gates
+(egress and action). The owner document is `docs/architecture_depth.md`: goals,
+threat model, and measures. Read it before any structural change.
 
-| File | Role | Instead |
-| --- | --- | --- |
-| `SolinViewModel.kt` | presentation facade | extract controllers / pure helpers under `presentation/` or existing `memory/` |
-| `SolinScreen.kt` | UI shell | extract leaf composables under `ui/components/` (or surface packages) |
-| `AgentLoopRuntime.kt` | orchestration facade | extract routing/budget/policy collaborators under `orchestration/` |
-
-Prefer thin facades that forward to focused collaborators. Incremental,
-behavior-preserving moves only — no Big Bang rewrites.
+- Prefer merging a pass-through class (one that only forwards to a single
+  collaborator) into its caller or callee over adding a new file. A new file
+  must hide real logic behind a smaller interface than the code it replaces.
+- One gate per invariant: when a check moves into a gate, delete the old check
+  in the same change.
+- Every safety rule names the threat it defends against
+  (`docs/architecture_depth.md`).
+- Do not add large new logic to `SolinViewModel.kt`, `SolinScreen.kt` or
+  `AgentLoopRuntime.kt`. Their line watermarks in the architecture tests are a
+  growth guard, not a goal. Do not split them only to lower a line count.
+- Incremental, behavior-preserving moves only — no Big Bang rewrites.
 
 ## Parallel change ownership
 

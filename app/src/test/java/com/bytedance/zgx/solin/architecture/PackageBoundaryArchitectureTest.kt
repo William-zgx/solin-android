@@ -160,7 +160,7 @@ class PackageBoundaryArchitectureTest {
 
     @Test
     fun godObjectFilesMustStayUnderHighWatermarks() {
-        // Soft growth guard: keep this close to current reality; tighten as each split lands.
+        // Growth guard only (docs/architecture_depth.md): depth, not file size, is the goal.
         val limits = listOf(
             GodObjectLimit(
                 relativePath = "SolinViewModel.kt",
@@ -185,7 +185,7 @@ class PackageBoundaryArchitectureTest {
             val lines = ProductionSourceScanner.lineCount(file)
             if (lines > limit.maxLines) {
                 "${limit.relativePath}: $lines lines exceeds max ${limit.maxLines} " +
-                    "(split further before growing this god object)"
+                    "(move logic into a deep module instead of growing this file)"
             } else {
                 null
             }
@@ -195,6 +195,20 @@ class PackageBoundaryArchitectureTest {
             fail(
                 "God-object size guard failed:\n" +
                     failures.joinToString(separator = "\n") { " - $it" },
+            )
+        }
+    }
+
+    @Test
+    fun productionFileCountOnlyGoesDown() {
+        // Depth ratchet (docs/architecture_depth.md): merge pass-through files instead of adding
+        // new ones. Lower this number whenever a change removes files; never raise it without a
+        // new file that hides real logic behind a smaller interface than the code it replaced.
+        val count = ProductionSourceScanner.kotlinFilesUnder("").size
+        if (count > MAX_PRODUCTION_KOTLIN_FILES) {
+            fail(
+                "Production Kotlin files: $count exceeds the depth ratchet $MAX_PRODUCTION_KOTLIN_FILES. " +
+                    "Merge a pass-through file instead of adding one (docs/architecture_depth.md).",
             )
         }
     }
@@ -243,6 +257,10 @@ class PackageBoundaryArchitectureTest {
         val description: String,
         val matches: (String) -> Boolean,
     )
+
+    private companion object {
+        const val MAX_PRODUCTION_KOTLIN_FILES = 331
+    }
 
     private data class GodObjectLimit(
         val relativePath: String,

@@ -20,6 +20,7 @@ flowchart TD
     Need --> AgentStart["Coding agent onboarding"]
 
     Plans --> PlansDir["plans/"]
+    Plans --> Depth["architecture_depth.md"]
     Plans --> Weaknesses["optimization_plan_weaknesses.md"]
     Specs --> SpecsDir["specs/"]
     Adaptive --> AdaptiveStatus["specs/20260718-adaptive-edge-inference/status.md"]
@@ -30,6 +31,7 @@ flowchart TD
     Explain --> Privacy["privacy_notice.md"]
     Architecture --> Core["agent_core_modules.md"]
     Architecture --> Routing["intent_routing_skill_arbitration.md"]
+    Architecture --> Depth
     Architecture --> Weaknesses
     ScreenOps --> Core
     ScreenOps --> Phone["phone_acceptance.md"]
@@ -50,9 +52,10 @@ flowchart TD
 | Document | Role | Keep it focused on |
 | --- | --- | --- |
 | `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, how to build, where to go next |
-| `../AGENTS.md` | Coding-agent harness protocol | Must-read docs, code roots, non-negotiables, god objects, validation, Wave ownership |
+| `../AGENTS.md` | Coding-agent harness protocol | Must-read docs, code roots, non-negotiables, deepen-not-scatter rule, validation, Wave ownership |
 | `../Guidebook.md` | Short architecture index | Human/agent map into `docs/` and code packages |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
+| `architecture_depth.md` | Architecture goals | Deep-module direction, egress and action gates, threat model, depth measures |
 | `optimization_plan_weaknesses.md` | Structural debt & Wave plan | Known weaknesses, thin-facade target, multi-agent file ownership, Wave metrics |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_driven_app_control_multi_agent_plan.md` | Model-driven app control plan | Multi-agent development split, runtime observe-act contract, acceptance |

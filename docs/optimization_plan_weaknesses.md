@@ -1,5 +1,7 @@
 # 针对已知缺点的优化方案（可执行版）
 
+> 2026-10-31 起，架构方向改为“更少、更深的模块”，以 `architecture_depth.md` 为准。本文记录 Wave 1–6 的历史与所有权规则；其中“瘦 facade / 继续拆分”的目标不再适用。
+
 > 状态：Wave 1–6 已完成（见 §20–§22 战役总结）
 > 关联：`docs/plans/viewmodel-split.md`、`solin-screen-split.md`、`uistate-split.md`、`data-layer-suspend-migration.md`
 > 目标：把「安全 harness 很强、热点文件不可演进」的债务，变成可并行交付的结构改进。
