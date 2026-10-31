@@ -579,6 +579,42 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStorePersistsKnownToolFailureKindAndDropsUnknownValues() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-failure-kind" },
+        )
+        val run = store.createRun("tap send")
+        listOf(
+            "request-known" to "dangerous_action",
+            "request-unknown" to "SECRET free text from the screen",
+        ).forEach { (requestId, failureKind) ->
+            store.appendStep(
+                run.id,
+                AgentStep.ToolObserved(
+                    ToolResult(
+                        requestId = requestId,
+                        status = ToolStatus.Failed,
+                        summary = "需要你亲自操作",
+                        data = mapOf("failureKind" to failureKind),
+                    ),
+                ),
+            )
+        }
+
+        val restarted = RoomAgentTraceStore(traceDao = dao)
+        val restored = restarted.steps(run.id).map { step -> JSONObject((step as AgentStep.RestoredSummary).json) }
+
+        assertEquals(
+            "dangerous_action",
+            restored[0].getJSONObject("completionMetadata").getString("failureKind"),
+        )
+        assertFalse(restored[1].has("completionMetadata"))
+        assertFalse(restored.joinToString().contains("SECRET"))
+    }
+
+    @Test
     fun roomStorePersistsExternalOutcomeConfirmationWithAllowlistedMetadataOnly() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(

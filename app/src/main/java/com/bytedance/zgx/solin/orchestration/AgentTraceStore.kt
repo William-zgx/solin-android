@@ -8,6 +8,7 @@ import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.AgentTraceDao
 import com.bytedance.zgx.solin.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.skill.SkillBackgroundExecution
 import com.bytedance.zgx.solin.skill.SkillBackgroundWork
@@ -71,7 +72,11 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "targetUriScheme",
     "recoveryTaskId",
     "recoveryToolName",
+    "failureKind",
 )
+
+/** `failureKind` is persisted only as a known enum value, so no free text can enter the trace. */
+private val persistableFailureKinds = UiActionFailureKind.entries.mapTo(hashSetOf()) { it.schemaValue }
 
 private const val REDACTED_AGENT_RUN_INPUT = "[redacted]"
 private const val UNRESTORABLE_PENDING_CONFIRMATION_REASON =
@@ -1324,7 +1329,9 @@ private fun JSONObject.toStringListMap(): Map<String, List<String>> =
 private fun Map<String, String>.allowlistedCompletionMetadataJson(): JSONObject {
     val json = JSONObject()
     toolObservedCompletionMetadataAllowlist.forEach { key ->
-        this[key]?.takeIf { value -> value.isNotBlank() }?.let { value ->
+        this[key]?.takeIf { value -> value.isNotBlank() }
+            ?.takeIf { value -> key != "failureKind" || value in persistableFailureKinds }
+            ?.let { value ->
             json.put(key, value.shortTraceText())
         }
     }
