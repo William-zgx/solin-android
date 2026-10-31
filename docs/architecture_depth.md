@@ -107,13 +107,62 @@ stay only as a growth guard.
 - Independent review of gate changes; a human security reviewer for payment
   and privacy rules before any release.
 
+## Current gate map (2026-10-31)
+
+Where the rules live today, before consolidation. Paths are under
+`app/src/main/java/com/bytedance/zgx/solin/`.
+
+**Action rule ("never activate a critical control") is decided in four layers,
+each failing in a different direction:**
+
+| Layer | Where | Input | On unreadable screen |
+| --- | --- | --- | --- |
+| Replan evidence guard | `orchestration/ObservationReplannerEvidenceGuards.kt` | stale observation JSON; local action model only | n/a |
+| Executor preflight (DangerScope) | `tool/DeviceControlToolExecutor.kt` | fresh snapshot | open for named targets, closed otherwise |
+| Live guard | `device/CriticalTapGuard.kt` via `SolinAccessibilityService` | live windows, right before the gesture | closed |
+| Scroll-fallback / overlay checks | `device/SolinAccessibilityService.kt` | live windows | closed |
+
+The IME enter/submit action does not pass the live guard.
+
+**Egress rule ("private data does not leave without approval") has four
+partial implementations of the sensitive-text check:**
+
+| Check | Covers |
+| --- | --- |
+| `SafetyPolicy` sensitive query | `web_search` only |
+| `ConfirmationBypassPolicy` network argument + run taint | `web_search`, `search_maps`, `open_deep_link`; typed text |
+| `DecisionModelPlacementPolicy.mayLeaveDevice` | router text |
+| Chat send preflight | first remote chat turn |
+
+Not covered: remote tool-result continuation, remote vision intent and
+screen text, and text handed to other apps (`share_text`, `compose_email`,
+SMS / calendar / contact drafts). Remote-send audit entries exist for remote
+chat, remote vision, the router and MCP, but not for web search or intents.
+
+**Provenance** is lost at `ToolRequest.arguments` (plain strings). Private
+results are folded into the next model prompt, and the model's next arguments
+carry no label, so the egress checks fall back to run-level taint and a
+token-subset match against the user's input.
+
+## Migration order
+
+1. Egress gate: one `EgressGate.decide(sink, payload, provenance)` called by
+   every sink in the table above; the four sensitive-text checks and the
+   network-argument taint move into it. Extends coverage to the uncovered
+   sinks (stricter only).
+2. Action gate: the live guard becomes the only allow/refuse decision; the
+   executor preflight and replan guard keep early refusal only, with the
+   shared rule called from one place. IME actions go through the gate.
+3. Provenance: tool results carry origin labels through `ToolRequest`, so run
+   taint is replaced by per-argument labels.
+
 ## Status
 
 | Item | State |
 | --- | --- |
 | Goals, threat model, measures | This document |
 | Benchmark baseline | Pending: no device attached (2026-10-31) |
-| Gate map (current checkpoints) | In progress |
+| Gate map (current checkpoints) | Recorded above |
 | Action gate consolidation | Not started |
 | Egress gate consolidation | Not started |
 | Provenance labels | Not started |
