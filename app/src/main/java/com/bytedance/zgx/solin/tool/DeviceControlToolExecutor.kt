@@ -15,6 +15,7 @@ import com.bytedance.zgx.solin.device.SearchResultVerification
 import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
+import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.UiActionReadResult
 import com.bytedance.zgx.solin.device.UiActionStatus
@@ -22,6 +23,7 @@ import com.bytedance.zgx.solin.device.UiScrollDirection
 import com.bytedance.zgx.solin.device.UiSystemKey
 import com.bytedance.zgx.solin.device.DEFAULT_UI_GESTURE_DURATION_MILLIS
 import com.bytedance.zgx.solin.device.DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
+import com.bytedance.zgx.solin.device.MAX_UI_ACTION_TIMEOUT_MILLIS
 import com.bytedance.zgx.solin.device.blockingOverlayDismissTarget
 import com.bytedance.zgx.solin.device.hasBlockingOverlay
 import com.bytedance.zgx.solin.device.hasDangerousActionControl
@@ -682,6 +684,18 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
     ): ToolResult {
+        UiWaitCondition.fromArguments(request.arguments)?.let { condition ->
+            return executeConditionWait(request, provider, condition)
+        }
+        // The registry rejects this first; repeated so a direct executor call cannot exceed the old ceiling.
+        uiWaitArgumentInvariant(request.arguments)?.let { reason ->
+            return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = request.deviceControlBaseData(),
+            )
+        }
         val result = provider.waitForScreen(timeoutMillis = request.timeoutMillis())
             .withExpectedForegroundPackageVerification(request)
         val verification = result.searchVerificationFor(request)
@@ -691,6 +705,66 @@ class DeviceControlToolExecutor(
             target = "",
             result = result.withSearchVerification(verification),
             extraData = verification.toData(),
+        )
+    }
+
+    /**
+     * `ui_wait` with expectText / expectGoneText / expectPackage: polls the live snapshot (read-only,
+     * no tap or type) until the condition holds, then applies the same foreground and search
+     * verification as the plain wait. A timeout, app switch or new dialog fails the tool, and the
+     * result always reports `conditionMet`.
+     */
+    private fun executeConditionWait(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+        condition: UiWaitCondition,
+    ): ToolResult {
+        // No dispatcher, for the same reason as executeObserve: delay suspends on this thread's loop.
+        val outcome = runBlocking {
+            awaitUiWaitCondition(
+                condition = condition,
+                guardPackage = request.expectedForegroundPackageName(),
+                observe = {
+                    provider.observeCurrentScreen(
+                        maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                        maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+                    )
+                },
+                clock = System::currentTimeMillis,
+                sleep = { millis -> delay(millis) },
+            )
+        }
+        val met = outcome.stop == UiWaitStop.Met
+        val (summary, failureKind, retryable) = when (outcome.stop) {
+            UiWaitStop.Met -> Triple("等待条件已满足", null, false)
+            UiWaitStop.Timeout ->
+                Triple("等待 ${condition.timeoutMillis}ms 后条件仍未满足", UiActionFailureKind.Timeout, true)
+            UiWaitStop.AppSwitched ->
+                Triple("等待期间前台应用已切换，已停止等待。", UiActionFailureKind.AppNotForeground, false)
+            UiWaitStop.DialogAppeared ->
+                Triple("等待期间出现了弹窗或浮层，已停止等待。", UiActionFailureKind.PageChanged, true)
+            UiWaitStop.PermissionDenied ->
+                return request.deviceControlPermissionDenied(outcome.reason.orEmpty())
+            UiWaitStop.PermissionMissing ->
+                Triple(outcome.reason ?: "无障碍权限缺失", UiActionFailureKind.PermissionMissing, false)
+        }
+        val waited = UiActionReadResult.Available(
+            UiActionExecutionResult(
+                status = if (met) UiActionStatus.Succeeded else UiActionStatus.Failed,
+                before = outcome.first,
+                after = outcome.last,
+                summary = summary,
+                retryable = retryable,
+                failureKind = failureKind,
+            ),
+        ).withExpectedForegroundPackageVerification(request)
+        val verification = waited.searchVerificationFor(request)
+        return actionResult(
+            request = request,
+            actionType = "wait",
+            target = "",
+            result = waited.withSearchVerification(verification),
+            extraData = verification.toData() + mapOf("conditionMet" to met.toString()),
         )
     }
 
@@ -1105,3 +1179,145 @@ private sealed interface DangerScope {
     /** Submit, Enter, swipe and long-press can commit anything on screen (Enter sends a chat). */
     data object WholeScreen : DangerScope
 }
+
+internal const val UI_WAIT_CONDITION_DEFAULT_TIMEOUT_MILLIS = 8_000L
+internal const val UI_WAIT_CONDITION_MIN_TIMEOUT_MILLIS = 500L
+internal const val UI_WAIT_CONDITION_MAX_TIMEOUT_MILLIS = 20_000L
+internal const val UI_WAIT_CONDITION_POLL_INTERVAL_MILLIS = 300L
+
+/** How many consecutive reads must show an app switch or a new dialog before the wait stops early. */
+private const val UI_WAIT_CONFIRM_READS = 2
+
+/**
+ * A `ui_wait` stop condition the executor checks itself against the live Accessibility snapshot.
+ * Every supplied part must hold at once. Text matching ignores whitespace and case; the package
+ * must match exactly.
+ */
+internal data class UiWaitCondition(
+    val expectText: String?,
+    val expectGoneText: String?,
+    val expectPackage: String?,
+    val timeoutMillis: Long,
+) {
+    fun holds(snapshot: ScreenStateSnapshot): Boolean {
+        expectText?.let { want -> if (!snapshot.showsText(want)) return false }
+        // An empty read (secure or not yet drawn) is not evidence that the text has gone.
+        expectGoneText?.let { gone -> if (snapshot.nodes.isEmpty() || snapshot.showsText(gone)) return false }
+        expectPackage?.let { pkg -> if (snapshot.packageName?.trim() != pkg) return false }
+        return true
+    }
+
+    companion object {
+        /** Null when the request carries none of the condition arguments: `ui_wait` keeps its old path. */
+        fun fromArguments(arguments: Map<String, String>): UiWaitCondition? {
+            val expectText = arguments["expectText"].nonBlankTrimmed()
+            val expectGoneText = arguments["expectGoneText"].nonBlankTrimmed()
+            val expectPackage = arguments["expectPackage"].nonBlankTrimmed()
+            if (expectText == null && expectGoneText == null && expectPackage == null) return null
+            val timeout = arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: UI_WAIT_CONDITION_DEFAULT_TIMEOUT_MILLIS
+            return UiWaitCondition(
+                expectText = expectText,
+                expectGoneText = expectGoneText,
+                expectPackage = expectPackage,
+                timeoutMillis = timeout.coerceIn(UI_WAIT_CONDITION_MIN_TIMEOUT_MILLIS, UI_WAIT_CONDITION_MAX_TIMEOUT_MILLIS),
+            )
+        }
+    }
+}
+
+/**
+ * The schema accepts `timeoutMillis` up to [UI_WAIT_CONDITION_MAX_TIMEOUT_MILLIS] for condition
+ * waits; a plain settle wait keeps its old [MAX_UI_ACTION_TIMEOUT_MILLIS] ceiling and is rejected
+ * above it, exactly as before.
+ */
+internal fun uiWaitArgumentInvariant(arguments: Map<String, String>): String? {
+    if (UiWaitCondition.fromArguments(arguments) != null) return null
+    val timeout = arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: return null
+    return if (timeout > MAX_UI_ACTION_TIMEOUT_MILLIS) {
+        "ui_wait without a wait condition accepts timeoutMillis up to $MAX_UI_ACTION_TIMEOUT_MILLIS"
+    } else {
+        null
+    }
+}
+
+internal enum class UiWaitStop { Met, Timeout, AppSwitched, DialogAppeared, PermissionDenied, PermissionMissing }
+
+internal data class UiWaitOutcome(
+    val stop: UiWaitStop,
+    val first: ScreenStateSnapshot?,
+    val last: ScreenStateSnapshot?,
+    val reason: String? = null,
+)
+
+/**
+ * Polls [observe] until [condition] holds or its timeout runs out. Read-only: it never taps or types.
+ *
+ * Stops early, after [UI_WAIT_CONFIRM_READS] consecutive reads so a transition frame is not mistaken
+ * for a switch, when:
+ *  - the foreground package is neither [guardPackage] (the step's expectedPackageName) nor the
+ *    condition's own expectPackage, or
+ *  - a blocking overlay ([hasBlockingOverlay]) is present that the first read did not show.
+ * A round that shows either never counts as met.
+ *
+ * The round count is capped as well as the clock, so a clock that does not advance still ends the wait.
+ */
+internal suspend fun awaitUiWaitCondition(
+    condition: UiWaitCondition,
+    guardPackage: String?,
+    observe: () -> ScreenStateReadResult,
+    clock: () -> Long,
+    sleep: suspend (Long) -> Unit,
+    pollIntervalMillis: Long = UI_WAIT_CONDITION_POLL_INTERVAL_MILLIS,
+): UiWaitOutcome {
+    val start = clock()
+    val maxRounds = condition.timeoutMillis / pollIntervalMillis + 2
+    val allowedPackages = setOfNotNull(guardPackage, condition.expectPackage)
+    var first: ScreenStateSnapshot? = null
+    var last: ScreenStateSnapshot? = null
+    var suspect: UiWaitStop? = null
+    var suspectReads = 0
+    repeat(maxRounds.toInt()) {
+        when (val read = observe()) {
+            is ScreenStateReadResult.Available -> {
+                val snapshot = read.snapshot
+                val baseline = first ?: snapshot.also { first = it }
+                last = snapshot
+                val packageName = snapshot.packageName?.trim()?.takeIf { it.isNotBlank() }
+                val odd = when {
+                    allowedPackages.isNotEmpty() && packageName != null && packageName !in allowedPackages ->
+                        UiWaitStop.AppSwitched
+                    snapshot.hasBlockingOverlay() && !baseline.hasBlockingOverlay() -> UiWaitStop.DialogAppeared
+                    else -> null
+                }
+                if (odd == null && condition.holds(snapshot)) return UiWaitOutcome(UiWaitStop.Met, first, last)
+                suspectReads = if (odd != null && odd == suspect) suspectReads + 1 else if (odd != null) 1 else 0
+                suspect = odd
+                if (odd != null && suspectReads >= UI_WAIT_CONFIRM_READS) return UiWaitOutcome(odd, first, last)
+            }
+
+            is ScreenStateReadResult.PermissionDenied ->
+                return UiWaitOutcome(UiWaitStop.PermissionDenied, first, last, read.reason)
+
+            is ScreenStateReadResult.Failed ->
+                if (read.failureKind == UiActionFailureKind.PermissionMissing) {
+                    return UiWaitOutcome(UiWaitStop.PermissionMissing, first, last, read.reason)
+                }
+        }
+        val left = condition.timeoutMillis - (clock() - start)
+        if (left <= 0) return UiWaitOutcome(UiWaitStop.Timeout, first, last)
+        sleep(minOf(left, pollIntervalMillis))
+    }
+    return UiWaitOutcome(UiWaitStop.Timeout, first, last)
+}
+
+private fun ScreenStateSnapshot.showsText(text: String): Boolean {
+    val wanted = text.normalizedForWait()
+    if (wanted.isEmpty()) return false
+    return nodes.any { node ->
+        node.text.normalizedForWait().contains(wanted) || node.contentDescription.normalizedForWait().contains(wanted)
+    }
+}
+
+private fun String.normalizedForWait(): String = filterNot { it.isWhitespace() }.lowercase()
+
+private fun String?.nonBlankTrimmed(): String? = this?.trim()?.takeIf { it.isNotEmpty() }

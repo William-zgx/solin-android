@@ -156,9 +156,9 @@ internal val uiControlToolSpecs: List<ToolSpec> = listOf(
     ToolSpec(
         name = MobileActionFunctions.UI_WAIT,
         title = "等待屏幕稳定",
-        description = "在用户确认后等待当前屏幕稳定并重新观察屏幕；可对低风险搜索任务做本地结果验证，失败时返回可恢复原因。",
+        description = "在用户确认后等待当前屏幕稳定并重新观察屏幕；可带等待条件（文字出现、文字消失、前台应用），在本地轮询屏幕直到满足或超时，结果报告 conditionMet；可对低风险搜索任务做本地结果验证，失败时返回可恢复原因。",
         inputSchemaJson = uiWaitSchemaJson,
-        outputSchemaJson = uiActionOutputSchemaJson,
+        outputSchemaJson = uiWaitOutputSchemaJson,
         capability = ToolCapability.DeviceControl,
         permissions = setOf(
             ToolPermission.ReadsDeviceContext,
@@ -170,6 +170,9 @@ internal val uiControlToolSpecs: List<ToolSpec> = listOf(
         pendingArgumentAllowlist = setOf(
             "timeoutMillis",
             "verifySearchQuery",
+            "expectText",
+            "expectGoneText",
+            "expectPackage",
             "expectedPackageName",
             "targetPackageName",
             "expectedAppName",

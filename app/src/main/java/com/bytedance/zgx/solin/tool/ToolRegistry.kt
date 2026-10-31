@@ -346,8 +346,9 @@ private fun validateExactlyOneOfContract(spec: ToolSpec) {
 /**
  * Enforces declarative argument invariants that the closed JSON Schema dialect cannot express.
  *
- * Currently only [ToolSpec.exactlyOneOf]. Keep it table-driven so a new mutual-exclusion rule is
- * a spec declaration, not an edit to shared validation code.
+ * [ToolSpec.exactlyOneOf], plus `ui_wait`'s conditional timeout ceiling ([uiWaitArgumentInvariant]).
+ * Keep it table-driven so a new mutual-exclusion rule is a spec declaration, not an edit to shared
+ * validation code.
  */
 private fun toolSpecificArgumentInvariant(spec: ToolSpec, request: ToolRequest): String? {
     spec.exactlyOneOf.forEach { group ->
@@ -356,6 +357,7 @@ private fun toolSpecificArgumentInvariant(spec: ToolSpec, request: ToolRequest):
             return "Tool ${request.toolName} requires exactly one of ${group.humanReadableAlternatives()}"
         }
     }
+    if (request.toolName == MobileActionFunctions.UI_WAIT) return uiWaitArgumentInvariant(request.arguments)
     return null
 }
 
@@ -464,6 +466,8 @@ private val privateNonSucceededAllowedDiagnosticKeys = setOf(
     "uiActionOutcome",
     "uiActionOutcomeReason",
     "appSearchProgressStage",
+    // ui_wait's true/false: a failed condition wait must still say whether its condition held.
+    "conditionMet",
 )
 
 private val privateNonSucceededDeviceControlObservationKeys = setOf(

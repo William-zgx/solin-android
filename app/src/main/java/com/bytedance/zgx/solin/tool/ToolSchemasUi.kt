@@ -238,8 +238,27 @@ internal val uiWaitSchemaJson = """
       "properties": {
         "timeoutMillis": {
           "type": "integer",
+          "description": "Settle wait in ms (at most 10000). With a wait condition: how long to poll for it, default 8000, clamped to 500-20000.",
           "minimum": 100,
-          "maximum": 10000
+          "maximum": 20000
+        },
+        "expectText": {
+          "type": "string",
+          "description": "Optional wait condition: text that must appear on screen. Whitespace and case are ignored.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expectGoneText": {
+          "type": "string",
+          "description": "Optional wait condition: text that must no longer be on screen. Whitespace and case are ignored.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expectPackage": {
+          "type": "string",
+          "description": "Optional wait condition: package that must become the foreground app.",
+          "minLength": 1,
+          "maxLength": 200
         },
         "verifySearchQuery": {
           "type": "string",
@@ -315,7 +334,15 @@ internal val observeCurrentScreenOutputSchemaJson = """
     }
 """.trimIndent()
 
-internal val uiActionOutputSchemaJson = """
+internal val uiActionOutputSchemaJson = uiActionOutputSchema()
+
+/** `ui_wait` also reports whether its wait condition held; absent when no condition was given. */
+internal val uiWaitOutputSchemaJson = uiActionOutputSchema(
+    extraProperties = """,
+        "conditionMet": {"type": "boolean"}""",
+)
+
+private fun uiActionOutputSchema(extraProperties: String = ""): String = """
     {
       "type": "object",
       "required": [
@@ -428,7 +455,7 @@ internal val uiActionOutputSchemaJson = """
         "beforeScreenshotPerception": {"type": "string"},
         "afterScreenWidthPx": {"type": "integer", "minimum": 0},
         "afterScreenHeightPx": {"type": "integer", "minimum": 0},
-        "afterScreenshotPerception": {"type": "string"}
+        "afterScreenshotPerception": {"type": "string"}$extraProperties
       },
       "additionalProperties": false
     }
