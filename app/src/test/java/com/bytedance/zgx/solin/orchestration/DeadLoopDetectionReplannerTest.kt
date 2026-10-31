@@ -146,6 +146,89 @@ class DeadLoopDetectionReplannerTest {
     }
 
     @Test
+    fun rule1DoesNotTreatCoordinateOnlyTapsAtDifferentPointsAsTheSameTarget() {
+        // Remote-vision taps carry only targetX/targetY. Keying "same target" on the text slots
+        // alone made every such tap compare equal, so three unrelated taps forced a back press.
+        val taps = List(3) { index ->
+            ToolRequest(
+                id = "tap-$index",
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = mapOf("targetX" to "${100 + index * 10}", "targetY" to "${200 + index * 10}"),
+            )
+        }
+
+        assertNull(
+            "taps at different coordinates are not a dead loop",
+            replanner.planNext(tapContext(taps)),
+        )
+    }
+
+    @Test
+    fun rule1StillFiresForIdenticalCoordinateOnlyTaps() {
+        val taps = List(3) { index ->
+            ToolRequest(
+                id = "tap-$index",
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = mapOf("targetX" to "100", "targetY" to "200"),
+            )
+        }
+
+        val replan = replanner.planNext(tapContext(taps))
+
+        assertNotNull("identical coordinate taps are a dead loop", replan)
+        assertEquals(MobileActionFunctions.UI_PRESS_BACK, replan!!.request.toolName)
+    }
+
+    @Test
+    fun rule1DoesNotFireAgainAfterItsOwnForcedBackPress() {
+        // UI_PRESS_BACK is not a state-mutating tool, so the repeat counts stay satisfied on the
+        // step after the forced back press. The replanner must hand control back to the model
+        // instead of pressing back again.
+        val taps = List(3) { index ->
+            ToolRequest(
+                id = "tap-$index",
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = mapOf("target" to "提交"),
+            )
+        }
+        val back = ToolRequest(
+            id = "back-forced",
+            toolName = MobileActionFunctions.UI_PRESS_BACK,
+            arguments = emptyMap(),
+            reason = "dead_loop: repeated ${MobileActionFunctions.UI_TAP}",
+        )
+
+        assertNull(
+            "a dead_loop back press must not re-trigger the rule",
+            replanner.planNext(tapContext(taps + back)),
+        )
+    }
+
+    @Test
+    fun rule3DoesNotFireAgainAfterItsOwnForcedBackPress() {
+        // A scroll with no known opposite direction forces a back press; that back press must not
+        // be followed by another forced step for the same scroll streak.
+        val scrolls = List(AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION) { index ->
+            ToolRequest(
+                id = "scroll-$index",
+                toolName = MobileActionFunctions.UI_SCROLL,
+                arguments = mapOf("direction" to "sideways"),
+            )
+        }
+        val back = ToolRequest(
+            id = "back-forced",
+            toolName = MobileActionFunctions.UI_PRESS_BACK,
+            arguments = emptyMap(),
+            reason = "dead_loop: repeated scroll sideways",
+        )
+
+        assertNull(
+            "a dead_loop back press must not re-trigger Rule 3",
+            replanner.planNext(scrollContext(scrolls + back, history = emptyList())),
+        )
+    }
+
+    @Test
     fun rule1DoesNotForceBackForUndirectedScrollsThatMakeProgress() {
         val scrolls = scrollRequests(direction = null)
         val history = listOf(
@@ -173,6 +256,26 @@ class DeadLoopDetectionReplannerTest {
         assertNotNull(replan)
         assertEquals(MobileActionFunctions.UI_PRESS_BACK, replan!!.request.toolName)
     }
+
+    /** Context whose prior requests end with the last tap; no screen fingerprints, isolating Rule 1. */
+    private fun tapContext(taps: List<ToolRequest>): AgentObservationReplanContext =
+        AgentObservationReplanContext(
+            run = AgentRun(
+                id = "run-taps",
+                input = "在当前页面连续点击",
+                state = AgentRunState.Observing,
+                createdAtMillis = 1L,
+                updatedAtMillis = 1L,
+            ),
+            previousRequest = taps.last(),
+            observedResult = ToolResult(
+                requestId = taps.last().id,
+                status = ToolStatus.Succeeded,
+                summary = "tapped",
+            ),
+            priorRequests = taps,
+            screenObservationHistory = emptyList(),
+        )
 
     private fun scrollRequests(direction: String?): List<ToolRequest> =
         List(3) { index ->

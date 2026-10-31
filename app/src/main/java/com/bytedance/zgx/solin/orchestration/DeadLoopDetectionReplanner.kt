@@ -37,11 +37,10 @@ class DeadLoopDetectionReplanner(
         // an advancing screen from a stuck one. Treating observe/wait as "same action" here would
         // force a spurious back-press mid-load.
         val mutatingRequests = priorRequests.filter { it.toolName in STATE_MUTATING_UI_TOOLS }
-        if (mutatingRequests.size >= maxRepeatActions) {
+        if (mutatingRequests.size >= maxRepeatActions && !context.deadLoopReplanAlreadyForced()) {
             val recent = mutatingRequests.takeLast(maxRepeatActions)
             val lastRequest = mutatingRequests.last()
-            val allSame = recent.all { it.toolName == lastRequest.toolName &&
-                it.sameTargetAs(lastRequest) }
+            val allSame = recent.all { it.sameActionAs(lastRequest) }
             // Scrolls: directional scroll loops are owned by Rule 3 (which reverses direction), and
             // a scroll that is still changing the screen is progress, not a loop.
             val deferScrollToRule3 = lastRequest.toolName == MobileActionFunctions.UI_SCROLL &&
@@ -49,30 +48,13 @@ class DeadLoopDetectionReplanner(
 
             if (allSame && !deferScrollToRule3) {
                 val lastTool = lastRequest.toolName
-
-                // If repeating back press, let normal flow fail — we're at the root
-                if (lastTool == MobileActionFunctions.UI_PRESS_BACK) {
-                    return null
-                }
-
                 // Force a back press to break the loop
-                val reason = "dead_loop: repeated $lastTool"
-                val draft = ActionDraft(
-                    functionName = MobileActionFunctions.UI_PRESS_BACK,
+                return forcedReplan(
+                    toolName = MobileActionFunctions.UI_PRESS_BACK,
                     title = "强制返回",
                     summary = "检测到重复操作死循环（连续 $maxRepeatActions 次相同动作：$lastTool），强制返回上一页",
-                    parameters = emptyMap(),
-                )
-                val request = ToolRequest(
-                    toolName = MobileActionFunctions.UI_PRESS_BACK,
                     arguments = emptyMap(),
-                    reason = reason,
-                )
-                return AgentObservationReplan(
-                    request = request,
-                    draft = draft,
-                    plannedByModel = false,
-                    fallbackReason = reason,
+                    reason = "dead_loop: repeated $lastTool",
                 )
             }
         }
@@ -88,30 +70,22 @@ class DeadLoopDetectionReplanner(
             val newest = recentObs.last()
             val allSameScreen = recentObs.all { it.sameSurfaceAs(newest) }
             if (allSameScreen && context.previousRequest.toolName != MobileActionFunctions.UI_PRESS_BACK) {
-                val reason = "dead_loop: same screen x$maxSameScreen"
-                val draft = ActionDraft(
-                    functionName = MobileActionFunctions.UI_PRESS_BACK,
+                return forcedReplan(
+                    toolName = MobileActionFunctions.UI_PRESS_BACK,
                     title = "强制返回",
                     summary = "连续 $maxSameScreen 次观测到同一屏幕且无进展，强制返回上一页以打破停滞",
-                    parameters = emptyMap(),
-                )
-                val request = ToolRequest(
-                    toolName = MobileActionFunctions.UI_PRESS_BACK,
                     arguments = emptyMap(),
-                    reason = reason,
-                )
-                return AgentObservationReplan(
-                    request = request,
-                    draft = draft,
-                    plannedByModel = false,
-                    fallbackReason = reason,
+                    reason = "dead_loop: same screen x$maxSameScreen",
                 )
             }
         }
 
         // ── Rule 3: Repeated scrolls in same direction ─────────────────────
         val scrollRequests = priorRequests.filter { it.toolName == MobileActionFunctions.UI_SCROLL }
-        if (scrollRequests.size >= AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION) {
+        if (
+            scrollRequests.size >= AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION &&
+            !context.deadLoopReplanAlreadyForced()
+        ) {
             val recentScrolls = scrollRequests.takeLast(AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION)
             val direction = recentScrolls.last().arguments["direction"]
             if (
@@ -121,48 +95,69 @@ class DeadLoopDetectionReplanner(
             ) {
                 val oppositeDirection = OPPOSITE_SCROLL_DIRECTIONS[direction]
                 val reason = "dead_loop: repeated scroll $direction"
-
                 return if (oppositeDirection != null) {
-                    val draft = ActionDraft(
-                        functionName = MobileActionFunctions.UI_SCROLL,
+                    forcedReplan(
+                        toolName = MobileActionFunctions.UI_SCROLL,
                         title = "反向滚动",
                         summary = "连续 ${AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION} 次向 $direction 方向滚动未找到新内容，换 $oppositeDirection 方向",
-                        parameters = mapOf("direction" to oppositeDirection),
-                    )
-                    val request = ToolRequest(
-                        toolName = MobileActionFunctions.UI_SCROLL,
                         arguments = mapOf("direction" to oppositeDirection),
                         reason = reason,
                     )
-                    AgentObservationReplan(
-                        request = request,
-                        draft = draft,
-                        plannedByModel = false,
-                        fallbackReason = reason,
-                    )
                 } else {
-                    val draft = ActionDraft(
-                        functionName = MobileActionFunctions.UI_PRESS_BACK,
+                    forcedReplan(
+                        toolName = MobileActionFunctions.UI_PRESS_BACK,
                         title = "强制返回",
                         summary = "连续 ${AgentSurvivalRules.MAX_SCROLL_SAME_DIRECTION} 次向 $direction 方向滚动未找到新内容，强制返回",
-                        parameters = emptyMap(),
-                    )
-                    val request = ToolRequest(
-                        toolName = MobileActionFunctions.UI_PRESS_BACK,
                         arguments = emptyMap(),
                         reason = reason,
-                    )
-                    AgentObservationReplan(
-                        request = request,
-                        draft = draft,
-                        plannedByModel = false,
-                        fallbackReason = reason,
                     )
                 }
             }
         }
 
         return null // No dead loop detected
+    }
+
+    private fun forcedReplan(
+        toolName: String,
+        title: String,
+        summary: String,
+        arguments: Map<String, String>,
+        reason: String,
+    ): AgentObservationReplan {
+        val draft = ActionDraft(
+            functionName = toolName,
+            title = title,
+            summary = summary,
+            parameters = arguments,
+        )
+        val request = ToolRequest(
+            toolName = toolName,
+            arguments = arguments,
+            reason = reason,
+        )
+        return AgentObservationReplan(
+            request = request,
+            draft = draft,
+            plannedByModel = false,
+            fallbackReason = reason,
+        )
+    }
+
+    /**
+     * True when this replanner already forced a corrective step after the last state-mutating
+     * request, i.e. the newest request carries a `dead_loop:` reason.
+     *
+     * The forced back press is itself NOT a state-mutating tool (see [STATE_MUTATING_UI_TOOLS]),
+     * so the repeat counts that triggered the rule stay satisfied on the next step. Without this
+     * check the replanner would force the same correction again and again instead of handing the
+     * step back to the model — the old `lastTool == UI_PRESS_BACK` guard could never fire for that
+     * same reason and was dead code.
+     */
+    private fun AgentObservationReplanContext.deadLoopReplanAlreadyForced(): Boolean {
+        val lastMutatingIndex = priorRequests.indexOfLast { it.toolName in STATE_MUTATING_UI_TOOLS }
+        return priorRequests.drop(lastMutatingIndex + 1)
+            .any { request -> request.reason.startsWith(DEAD_LOOP_REASON_PREFIX) }
     }
 
     /**
@@ -177,17 +172,40 @@ class DeadLoopDetectionReplanner(
         return !history[index].sameSurfaceAs(history[index - 1])
     }
 
-    private fun ToolRequest.sameTargetAs(other: ToolRequest): Boolean {
-        val thisTarget = arguments["target"] ?: arguments["query"] ?: arguments["appName"] ?: ""
-        val otherTarget = other.arguments["target"] ?: other.arguments["query"] ?: other.arguments["appName"] ?: ""
-        return thisTarget == otherTarget
+    /**
+     * Two requests are "the same action" only when they target the same tool AND the same target.
+     *
+     * The key must fall back to the coordinates for remote-vision taps: those carry only
+     * `targetX`/`targetY` and no textual `target`, so a key built from text alone made every such
+     * tap look like the same target and forced a spurious back press after three unrelated taps.
+     * Typed text is part of the key too — three different strings typed into the same field is not
+     * a dead loop.
+     */
+    private fun ToolRequest.sameActionAs(other: ToolRequest): Boolean =
+        toolName == other.toolName && actionTargetKey() == other.actionTargetKey()
+
+    private fun ToolRequest.actionTargetKey(): String {
+        val target = arguments["target"]
+            ?: arguments["query"]
+            ?: arguments["appName"]
+            ?: "${arguments["targetX"]},${arguments["targetY"]}"
+        return if (toolName == MobileActionFunctions.UI_TYPE_TEXT) {
+            "$target|text=${arguments["text"]}"
+        } else {
+            target
+        }
     }
 
     companion object {
+        /** Reason prefix carried by a forced corrective step from this replanner. */
+        private const val DEAD_LOOP_REASON_PREFIX = "dead_loop:"
+
         /**
          * UI tools that mutate on-screen state. Rule 1 (repeated-identical-action) only considers
          * these; observe/wait/back are excluded so re-observing or waiting during a load is not
-         * mistaken for a dead loop (same-screen stalls are Rule 2's responsibility).
+         * mistaken for a dead loop (same-screen stalls are Rule 2's responsibility). Excluding
+         * back is also why the "already forced a back press" check keys on the request reason
+         * rather than on the last tool name.
          */
         private val STATE_MUTATING_UI_TOOLS = setOf(
             MobileActionFunctions.UI_TAP,
