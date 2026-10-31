@@ -2,8 +2,6 @@ package com.bytedance.zgx.solin.runtime
 
 import com.bytedance.zgx.solin.SolinConstants
 import java.io.IOException
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
 import java.util.concurrent.CancellationException
 import kotlin.math.min
 import kotlin.math.pow
@@ -126,8 +124,6 @@ class RemoteRetryPolicy(
         fun classifyThrowable(throwable: Throwable, callCancelled: Boolean): RemoteFailureClass = when {
             callCancelled -> RemoteFailureClass.Cancelled
             throwable is CancellationException -> RemoteFailureClass.Cancelled
-            throwable is SocketTimeoutException -> RemoteFailureClass.Transport
-            throwable is UnknownHostException -> RemoteFailureClass.Transport
             throwable is IOException -> RemoteFailureClass.Transport
             else -> RemoteFailureClass.Permanent
         }

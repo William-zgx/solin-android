@@ -26,57 +26,42 @@ private val Context.solinDataStore by preferencesDataStore(name = "solin_setting
 internal fun decodeInferenceMode(raw: String?): InferenceMode =
     runCatching { InferenceMode.valueOf(raw.orEmpty()) }.getOrDefault(InferenceMode.Local)
 
-/**
- * Known ISP violation: this class implements three interfaces
- * ([SettingsStore], [ActiveSessionStore], [RemoteSendPendingStore]) that each
- * serve a distinct responsibility.  Plan to split it into three focused classes:
- *
- * 1. `PreferenceSettingsStore` — implements [SettingsStore] only
- *    (first-run, memory, generation parameters, backend, inference mode,
- *    remote config, selected / active model IDs).
- * 2. `PreferenceActiveSessionStore` — implements [ActiveSessionStore] only
- *    (persists the currently active chat-session ID).
- * 3. `PreferenceRemoteSendPendingStore` — implements [RemoteSendPendingStore] only
- *    (persists the pending-remote-send marker for disclosure confirmation).
- *
- * All three would share the same underlying `solin_settings` DataStore so the
- * migration path is transparent to existing data.
- */
+/** DataStore-backed settings, active-session id and pending remote-send marker, in one `solin_settings` store. */
 class PreferenceSettingsStore internal constructor(
     private val dataStore: DataStore<Preferences>,
 ) : SettingsStore, ActiveSessionStore, RemoteSendPendingStore {
     constructor(context: Context) : this(context.applicationContext.solinDataStore)
 
     override fun isSetupDismissed(): Boolean =
-        readBoolean(Keys.FIRST_RUN_DISMISSED, false)
+        read(Keys.FIRST_RUN_DISMISSED, false)
 
     override fun markSetupDismissed() {
-        writeBoolean(Keys.FIRST_RUN_DISMISSED, true)
+        write(Keys.FIRST_RUN_DISMISSED, true)
     }
 
     fun clearSetupDismissed() {
-        writeBoolean(Keys.FIRST_RUN_DISMISSED, false)
+        write(Keys.FIRST_RUN_DISMISSED, false)
     }
 
     override fun isMemoryEnabled(): Boolean =
-        readBoolean(Keys.MEMORY_ENABLED, true)
+        read(Keys.MEMORY_ENABLED, true)
 
     override fun setMemoryEnabled(enabled: Boolean) {
-        writeBoolean(Keys.MEMORY_ENABLED, enabled)
+        write(Keys.MEMORY_ENABLED, enabled)
     }
 
     override fun reduceDeviceActionConfirmations(): Boolean =
-        readBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, true)
+        read(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, true)
 
     override fun setReduceDeviceActionConfirmations(enabled: Boolean) {
-        writeBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, enabled)
+        write(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, enabled)
     }
 
     override fun remoteGuiAutomationEnabled(): Boolean =
-        readBoolean(Keys.REMOTE_GUI_AUTOMATION_ENABLED, false)
+        read(Keys.REMOTE_GUI_AUTOMATION_ENABLED, false)
 
     override fun setRemoteGuiAutomationEnabled(enabled: Boolean) {
-        writeBoolean(Keys.REMOTE_GUI_AUTOMATION_ENABLED, enabled)
+        write(Keys.REMOTE_GUI_AUTOMATION_ENABLED, enabled)
     }
 
     override fun loadGenerationParameters(): GenerationParameters {
@@ -106,41 +91,41 @@ class PreferenceSettingsStore internal constructor(
     }
 
     override fun loadInferenceMode(): InferenceMode =
-        decodeInferenceMode(readString(Keys.INFERENCE_MODE, InferenceMode.Local.name))
+        decodeInferenceMode(read(Keys.INFERENCE_MODE, InferenceMode.Local.name))
 
     override fun saveInferenceMode(mode: InferenceMode): InferenceMode {
-        writeString(Keys.INFERENCE_MODE, mode.name)
+        write(Keys.INFERENCE_MODE, mode.name)
         return mode
     }
 
     override fun loadBackend(): BackendChoice =
         runCatching {
-            BackendChoice.valueOf(readString(Keys.BACKEND, BackendChoice.GPU.name))
+            BackendChoice.valueOf(read(Keys.BACKEND, BackendChoice.GPU.name))
         }.getOrDefault(BackendChoice.GPU)
 
     override fun saveBackend(backend: BackendChoice) {
-        writeString(Keys.BACKEND, backend.name)
+        write(Keys.BACKEND, backend.name)
     }
 
     override fun activeSessionId(): String? =
-        readString(Keys.ACTIVE_SESSION_ID, "").takeIf { it.isNotBlank() }
+        read(Keys.ACTIVE_SESSION_ID, "").takeIf { it.isNotBlank() }
 
     override fun saveActiveSessionId(sessionId: String) {
-        writeString(Keys.ACTIVE_SESSION_ID, sessionId)
+        write(Keys.ACTIVE_SESSION_ID, sessionId)
     }
 
     override fun selectedModelId(): String? =
-        readString(Keys.SELECTED_MODEL_ID, "").takeIf { it.isNotBlank() }
+        read(Keys.SELECTED_MODEL_ID, "").takeIf { it.isNotBlank() }
 
     override fun saveSelectedModelId(modelId: String) {
-        writeString(Keys.SELECTED_MODEL_ID, modelId)
+        write(Keys.SELECTED_MODEL_ID, modelId)
     }
 
     override fun activeInstalledModelId(): String? =
-        readString(Keys.ACTIVE_INSTALLED_MODEL_ID, "").takeIf { it.isNotBlank() }
+        read(Keys.ACTIVE_INSTALLED_MODEL_ID, "").takeIf { it.isNotBlank() }
 
     override fun saveActiveInstalledModelId(modelId: String?) {
-        writeString(Keys.ACTIVE_INSTALLED_MODEL_ID, modelId.orEmpty())
+        write(Keys.ACTIVE_INSTALLED_MODEL_ID, modelId.orEmpty())
     }
 
     override fun loadRemoteConfig(apiKey: String): RemoteModelConfig {
@@ -176,7 +161,7 @@ class PreferenceSettingsStore internal constructor(
     }
 
     override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) {
-        writeString(
+        write(
             Keys.PENDING_REMOTE_SEND_MARKER,
             JSONObject()
                 .put("kind", marker.kind.name)
@@ -193,7 +178,7 @@ class PreferenceSettingsStore internal constructor(
     }
 
     override fun consumePendingRemoteSend(): PendingRemoteSendMarker? {
-        val raw = readString(Keys.PENDING_REMOTE_SEND_MARKER, "")
+        val raw = read(Keys.PENDING_REMOTE_SEND_MARKER, "")
         if (raw.isBlank()) return null
         clearPendingRemoteSend()
         return runCatching {
@@ -213,14 +198,14 @@ class PreferenceSettingsStore internal constructor(
     }
 
     override fun clearPendingRemoteSend() {
-        writeString(Keys.PENDING_REMOTE_SEND_MARKER, "")
+        write(Keys.PENDING_REMOTE_SEND_MARKER, "")
     }
 
     fun migrationVersion(): Int =
-        readInt(Keys.MIGRATION_VERSION, 0)
+        read(Keys.MIGRATION_VERSION, 0)
 
     fun setMigrationVersion(version: Int) {
-        writeInt(Keys.MIGRATION_VERSION, version)
+        write(Keys.MIGRATION_VERSION, version)
     }
 
     /** One consistent DataStore snapshot; multi-key loaders read every key from a single one. */
@@ -233,18 +218,6 @@ class PreferenceSettingsStore internal constructor(
     private fun <T> write(key: Preferences.Key<T>, value: T) {
         runBlocking { dataStore.edit { it[key] = value } }
     }
-
-    private fun readBoolean(key: Preferences.Key<Boolean>, default: Boolean): Boolean = read(key, default)
-
-    private fun writeBoolean(key: Preferences.Key<Boolean>, value: Boolean) = write(key, value)
-
-    private fun readInt(key: Preferences.Key<Int>, default: Int): Int = read(key, default)
-
-    private fun writeInt(key: Preferences.Key<Int>, value: Int) = write(key, value)
-
-    private fun readString(key: Preferences.Key<String>, default: String): String = read(key, default)
-
-    private fun writeString(key: Preferences.Key<String>, value: String) = write(key, value)
 
     private object Keys {
         val MIGRATION_VERSION = intPreferencesKey("migration_version")

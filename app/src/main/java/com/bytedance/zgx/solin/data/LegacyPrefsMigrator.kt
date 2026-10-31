@@ -31,16 +31,12 @@ class LegacyPrefsMigrator(
         val migrationVersion = settingsStore.migrationVersion()
         if (migrationVersion >= CURRENT_MIGRATION_VERSION) return true
         if (prefs.getInt(LEGACY_SENSITIVE_CLEANUP_VERSION_KEY, 0) >= CURRENT_MIGRATION_VERSION) {
-            return runCatching {
-                settingsStore.setMigrationVersion(CURRENT_MIGRATION_VERSION)
-            }.isSuccess
+            return markMigrated()
         }
         if (migrationVersion == CURRENT_MIGRATION_VERSION - 1) {
             val migratedSensitiveKeys = previouslyMigratedSensitiveKeys(prefs) ?: return false
             if (!clearMigratedSensitiveKeys(prefs, migratedSensitiveKeys)) return false
-            return runCatching {
-                settingsStore.setMigrationVersion(CURRENT_MIGRATION_VERSION)
-            }.isSuccess
+            return markMigrated()
         }
 
         val migratedSensitiveKeys = linkedSetOf<String>()
@@ -66,10 +62,11 @@ class LegacyPrefsMigrator(
         }
 
         if (!clearMigratedSensitiveKeys(prefs, migratedSensitiveKeys)) return false
-        return runCatching {
-            settingsStore.setMigrationVersion(CURRENT_MIGRATION_VERSION)
-        }.isSuccess
+        return markMigrated()
     }
+
+    private fun markMigrated(): Boolean =
+        runCatching { settingsStore.setMigrationVersion(CURRENT_MIGRATION_VERSION) }.isSuccess
 
     private fun migrateSessions(encoded: String?, activeSessionId: String?): Set<String> {
         if (encoded == null) return emptySet()
@@ -119,11 +116,7 @@ class LegacyPrefsMigrator(
         activeInstalledModelId: String?,
         selectedModelId: String?,
     ) {
-        if (selectedModelId?.isNotBlank() == true) {
-            settingsStore.saveSelectedModelId(selectedModelId)
-        } else {
-            settingsStore.saveSelectedModelId(DEFAULT_CHAT_MODEL_ID)
-        }
+        settingsStore.saveSelectedModelId(selectedModelId?.takeIf { it.isNotBlank() } ?: DEFAULT_CHAT_MODEL_ID)
         if (activeInstalledModelId?.isNotBlank() == true) {
             settingsStore.saveActiveInstalledModelId(activeInstalledModelId)
         }
@@ -243,7 +236,7 @@ class LegacyPrefsMigrator(
                 modelName = prefs.getString("remote_model_name", "").orEmpty(),
             ),
         )
-        val legacyKey = prefs.getString("remote_model_api_key", "").orEmpty()
+        val legacyKey = prefs.getString(LEGACY_REMOTE_API_KEY, "").orEmpty()
         if (legacyKey.isBlank()) return emptySet()
         secretStore.saveString(LEGACY_REMOTE_API_KEY, legacyKey).getOrThrow()
         return setOf(LEGACY_REMOTE_API_KEY)

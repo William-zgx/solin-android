@@ -127,9 +127,7 @@ class ToolAuditRepository(
                 "外部界面已打开，最终结果未验证。"
             } else if (summary.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX)) {
                 "外部动作结果已由用户确认。"
-            } else if (toolName == MobileActionFunctions.SCHEDULE_REMINDER ||
-                toolName == MobileActionFunctions.CANCEL_REMINDER
-            ) {
+            } else if (toolName.isReminderAuditTool()) {
                 reminderDisplaySummary()
             } else {
                 "工具执行成功，结果详情不在审计视图中展示。"

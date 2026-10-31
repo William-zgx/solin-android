@@ -35,57 +35,21 @@ class BackgroundTaskUseCases(
         )
 
     fun cancelScheduledTask(taskId: String): BackgroundTaskActionResult =
-        scheduler.cancelScheduledTask(taskId).fold(
-            onSuccess = {
-                BackgroundTaskActionResult(
-                    succeeded = true,
-                    statusText = "后台任务已取消",
-                    snapshot = snapshot(),
-                )
-            },
-            onFailure = { throwable ->
-                BackgroundTaskActionResult(
-                    succeeded = false,
-                    statusText = "后台任务取消失败：${throwable.cleanMessage()}",
-                    snapshot = snapshot(),
-                )
-            },
-        )
+        scheduler.cancelScheduledTask(taskId).toActionResult("后台任务已取消", "后台任务取消失败")
 
     fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest): BackgroundTaskActionResult =
-        scheduler.setPeriodicCheckPolicy(request).fold(
-            onSuccess = {
-                BackgroundTaskActionResult(
-                    succeeded = true,
-                    statusText = "周期检查策略已保存",
-                    snapshot = snapshot(),
-                )
-            },
-            onFailure = { throwable ->
-                BackgroundTaskActionResult(
-                    succeeded = false,
-                    statusText = "周期检查策略保存失败：${throwable.cleanMessage()}",
-                    snapshot = snapshot(),
-                )
-            },
-        )
+        scheduler.setPeriodicCheckPolicy(request).toActionResult("周期检查策略已保存", "周期检查策略保存失败")
 
     fun disablePeriodicCheckPolicy(): BackgroundTaskActionResult =
-        scheduler.disablePeriodicCheckPolicy().fold(
-            onSuccess = {
-                BackgroundTaskActionResult(
-                    succeeded = true,
-                    statusText = "周期检查已关闭",
-                    snapshot = snapshot(),
-                )
-            },
-            onFailure = { throwable ->
-                BackgroundTaskActionResult(
-                    succeeded = false,
-                    statusText = "周期检查关闭失败：${throwable.cleanMessage()}",
-                    snapshot = snapshot(),
-                )
-            },
+        scheduler.disablePeriodicCheckPolicy().toActionResult("周期检查已关闭", "周期检查关闭失败")
+
+    /** The snapshot is taken after the scheduler call so it reflects the change. */
+    private fun Result<*>.toActionResult(successText: String, failurePrefix: String): BackgroundTaskActionResult =
+        BackgroundTaskActionResult(
+            succeeded = isSuccess,
+            statusText = exceptionOrNull()?.let { throwable -> "$failurePrefix：${throwable.cleanMessage()}" }
+                ?: successText,
+            snapshot = snapshot(),
         )
 
     private fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary =

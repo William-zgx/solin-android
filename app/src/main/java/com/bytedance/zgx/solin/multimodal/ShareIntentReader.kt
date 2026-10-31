@@ -231,12 +231,7 @@ class ShareIntentReader(
             resolverMimeType = resolverMimeType,
             displayName = metadata.displayName,
         )
-        if (resolverMimeType.normalizedMediaType().isConcreteSharedMimeType() && trustedImageMimeType == null) {
-            return null
-        }
-        if (trustedImageMimeType == null) {
-            return null
-        }
+        if (trustedImageMimeType == null) return null
         val resolvedMimeType = resolveSharedAttachmentMimeType(
             resolverMimeType = resolverMimeType,
             displayName = metadata.displayName,
