@@ -86,12 +86,6 @@ class AndroidBackgroundTaskScheduler(
             ).reschedulePendingReminders(limit)
         }
 
-    fun setPeriodicCheck(request: PeriodicCheckScheduleRequest): Result<ScheduledTask> =
-        periodicCheckScheduler.setPeriodicCheck(request)
-
-    fun disablePeriodicCheck(): Result<Unit> =
-        periodicCheckScheduler.disablePeriodicCheck()
-
     private fun removeScheduled(
         taskId: String,
         markRemoved: (String) -> Boolean,

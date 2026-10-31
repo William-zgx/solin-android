@@ -51,9 +51,3 @@ enum class SharedEngineUnavailableReason {
     /** The one-shot conversation failed; the chat conversation was restored. */
     Failed,
 }
-
-/** Provider for configurations without a shareable engine (tests, disabled local runtime). */
-object NoSharedLocalEngine : SharedLocalEngineProvider {
-    override fun generateOneShot(request: SharedEngineOneShotRequest): SharedEngineOneShotResult =
-        SharedEngineOneShotResult.Unavailable(SharedEngineUnavailableReason.NoEngineLoaded)
-}

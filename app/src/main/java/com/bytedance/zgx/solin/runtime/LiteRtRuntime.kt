@@ -655,19 +655,6 @@ internal fun defaultEngineConfigSpec(
         cacheDir = cacheDir.absolutePath,
     )
 
-internal fun defaultEngineConfigSpec(
-    modelPath: String,
-    backend: BackendChoice,
-    cacheDir: File,
-    supportsVisionInput: Boolean,
-): LiteRtEngineConfigSpec =
-    defaultEngineConfigSpec(
-        modelPath = modelPath,
-        backend = backend,
-        cacheDir = cacheDir,
-        capabilities = LocalModelRuntimeCapabilities(supportsVisionInput = supportsVisionInput),
-    )
-
 internal fun defaultEngineConfig(
     modelPath: String,
     backend: BackendChoice,
@@ -766,16 +753,11 @@ internal fun estimateLocalRuntimeTokens(text: String): Int {
         }
     }
     text.forEach { char ->
-        when {
-            char.isWhitespace() -> {
-                flushAsciiRun()
-                tokens += 1
-            }
-            char.code in 0x20..0x7E -> asciiRunLength += 1
-            else -> {
-                flushAsciiRun()
-                tokens += 1
-            }
+        if (!char.isWhitespace() && char.code in 0x20..0x7E) {
+            asciiRunLength += 1
+        } else {
+            flushAsciiRun()
+            tokens += 1
         }
     }
     flushAsciiRun()
@@ -785,23 +767,9 @@ internal fun estimateLocalRuntimeTokens(text: String): Int {
 private fun ChatMessage.estimatedLocalRuntimeTokens(): Int =
     estimateLocalRuntimeTokens(text) + MESSAGE_TOKEN_OVERHEAD
 
-private fun String.takeLastEstimatedLocalTokens(maxTokens: Int): String {
-    if (maxTokens <= 0) return ""
-    var usedTokens = 0
-    var index = length
-    while (index > 0 && usedTokens < maxTokens) {
-        val previous = index - 1
-        val cost = if (this[previous].code in 0x20..0x7E && !this[previous].isWhitespace()) {
-            1
-        } else {
-            1
-        }
-        if (usedTokens + cost > maxTokens) break
-        usedTokens += cost
-        index = previous
-    }
-    return substring(index).trimStart()
-}
+/** Charges one token per character, a conservative bound on [estimateLocalRuntimeTokens]. */
+private fun String.takeLastEstimatedLocalTokens(maxTokens: Int): String =
+    if (maxTokens <= 0) "" else takeLast(maxTokens).trimStart()
 
 private fun BackendChoice.toLiteRtBackend(): Backend =
     when (this) {

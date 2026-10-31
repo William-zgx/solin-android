@@ -13,7 +13,6 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.HandlerThread
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -95,7 +94,7 @@ class AndroidCurrentScreenshotOcrProvider(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
     private val foregroundGate: ScreenCaptureForegroundGate = AndroidScreenCaptureForegroundGate(context),
-) : CurrentScreenshotOcrProvider, RawScreenshotProvider {
+) : CurrentScreenshotOcrProvider {
     private val pendingConsent =
         RequestBoundOneShotConsentStore<CurrentScreenshotOcrConsent>(
             ttlMillis = CURRENT_SCREENSHOT_OCR_CONSENT_TTL_MILLIS,
@@ -168,52 +167,10 @@ class AndroidCurrentScreenshotOcrProvider(
         }
     }
 
-    override fun captureCurrentScreenshotRaw(
-        requestId: String,
-        nowMillis: Long,
-    ): RawScreenshotReadResult {
-        val consent = pendingConsent.consume(requestId, nowMillis)
-            ?: return RawScreenshotReadResult.MissingConsent
-        return captureBitmap(
-            requestId = requestId,
-            consent = consent,
-            onMissingConsent = { RawScreenshotReadResult.MissingConsent },
-            onFailed = { reason -> RawScreenshotReadResult.Failed(reason) },
-            serviceUnavailableReason = "当前屏幕截图服务不可用",
-        ) { bitmap ->
-            // No coordinate un-scaling counterpart is needed here (unlike the OCR path above):
-            // [compactedForVision] only shrinks the pixels that are sent to the remote vision
-            // model, and nothing derived from this bitmap's coordinate space is ever used for a
-            // tap. The model answers in resolution-agnostic 0-1000 normalized coordinates
-            // (see RemoteVisionDecision.Tap / AndroidRemoteVisionDecider), which are mapped back
-            // onto the live screen dimensions locally, so the compacted size is metadata only.
-            val visionBitmap = bitmap.compactedForVision()
-            try {
-                val output = ByteArrayOutputStream()
-                if (!visionBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
-                    RawScreenshotReadResult.Failed("当前屏幕截图编码失败")
-                } else {
-                    RawScreenshotReadResult.Available(
-                        jpegBytes = output.toByteArray(),
-                        widthPx = visionBitmap.width,
-                        heightPx = visionBitmap.height,
-                    )
-                }
-            } finally {
-                if (visionBitmap !== bitmap) visionBitmap.recycle()
-            }
-        }
-    }
-
     /**
-     * Shared MediaProjection→VirtualDisplay→ImageReader→Bitmap capture core. Handles
-     * the mediaProjection foreground-service session (await before projection, always stop
-     * afterwards), consent-backed projection setup, one-shot frame acquisition, resource
-     * teardown, and failure mapping: a stale consent token maps to MissingConsent while a
-     * foreground-service failure maps to a distinct Failed reason. [block] receives the captured
-     * bitmap (already scheduled for recycle) and produces the caller-specific result. Both the
-     * LocalOnly OCR path and the remote-vision raw path funnel through here so the projection
-     * plumbing stays identical and cannot drift between the two.
+     * MediaProjection capture inside the foreground-service session. A stale consent token maps to
+     * MissingConsent; a foreground-service failure maps to a distinct Failed reason. [block]
+     * receives the captured bitmap, which is recycled afterwards.
      */
     private fun <R> captureBitmap(
         requestId: String,

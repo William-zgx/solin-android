@@ -125,7 +125,7 @@ internal class EncryptedDatabaseMigrator(
         move(candidateFile, databaseFile)
         verifyEncryptedDatabase(databaseFile)
         checkpointEncryptedWal(databaseFile)
-        deletePlaintextArtifacts(rollbackFile)
+        deleteDatabaseArtifacts(rollbackFile)
         writeState(Phase.Completed)
     }
 
@@ -248,7 +248,7 @@ internal class EncryptedDatabaseMigrator(
         }
         val encrypted = SQLiteDatabase.openDatabase(
             file.absolutePath,
-            requireNotNull(key),
+            key,
             null,
             SQLiteDatabase.OPEN_READONLY,
             null,
@@ -316,10 +316,6 @@ internal class EncryptedDatabaseMigrator(
         deleteIfPresent(file)
         deleteSidecarArtifacts(file)
         deleteIfPresent(File("${file.absolutePath}-journal"))
-    }
-
-    private fun deletePlaintextArtifacts(file: File) {
-        deleteDatabaseArtifacts(file)
     }
 
     private fun deleteSidecarArtifacts(file: File) {

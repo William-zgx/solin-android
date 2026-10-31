@@ -257,7 +257,7 @@ class ModelRepository(
     override fun verifyActiveModelPath(path: String): Boolean {
         val active = activeInstalledModel() ?: return false
         if (active.path != path) return false
-        val model = active.recommendedModelId?.let(::catalogRecommendedModel) ?: return File(path).isFile
+        val model = active.recommendedModelId?.let(ModelCatalog::recommendedModelOrNull) ?: return File(path).isFile
         val verified = currentFileMatchesRecommendedModel(File(path), model)
         if (!verified) {
             markRecommendedVerificationFailed(active)
@@ -421,7 +421,6 @@ class ModelRepository(
         return verifiedRecommendedModelPath(
             models = installedModels(),
             capability = ModelCapability.MobileAction,
-            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
         )
     }
 
@@ -430,7 +429,6 @@ class ModelRepository(
         return verifiedObservationActionPlanningModelPath(
             models = installedModels(),
             activeInstalledModelId = settingsStore.activeInstalledModelId(),
-            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
         )
     }
 
@@ -439,14 +437,13 @@ class ModelRepository(
         return verifiedRecommendedModelPath(
             models = installedModels(),
             capability = ModelCapability.MemoryEmbedding,
-            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
         )
     }
 
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
         installedModels().forEach { entity ->
-            val model = entity.recommendedModelId?.let(::catalogRecommendedModel) ?: return@forEach
+            val model = entity.recommendedModelId?.let(ModelCatalog::recommendedModelOrNull) ?: return@forEach
             reverifiedLegacyRecommendedModel(entity, model)?.let { updated ->
                 modelDao.upsert(updated)
                 changed = true
@@ -606,7 +603,7 @@ class ModelRepository(
     private fun isCurrentActiveChatModel(entity: InstalledModelEntity): Boolean {
         val file = File(entity.path)
         if (!file.isFile) return false
-        val model = entity.recommendedModelId?.let(::catalogRecommendedModel)
+        val model = entity.recommendedModelId?.let(ModelCatalog::recommendedModelOrNull)
         val canActivate = when {
             entity.recommendedModelId == null -> true
             model == null -> false
@@ -620,13 +617,12 @@ class ModelRepository(
         return canActivate
     }
 
-    private fun refreshCompletedRecommendedBundles(): Boolean {
-        var changed = false
+    private fun refreshCompletedRecommendedBundles() {
         installedModels().forEach { entity ->
             if (entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name) {
                 return@forEach
             }
-            val model = entity.recommendedModelId?.let { catalogRecommendedModel(it) } ?: return@forEach
+            val model = entity.recommendedModelId?.let(ModelCatalog::recommendedModelOrNull) ?: return@forEach
             val file = File(entity.path)
             if (!currentFileMatchesRecommendedModel(file, model)) return@forEach
             modelDao.upsert(
@@ -637,9 +633,7 @@ class ModelRepository(
                     verificationStatus = ModelVerificationStatus.VerifiedRecommended.name,
                 ),
             )
-            changed = true
         }
-        return changed
     }
 
     private fun markRecommendedVerificationFailed(entity: InstalledModelEntity) {
@@ -651,15 +645,6 @@ class ModelRepository(
                 verificationStatus = ModelVerificationStatus.FailedVerification.name,
             ),
         )
-    }
-
-    private fun hasCurrentVerifiedRecommendedFile(
-        entity: InstalledModelEntity,
-        model: RecommendedModel,
-    ): Boolean {
-        val file = File(entity.path)
-        return entity.hasVerifiedRecommendedEvidence(model) &&
-            currentFileMatchesRecommendedModel(file, model)
     }
 }
 
@@ -794,7 +779,7 @@ private fun verifiedRecommendedModelPath(
     modelPredicate: (RecommendedModel) -> Boolean,
 ): String? =
     models.firstOrNull { model ->
-        val catalogModel = model.recommendedModelId?.let { catalogRecommendedModel(it) }
+        val catalogModel = model.recommendedModelId?.let(ModelCatalog::recommendedModelOrNull)
             ?: return@firstOrNull false
         modelPredicate(catalogModel) &&
             model.hasVerifiedRecommendedEvidence(catalogModel) &&
@@ -824,9 +809,6 @@ private fun InstalledModelEntity.hasVerifiedRecommendedEvidence(model: Recommend
         fileBytes == model.byteSize &&
         sourceRevision == model.sourceRevision &&
         verifiedSha256?.equals(model.sha256Hex, ignoreCase = true) == true
-
-private fun catalogRecommendedModel(modelId: String): RecommendedModel? =
-    ModelCatalog.recommendedModelOrNull(modelId)
 
 internal fun hasCompleteRecommendedBundleShape(
     file: File,
