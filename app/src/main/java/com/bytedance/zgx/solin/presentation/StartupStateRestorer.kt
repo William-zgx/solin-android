@@ -24,8 +24,8 @@ private const val STALE_AGENT_RUN_STARTUP_REASON =
     "App restarted before this Agent step completed."
 
 /**
- * Builds the initial [ChatUiState] from persisted stores. Moved verbatim from `SolinViewModel`;
- * constructed before the ViewModel's state flow exists, so it only reads stores.
+ * Builds the initial [ChatUiState] from persisted stores. It is constructed before the
+ * ViewModel's state flow exists, so it only reads stores.
  */
 internal class InitialChatStateFactory(
     private val modelRepository: ModelRepositoryFacade,
@@ -106,7 +106,6 @@ internal class InitialChatStateFactory(
  * One-shot startup restore after the initial state is in place: fail-closed pending remote
  * sends, recover background tasks, verify models, fail stale agent runs, resume a pending
  * download or auto-load the local model, then restore pending confirmations / external outcomes.
- * Moved verbatim from `SolinViewModel`.
  */
 internal class StartupStateRestorer(
     private val uiState: MutableStateFlow<ChatUiState>,

@@ -539,15 +539,10 @@ class ToolExecutionController(
                     statusText = "工具执行中",
                 )
             }
-            // Reaching this branch requires requiresUserConfirmation()==false, i.e.
-            // plan.safetyDecision.outcome==Allow. SafetyPolicy only returns Allow for a
-            // ConfirmationPolicy.Required tool when it was already authorized — either the user
-            // confirmed it or the low-risk app-control continuation bypass granted it after the
-            // user's initial confirmation. Pass userConfirmed=true so the execution-boundary
-            // re-authorizer (SafetyPolicyToolExecutionAuthorizer) agrees with the plan-level
-            // authorization instead of statelessly re-imposing confirmation and rejecting the
-            // auto-continued action. Genuinely unauthorized Required tools never reach here — they
-            // carry safetyDecision=RequireConfirmation and are routed to a confirmation sheet below.
+            // Only plans SafetyPolicy already allowed reach here: the user confirmed the tool, or the
+            // continuation bypass authorized it after the user's first confirmation. userConfirmed =
+            // true keeps the execution-boundary re-authorizer in agreement with that decision.
+            // Unauthorized Required tools carry RequireConfirmation and go to the sheet below.
             launchToolExecutionAfterRunIsExecuting(
                 confirmation = confirmation,
                 request = plan.request,

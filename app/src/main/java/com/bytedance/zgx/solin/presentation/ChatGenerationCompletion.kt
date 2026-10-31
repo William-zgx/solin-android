@@ -13,7 +13,7 @@ import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-/** End of a streamed chat generation, extracted from `ChatController.sendMessageInternal`. */
+/** End of a streamed chat generation started by `ChatController.sendMessageInternal`. */
 internal class ChatGenerationCompletion(
     private val uiState: MutableStateFlow<ChatUiState>,
     private val sessionHost: PresentationSessionHost,
@@ -34,7 +34,7 @@ internal class ChatGenerationCompletion(
     /**
      * Finishes a chat generation whose stream completed without an output-quality stop: hands a
      * remote tool call / tool batch or a model-planned next tool to the tool flow, otherwise
-     * records the model result and settles the UI. Moved verbatim from `sendMessageInternal`.
+     * records the model result and settles the UI.
      */
     suspend fun complete(
         route: AssistantRoute.Chat,

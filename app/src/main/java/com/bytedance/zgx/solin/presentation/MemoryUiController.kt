@@ -54,8 +54,6 @@ private fun String.savedFactKey(): String =
 
 /**
  * UI-state side of the memory paths: applies [MemoryController] results to [ChatUiState].
- *
- * Extracted from `SolinViewModel` so the ViewModel only forwards memory intents.
  */
 internal class MemoryUiController(
     private val memoryController: MemoryController,

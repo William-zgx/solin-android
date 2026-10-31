@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * Inference-mode switching and the remote-mode disclosure it may raise. Moved verbatim from
- * `SolinViewModel`. Switching mode is a trust-boundary change: it clears pending remote-send state
+ * Inference-mode switching and the remote-mode disclosure it may raise. Switching mode is a
+ * trust-boundary change: it clears pending remote-send state
  * and resets any session-scoped "don't ask again" before the new destination is used. Callers
  * must run these on the serialized persistence queue (see `MainActivity`).
  */

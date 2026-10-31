@@ -47,7 +47,7 @@ internal sealed interface RemoteSendPreflightDecision {
 }
 
 /**
- * Pure send preflight checks extracted from `ChatController.sendMessageInternal`.
+ * Pure send preflight checks for `ChatController.sendMessageInternal`.
  *
  * The order of checks is the policy: privacy (LocalOnly) first, then known connectivity failure,
  * then sensitive-content consent, then the per-send disclosure. Changing the order changes which
