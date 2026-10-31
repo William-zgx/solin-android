@@ -8,8 +8,6 @@ import com.bytedance.zgx.solin.device.UiTargetResolver
 import com.bytedance.zgx.solin.device.appUiNotesFor
 import com.bytedance.zgx.solin.device.normalizedLookupKey
 import com.bytedance.zgx.solin.device.screenObservationFromJsonStringOrNull
-import com.bytedance.zgx.solin.tool.ToolCapability
-import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.ToolRegistry

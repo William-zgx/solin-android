@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.orchestration
 
-import android.util.Log
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
@@ -18,7 +17,6 @@ import com.bytedance.zgx.solin.tool.isEligibleForParallelBatch
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.solin.tool.unverifiedExternalLaunchSummary
 
-private const val COORD_TAG = "ToolObservationCoordinator"
 internal const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
 
 /**

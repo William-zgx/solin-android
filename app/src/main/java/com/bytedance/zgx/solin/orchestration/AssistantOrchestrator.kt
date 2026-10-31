@@ -296,7 +296,7 @@ class AssistantOrchestrator(
         agentLoopRuntime.terminateRun(runId, reason)
 
     override fun steerRun(runId: String, messages: List<ChatMessage>): Boolean =
-        agentLoopRuntime.steerRun(runId, messages)
+        agentLoopRuntime.steer(messages = messages, runId = runId)
 
     /**
      * High-priority steer: cancels the in-flight model generation (when the run is mid-model-
@@ -335,15 +335,6 @@ class AssistantOrchestrator(
         agentLoopRuntime.unregisterModelCallJob(runId, job)
     }
 
-    /** Expose drain so upper layers (ViewModel) can pull+prepend pending steering at turn start. */
-    fun drainSteeringMessages(runId: String): List<ChatMessage> =
-        agentLoopRuntime.drainSteeringMessages(runId)
-
-    /**
-     * Structured drain returning steer vs queued messages separately. Upper layers that
-     * want to distinguish high-priority steer interruptions (e.g. to mark them in UI or flush
-     * partial model output) should prefer this over the legacy single-list [drainSteeringMessages].
-     */
     override fun drainPendingMessages(runId: String): PendingMessagesDrain =
         agentLoopRuntime.drainPendingMessages(runId)
 
@@ -456,10 +447,6 @@ class AssistantOrchestrator(
         agentLoopRuntime.close()
         (actionPlanningRuntime as? AutoCloseable)?.close()
     }
-
-    /** Suspend-aware steering drain that includes hook-provided messages. */
-    suspend fun drainSteeringMessagesSuspend(runId: String): List<ChatMessage> =
-        agentLoopRuntime.drainSteeringMessagesSuspend(runId)
 
     /** Suspend-aware drain returning steer vs queued buckets; includes hook messages in steer. */
     suspend fun drainPendingMessagesSuspend(runId: String): PendingMessagesDrain =

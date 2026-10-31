@@ -5,11 +5,7 @@ import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.AnswerCitationCheckStatus
-import com.bytedance.zgx.solin.PublicWebEvidenceItem
 import com.bytedance.zgx.solin.PublicWebEvidencePack
-import com.bytedance.zgx.solin.checkPublicWebAnswerCitations
-import com.bytedance.zgx.solin.publicWebEvidencePackFromToolResultData
 import com.bytedance.zgx.solin.publicWebEvidencePacksFromToolResults
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
@@ -20,10 +16,7 @@ import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
 import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
-import com.bytedance.zgx.solin.device.screenObservationFromJsonStringOrNull
-import com.bytedance.zgx.solin.device.toElementTable
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
-import com.bytedance.zgx.solin.evidence.EvidenceCard
 import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.memory.MemoryIndex
@@ -31,16 +24,12 @@ import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
-import com.bytedance.zgx.solin.skill.SkillModelStepBinding
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.skill.SkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRunProgressor
-import com.bytedance.zgx.solin.tool.ToolErrorCode
-import com.bytedance.zgx.solin.orchestration.ToolErrorCode as OrchestrationToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolResultContinuationPolicy
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.cancelled
@@ -52,8 +41,6 @@ import com.bytedance.zgx.solin.tool.isUserConfirmedCompletedExternalOutcome
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.solin.tool.rejected
 import com.bytedance.zgx.solin.tool.succeeded
-import org.json.JSONArray
-import org.json.JSONObject
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -79,14 +66,6 @@ private const val MAX_TERMINATE_RUN_CAS_ATTEMPTS = 8
 private const val TERMINATE_RUN_BACKOFF_STEP_MILLIS = 5L
 private const val TERMINATE_RUN_BACKOFF_MAX_MILLIS = 40L
 
-/**
- * CPU-friendly backoff between bounded compare-and-set retries.
- *
- * `Thread.onSpinWait()` is the right primitive but only exists from API 33, while this module ships
- * to minSdk 28 — calling it unguarded would throw `NoSuchMethodError` on older devices. Falls back to
- * `Thread.yield()`, which has the same intent (surrender the current scheduling slice) with weaker
- * hardware support, and swallows failures because a backoff hint must never break termination.
- */
 /**
  * Backoff between contended CAS attempts in [AgentLoopRuntime.terminateRun].
  *
@@ -597,10 +576,7 @@ class AgentLoopRuntime(
                     updatedAtMillis = now,
                     sessionId = sessionId,
                 ).also { run ->
-                    android.util.Log.w(
-                        "AgentLoopRuntime",
-                        "traceStore.createRun failed, using ephemeral run ${run.id}: ${throwable.message}",
-                    )
+                    Log.w(TAG, "traceStore.createRun failed, using ephemeral run ${run.id}: ${throwable.message}")
                 }
             }
 
@@ -887,12 +863,7 @@ class AgentLoopRuntime(
                 expectedState = run.state,
                 state = AgentRunState.Cancelled,
             )
-            if (updatedRun == null) {
-                // Wait long enough to matter: each iteration costs two disk reads, so a sub-microsecond
-                // spin hint let all attempts elapse inside single-digit milliseconds and a competitor
-                // blocked on Room I/O could exhaust them without ever getting a chance to finish.
-                terminateRunBackoff(attempt)
-            }
+            if (updatedRun == null) terminateRunBackoff(attempt)
         }
         if (updatedRun == null) {
             runCatching {
@@ -932,7 +903,7 @@ class AgentLoopRuntime(
             .toList()
         runIds.forEach { runId -> terminateRun(runId, RUN_DELETED_SESSION_REASON) }
         val deletedCount = traceStore.deleteRunsForSession(sessionId)
-        runIds.forEach(::clearDeletedRunState)
+        runIds.forEach(runScopedState::forgetRun)
         return deletedCount
     }
 
@@ -1164,37 +1135,6 @@ class AgentLoopRuntime(
         } else {
             base.copy(steer = base.steer + hookMessages)
         }
-    }
-
-    // Single-list steering API: steerRun is equivalent to steer(); drainSteeringMessages returns
-    // steer + queued concatenated.
-
-    /**
-     * Enqueue [messages] at high priority; a thin wrapper over [steer] which cooperatively cancels the in-flight model call when the run is
-     * mid-model-stream. Returns true if the run is active; false otherwise.
-     */
-    fun steerRun(runId: String, messages: List<ChatMessage>): Boolean {
-        if (messages.isEmpty()) return false
-        val run = traceStore.run(runId) ?: return false
-        if (run.state.isTerminal()) return false
-        return steer(messages = messages, runId = runId)
-    }
-
-    /**
-     * Non-suspend drain: returns all pending steer + queued messages for [runId] in arrival order.
-     * Hook-supplied messages are not included (hooks are suspend).
-     */
-    fun drainSteeringMessages(runId: String): List<ChatMessage> {
-        val drain = drainPendingMessages(runId)
-        return drain.steer + drain.queued
-    }
-
-    /**
-     * Returns steer + queued + hook messages combined; hook messages follow the steer batches.
-     */
-    suspend fun drainSteeringMessagesSuspend(runId: String): List<ChatMessage> {
-        val drain = drainPendingMessagesSuspend(runId)
-        return drain.steer + drain.queued
     }
 
     private fun failRunBudget(
@@ -1913,10 +1853,6 @@ class AgentLoopRuntime(
         runCatching { scratchpad.clear(runId) }
     }
 
-    private fun clearDeletedRunState(runId: String) {
-        runScopedState.forgetRun(runId)
-    }
-
     /** Run ids that still hold in-memory per-run state; test hook for terminal-cleanup coverage. */
     internal fun runIdsWithScopedState(): Set<String> =
         runScopedState.trackedRunIds() + pendingUserQuestionsByRunId.keys + activeModelCallJobs.keys
@@ -2151,8 +2087,5 @@ class AgentLoopRuntime(
             "StepLatency:$stepType",
         )
     }
-
-    private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
-        boundedPromptValue(evidenceBlobStore, maxLength)
 }
 
