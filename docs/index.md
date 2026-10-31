@@ -65,7 +65,7 @@ flowchart TD
 | `capability_matrix.json` | Product capability facts | User-facing capability positioning, privacy level, confirmation policy, and required tests |
 | `phone_acceptance.md` | Device acceptance | Commands and checks that require a phone or emulator |
 | `decision_routing_eval.json` | Cloud/edge router eval | Labeled local/remote chat requests for `scripts/run_decision_routing_eval.py` |
-| `phone_task_benchmark.json` | Phone task benchmark | Fixed end-to-end phone tasks and expectations for `scripts/run_phone_task_benchmark.py` |
+| `phone_task_benchmark.json` | Phone task benchmark | Fixed end-to-end phone tasks (tune/holdout partitions; answer, grounding, marker and safe-stop checks) for `scripts/run_phone_task_benchmark.py`; rules in the `phone_acceptance.md` benchmark section |
 | `privacy_notice.md` | Privacy boundary | Local storage, remote sends, tools, attachments, retention |
 | `release_readiness.md` | Current release status | What is complete, what blocks release, next owner actions |
 | `release_checklist.md` | RC execution checklist | Item-by-item release candidate evidence requirements |
