@@ -129,10 +129,8 @@ internal fun ChatTopBar(
                     )
                 }
                 if (resourceSampler != null) {
-                    ResourcePressureOverlay(
-                        resourceSampler = resourceSampler,
-                        modifier = Modifier.size(24.dp),
-                    )
+                    // No size cap here: the badge needs its full 48dp touch target.
+                    ResourcePressureOverlay(resourceSampler = resourceSampler)
                 }
                 CompactModelStatusChip(
                     modifier = Modifier.widthIn(

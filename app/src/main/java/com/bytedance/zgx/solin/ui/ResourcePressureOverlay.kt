@@ -18,21 +18,16 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun ResourcePressureOverlay(
-    resourceSampler: (suspend () -> SystemResourceSnapshot?)?,
+    resourceSampler: suspend () -> SystemResourceSnapshot?,
     modifier: Modifier = Modifier,
 ) {
     var resourceSnapshot by remember { mutableStateOf<SystemResourceSnapshot?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(resourceSampler, lifecycleOwner) {
-        val sampler = resourceSampler
-        if (sampler == null) {
-            resourceSnapshot = null
-            return@LaunchedEffect
-        }
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                runCatching { sampler() }.getOrNull()?.let { resourceSnapshot = it }
+                runCatching { resourceSampler() }.getOrNull()?.let { resourceSnapshot = it }
                 delay(SYSTEM_RESOURCE_SAMPLE_INTERVAL_MS)
             }
         }

@@ -47,9 +47,15 @@ class MainActivityCompactResourceUiTest {
         )
 
         composeRule.waitForTag("app_title")
-        composeRule.onNodeWithTag("resource_pressure_badge")
+        val badge = composeRule.onNodeWithTag("resource_pressure_badge")
             .assertIsDisplayed()
             .assertHasClickAction()
+        // The top bar must not shrink the badge below the 48dp touch target.
+        val bounds = badge.fetchSemanticsNode().boundsInRoot
+        with(composeRule.density) {
+            assertTrue(bounds.width.toDp() >= 48.dp)
+            assertTrue(bounds.height.toDp() >= 48.dp)
+        }
         composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
         composeRule.onNodeWithTag("top_more_button").assertIsDisplayed()
     }
