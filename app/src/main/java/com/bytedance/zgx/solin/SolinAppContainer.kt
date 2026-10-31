@@ -39,6 +39,7 @@ import com.bytedance.zgx.solin.device.AccessibilityRawScreenshotProvider
 import com.bytedance.zgx.solin.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.solin.device.AndroidContactSummaryProvider
 import com.bytedance.zgx.solin.device.AndroidCurrentScreenControlProvider
+import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.AndroidCurrentScreenTextProvider
 import com.bytedance.zgx.solin.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.solin.device.AndroidNotificationSummaryProvider
@@ -69,6 +70,7 @@ import com.bytedance.zgx.solin.orchestration.InMemoryTelemetrySink
 import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.solin.orchestration.RemoteVisionObservationReplanner
+import com.bytedance.zgx.solin.orchestration.toRemoteVisionScreenTree
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
 import com.bytedance.zgx.solin.orchestration.NoOpAgentHooks
 import com.bytedance.zgx.solin.orchestration.RoomRunPlacementBindingStore
@@ -415,6 +417,11 @@ class SolinAppContainer(
                         inferenceModeProvider = { remoteModelRepository.loadMode() },
                         generationParametersProvider = { generationParametersRepository.load() },
                         auditSink = remoteSendAuditRepository,
+                        screenTreeProvider = {
+                            (AndroidCurrentScreenControlProvider().observeCurrentScreen() as? ScreenStateReadResult.Available)
+                                ?.snapshot
+                                ?.toRemoteVisionScreenTree()
+                        },
                     ),
                     gateProvider = {
                         remoteModelRepository.loadMode() == InferenceMode.Remote &&
@@ -422,7 +429,8 @@ class SolinAppContainer(
                             remoteModelRepository.loadConfig().supportsVisionInput
                     },
                     executeDecisions = true,
-                    maxReplans = 5,
+                    // Counts every step, including typed and submit steps that make no remote call.
+                    maxReplans = 12,
                 ),
                 ModelObservationReplanner(
                     actionPlanningRuntime = observationActionPlanningRuntime,

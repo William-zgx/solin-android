@@ -27,6 +27,9 @@ internal fun AccessibilityService.ScreenshotResult.toRawScreenshotReadResult(): 
             wrapped.recycle()
         } ?: return RawScreenshotReadResult.Failed("当前屏幕截图解码失败")
         try {
+            if (software.looksBlank()) {
+                return RawScreenshotReadResult.Failed("当前屏幕截图为空白，可能是受保护页面")
+            }
             val vision = software.compactedForVision()
             try {
                 val output = ByteArrayOutputStream()
@@ -51,6 +54,32 @@ internal fun AccessibilityService.ScreenshotResult.toRawScreenshotReadResult(): 
         buffer.close()
     }
 }
+
+private const val BLANK_SCREENSHOT_SAMPLE_GRID = 24
+
+private fun Bitmap.looksBlank(): Boolean =
+    sampledPixelsLookBlank(
+        IntArray(BLANK_SCREENSHOT_SAMPLE_GRID * BLANK_SCREENSHOT_SAMPLE_GRID) { index ->
+            getPixel(
+                (index % BLANK_SCREENSHOT_SAMPLE_GRID) * width / BLANK_SCREENSHOT_SAMPLE_GRID,
+                (index / BLANK_SCREENSHOT_SAMPLE_GRID) * height / BLANK_SCREENSHOT_SAMPLE_GRID,
+            )
+        },
+    )
+
+/**
+ * Whether sampled ARGB pixels are all near black. The system blacks out secure windows in a
+ * full-screen capture without reporting an error, while their accessibility text stays readable, so
+ * a blank capture must stop the send: otherwise the control list would carry what the app hid.
+ */
+internal fun sampledPixelsLookBlank(pixels: IntArray): Boolean =
+    pixels.all { pixel ->
+        ((pixel shr 16) and 0xFF) < BLANK_PIXEL_MAX_CHANNEL &&
+            ((pixel shr 8) and 0xFF) < BLANK_PIXEL_MAX_CHANNEL &&
+            (pixel and 0xFF) < BLANK_PIXEL_MAX_CHANNEL
+    }
+
+private const val BLANK_PIXEL_MAX_CHANNEL = 12
 
 /**
  * Maps an [AccessibilityService.TakeScreenshotCallback] error code to a fail-closed

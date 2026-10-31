@@ -83,7 +83,9 @@ flowchart LR
   `AccessibilityService.takeScreenshot` (no MediaProjection, no new foreground
   service), sends it to the remote vision model, and applies the returned tap
   coordinate as a local `ui_tap` that still passes every device-control preflight.
-  Screen-pixel egress is gated by the opt-in (plus a first confirmation in
+  The visible control text (never password fields) goes with the screenshot, and
+  one reply can plan several steps such as tap, type, and submit.
+  Screen egress is gated by the opt-in (plus a first confirmation in
   per-step mode) and a per-send audit; capture or send failures
   fail closed and stop the loop.
 - The chat surface only shows a safe result summary; structured tool fields stay
@@ -119,9 +121,9 @@ open-then-stop if the model is absent or the target app is not foreground, and
 the continuation stays LocalOnly.
 
 The optional remote-vision path replaces the local action model for the in-app
-continuation: a vision-capable remote model sees the screen capture and returns a
-tap, back, scroll, or stop decision, executed as a local `ui_tap`,
-`ui_press_back`, `ui_scroll`, or `finish` under the same preflight rules. Off by default; requires the Trust-Center
+continuation: a vision-capable remote model sees the screen capture and control text and returns
+a tap, back, scroll, type, submit, wait, or stop decision, or a short plan of them,
+executed as local `ui_*` actions or `finish` under the same preflight rules. Off by default; requires the Trust-Center
 "Remote-vision GUI automation" toggle, Remote inference mode, and a model that
 supports image input. See `docs/privacy_notice.md` for the egress consent and
 audit model.

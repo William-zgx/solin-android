@@ -161,7 +161,7 @@
       "displayName": "远程视觉 GUI 操作（可选开启）",
       "dataAccessed": "开启可选开关且远程模型支持视觉、处于 Remote 模式时，通过无障碍服务(AccessibilityService.takeScreenshot)捕获的当前屏幕截图像素（JPEG），可能包含屏上任意内容与其它 App 的个人信息；截图为瞬态、绝不落盘。",
       "consentBoundary": "默认关闭。需用户在信任中心显式开启（带外发警告）；默认“只确认关键操作”模式下该开关即为外发授权，本轮操作中的截图自动外发；“每步确认”模式下需先确认本轮首个动作。均受每轮步数上限约束，新一轮重新判断。",
-      "remoteBoundary": "这是这台设备默认屏幕像素边界的有意反转：截图像素会被传输到用户配置的远程视觉模型以规划点击；远程模型只收到截图与决策 prompt，不收工具 schema、不执行任何动作，其回复仅作为不可信的点击/返回/滚动/停止建议解析成本地 ui_tap、ui_press_back、ui_scroll 或 finish，仍过本地危险动作与前台包名 preflight 及确认策略；停止或在未变化屏幕上重复同一动作会结束本轮。",
+      "remoteBoundary": "这是这台设备默认屏幕像素边界的有意反转：截图像素和屏幕控件文字（不含密码框）会被传输到用户配置的远程视觉模型以规划操作；远程模型只收到截图、控件列表、本轮已执行的动作类型与决策 prompt，不收工具 schema、不执行任何动作，其回复仅作为不可信的点击/返回/滚动/输入/提交/等待/停止建议解析成本地 ui_tap、ui_press_back、ui_scroll、ui_type_text、ui_submit_search、ui_wait 或 finish，仍过本地危险动作与前台包名 preflight 及确认策略；停止或在未变化屏幕上重复同一动作会结束本轮。",
       "revokeOrClearControl": "可在信任中心关闭该开关、在系统无障碍设置关闭 Solin 服务、取消动作确认；每次外发写入脱敏 remote-send 审计（决策、模型、图片数、摘要，不含像素或 prompt），信任中心可回看。",
       "requiredTests": [
         "RemoteVisionObservationReplannerTest",
@@ -265,7 +265,7 @@
       "requiresLocalModel": false,
       "remoteEligible": true,
       "confirmationPolicy": "Required",
-      "failureBehavior": "默认关闭。仅在信任中心开启该可选开关 + 远程模型声明视觉支持 + Remote 模式 + 本轮首个动作已确认时，才通过无障碍服务(AccessibilityService.takeScreenshot)截取当前屏幕并外发给远程视觉模型规划点击；opt-in 关、非视觉模型、非 Remote 模式或截图失败时不外发、循环停止（或回退本地动作模型）；远程回复仅作不可信坐标解析成本地 ui_tap，仍过危险动作/前台包名 preflight，坐标 tap 在屏幕读不到时 fail closed；每次外发写脱敏审计。",
+      "failureBehavior": "默认关闭。仅在信任中心开启该可选开关 + 远程模型声明视觉支持 + Remote 模式 + 本轮首个动作已确认时，才通过无障碍服务(AccessibilityService.takeScreenshot)截取当前屏幕，连同屏幕控件文字（不含密码框）外发给远程视觉模型规划操作；opt-in 关、非视觉模型、非 Remote 模式、截图失败或空白时都不外发、循环停止（或回退本地动作模型）；远程回复仅作不可信建议解析成本地 UI 动作，仍过危险动作/前台包名 preflight，坐标 tap 在屏幕读不到时 fail closed；每次外发写脱敏审计。",
       "requiredTests": [
         "RemoteVisionObservationReplannerTest",
         "RemoteVisionScreenshotContractTest",

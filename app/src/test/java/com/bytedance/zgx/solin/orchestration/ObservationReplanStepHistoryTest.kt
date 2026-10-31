@@ -161,7 +161,7 @@ class ObservationReplanStepHistoryTest {
         assertEquals(listOf(emptyList<String>()), seenByRemote)
         assertEquals(listOf(listOf("LocalOnly 屏幕摘录")), seenByLocal)
         val remoteVision = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Stop },
+            decider = { _, _, _ -> RemoteVisionDecision.Stop },
             gateProvider = { true },
         )
         assertTrue(ctx.scopedForReplanner(remoteVision).localOnlyScratchpadNotes.isEmpty())

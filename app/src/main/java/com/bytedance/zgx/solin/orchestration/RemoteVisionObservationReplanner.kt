@@ -6,11 +6,14 @@ import com.bytedance.zgx.solin.device.UiScrollDirection
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolStatus
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 private const val REMOTE_VISION_REPLAN_REQUEST_REASON = MODEL_OBSERVATION_REPLAN_REQUEST_REASON
 private const val REMOTE_VISION_REPLAN_FALLBACK_REASON = "remote vision observation replan"
 private const val DEFAULT_MAX_REMOTE_VISION_REPLANS = 5
+private const val REMOTE_VISION_PRIOR_STEP_LIMIT = 8
 private const val REMOTE_VISION_STOP_MESSAGE = "远程视觉模型判断任务已完成或不应继续操作，已停止。"
 private const val REMOTE_VISION_NO_PROGRESS_MESSAGE = "重复操作没有让屏幕产生变化，已停止自动操作。"
 
@@ -52,6 +55,23 @@ sealed interface RemoteVisionDecision {
      */
     data class Scroll(val direction: UiScrollDirection) : RemoteVisionDecision
 
+    /** Type into the focused field. Fails locally when nothing is focused; the model then re-decides. */
+    data class Type(val text: String) : RemoteVisionDecision
+
+    /** Submit the focused search field. */
+    data object SubmitSearch : RemoteVisionDecision
+
+    /** Wait for the screen to settle (splash, loading). */
+    data object Wait : RemoteVisionDecision
+
+    /**
+     * Several steps from one reply, so "tap the search box, type, submit" costs one round trip. The
+     * first step may be anything; the rest are coordinate-free ([isCoordinateFreeStep]) because a
+     * coordinate read from this screenshot is stale once a step has changed the screen. Built only
+     * by the parser, which enforces this.
+     */
+    data class Plan(val steps: List<RemoteVisionDecision>) : RemoteVisionDecision
+
     /** No further action — the task is complete, or the model declined (e.g. a dangerous control). */
     data object Stop : RemoteVisionDecision
 
@@ -77,8 +97,10 @@ fun interface RemoteVisionDecider {
      * @param intent the user's request preview (for the decision prompt)
      * @param requestId a correlation/log id for this capture (the accessibility capture path needs
      *   no per-request consent; egress is gated by the opt-in + first-confirm, not by requestId)
+     * @param priorSteps what the model already had executed this run, oldest first; action kinds
+     *   and coordinates only, never typed text or screen content
      */
-    fun decide(intent: String, requestId: String): RemoteVisionDecision
+    fun decide(intent: String, requestId: String, priorSteps: List<String>): RemoteVisionDecision
 }
 
 /**
@@ -93,11 +115,14 @@ fun interface RemoteVisionDecider {
  * `ui_tap` / `ui_press_back` / `ui_scroll` executed through the unchanged device-control executor.
  * See [com.bytedance.zgx.solin.multimodal.RemoteVisionScreenshotContract].
  *
- * Step history stays LOCAL. The remote model is never sent prior steps (that would be new egress the
- * user has not approved); instead the run's local trace — the previous request and the screen
- * fingerprints [AgentObservationReplanContext.screenObservationHistory] — is used here to refuse a
- * decision that merely repeats the last action on a screen that action did not change (a stuck loop
- * the stateless model cannot see).
+ * The model is told which actions it already had executed ([remoteVisionPriorSteps]), never their
+ * results or screen content. Progress is still judged locally: the previous request and the screen
+ * fingerprints [AgentObservationReplanContext.screenObservationHistory] are used here to refuse a
+ * decision that merely repeats the last action on a screen that action did not change.
+ *
+ * A [RemoteVisionDecision.Plan]'s later steps run from a local queue with no capture or send. Each
+ * one runs only if the step before it succeeded; otherwise the queue is dropped and the model
+ * re-decides from a fresh screen. Every step still counts against the shared step budget.
  *
  * @param decider the capture→send→parse seam (Android/coroutine/network isolated behind it)
  * @param gateProvider true only when inferenceMode==Remote AND the remote-GUI opt-in is on AND the
@@ -114,6 +139,7 @@ class RemoteVisionObservationReplanner(
     private val logger: (String) -> Unit = { message -> solinD(TAG_REMOTE, message) },
 ) : AgentObservationReplanner {
     private val replanLimit = maxReplans.coerceAtLeast(0)
+    private val queuedSteps = AtomicReference<QueuedSteps?>(null)
 
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
         if (!gateProvider()) return null
@@ -132,7 +158,18 @@ class RemoteVisionObservationReplanner(
             return null
         }
         val intent = (context.nextActionInput?.immediateSequentialActionText() ?: context.run.input)
-        val replan = when (val decision = decider.decide(intent = intent, requestId = context.previousRequest.id)) {
+        val decided = context.takeQueuedStep() ?: decider.decide(
+            intent = intent,
+            requestId = context.previousRequest.id,
+            priorSteps = context.remoteVisionPriorSteps(),
+        )
+        val next = if (decided is RemoteVisionDecision.Plan) {
+            if (executeDecisions) queuedSteps.set(QueuedSteps(context.run.id, decided.steps.drop(1)))
+            decided.steps.first()
+        } else {
+            decided
+        }
+        val replan = when (val decision = next) {
             is RemoteVisionDecision.Tap -> {
                 logger("remote-vision: decision tap (${decision.normalizedX},${decision.normalizedY})")
                 context.toTapReplan(decision)
@@ -146,6 +183,31 @@ class RemoteVisionObservationReplanner(
             is RemoteVisionDecision.Scroll -> {
                 logger("remote-vision: decision scroll (${decision.direction.schemaValue})")
                 context.toScrollReplan(decision)
+            }
+
+            is RemoteVisionDecision.Type -> {
+                logger("remote-vision: decision type")
+                toTypeReplan(decision)
+            }
+
+            RemoteVisionDecision.SubmitSearch -> {
+                logger("remote-vision: decision submit")
+                remoteVisionReplan(
+                    toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+                    title = "提交搜索",
+                    summary = "远程视觉模型规划提交当前搜索。",
+                    arguments = emptyMap(),
+                )
+            }
+
+            RemoteVisionDecision.Wait -> {
+                logger("remote-vision: decision wait")
+                context.toWaitReplan()
+            }
+
+            is RemoteVisionDecision.Plan -> {
+                logger("remote-vision: nested plan — fail closed, loop stops")
+                return null
             }
 
             RemoteVisionDecision.Stop -> {
@@ -168,9 +230,24 @@ class RemoteVisionObservationReplanner(
                 "remote-vision: repeated ${replan.request.toolName} on an unchanged screen — " +
                     "fail closed, loop stops",
             )
+            queuedSteps.set(null)
             return toFinishReplan(REMOTE_VISION_NO_PROGRESS_MESSAGE)
         }
         return replan
+    }
+
+    /**
+     * The next queued step of this run's plan, when the step that just ran was the plan's and it
+     * succeeded. Anything else drops the queue, so the model re-decides from a fresh screen.
+     */
+    private fun AgentObservationReplanContext.takeQueuedStep(): RemoteVisionDecision? {
+        val queued = queuedSteps.getAndSet(null) ?: return null
+        if (queued.runId != run.id) return null
+        if (previousRequest.reason != REMOTE_VISION_REPLAN_REQUEST_REASON) return null
+        if (observedResult.status != ToolStatus.Succeeded) return null
+        val rest = queued.steps.drop(1)
+        if (rest.isNotEmpty()) queuedSteps.set(queued.copy(steps = rest))
+        return queued.steps.firstOrNull()
     }
 
     /**
@@ -215,6 +292,28 @@ class RemoteVisionObservationReplanner(
             arguments = arguments,
         )
     }
+
+    /**
+     * Builds a LOCAL `ui_type_text` with no target, so it only writes to the field that is already
+     * focused. Its schema has no package binding, so a follow-up typed step relies on that focus.
+     */
+    private fun toTypeReplan(decision: RemoteVisionDecision.Type): AgentObservationReplan =
+        remoteVisionReplan(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            title = "输入文字",
+            summary = "远程视觉模型规划在当前输入框输入文字。",
+            arguments = mapOf("text" to decision.text),
+        )
+
+    private fun AgentObservationReplanContext.toWaitReplan(): AgentObservationReplan =
+        remoteVisionReplan(
+            toolName = MobileActionFunctions.UI_WAIT,
+            title = "等待屏幕",
+            summary = "远程视觉模型规划等待屏幕稳定。",
+            arguments = buildMap {
+                inheritedForegroundPackage()?.let { put("expectedPackageName", it) }
+            },
+        )
 
     /**
      * Builds a LOCAL `ui_press_back`. Back operates on no content and has no foreground gate (its
@@ -267,6 +366,35 @@ class RemoteVisionObservationReplanner(
             fallbackReason = REMOTE_VISION_REPLAN_FALLBACK_REASON,
         )
 }
+
+private data class QueuedSteps(val runId: String, val steps: List<RemoteVisionDecision>)
+
+/** Steps that stay valid after the screen changed, so they may follow another step in a plan. */
+internal fun RemoteVisionDecision.isCoordinateFreeStep(): Boolean =
+    this is RemoteVisionDecision.Type ||
+        this == RemoteVisionDecision.SubmitSearch ||
+        this == RemoteVisionDecision.Wait
+
+/**
+ * This run's remote-planned actions, oldest first, for the model's next decision: kinds and
+ * coordinates only. Typed text is left out, and the model has no other way to read results back.
+ */
+internal fun AgentObservationReplanContext.remoteVisionPriorSteps(): List<String> =
+    priorRequests
+        .filter { request -> request.reason == REMOTE_VISION_REPLAN_REQUEST_REASON }
+        .takeLast(REMOTE_VISION_PRIOR_STEP_LIMIT)
+        .map { request ->
+            val step = when (request.toolName) {
+                MobileActionFunctions.UI_TAP -> "tap(${request.arguments["targetX"]},${request.arguments["targetY"]})"
+                MobileActionFunctions.UI_SCROLL -> "scroll(${request.arguments["direction"]})"
+                MobileActionFunctions.UI_PRESS_BACK -> "back"
+                MobileActionFunctions.UI_TYPE_TEXT -> "type"
+                MobileActionFunctions.UI_SUBMIT_SEARCH -> "submit"
+                MobileActionFunctions.UI_WAIT -> "wait"
+                else -> request.toolName
+            }
+            if (request.id == previousRequest.id && observedResult.status != ToolStatus.Succeeded) "$step 失败" else step
+        }
 
 /**
  * True when [candidate] repeats the model-planned action that just ran ([AgentObservationReplanContext.previousRequest])

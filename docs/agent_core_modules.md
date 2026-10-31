@@ -180,11 +180,13 @@ Current status:
   the configured remote model supports vision input, the in-app continuation
   uses `RemoteVisionObservationReplanner` + `AndroidRemoteVisionDecider`
   instead of the local action model. It captures the screen via
-  `AccessibilityService.takeScreenshot` (transient JPEG, never persisted),
-  sends it to the remote vision model, and applies the returned tap, back, or
-  scroll decision as a local `ui_tap` / `ui_press_back` / `ui_scroll` under the
-  same preflight rules (and, in per-step mode, the same confirmation and 5-step
-  checkpoint). A `stop` decision,
+  `AccessibilityService.takeScreenshot` (transient JPEG, never persisted; a
+  blank capture stops the send), sends it with the visible control list and the
+  model's own prior action kinds, and applies the returned tap, back, scroll,
+  type, submit, or wait as a local `ui_*` action under the same preflight rules (and, in per-step mode, the same confirmation and 5-step
+  checkpoint). One reply may plan up to 4 steps: only coordinate-free steps may
+  follow the first, they run with no new capture, and any failed step drops the
+  rest so the model re-decides. A `stop` decision,
   or a repeat of the last action on an unchanged screen, ends the run with a
   local `finish` instead of falling back to the local action model. Capture or
   send failures fail closed and stop the loop.

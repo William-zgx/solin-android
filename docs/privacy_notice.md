@@ -190,8 +190,9 @@ in-app taps by looking at screenshots of the current screen. This is off by
 default. When the user turns on the "Remote-vision GUI automation" toggle in
 the Trust Center **and** the configured remote model declares vision support
 **and** the app is in Remote mode, the in-app observe→plan→tap loop may capture
-the current screen and **transmit** those pixels to the user-configured remote
-vision endpoint so the model can decide the next tap.
+the current screen and **transmit** those pixels, together with the text of the
+visible on-screen controls, to the user-configured remote vision endpoint so the
+model can plan the next steps. Password fields are never included.
 
 This is a deliberate, disclosed reversal of the default screen-pixel boundary,
 gated by defense-in-depth:
@@ -208,22 +209,32 @@ gated by defense-in-depth:
   run is transmitted only after the user has confirmed that run's first action
   (e.g. opening the app). Either way, captures are bounded by a per-run step
   limit, and a new run starts over.
-- **Pixels are transmitted, not persisted:** the compacted JPEG is sent for a
-  single request and then dropped; screenshots are never written to local
+- **Transmitted, not persisted:** the compacted JPEG and control list are sent
+  for a single request and then dropped; they are never written to local
   records, audit, or receipts.
+- **What each request carries:** the screenshot, the control list, the user's
+  request, and the kinds of action the model already had executed in this run
+  (with tap coordinates, never typed text or results). No chat history, memory,
+  or other tool results.
+- **Protected screens:** the control list is read only after a capture succeeds.
+  A failed or fully blank capture (the system blacks out secure windows) sends
+  nothing. A secure surface covering only part of an otherwise normal screen is
+  not detected, so its accessibility text can be included.
 - **This is NOT the remote tool-planning path:** the remote model receives the
-  screenshot plus a decision prompt, not device-control tool schemas, and never
-  executes anything. Its reply is an untrusted tap / back / scroll / stop
-  suggestion parsed into a local `ui_tap`, `ui_press_back`, `ui_scroll`, or
-  `finish`. A stop, or a repeated action on a screen that did not change, ends
+  content above plus a decision prompt, not device-control tool schemas, and never
+  executes anything. Its reply is an untrusted tap / back / scroll / type /
+  submit / wait / stop suggestion (or a short plan of them) parsed into local
+  `ui_*` actions or `finish`; later plan steps run only while each step before
+  them succeeds. A stop, or a repeated action on a screen that did not change, ends
   the run. Every tap runs locally through the same device-control
   preflights (dangerous-action and foreground-package checks) and confirmation
   policy as any other phone-control action; payment/send/delete/publish/purchase
   /transfer/authorization controls still stop or require confirmation.
-- **Egress audit:** each screenshot send records a redacted remote-send audit
+- **Egress audit:** each send records a redacted remote-send audit
   event (decision, model name, image count, summary) — never the pixels or the
   prompt — so the user can review every screenshot that left the device in the
-  Trust Center's remote-send log.
+  Trust Center's remote-send log. Planned steps that need no new capture send
+  nothing and add no entry.
 - **Fail closed:** if the opt-in is off, the model is not vision-capable, the
   mode is not Remote, the Accessibility service is not connected, or the screen
   cannot be captured, no pixels leave and the loop stops (or falls back to the

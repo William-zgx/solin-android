@@ -1,10 +1,15 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.device.ScreenBounds
+import com.bytedance.zgx.solin.device.ScreenNode
+import com.bytedance.zgx.solin.device.ScreenStateSnapshot
 import com.bytedance.zgx.solin.device.UiScrollDirection
+import com.bytedance.zgx.solin.device.sampledPixelsLookBlank
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -65,12 +70,19 @@ class RemoteVisionObservationReplannerTest {
             reason = MODEL_OBSERVATION_REPLAN_REQUEST_REASON,
         )
 
+    private fun plannerWith(decider: () -> RemoteVisionDecision): RemoteVisionObservationReplanner =
+        RemoteVisionObservationReplanner(
+            decider = { _, _, _ -> decider() },
+            gateProvider = { true },
+            executeDecisions = true,
+        )
+
     private fun executingReplanner(
         decision: RemoteVisionDecision,
         logs: MutableList<String> = mutableListOf(),
     ): RemoteVisionObservationReplanner =
         RemoteVisionObservationReplanner(
-            decider = { _, _ -> decision },
+            decider = { _, _, _ -> decision },
             gateProvider = { true },
             executeDecisions = true,
             logger = { logs += it },
@@ -108,7 +120,7 @@ class RemoteVisionObservationReplannerTest {
         listOf(RemoteVisionDecision.Back, RemoteVisionDecision.Scroll(UiScrollDirection.Up)).forEach { decision ->
             val logs = mutableListOf<String>()
             val replanner = RemoteVisionObservationReplanner(
-                decider = { _, _ -> decision },
+                decider = { _, _, _ -> decision },
                 gateProvider = { true },
                 executeDecisions = false,
                 logger = { logs += it },
@@ -123,7 +135,7 @@ class RemoteVisionObservationReplannerTest {
         // The 5-step checkpoint is one budget for the whole loop, whatever action the model picked.
         var deciderCalls = 0
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> deciderCalls++; RemoteVisionDecision.Back },
+            decider = { _, _, _ -> deciderCalls++; RemoteVisionDecision.Back },
             gateProvider = { true },
             executeDecisions = true,
             maxReplans = 2,
@@ -244,17 +256,174 @@ class RemoteVisionObservationReplannerTest {
     }
 
     @Test
-    fun decisionPromptCarriesNoStepHistory() {
-        // Step history stays local: the prompt is built from the intent alone, with no slot for prior
-        // steps, coordinates or screen text.
-        val prompt = remoteVisionDecisionPrompt("在小红书搜索露营")
+    fun decisionPromptCarriesTheControlListAndOwnActionsOnlyWhenGiven() {
+        val bare = remoteVisionDecisionPrompt("在小红书搜索露营")
+        assertTrue(bare.contains("在小红书搜索露营"))
+        assertTrue(bare.contains("\"action\":\"back\""))
+        assertTrue(bare.contains("\"action\":\"scroll\""))
+        assertTrue(!bare.contains("本轮已执行的操作") && !bare.contains("屏幕控件"))
 
-        assertTrue(prompt.contains("在小红书搜索露营"))
-        assertTrue(prompt.contains("\"action\":\"back\""))
-        assertTrue(prompt.contains("\"action\":\"scroll\""))
-        listOf("历史", "上一步", "之前的操作", "history").forEach { marker ->
-            assertTrue("prompt must not reference step history: $marker", !prompt.contains(marker))
+        val full = remoteVisionDecisionPrompt("在小红书搜索露营", "输入框 搜索 (500,80)", listOf("tap(500,80)", "type"))
+        assertTrue(full.contains("输入框 搜索 (500,80)"))
+        assertTrue(full.contains("本轮已执行的操作：tap(500,80)，type"))
+    }
+
+    @Test
+    fun priorStepsListOwnActionsWithoutTypedTextAndMarkAFailedLastStep() {
+        val tap = previousRemoteVisionRequest(MobileActionFunctions.UI_TAP, mapOf("targetX" to "500", "targetY" to "80"))
+            .copy(id = "earlier-tap")
+        val typed = previousRemoteVisionRequest(MobileActionFunctions.UI_TYPE_TEXT, mapOf("text" to "我的私密文字"))
+        val failed = context(
+            priorRequests = listOf(ToolRequest(toolName = MobileActionFunctions.OPEN_APP_BY_NAME), tap),
+            previous = typed,
+            status = ToolStatus.Failed,
+        )
+
+        assertEquals(listOf("tap(500,80)", "type 失败"), failed.remoteVisionPriorSteps())
+    }
+
+    @Test
+    fun planRunsFollowUpsWithoutAnotherRemoteCallWhileStepsSucceed() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                RemoteVisionDecision.Plan(
+                    listOf(RemoteVisionDecision.Tap(500, 80), RemoteVisionDecision.Type("牛奶"), RemoteVisionDecision.SubmitSearch),
+                )
+            },
+        )
+
+        val tap = replanner.planNext(context())!!.request
+        assertEquals(MobileActionFunctions.UI_TAP, tap.toolName)
+        val typed = replanner.planNext(context(previous = tap))!!.request
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typed.toolName)
+        assertEquals("牛奶", typed.arguments["text"])
+        assertEquals(null, typed.arguments["target"])
+        val submit = replanner.planNext(context(priorRequests = listOf(tap), previous = typed))!!.request
+        assertEquals(MobileActionFunctions.UI_SUBMIT_SEARCH, submit.toolName)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun failedPlanStepDropsTheQueueAndAsksTheModelAgain() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                if (calls == 1) {
+                    RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(500, 80), RemoteVisionDecision.Type("牛奶")))
+                } else {
+                    RemoteVisionDecision.Tap(100, 100)
+                }
+            },
+        )
+        val tap = replanner.planNext(context())!!.request
+        val failedContext = context(previous = tap).let { ctx ->
+            ctx.copy(
+                observedResult = ctx.observedResult.copy(
+                    status = ToolStatus.Failed,
+                    retryable = true,
+                    data = mapOf("screenObservationDiffSummary" to "unchanged"),
+                ),
+            )
         }
+
+        assertEquals(MobileActionFunctions.UI_TAP, replanner.planNext(failedContext)!!.request.toolName)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun queuedStepsDoNotLeakIntoAnotherRun() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(100 * calls, 80), RemoteVisionDecision.SubmitSearch))
+            },
+        )
+        val tap = replanner.planNext(context())!!.request
+        val otherRun = context(previous = tap).let { ctx ->
+            ctx.copy(run = ctx.run.copy(id = "another-run"))
+        }
+
+        assertEquals(MobileActionFunctions.UI_TAP, replanner.planNext(otherRun)!!.request.toolName)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun plannedStepsPassTheToolSchemas() {
+        val replanner = plannerWith(
+            decider = {
+                RemoteVisionDecision.Plan(
+                    listOf(RemoteVisionDecision.Wait, RemoteVisionDecision.Type("牛奶"), RemoteVisionDecision.SubmitSearch),
+                )
+            },
+        )
+        var previous: ToolRequest? = null
+        val seen = mutableListOf<ToolRequest>()
+        repeat(3) {
+            val ctx = previous?.let { context(priorRequests = seen.dropLast(1), previous = it) } ?: context()
+            val request = replanner.planNext(ctx)!!.request
+            assertNull(request.toolName, defaultBuiltInToolRegistry.validate(request))
+            seen += request
+            previous = request
+        }
+    }
+
+    @Test
+    fun parserReadsPlansAndKeepsOnlyCoordinateFreeFollowUps() {
+        assertEquals(
+            RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(500, 80), RemoteVisionDecision.Type("牛奶"), RemoteVisionDecision.SubmitSearch)),
+            parseRemoteVisionDecision("""{"steps":[{"action":"tap","x":500,"y":80},{"action":"type","text":"牛奶"},{"action":"submit"}]}"""),
+        )
+        // A second tap would use a coordinate from a screen that no longer exists: the plan ends there.
+        assertEquals(
+            RemoteVisionDecision.Tap(500, 80),
+            parseRemoteVisionDecision("""{"steps":[{"action":"tap","x":500,"y":80},{"action":"tap","x":1,"y":1},{"action":"submit"}]}"""),
+        )
+        assertEquals(
+            RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(1, 1), RemoteVisionDecision.Wait)),
+            parseRemoteVisionDecision("""{"steps":[{"action":"tap","x":1,"y":1},{"action":"wait"},{"action":"bogus"},{"action":"submit"}]}"""),
+        )
+        assertEquals(RemoteVisionDecision.Stop, parseRemoteVisionDecision("""{"steps":[{"action":"stop"},{"action":"submit"}]}"""))
+        assertEquals(RemoteVisionDecision.Unavailable("plan_empty"), parseRemoteVisionDecision("""{"steps":[]}"""))
+        assertEquals(RemoteVisionDecision.Unavailable("type_missing_text"), parseRemoteVisionDecision("""{"action":"type","text":" "}"""))
+    }
+
+    @Test
+    fun screenTreeListsActionableNodesFirstWithTapCoordinatesAndRespectsTheCap() {
+        fun node(text: String, clickable: Boolean, editable: Boolean = false) = ScreenNode(
+            id = text,
+            text = text,
+            contentDescription = "",
+            className = "",
+            bounds = ScreenBounds(0, 0, 500, 200),
+            clickable = clickable,
+            editable = editable,
+            scrollable = false,
+            enabled = true,
+        )
+        val snapshot = ScreenStateSnapshot(
+            id = "s",
+            packageName = "p",
+            capturedAtMillis = 1L,
+            nodes = listOf(node("标题", clickable = false), node("搜索", clickable = true), node("关键词", clickable = false, editable = true)),
+            textSummary = "",
+            truncated = false,
+            widthPx = 1000,
+            heightPx = 2000,
+        )
+
+        assertEquals("按钮 搜索 (250,50)\n输入框 关键词 (250,50)\n文字 标题 (250,50)", snapshot.toRemoteVisionScreenTree())
+        assertEquals("按钮 搜索 (250,50)", snapshot.toRemoteVisionScreenTree(maxChars = 20))
+        assertEquals(null, snapshot.copy(nodes = emptyList()).toRemoteVisionScreenTree())
+    }
+
+    @Test
+    fun blankSamplesAreRefusedButDarkScreensWithContentAreNot() {
+        assertTrue(sampledPixelsLookBlank(IntArray(16) { 0xFF000000.toInt() }))
+        assertTrue(!sampledPixelsLookBlank(IntArray(16) { i -> if (i == 3) 0xFFFFFFFF.toInt() else 0xFF000000.toInt() }))
     }
 
     @Test
@@ -290,7 +459,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun returnsNullWhenGateOff() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> error("decider must not be called when gate is off") },
+            decider = { _, _, _ -> error("decider must not be called when gate is off") },
             gateProvider = { false },
             executeDecisions = true,
             logger = {},
@@ -305,7 +474,7 @@ class RemoteVisionObservationReplannerTest {
         var deciderCalls = 0
         val logs = mutableListOf<String>()
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> deciderCalls++; RemoteVisionDecision.Tap(1, 1) },
+            decider = { _, _, _ -> deciderCalls++; RemoteVisionDecision.Tap(1, 1) },
             gateProvider = { true },
             executeDecisions = true,
             logger = { logs += it },
@@ -319,7 +488,7 @@ class RemoteVisionObservationReplannerTest {
     fun readOnlyModeLogsTapButDoesNotReplan() {
         val logs = mutableListOf<String>()
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Tap(normalizedX = 500, normalizedY = 250) },
+            decider = { _, _, _ -> RemoteVisionDecision.Tap(normalizedX = 500, normalizedY = 250) },
             gateProvider = { true },
             executeDecisions = false,
             logger = { logs += it },
@@ -332,7 +501,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun executeModeTurnsTapIntoLocalUiTapReplan() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Tap(normalizedX = 500, normalizedY = 250) },
+            decider = { _, _, _ -> RemoteVisionDecision.Tap(normalizedX = 500, normalizedY = 250) },
             gateProvider = { true },
             executeDecisions = true,
             logger = {},
@@ -351,7 +520,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun tapInheritsExpectedForegroundPackageFromContext() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Tap(normalizedX = 100, normalizedY = 100) },
+            decider = { _, _, _ -> RemoteVisionDecision.Tap(normalizedX = 100, normalizedY = 100) },
             gateProvider = { true },
             executeDecisions = true,
             logger = {},
@@ -363,7 +532,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun tapPrefersPreviousRequestExpectedPackageOverInherited() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Tap(normalizedX = 100, normalizedY = 100) },
+            decider = { _, _, _ -> RemoteVisionDecision.Tap(normalizedX = 100, normalizedY = 100) },
             gateProvider = { true },
             executeDecisions = true,
             logger = {},
@@ -380,7 +549,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun stopDecisionFinishesTheRun() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Stop },
+            decider = { _, _, _ -> RemoteVisionDecision.Stop },
             gateProvider = { true },
             executeDecisions = true,
             logger = {},
@@ -393,7 +562,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun stopDecisionInReadOnlyModeReturnsNull() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Stop },
+            decider = { _, _, _ -> RemoteVisionDecision.Stop },
             gateProvider = { true },
             executeDecisions = false,
             logger = {},
@@ -405,7 +574,7 @@ class RemoteVisionObservationReplannerTest {
     fun unavailableDecisionFailsClosedToNull() {
         val logs = mutableListOf<String>()
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> RemoteVisionDecision.Unavailable("missing_consent") },
+            decider = { _, _, _ -> RemoteVisionDecision.Unavailable("missing_consent") },
             gateProvider = { true },
             executeDecisions = true,
             logger = { logs += it },
@@ -418,7 +587,7 @@ class RemoteVisionObservationReplannerTest {
     fun stopsWhenReplanLimitReached() {
         var deciderCalls = 0
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> deciderCalls++; RemoteVisionDecision.Tap(1, 1) },
+            decider = { _, _, _ -> deciderCalls++; RemoteVisionDecision.Tap(1, 1) },
             gateProvider = { true },
             executeDecisions = true,
             maxReplans = 2,
@@ -435,7 +604,7 @@ class RemoteVisionObservationReplannerTest {
     @Test
     fun ignoresNonReplannableObservation() {
         val replanner = RemoteVisionObservationReplanner(
-            decider = { _, _ -> error("decider must not be called for rejected observation") },
+            decider = { _, _, _ -> error("decider must not be called for rejected observation") },
             gateProvider = { true },
             executeDecisions = true,
             logger = {},
