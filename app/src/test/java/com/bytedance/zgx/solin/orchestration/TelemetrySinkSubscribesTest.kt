@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.orchestration
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,7 +57,10 @@ class TelemetrySinkSubscribesTest {
     }
 
     @Test
-    fun toolSucceededMapsToToolCompletedWithDuration() {
+    fun toolSucceededDoesNotDoubleCount() {
+        // ToolCalls is counted once at plan time (ToolObservationCoordinator.appendToolPlanSteps)
+        // and ToolCompleted once with the real latency (recordToolCompletedTelemetry). Emitting
+        // either again from the terminal event doubled the count.
         val evt = SolinEvent.Agent.ToolSucceeded(
             runId = "run-t",
             toolCallId = "c1",
@@ -64,21 +68,51 @@ class TelemetrySinkSubscribesTest {
             summary = "found things (sensitive? no — never recorded)",
             durationMs = 245L,
         )
+
+        assertTrue("the terminal event must not re-count a tool call", evt.toMetricSamples().isEmpty())
+    }
+
+    @Test
+    fun toolFailedCountsOnlyTheFailureCounter() {
+        val evt = SolinEvent.Agent.ToolFailed(
+            runId = "run-t",
+            toolCallId = "c1",
+            toolName = "web.search",
+            code = ToolErrorCode.ExecutionFailed,
+            message = "boom",
+            retryable = false,
+        )
         val samples = evt.toMetricSamples()
-        // ToolCompleted (with duration) + ToolCalls counter.
-        assertEquals(2, samples.size)
-        val toolSample = samples.filterIsInstance<MetricSample.ToolCompleted>().single()
-        assertEquals("web.search", toolSample.toolName)
-        assertEquals(245L, toolSample.latencyMs)
-        assertTrue(toolSample.succeeded)
-        val counter = samples.filterIsInstance<MetricSample.CounterInc>().single()
-        assertEquals(TelemetryCounter.ToolCalls, counter.name)
+
+        assertEquals(1, samples.size)
+        val counter = samples.single() as MetricSample.CounterInc
+        assertEquals(TelemetryCounter.ToolFailures, counter.name)
+        assertTrue(
+            "a failed tool must not add a second zero-latency ToolCompleted",
+            samples.none { it is MetricSample.ToolCompleted },
+        )
+    }
+
+    @Test
+    fun userQuestionAskedIsCountedOnlyAtTheInterceptionSite() {
+        val evt = SolinEvent.Agent.UserQuestionAsked(
+            runId = "run-q",
+            questionId = "q1",
+            prompt = "which one?",
+            choices = listOf("a", "b"),
+        )
+
+        assertTrue(
+            "AskUserQuestions is counted at the ask_user/take_over site, not from the event",
+            evt.toMetricSamples().isEmpty(),
+        )
     }
 
     @Test
     fun sinkAggregatesSamplesFromMultipleEvents() {
         val sink = InMemoryTelemetrySink()
         // Pump events' samples into the sink synchronously (mirrors what attachTo's collector does).
+        // ToolSucceeded contributes nothing (see toolSucceededDoesNotDoubleCount).
         SolinEvent.Agent.ToolSucceeded(
             runId = "r", toolCallId = "c1", toolName = "web.search",
             summary = "privacy: must never be recorded", durationMs = 123L,
@@ -93,15 +127,14 @@ class TelemetrySinkSubscribesTest {
         }
 
         val snap = sink.snapshot()
-        // 1 ToolCompleted + 1 ToolCalls counter + 1 GenerationComplete + 2 TextTokens counters = 5
-        assertEquals(5, snap.totalSamples)
-        assertEquals(1, snap.countsByVariant["ToolCompleted"])
+        // 1 GenerationComplete + 2 TextTokens counters = 3
+        assertEquals(3, snap.totalSamples)
+        assertNull(snap.countsByVariant["ToolCompleted"])
         assertEquals(1, snap.countsByVariant["GenerationComplete"])
-        assertEquals(3, snap.countsByVariant["CounterInc"])
+        assertEquals(2, snap.countsByVariant["CounterInc"])
         assertEquals(2L, snap.counterTotals[TelemetryCounter.TextTokens])
-        assertEquals(1L, snap.counterTotals[TelemetryCounter.ToolCalls])
-        val latencies = snap.recentLatencies["ToolCompleted:web.search"]
-        assertEquals(listOf(123L), latencies)
+        assertNull("no tool call was planned, so ToolCalls must stay at zero", snap.counterTotals[TelemetryCounter.ToolCalls])
+        assertNull(snap.recentLatencies["ToolCompleted:web.search"])
         // Privacy: no sample's toString must contain the secret text or the tool summary.
         val dump = listOf(snap.toString(), snap.keyedStats.toString(), snap.recentLatencies.toString()).joinToString()
         assertFalse(dump.contains("SENSITIVE_PAYLOAD"))

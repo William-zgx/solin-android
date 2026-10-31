@@ -384,35 +384,15 @@ internal fun SolinEvent.toMetricSamples(): List<MetricSample> {
         is SolinEvent.Agent.ToolStarted -> Unit
         is SolinEvent.Agent.ToolProgress -> Unit // noisy; ignore
 
-        is SolinEvent.Agent.ToolSucceeded -> {
-            val dur = durationMs
-            if (dur != null && dur > 0L) {
-                out += MetricSample.ToolCompleted(
-                    toolName = toolName,
-                    latencyMs = dur,
-                    succeeded = true,
-                    occurredAtMillis = occurredAtMillis,
-                    runId = runId,
-                )
-            }
-            out += MetricSample.CounterInc(
-                name = TelemetryCounter.ToolCalls,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-        }
+        // ToolCalls is counted once, at plan time, by ToolObservationCoordinator.appendToolPlanSteps.
+        // Counting it here as well doubled every tool call. ToolCompleted samples are likewise
+        // recorded once by ToolObservationCoordinator.recordToolCompletedTelemetry (with the real
+        // dispatch latency), so the success event maps to nothing.
+        is SolinEvent.Agent.ToolSucceeded -> Unit
 
         is SolinEvent.Agent.ToolFailed -> {
-            // Record latency against ToolCompleted with succeeded=false (use 0 when unknown;
-            // durationMs is not on ToolFailed event itself, but callers also emit ToolCompleted
-            // from afterToolCall with the measured duration, so this is an existence marker).
-            out += MetricSample.ToolCompleted(
-                toolName = toolName,
-                latencyMs = 0L,
-                succeeded = false,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
+            // ToolFailures only: the ToolCompleted sample with succeeded=false and latency 0 that
+            // used to be emitted here was a second, zero-latency duplicate of the real sample.
             out += MetricSample.CounterInc(
                 name = TelemetryCounter.ToolFailures,
                 occurredAtMillis = occurredAtMillis,
@@ -480,13 +460,9 @@ internal fun SolinEvent.toMetricSamples(): List<MetricSample> {
         is SolinEvent.Agent.RunCancelled -> Unit
         is SolinEvent.Agent.RunSteered -> Unit
 
-        is SolinEvent.Agent.UserQuestionAsked -> {
-            out += MetricSample.CounterInc(
-                name = TelemetryCounter.AskUserQuestions,
-                occurredAtMillis = occurredAtMillis,
-                runId = runId,
-            )
-        }
+        // AskUserQuestions is counted once, at the interception site (AgentLoopRuntime's ask_user
+        // handler and take_over parking), so this event must not count it again.
+        is SolinEvent.Agent.UserQuestionAsked -> Unit
 
         is SolinEvent.Agent.UserQuestionAnswered -> Unit
         is SolinEvent.Agent.UserConfirmed -> Unit
