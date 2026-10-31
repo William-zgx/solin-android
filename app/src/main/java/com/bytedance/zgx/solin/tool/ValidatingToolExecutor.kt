@@ -23,11 +23,6 @@ class ValidatingToolExecutor(
         val result = try {
             delegate.execute(request)
         } catch (throwable: Throwable) {
-            progressPublisher.fail(
-                toolCallId = request.id,
-                toolName = request.toolName,
-                error = throwable.cleanMessage(),
-            )
             request.failed(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "Tool execution failed before completion: ${throwable.cleanMessage()}",
@@ -41,12 +36,8 @@ class ValidatingToolExecutor(
     }
 
     /**
-     * Batch execution that publishes per-tool start/complete/fail lifecycle events and
-     * validates each request/result sequentially before/after delegating to
-     * [delegate.executeBatch]. Validation is performed SEQUENTIALLY for every request
-     * BEFORE any tool is dispatched, so a single invalid request fails fast with no
-     * concurrent work launched (matches the safety/gate requirement that policy checks
-     * happen before the parallel pool starts).
+     * Every request is validated before any is dispatched, so policy checks finish before the
+     * parallel pool starts. Each request gets exactly one terminal progress event.
      */
     override fun executeBatch(requests: List<ToolRequest>): List<ToolResult> {
         if (requests.isEmpty()) return emptyList()
@@ -74,18 +65,12 @@ class ValidatingToolExecutor(
             // Defensive: the delegate should isolate per-tool failures, but a catastrophic
             // failure in the batch infrastructure is mapped to a failure for each request.
             dispatchable.map { request ->
-                val failed = request.failed(
+                request.failed(
                     code = ToolErrorCode.ExecutionFailed,
                     summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
                     retryable = true,
                     data = request.toolExecutionContext(),
-                ).withToolExecutionContext(request.toolName)
-                progressPublisher.fail(
-                    toolCallId = request.id,
-                    toolName = request.toolName,
-                    error = throwable.cleanMessage(),
                 )
-                failed
             }
         }
 
@@ -106,15 +91,7 @@ class ValidatingToolExecutor(
             resultsByRequestId[request.id] = validated
         }
 
-        return requests.map { request ->
-            rejections[request.id] ?: resultsByRequestId[request.id]
-            ?: request.failed(
-                code = ToolErrorCode.ExecutionFailed,
-                summary = "Tool batch produced no result for ${request.toolName}",
-                retryable = false,
-                data = request.toolExecutionContext(),
-            )
-        }
+        return requests.map { request -> rejections[request.id] ?: resultsByRequestId.getValue(request.id) }
     }
 
     private fun publishRejected(request: ToolRequest, rejection: ToolResult) {

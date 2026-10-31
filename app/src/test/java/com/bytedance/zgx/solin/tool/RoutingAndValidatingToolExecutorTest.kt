@@ -61,6 +61,8 @@ import com.bytedance.zgx.solin.orchestration.AgentObservationReplanContext
 import com.bytedance.zgx.solin.orchestration.AgentRun
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
+import com.bytedance.zgx.solin.orchestration.NoOpToolProgressPublisher
+import com.bytedance.zgx.solin.orchestration.ToolProgressPublisher
 import java.time.Instant
 import org.json.JSONArray
 import org.json.JSONObject
@@ -73,6 +75,34 @@ import org.junit.Test
 
 class RoutingAndValidatingToolExecutorTest {
     private val registry = ToolRegistry()
+
+    @Test
+    fun validatingExecutorPublishesOneFailEventWhenDelegateThrows() {
+        val failures = mutableListOf<String>()
+        val publisher = object : ToolProgressPublisher by NoOpToolProgressPublisher {
+            override fun fail(toolCallId: String, toolName: String, error: String) {
+                failures += toolCallId
+            }
+        }
+        val throwing = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult = error("boom")
+            override fun executeBatch(requests: List<ToolRequest>): List<ToolResult> = error("boom")
+        }
+        val executor = ValidatingToolExecutor(throwing, registry, publisher)
+        fun calc(id: String) = ToolRequest(
+            id = id,
+            toolName = MobileActionFunctions.CALCULATE,
+            arguments = mapOf("expression" to "1+1"),
+            reason = "test",
+        )
+
+        val single = executor.execute(calc("single"))
+        val batch = executor.executeBatch(listOf(calc("a"), calc("b")))
+
+        assertEquals(ToolStatus.Failed, single.status)
+        assertTrue(batch.all { it.status == ToolStatus.Failed })
+        assertEquals(listOf("single", "a", "b"), failures)
+    }
 
     @Test
     fun routingExecutorDispatchesDeviceContextToolsBeforeDelegate() {
