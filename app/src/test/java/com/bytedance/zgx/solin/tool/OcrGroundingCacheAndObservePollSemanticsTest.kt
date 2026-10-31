@@ -116,6 +116,21 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
         )
     }
 
+    /** A punctuation-only OCR block (a "<" back arrow) normalizes to blank and must not match any target. */
+    @Test
+    fun punctuationOnlyOcrBlockIsNotAGroundingHintForAnUnrelatedTarget() {
+        val provider = RecordingControlProvider(
+            observeResult = ScreenStateReadResult.Available(groundedSnapshot()),
+        )
+        val executor = routingExecutorWithOcrGrounding(provider, ocrText = "<")
+
+        executor.execute(captureOcrRequest())
+        executor.execute(tapRequest("tap-1"))
+
+        assertEquals(1, provider.tapOcrGroundingHints.size)
+        assertNull(provider.tapOcrGroundingHints[0])
+    }
+
     /**
      * Sequential companion to the concurrent case: the FIRST consumer gets the hint, the
      * second gets null. This pins the "consume invalidates" contract itself, so a future
@@ -290,6 +305,7 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
 
     private fun routingExecutorWithOcrGrounding(
         provider: CurrentScreenControlProvider,
+        ocrText: String = GROUNDED_TARGET,
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
@@ -354,13 +370,13 @@ class OcrGroundingCacheAndObservePollSemanticsTest {
                     nowMillis: Long,
                 ): CurrentScreenshotOcrReadResult =
                     CurrentScreenshotOcrReadResult.Available(
-                        text = GROUNDED_TARGET,
+                        text = ocrText,
                         truncated = false,
                         ocrBlocks = listOf(
                             OcrTextBlock(
-                                text = GROUNDED_TARGET,
+                                text = ocrText,
                                 bounds = OcrTextBounds(left = 10, top = 20, right = 110, bottom = 70),
-                                lines = listOf(OcrTextLine(text = GROUNDED_TARGET)),
+                                lines = listOf(OcrTextLine(text = ocrText)),
                             ),
                         ),
                     )

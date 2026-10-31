@@ -20,7 +20,6 @@ import com.bytedance.zgx.solin.device.normalizedLookupKey
 import com.bytedance.zgx.solin.device.toScreenBoundsOrNull
 import com.bytedance.zgx.solin.device.width
 import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 
 private const val CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS = 15_000L
@@ -35,16 +34,8 @@ internal class OcrGroundingCurrentScreenControlProvider(
         return delegate.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes)
     }
 
-    override fun tap(target: String, timeoutMillis: Long): UiActionReadResult {
-        val validationSnapshot = ocrGroundingValidationSnapshot()
-        val hint = cache.consumeFor(target, currentSnapshot = validationSnapshot)
-        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
-        return delegate.tapWithOcrGrounding(
-            target = target,
-            ocrGroundingHint = hint,
-            timeoutMillis = timeoutMillis,
-        )
-    }
+    override fun tap(target: String, timeoutMillis: Long): UiActionReadResult =
+        tapWithOcrGrounding(target = target, ocrGroundingHint = null, timeoutMillis = timeoutMillis)
 
     override fun tapWithOcrGrounding(
         target: String,
@@ -87,16 +78,8 @@ internal class OcrGroundingCurrentScreenControlProvider(
         )
     }
 
-    override fun submitSearch(timeoutMillis: Long): UiActionReadResult {
-        val validationSnapshot = ocrGroundingValidationSnapshot()
-        val hint = cache.consumeForSubmitSearch(currentSnapshot = validationSnapshot)
-        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
-        validationSnapshot.rejectSubmitWithoutSearchContext(hint)?.let { return it }
-        return delegate.submitSearchWithOcrGrounding(
-            ocrGroundingHint = hint,
-            timeoutMillis = timeoutMillis,
-        )
-    }
+    override fun submitSearch(timeoutMillis: Long): UiActionReadResult =
+        submitSearchWithOcrGrounding(ocrGroundingHint = null, timeoutMillis = timeoutMillis)
 
     override fun submitSearchWithOcrGrounding(
         ocrGroundingHint: UiOcrGroundingHint?,
@@ -518,16 +501,14 @@ private fun List<UiOcrGroundingHint>.bestForTarget(normalizedTarget: String): Ui
     if (idMatches.isNotEmpty()) {
         return idMatches.maxByOrNull { hint -> hint.scoreForTarget(normalizedTarget) }
     }
-    val textMatches = filter { hint -> hint.textMatchesTarget(normalizedTarget) }
-    if (textMatches.size != 1) return null
-    return textMatches.single()
+    return filter { hint -> hint.textMatchesTarget(normalizedTarget) }.singleOrNull()
 }
 
+/** OCR text that normalizes to blank (e.g. a lone "<" back arrow) matches no target. */
 private fun UiOcrGroundingHint.textMatchesTarget(normalizedTarget: String): Boolean {
     val normalizedText = text.normalizedLookupKey()
-    return normalizedText == normalizedTarget ||
-        normalizedText.contains(normalizedTarget) ||
-        normalizedTarget.contains(normalizedText)
+    return normalizedText.isNotBlank() &&
+        (normalizedText.contains(normalizedTarget) || normalizedTarget.contains(normalizedText))
 }
 
 private fun UiOcrGroundingHint.scoreForTarget(normalizedTarget: String): Int {
