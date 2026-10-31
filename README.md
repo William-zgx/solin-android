@@ -42,9 +42,12 @@ screen text, OCR, contacts, calendar, low-risk app search).
 - **Remote is optional**: remote chat works only after an endpoint is configured
   and remote mode selected. Images, suspected sensitive text, and configured
   remote sends require preview or confirmation.
-- **Actions are confirmed**: device actions are validated locally and stay behind
-  permission, disclosure, confirmation, audit, and fail-closed boundaries;
-  high-risk device actions still require confirmation.
+- **Only critical actions are confirmed**: device actions are validated locally
+  and stay behind permission, disclosure, audit, and fail-closed boundaries.
+  Reversible steps (opening apps, drafts, reminders, taps and scrolls) run
+  directly; external sends, sensitive steps, and outgoing sensitive queries are
+  confirmed, and pay / send / delete / publish / order / authorize buttons are
+  always tapped by the user. A Trust-Center switch restores per-step confirmation.
 - **Users stay in control**: keys can be cleared, conversations and memories
   deleted, and privacy-sensitive behavior is documented before release.
 
@@ -79,9 +82,9 @@ flowchart LR
   Remote mode, and a vision-capable model, Solin captures the screen via
   `AccessibilityService.takeScreenshot` (no MediaProjection, no new foreground
   service), sends it to the remote vision model, and applies the returned tap
-  coordinate as a local `ui_tap` that still passes every device-control preflight
-  and confirmation. Screen-pixel egress is gated by an in-app
-  first-confirm-then-auto rule and a per-send audit; capture or send failures
+  coordinate as a local `ui_tap` that still passes every device-control preflight.
+  Screen-pixel egress is gated by the opt-in (plus a first confirmation in
+  per-step mode) and a per-send audit; capture or send failures
   fail closed and stop the loop.
 - The chat surface only shows a safe result summary; structured tool fields stay
   available through the trace/audit surfaces, not a typed chat card.
@@ -102,21 +105,23 @@ acceptance.
 
 Phone control is limited to low-risk navigation and search: observe, tap, type,
 submit search, scroll, swipe, long-press, system keys (home/recents/enter/delete),
-back, and wait. Swipe, long-press, and system-key presses require confirmation
-and count toward the 5-step checkpoint; system keys are a fixed whitelist, never
-an arbitrary keycode. Sending, deleting, paying, ordering, publishing, sensitive
-input, and permission changes stay on the confirmation path.
+back, and wait. System keys are a fixed whitelist, never an arbitrary keycode.
+The agent never taps a pay, send, delete, publish, order, transfer, or authorize
+control: a tap on one (by name or by coordinate) stops before execution and the
+user taps it. Typing and scrolling work on any screen; submit, Enter, swipe, and
+long-press stop when such a control is on screen. With per-step confirmation
+turned back on, low-risk app control returns to the user at a 5-step checkpoint.
 
-After a confirmed app launch with a follow-up intent, Solin can continue inside
-the opened app under the same 5-step checkpoint, gated by a locally-installed
+After an app launch with a follow-up intent, Solin can continue inside the
+opened app, gated by a locally-installed
 mobile-action model and an expected-package foreground guard. It fails closed to
 open-then-stop if the model is absent or the target app is not foreground, and
 the continuation stays LocalOnly.
 
 The optional remote-vision path replaces the local action model for the in-app
 continuation: a vision-capable remote model sees the screen capture and returns a
-tap coordinate, executed as a local `ui_tap` under the same confirmation,
-preflight, and 5-step checkpoint rules. Off by default; requires the Trust-Center
+tap, back, scroll, or stop decision, executed as a local `ui_tap`,
+`ui_press_back`, `ui_scroll`, or `finish` under the same preflight rules. Off by default; requires the Trust-Center
 "Remote-vision GUI automation" toggle, Remote inference mode, and a model that
 supports image input. See `docs/privacy_notice.md` for the egress consent and
 audit model.

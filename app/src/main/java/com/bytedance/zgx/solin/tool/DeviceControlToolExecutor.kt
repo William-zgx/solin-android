@@ -25,6 +25,8 @@ import com.bytedance.zgx.solin.device.DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
 import com.bytedance.zgx.solin.device.blockingOverlayDismissTarget
 import com.bytedance.zgx.solin.device.hasBlockingOverlay
 import com.bytedance.zgx.solin.device.hasDangerousActionControl
+import com.bytedance.zgx.solin.device.normalizedPointHitsDangerousControl
+import com.bytedance.zgx.solin.device.tapTargetHitsDangerousControl
 import com.bytedance.zgx.solin.device.toScreenNodesJsonString
 import com.bytedance.zgx.solin.device.toScreenObservationJsonString
 import kotlinx.coroutines.Dispatchers
@@ -200,6 +202,7 @@ class DeviceControlToolExecutor(
                 request,
                 actionType = "tap",
                 target = targetLabel,
+                dangerScope = DangerScope.Point(normalizedTarget.x, normalizedTarget.y),
                 failClosedOnUnavailable = true,
                 dismissBlockingOverlays = false,
             )?.let { return it }
@@ -219,6 +222,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "tap",
             target = target,
+            dangerScope = DangerScope.Target(target),
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = true,
         ) {
@@ -238,6 +242,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "type_text",
             target = target,
+            dangerScope = DangerScope.None,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = true,
         ) {
@@ -258,6 +263,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "submit_search",
             target = "",
+            dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = false,
         ) {
@@ -278,6 +284,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "scroll",
             target = target,
+            dangerScope = DangerScope.None,
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = false,
             extraData = mapOf("direction" to direction.schemaValue),
@@ -310,6 +317,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "swipe",
             target = "",
+            dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
         ) {
@@ -339,6 +347,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "long_press",
             target = "",
+            dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
         ) {
@@ -361,6 +370,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = "press_key",
             target = key.schemaValue,
+            dangerScope = DangerScope.WholeScreen,
             failClosedOnUnavailable = true,
             dismissBlockingOverlays = false,
             extraData = mapOf("key" to key.schemaValue),
@@ -381,6 +391,7 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         actionType: String,
         target: String,
+        dangerScope: DangerScope,
         failClosedOnUnavailable: Boolean,
         dismissBlockingOverlays: Boolean,
         extraData: Map<String, String> = emptyMap(),
@@ -390,6 +401,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = actionType,
             target = target,
+            dangerScope = dangerScope,
             failClosedOnUnavailable = failClosedOnUnavailable,
             dismissBlockingOverlays = dismissBlockingOverlays,
         )?.let { return it }
@@ -408,15 +420,17 @@ class DeviceControlToolExecutor(
      * [dismissBlockingOverlays]) a bounded overlay dismissal followed by a second dangerous-control
      * check, because closing an overlay can reveal a dangerous control the first check never saw.
      *
-     * Both flags are required at every call site on purpose — they are the per-action safety
-     * differences: [failClosedOnUnavailable] is true only for actions with no named-target second
-     * layer (normalized tap, swipe, long_press, press_key); overlay dismissal + re-check applies
-     * only to named-target tap and type_text.
+     * All three flags are required at every call site on purpose — they are the per-action safety
+     * differences: [dangerScope] is what the action can activate (see [DangerScope]);
+     * [failClosedOnUnavailable] is true only for actions with no named-target second layer
+     * (normalized tap, swipe, long_press, press_key); overlay dismissal + re-check applies only to
+     * named-target tap and type_text.
      */
     private fun guardedActionPreflight(
         request: ToolRequest,
         actionType: String,
         target: String,
+        dangerScope: DangerScope,
         failClosedOnUnavailable: Boolean,
         dismissBlockingOverlays: Boolean,
     ): ToolResult? {
@@ -425,6 +439,7 @@ class DeviceControlToolExecutor(
             request,
             actionType = actionType,
             target = target,
+            dangerScope = dangerScope,
             failClosedOnUnavailable = failClosedOnUnavailable,
         )?.let { return it }
         if (dismissBlockingOverlays) {
@@ -433,6 +448,7 @@ class DeviceControlToolExecutor(
                 request,
                 actionType = actionType,
                 target = target,
+                dangerScope = dangerScope,
                 failClosedOnUnavailable = failClosedOnUnavailable,
             )?.let { return it }
         }
@@ -495,8 +511,12 @@ class DeviceControlToolExecutor(
         request: ToolRequest,
         actionType: String,
         target: String,
+        dangerScope: DangerScope,
         failClosedOnUnavailable: Boolean = false,
     ): ToolResult? {
+        // Typing and scrolling never activate a control, so a pay/send button elsewhere on the
+        // screen (every chat screen has "发送") must not stop them.
+        if (dangerScope == DangerScope.None) return null
         // For named-target actions (tap/type/scroll/submit_search) node matching provides a second
         // content-aware layer, so a momentarily-unreadable screen falls through to those actions'
         // own not-found handling (fail-open here). For pure-coordinate gestures (swipe/long_press)
@@ -539,10 +559,20 @@ class DeviceControlToolExecutor(
                     return null
                 }
         }
-        if (!snapshot.hasDangerousActionControl()) return null
+        val hitsDangerousControl = when (dangerScope) {
+            DangerScope.None -> false
+            is DangerScope.Target -> snapshot.tapTargetHitsDangerousControl(dangerScope.target)
+            is DangerScope.Point -> snapshot.normalizedPointHitsDangerousControl(dangerScope.xNorm, dangerScope.yNorm)
+            DangerScope.WholeScreen -> snapshot.hasDangerousActionControl()
+        }
+        if (!hitsDangerousControl) return null
         return request.failed(
             code = ToolErrorCode.ExecutionFailed,
-            summary = "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。",
+            summary = if (dangerScope == DangerScope.WholeScreen) {
+                "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。"
+            } else {
+                "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
+            },
             retryable = false,
             data = (
                 request.deviceControlBaseData() +
@@ -1036,4 +1066,23 @@ class DeviceControlToolExecutor(
         const val FOREGROUND_READINESS_POLL_MAX_ATTEMPTS = 6
         const val FOREGROUND_READINESS_POLL_INTERVAL_MILLIS = 250L
     }
+}
+
+/**
+ * What a UI action can activate, i.e. what the dangerous-control preflight inspects. Critical
+ * controls (pay, send, delete, publish, order, transfer, authorize) are never tapped by the agent;
+ * the user taps them. Everything else on the same screen stays usable.
+ */
+private sealed interface DangerScope {
+    /** Typing or scrolling never activates a control. */
+    data object None : DangerScope
+
+    /** A named tap activates only its target. */
+    data class Target(val target: String) : DangerScope
+
+    /** A normalized-coordinate tap activates whatever lies under the point. */
+    data class Point(val xNorm: Int, val yNorm: Int) : DangerScope
+
+    /** Submit, Enter, swipe and long-press can commit anything on screen (Enter sends a chat). */
+    data object WholeScreen : DangerScope
 }

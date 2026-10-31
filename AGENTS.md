@@ -63,9 +63,14 @@ Scripts: `scripts/`. Docs: `docs/`.
 2. **Fail-closed** — invalid schema, missing capability, unsupported model path,
    or unclear privacy → refuse / local-only / require confirmation. Never silent
    upload or silent OCR fallback that bypasses policy.
-3. **Confirmation for medium+ risk** — device actions go through permission,
-   disclosure, confirmation, and audit. Do not bypass confirmation for medium
-   or higher risk tools.
+3. **Critical actions stay with the user** — device actions go through
+   permission, disclosure, and audit. In the default critical-only mode
+   (`orchestration/ConfirmationBypassPolicy.kt`) reversible steps run without a
+   prompt; external sends, payments, unknown tools, model-flagged sensitive steps,
+   and sensitive web queries are always confirmed, and the agent never taps a
+   pay / send / delete / publish / order / transfer / authorize control itself
+   (the device-control executor stops and the user taps it). Do not widen what
+   runs without a prompt beyond this documented list.
 4. **No raw prompts in remote audit** — remote audit events must not persist
    raw user prompts; keep redaction / summary-only surfaces.
 5. **Do not weaken `SafetyPolicy`** — tool risk levels, confirmation policy,

@@ -83,7 +83,9 @@ Current status:
 - Phone control also covers Accessibility gestures — swipe (normalized 0-1000
   coordinates), long-press, and an allowlisted system-key set
   (home/recents/enter/delete, never an arbitrary keycode) — all
-  Required-confirmation, LocalOnly, checkpointed low-risk continuation actions.
+  Required-confirmation specs, LocalOnly, checkpointed low-risk continuation
+  actions; in critical-only mode they run without a prompt and stop on screens
+  with a critical control.
 - UI control tools remain unavailable to remote model planning. App-search
   observation is `LocalOnly` and can only feed the local action-planning model.
 
@@ -163,11 +165,12 @@ Current status:
   process death. Raw tool arguments, model output, private payload, and
   arbitrary sequence text are not restored.
 - External Activity launches move to `AwaitingExternalOutcome` when Solin
-  can prove only that the external UI opened. When a confirmed
+  can prove only that the external UI opened, unless critical-only mode ran
+  the launch without a prompt (then the run completes as opened). When an
   `open_app_by_name` carries a non-blank `followUpIntent` and a local
   mobile-action planning model is installed, Solin instead runs a bounded
   LocalOnly in-app continuation (observe current screen → local replan → a
-  low-risk UI action) within the same 5-step checkpoint, threading the
+  low-risk UI action), threading the
   expected foreground package so it fails closed to `AwaitingExternalOutcome`
   if the model is absent or the target app is not foreground. It never sends
   remote or reads screenshot pixels. Otherwise follow-up planning waits for
@@ -180,7 +183,8 @@ Current status:
   `AccessibilityService.takeScreenshot` (transient JPEG, never persisted),
   sends it to the remote vision model, and applies the returned tap, back, or
   scroll decision as a local `ui_tap` / `ui_press_back` / `ui_scroll` under the
-  same confirmation, preflight, and 5-step checkpoint rules. A `stop` decision,
+  same preflight rules (and, in per-step mode, the same confirmation and 5-step
+  checkpoint). A `stop` decision,
   or a repeat of the last action on an unchanged screen, ends the run with a
   local `finish` instead of falling back to the local action model. Capture or
   send failures fail closed and stop the loop.
@@ -459,6 +463,20 @@ Current status:
 
 - `SafetyPolicy` rejects registered boundary tools that would cross execution
   or privacy boundaries without mandatory confirmation.
+- Critical-only confirmation (`orchestration/ConfirmationBypassPolicy.kt`, the
+  default Trust-Center setting) turns a `RequireConfirmation` decision into
+  `Allow` unless `criticalApprovalReason` names one: unknown tool,
+  `HighExternalSend` / `CriticalDeviceOrPayment` risk, a model-flagged
+  sensitivity reason, or a web search whose query looks personal or secret.
+  Rejections are never relaxed. Auto-run external launches complete as
+  "opened" instead of waiting for an outcome record. Turning the setting off
+  confirms every step (low-risk app-control skills still continue after one
+  confirmation, up to 5 UI actions).
+- Critical on-screen controls (pay, send, delete, publish, order, transfer,
+  authorize) are never activated by the agent: `DeviceControlToolExecutor`
+  checks what each action can activate — the named target or the node under a
+  coordinate tap; nothing for typing and scrolling; the whole screen for
+  submit, Enter, swipe, and long-press — and stops with "需要你亲自操作".
 - Persistent audit records include time, event type, tool name, status, risk,
   permission names, and sanitized summaries. The Room repository keeps the most
   recent 500 records.
@@ -473,6 +491,9 @@ Current status:
 Tests:
 
 - `SafetyPolicyTest`
+- `ConfirmationBypassPolicyTest`
+- `OverlayDismissLoopTest`
+- `UiDangerousActionKeywordsTest`
 - `ToolAuditEventTest`
 - `ToolAuditRepositoryTest`
 - `AgentTraceStoreTest`

@@ -80,9 +80,10 @@ class OverlayDismissLoopTest {
     }
 
     @Test
-    fun neverAutoTapsWhenDangerousControlPresent() {
-        // Overlay markers + a 立即购买 dangerous control: the dismiss loop must not tap the close
-        // affordance (fail-closed), and the requested tap is blocked by the dangerous preflight.
+    fun dismissLoopNeverTapsOnDangerousScreenButSafeTargetsStillRun() {
+        // Overlay markers + a 立即购买 control: the dismiss loop must not tap the close affordance
+        // (fail-closed), but the requested tap on an unrelated target still runs — only the
+        // critical control itself is off limits.
         val provider = ScriptedControlProvider(
             observeSnapshots = listOf(dangerousOverlaySnapshot("danger-1")),
         )
@@ -96,16 +97,36 @@ class OverlayDismissLoopTest {
             ),
         )
 
-        assertEquals("no dismiss tap and no real tap when a dangerous control is present", emptyList<String>(), provider.tapTargets)
-        assertEquals(ToolStatus.Failed, result.status)
-        assertEquals("dangerous_ui_action_control_detected", result.data["summary"])
+        assertEquals("no dismiss tap, only the requested tap", listOf("商品"), provider.tapTargets)
+        assertEquals(ToolStatus.Succeeded, result.status)
     }
 
     @Test
-    fun failsClosedWhenDismissRevealsDangerousControl() {
-        // Preflight #1 sees a benign overlay (dismissable). After the dismiss tap, the newly
-        // revealed screen carries a 立即购买 dangerous control. The post-dismiss re-preflight must
-        // catch it and block the real tap.
+    fun tapOnDangerousTargetIsBlockedByIdOrLabel() {
+        listOf("cta", "立即购买").forEach { target ->
+            val provider = ScriptedControlProvider(
+                observeSnapshots = listOf(dangerousRevealedSnapshot("danger-$target")),
+            )
+            val result = DeviceControlToolExecutor(provider = provider).execute(
+                ToolRequest(
+                    id = "tap-$target",
+                    toolName = MobileActionFunctions.UI_TAP,
+                    arguments = mapOf("target" to target),
+                ),
+            )
+
+            assertEquals(target, ToolStatus.Failed, result.status)
+            assertEquals(target, "dangerous_ui_action_control_detected", result.data["summary"])
+            assertTrue(target, result.summary.contains("需要你亲自操作"))
+            assertEquals(target, emptyList<String>(), provider.tapTargets)
+        }
+    }
+
+    @Test
+    fun failsClosedWhenDismissRevealsDangerousTarget() {
+        // Preflight #1 sees a benign overlay (dismissable) without the target. After the dismiss
+        // tap, the revealed screen shows the target as a 立即购买 control. The post-dismiss
+        // re-preflight must catch it and block the real tap.
         val provider = ScriptedControlProvider(
             observeSnapshots = listOf(
                 overlaySnapshot("overlay-preflight"),
@@ -120,13 +141,13 @@ class OverlayDismissLoopTest {
             ToolRequest(
                 id = "tap-4",
                 toolName = MobileActionFunctions.UI_TAP,
-                arguments = mapOf("target" to "商品"),
+                arguments = mapOf("target" to "cta"),
             ),
         )
 
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals("dangerous_ui_action_control_detected", result.data["summary"])
-        // The dismiss tap happened, but the real 商品 tap must NOT (blocked by re-preflight).
+        // The dismiss tap happened, but the real tap must NOT (blocked by re-preflight).
         assertEquals(listOf("关闭"), provider.tapTargets)
         assertEquals("post-tap snapshot is reused inside the loop", 3, provider.observeCount)
     }
@@ -189,7 +210,7 @@ class OverlayDismissLoopTest {
     private fun dangerousRevealedSnapshot(id: String) = snapshot(
         id = id,
         nodes = listOf(
-            node("buy", "立即购买", clickable = true),
+            node("cta", "立即购买", clickable = true),
             node("content", "商品", clickable = true),
         ),
     )

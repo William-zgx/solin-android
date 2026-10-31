@@ -144,8 +144,8 @@ internal fun TrustBoundaryPanel(
             ) {
                 SectionTitle(
                     modifier = Modifier.weight(1f),
-                    text = "手机操作确认",
-                    subtitle = "开启后，低风险系统页、应用导航和屏幕点击滚动会减少弹窗；发送、删除、支付、发布、敏感输入和权限授权仍会确认。",
+                    text = "只确认关键操作（推荐）",
+                    subtitle = "开启后，打开应用、填写草稿、设置提醒、点击滚动等可撤销的操作直接执行；支付、发送、删除、发布、下单、转账、授权等按钮由你亲手点击，外发数据和模型标注的敏感步骤仍会确认。关闭后每个手机操作都先确认。",
                 )
                 Switch(
                     modifier = Modifier.testTag("reduce_device_action_confirmations_switch"),

@@ -83,11 +83,11 @@ logging/        SolinLog 结构化日志门面
 ## 4. 不可协商边界
 
 - **LocalOnly 默认**；未知隐私元数据按 LocalOnly fail-closed
-- **中风险及以上必须确认**；不绕过 `SafetyPolicy`
+- **只确认关键操作**（`ConfirmationBypassPolicy`）：外发、未知工具、模型标注敏感、敏感联网查询必须确认；支付/发送/删除/发布/下单/授权按钮由用户亲手点击；不绕过 `SafetyPolicy`
 - **远程审计不落 raw prompt**
 - **密钥 / 模型权重 / 用户数据不进 Git**
 - 低风险手机控制限：observe / tap / type / submit search / scroll / swipe / long-press / 系统按键(home/recents/enter/delete) / back / wait
-- 远程视觉 GUI 自动化（可选）：信任中心开关 + 远程模式 + 支持视觉的模型；`AccessibilityService.takeScreenshot` 截图，远程模型返回点击/返回/滚动/停止，作为本地 `ui_tap` / `ui_press_back` / `ui_scroll` / `finish` 执行，仍受确认/预检/5-step checkpoint 约束；截图外发 fail-closed
+- 远程视觉 GUI 自动化（可选）：信任中心开关 + 远程模式 + 支持视觉的模型；`AccessibilityService.takeScreenshot` 截图，远程模型返回点击/返回/滚动/停止，作为本地 `ui_tap` / `ui_press_back` / `ui_scroll` / `finish` 执行，仍受预检约束；截图外发 fail-closed
 
 详细产品表述以 README 与 `docs/privacy_notice.md` 为准。
 

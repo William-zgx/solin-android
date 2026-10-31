@@ -433,7 +433,8 @@ data class ChatUiState(
     val setupSelectedModelIds: Set<String> = ModelCatalog.defaultSetupModelIds(),
     val showFirstRunSetup: Boolean = false,
     val memoryEnabled: Boolean = true,
-    val reduceDeviceActionConfirmations: Boolean = false,
+    /** Critical-only confirmations (default on); off confirms every device action. */
+    val reduceDeviceActionConfirmations: Boolean = true,
     val remoteGuiAutomationEnabled: Boolean = false,
     val semanticMemory: SemanticMemoryStatus = SemanticMemoryStatus(),
     val huggingFaceAccessTokenConfigured: Boolean = false,

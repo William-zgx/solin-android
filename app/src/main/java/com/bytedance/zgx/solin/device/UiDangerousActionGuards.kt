@@ -4,11 +4,11 @@ package com.bytedance.zgx.solin.device
  * Dangerous-action keywords, defined once here and used at two strengths:
  *
  * - [dangerousActionTextMarkers] — screen-wide guards. Any enabled actionable node whose label
- *   matches blocks every automatic UI action on that screen, so this list stays narrow (payment,
- *   delete, send, publish, order, grant) to keep low-risk app search usable on shopping/map apps.
- * - [dangerousTapTargetMarkers] — whether one `ui_tap` target may skip confirmation
- *   (`ToolRegistry.isLowRiskDeviceActionConfirmationSkippable`). It is the screen list plus generic
- *   submit/confirm verbs, so it only ever asks for confirmation more often (fail closed).
+ *   matches blocks the actions that can commit anything on screen (submit, Enter, swipe,
+ *   long-press), so this list stays narrow (payment, delete, send, publish, order, grant).
+ * - [dangerousTapTargetMarkers] — whether one tap (named target or coordinate) would activate a
+ *   critical control, which the agent never does itself. It is the screen list plus generic
+ *   submit/confirm verbs, so it only ever stops more often (fail closed).
  *
  * Only ever add to these lists.
  */
@@ -105,6 +105,39 @@ internal fun String?.hasStrongDangerousActionText(): Boolean {
 
 internal fun ScreenStateSnapshot.hasDangerousActionControl(): Boolean =
     nodes.any { node -> node.hasDangerousActionControl() }
+
+/**
+ * Whether tapping [target] (a node id or label) would activate a critical control. The target text
+ * itself is checked with the strict tap list, then every node the target can name (same id, or the
+ * same label) — so "search-entry" on a chat screen is fine while "send-button" labelled 发送 is not.
+ */
+internal fun ScreenStateSnapshot.tapTargetHitsDangerousControl(target: String): Boolean {
+    if (target.hasDangerousTapTargetText()) return true
+    val key = target.normalizedLookupKey()
+    if (key.isBlank()) return false
+    return nodes.any { node ->
+        val label = node.text.ifBlank { node.contentDescription }
+        (node.id == target || label.normalizedLookupKey() == key) && label.hasDangerousTapTargetText()
+    }
+}
+
+/**
+ * Whether a normalized (0-1000) tap point lands on a critical control: the innermost enabled
+ * clickable node under the point decides. Without screen size or node bounds the point cannot be
+ * resolved, so this falls back to the screen-wide check (fail closed).
+ */
+internal fun ScreenStateSnapshot.normalizedPointHitsDangerousControl(xNorm: Int, yNorm: Int): Boolean {
+    val width = widthPx?.takeIf { it > 0 } ?: return hasDangerousActionControl()
+    val height = heightPx?.takeIf { it > 0 } ?: return hasDangerousActionControl()
+    val x = width * xNorm / 1000
+    val y = height * yNorm / 1000
+    val hit = nodes
+        .filter { node -> node.enabled && node.clickable }
+        .filter { node -> node.bounds?.let { b -> x in b.left..b.right && y in b.top..b.bottom } == true }
+        .minByOrNull { node -> node.bounds!!.let { b -> (b.right - b.left).toLong() * (b.bottom - b.top) } }
+        ?: return false
+    return hit.text.ifBlank { hit.contentDescription }.hasDangerousTapTargetText()
+}
 
 /** Shared with the accessibility service's own overlay-dismiss path, which walks live nodes. */
 internal fun ScreenNode.hasDangerousActionControl(): Boolean {

@@ -109,8 +109,9 @@ data class AgentObservationReplanContext(
      * True when this run already has at least one user-confirmed tool step. Gates the remote-vision
      * screenshot egress: [RemoteVisionObservationReplanner] only sends a screenshot off-device once
      * the user has confirmed the run's first action (open_app / the initial observe), giving the
-     * "first confirm → then auto" behaviour. Recomputed statelessly from the trace each step by
-     * [ToolPlanCoordinator], so authorization auto-resets on a new run (new session/mode/config).
+     * "first confirm → then auto" behaviour. In critical-only confirmation mode it is true from the
+     * start: no step is prompted, and the remote-GUI opt-in is the egress approval. Recomputed
+     * statelessly each step by [ToolPlanCoordinator], so it resets on a new run.
      * Local replanners ignore this field. Defaults false → fail closed (no screenshot leaves).
      */
     val runHasUserConfirmedStep: Boolean = false,

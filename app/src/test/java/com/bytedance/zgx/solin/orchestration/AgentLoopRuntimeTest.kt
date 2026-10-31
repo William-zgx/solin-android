@@ -1818,7 +1818,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun reduceDeviceActionConfirmationsOnlyBypassesLowRiskInitialPlans() {
+    fun criticalOnlyConfirmationsAutoRunNonCriticalInitialPlans() {
         listOf(
             ReducedConfirmationInitialCase(
                 name = "low-risk Wi-Fi navigation",
@@ -1838,32 +1838,36 @@ class AgentLoopRuntimeTest {
                 expectedSafety = SafetyOutcome.Allow,
                 requiresConfirmation = false,
             ),
+            // The agent never taps a critical control itself: the plan runs without a prompt and the
+            // device-control executor stops before 确认支付 so the user taps it.
             ReducedConfirmationInitialCase(
-                name = "high-risk UI tap",
+                name = "critical UI tap is left to the executor",
                 input = "点击确认支付",
                 planningResult = uiTapPlanningResult("确认支付"),
-                expectedRunState = AgentRunState.AwaitingUserConfirmation,
+                expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.UI_TAP,
-                expectedSafety = SafetyOutcome.RequireConfirmation,
-                requiresConfirmation = true,
+                expectedSafety = SafetyOutcome.Allow,
+                requiresConfirmation = false,
             ),
+            // A draft only opens the mail app; the user still presses send there.
             ReducedConfirmationInitialCase(
                 name = "external text draft",
                 input = "帮我写邮件：明天聊",
                 planningResult = composeEmailPlanningResult(),
-                expectedRunState = AgentRunState.AwaitingUserConfirmation,
+                expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.COMPOSE_EMAIL,
-                expectedSafety = SafetyOutcome.RequireConfirmation,
-                requiresConfirmation = true,
+                expectedSafety = SafetyOutcome.Allow,
+                requiresConfirmation = false,
             ),
+            // Only opens the settings page; granting access is still the user's own system toggle.
             ReducedConfirmationInitialCase(
                 name = "accessibility settings",
                 input = "打开无障碍设置",
                 planningResult = openAccessibilitySettingsPlanningResult(),
-                expectedRunState = AgentRunState.AwaitingUserConfirmation,
+                expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-                expectedSafety = SafetyOutcome.RequireConfirmation,
-                requiresConfirmation = true,
+                expectedSafety = SafetyOutcome.Allow,
+                requiresConfirmation = false,
                 expectedArguments = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
             ),
         ).forEach { case ->
@@ -1872,7 +1876,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun reduceDeviceActionConfirmationsKeepsHighRiskUiTapContinuationConfirmed() {
+    fun criticalOnlyConfirmationsStopBeforeCriticalUiTapContinuation() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
@@ -1898,15 +1902,14 @@ class AgentLoopRuntimeTest {
             result = observeScreenResult(planned.plan.request),
         )
 
+        // The 确认支付 tap is neither low-risk nor confirmed, so the skill does not auto-continue:
+        // the run hands back to the model (and the user) instead of planning the critical tap.
         requireNotNull(observed)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
-        require(observed.decision is AgentObservationDecision.PlanNextTool)
-        val nextPlan = observed.decision.plan
-        assertEquals(MobileActionFunctions.UI_TAP, nextPlan.request.toolName)
-        assertTrue(nextPlan.request.arguments["target"].orEmpty().contains("确认支付"))
-        assertTrue(nextPlan.draft.requiresConfirmation)
-        assertEquals(SafetyOutcome.RequireConfirmation, nextPlan.safetyDecision.outcome)
-        assertEquals(nextPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        assertTrue(observed.steps.none { step ->
+            step is AgentStep.ToolRequested && step.request.arguments["target"].orEmpty().contains("确认支付")
+        })
+        assertNull(runtime.latestPendingConfirmation())
     }
 
     @Test
@@ -2787,7 +2790,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun lowRiskAppControlContinuationCheckpointsAfterFiveUiActionsEvenWhenReduced() {
+    fun criticalOnlyConfirmationsHaveNoFiveStepCheckpoint() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
@@ -2818,20 +2821,12 @@ class AgentLoopRuntimeTest {
             assertFalse(plan.draft.requiresConfirmation)
         }
 
-        val checkpoint = runtime.observeToolResult(
+        val sixth = runtime.observeToolResult(
             runId = planned.run.id,
             result = uiActionResult(plan.request, actionType = "tap", target = "搜索5"),
-        )
-
-        requireNotNull(checkpoint)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, checkpoint.run.state)
-        require(checkpoint.decision is AgentObservationDecision.PlanNextTool)
-        val checkpointPlan = checkpoint.decision.plan
-        assertEquals("tap_6", checkpointPlan.request.id)
-        assertEquals(MobileActionFunctions.UI_TAP, checkpointPlan.request.toolName)
-        assertTrue(checkpointPlan.draft.requiresConfirmation)
-        assertEquals(SafetyOutcome.RequireConfirmation, checkpointPlan.safetyDecision.outcome)
-        assertEquals("tap_6", runtime.latestPendingConfirmation()?.request?.id)
+        ).requireNextTool(MobileActionFunctions.UI_TAP)
+        assertEquals("tap_6", sixth.request.id)
+        assertNull(runtime.latestPendingConfirmation())
     }
 
     @Test

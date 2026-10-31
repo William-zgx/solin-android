@@ -201,12 +201,13 @@ gated by defense-in-depth:
   the already-connected, user-granted Accessibility service
   (`AccessibilityService.takeScreenshot`); there is no separate per-capture
   system screen-cast dialog. Egress is instead governed by this opt-in plus the
-  first-confirm gate below.
-- **First-confirm-then-auto:** the first screenshot of a run is transmitted only
-  after the user has confirmed that run's first action (e.g. opening the app).
-  Once confirmed, subsequent screenshots in the same run may be captured and
-  sent automatically, bounded by a per-run step limit. A new run, session, or
-  mode change resets this and requires a fresh first confirmation.
+  run gate below.
+- **Run gate:** in the default critical-only confirmation mode, the opt-in is
+  the approval and screenshots of an operating run may be sent from its first
+  in-app step. With per-step confirmation turned on, the first screenshot of a
+  run is transmitted only after the user has confirmed that run's first action
+  (e.g. opening the app). Either way, captures are bounded by a per-run step
+  limit, and a new run starts over.
 - **Pixels are transmitted, not persisted:** the compacted JPEG is sent for a
   single request and then dropped; screenshots are never written to local
   records, audit, or receipts.

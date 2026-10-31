@@ -155,6 +155,12 @@ internal fun AgentObservationReplanContext.shouldRejectDangerousObservationActio
     parseCache: ObservationJsonParseCache,
 ): Boolean {
     if (!draft.functionName.isAutonomousUiControlAction()) return false
+    // Typing and scrolling never activate a control (mirrors the executor's dangerous preflight).
+    if (draft.functionName == MobileActionFunctions.UI_TYPE_TEXT ||
+        draft.functionName == MobileActionFunctions.UI_SCROLL
+    ) {
+        return false
+    }
     val target = draft.parameters["target"].normalizedLookupKey()
     if (
         target.isNotBlank() &&

@@ -66,7 +66,7 @@ class PreferenceSettingsStore internal constructor(
     }
 
     override fun reduceDeviceActionConfirmations(): Boolean =
-        readBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, false)
+        readBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, true)
 
     override fun setReduceDeviceActionConfirmations(enabled: Boolean) {
         writeBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, enabled)

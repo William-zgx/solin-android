@@ -307,8 +307,11 @@ class AgentLoopRuntime(
             override fun localScratchpadNotes(runId: String): List<String> =
                 scratchpadNotesFromPromptBlock(runCatching { scratchpad.formatForPrompt(runId) }.getOrNull())
 
+            // Critical-only mode has no per-step prompt to wait for; the Trust Center remote-GUI
+            // opt-in (with its egress disclosure) is the approval for sending the screen.
             override fun runHasUserConfirmedStep(runId: String): Boolean =
-                traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
+                lowRiskDeviceActionConfirmationBypassByRunId[runId] == true ||
+                    traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
 
             override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> =
                 valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()
@@ -1882,7 +1885,9 @@ class AgentLoopRuntime(
     ): Boolean {
         if (!result.isUnverifiedExternalLaunch()) return false
         if (request.isLowRiskDeviceActionConfirmationSkippable()) return false
-        return true
+        // Asking "did it work?" after every auto-run draft/launch is exactly the friction
+        // critical-only mode removes; the run completes as "opened" instead.
+        return !confirmationBypassPolicy.isAutoApproved(runId, request)
     }
 
     private fun ToolRequest.isLowRiskDeviceActionConfirmationSkippable(): Boolean =
@@ -1990,11 +1995,11 @@ class AgentLoopRuntime(
         )
     }
 
-    private val confirmationBypassPolicy = LowRiskConfirmationBypassPolicy(
+    private val confirmationBypassPolicy = ConfirmationBypassPolicy(
         toolRegistry = toolRegistry,
         traceStore = traceStore,
         traceQueries = traceQueries,
-        isDeviceActionBypassEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
+        isCriticalOnlyConfirmationEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
     )
     private val toolObservationContinuationBuilder by lazy {
         ToolObservationContinuationBuilder(

@@ -78,10 +78,10 @@ class AgentCoreDocumentationTest {
         assertTrue("README must document the first-screen trust flow", firstScreenIndex > implementationIndex)
         assertTrue(readme.contains("Local by default"))
         assertTrue(readme.contains("Remote is optional"))
-        assertTrue(readme.contains("Actions are confirmed"))
+        assertTrue(readme.contains("Only critical actions are confirmed"))
         assertTrue(readme.contains("Users stay in control"))
         assertTrue(readme.contains("remote sends"))
-        assertTrue(readme.contains("high-risk device actions still require confirmation"))
+        assertTrue(readme.contains("always tapped by the user"))
         assertTrue(readme.contains("Phone Control Scope"))
     }
 

@@ -65,7 +65,7 @@ class PreferenceSettingsStoreTest {
 
         assertFalse(store.isSetupDismissed())
         assertTrue(store.isMemoryEnabled())
-        assertFalse(store.reduceDeviceActionConfirmations())
+        assertTrue("critical-only confirmations are on by default", store.reduceDeviceActionConfirmations())
         assertFalse(store.remoteGuiAutomationEnabled())
         assertEquals(GenerationParameters().normalized(), store.loadGenerationParameters())
         assertEquals(InferenceMode.Local, store.loadInferenceMode())

@@ -24,8 +24,8 @@ class CapabilityMatrixDocumentationTest {
         assertEquals(CapabilityMatrix.productPositioning, json.getString("productPositioning"))
         assertEquals(CapabilityMatrix.targetUserJob, json.getString("targetUserJob"))
         assertTrue(json.getString("productPositioning").contains("让 AI 住在手机里"))
-        assertTrue(json.getString("productPositioning").contains("默认保守确认"))
-        assertTrue(json.getString("productPositioning").contains("低风险连续"))
+        assertTrue(json.getString("productPositioning").contains("只确认关键步骤"))
+        assertTrue(json.getString("productPositioning").contains("亲手点击"))
         assertTrue(json.getString("targetUserJob").contains("本地上下文留在本机"))
 
         assertEquals(
