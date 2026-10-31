@@ -163,10 +163,7 @@ class InMemoryAgentTraceStore(
             updatedAtMillis = clockMillis(),
         )
         runs[runId] = updated
-        if (state.isTerminal()) {
-            pendingConfirmations.remove(runId)
-            continuationCursors.remove(runId)
-        }
+        if (state.isTerminal()) dropTerminalState(runId)
         return updated
     }
 
@@ -186,11 +183,13 @@ class InMemoryAgentTraceStore(
                 ).also { next -> updated = next }
             }
         }
-        if (updated?.state?.isTerminal() == true) {
-            pendingConfirmations.remove(runId)
-            continuationCursors.remove(runId)
-        }
+        if (updated?.state?.isTerminal() == true) dropTerminalState(runId)
         return updated
+    }
+
+    private fun dropTerminalState(runId: String) {
+        pendingConfirmations.remove(runId)
+        continuationCursors.remove(runId)
     }
 
     override fun appendStep(runId: String, step: AgentStep) {
@@ -249,8 +248,7 @@ class InMemoryAgentTraceStore(
                     AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
                     null -> null
                     else -> {
-                        pendingConfirmations.remove(snapshot.run.id)
-                        continuationCursors.remove(snapshot.run.id)
+                        dropTerminalState(snapshot.run.id)
                         null
                     }
                 }
@@ -426,20 +424,10 @@ class RoomAgentTraceStore(
                 updatedAtMillis = now,
             )
             liveRuns[runId] = updated
-            if (state.isTerminal()) {
-                livePendingConfirmations.remove(runId)
-                liveNextActionInputs.remove(runId)
-                liveContinuationCursors.remove(runId)
-                runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
-            }
+            if (state.isTerminal()) dropLiveTerminalState(runId)
             return updated
         }
-        if (state.isTerminal()) {
-            livePendingConfirmations.remove(runId)
-            liveNextActionInputs.remove(runId)
-            liveContinuationCursors.remove(runId)
-            runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
-        }
+        if (state.isTerminal()) dropLiveTerminalState(runId)
         return traceDao.run(runId)?.toDomain()
             ?: error("Agent run not found: $runId")
     }
@@ -455,11 +443,16 @@ class RoomAgentTraceStore(
             )
         } ?: persisted
         liveRuns[runId] = projected
+        dropLiveTerminalState(runId)
+        return projected
+    }
+
+    /** A terminal run can never resume, so its pending confirmation and resume state go too. */
+    private fun dropLiveTerminalState(runId: String) {
         livePendingConfirmations.remove(runId)
         liveNextActionInputs.remove(runId)
         liveContinuationCursors.remove(runId)
         runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
-        return projected
     }
 
     override fun compareAndSetState(
@@ -498,12 +491,7 @@ class RoomAgentTraceStore(
             }
             liveUpdated ?: return null
         }
-        if (state.isTerminal()) {
-            livePendingConfirmations.remove(runId)
-            liveNextActionInputs.remove(runId)
-            liveContinuationCursors.remove(runId)
-            runCatching { traceDao.deleteSkillRunCheckpointsForRun(runId) }
-        }
+        if (state.isTerminal()) dropLiveTerminalState(runId)
         return updated
     }
 
@@ -642,30 +630,19 @@ class RoomAgentTraceStore(
 
     override fun failStaleInFlightRuns(reason: String): Int {
         val pendingRepair = repairPendingConfirmations()
-        val runs = traceDao.recentRuns(Int.MAX_VALUE)
-            .map { entity -> entity.toDomain() }
+        // Read once after the repair: the three groups below are disjoint by state, so failing a
+        // run in one group never moves another run into or out of a later group.
+        val runs = traceDao.recentRuns(Int.MAX_VALUE).map { entity -> entity.toDomain() }
         val staleRuns = runs.filter { run -> run.state.isStaleAfterProcessRestart() }
-        staleRuns.forEach { run ->
-            failRun(run, reason)
+        val unrestorableExternalOutcomeRuns = runs.filter { run ->
+            run.state == AgentRunState.AwaitingExternalOutcome && !hasRestorablePendingExternalOutcome(run.id)
         }
-        val unrestorableExternalOutcomeRuns = traceDao.recentRuns(Int.MAX_VALUE)
-            .map { entity -> entity.toDomain() }
-            .filter { run ->
-                run.state == AgentRunState.AwaitingExternalOutcome &&
-                    !hasRestorablePendingExternalOutcome(run.id)
-            }
-        unrestorableExternalOutcomeRuns.forEach { run ->
-            failRun(run, UNRESTORABLE_PENDING_EXTERNAL_OUTCOME_REASON)
+        val awaitingWithoutPendingRuns = runs.filter { run ->
+            run.state == AgentRunState.AwaitingUserConfirmation && run.id !in pendingRepair.validPendingRunIds
         }
-        val awaitingWithoutPendingRuns = traceDao.recentRuns(Int.MAX_VALUE)
-            .map { entity -> entity.toDomain() }
-            .filter { run ->
-                run.state == AgentRunState.AwaitingUserConfirmation &&
-                    run.id !in pendingRepair.validPendingRunIds
-            }
-        awaitingWithoutPendingRuns.forEach { run ->
-            failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
-        }
+        staleRuns.forEach { run -> failRun(run, reason) }
+        unrestorableExternalOutcomeRuns.forEach { run -> failRun(run, UNRESTORABLE_PENDING_EXTERNAL_OUTCOME_REASON) }
+        awaitingWithoutPendingRuns.forEach { run -> failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON) }
         return pendingRepair.failedRunIds.size +
             staleRuns.size +
             unrestorableExternalOutcomeRuns.size +
@@ -728,13 +705,14 @@ class RoomAgentTraceStore(
             }
 
     private fun restoredContinuationCursor(runId: String): AgentContinuationCursor? {
-        val requestedIds = stepSummaries(runId)
+        val summaries = stepSummaries(runId)
+        val requestedIds = summaries
             .asSequence()
             .filter { step -> step.type == "ToolRequested" }
             .mapNotNull { step -> step.requestIdFromJson() }
             .toSet()
         if (requestedIds.isEmpty()) return null
-        return stepSummaries(runId)
+        return summaries
             .asReversed()
             .asSequence()
             .filter { step -> step.type == "ContinuationCursorRecorded" }
@@ -784,24 +762,18 @@ class RoomAgentTraceStore(
 
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
         val steps = liveSteps.computeIfAbsent(snapshot.run.id) { CopyOnWriteArrayList() }
+        fun hasToolRequested(requestId: String) =
+            steps.any { entry -> (entry.step as? AgentStep.ToolRequested)?.request?.id == requestId }
         traceDao.steps(snapshot.run.id)
             .mapNotNull { entity -> entity.toRestoredToolRequestedOrNull()?.let { restored -> entity to restored } }
             .filterNot { (_, step) -> step.request.id == snapshot.request.id }
             .forEach { (entity, restored) ->
-                if (steps.none { entry ->
-                        val step = entry.step
-                        step is AgentStep.ToolRequested && step.request.id == restored.request.id
-                    }
-                ) {
+                if (!hasToolRequested(restored.request.id)) {
                     steps += LiveStepEntry(restored, entity.createdAtMillis)
                 }
             }
         snapshot.skillPlan?.let { plan ->
-            if (steps.none { entry ->
-                    val step = entry.step
-                    step is AgentStep.SkillPlanned && step.request.id == plan.request.id
-                }
-            ) {
+            if (steps.none { entry -> (entry.step as? AgentStep.SkillPlanned)?.request?.id == plan.request.id }) {
                 val toolIndex = steps.indexOfFirst { entry ->
                     val step = entry.step
                     step is AgentStep.ToolRequested && step.request.id == snapshot.request.id
@@ -817,19 +789,14 @@ class RoomAgentTraceStore(
                 }
             }
         }
-        if (steps.none { entry ->
-                val step = entry.step
-                step is AgentStep.ToolRequested && step.request.id == snapshot.request.id
-            }
-        ) {
+        if (!hasToolRequested(snapshot.request.id)) {
             steps += LiveStepEntry(
                 AgentStep.ToolRequested(snapshot.request, snapshot.draft),
                 snapshot.run.updatedAtMillis,
             )
         }
         if (steps.none { entry ->
-                val step = entry.step
-                step is AgentStep.UserConfirmationRequested && step.request.id == snapshot.request.id
+                (entry.step as? AgentStep.UserConfirmationRequested)?.request?.id == snapshot.request.id
             }
         ) {
             steps += LiveStepEntry(
@@ -927,17 +894,18 @@ class RoomAgentTraceStore(
     }.getOrDefault(false)
 }
 
-private fun AgentRunState.isStaleAfterProcessRestart(): Boolean =
-    this in setOf(
-        AgentRunState.Created,
-        AgentRunState.LoadingContext,
-        AgentRunState.Planning,
-        AgentRunState.ExecutingTool,
-        AgentRunState.RetryingTool,
-        AgentRunState.Observing,
-        AgentRunState.GeneratingAnswer,
-        AgentRunState.AwaitingUserAnswer,
-    )
+private val staleAfterProcessRestartStates = setOf(
+    AgentRunState.Created,
+    AgentRunState.LoadingContext,
+    AgentRunState.Planning,
+    AgentRunState.ExecutingTool,
+    AgentRunState.RetryingTool,
+    AgentRunState.Observing,
+    AgentRunState.GeneratingAnswer,
+    AgentRunState.AwaitingUserAnswer,
+)
+
+private fun AgentRunState.isStaleAfterProcessRestart(): Boolean = this in staleAfterProcessRestartStates
 
 
 private fun AgentRun.toEntity(): AgentRunEntity =
@@ -1284,54 +1252,33 @@ private fun Map<String, String>.redactedValuesForPendingPersistence(): Map<Strin
 private fun String.redactedIfNotBlank(): String =
     if (isBlank()) this else REDACTED_AGENT_RUN_INPUT
 
-private fun Map<String, String>.toJsonObject(): JSONObject {
-    val json = JSONObject()
-    entries.sortedBy { it.key }.forEach { (key, value) ->
-        json.put(key, value)
-    }
-    return json
-}
+private fun Map<String, String>.toJsonObject(): JSONObject =
+    JSONObject().also { json -> entries.sortedBy { it.key }.forEach { (key, value) -> json.put(key, value) } }
 
-private fun Map<String, List<String>>.toStringListJsonObject(): JSONObject {
-    val json = JSONObject()
-    entries.sortedBy { it.key }.forEach { (key, values) ->
-        json.put(key, values.distinct().sorted().toJsonArray())
+private fun Map<String, List<String>>.toStringListJsonObject(): JSONObject =
+    JSONObject().also { json ->
+        entries.sortedBy { it.key }.forEach { (key, values) -> json.put(key, values.distinct().sorted().toJsonArray()) }
     }
-    return json
-}
 
 private fun String.toStringMap(): Map<String, String> =
     JSONObject(this).toStringMap()
 
-private fun JSONObject.toStringMap(): Map<String, String> {
-    return buildMap {
-        val keys = keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            put(key, optString(key))
-        }
-    }
-}
+private fun JSONObject.toStringMap(): Map<String, String> =
+    buildMap { keys().forEach { key -> put(key, optString(key)) } }
 
 private fun JSONObject.toStringListMap(): Map<String, List<String>> =
-    buildMap {
-        val keys = keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            put(key, getJSONArray(key).toStringList())
-        }
-    }
+    buildMap { keys().forEach { key -> put(key, getJSONArray(key).toStringList()) } }
 
-private fun Map<String, String>.allowlistedCompletionMetadataJson(): JSONObject {
-    val json = JSONObject()
+/** Adds the allowlisted, shortened completion metadata from [data], or nothing when none is present. */
+private fun JSONObject.putCompletionMetadata(data: Map<String, String>): JSONObject {
+    val metadata = JSONObject()
     toolObservedCompletionMetadataAllowlist.forEach { key ->
-        this[key]?.takeIf { value -> value.isNotBlank() }
+        data[key]?.takeIf { value -> value.isNotBlank() }
             ?.takeIf { value -> key != "failureKind" || value in persistableFailureKinds }
-            ?.let { value ->
-            json.put(key, value.shortTraceText())
-        }
+            ?.let { value -> metadata.put(key, value.shortTraceText()) }
     }
-    return json
+    if (metadata.length() > 0) put("completionMetadata", metadata)
+    return this
 }
 
 private fun SkillPlan.toJsonObject(): JSONObject =
@@ -1448,12 +1395,7 @@ private fun SkillStep.toJsonObject(): JSONObject =
     }
 
 private fun JSONArray.toSkillSteps(): List<SkillStep> =
-    buildList {
-        for (index in 0 until length()) {
-            val step = getJSONObject(index)
-            add(step.toSkillStep())
-        }
-    }
+    List(length()) { index -> getJSONObject(index).toSkillStep() }
 
 private fun JSONObject.toSkillStep(): SkillStep =
     when (getString("type")) {
@@ -1573,11 +1515,7 @@ private fun List<String>.toJsonArray(): JSONArray =
     JSONArray().also { array -> forEach { value -> array.put(value) } }
 
 private fun JSONArray.toStringList(): List<String> =
-    buildList {
-        for (index in 0 until length()) {
-            add(optString(index))
-        }
-    }
+    List(length()) { index -> optString(index) }
 
 private val allowedProtectedContentTypes = setOf(
     "本地记忆",
@@ -1869,23 +1807,13 @@ private fun AgentStep.traceJson(type: String, runId: String): JSONObject {
             .put("requestId", result.requestId)
             .put("status", result.status.name)
             .put("retryable", result.retryable)
-            .also {
-                val metadata = result.data.allowlistedCompletionMetadataJson()
-                if (metadata.length() > 0) {
-                    it.put("completionMetadata", metadata)
-                }
-            }
+            .putCompletionMetadata(result.data)
 
         is AgentStep.ExternalOutcomeConfirmed -> json
             .put("requestId", requestId)
             .put("outcome", outcome.name)
             .put("status", result.status.name)
-            .also {
-                val metadata = result.data.allowlistedCompletionMetadataJson()
-                if (metadata.length() > 0) {
-                    it.put("completionMetadata", metadata)
-                }
-            }
+            .putCompletionMetadata(result.data)
 
         is AgentStep.ContinuationCursorRecorded -> json
             .put("sourceRequestId", cursor.sourceRequestId)
