@@ -55,8 +55,9 @@ class TimeoutToolExecutionBoundary(
         return if (capability == ToolCapability.DeviceControl) deviceControlTimeoutMillis else timeoutMillis
     }
 
-    private suspend fun executeInternal(request: ToolRequest): ToolResult =
-        withTimeoutOrNull(timeoutFor(request)) {
+    private suspend fun executeInternal(request: ToolRequest): ToolResult {
+        val timeout = timeoutFor(request)
+        return withTimeoutOrNull(timeout) {
             withContext(dispatcher) {
                 runCatching {
                     executor.execute(request)
@@ -72,10 +73,11 @@ class TimeoutToolExecutionBoundary(
             }
         } ?: request.failed(
             code = ToolErrorCode.ExecutionFailed,
-            summary = "Tool execution timed out after ${timeoutMillis / 1_000} seconds.",
+            summary = "Tool execution timed out after ${timeout / 1_000} seconds.",
             retryable = true,
             data = request.toolExecutionContext(),
         )
+    }
 
     /**
      * Execute a batch of requests with timeout and retry support. The batch is first

@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.action.MobileActionFunctions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -199,6 +200,23 @@ class ToolExecutionBoundaryTest {
         assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
         assertTrue(result.retryable)
         assertEquals("test_tool", result.data["toolName"])
+        assertEquals("Tool execution timed out after 0 seconds.", result.summary)
+    }
+
+    @Test
+    fun deviceControlTimeoutMessageReportsTheDeviceControlBudget() = runTest {
+        val request = ToolRequest(id = "wait-1", toolName = MobileActionFunctions.UI_WAIT)
+        val boundary = TimeoutToolExecutionBoundary(
+            executor = LambdaToolExecutor { request.succeeded("unexpected") },
+            dispatcher = Dispatchers.Unconfined,
+            timeoutMillis = 60_000L,
+            deviceControlTimeoutMillis = 0L,
+            toolRegistry = defaultBuiltInToolRegistry,
+        )
+
+        val result = boundary.execute(request)
+
+        assertEquals(ToolStatus.Failed, result.status)
         assertEquals("Tool execution timed out after 0 seconds.", result.summary)
     }
 
