@@ -35,6 +35,7 @@ internal class ModelToolRequestCoordinator(
     interface Host {
         fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult?
         fun failRunBudget(runId: String, reason: String): AgentModelObservationResult?
+        fun publishRunFailed(runId: String, code: AgentErrorCode, message: String)
         fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean
         fun clearEphemeralRunState(runId: String)
         fun markStepStart(runId: String, stepType: String)
@@ -66,6 +67,9 @@ internal class ModelToolRequestCoordinator(
             auditRecorder.rejected(runId, rejected)
             val decision = AgentObservationDecision.Fail(rejected.summary)
             traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+            // This rejection leaves GeneratingAnswer directly, so observeModelResult's
+            // publishTransition never runs; publish the terminal counterpart here instead.
+            host.publishRunFailed(runId, AgentErrorCode.Validation, rejected.summary)
             host.clearEphemeralRunState(runId)
             return AgentModelObservationResult(
                 run = updatedRun,
@@ -91,6 +95,7 @@ internal class ModelToolRequestCoordinator(
             auditRecorder.rejected(runId, rejected)
             val decision = AgentObservationDecision.Fail(rejected.summary)
             traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+            host.publishRunFailed(runId, AgentErrorCode.Validation, rejected.summary)
             host.clearEphemeralRunState(runId)
             return AgentModelObservationResult(
                 run = updatedRun,
@@ -151,6 +156,7 @@ internal class ModelToolRequestCoordinator(
                 auditRecorder.rejected(runId, plan.result)
                 val decision = AgentObservationDecision.Fail(plan.result.summary)
                 traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+                host.publishRunFailed(runId, AgentErrorCode.Validation, plan.result.summary)
                 host.clearEphemeralRunState(runId)
                 AgentModelObservationResult(
                     run = updatedRun,

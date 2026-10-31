@@ -407,6 +407,9 @@ class AgentLoopRuntime(
             override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? =
                 this@AgentLoopRuntime.failRunBudget(runId, reason)
 
+            override fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) =
+                this@AgentLoopRuntime.publishRunFailed(runId, code, message)
+
             override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
                 this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
 
@@ -1108,6 +1111,8 @@ class AgentLoopRuntime(
         auditRecorder.rejected(run.id, rejectedPlan.result)
         traceStore.appendStep(run.id, AgentStep.Failed(rejectedPlan.result.summary))
         val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
+        // The run already published RunStarted from runOnce, so it owes a terminal counterpart.
+        publishRunFailed(run.id, AgentErrorCode.Unknown("budget_exceeded"), hintReason)
         clearEphemeralRunState(run.id)
         return AgentLoopResult(
             run = failedRun,
@@ -1115,6 +1120,22 @@ class AgentLoopRuntime(
             steps = traceStore.steps(run.id),
         )
     }
+
+    /**
+     * Fails a run parked in AwaitingUserConfirmation when the confirmed request turns out to be
+     * invalid, unknown, or safety-rejected. Publishes RunFailed because the run already published
+     * RunStarted, and no later transition publisher runs on this path.
+     */
+    private fun failAwaitingConfirmation(runId: String, reason: String): AgentRun? =
+        traceStore.compareAndSetState(
+            runId = runId,
+            expectedState = AgentRunState.AwaitingUserConfirmation,
+            state = AgentRunState.Failed,
+        )
+            ?.also {
+                publishRunFailed(runId, AgentErrorCode.Validation, reason)
+                clearEphemeralRunState(runId)
+            }
 
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
@@ -1125,12 +1146,7 @@ class AgentLoopRuntime(
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
             auditRecorder.rejected(runId, rejection)
             traceStore.clearPendingConfirmation(runId, requestId)
-            return traceStore.compareAndSetState(
-                runId = runId,
-                expectedState = AgentRunState.AwaitingUserConfirmation,
-                state = AgentRunState.Failed,
-            )
-                .also { clearEphemeralRunState(runId) }
+            return failAwaitingConfirmation(runId, rejection.summary)
         }
         val spec = toolRegistry.specFor(request.toolName)
         if (spec == null) {
@@ -1138,12 +1154,7 @@ class AgentLoopRuntime(
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
             auditRecorder.rejected(runId, rejection)
             traceStore.clearPendingConfirmation(runId, requestId)
-            return traceStore.compareAndSetState(
-                runId = runId,
-                expectedState = AgentRunState.AwaitingUserConfirmation,
-                state = AgentRunState.Failed,
-            )
-                .also { clearEphemeralRunState(runId) }
+            return failAwaitingConfirmation(runId, rejection.summary)
         }
         val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = true))
         if (safetyDecision.outcome == SafetyOutcome.Reject) {
@@ -1152,12 +1163,7 @@ class AgentLoopRuntime(
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
             auditRecorder.rejected(runId, rejection)
             traceStore.clearPendingConfirmation(runId, requestId)
-            return traceStore.compareAndSetState(
-                runId = runId,
-                expectedState = AgentRunState.AwaitingUserConfirmation,
-                state = AgentRunState.Failed,
-            )
-                .also { clearEphemeralRunState(runId) }
+            return failAwaitingConfirmation(runId, rejection.summary)
         }
         traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
         traceStore.appendStep(runId, AgentStep.UserConfirmed(requestId))
@@ -1408,6 +1414,15 @@ class AgentLoopRuntime(
         ) ?: return null
         val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        // This path leaves AwaitingExternalOutcome without going through publishTransition, so the
+        // Failed branch publishes its own terminal counterpart.
+        if (finalState == AgentRunState.Failed) {
+            publishRunFailed(
+                runId,
+                AgentErrorCode.Unknown("tool_failure"),
+                (decision as? AgentObservationDecision.Fail)?.reason ?: traceResult.summary,
+            )
+        }
         if (finalState.isTerminal()) {
             clearEphemeralRunState(runId)
         }

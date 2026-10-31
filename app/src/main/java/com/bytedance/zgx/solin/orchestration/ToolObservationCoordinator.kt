@@ -258,6 +258,10 @@ internal class ToolObservationCoordinator(
         auditRecorder.rejected(runId, result)
         val decision = AgentObservationDecision.Fail(result.summary)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        // Published before the terminal cleanup drops the turn counter: a run that started with
+        // RunStarted must always end with a terminal counterpart, and this rejection path leaves
+        // GeneratingAnswer directly (it never reaches observeModelResult's publishTransition).
+        runEvents.publishRunFailed(runId, AgentErrorCode.Unknown("tool_failure"), result.summary)
         host.clearEphemeralRunState(runId)
         return AgentModelObservationResult(
             run = updatedRun,
@@ -805,6 +809,11 @@ internal class ToolObservationCoordinator(
         )
     }
 
+    /**
+     * Fails a run whose recovery plan was rejected. Callers ([AgentLoopRuntime.requestRecoveryAction])
+     * create the run without publishing RunStarted, so no RunFailed counterpart is published here —
+     * an orphan failure event would inflate RunFailures without a matching start.
+     */
     fun rejectToolPlan(
         run: AgentRun,
         plan: AgentPlan.RejectedTool,
@@ -829,6 +838,8 @@ internal class ToolObservationCoordinator(
         traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
         traceStore.appendStep(run.id, AgentStep.Failed(reason))
         val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
+        // runOnce already published RunStarted for this run, so it owes a terminal counterpart.
+        runEvents.publishRunFailed(run.id, AgentErrorCode.Validation, reason)
         host.clearEphemeralRunState(run.id)
         return AgentLoopResult(
             run = failedRun,
