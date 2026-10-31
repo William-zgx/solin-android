@@ -67,13 +67,15 @@ private val networkReachingArgument: Map<String, String> = mapOf(
 )
 
 /**
- * Capabilities whose step starts the in-app observe→act loop that the remote-vision model drives:
- * a device-control action (observe, tap, type, …) or an app launch. The screenshot is captured by
- * the replan after such a step's observation, so that step is the run's "first send" gate.
+ * App-launch tools that hand the run to the in-app observe→act loop the remote-vision model drives;
+ * the screenshot is captured by the replan after that step's observation, so it is the run's
+ * "first send" gate. `search_maps` / `open_deep_link` are also `ExternalNavigation`, but they launch
+ * another app and end the loop rather than starting it, so they do not count.
  */
-private val remoteVisionStartingCapabilities = setOf(
-    ToolCapability.DeviceControl,
-    ToolCapability.ExternalNavigation,
+private val remoteVisionStartingToolNames = setOf(
+    MobileActionFunctions.OPEN_APP_BY_NAME,
+    MobileActionFunctions.OPEN_APP_INTENT,
+    MobileActionFunctions.OPEN_APP_DEEP_TARGET,
 )
 
 /**
@@ -204,7 +206,7 @@ internal class ConfirmationBypassPolicy(
         spec: ToolSpec,
     ): Boolean =
         isRemoteVisionDrivingEnabled(runId) &&
-            spec.capability in remoteVisionStartingCapabilities &&
+            (spec.capability == ToolCapability.DeviceControl || request.toolName in remoteVisionStartingToolNames) &&
             traceStore.steps(runId).none { step -> step is AgentStep.UserConfirmed }
 
     /**
