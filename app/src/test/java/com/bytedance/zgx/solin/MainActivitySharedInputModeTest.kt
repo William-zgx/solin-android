@@ -9,24 +9,8 @@ import org.junit.Test
 class MainActivitySharedInputModeTest {
     @Test
     fun sourceReadModeIsIndependentOfInferencePreference() {
-        InferenceMode.entries.forEach { inferenceMode ->
-            assertEquals(
-                inferenceMode.name,
-                SharedInputReadMode.DestinationNeutralVision,
-                sharedInputReadModeFor(
-                    inferenceMode = inferenceMode,
-                    localSupportsVisionInput = false,
-                ),
-            )
-            assertEquals(
-                inferenceMode.name,
-                SharedInputReadMode.DestinationNeutralVision,
-                sharedInputReadModeFor(
-                    inferenceMode = inferenceMode,
-                    localSupportsVisionInput = true,
-                ),
-            )
-        }
+        // One constant for every inference mode: the read never depends on the destination.
+        assertEquals(SharedInputReadMode.DestinationNeutralVision, SHARED_INPUT_READ_MODE)
     }
 
     @Test

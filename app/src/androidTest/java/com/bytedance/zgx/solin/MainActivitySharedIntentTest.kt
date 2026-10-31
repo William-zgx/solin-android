@@ -309,12 +309,10 @@ class MainActivitySharedIntentTest {
     fun destinationNeutralReaderUsesOneReadAndStableImagePrivacyAcrossInferenceModes() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-        InferenceMode.entries.forEach { inferenceMode ->
+        // The read mode no longer takes the inference mode, so repeat the read once per mode.
+        repeat(InferenceMode.entries.size) {
             CountingSharedContentProvider.resetCounters(context)
-            val readMode = sharedInputReadModeFor(
-                inferenceMode = inferenceMode,
-                localSupportsVisionInput = inferenceMode == InferenceMode.Local,
-            )
+            val readMode = SHARED_INPUT_READ_MODE
             val sharedInput = ShareIntentReader(
                 context = context,
                 imageTextExtractor = CountingImageTextExtractor(),

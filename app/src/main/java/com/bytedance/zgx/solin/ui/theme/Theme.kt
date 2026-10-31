@@ -24,7 +24,6 @@ data class SolinSemanticColors(
     val localContainer: Color,
     val onLocalContainer: Color,
     val remote: Color,
-    val onRemote: Color,
     val remoteContainer: Color,
     val onRemoteContainer: Color,
     val busy: Color,
@@ -35,7 +34,6 @@ data class SolinSemanticColors(
     val memoryContainer: Color,
     val onMemoryContainer: Color,
     val codeSurface: Color,
-    val accentLine: Color,
 )
 
 private val LightSemanticColors = SolinSemanticColors(
@@ -44,7 +42,6 @@ private val LightSemanticColors = SolinSemanticColors(
     localContainer = Color(0xFFE3E9FF),
     onLocalContainer = Color(0xFF071B6F),
     remote = Color(0xFF00A89D),
-    onRemote = Color(0xFFFFFFFF),
     remoteContainer = Color(0xFFCFF8F0),
     onRemoteContainer = Color(0xFF003B38),
     busy = Color(0xFFFF8A00),
@@ -55,7 +52,6 @@ private val LightSemanticColors = SolinSemanticColors(
     memoryContainer = Color(0xFFFFE1EA),
     onMemoryContainer = Color(0xFF5D0B29),
     codeSurface = Color(0xFFF1F6FF),
-    accentLine = Color(0xFF9AA9FF),
 )
 
 private val DarkSemanticColors = SolinSemanticColors(
@@ -64,7 +60,6 @@ private val DarkSemanticColors = SolinSemanticColors(
     localContainer = Color(0xFF25306E),
     onLocalContainer = Color(0xFFE8EBFF),
     remote = Color(0xFF65E2D3),
-    onRemote = Color(0xFF003A37),
     remoteContainer = Color(0xFF0A4B49),
     onRemoteContainer = Color(0xFFD5FFF8),
     busy = Color(0xFFFFBE6B),
@@ -75,7 +70,6 @@ private val DarkSemanticColors = SolinSemanticColors(
     memoryContainer = Color(0xFF642039),
     onMemoryContainer = Color(0xFFFFDDE8),
     codeSurface = Color(0xFF111827),
-    accentLine = Color(0xFF7D8DFF),
 )
 
 val LocalSolinColors = staticCompositionLocalOf { DarkSemanticColors }

@@ -410,7 +410,7 @@ class MainActivity : ComponentActivity() {
         viewModel.enqueueSharedIntent(
             consumptionKey = shareKey,
             intent = sharedIntent,
-            readMode = sharedInputReadMode(),
+            readMode = SHARED_INPUT_READ_MODE,
             reader = ShareIntentReader(applicationContext),
             allowPreviouslyConsumed = allowPreviouslyConsumed,
         )
@@ -428,21 +428,14 @@ class MainActivity : ComponentActivity() {
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
         lifecycleScope.launch {
-            val readMode = sharedInputReadMode()
             val sharedInput = withContext(Dispatchers.IO) {
-                ShareIntentReader(applicationContext).readUris(uris, mode = readMode)
+                ShareIntentReader(applicationContext).readUris(uris, mode = SHARED_INPUT_READ_MODE)
             }
             sharedInput?.let { input ->
                 viewModel.launchPersistenceWork { viewModel.stageSharedInput(input) }
             }
         }
     }
-
-    private fun sharedInputReadMode(): SharedInputReadMode =
-        sharedInputReadModeFor(
-            inferenceMode = viewModel.uiState.value.inferenceMode,
-            localSupportsVisionInput = viewModel.uiState.value.activeLocalModelSupportsVisionInput,
-        )
 
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
@@ -483,12 +476,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-internal fun sharedInputReadModeFor(
-    @Suppress("UNUSED_PARAMETER")
-    inferenceMode: InferenceMode,
-    @Suppress("UNUSED_PARAMETER")
-    localSupportsVisionInput: Boolean = false,
-): SharedInputReadMode = SharedInputReadMode.DestinationNeutralVision
+/**
+ * Shared and picked content is read the same way whatever the inference preference: the
+ * destination is decided later, at send time, by the placement and privacy policy.
+ */
+internal val SHARED_INPUT_READ_MODE = SharedInputReadMode.DestinationNeutralVision
 
 internal fun Intent.shareIntentConsumptionKey(): String? {
     val actionValue = action?.takeIf {

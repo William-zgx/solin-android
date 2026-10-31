@@ -312,9 +312,8 @@ internal fun TopActionButton(
     glyph: SolinGlyphKind,
     label: String,
     onClick: () -> Unit,
+    size: Dp,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    size: Dp = 40.dp,
 ) {
     IconButton(
         modifier = modifier
@@ -324,12 +323,9 @@ internal fun TopActionButton(
                 contentDescription = label
             },
         onClick = onClick,
-        enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            disabledContainerColor = Color.Transparent,
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
         ),
     ) {
         SolinGlyph(
