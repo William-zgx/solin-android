@@ -4,6 +4,10 @@ import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
+import com.bytedance.zgx.solin.skill.SkillManifest
+import com.bytedance.zgx.solin.skill.SkillPlan
+import com.bytedance.zgx.solin.skill.SkillRequest
+import com.bytedance.zgx.solin.skill.SkillStep
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolProvider
@@ -187,6 +191,119 @@ class ConfirmationBypassPolicyTest {
         // Nothing private has been read yet, so there is nothing to smuggle.
         val freshRun = traceStore.createRun("打开浏览器").id
         assertNull(policy.criticalApprovalReason(freshRun, typing("https://example.com")))
+    }
+
+    @Test
+    fun typedChineseTextBuiltFromTheUsersCharactersCountsAsFromTheUser() {
+        fun typing(text: String) =
+            ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+
+        assertNull(policy.criticalApprovalReason(readPrivateDataRun("在携程搜索上海的酒店"), typing("上海酒店")))
+        assertNull(policy.criticalApprovalReason(readPrivateDataRun("在高德地图搜索附近的咖啡店"), typing("附近咖啡店")))
+        assertNull(
+            policy.criticalApprovalReason(
+                readPrivateDataRun("在微信里打开文件传输助手，输入“基准测试消息”但不要发送"),
+                typing("基准测试消息"),
+            ),
+        )
+        // Case, punctuation, whitespace and full-width forms are ignored; letters and digits split.
+        assertNull(policy.criticalApprovalReason(readPrivateDataRun("在京东搜索 iPhone15 手机壳"), typing("ＩＰＨＯＮＥ 15，手机壳")))
+
+        val hotel = readPrivateDataRun("在携程搜索上海的酒店")
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(hotel, typing("上海民宿")))
+    }
+
+    @Test
+    fun typedNumbersAndWordsMustAppearAsWholeTokens() {
+        val runId = readPrivateDataRun("给10086发短信说查询话费")
+        fun typing(text: String) =
+            ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+
+        assertNull(policy.criticalApprovalReason(runId, typing("10086 查询话费")))
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(runId, typing("13800138000")))
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(runId, typing("1")))
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(runId, typing("008")))
+
+        val mail = readPrivateDataRun("给test@example.com写一封邮件")
+        assertNull(policy.criticalApprovalReason(mail, typing("test@example.com")))
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(mail, typing("te@example.com")))
+        assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(mail, typing("test@evil.com")))
+    }
+
+    @Test
+    fun modelFlaggedTaintedWebSearchIsStillRaisedToConfirmation() {
+        val runId = readPrivateDataRun("读剪贴板再搜索")
+        val search = ToolRequest(
+            id = "search",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to "abc"),
+            sensitivityReason = "查询内容来自剪贴板",
+        )
+        assertEquals(CriticalApprovalReason.ModelFlaggedSensitive, policy.criticalApprovalReason(runId, search))
+        listOf(true, false).forEach { mode ->
+            criticalOnly = mode
+            val planned = policy.withConfirmationBypass(runId, planOf(search, SafetyOutcome.Allow))
+            assertEquals(SafetyOutcome.RequireConfirmation, planned.safetyDecision.outcome)
+            assertTrue(planned.draft.requiresConfirmation)
+        }
+        // A flagged step SafetyPolicy allows (a NotRequired tool) is confirmed even in a clean run.
+        criticalOnly = true
+        val flaggedSearch = ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "天气"), sensitivityReason = "x")
+        assertEquals(
+            SafetyOutcome.RequireConfirmation,
+            policy.withConfirmationBypass("clean", planOf(flaggedSearch, SafetyOutcome.Allow)).safetyDecision.outcome,
+        )
+    }
+
+    @Test
+    fun confirmEveryStepContinuationNeverRelaxesACriticalReason() {
+        criticalOnly = false
+        val skillPlan = lowRiskSkillPlan()
+        val runId = traceStore.createRun("在淘宝搜索牛奶").id
+        val first = (skillPlan.steps.first() as SkillStep.ToolStep).request
+        traceStore.appendStep(runId, AgentStep.ToolRequested(first, ActionDraft(first.toolName, "点击", "点击", first.arguments)))
+        traceStore.appendStep(runId, AgentStep.UserConfirmed(first.id))
+
+        val tap = ToolRequest(id = "tap", toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索"))
+        assertEquals(
+            SafetyOutcome.Allow,
+            policy.withLowRiskAppControlContinuationBypass(runId, planOf(tap, SafetyOutcome.RequireConfirmation), skillPlan)
+                .safetyDecision.outcome,
+        )
+        // The confirmed ui_tap read screen text, so typing is checked against the request.
+        fun continued(request: ToolRequest) =
+            policy.withLowRiskAppControlContinuationBypass(runId, planOf(request, SafetyOutcome.RequireConfirmation), skillPlan)
+                .safetyDecision.outcome
+        fun typing(text: String) =
+            ToolRequest(id = "type", toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+        assertEquals(SafetyOutcome.Allow, continued(typing("牛奶")))
+        assertEquals(SafetyOutcome.RequireConfirmation, continued(typing("https://example.com/?q=abc")))
+        assertEquals(SafetyOutcome.RequireConfirmation, continued(tap.copy(sensitivityReason = "涉及支付")))
+    }
+
+    private fun lowRiskSkillPlan(): SkillPlan {
+        val manifest = SkillManifest(
+            id = "test_low_risk_app_control",
+            version = 1,
+            title = "测试",
+            description = "测试",
+            triggerExamples = emptyList(),
+            requiredTools = listOf(MobileActionFunctions.UI_TAP),
+            inputSchemaJson = """{"type":"object"}""",
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            lowRiskAppControlEligible = true,
+        )
+        val request = ToolRequest(id = "skill-tap", toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索框"))
+        return SkillPlan(
+            request = SkillRequest("skill-request", manifest.id, emptyMap(), "测试"),
+            manifest = manifest,
+            steps = listOf(
+                SkillStep.ToolStep(
+                    request = request,
+                    draft = ActionDraft(request.toolName, "点击", "点击", request.arguments),
+                ),
+            ),
+        )
     }
 
     private fun readPrivateDataRun(input: String): String {

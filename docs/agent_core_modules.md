@@ -492,12 +492,16 @@ Current status:
   sensitivity reason, or a network step (`web_search`, `search_maps`,
   `open_deep_link`) whose query/URI looks personal or secret or that follows a
   private device read (screen, clipboard, contacts, …) in the same run, or
-  `ui_type_text` with words not in the user's request after such a read. Tainted
-  network steps are raised to `RequireConfirmation` in either mode.
+  `ui_type_text` with text not taken from the user's request after such a
+  read (every ASCII letter or digit run must be a whole token of the request,
+  so numbers and addresses appear in full; every CJK or other non-ASCII
+  character must appear in the request; case, punctuation and whitespace are
+  ignored). An `Allow` plan with any of these reasons is raised to
+  `RequireConfirmation` in either mode.
   Rejections are never relaxed. Auto-run external launches complete as
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
-  confirmation, up to 5 UI actions).
+  confirmation, up to 5 UI actions, but never past one of these reasons).
 - Critical on-screen controls (pay, send, delete, publish, order, transfer,
   authorize) are never activated by the agent: `DeviceControlToolExecutor`
   checks what each action can activate — the named target or the node under a

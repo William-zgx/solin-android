@@ -8,6 +8,7 @@ import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
+import java.text.Normalizer
 
 private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
 
@@ -46,6 +47,29 @@ private val networkReachingArgument: Map<String, String> = mapOf(
     MobileActionFunctions.OPEN_DEEP_LINK to "uri",
 )
 
+private fun CriticalApprovalReason.confirmationReason(toolName: String): String = when (this) {
+    CriticalApprovalReason.UnknownTool -> "Tool $toolName is not registered."
+    CriticalApprovalReason.ExternalSendOrPayment -> "Tool $toolName sends data out or moves money."
+    CriticalApprovalReason.ModelFlaggedSensitive -> "The model flagged this $toolName step as sensitive."
+    CriticalApprovalReason.SensitiveNetworkQuery ->
+        "This network step carries sensitive text or follows a read of private data in the same run."
+    CriticalApprovalReason.TypedTextNotFromUser ->
+        "This text was not in the user's request and follows a read of private data in the same run."
+}
+
+/** [text] split for [ConfirmationBypassPolicy]'s typed-text check, after NFKC and lowercasing. */
+private class UserTextPieces(val asciiTokens: Set<String>, val otherChars: Set<Char>)
+
+private val asciiLetterOrDigitRun = Regex("[a-z]+|[0-9]+")
+
+private fun userTextPieces(text: String): UserTextPieces {
+    val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()
+    return UserTextPieces(
+        asciiTokens = asciiLetterOrDigitRun.findAll(normalized).map { it.value }.toSet(),
+        otherChars = normalized.filter { it.code > 0x7F && it.isLetterOrDigit() }.toSet(),
+    )
+}
+
 /**
  * Decides when a planned tool may skip the user-confirmation prompt.
  *
@@ -55,9 +79,11 @@ private val networkReachingArgument: Map<String, String> = mapOf(
  *   stops before them and the user taps them — so they need no prompt here.
  * - Confirm-every-step mode: a low-risk app-control skill may continue after the user confirmed
  *   one of its steps, until [LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT] checkpointed UI
- *   actions have been requested.
+ *   actions have been requested, but never past a [criticalApprovalReason].
  *
- * Only a [SafetyOutcome.RequireConfirmation] decision is ever relaxed; rejections stay rejections.
+ * Only a [SafetyOutcome.RequireConfirmation] decision without a [criticalApprovalReason] is ever
+ * relaxed; rejections stay rejections. In either mode an [SafetyOutcome.Allow] plan with a
+ * [criticalApprovalReason] is raised to [SafetyOutcome.RequireConfirmation].
  */
 internal class ConfirmationBypassPolicy(
     private val toolRegistry: ToolRegistry,
@@ -104,10 +130,18 @@ internal class ConfirmationBypassPolicy(
                     toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty()
             }
 
-    /** Every word of [text] appears in what the user asked for, so a reworded query still counts. */
+    /**
+     * [text] is made only of pieces the user supplied, so it cannot carry new private content:
+     * every ASCII letter run and digit run of [text] is a whole token of the run input (so a phone
+     * number or address must appear in full, and a single digit never matches inside a longer
+     * number), and every other letter or digit, e.g. a CJK character, appears somewhere in the
+     * input. Case, punctuation and whitespace are ignored, so "上海酒店" counts for
+     * "在携程搜索上海的酒店" and a reordered query still counts.
+     */
     private fun isTextFromUser(runId: String, text: String): Boolean {
-        val input = traceStore.run(runId)?.input?.lowercase().orEmpty()
-        return text.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }.all { word -> word in input }
+        val input = userTextPieces(traceStore.run(runId)?.input.orEmpty())
+        val typed = userTextPieces(text)
+        return input.asciiTokens.containsAll(typed.asciiTokens) && input.otherChars.containsAll(typed.otherChars)
     }
 
     fun withLowRiskAppControlContinuationBypass(
@@ -117,21 +151,21 @@ internal class ConfirmationBypassPolicy(
     ): AgentPlan.UseTool = plan.withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
 
     private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
-        // web_search needs no confirmation in SafetyPolicy unless its own query looks sensitive, so
-        // a network step tainted by an earlier private read has to be raised here, in either mode.
-        if (safetyDecision.outcome == SafetyOutcome.Allow &&
-            criticalApprovalReason(runId, request) == CriticalApprovalReason.SensitiveNetworkQuery
-        ) {
+        val criticalReason = criticalApprovalReason(runId, request)
+        // SafetyPolicy allows ConfirmationPolicy.NotRequired tools (web_search, …) even when the
+        // model flags them or they follow a private read, so any critical reason raises an Allow
+        // plan here, in either mode.
+        if (safetyDecision.outcome == SafetyOutcome.Allow && criticalReason != null) {
             return copy(
                 draft = draft.copy(requiresConfirmation = true),
                 safetyDecision = SafetyDecision(
                     outcome = SafetyOutcome.RequireConfirmation,
-                    reason = "This network step follows a read of private data in the same run.",
+                    reason = criticalReason.confirmationReason(request.toolName),
                 ),
             )
         }
         if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
-        if (!isAutoApproved(runId, request)) return this
+        if (!isCriticalOnlyConfirmationEnabled(runId) || criticalReason != null) return this
         val bypassDecision = SafetyDecision(
             outcome = SafetyOutcome.Allow,
             reason = "Only critical actions are confirmed; ${request.toolName} is not critical.",
@@ -149,6 +183,8 @@ internal class ConfirmationBypassPolicy(
         val activeSkillPlan = lowRiskAppControlSkillPlanForRun(runId, skillPlan ?: this.skillPlan) ?: return this
         if (!request.isLowRiskAppControlContinuationTool()) return this
         if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
+        // Confirm-every-step must never be looser than critical-only.
+        if (criticalApprovalReason(runId, request) != null) return this
         if (!activeSkillPlan.hasConfirmedToolStep(runId)) return this
         if (exceedsLowRiskAppControlCheckpointForRun(runId, activeSkillPlan)) return this
         val bypassDecision = SafetyDecision(
