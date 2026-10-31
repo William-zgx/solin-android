@@ -7,8 +7,8 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
+import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.SpecialAccessRequirement
-import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
@@ -236,125 +236,152 @@ class ToolExecutionController(
         request: ToolRequest,
         userConfirmed: Boolean = false,
     ) {
-        var result = executeToolWithBoundary(request, userConfirmed)
-        var observation = confirmation.runId?.let { runId ->
-            assistantOrchestrator.observeToolResult(runId, result)
-        }
-        var assistantText = observation?.assistantMessage ?: result.statusSummaryForUi()
-        var observationPrivacy = observation.privacyForObservation(fallbackToolName = request.toolName)
-        var messagesWithObservation = uiState.value.messages + ChatMessage(
-            role = MessageRole.Assistant,
-            text = assistantText,
-            privacy = observationPrivacy,
-            kind = messageKindFor(result),
-        )
-        sessionHost.replaceActiveSessionMessages(
-            messagesWithObservation,
-            true,
-        )
-        var retryRequest = observation?.retryRequest
-        while (retryRequest != null) {
-            uiState.update {
-                it.copy(statusText = "工具重试中")
-            }
-            result = executeToolWithBoundary(retryRequest, userConfirmed)
+        var executedRequest = request
+        var result: ToolResult
+        var observation: AgentObservationResult?
+        var observationPrivacy: MessagePrivacy
+        var messagesWithObservation: List<ChatMessage>
+        while (true) {
+            result = executeToolWithBoundary(executedRequest, userConfirmed)
             observation = confirmation.runId?.let { runId ->
                 assistantOrchestrator.observeToolResult(runId, result)
             }
-            assistantText = observation?.assistantMessage ?: result.statusSummaryForUi()
-            observationPrivacy = observation.privacyForObservation(fallbackToolName = retryRequest.toolName)
-            messagesWithObservation = uiState.value.messages + ChatMessage(
-                role = MessageRole.Assistant,
-                text = assistantText,
+            observationPrivacy = observation.privacyForObservation(fallbackToolName = executedRequest.toolName)
+            messagesWithObservation = appendObservationMessage(
+                text = observation?.assistantMessage ?: result.statusSummaryForUi(),
                 privacy = observationPrivacy,
                 kind = messageKindFor(result),
             )
-            sessionHost.replaceActiveSessionMessages(
-                messagesWithObservation,
-                true,
-            )
-            retryRequest = observation?.retryRequest
+            executedRequest = observation?.retryRequest ?: break
+            uiState.update { it.copy(statusText = "工具重试中") }
         }
         val publicWebEvidence = sessionHost.activePublicWebEvidenceFor(confirmation.runId)
-        val nextToolPlan = (observation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+        if (observation != null) {
+            val protectedContentName = request.protectedContinuationContentName()
+            val handedOff = continueAfterObservation(
+                observation = observation,
+                timelineRunId = confirmation.runId,
+                observationPrivacy = observationPrivacy,
+                messagesWithObservation = messagesWithObservation,
+                publicWebEvidence = publicWebEvidence,
+                blocked = ContinuationBlockedCopy(
+                    privacyFailure = "工具结果需要本地模型续写，未发送到远程模型",
+                    bindingFailure = "运行绑定不可恢复，已停止工具结果续写",
+                    privacyMessage = "已读取${protectedContentName}。当前运行绑定到远程模型，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请重新发起一个本地运行，或手动粘贴你愿意发送的内容。",
+                    bindingMessage = "本次运行的模型绑定不可恢复，已停止工具结果续写。请重新发起请求。",
+                    privacyStatus = "已保护${protectedContentName}",
+                ),
+            )
+            if (handedOff) return
+        }
+        sessionHost.syncTaskStateMemories()
+        sessionHost.rebuildMemoryIndex()
+        val pendingExternalOutcome = observation?.pendingExternalOutcomeFor(confirmation, request)
+        uiState.update {
+            finishedToolRun(
+                state = it,
+                runId = confirmation.runId,
+                statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
+                publicWebEvidence = publicWebEvidence,
+            ).copy(
+                pendingExternalOutcome = pendingExternalOutcome,
+                latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
+            )
+        }
+    }
+
+    private fun appendObservationMessage(
+        text: String,
+        privacy: MessagePrivacy,
+        kind: MessageKind,
+    ): List<ChatMessage> {
+        val messages = uiState.value.messages + ChatMessage(
+            role = MessageRole.Assistant,
+            text = text,
+            privacy = privacy,
+            kind = kind,
+        )
+        sessionHost.replaceActiveSessionMessages(messages, true)
+        return messages
+    }
+
+    /** User-facing copy for a tool continuation the run binding refused. */
+    private class ContinuationBlockedCopy(
+        val privacyFailure: String,
+        val bindingFailure: String,
+        val privacyMessage: String,
+        val bindingMessage: String,
+        val privacyStatus: String,
+    )
+
+    /**
+     * Hands an observed tool result to the next step: a planned next tool, or a model
+     * continuation when the run binding allows it. Returns false when the run should finish here.
+     */
+    private fun continueAfterObservation(
+        observation: AgentObservationResult,
+        timelineRunId: String?,
+        observationPrivacy: MessagePrivacy,
+        messagesWithObservation: List<ChatMessage>,
+        publicWebEvidence: List<PublicWebEvidencePack>,
+        blocked: ContinuationBlockedCopy,
+    ): Boolean {
+        val nextToolPlan = (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
         if (nextToolPlan != null) {
             handleNextToolPlan(
                 runId = observation.run.id,
                 plan = nextToolPlan,
                 pendingStatusText = "下一步动作待确认",
             )
-            return
+            return true
         }
-        observation?.continuationPromptForModel?.let { continuationPrompt ->
-            val continuationResolution = resolveBoundToolContinuation(
-                runId = observation.run.id,
-                observationPrivacy = observationPrivacy,
-                requiresLocalModel = observation.continuationRequiresLocalModel,
-                activeRunPlacement = activeRunPlacement,
+        val continuationPrompt = observation.continuationPromptForModel ?: return false
+        val continuationResolution = resolveBoundToolContinuation(
+            runId = observation.run.id,
+            observationPrivacy = observationPrivacy,
+            requiresLocalModel = observation.continuationRequiresLocalModel,
+            activeRunPlacement = activeRunPlacement,
+        )
+        val continuing = continuationResolution !is BoundRunContinuationResolution.Blocked
+        val privacyBlocked = !continuing &&
+            (continuationResolution as BoundRunContinuationResolution.Blocked).reason ==
+            PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
+        if (!continuing) {
+            assistantOrchestrator.failModelGeneration(
+                observation.run.id,
+                if (privacyBlocked) blocked.privacyFailure else blocked.bindingFailure,
             )
-            if (continuationResolution is BoundRunContinuationResolution.Blocked) {
-                val protectedContentName = request.protectedContinuationContentName()
-                val privacyBlocked = continuationResolution.reason ==
-                    PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
-                assistantOrchestrator.failModelGeneration(
-                    observation.run.id,
-                    if (privacyBlocked) {
-                        "工具结果需要本地模型续写，未发送到远程模型"
-                    } else {
-                        "运行绑定不可恢复，已停止工具结果续写"
-                    },
-                )
-                sessionHost.replaceActiveSessionMessages(
-                    messagesWithObservation + ChatMessage(
-                        role = MessageRole.Assistant,
-                        text = if (privacyBlocked) {
-                            "已读取${protectedContentName}。当前运行绑定到远程模型，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请重新发起一个本地运行，或手动粘贴你愿意发送的内容。"
-                        } else {
-                            "本次运行的模型绑定不可恢复，已停止工具结果续写。请重新发起请求。"
-                        },
-                        privacy = MessagePrivacy.LocalOnly,
-                    ),
-                    true,
-                )
-                sessionHost.rebuildMemoryIndex()
-                uiState.update {
-                    it.copy(
-                        pendingConfirmation = null,
-                        isBusy = false,
-                        isGenerating = false,
-                        auditEvents = sessionHost.loadAuditEvents(),
-                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                        activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
-                        activePublicWebEvidence = publicWebEvidence,
-                        statusText = if (privacyBlocked) {
-                            "已保护${protectedContentName}"
-                        } else {
-                            "运行绑定不可恢复"
-                        },
-                    )
-                }
-                return
-            }
-            sessionHost.replaceActiveSessionMessages(
-                messagesWithObservation + ChatMessage(
+        }
+        sessionHost.replaceActiveSessionMessages(
+            messagesWithObservation + if (continuing) {
+                ChatMessage(role = MessageRole.Assistant, text = "", privacy = observationPrivacy)
+            } else {
+                ChatMessage(
                     role = MessageRole.Assistant,
-                    text = "",
-                    privacy = observationPrivacy,
-                ),
-                true,
-            )
-            uiState.update {
-                it.copy(
-                    pendingConfirmation = null,
-                    isBusy = true,
-                    isGenerating = true,
-                    auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
-                    activePublicWebEvidence = publicWebEvidence,
-                    statusText = "生成中",
+                    text = if (privacyBlocked) blocked.privacyMessage else blocked.bindingMessage,
+                    privacy = MessagePrivacy.LocalOnly,
                 )
-            }
+            },
+            true,
+        )
+        if (!continuing) sessionHost.rebuildMemoryIndex()
+        uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                isBusy = continuing,
+                isGenerating = continuing,
+                auditEvents = sessionHost.loadAuditEvents(),
+                agentTraceRuns = sessionHost.loadAgentTraceRuns(),
+                activeRunTimeline = sessionHost.activeRunTimelineFor(timelineRunId),
+                activePublicWebEvidence = publicWebEvidence,
+                statusText = when {
+                    continuing -> "生成中"
+                    privacyBlocked -> blocked.privacyStatus
+                    else -> "运行绑定不可恢复"
+                },
+            )
+        }
+        if (continuing) {
             continueAfterToolObservation(
                 observation.run.id,
                 continuationPrompt,
@@ -362,29 +389,26 @@ class ToolExecutionController(
                 observation.continuationRemoteToolScope,
                 false,
             )
-            return
         }
-        sessionHost.syncTaskStateMemories()
-        sessionHost.rebuildMemoryIndex()
-        val pendingExternalOutcome = observation?.pendingExternalOutcomeFor(confirmation, request)
-        uiState.update {
-            sessionHost.finishedRun(
-                it,
-                runId = confirmation.runId,
-                statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
-            ).copy(
-                pendingConfirmation = null,
-                pendingExternalOutcome = pendingExternalOutcome,
-                backgroundTasks = sessionHost.loadBackgroundTasks(),
-                backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
-                periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
-                longTermMemories = sessionHost.loadLongTermMemories(),
-                auditEvents = sessionHost.loadAuditEvents(),
-                activePublicWebEvidence = publicWebEvidence,
-                latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
-            )
-        }
+        return true
     }
+
+    /** The run finished on a tool result: refresh every read model the tool may have changed. */
+    private fun finishedToolRun(
+        state: ChatUiState,
+        runId: String?,
+        statusText: String,
+        publicWebEvidence: List<PublicWebEvidencePack>,
+    ): ChatUiState =
+        sessionHost.finishedRun(state, runId = runId, statusText = statusText).copy(
+            pendingConfirmation = null,
+            backgroundTasks = sessionHost.loadBackgroundTasks(),
+            backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
+            periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
+            longTermMemories = sessionHost.loadLongTermMemories(),
+            auditEvents = sessionHost.loadAuditEvents(),
+            activePublicWebEvidence = publicWebEvidence,
+        )
 
     private suspend fun executeToolWithBoundary(
         request: ToolRequest,
@@ -445,116 +469,35 @@ class ToolExecutionController(
         }
         val observationPrivacy = observation.privacyForObservation(fallbackToolName = PUBLIC_EVIDENCE_BATCH_TOOL_NAME)
         val publicWebEvidence = sessionHost.activePublicWebEvidenceFor(runId)
-        val messagesWithObservation = uiState.value.messages + ChatMessage(
-            role = MessageRole.Assistant,
+        val messagesWithObservation = appendObservationMessage(
             text = observation.assistantMessage,
             privacy = observationPrivacy,
             kind = messageKindFor(results),
         )
-        sessionHost.replaceActiveSessionMessages(
-            messagesWithObservation,
-            true,
+        val handedOff = continueAfterObservation(
+            observation = observation,
+            timelineRunId = runId,
+            observationPrivacy = observationPrivacy,
+            messagesWithObservation = messagesWithObservation,
+            publicWebEvidence = publicWebEvidence,
+            blocked = ContinuationBlockedCopy(
+                privacyFailure = "批量工具结果需要本地模型续写，未发送到远程模型",
+                bindingFailure = "运行绑定不可恢复，已停止批量工具结果续写",
+                privacyMessage = "批量工具结果包含仅本地内容。当前运行绑定到远程模型，我不会把它发送到远程模型。",
+                bindingMessage = "本次运行的模型绑定不可恢复，已停止批量工具结果续写。请重新发起请求。",
+                privacyStatus = "已保护批量工具结果",
+            ),
         )
-        val nextToolPlan = (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
-        if (nextToolPlan != null) {
-            handleNextToolPlan(
-                runId = observation.run.id,
-                plan = nextToolPlan,
-                pendingStatusText = "下一步动作待确认",
-            )
-            return
-        }
-        observation.continuationPromptForModel?.let { continuationPrompt ->
-            val continuationResolution = resolveBoundToolContinuation(
-                runId = observation.run.id,
-                observationPrivacy = observationPrivacy,
-                requiresLocalModel = observation.continuationRequiresLocalModel,
-                activeRunPlacement = activeRunPlacement,
-            )
-            if (continuationResolution is BoundRunContinuationResolution.Blocked) {
-                val privacyBlocked = continuationResolution.reason ==
-                    PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
-                assistantOrchestrator.failModelGeneration(
-                    observation.run.id,
-                    if (privacyBlocked) {
-                        "批量工具结果需要本地模型续写，未发送到远程模型"
-                    } else {
-                        "运行绑定不可恢复，已停止批量工具结果续写"
-                    },
-                )
-                sessionHost.replaceActiveSessionMessages(
-                    messagesWithObservation + ChatMessage(
-                        role = MessageRole.Assistant,
-                        text = if (privacyBlocked) {
-                            "批量工具结果包含仅本地内容。当前运行绑定到远程模型，我不会把它发送到远程模型。"
-                        } else {
-                            "本次运行的模型绑定不可恢复，已停止批量工具结果续写。请重新发起请求。"
-                        },
-                        privacy = MessagePrivacy.LocalOnly,
-                    ),
-                    true,
-                )
-                sessionHost.rebuildMemoryIndex()
-                uiState.update {
-                    it.copy(
-                        pendingConfirmation = null,
-                        isBusy = false,
-                        isGenerating = false,
-                        auditEvents = sessionHost.loadAuditEvents(),
-                        agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                        activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                        activePublicWebEvidence = publicWebEvidence,
-                        statusText = if (privacyBlocked) {
-                            "已保护批量工具结果"
-                        } else {
-                            "运行绑定不可恢复"
-                        },
-                    )
-                }
-                return
-            }
-            sessionHost.replaceActiveSessionMessages(
-                messagesWithObservation + ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = "",
-                    privacy = observationPrivacy,
-                ),
-                true,
-            )
-            uiState.update {
-                it.copy(
-                    pendingConfirmation = null,
-                    isBusy = true,
-                    isGenerating = true,
-                    auditEvents = sessionHost.loadAuditEvents(),
-                    agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                    activePublicWebEvidence = publicWebEvidence,
-                    statusText = "生成中",
-                )
-            }
-            continueAfterToolObservation(
-                observation.run.id,
-                continuationPrompt,
-                observationPrivacy,
-                observation.continuationRemoteToolScope,
-                false,
-            )
-            return
-        }
+        if (handedOff) return
         sessionHost.syncTaskStateMemories()
         sessionHost.rebuildMemoryIndex()
         uiState.update {
-            sessionHost.finishedRun(it, runId = runId, statusText = observation.assistantMessage).copy(
-                pendingConfirmation = null,
-                backgroundTasks = sessionHost.loadBackgroundTasks(),
-                backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
-                periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
-                longTermMemories = sessionHost.loadLongTermMemories(),
-                auditEvents = sessionHost.loadAuditEvents(),
-                activePublicWebEvidence = publicWebEvidence,
-                latestRecoveryAction = observation.recoveryAction,
-            )
+            finishedToolRun(
+                state = it,
+                runId = runId,
+                statusText = observation.assistantMessage,
+                publicWebEvidence = publicWebEvidence,
+            ).copy(latestRecoveryAction = observation.recoveryAction)
         }
     }
 
@@ -965,23 +908,6 @@ class ToolExecutionController(
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图 OCR 内容"
             else -> "本地工具结果"
         }
-
-    fun confirmActionDraft(draft: ActionDraft) {
-        confirmAgentConfirmation(
-            PendingAgentConfirmation(
-                runId = null,
-                draft = draft,
-                toolRequest = null,
-                skillId = null,
-                plannedByModel = false,
-                fallbackReason = null,
-            ),
-        )
-    }
-
-    fun dismissActionDraft() {
-        dismissAgentConfirmation()
-    }
 
     fun restorePendingAgentConfirmationIfAny(clearMissing: Boolean = false) {
         val route = assistantOrchestrator.restorePendingAction(sessionHost.activeSessionId())
