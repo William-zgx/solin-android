@@ -249,6 +249,8 @@ class AgentLoopRuntime(
         traceQueries = traceQueries,
         isCriticalOnlyConfirmationEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
         safetyPolicy = safetyPolicy,
+        // Remote-vision runs must confirm one step before their first screenshot leaves.
+        isRemoteVisionDrivingEnabled = { runId -> remoteGuiDrivingEnabledByRunId[runId] == true },
     )
     private val publicEvidenceContinuation = PublicEvidenceContinuation(
         toolRegistry = toolRegistry,
@@ -291,11 +293,12 @@ class AgentLoopRuntime(
             override fun localScratchpadNotes(runId: String): List<String> =
                 scratchpadNotesFromPromptBlock(runCatching { scratchpad.formatForPrompt(runId) }.getOrNull())
 
-            // Critical-only mode has no per-step prompt to wait for; the Trust Center remote-GUI
-            // opt-in (with its egress disclosure) is the approval for sending the screen.
+            // First-confirm-then-auto, in BOTH confirmation modes: the remote-GUI opt-in is not a
+            // per-run approval, so a screenshot may leave only after the user confirmed a step of
+            // this run. Critical-only mode rarely prompts, so such a run usually has no confirmed
+            // step and the remote-vision path stays closed (the local action model takes over).
             override fun runHasUserConfirmedStep(runId: String): Boolean =
-                lowRiskDeviceActionConfirmationBypassByRunId[runId] == true ||
-                    traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
+                traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
 
             override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> =
                 valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()

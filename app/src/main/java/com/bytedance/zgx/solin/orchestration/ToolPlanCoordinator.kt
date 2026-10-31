@@ -84,9 +84,10 @@ internal class ToolPlanCoordinator(
          */
         fun remoteGuiDrivingEnabled(runId: String): Boolean
         /**
-         * True when this run has at least one user-confirmed tool step, or runs in critical-only
-         * confirmation mode (where the remote-GUI opt-in is the egress approval). Gates remote-vision
-         * screenshot egress (see [AgentObservationReplanContext.runHasUserConfirmedStep]).
+         * True when this run has at least one user-confirmed tool step. Gates remote-vision
+         * screenshot egress (see [AgentObservationReplanContext.runHasUserConfirmedStep]) in BOTH
+         * confirmation modes: the remote-GUI opt-in is not a per-run approval, so a screenshot
+         * leaves only after a confirmed step of this run.
          */
         fun runHasUserConfirmedStep(runId: String): Boolean
         /**

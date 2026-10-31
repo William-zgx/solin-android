@@ -6,8 +6,10 @@ import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.tool.RiskLevel
+import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolSpec
 import java.text.Normalizer
 
 private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
@@ -38,6 +40,14 @@ enum class CriticalApprovalReason {
      * into a browser and pressing Enter is a network send that no other check sees.
      */
     TypedTextNotFromUser,
+
+    /**
+     * The run drives GUI automation with the remote vision model and no step of it is confirmed
+     * yet. The screenshot is captured and sent by that path, so the run's first action must be
+     * user-confirmed before any pixels leave — in critical-only mode too, where the remote-GUI
+     * opt-in alone used to be treated as the approval.
+     */
+    RemoteVisionFirstSend,
 }
 
 /** Tools that reach the network or an external app with free text, and the argument carrying it. */
@@ -45,6 +55,16 @@ private val networkReachingArgument: Map<String, String> = mapOf(
     MobileActionFunctions.WEB_SEARCH to "query",
     MobileActionFunctions.SEARCH_MAPS to "query",
     MobileActionFunctions.OPEN_DEEP_LINK to "uri",
+)
+
+/**
+ * Capabilities whose step starts the in-app observe→act loop that the remote-vision model drives:
+ * a device-control action (observe, tap, type, …) or an app launch. The screenshot is captured by
+ * the replan after such a step's observation, so that step is the run's "first send" gate.
+ */
+private val remoteVisionStartingCapabilities = setOf(
+    ToolCapability.DeviceControl,
+    ToolCapability.ExternalNavigation,
 )
 
 private fun CriticalApprovalReason.confirmationReason(toolName: String): String = when (this) {
@@ -55,6 +75,8 @@ private fun CriticalApprovalReason.confirmationReason(toolName: String): String 
         "This network step carries sensitive text or follows a read of private data in the same run."
     CriticalApprovalReason.TypedTextNotFromUser ->
         "This text was not in the user's request and follows a read of private data in the same run."
+    CriticalApprovalReason.RemoteVisionFirstSend ->
+        "This is the first step of a remote-vision run; confirming it also approves sending this run's screenshots."
 }
 
 /** [text] split for [ConfirmationBypassPolicy]'s typed-text check, after NFKC and lowercasing. */
@@ -91,6 +113,8 @@ internal class ConfirmationBypassPolicy(
     private val traceQueries: AgentTraceQueries,
     private val isCriticalOnlyConfirmationEnabled: (runId: String) -> Boolean,
     private val safetyPolicy: SafetyPolicy = SafetyPolicy(),
+    /** True when this run drives GUI automation with the remote vision model (screenshot egress). */
+    private val isRemoteVisionDrivingEnabled: (runId: String) -> Boolean = { false },
 ) {
     fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
         plan.withConfirmationBypassForRun(runId)
@@ -114,9 +138,25 @@ internal class ConfirmationBypassPolicy(
                 runReadPrivateData(runId, before = request.id) &&
                 !isTextFromUser(runId, request.arguments["text"].orEmpty()) ->
                 CriticalApprovalReason.TypedTextNotFromUser
+            isRemoteVisionFirstSend(runId, request, spec) -> CriticalApprovalReason.RemoteVisionFirstSend
             else -> null
         }
     }
+
+    /**
+     * A remote-vision run must confirm one step before its first screenshot leaves the device
+     * ([RemoteVisionObservationReplanner] gates on a confirmed step). Critical-only mode otherwise
+     * prompts for nothing, so the run's first in-app action is raised to a confirmation here;
+     * confirming it is the run's screenshot approval. Once any step is confirmed the gate opens.
+     */
+    private fun isRemoteVisionFirstSend(
+        runId: String,
+        request: ToolRequest,
+        spec: ToolSpec,
+    ): Boolean =
+        isRemoteVisionDrivingEnabled(runId) &&
+            spec.capability in remoteVisionStartingCapabilities &&
+            traceStore.steps(runId).none { step -> step is AgentStep.UserConfirmed }
 
     /**
      * Whether an earlier step of [runId] requested a tool that reads private device data.

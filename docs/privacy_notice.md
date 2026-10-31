@@ -221,12 +221,15 @@ gated by defense-in-depth:
   (`AccessibilityService.takeScreenshot`); there is no separate per-capture
   system screen-cast dialog. Egress is instead governed by this opt-in plus the
   run gate below.
-- **Run gate:** in the default critical-only confirmation mode, the opt-in is
-  the approval and screenshots of an operating run may be sent from its first
-  in-app step. With per-step confirmation turned on, the first screenshot of a
-  run is transmitted only after the user has confirmed that run's first action
-  (e.g. opening the app). Either way, captures are bounded by a per-run step
-  limit, and a new run starts over.
+- **Run gate:** the user must first confirm one in-app action of the run (the
+  initial observe or the app launch) before any screenshot of that run is sent.
+  This holds in both confirmation modes. Critical-only mode usually prompts for
+  nothing, so Solin raises that run's first in-app step to a confirmation; the
+  opt-in toggle alone is not a per-run approval. With per-step confirmation on,
+  that confirmation is the normal step prompt. A run that never gets a
+  confirmation sends no screenshot and falls back to the local action model
+  (or stops when there is none). Captures are bounded by a per-run step limit,
+  and a new run starts over.
 - **Transmitted, not persisted:** the compacted JPEG and control list are sent
   for a single request and then dropped; they are never written to local
   records, audit, or receipts.

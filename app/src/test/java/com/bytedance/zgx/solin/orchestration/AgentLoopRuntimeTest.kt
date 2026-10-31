@@ -1876,6 +1876,57 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun remoteVisionRunConfirmsItsFirstInAppStepEvenInCriticalOnlyMode() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = HighRiskContinuationSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val planned = runtime.runOnce(
+            input = HighRiskContinuationSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            // Remote-vision GUI driving is on, so the first observe unlocks screenshot egress.
+            options = AgentRunOptions(
+                reduceDeviceActionConfirmations = true,
+                remoteGuiDrivingEnabled = true,
+            ),
+        )
+
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, planned.plan.request.toolName)
+        // Critical-only mode otherwise auto-runs a reversible observe; the screenshot gate makes
+        // this run's first step the confirmation that approves sending its screenshots.
+        assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
+        assertTrue(planned.plan.draft.requiresConfirmation)
+        assertTrue(planned.steps.any { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun nonRemoteVisionRunKeepsCriticalOnlyAutoApprovalForItsFirstInAppStep() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = HighRiskContinuationSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val planned = runtime.runOnce(
+            input = HighRiskContinuationSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(AgentRunState.ExecutingTool, planned.run.state)
+        assertFalse(planned.plan.draft.requiresConfirmation)
+        assertTrue(planned.steps.none { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
     fun criticalOnlyConfirmationsStopBeforeCriticalUiTapContinuation() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),

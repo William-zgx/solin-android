@@ -25,6 +25,7 @@ import org.junit.Test
 class ConfirmationBypassPolicyTest {
     private val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
     private var criticalOnly = true
+    private var remoteVisionDriving = false
     private val policy = ConfirmationBypassPolicy(
         toolRegistry = ToolRegistry(
             ToolProvider {
@@ -41,6 +42,7 @@ class ConfirmationBypassPolicyTest {
         traceStore = traceStore,
         traceQueries = AgentTraceQueries(traceStore),
         isCriticalOnlyConfirmationEnabled = { criticalOnly },
+        isRemoteVisionDrivingEnabled = { remoteVisionDriving },
     )
 
     @Test
@@ -279,6 +281,44 @@ class ConfirmationBypassPolicyTest {
         assertEquals(SafetyOutcome.Allow, continued(typing("牛奶")))
         assertEquals(SafetyOutcome.RequireConfirmation, continued(typing("https://example.com/?q=abc")))
         assertEquals(SafetyOutcome.RequireConfirmation, continued(tap.copy(sensitivityReason = "涉及支付")))
+    }
+
+    @Test
+    fun remoteVisionRunMustConfirmItsFirstInAppStepInCriticalOnlyMode() {
+        remoteVisionDriving = true
+        val runId = traceStore.createRun("打开淘宝并搜索").id
+        val firstTap = ToolRequest(id = "tap-1", toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索"))
+
+        // Critical-only mode would otherwise auto-run this reversible tap; the screenshot egress
+        // it unlocks needs the run's first confirmation, so the tap is raised to a confirmation.
+        assertEquals(CriticalApprovalReason.RemoteVisionFirstSend, policy.criticalApprovalReason(runId, firstTap))
+        assertFalse(policy.isAutoApproved(runId, firstTap))
+        val planned = policy.withConfirmationBypass(runId, planOf(firstTap, SafetyOutcome.Allow))
+        assertEquals(SafetyOutcome.RequireConfirmation, planned.safetyDecision.outcome)
+        assertTrue(planned.draft.requiresConfirmation)
+
+        // Once the user confirmed that step, later steps run without a prompt again.
+        traceStore.appendStep(runId, AgentStep.UserConfirmed(firstTap.id))
+        val nextTap = ToolRequest(id = "tap-2", toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "商品"))
+        assertNull(policy.criticalApprovalReason(runId, nextTap))
+        assertTrue(policy.isAutoApproved(runId, nextTap))
+
+        // A run without remote-vision driving keeps the documented auto-run behaviour.
+        remoteVisionDriving = false
+        assertNull(policy.criticalApprovalReason(traceStore.createRun("再搜一次").id, firstTap))
+    }
+
+    @Test
+    fun remoteVisionFirstSendOnlyGatesTheInAppActionNotUnrelatedTools() {
+        remoteVisionDriving = true
+        val runId = traceStore.createRun("先搜个公开资料").id
+        // A public read-only search does not start the in-app GUI loop, so it is not the gate.
+        assertNull(
+            policy.criticalApprovalReason(
+                runId,
+                ToolRequest(id = "search", toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "Kotlin")),
+            ),
+        )
     }
 
     private fun lowRiskSkillPlan(): SkillPlan {

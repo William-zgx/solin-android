@@ -139,6 +139,15 @@ screen text, and text handed to other apps (`share_text`, `compose_email`,
 SMS / calendar / contact drafts). Remote-send audit entries exist for remote
 chat, remote vision, the router and MCP, but not for web search or intents.
 
+**Remote-vision screenshot egress (gap 1, closed 2026-10-31).** A screenshot
+leaves only after a `UserConfirmed` step exists in the run, in both
+confirmation modes (`AgentLoopRuntime.runHasUserConfirmedStep`). Critical-only
+mode rarely prompts, so `ConfirmationBypassPolicy` raises the run's first
+in-app step (`DeviceControl` / `ExternalNavigation` capability) to a
+confirmation (`CriticalApprovalReason.RemoteVisionFirstSend`); confirming it
+opens the gate. A run that never confirms sends no screenshot and falls back to
+the local action model.
+
 **Provenance** is lost at `ToolRequest.arguments` (plain strings). Private
 results are folded into the next model prompt, and the model's next arguments
 carry no label, so the egress checks fall back to run-level taint and a
