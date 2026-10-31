@@ -2234,6 +2234,14 @@ class BuiltInSkillRuntimeTest {
         val expectedPackageName: String,
     )
 
+    @Test
+    fun aBackWordInsideASentenceIsNotABackCommand() {
+        // "返回" and "back" used to match anywhere, so an ordinary question about a return value or
+        // an English phrase containing "back up" became a ui_press_back device action.
+        assertNull(runtime.plan("这个函数的返回值是什么"))
+        assertNull(runtime.plan("back up my photos"))
+    }
+
     private fun draft(
         toolName: String,
         parameters: Map<String, String> = emptyMap(),

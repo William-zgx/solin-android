@@ -193,8 +193,10 @@ internal fun String.extractCurrentPageUiCommand(): CurrentPageUiCommand? {
     ).any { it in this } ||
         Regex("""\b(?:current|this)\s+(?:page|screen|app|application)\b""", RegexOption.IGNORE_CASE)
             .containsMatchIn(normalized)
-    val asksBack = Regex("""\b(?:back|go\s+back)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
-        listOf("返回", "后退").any { it in this }
+    // A back word ANYWHERE used to be enough, which turned questions like "这个函数的返回值是什么"
+    // and "back up my photos" into a ui_press_back. A back intent now needs either an explicit
+    // reference to the current page or an input that is nothing but a back command.
+    val asksBack = (referencesCurrentPage && mentionsBackWord()) || isWholeInputBackCommand()
     if (!referencesCurrentPage && !asksBack) return null
 
     if (asksBack) {
@@ -218,6 +220,22 @@ internal fun String.extractCurrentPageUiCommand(): CurrentPageUiCommand? {
     }
     return null
 }
+
+private fun String.mentionsBackWord(): Boolean {
+    val normalized = lowercase()
+    return Regex("""\b(?:back|go\s+back)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
+        listOf("返回", "后退").any { it in this }
+}
+
+/**
+ * True only when the WHOLE input is a back command, e.g. "返回", "请返回上一页", "go back".
+ *
+ * Deliberately anchored: a bare "返回" also appears inside ordinary sentences ("这个函数的返回值
+ * 是什么") and "back" inside "back up my photos", and a ui_press_back for those is wrong.
+ */
+private fun String.isWholeInputBackCommand(): Boolean =
+    Regex("""^\s*(?:请|帮我)?\s*(?:返回(?:上一页|上一级)?|后退|go\s+back|back)\s*[。.!！]?\s*$""")
+        .containsMatchIn(this)
 
 private fun String.hasCurrentPageTapIntent(): Boolean {
     val normalized = lowercase()
