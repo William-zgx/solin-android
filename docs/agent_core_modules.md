@@ -511,12 +511,31 @@ Current status:
   "需要你亲自操作". `SolinAccessibilityService` repeats the check on the live
   window right before every tap gesture, on the node the tap actually lands on
   (any critical control under the point in any window, since z-order is not
-  exposed; the labels and view id of the tapped node; button-like labels inside
-  its container; and bare 确定/OK on a dialog that shows critical text), because
-  target matching is fuzzy. Long-press and barely-moving swipes count as taps. An
-  unreadable window refuses the tap, as does a truncated node walk that saw no
-  labelled node under the point. The check reads accessibility labels, so a control
-  with no usable label (custom-drawn, canvas, unlabelled icon) cannot be recognized.
+  exposed, matched at any label length; the labels of the tapped node and its
+  clickable ancestor; its view id by whole token, so `btn_send` refuses while
+  `sender_name` or an `order_item` row does not; clickable controls inside its
+  container, plus short captions there that are a strong phrase or one exact
+  critical word, so a chat row previewing "好的，我同意" stays tappable; and bare
+  确定/OK on a dialog that shows critical text), because target matching is
+  fuzzy. Long-press, barely-moving swipes, and swipes that start and end on the
+  same control count as taps. An unreadable window refuses the tap, as does a
+  truncated node walk that saw no labelled node under the point; the
+  `ACTION_CLICK` fallback refuses on either. The decision itself is the pure
+  `device/CriticalTapGuard.kt`; the service only reads the live windows.
+  The check reads accessibility labels, so a control with no usable label
+  (custom-drawn, canvas, unlabelled icon) cannot be recognized by name. To cover
+  the screens where that matters most, a tap is also refused when the window
+  shows a payment, transfer, or authorization step (a short label containing
+  确认支付, 立即支付, 确认付款, 立即付款, 支付密码, 交易密码, 确认转账, 转账金额,
+  授权登录, 确认授权, or 同意授权) and the tap lands on no labelled control:
+  nothing actionable under the point, or an unlabelled one with no labelled text
+  of its own under the point. Editable fields stay tappable. View ids do not count
+  as labels there. The list is narrow on purpose, so chat, feed, product, search,
+  and checkout pages are unaffected. Remaining limitations: an unlabelled control on
+  a payment-like screen that shows none of these phrases is still not
+  recognized; a labelled but non-critical-sounding control (a keypad digit "1")
+  is allowed; and a short chat message quoting one of the phrases makes that
+  screen count as a payment step (stricter, never looser).
 - Persistent audit records include time, event type, tool name, status, risk,
   permission names, and sanitized summaries. The Room repository keeps the most
   recent 500 records.
@@ -534,6 +553,7 @@ Tests:
 - `ConfirmationBypassPolicyTest`
 - `OverlayDismissLoopTest`
 - `UiDangerousActionKeywordsTest`
+- `CriticalTapGuardTest`
 - `ToolAuditEventTest`
 - `ToolAuditRepositoryTest`
 - `AgentTraceStoreTest`

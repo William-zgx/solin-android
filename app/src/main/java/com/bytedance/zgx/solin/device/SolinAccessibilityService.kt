@@ -29,7 +29,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.abs
 
 /**
  * Every traversal limit and wall-clock budget this file depends on, in one place.
@@ -716,9 +715,16 @@ class SolinAccessibilityService : AccessibilityService() {
         CriticalTapGuard.checkTap(x, y, node.tappedNodes(), nodes, complete).throwIfRefused()
     }
 
-    private fun refuseCriticalContainerClick(container: AccessibilityNodeInfo) =
-        CriticalTapGuard.checkContainerClick(container.safeBounds(), windowRootsForTapCheck().tapCheckNodes().first)
-            .throwIfRefused()
+    private fun refuseCriticalContainerClick(container: AccessibilityNodeInfo) {
+        val (nodes, complete) = windowRootsForTapCheck().tapCheckNodes()
+        CriticalTapGuard.checkContainerClick(container.safeBounds(), nodes, complete).throwIfRefused()
+    }
+
+    /** A swipe that barely moves, or that starts and ends on one control, clicks it on release. */
+    private fun refuseSwipeThatClicks(startX: Int, startY: Int, endX: Int, endY: Int) {
+        val (nodes, complete) = windowRootsForTapCheck().tapCheckNodes()
+        CriticalTapGuard.checkSwipe(startX, startY, endX, endY, nodes, complete).throwIfRefused()
+    }
 
     private fun windowRootsForTapCheck(): List<AccessibilityNodeInfo> =
         readOnMainThread { windows.mapNotNull { window -> window.root } }
@@ -894,10 +900,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 .toAbsolutePixels(screenWidth, screenHeight)
             val (endX, endY) = clampedNormalizedTarget(endXNorm, endYNorm)
                 .toAbsolutePixels(screenWidth, screenHeight)
-            // A swipe that barely moves lands as a tap.
-            if (abs(endX - startX) + abs(endY - startY) < DEGENERATE_SWIPE_MAX_TRAVEL_PX) {
-                refuseCriticalTapAt(startX, startY)
-            }
+            refuseSwipeThatClicks(startX, startY, endX, endY)
             val performed = dispatchSwipeGesture(startX, startY, endX, endY, durationMillis)
             if (performed) {
                 UiPrimitiveResult.succeeded(
@@ -1706,8 +1709,6 @@ private fun <T> submitUiRead(action: () -> T): T {
 }
 
 private val deviceControlTasks = DeviceControlTaskCoordinator()
-
-private const val DEGENERATE_SWIPE_MAX_TRAVEL_PX = 48
 
 private sealed class EditableFocusResult {
     data class Found(val node: AccessibilityNodeInfo) : EditableFocusResult()

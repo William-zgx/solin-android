@@ -79,6 +79,29 @@ private val standaloneDangerousActionTextMarkers = listOf(
     "同意",
 )
 
+/**
+ * Phrases only a payment, transfer, or authorization step shows: the cashier sheet, the payment
+ * password prompt, the transfer amount page, an OAuth consent page. Deliberately narrower than
+ * [strongDangerousActionTextMarkers]: 发送/发布/立即购买/提交订单 sit on every chat, feed, product, and
+ * checkout page, and bare 转账/输入密码 appear in chat previews ("[转账]") and login or Wi-Fi prompts.
+ */
+private val paymentContextTextMarkers = listOf(
+    "确认支付",
+    "立即支付",
+    "确认付款",
+    "立即付款",
+    "支付密码",
+    "交易密码",
+    "确认转账",
+    "转账金额",
+    "授权登录",
+    "确认授权",
+    "同意授权",
+    "confirm payment",
+    "payment password",
+    "confirm transfer",
+)
+
 /** Everyday phrases that contain a marker but name no action: dates, sort tabs, sales counts, an app. */
 private val benignDangerPhrases = listOf("发布于", "发表于", "发布时间", "最新发布", "发布会", "人付款", "支付宝")
 
@@ -153,7 +176,7 @@ internal fun ScreenStateSnapshot.tapTargetHitsDangerousControl(target: String): 
     if (key.isBlank()) return false
     return nodes.any { node ->
         (node.id == target || node.tapLabels().any { label -> label.normalizedLookupKey() == key }) &&
-            node.hasButtonLikeCriticalLabel(dangerText)
+            node.hasCriticalTapLabel(dangerText)
     }
 }
 
@@ -175,29 +198,72 @@ internal fun ScreenStateSnapshot.normalizedPointHitsDangerousControl(xNorm: Int,
  *
  * Nodes do not expose z-order, so any clickable control under the point with a critical label
  * refuses the tap, even a larger one: a sheet button may be drawn over a smaller icon behind it.
- * Past that, the innermost actionable node is what the tap activates. An editable field is safe
- * (focusing never commits); anything else is critical when a button-like label sits inside it (an
- * unlabelled container around "立即支付"). When nothing actionable covers the point the tap cannot
- * be attributed, so the screen-wide check decides (fail closed).
+ * Their labels are matched at any length ("确认支付 ¥1,299.00（含运费 ¥10.00）"). Past that, the
+ * innermost actionable node is what the tap activates. An editable field is safe (focusing never
+ * commits); anything else is critical when it holds a critical control ([holdsCriticalControl]).
+ * When nothing actionable covers the point the tap cannot be attributed, so the screen-wide check
+ * decides (fail closed).
  */
 internal fun List<ScreenNode>.tapAtPointHitsDangerousControl(x: Int, y: Int): Boolean {
     val dangerText = windowShowsDangerText()
     val covering = actionableNodesAt(x, y)
     if (covering.isEmpty()) return any { node -> node.hasDangerousActionControl() }
-    if (covering.any { node -> !node.editable && node.hasButtonLikeCriticalLabel(dangerText) }) return true
+    if (covering.any { node -> !node.editable && node.hasCriticalTapLabel(dangerText) }) return true
     val hit = covering.minBy { node -> node.bounds!!.area() }
     return !hit.editable && holdsCriticalControl(hit.bounds!!, dangerText)
 }
 
-/** Whether a labelled node inside [container] reads like a critical button. */
+/**
+ * Whether [container] holds a critical control. A clickable node inside it is a control and uses the
+ * full tap list. Plain text inside it is often content (a chat row's "好的，我同意" preview), so it
+ * counts only as a short button caption: a strong phrase, an exact critical word, or a bare confirm
+ * under critical dialog text.
+ */
 internal fun List<ScreenNode>.holdsCriticalControl(
     container: ScreenBounds,
     dangerText: Boolean = windowShowsDangerText(),
-): Boolean = any { node -> node.bounds?.isInside(container) == true && node.hasButtonLikeCriticalLabel(dangerText) }
+): Boolean = any { node ->
+    node.bounds?.isInside(container) == true &&
+        if (node.clickable) node.hasCriticalTapLabel(dangerText) else node.hasCriticalCaption(dangerText)
+}
 
 /** Whether the node a truncated walk found under the point can be trusted to stand for the tap. */
 internal fun List<ScreenNode>.hasLabelledActionableNodeAt(x: Int, y: Int): Boolean =
     actionableNodesAt(x, y).minByOrNull { node -> node.bounds!!.area() }?.tapLabels()?.isNotEmpty() == true
+
+/**
+ * Whether what a tap at ([x], [y]) lands on can be named: the innermost actionable node under the
+ * point is an editable field (focusing never commits), carries a label, or holds a labelled node that
+ * also covers the point (a clickable row around its "取消" text). False when nothing actionable covers
+ * the point. View ids do not count: the window walk does not keep them and many apps obfuscate them.
+ */
+internal fun List<ScreenNode>.tapLandsOnLabelledControl(x: Int, y: Int): Boolean {
+    val hit = actionableNodesAt(x, y).minByOrNull { node -> node.bounds!!.area() } ?: return false
+    if (hit.editable || hit.tapLabels().isNotEmpty()) return true
+    return any { node ->
+        node.tapLabels().isNotEmpty() && node.bounds.covers(x, y) && node.bounds!!.isInside(hit.bounds!!)
+    }
+}
+
+/**
+ * Whether a swipe from ([startX], [startY]) to ([endX], [endY]) starts and ends inside the same
+ * innermost actionable node: `View.onTouchEvent` then clicks it on release, however far it travelled.
+ */
+internal fun List<ScreenNode>.swipeStaysOnOneControl(startX: Int, startY: Int, endX: Int, endY: Int): Boolean {
+    val hit = actionableNodesAt(startX, startY).minByOrNull { node -> node.bounds!!.area() } ?: return false
+    return hit.bounds.covers(endX, endY)
+}
+
+/** Whether the window shows a payment, transfer, or authorization step ([paymentContextTextMarkers]). */
+internal fun List<ScreenNode>.windowShowsPaymentContext(): Boolean =
+    any { node ->
+        node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasPaymentContextText() }
+    }
+
+private fun String.hasPaymentContextText(): Boolean {
+    val normalized = normalizedForDangerMatch()
+    return paymentContextTextMarkers.any { marker -> normalized.contains(marker.normalizedLookupKey()) }
+}
 
 private fun List<ScreenNode>.actionableNodesAt(x: Int, y: Int): List<ScreenNode> =
     filter { node -> node.enabled && (node.clickable || node.editable) && node.bounds.covers(x, y) }
@@ -206,11 +272,58 @@ internal fun ScreenNode.tapLabels(): List<String> = listOf(text, contentDescript
 
 internal fun ScreenNode.tapLabel(): String = text.ifBlank { contentDescription }
 
-internal fun ScreenNode.hasButtonLikeCriticalLabel(windowShowsDangerText: Boolean): Boolean =
-    tapLabels().any { label -> label.isButtonLikeCriticalLabel(windowShowsDangerText) }
+/** A control's own label: the full tap list at any length. */
+internal fun ScreenNode.hasCriticalTapLabel(windowShowsDangerText: Boolean): Boolean =
+    tapLabels().any { label -> label.isCriticalTapLabel(windowShowsDangerText) }
 
-internal fun String?.isButtonLikeCriticalLabel(windowShowsDangerText: Boolean): Boolean =
-    orEmpty().length <= BUTTON_LABEL_MAX_CHARS && isCriticalTapLabel(windowShowsDangerText)
+private fun ScreenNode.hasCriticalCaption(windowShowsDangerText: Boolean): Boolean =
+    tapLabels().map { label -> label.withoutMessageTypeTag() }.any { label ->
+        label.length <= BUTTON_LABEL_MAX_CHARS &&
+            (
+                label.hasOcrDangerousActionText() ||
+                    label.isExactDangerousTapTarget() ||
+                    (label.isShortLatinCaption() && label.hasDangerousTapTargetText()) ||
+                    (windowShowsDangerText && label.isGenericConfirmLabel())
+                )
+    }
+
+/**
+ * Chat lists prefix a message preview with its type in brackets ("[转账]", "[红包]¥88", "[链接]").
+ * That tag describes a past message, so it is dropped before a caption inside a row is matched,
+ * unless the tag itself is a strong phrase ("【立即支付】").
+ */
+private fun String.withoutMessageTypeTag(): String {
+    val tag = MESSAGE_TYPE_TAG_REGEX.find(this) ?: return this
+    if (tag.value.hasStrongDangerousActionText()) return this
+    return removeRange(tag.range)
+}
+
+private val MESSAGE_TYPE_TAG_REGEX = Regex("^\\s*[\\[［【][^\\]］】]{1,6}[\\]］】]")
+
+/** One or two Latin words ("Pay now", "Place order"): a button caption, not a sentence of content. */
+private fun String.isShortLatinCaption(): Boolean =
+    all { char -> char.code < CJK_RADICALS_START } && trim().split(WHITESPACE_REGEX).size <= 2
+
+private const val CJK_RADICALS_START = 0x2E80
+
+private val WHITESPACE_REGEX = Regex("""\s+""")
+
+/**
+ * The whole caption is one tap marker, optionally after an action prefix ("去支付", "马上下单") and
+ * ignoring an amount or count beside it ("支付 ¥99"). "已确认" or "我同意" are statements, not buttons.
+ */
+private fun String.isExactDangerousTapTarget(): Boolean {
+    val bare = normalizedForDangerMatch().replace(CAPTION_AMOUNT_REGEX, "")
+    if (bare.isEmpty()) return false
+    return dangerousTapTargetMarkers.any { marker ->
+        val key = marker.normalizedLookupKey()
+        bare == key || captionActionPrefixes.any { prefix -> bare == prefix + key }
+    }
+}
+
+private val captionActionPrefixes = listOf("去", "立即", "马上", "确认", "一键", "现在", "继续", "前往")
+
+private val CAPTION_AMOUNT_REGEX = Regex("[\\d¥￥\$元]+")
 
 /** A tap label is critical on its own, or a bare confirm on a window showing critical text. */
 internal fun String?.isCriticalTapLabel(windowShowsDangerText: Boolean): Boolean =

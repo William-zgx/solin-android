@@ -1,5 +1,10 @@
 package com.bytedance.zgx.solin.device
 
+import kotlin.math.abs
+
+/** Travel below which a swipe lands as a tap. */
+internal const val DEGENERATE_SWIPE_MAX_TRAVEL_PX = 48
+
 /**
  * Last line of the never-tap-critical-controls rule, as a pure decision over copied window nodes.
  *
@@ -30,22 +35,100 @@ internal object CriticalTapGuard {
         !walkComplete && !windowNodes.hasLabelledActionableNodeAt(x, y) ->
             refuse(CriticalTapRefusalReason.UnverifiedTruncatedWalk)
         windowNodes.tapAtPointHitsDangerousControl(x, y) -> refuse(CriticalTapRefusalReason.DangerousControlUnderPoint)
+        windowNodes.windowShowsPaymentContext() && !windowNodes.tapLandsOnLabelledControl(x, y) ->
+            refuse(CriticalTapRefusalReason.UnlabelledControlOnPaymentScreen)
         else -> CriticalTapDecision.Allow
     }
 
-    /** `ACTION_CLICK` fires the whole [container], so everything inside it must be safe to fire. */
-    fun checkContainerClick(container: ScreenBounds?, windowNodes: List<ScreenNode>): CriticalTapDecision = when {
+    /**
+     * `ACTION_CLICK` fires the whole [container], so everything inside it must be safe to fire. Like
+     * [checkTap], an unreadable window or a truncated walk cannot show that it is.
+     */
+    fun checkContainerClick(
+        container: ScreenBounds?,
+        windowNodes: List<ScreenNode>,
+        walkComplete: Boolean,
+    ): CriticalTapDecision = when {
         container == null -> refuse(CriticalTapRefusalReason.MissingBounds)
+        windowNodes.isEmpty() -> refuse(CriticalTapRefusalReason.UnreadableWindow)
+        !walkComplete -> refuse(CriticalTapRefusalReason.UnverifiedTruncatedWalk)
         windowNodes.holdsCriticalControl(container) -> refuse(CriticalTapRefusalReason.ContainerHoldsCriticalControl)
         else -> CriticalTapDecision.Allow
     }
 
+    /**
+     * A swipe clicks what it starts on when it barely moves, or when it starts and ends inside the
+     * same actionable node (`View.onTouchEvent` clicks on release, however far it travelled). Such a
+     * swipe is checked as a tap at its start point; any other swipe is left to the screen-wide check.
+     */
+    fun checkSwipe(
+        startX: Int,
+        startY: Int,
+        endX: Int,
+        endY: Int,
+        windowNodes: List<ScreenNode>,
+        walkComplete: Boolean,
+    ): CriticalTapDecision {
+        val degenerate = abs(endX - startX) + abs(endY - startY) < DEGENERATE_SWIPE_MAX_TRAVEL_PX
+        if (!degenerate && !windowNodes.swipeStaysOnOneControl(startX, startY, endX, endY)) {
+            return CriticalTapDecision.Allow
+        }
+        return checkTap(startX, startY, tapped = emptyList(), windowNodes = windowNodes, walkComplete = walkComplete)
+    }
+
     private fun refuse(reason: CriticalTapRefusalReason) = CriticalTapDecision.Refuse(reason)
 
+    /** Labels at any length; the view id only for a non-editable node, by whole token. */
     private fun TappedNode.isCritical(): Boolean =
-        node.hasButtonLikeCriticalLabel(windowShowsDangerText = false) ||
-            viewIdResourceName?.substringAfter("id/").hasDangerousTapTargetText()
+        node.hasCriticalTapLabel(windowShowsDangerText = false) ||
+            (!node.editable && viewIdResourceName.isCriticalViewId())
 }
+
+/**
+ * Whether a view id names a critical control: a whole token of the entry name is a tap marker
+ * (`btn_send`, `payButton`, `confirm-order`), split on `_`, `-`, `.` and camelCase. Word-start
+ * matching refused rows such as `sender_name`; "sender" is not a marker token. `order` and `post`
+ * are also nouns, so `order_item` and `post_card` (a row or card naming its content) pass unless a
+ * control token says otherwise (`order_item_btn`). Verb tokens (send, pay, delete, …) always refuse.
+ */
+internal fun String?.isCriticalViewId(): Boolean {
+    val entry = this?.substringAfter("id/")?.takeIf { it.isNotBlank() } ?: return false
+    val tokens = entry.replace(VIEW_ID_CAMEL_BOUNDARY_REGEX, "$1_$2").lowercase().split(VIEW_ID_SEPARATOR_REGEX)
+        .filter { it.isNotEmpty() }
+    val critical = tokens.mapNotNull { token -> token.criticalViewIdToken() }
+    if (critical.isEmpty()) return false
+    val nounRow = critical.all { token -> token in viewIdNounTokens } &&
+        tokens.any { token -> token in viewIdRowTokens } &&
+        tokens.none { token -> token in viewIdControlTokens }
+    return !nounRow
+}
+
+/** The marker a token names: itself, or an unsplit compound with a control word (`sendbtn`, `btnpay`). */
+private fun String.criticalViewIdToken(): String? {
+    if (this in viewIdCriticalTokens) return this
+    return viewIdCriticalTokens.firstOrNull { marker ->
+        viewIdControlTokens.any { control -> this == marker + control || this == control + marker }
+    }
+}
+
+/** Tap markers as whole id tokens, plus the CJK markers' usual English ids. */
+private val viewIdCriticalTokens = setOf(
+    "send", "pay", "payment", "buy", "purchase", "checkout", "delete", "remove", "post", "publish",
+    "order", "submit", "confirm", "transfer", "authorize", "authorise", "grant", "allow", "agree",
+)
+
+/** Critical tokens that are also nouns for content ("an order", "a post"). */
+private val viewIdNounTokens = setOf("order", "post")
+
+/** Tokens that mark a list row or content cell rather than a button. */
+private val viewIdRowTokens = setOf("item", "row", "cell", "card", "list", "title", "info", "detail")
+
+/** Tokens that mark a control even inside a row-like id (`order_item_btn`). */
+private val viewIdControlTokens = setOf("btn", "button", "action")
+
+private val VIEW_ID_CAMEL_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
+
+private val VIEW_ID_SEPARATOR_REGEX = Regex("""[_\-.\s]+""")
 
 /** A node a named tap resolved to, with the view id the window walk does not keep. */
 internal data class TappedNode(val node: ScreenNode, val viewIdResourceName: String?)
@@ -62,6 +145,12 @@ internal enum class CriticalTapRefusalReason {
 
     /** A critical control sits under the point (see [tapAtPointHitsDangerousControl]). */
     DangerousControlUnderPoint,
+
+    /**
+     * The window shows a payment, transfer, or authorization step ([windowShowsPaymentContext]) and
+     * what the tap lands on has no label, so it could be a custom-drawn pay or keypad control.
+     */
+    UnlabelledControlOnPaymentScreen,
 
     /** An ACTION_CLICK container holds a critical control. */
     ContainerHoldsCriticalControl,

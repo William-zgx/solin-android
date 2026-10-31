@@ -135,9 +135,13 @@ class UiDangerousActionKeywordsTest {
     }
 
     @Test
-    fun longContentIsNotAButtonButTheNamedTargetStaysStrict() {
+    fun aClickableNodesOwnLabelIsMatchedAtAnyLength() {
+        // A clickable node's own label is what the tap activates, so it is never dismissed as content.
         val row = node("row", "张三：我刚刚发送了一张图片，你看一下这个", left = 0, right = 1000)
-        assertFalse(listOf(row).tapAtPointHitsDangerousControl(x = 500, y = 500))
+        assertTrue(listOf(row).tapAtPointHitsDangerousControl(x = 500, y = 500))
+        val preview = row.copy(text = "", clickable = true)
+        val previewText = row.copy(id = "text", clickable = false)
+        assertFalse("long text inside a row is content", listOf(preview, previewText).tapAtPointHitsDangerousControl(500, 500))
     }
 
     @Test
