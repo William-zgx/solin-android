@@ -334,6 +334,36 @@ internal fun List<ScreenNode>.windowShowsDangerText(): Boolean =
         node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasDangerousActionText() }
     }
 
+/**
+ * Whether a critical send / publish / pay control sits beside the focused input [input] — the
+ * layout of a chat or comment composer, where an IME enter would post the message. "Near" is the
+ * field's own row band plus the column right of it, widened by one field height on each side (a
+ * density-independent margin: a send button sits within a composer row, never across the page).
+ * A search box with a 搜索 button is allowed; only [dangerousActionTextMarkers] (send, publish,
+ * pay, delete, order, authorize) count, and only on a clickable control.
+ */
+internal fun List<ScreenNode>.criticalControlNearInput(
+    input: ScreenBounds,
+    marginPx: Int = (input.bottom - input.top).coerceAtLeast(0),
+): Boolean {
+    val dangerText = windowShowsDangerText()
+    val left = input.left - marginPx
+    val right = input.right + marginPx
+    val top = input.top - marginPx
+    val bottom = input.bottom + marginPx
+    return any { node ->
+        val bounds = node.bounds ?: return@any false
+        node.enabled &&
+            node.clickable &&
+            !node.editable &&
+            node.hasCriticalTapLabel(dangerText) &&
+            bounds.bottom >= top &&
+            bounds.top <= bottom &&
+            bounds.right >= left &&
+            bounds.left <= right
+    }
+}
+
 private fun ScreenBounds?.covers(x: Int, y: Int): Boolean =
     this != null && x in left..right && y in top..bottom
 

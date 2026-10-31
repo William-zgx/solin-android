@@ -76,6 +76,33 @@ internal object CriticalTapGuard {
         return checkTap(startX, startY, tapped = emptyList(), windowNodes = windowNodes, walkComplete = walkComplete)
     }
 
+    /**
+     * Whether an IME enter/submit may run. The action commits whatever the focused field holds — a
+     * chat message, a post, a payment note — and no tap gesture happens, so [checkTap] never sees
+     * it. [editableBounds] is the focused field, [windowNodes] are the visible nodes of every
+     * window, [walkComplete] false means the walk was cut short, and [imeActionLabel] is the label
+     * the platform reports for the IME action (null when unavailable).
+     *
+     * Refused when the IME action itself is named like a critical control (a keyboard key labelled
+     * 发送 / Send), or when a critical send / publish / pay control sits beside the field. A search
+     * box next to a 搜索 button is allowed: that is the benchmark's submit path.
+     */
+    fun checkImeAction(
+        editableBounds: ScreenBounds?,
+        windowNodes: List<ScreenNode>,
+        walkComplete: Boolean,
+        imeActionLabel: String?,
+    ): CriticalTapDecision = when {
+        imeActionLabel.isCriticalTapLabel(windowShowsDangerText = false) ->
+            refuse(CriticalTapRefusalReason.CriticalImeActionLabel)
+        editableBounds == null -> refuse(CriticalTapRefusalReason.MissingBounds)
+        windowNodes.isEmpty() -> refuse(CriticalTapRefusalReason.UnreadableWindow)
+        !walkComplete -> refuse(CriticalTapRefusalReason.UnverifiedTruncatedWalk)
+        windowNodes.criticalControlNearInput(editableBounds) ->
+            refuse(CriticalTapRefusalReason.CriticalControlNearInput)
+        else -> CriticalTapDecision.Allow
+    }
+
     private fun refuse(reason: CriticalTapRefusalReason) = CriticalTapDecision.Refuse(reason)
 
     /** Labels at any length; the view id only for a non-editable node, by whole token. */
@@ -157,6 +184,12 @@ internal enum class CriticalTapRefusalReason {
 
     /** The tap has no bounds to check against. */
     MissingBounds,
+
+    /** The IME action itself is named like a critical control (a send key). */
+    CriticalImeActionLabel,
+
+    /** A critical send / publish / pay control sits beside the focused input. */
+    CriticalControlNearInput,
 }
 
 internal sealed interface CriticalTapDecision {

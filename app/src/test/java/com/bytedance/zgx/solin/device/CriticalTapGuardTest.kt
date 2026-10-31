@@ -272,6 +272,60 @@ class CriticalTapGuardTest {
         CriticalTapDecision.Allow.throwIfRefused()
     }
 
+    @Test
+    fun refusesImeSubmitInAChatInputBesideASendButton() {
+        // A chat composer: the field holds a message, the 发送 button sits in the same row. An IME
+        // enter would post it with no tap gesture, so the tap guard never saw it.
+        val chatInput = node("", ScreenBounds(0, 880, 760, 960)).copy(editable = true)
+        val sendButton = node("发送", ScreenBounds(780, 880, 1000, 960))
+        assertRefused(
+            CriticalTapRefusalReason.CriticalControlNearInput,
+            CriticalTapGuard.checkImeAction(chatInput.bounds, listOf(chatInput, sendButton), walkComplete = true, imeActionLabel = null),
+        )
+    }
+
+    @Test
+    fun refusesImeSubmitWhenTheActionLabelItselfIsCritical() {
+        // The keyboard reports a send key; the action commits whatever the field holds.
+        assertRefused(
+            CriticalTapRefusalReason.CriticalImeActionLabel,
+            CriticalTapGuard.checkImeAction(
+                ScreenBounds(0, 880, 760, 960),
+                listOf(node("搜索", ScreenBounds(780, 880, 1000, 960))),
+                walkComplete = true,
+                imeActionLabel = "发送",
+            ),
+        )
+    }
+
+    @Test
+    fun allowsImeSubmitInASearchBoxBesideASearchButton() {
+        // The benchmark's in-app search path: a search field with a 搜索 affordance.
+        val searchInput = node("", ScreenBounds(0, 0, 760, 100)).copy(editable = true)
+        val searchButton = node("搜索", ScreenBounds(780, 0, 1000, 100))
+        assertEquals(
+            CriticalTapDecision.Allow,
+            CriticalTapGuard.checkImeAction(searchInput.bounds, listOf(searchInput, searchButton), walkComplete = true, imeActionLabel = "搜索"),
+        )
+    }
+
+    @Test
+    fun imeSubmitRefusesAnUnreadableWindowATruncatedWalkOrAMissingField() {
+        val searchInput = node("", ScreenBounds(0, 0, 760, 100)).copy(editable = true)
+        assertRefused(
+            CriticalTapRefusalReason.MissingBounds,
+            CriticalTapGuard.checkImeAction(null, listOf(searchInput), walkComplete = true, imeActionLabel = null),
+        )
+        assertRefused(
+            CriticalTapRefusalReason.UnreadableWindow,
+            CriticalTapGuard.checkImeAction(searchInput.bounds, emptyList(), walkComplete = true, imeActionLabel = null),
+        )
+        assertRefused(
+            CriticalTapRefusalReason.UnverifiedTruncatedWalk,
+            CriticalTapGuard.checkImeAction(searchInput.bounds, listOf(searchInput), walkComplete = false, imeActionLabel = null),
+        )
+    }
+
     private fun checkTap(
         x: Int,
         y: Int,

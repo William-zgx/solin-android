@@ -579,6 +579,26 @@ internal fun AccessibilityNodeInfo.performImeSearchAction(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
         performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
 
+/**
+ * The label the platform reports for this node's IME action, when it reports one.
+ *
+ * The SDK does not expose a typed accessor, so this reads the node extras under the keys apps and
+ * IMEs commonly use. Null when none is set; the caller still refuses on a nearby critical control,
+ * so a missing label never opens the gate.
+ */
+internal fun AccessibilityNodeInfo.imeActionLabelOrNull(): String? {
+    val extras = extras ?: return null
+    return imeActionLabelKeys.firstNotNullOfOrNull { key ->
+        extras.getCharSequence(key)?.toString()?.trim()?.takeIf { it.isNotBlank() }
+    }
+}
+
+private val imeActionLabelKeys = listOf(
+    "AccessibilityNodeInfo.imeActionLabel",
+    "imeActionLabel",
+    "actionLabel",
+)
+
 internal fun AccessibilityNodeInfo.scrollableSelfOrAncestor(): AccessibilityNodeInfo? =
     selfOrAncestor { node -> node.isEnabled && node.isScrollable }
 

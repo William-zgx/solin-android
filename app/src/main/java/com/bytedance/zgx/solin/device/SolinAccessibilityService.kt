@@ -454,6 +454,7 @@ class SolinAccessibilityService : AccessibilityService() {
                     )
             }
             throwIfInterrupted()
+            refuseCriticalImeAction(editableNode)
             val imeAccepted = submitUiSideEffect { editableNode.performImeSearchAction() }
             if (imeAccepted) {
                 sleepForUiIdle(postActionWaitMillis(timeoutMillis))
@@ -726,6 +727,21 @@ class SolinAccessibilityService : AccessibilityService() {
         CriticalTapGuard.checkSwipe(startX, startY, endX, endY, nodes, complete).throwIfRefused()
     }
 
+    /**
+     * IME enter/submit commits whatever the focused field holds, with no tap gesture for [refuseCriticalTapAt]
+     * to see. Refuse it when the IME action is itself a critical label or a send / publish / pay control
+     * sits beside the focused field; a search box keeps working.
+     */
+    private fun refuseCriticalImeAction(editableNode: AccessibilityNodeInfo) {
+        val (nodes, complete) = windowRootsForTapCheck().tapCheckNodes()
+        CriticalTapGuard.checkImeAction(
+            editableBounds = editableNode.safeBounds(),
+            windowNodes = nodes,
+            walkComplete = complete,
+            imeActionLabel = editableNode.imeActionLabelOrNull(),
+        ).throwIfRefused()
+    }
+
     private fun windowRootsForTapCheck(): List<AccessibilityNodeInfo> =
         readOnMainThread { windows.mapNotNull { window -> window.root } }
             .orEmpty()
@@ -980,6 +996,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 reason = "当前没有可提交的输入框",
                 failureKind = UiActionFailureKind.EditableNotFound,
             )
+        refuseCriticalImeAction(editableNode)
         if (submitUiSideEffect { editableNode.performImeSearchAction() }) {
             return UiPrimitiveResult.succeeded("已执行回车/确认")
         }

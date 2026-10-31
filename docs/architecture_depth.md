@@ -122,7 +122,11 @@ each failing in a different direction:**
 | Live guard | `device/CriticalTapGuard.kt` via `SolinAccessibilityService` | live windows, right before the gesture | closed |
 | Scroll-fallback / overlay checks | `device/SolinAccessibilityService.kt` | live windows | closed |
 
-The IME enter/submit action does not pass the live guard.
+The IME enter/submit action now passes the live guard too (gap 4, closed
+2026-10-31): `CriticalTapGuard.checkImeAction` refuses when the IME action label
+is a critical label, or when a send / publish / pay control sits beside the
+focused field (the composer row). A search box beside a 搜索 button is allowed,
+so the benchmark's in-app search path keeps working.
 
 **Egress rule ("private data does not leave without approval") has four
 partial implementations of the sensitive-text check:**
