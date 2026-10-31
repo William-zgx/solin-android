@@ -65,6 +65,7 @@ internal class ToolPlanCoordinator(
     private val traceQueries: AgentTraceQueries,
     private val safetyPolicy: SafetyPolicy,
     private val runBudget: AgentRunBudget,
+    private val initialToolPlanner: InitialToolPlanner,
     private val host: Host,
     private val auditRecorder: ToolAuditRecorder,
 ) {
@@ -73,13 +74,6 @@ internal class ToolPlanCoordinator(
      * Keeps confirmation-bypass policy and skill-auth validation on the runtime facade.
      */
     interface Host {
-        fun invalidSkillPlanReason(skillPlan: SkillPlan?): String?
-        fun invalidSkillPlanRejection(request: ToolRequest, skillPlan: SkillPlan?): ToolResult?
-        fun toolRequestsFor(runId: String): List<ToolRequest>
-        fun toolRequestFor(runId: String, requestId: String): ToolRequest?
-        fun plannedSequentialSegmentCount(runId: String): Int
-        fun nextSequentialSegmentInput(run: AgentRun, completedSegmentCount: Int): String?
-        fun hasMobileActionPlanningModel(installedCapabilityProfiles: List<ModelCapabilityProfile>): Boolean
         fun installedCapabilityProfiles(runId: String): List<ModelCapabilityProfile>
         /**
          * True when this run may drive the in-app loop with the remote vision model instead of a
@@ -114,8 +108,8 @@ internal class ToolPlanCoordinator(
         result: ToolResult,
     ): NextObservationPlan {
         traceQueries.latestSkillPlan(run.id)?.let { skillPlan ->
-            host.invalidSkillPlanReason(skillPlan)?.let { reason ->
-                val requestedRequestIds = host.toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
+            initialToolPlanner.invalidSkillPlanReason(skillPlan)?.let { reason ->
+                val requestedRequestIds = traceQueries.toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
                     toolRequest.id
                 }
                 return rejectNextToolPlan(
@@ -127,14 +121,14 @@ internal class ToolPlanCoordinator(
         planNextToolStepFromCurrentSkill(run, result)?.let { nextPlan ->
             return nextPlan
         }
-        val priorRequests = host.toolRequestsFor(run.id)
-        val completedSegmentCount = host.plannedSequentialSegmentCount(run.id)
+        val priorRequests = traceQueries.toolRequestsFor(run.id)
+        val completedSegmentCount = traceQueries.plannedSequentialSegmentCount(run.id)
         planNextToolFromContinuationCursor(run, request)?.let { nextPlan ->
             return nextPlan
         }
         planNextCompositeSkillSegment(
             runId = run.id,
-            input = host.nextSequentialSegmentInput(run, completedSegmentCount),
+            input = initialToolPlanner.nextSequentialSegmentInput(run, completedSegmentCount),
         )?.let { nextPlan ->
             return nextPlan
         }
@@ -184,8 +178,8 @@ internal class ToolPlanCoordinator(
             }
         }
         if (!result.hasLocalObservationEvidenceForPlanning()) return null
-        val priorRequests = host.toolRequestsFor(run.id)
-        val completedSegmentCount = host.plannedSequentialSegmentCount(run.id)
+        val priorRequests = traceQueries.toolRequestsFor(run.id)
+        val completedSegmentCount = traceQueries.plannedSequentialSegmentCount(run.id)
         val replan = observationReplanner.planNext(
             AgentObservationReplanContext(
                 run = run,
@@ -223,7 +217,7 @@ internal class ToolPlanCoordinator(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan {
-        val recoveryCount = host.toolRequestsFor(run.id).count { prior ->
+        val recoveryCount = traceQueries.toolRequestsFor(run.id).count { prior ->
             prior.reason == DEVICE_CONTROL_FAILURE_RECOVERY_REASON
         }
         if (recoveryCount >= 2) return NextObservationPlan.None
@@ -388,7 +382,7 @@ internal class ToolPlanCoordinator(
     ): NextObservationPlan? {
         val cursor = traceStore.continuationCursor(run.id) ?: return null
         if (cursor.sourceRequestId != request.id) return null
-        val completedSegmentCount = host.plannedSequentialSegmentCount(run.id)
+        val completedSegmentCount = traceQueries.plannedSequentialSegmentCount(run.id)
         if (cursor.completedSegmentCount != completedSegmentCount) {
             return rejectNextToolPlan(
                 run.id,
@@ -413,7 +407,7 @@ internal class ToolPlanCoordinator(
         if (!result.isUnverifiedExternalLaunch()) return
         val cursor = traceStore.continuationCursor(run.id) ?: return
         if (cursor.sourceRequestId != request.id) return
-        if (cursor.completedSegmentCount != host.plannedSequentialSegmentCount(run.id)) return
+        if (cursor.completedSegmentCount != traceQueries.plannedSequentialSegmentCount(run.id)) return
         val alreadyRecorded = traceStore.steps(run.id).any { step ->
             step is AgentStep.ContinuationCursorRecorded &&
                 step.cursor.sourceRequestId == cursor.sourceRequestId
@@ -451,8 +445,8 @@ internal class ToolPlanCoordinator(
         val skillPlan = traceQueries.latestSkillPlan(run.id) ?: return null
         if (!skillPlan.isLowRiskAppControlSkill()) return null
         if (!skillPlan.hasToolStep(request)) return null
-        host.invalidSkillPlanReason(skillPlan)?.let { reason ->
-            val requestedRequestIds = host.toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
+        initialToolPlanner.invalidSkillPlanReason(skillPlan)?.let { reason ->
+            val requestedRequestIds = traceQueries.toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
                 toolRequest.id
             }
             return rejectNextToolPlan(
@@ -475,10 +469,10 @@ internal class ToolPlanCoordinator(
     ): NextObservationPlan? {
         if (canPlanNextToolBeforeModel) return null
         if (blocksSequentialTail) return null
-        val completedSegmentCount = host.plannedSequentialSegmentCount(run.id)
+        val completedSegmentCount = traceQueries.plannedSequentialSegmentCount(run.id)
         return planNextCompositeSkillSegment(
             runId = run.id,
-            input = host.nextSequentialSegmentInput(run, completedSegmentCount),
+            input = initialToolPlanner.nextSequentialSegmentInput(run, completedSegmentCount),
         )
     }
 
@@ -521,7 +515,7 @@ internal class ToolPlanCoordinator(
         result: ToolResult,
     ): NextObservationPlan? {
         val skillPlan = traceQueries.latestSkillPlan(run.id) ?: return null
-        val requestedRequestIds = host.toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
+        val requestedRequestIds = traceQueries.toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
         return when (val progression = skillProgressor.nextToolAfterToolResult(
             skillPlan = skillPlan,
             requestedRequestIds = requestedRequestIds,
@@ -557,8 +551,8 @@ internal class ToolPlanCoordinator(
             } else {
                 NextObservationPlan.None
             }
-        val requestedRequestIds = host.toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
-        host.invalidSkillPlanReason(skillPlan)?.let { reason ->
+        val requestedRequestIds = traceQueries.toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
+        initialToolPlanner.invalidSkillPlanReason(skillPlan)?.let { reason ->
             return rejectNextToolPlan(
                 run.id,
                 requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
@@ -681,13 +675,13 @@ internal class ToolPlanCoordinator(
         if (runBudget.toolStepBudgetExceeded(runId) || runBudget.runDeadlineExceeded(runId)) {
             return failNextPlanBudget(runId, request)
         }
-        if (host.toolRequestFor(runId, request.id) != null) {
+        if (traceQueries.toolRequestFor(runId, request.id) != null) {
             return rejectNextToolPlan(
                 runId,
                 request.rejected("Replanned tool request id already exists: ${request.id}"),
             )
         }
-        host.invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
+        initialToolPlanner.invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
             return rejectNextToolPlan(runId, rejection)
         }
         val rejection = toolRegistry.validate(request)
@@ -729,7 +723,7 @@ internal class ToolPlanCoordinator(
      * opt-in Remote path, and with neither the loop still fails closed to MissingModel.
      */
     private fun canDriveInAppLoop(runId: String): Boolean =
-        host.hasMobileActionPlanningModel(host.installedCapabilityProfiles(runId)) ||
+        initialToolPlanner.hasMobileActionPlanningModel(host.installedCapabilityProfiles(runId)) ||
             host.remoteGuiDrivingEnabled(runId)
 
     private fun failMissingModelNextPlan(

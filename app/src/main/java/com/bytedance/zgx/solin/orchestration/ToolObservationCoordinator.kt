@@ -33,6 +33,7 @@ internal class ToolObservationCoordinator(
     private val runEvents: RunTransitionEventPublisher,
     private val eventBus: SolinEventBus,
     private val traceStore: AgentTraceStore,
+    private val traceQueries: AgentTraceQueries,
     private val toolPlanCoordinator: ToolPlanCoordinator,
     private val runBudget: AgentRunBudget,
     private val maxToolRetryAttempts: Int,
@@ -51,9 +52,6 @@ internal class ToolObservationCoordinator(
          */
         fun hasPendingUserInput(runId: String): Boolean = false
 
-        fun toolRequestFor(runId: String, requestId: String): ToolRequest?
-        fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch?
-        fun latestExecutableRequestId(runId: String): String?
         fun continuationForToolObservation(
             run: AgentRun,
             request: ToolRequest?,
@@ -97,7 +95,7 @@ internal class ToolObservationCoordinator(
     fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.ExecutingTool) return null
-        val batchDecision = host.latestPlanToolBatch(runId) ?: return null
+        val batchDecision = traceQueries.latestPlanToolBatch(runId) ?: return null
         val plans = batchDecision.plans
         val plannedIds = plans.mapTo(linkedSetOf()) { plan -> plan.request.id }
         val resultIds = results.mapTo(linkedSetOf()) { result -> result.requestId }
@@ -288,16 +286,16 @@ internal class ToolObservationCoordinator(
     ): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state !in allowedStates) return null
-        if (run.state == AgentRunState.ExecutingTool && host.latestPlanToolBatch(runId) != null) {
+        if (run.state == AgentRunState.ExecutingTool && traceQueries.latestPlanToolBatch(runId) != null) {
             return null
         }
         if (
             run.state in setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool) &&
-            host.latestExecutableRequestId(runId) != result.requestId
+            traceQueries.latestExecutableRequestId(runId) != result.requestId
         ) {
             return null
         }
-        val request = host.toolRequestFor(runId, result.requestId) ?: return null
+        val request = traceQueries.toolRequestFor(runId, result.requestId) ?: return null
         val safeResult = toolRegistry.validateResult(request, result) ?: result
         val searchResultVerified = safeResult.isVerifiedSearchResult()
         val observingRun = traceStore.compareAndSetState(

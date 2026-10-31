@@ -55,13 +55,13 @@ internal object PendingConfirmationPlacementResolver {
 internal class PendingConfirmationSupport(
     private val toolRegistry: ToolRegistry,
     private val traceStore: AgentTraceStore,
+    private val traceQueries: AgentTraceQueries,
     private val initialToolPlanner: InitialToolPlanner,
     private val valueFreeCompletedStepFrontiersByRunId: ConcurrentHashMap<String, Set<String>>,
     private val host: Host,
     private val auditRecorder: ToolAuditRecorder,
 ) {
     interface Host {
-        fun plannedSequentialSegmentCount(runId: String): Int
         fun clearEphemeralRunState(runId: String)
     }
 
@@ -109,7 +109,7 @@ internal class PendingConfirmationSupport(
     }
 
     fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
-        host.plannedSequentialSegmentCount(run.id).let { completedSegmentCount ->
+        traceQueries.plannedSequentialSegmentCount(run.id).let { completedSegmentCount ->
             val nextActionInput = run.input.explicitSequentialActionTextAt(completedSegmentCount)
             PendingToolConfirmationSnapshot(
                 run = run,

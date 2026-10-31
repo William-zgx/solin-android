@@ -23,6 +23,7 @@ internal class ModelToolRequestCoordinator(
     private val skillRuntime: SkillRuntime,
     private val safetyPolicy: SafetyPolicy,
     private val traceStore: AgentTraceStore,
+    private val traceQueries: AgentTraceQueries,
     private val toolObservationCoordinator: ToolObservationCoordinator,
     private val runBudget: AgentRunBudget,
     private val initialToolPlanner: InitialToolPlanner,
@@ -31,8 +32,6 @@ internal class ModelToolRequestCoordinator(
 ) {
     interface Host {
         fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult?
-        fun toolRequestFor(runId: String, requestId: String): ToolRequest?
-        fun toolRequestsFor(runId: String): List<ToolRequest>
         fun failRunBudget(runId: String, reason: String): AgentModelObservationResult?
         fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
         fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean
@@ -74,7 +73,7 @@ internal class ModelToolRequestCoordinator(
                 steps = traceStore.steps(runId),
             )
         }
-        if (host.toolRequestFor(runId, request.id) != null) {
+        if (traceQueries.toolRequestFor(runId, request.id) != null) {
             val rejected = request.rejected("Model tool request id already exists: ${request.id}")
             val updatedRun = traceStore.compareAndSetState(
                 runId = runId,
@@ -181,7 +180,7 @@ internal class ModelToolRequestCoordinator(
                 ).rejected("Remote model returned an empty tool batch."),
             )
         }
-        if (host.toolRequestsFor(runId).size + requests.size > runBudget.effectiveMaxToolSteps(runId)) {
+        if (traceQueries.toolRequestsFor(runId).size + requests.size > runBudget.effectiveMaxToolSteps(runId)) {
             return host.failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         requests.groupingBy { request -> request.id }
@@ -197,7 +196,7 @@ internal class ModelToolRequestCoordinator(
                     ),
                 )
             }
-        requests.firstOrNull { request -> host.toolRequestFor(runId, request.id) != null }
+        requests.firstOrNull { request -> traceQueries.toolRequestFor(runId, request.id) != null }
             ?.let { existingRequest ->
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,

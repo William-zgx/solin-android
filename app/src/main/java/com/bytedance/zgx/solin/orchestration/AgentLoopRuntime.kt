@@ -223,7 +223,7 @@ class AgentLoopRuntime(
         maxRunToolSteps = maxRunToolSteps,
         maxObservationDecisions = maxObservationDecisions,
         profilesByRunId = profilesByRunId,
-        toolRequestsFor = { runId -> toolRequestsFor(runId) },
+        toolRequestsFor = traceQueries::toolRequestsFor,
         observationDecidedCount = { runId ->
             traceStore.steps(runId).count { step -> step is AgentStep.ObservationDecided }
         },
@@ -254,29 +254,8 @@ class AgentLoopRuntime(
         traceQueries = traceQueries,
         safetyPolicy = safetyPolicy,
         runBudget = runBudget,
+        initialToolPlanner = initialToolPlanner,
         host = object : ToolPlanCoordinator.Host {
-            override fun invalidSkillPlanReason(skillPlan: SkillPlan?): String? =
-                initialToolPlanner.invalidSkillPlanReason(skillPlan)
-
-            override fun invalidSkillPlanRejection(request: ToolRequest, skillPlan: SkillPlan?): ToolResult? =
-                initialToolPlanner.invalidSkillPlanRejection(request, skillPlan)
-
-            override fun toolRequestsFor(runId: String): List<ToolRequest> =
-                this@AgentLoopRuntime.toolRequestsFor(runId)
-
-            override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
-                this@AgentLoopRuntime.toolRequestFor(runId, requestId)
-
-            override fun plannedSequentialSegmentCount(runId: String): Int =
-                this@AgentLoopRuntime.plannedSequentialSegmentCount(runId)
-
-            override fun nextSequentialSegmentInput(run: AgentRun, completedSegmentCount: Int): String? =
-                initialToolPlanner.nextSequentialSegmentInput(run, completedSegmentCount)
-
-            override fun hasMobileActionPlanningModel(
-                installedCapabilityProfiles: List<ModelCapabilityProfile>,
-            ): Boolean = initialToolPlanner.hasMobileActionPlanningModel(installedCapabilityProfiles)
-
             override fun installedCapabilityProfiles(runId: String): List<ModelCapabilityProfile> =
                 installedCapabilityProfilesByRunId[runId].orEmpty()
 
@@ -314,21 +293,13 @@ class AgentLoopRuntime(
         runEvents = runEvents,
         eventBus = eventBus,
         traceStore = traceStore,
+        traceQueries = traceQueries,
         toolPlanCoordinator = toolPlanCoordinator,
         runBudget = runBudget,
         maxToolRetryAttempts = maxToolRetryAttempts,
         host = object : ToolObservationCoordinator.Host {
             override fun hasPendingUserInput(runId: String): Boolean =
                 runScopedState.pendingUserInputByRunId[runId] == true
-
-            override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
-                this@AgentLoopRuntime.toolRequestFor(runId, requestId)
-
-            override fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? =
-                this@AgentLoopRuntime.latestPlanToolBatch(runId)
-
-            override fun latestExecutableRequestId(runId: String): String? =
-                this@AgentLoopRuntime.latestExecutableRequestId(runId)
 
             override fun continuationForToolObservation(
                 run: AgentRun,
@@ -423,12 +394,10 @@ class AgentLoopRuntime(
     private val pendingConfirmationSupport = PendingConfirmationSupport(
         toolRegistry = toolRegistry,
         traceStore = traceStore,
+        traceQueries = traceQueries,
         initialToolPlanner = initialToolPlanner,
         valueFreeCompletedStepFrontiersByRunId = valueFreeCompletedStepFrontiersByRunId,
         host = object : PendingConfirmationSupport.Host {
-            override fun plannedSequentialSegmentCount(runId: String): Int =
-                this@AgentLoopRuntime.plannedSequentialSegmentCount(runId)
-
             override fun clearEphemeralRunState(runId: String) =
                 this@AgentLoopRuntime.clearEphemeralRunState(runId)
         },
@@ -440,18 +409,13 @@ class AgentLoopRuntime(
         skillRuntime = skillRuntime,
         safetyPolicy = safetyPolicy,
         traceStore = traceStore,
+        traceQueries = traceQueries,
         toolObservationCoordinator = toolObservationCoordinator,
         runBudget = runBudget,
         initialToolPlanner = initialToolPlanner,
         host = object : ModelToolRequestCoordinator.Host {
             override fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult? =
                 this@AgentLoopRuntime.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)
-
-            override fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
-                this@AgentLoopRuntime.toolRequestFor(runId, requestId)
-
-            override fun toolRequestsFor(runId: String): List<ToolRequest> =
-                this@AgentLoopRuntime.toolRequestsFor(runId)
 
             override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? =
                 this@AgentLoopRuntime.failRunBudget(runId, reason)
@@ -754,7 +718,7 @@ class AgentLoopRuntime(
         // below ensures no model-call-Job remains cancellable after cancellation.
         cancelAndClearModelCallJob(runId)
         if (run.state == AgentRunState.AwaitingUserConfirmation) {
-            latestPendingToolRequest(runId)?.let { request ->
+            traceQueries.latestPendingToolRequest(runId)?.let { request ->
                 val cancelled = cancelToolRequest(runId, request.id) ?: return null
                 return AgentModelObservationResult(
                     run = cancelled.run,
@@ -1409,9 +1373,9 @@ class AgentLoopRuntime(
     ): AgentExternalOutcomeResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingExternalOutcome) return null
-        val request = toolRequestFor(runId, requestId) ?: return null
-        if (latestExternalOutcomeConfirmation(runId, requestId) != null) return null
-        val priorResult = latestUnverifiedExternalResult(runId, requestId) ?: return null
+        val request = traceQueries.toolRequestFor(runId, requestId) ?: return null
+        if (traceQueries.latestExternalOutcomeConfirmation(runId, requestId) != null) return null
+        val priorResult = traceQueries.latestUnverifiedExternalResult(runId, requestId) ?: return null
         val summary = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：${outcome.userFacingLabel}"
         val result = priorResult.copy(
             summary = summary,
@@ -1506,7 +1470,7 @@ class AgentLoopRuntime(
                 text = text.trim(),
                 allowInlineToolCalls = allowInlineToolCalls,
             )
-            latestSkillPlan(runId) != null -> NextObservationPlan.Rejected(
+            traceQueries.latestSkillPlan(runId) != null -> NextObservationPlan.Rejected(
                 "Model output was blank; cannot continue skill.",
             )
             else -> NextObservationPlan.None
@@ -1798,7 +1762,7 @@ class AgentLoopRuntime(
         if (runUsedDeviceControlSession(runId)) {
             runCatching { deviceControlSessionFinisher() }
         }
-        toolRequestsFor(runId).forEach { request ->
+        traceQueries.toolRequestsFor(runId).forEach { request ->
             toolDispatchStartedAtMillis.remove(request.id)
         }
         // Every per-run map, including the lifecycle timestamps / turn counter / parked time /
@@ -1819,7 +1783,7 @@ class AgentLoopRuntime(
         runScopedState.trackedRunIds() + pendingUserQuestionsByRunId.keys + activeModelCallJobs.keys
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =
-        toolRequestsFor(runId).any { request ->
+        traceQueries.toolRequestsFor(runId).any { request ->
             toolRegistry.startsDeviceControlSession(request.toolName) ||
                 toolPlanCoordinator.isDeviceControlTool(request)
         }
@@ -1866,19 +1830,6 @@ class AgentLoopRuntime(
         traceQueries = traceQueries,
         evidenceBlobStore = evidenceBlobStore,
     )
-    private fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
-        traceQueries.toolRequestFor(runId, requestId)
-    private fun toolRequestsFor(runId: String): List<ToolRequest> = traceQueries.toolRequestsFor(runId)
-    private fun latestUnverifiedExternalResult(runId: String, requestId: String): ToolResult? =
-        traceQueries.latestUnverifiedExternalResult(runId, requestId)
-    private fun latestExternalOutcomeConfirmation(runId: String, requestId: String): AgentStep.ExternalOutcomeConfirmed? =
-        traceQueries.latestExternalOutcomeConfirmation(runId, requestId)
-    private fun plannedSequentialSegmentCount(runId: String): Int = traceQueries.plannedSequentialSegmentCount(runId)
-    private fun latestPendingToolRequest(runId: String): ToolRequest? = traceQueries.latestPendingToolRequest(runId)
-    private fun latestExecutableRequestId(runId: String): String? = traceQueries.latestExecutableRequestId(runId)
-    private fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? =
-        traceQueries.latestPlanToolBatch(runId)
-    private fun latestSkillPlan(runId: String): SkillPlan? = traceQueries.latestSkillPlan(runId)
 
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
         val restoredSnapshot = traceStore.latestPendingConfirmation()
@@ -1887,7 +1838,7 @@ class AgentLoopRuntime(
             if (!pendingConfirmationSupport.restoredPendingConfirmationIsAuthorized(restoredSnapshot)) return null
             pendingConfirmationSupport.rememberValueFreeFrontier(restoredSnapshot)
         }
-        val liveRequest = latestPendingToolRequest(runId)
+        val liveRequest = traceQueries.latestPendingToolRequest(runId)
             ?.takeIf { request -> request.id == requestId }
         return liveRequest ?: restoredSnapshot?.request
     }
