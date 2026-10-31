@@ -273,6 +273,111 @@ class UiGestureActionTest {
         )
     }
 
+    // ── Blocked-before-execution result contract ──────────────────────────────────────────────────
+
+    @Test
+    fun blockedBeforeExecutionResultsKeepTheirDataContract() {
+        // The dangerous-control, unreadable-screen and foreground-mismatch blocks all build their
+        // result through one shared helper. Key order is part of the recorded tool data, so this
+        // pins the exact map each path emits, not just the fields it happens to contain.
+        val dangerous = DeviceControlToolExecutor(
+            RecordingControlProvider(observe = dangerousSnapshot()),
+        ).execute(
+            ToolRequest(
+                id = "blocked-danger",
+                toolName = MobileActionFunctions.UI_SWIPE,
+                arguments = swipeArguments(),
+            ),
+        )
+        assertEquals(
+            listOf(
+                "toolName", "privacy", "requiresLocalModel", "source", "metadataPolicy",
+                "actionType", "status", "retryable", "summary", "failureKind",
+                "beforeObservationId", "afterObservationId", "verificationSummary",
+                "screenObservationDiffSummary",
+                "beforePackageName", "beforeCapturedAtMillis", "beforeNodeCount",
+                "beforeActionableNodeCount", "beforeTextSummary", "beforeTruncated",
+                "beforeNodesJson", "beforeScreenObservationJson",
+                "uiActionOutcome", "uiActionOutcomeReason", "appSearchProgressStage",
+            ),
+            dangerous.data.keys.toList(),
+        )
+        assertEquals("dangerous_ui_action_control_detected", dangerous.data["summary"])
+        assertEquals("dangerous_action", dangerous.data["failureKind"])
+        assertEquals("blocked_before_execution;reason=dangerous_action_control", dangerous.data["screenObservationDiffSummary"])
+
+        val unavailable = DeviceControlToolExecutor(
+            RecordingControlProvider(
+                observe = benignSnapshot(),
+                observeResult = ScreenStateReadResult.Failed(
+                    reason = "当前屏幕状态读取超时",
+                    failureKind = UiActionFailureKind.Timeout,
+                ),
+            ),
+        ).execute(
+            ToolRequest(
+                id = "blocked-unavailable",
+                toolName = MobileActionFunctions.UI_SWIPE,
+                arguments = swipeArguments(),
+            ),
+        )
+        assertEquals(
+            listOf(
+                "toolName", "privacy", "requiresLocalModel", "source", "metadataPolicy",
+                "actionType", "status", "retryable", "summary", "failureKind",
+                "beforeObservationId", "afterObservationId", "verificationSummary",
+                "screenObservationDiffSummary",
+                "uiActionOutcome", "uiActionOutcomeReason", "appSearchProgressStage",
+            ),
+            unavailable.data.keys.toList(),
+        )
+        assertEquals("dangerous_ui_action_preflight_unavailable", unavailable.data["summary"])
+        assertEquals("true", unavailable.data["retryable"])
+
+        val mismatchProvider = RecordingControlProvider(
+            observe = snapshot(id = "foreground-mismatch", nodes = listOf(node("n0", "Continue"))),
+        )
+        val mismatch = DeviceControlToolExecutor(provider = mismatchProvider).execute(
+            ToolRequest(
+                id = "blocked-mismatch",
+                toolName = MobileActionFunctions.UI_SWIPE,
+                arguments = swipeArguments() + mapOf("expectedPackageName" to "com.other.app"),
+            ),
+        )
+        assertEquals(
+            listOf(
+                "toolName", "privacy", "requiresLocalModel", "source", "metadataPolicy",
+                "actionType", "status", "retryable", "summary", "failureKind",
+                "expectedPackageName", "actualPackageName",
+                "beforeObservationId", "afterObservationId", "verificationSummary",
+                "screenObservationDiffSummary",
+                "beforePackageName", "beforeCapturedAtMillis", "beforeNodeCount",
+                "beforeActionableNodeCount", "beforeTextSummary", "beforeTruncated",
+                "beforeNodesJson", "beforeScreenObservationJson",
+                "afterPackageName", "afterCapturedAtMillis", "afterNodeCount",
+                "afterActionableNodeCount", "afterTextSummary", "afterTruncated",
+                "afterNodesJson", "afterScreenObservationJson",
+                "uiActionOutcome", "uiActionOutcomeReason", "appSearchProgressStage",
+            ),
+            mismatch.data.keys.toList(),
+        )
+        assertEquals("foreground_package_mismatch", mismatch.data["summary"])
+        assertEquals("app_not_foreground", mismatch.data["failureKind"])
+        assertEquals("com.other.app", mismatch.data["expectedPackageName"])
+        assertEquals("com.example.app", mismatch.data["actualPackageName"])
+        assertTrue(
+            "foreground mismatch must NOT dispatch",
+            mismatchProvider.swipeCalls.isEmpty(),
+        )
+    }
+
+    private fun swipeArguments(): Map<String, String> = mapOf(
+        "startXNorm" to "500",
+        "startYNorm" to "800",
+        "endXNorm" to "500",
+        "endYNorm" to "200",
+    )
+
     // ── Fixtures ──────────────────────────────────────────────────────────────────────────────────
 
     private fun node(id: String, text: String, clickable: Boolean = false): ScreenNode = ScreenNode(
