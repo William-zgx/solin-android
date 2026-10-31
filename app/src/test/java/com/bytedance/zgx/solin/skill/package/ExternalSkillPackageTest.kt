@@ -83,6 +83,26 @@ class ExternalSkillPackageTest {
     }
 
     @Test
+    fun `loader never deletes a staging directory it did not create`() {
+        // A caller reusing a directory that already holds content: the extractor refuses to extract
+        // into it, and the loader used to answer by deleting the caller's files.
+        val trustedKeyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+        val zip = signedPackageZip(trustedKeyPair)
+        val staging = Files.createTempDirectory("skill-package-loader-occupied")
+        val callerFile = staging.resolve("caller-owned.txt")
+        Files.write(callerFile, "must survive".toByteArray())
+        val loader = packageLoader(trustedKeyPair)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            loader.load(zip, staging)
+        }
+
+        assertTrue(Files.exists(staging))
+        assertTrue(Files.exists(callerFile))
+        assertEquals("must survive", Files.readAllBytes(callerFile).toString(Charsets.UTF_8))
+    }
+
+    @Test
     fun `invalid signature and unknown tool fail closed`() {
         val directory = Files.createTempDirectory("skill-package-invalid")
         val instructions = directory.resolve(INSTRUCTIONS_FILE)
