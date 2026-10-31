@@ -23,13 +23,13 @@ internal object ObservationReplanPromptFixtures {
             }
         """.trimIndent()
 
-    private fun observation(id: String, elements: List<String>): String =
+    private fun observation(id: String, elements: List<String>, packageName: String): String =
         """
         {
           "schemaVersion": 1,
           "observationId": "$id",
           "capturedAtMillis": 2,
-          "packageName": "com.taobao.taobao",
+          "packageName": "$packageName",
           "privacyLevel": "LocalOnly",
           "sources": ["accessibility"],
           "elementCount": ${elements.size},
@@ -40,7 +40,7 @@ internal object ObservationReplanPromptFixtures {
         """.trimIndent()
 
     /** A typical app home screen: a search entry plus a handful of feed/tab controls. */
-    fun searchEntryObservationJson(): String =
+    fun searchEntryObservationJson(packageName: String = "com.taobao.taobao"): String =
         observation(
             "screen-home",
             listOf(
@@ -51,10 +51,11 @@ internal object ObservationReplanPromptFixtures {
                 element("banner", "双11 活动", "image", editable = false, top = 200),
                 element("feed-1", "海河牛奶 220ml", "text", editable = false, top = 600),
             ),
+            packageName,
         )
 
     /** Post-launch observe context for "search in Taobao", the canonical in-app loop step. */
-    fun searchEntryObserveContext(): AgentObservationReplanContext {
+    fun searchEntryObserveContext(packageName: String = "com.taobao.taobao"): AgentObservationReplanContext {
         val previousRequest = ToolRequest(id = "observe-1", toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
         return AgentObservationReplanContext(
             run = AgentRun(
@@ -73,7 +74,7 @@ internal object ObservationReplanPromptFixtures {
                     "toolName" to previousRequest.toolName,
                     "privacy" to MessagePrivacy.LocalOnly.name,
                     "requiresLocalModel" to true.toString(),
-                    "screenObservationJson" to searchEntryObservationJson(),
+                    "screenObservationJson" to searchEntryObservationJson(packageName),
                 ),
             ),
             priorRequests = listOf(previousRequest),

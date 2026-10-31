@@ -328,6 +328,11 @@ data class AppInteractionProfile(
     val searchEntryHints: Set<String>,
     val submitHints: Set<String>,
     val resultHints: Set<String>,
+    /**
+     * Short factual notes about the app's UI for planner prompts (see [appUiNotesFor]). Facts only,
+     * never instructions; not used by scoring or verification.
+     */
+    val uiNotes: List<String> = emptyList(),
 )
 
 data class SearchResultVerification(

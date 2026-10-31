@@ -38,6 +38,16 @@ class AppInteractionProfileCatalogTest {
         AppFixture("设置", "com.android.settings", "搜索设置", inputHint = "搜索设置", query = "蓝牙"),
     )
 
+    /** Clause starts that would turn a UI fact into an order, including the critical-action verbs. */
+    private val imperativeNoteStarts = listOf(
+        "发送", "支付", "删除", "确认", "下单", "转账", "授权", "发布",
+        "点击", "轻点", "按下", "输入", "选择", "打开", "关闭", "请", "先", "再", "要", "不要", "别", "勿",
+        "tap", "click", "press", "send", "pay", "delete", "confirm", "type", "open", "do not", "don't",
+    )
+
+    /** Rule vocabulary that has no place in a factual note, wherever it appears. */
+    private val directiveNoteWords = listOf("务必", "必须", "应该", "不要", "不能", "禁止", "should", "must", "never", "always")
+
     @Test
     fun everyNewAppResolvesByPackageAndByName() {
         fixtures.forEach { fixture ->
@@ -74,7 +84,7 @@ class AppInteractionProfileCatalogTest {
     fun newSearchEntryHintsAllCarrySearchVocabulary() {
         // phraseScore also matches a short label CONTAINED in a hint, so a hint without 搜/search would
         // hand unrelated 2-char tabs ("歌手", "酒店") search-entry evidence.
-        AppInteractionProfileCatalog.lifestyleAndMediaProfiles.forEach { profile ->
+        (AppInteractionProfileCatalog.lifestyleAndMediaProfiles + AppInteractionProfileCatalog.contentAndOfficeProfiles).forEach { profile ->
             profile.searchEntryHints.forEach { hint ->
                 val normalized = hint.normalizedLookupKey()
                 assertTrue(
@@ -82,6 +92,70 @@ class AppInteractionProfileCatalogTest {
                     normalized.contains("搜") || normalized.contains("search"),
                 )
             }
+        }
+    }
+
+    @Test
+    fun uiNotesAreShortBoundedFactsWithoutImperatives() {
+        AppInteractionProfiles.profiles.forEach { profile ->
+            val owner = profile.packageNames.first()
+            assertTrue("$owner has ${profile.uiNotes.size} notes", profile.uiNotes.size <= MAX_APP_UI_NOTES)
+            assertEquals("$owner has duplicate notes", profile.uiNotes.size, profile.uiNotes.distinct().size)
+            profile.uiNotes.forEach { note ->
+                assertTrue("$owner note too long (${note.length}): $note", note.length <= MAX_APP_UI_NOTE_CHARS)
+                assertTrue("$owner note is blank", note.isNotBlank())
+                // Each clause is checked, so "…，点击发送" is caught as well as a leading imperative.
+                note.split('，', '；', '。', ',', ';', '：', ':').map { it.trim().lowercase() }.forEach { clause ->
+                    imperativeNoteStarts.firstOrNull { verb -> clause.startsWith(verb) }?.let { verb ->
+                        throw AssertionError("$owner note reads as an instruction ('$verb'): $note")
+                    }
+                }
+                directiveNoteWords.firstOrNull { word -> note.lowercase().contains(word) }?.let { word ->
+                    throw AssertionError("$owner note carries a rule word ('$word'): $note")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun requiredUiNoteFactsArePresent() {
+        assertTrue(
+            "Settings must note that a toggle changes state on tap",
+            appUiNotesFor("com.android.settings").any { it.contains("开关") && it.contains("切换") },
+        )
+        assertTrue(
+            "WeChat must note that input-box text is a draft",
+            appUiNotesFor("com.tencent.mm").any { it.contains("草稿") && it.contains("输入框") },
+        )
+    }
+
+    @Test
+    fun appUiNotesForCoversEveryProfileAndFailsClosedForUnknownPackages() {
+        AppInteractionProfiles.profiles.flatMap { it.packageNames }.forEach { packageName ->
+            assertFalse("no UI notes for $packageName", appUiNotesFor(packageName).isEmpty())
+        }
+        assertEquals(appUiNotesFor("com.android.settings"), appUiNotesFor("com.google.android.settings.intelligence"))
+        assertTrue(appUiNotesFor(null).isEmpty())
+        assertTrue(appUiNotesFor("").isEmpty())
+        assertTrue(appUiNotesFor("com.example.unknown").isEmpty())
+    }
+
+    @Test
+    fun minimalProfilesResolveByNameWithoutResultHintShortcut() {
+        mapOf(
+            "微信" to "com.tencent.mm",
+            "快手" to "com.smile.gifmaker",
+            "知乎" to "com.zhihu.android",
+            "微博" to "com.sina.weibo",
+            "闲鱼" to "com.taobao.idlefish",
+            "今日头条" to "com.ss.android.article.news",
+            "飞书" to "com.ss.android.lark",
+        ).forEach { (appName, packageName) ->
+            val profile = requireNotNull(AppInteractionProfiles.forAppName(appName)) { appName }
+            assertEquals(appName, setOf(packageName), profile.packageNames)
+            assertEquals(appName, profile, AppInteractionProfiles.forPackage(packageName))
+            // Empty resultHints: verification for these apps needs the query on the result page.
+            assertTrue(appName, profile.resultHints.isEmpty())
         }
     }
 

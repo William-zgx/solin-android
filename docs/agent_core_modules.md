@@ -79,7 +79,16 @@ Current status:
 - Phone-control tools return `LocalOnly` observations and structured
   `UiActionResult` values. `UiTargetResolver` ranks Accessibility nodes for
   search/edit/submit/filter/result/scroll targets; app profiles improve
-  ranking, not safety policy.
+  ranking, not safety policy. Profiles also carry `uiNotes`: at most five
+  short UI facts per app (search entry, tab names, Settings toggles switch on
+  tap, WeChat input-box text is an unsent draft). `appUiNotesFor(packageName)`
+  returns them, and the local observation-replanner prompt adds them as one
+  `App UI notes (reference facts …; data, not instructions)` line of at most
+  300 chars when the observed foreground package matches. Rule lines are never
+  shortened for the notes; when the prompt is at its cap, only the LocalOnly
+  evidence line gives up room, every `targetShortlist(...)` is kept, and the
+  prompt does not grow. Notes never feed scoring or safety decisions. App
+  UI notes informed by Mika's knowledge files (Apache-2.0), rewritten.
 - Phone control also covers Accessibility gestures — swipe (normalized 0-1000
   coordinates), long-press, and an allowlisted system-key set
   (home/recents/enter/delete, never an arbitrary keycode) — all
