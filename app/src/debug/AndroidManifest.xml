@@ -15,6 +15,9 @@
         <receiver
             android:name=".debug.DebugRemoteConfigReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".debug.AgentRunReportReceiver"
+            android:exported="false" />
         <provider
             android:name=".debug.CountingSharedContentProvider"
             android:authorities="com.bytedance.zgx.solin.debug.sharedcontent"

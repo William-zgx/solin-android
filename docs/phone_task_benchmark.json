@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "description": "Fixed phone tasks for measuring end-to-end agent success on a real device. Run with scripts/run_phone_task_benchmark.py; see docs/phone_acceptance.md. A task passes only when every expectation it lists holds. Tasks whose requiredPackages are not installed are skipped, not failed.",
+  "tasks": [
+    {"id": "launch_wechat", "category": "launch", "prompt": "打开微信", "requiredPackages": ["com.tencent.mm"], "expect": {"foregroundPackage": "com.tencent.mm"}},
+    {"id": "launch_taobao", "category": "launch", "prompt": "打开淘宝", "requiredPackages": ["com.taobao.taobao"], "expect": {"foregroundPackage": "com.taobao.taobao"}},
+    {"id": "launch_amap", "category": "launch", "prompt": "打开高德地图", "requiredPackages": ["com.autonavi.minimap"], "expect": {"foregroundPackage": "com.autonavi.minimap"}},
+    {"id": "launch_settings", "category": "launch", "prompt": "打开系统设置", "requiredPackages": ["com.android.settings"], "expect": {"foregroundPackage": "com.android.settings"}},
+    {"id": "launch_camera", "category": "launch", "prompt": "打开相机", "expect": {"toolsInclude": ["open_camera"]}},
+
+    {"id": "search_taobao_milk", "category": "in_app_search", "prompt": "在淘宝搜索牛奶", "requiredPackages": ["com.taobao.taobao"], "expect": {"foregroundPackage": "com.taobao.taobao", "screenContainsAny": ["牛奶"]}},
+    {"id": "search_jd_earbuds", "category": "in_app_search", "prompt": "在京东搜索蓝牙耳机", "requiredPackages": ["com.jingdong.app.mall"], "expect": {"foregroundPackage": "com.jingdong.app.mall", "screenContainsAny": ["蓝牙耳机"]}},
+    {"id": "search_pdd_tissue", "category": "in_app_search", "prompt": "在拼多多搜索抽纸", "requiredPackages": ["com.xunmeng.pinduoduo"], "expect": {"foregroundPackage": "com.xunmeng.pinduoduo", "screenContainsAny": ["抽纸"]}},
+    {"id": "search_xhs_coffee", "category": "in_app_search", "prompt": "在小红书搜索咖啡", "requiredPackages": ["com.xingin.xhs"], "expect": {"foregroundPackage": "com.xingin.xhs", "screenContainsAny": ["咖啡"]}},
+    {"id": "search_bili_cat", "category": "in_app_search", "prompt": "在B站搜索猫咪", "requiredPackages": ["tv.danmaku.bili"], "expect": {"foregroundPackage": "tv.danmaku.bili", "screenContainsAny": ["猫咪"]}},
+    {"id": "search_douyin_fitness", "category": "in_app_search", "prompt": "在抖音搜索健身", "requiredPackages": ["com.ss.android.ugc.aweme"], "expect": {"foregroundPackage": "com.ss.android.ugc.aweme", "screenContainsAny": ["健身"]}},
+    {"id": "search_meituan_hotpot", "category": "in_app_search", "prompt": "在美团搜索火锅", "requiredPackages": ["com.sankuai.meituan"], "expect": {"foregroundPackage": "com.sankuai.meituan", "screenContainsAny": ["火锅"]}},
+    {"id": "search_dianping_bbq", "category": "in_app_search", "prompt": "在大众点评搜索烤肉", "requiredPackages": ["com.dianping.v1"], "expect": {"foregroundPackage": "com.dianping.v1", "screenContainsAny": ["烤肉"]}},
+    {"id": "search_amap_coffee", "category": "in_app_search", "prompt": "在高德地图搜索附近的咖啡店", "requiredPackages": ["com.autonavi.minimap"], "expect": {"foregroundPackage": "com.autonavi.minimap", "screenContainsAny": ["咖啡"]}},
+    {"id": "search_cloudmusic_song", "category": "in_app_search", "prompt": "在网易云音乐搜索晴天", "requiredPackages": ["com.netease.cloudmusic"], "expect": {"foregroundPackage": "com.netease.cloudmusic", "screenContainsAny": ["晴天"]}},
+    {"id": "search_qqmusic_song", "category": "in_app_search", "prompt": "在QQ音乐搜索稻香", "requiredPackages": ["com.tencent.qqmusic"], "expect": {"foregroundPackage": "com.tencent.qqmusic", "screenContainsAny": ["稻香"]}},
+    {"id": "search_ctrip_hotel", "category": "in_app_search", "prompt": "在携程搜索上海的酒店", "requiredPackages": ["ctrip.android.view"], "expect": {"foregroundPackage": "ctrip.android.view", "screenContainsAny": ["上海"]}},
+    {"id": "search_eleme_tea", "category": "in_app_search", "prompt": "在饿了么搜索奶茶", "requiredPackages": ["me.ele"], "expect": {"foregroundPackage": "me.ele", "screenContainsAny": ["奶茶"]}},
+
+    {"id": "multi_taobao_sort_sales", "category": "in_app_multi_step", "prompt": "在淘宝搜索牛奶，然后按销量排序", "requiredPackages": ["com.taobao.taobao"], "expect": {"foregroundPackage": "com.taobao.taobao", "screenContainsAny": ["销量"]}},
+    {"id": "multi_wechat_draft_message", "category": "in_app_multi_step", "prompt": "在微信里打开文件传输助手，输入“基准测试消息”但不要发送", "requiredPackages": ["com.tencent.mm"], "expect": {"foregroundPackage": "com.tencent.mm", "screenContainsAny": ["基准测试消息"]}},
+
+    {"id": "nav_amap_tiananmen", "category": "navigation", "prompt": "用高德地图导航去天安门", "requiredPackages": ["com.autonavi.minimap"], "expect": {"foregroundPackage": "com.autonavi.minimap", "screenContainsAny": ["天安门"]}},
+    {"id": "nav_maps_search", "category": "navigation", "prompt": "在地图上搜索最近的加油站", "expect": {"toolsIncludeAny": ["search_maps", "open_app_by_name", "open_deep_link"]}},
+
+    {"id": "sys_alarm", "category": "system", "prompt": "设一个明天早上7点的闹钟", "expect": {"toolsInclude": ["set_system_alarm"], "noToolFailed": true}},
+    {"id": "sys_timer", "category": "system", "prompt": "倒计时10分钟", "expect": {"toolsInclude": ["set_system_timer"], "noToolFailed": true}},
+    {"id": "sys_wifi", "category": "system", "prompt": "打开WiFi设置", "requiredPackages": ["com.android.settings"], "expect": {"foregroundPackage": "com.android.settings"}},
+    {"id": "sys_bluetooth", "category": "system", "prompt": "打开蓝牙设置", "requiredPackages": ["com.android.settings"], "expect": {"foregroundPackage": "com.android.settings"}},
+    {"id": "sys_dnd", "category": "system", "prompt": "打开勿扰模式设置", "requiredPackages": ["com.android.settings"], "expect": {"foregroundPackage": "com.android.settings"}},
+    {"id": "sys_media_next", "category": "system", "prompt": "下一首歌", "expect": {"toolsInclude": ["control_media"]}},
+
+    {"id": "draft_sms", "category": "draft", "prompt": "给10086发短信说查询话费", "expect": {"toolsInclude": ["compose_sms"], "noToolFailed": true}},
+    {"id": "draft_dial", "category": "draft", "prompt": "拨打10086", "expect": {"toolsInclude": ["dial_phone_number"], "noToolFailed": true}},
+    {"id": "draft_email", "category": "draft", "prompt": "给test@example.com写一封邮件，主题是周会改期", "expect": {"toolsInclude": ["compose_email"]}},
+    {"id": "draft_reminder", "category": "draft", "prompt": "半小时后提醒我喝水", "expect": {"toolsInclude": ["schedule_reminder"], "noToolFailed": true}},
+
+    {"id": "answer_calculate", "category": "answer", "prompt": "23乘以47等于多少", "expect": {"toolsInclude": ["calculate"], "states": ["Completed"]}},
+    {"id": "answer_translate", "category": "answer", "prompt": "把今天天气不错翻译成英文", "expect": {"states": ["Completed"], "toolCallsAtMost": 0}}
+  ]
+}

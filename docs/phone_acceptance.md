@@ -246,6 +246,24 @@ scripts/run_real_app_search_eval.sh
 - model-driven case 必须记录 `resultType=model_driven_app_search`、`verifySearchQuery`、`expectedPackageName`、`expectedAppName`、`searchVerificationStatus`、`modelPlannedStepCount` 和 replan trace/accepted count；缺少 query/package/app guard 时不能算搜索结果已验证。
 - 淘宝、拼多多、高德、京东、Chrome、Android Browser、Quark、UC 是低风险搜索矩阵目标；未安装只记录 skipped。
 
+## 手机任务基准
+
+`docs/phone_task_benchmark.json` 是一组固定的端到端手机任务（启动、App 内搜索、多步、导航、系统、草稿、问答），用来量化成功率、步数和耗时，比较改动前后的手机操作能力。它跑在 debug 包上：脚本经 `MainActivity` 的 debug prompt 入口发出每条任务，再从 debug `AgentRunReportReceiver` 读回最新一次运行的摘要（状态、耗时、工具名/状态/failureKind、确认次数、关键控件停止次数、placement；不含 prompt、工具参数或结果文本）。
+
+```bash
+python3 -I scripts/run_phone_task_benchmark.py --dry-run   # 只校验任务文件
+ANDROID_SERIAL=<serial> python3 -I scripts/run_phone_task_benchmark.py
+ANDROID_SERIAL=<serial> python3 -I scripts/run_phone_task_benchmark.py --category in_app_search
+ANDROID_SERIAL=<serial> python3 -I scripts/run_phone_task_benchmark.py --only search_taobao_milk,sys_alarm
+```
+
+- 前置：debug 包已安装，模型或远程端点已按要测的配置准备好，无障碍服务已开启。
+- 每条任务先 force-stop 目标 App 并回到桌面；目标 App 未安装记为 skipped，不算失败。
+- 一条任务在运行结束、或停在等待用户确认/回答时结算，超时（默认 120 秒）记为失败。
+- 判定只看任务列出的期望：前台包名、屏幕文字（只在本机比对，不写入结果）、调用过的工具、终态、工具调用上限。
+- 结果写到 `build/verification/phone-task-benchmark-<时间>/results.jsonl` 和 `summary.json`（总体与分类成功率、耗时中位数、平均工具调用数、确认次数、关键控件停止次数、超时数）。
+- 基准结果是能力度量，不能替代下面的手工验收；比较前后结果时要固定设备、App 版本和模型配置。
+
 ## 手工验收场景
 
 手工验收只记录用户可见行为和必要系统弹窗，不能用脚本通过、直接调用 ViewModel/reader、mock intent 或 UI 文案存在替代。
