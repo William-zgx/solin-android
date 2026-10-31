@@ -39,6 +39,14 @@ private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
     "done",
 ).map { value -> value.normalizedLookupKey() }
 
+/**
+ * The currently-focused editable node, restricted to safe fields (enabled, editable, non-password).
+ *
+ * Enter/Delete deliberately require an ACTUALLY focused editable and never fall back to an arbitrary
+ * first editable on screen: pressing Enter on an unintended field can submit a form, and Delete
+ * mutates that field's text — acting on a field the user did not focus is a mis-operation. Password
+ * fields are excluded so a system-key press can never disturb credential input.
+ */
 internal fun AccessibilityNodeInfo.findFocusedEditableForTyping(): AccessibilityNodeInfo? =
     findNodeCandidate { candidate ->
         candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
@@ -124,28 +132,31 @@ internal fun transientNodeIdTargetMatchScore(candidateId: String, target: String
 internal fun AccessibilityNodeInfo.findNodeCandidate(
     predicate: (NodeCandidate) -> Boolean,
 ): NodeCandidate? {
-    var meaningfulIndex = 0
     var found: NodeCandidate? = null
-    // No recycling here: the returned NodeCandidate keeps its node, and callers walk its parents
-    // afterwards (clickableSelfOrAncestor). Recycling would hand back a dead node.
+    walkNodeCandidates { candidate ->
+        if (predicate(candidate)) found = candidate
+        found == null
+    }
+    return found
+}
+
+/**
+ * Walks the tree as [NodeCandidate]s carrying the click-side [screenNodeId].
+ *
+ * Only nodes the observe side would publish consume an index, so ids from an observation resolve here.
+ * No recycling: callers keep the candidate's node and walk its parents afterwards.
+ */
+private fun AccessibilityNodeInfo.walkNodeCandidates(visitor: (NodeCandidate) -> Boolean) {
+    var meaningfulIndex = 0
     walkScreenNodes(maxWalkCount = MAX_SCREEN_STATE_NODE_WALK) { node ->
-        // The walker visits every node, but only nodes the observe side would have published consume
-        // an index — both sides must share that basis for ids to resolve.
-        val consumesIndex = node.countsTowardScreenNodeIndex()
         val candidate = NodeCandidate(
             node = node,
             id = screenNodeId(index = meaningfulIndex, node = node, salt = null),
             label = node.nodeSearchLabel(),
         )
-        if (consumesIndex) meaningfulIndex += 1
-        if (predicate(candidate)) {
-            found = candidate
-            false
-        } else {
-            true
-        }
+        if (node.countsTowardScreenNodeIndex()) meaningfulIndex += 1
+        visitor(candidate)
     }
-    return found
 }
 
 internal fun AccessibilityNodeInfo.findTargetCandidate(
@@ -252,21 +263,10 @@ internal fun AccessibilityNodeInfo.findTargetCandidates(
     predicate: (NodeCandidate) -> Boolean = { true },
     limit: Int = 5,
 ): List<NodeCandidate> {
-    var meaningfulIndex = 0
     val candidates = mutableListOf<Pair<NodeCandidate, Int>>()
     val profile = AppInteractionProfiles.forPackage(packageName?.toString())
     val rootBounds = safeBounds()
-    // No recycling: every scored candidate is returned to the caller, which taps or types into it.
-    walkScreenNodes(maxWalkCount = MAX_SCREEN_STATE_NODE_WALK) { node ->
-        // Same counting basis as the observe side (see [screenNodeId]): structural nodes are traversed
-        // but do not consume an index.
-        val consumesIndex = node.countsTowardScreenNodeIndex()
-        val candidate = NodeCandidate(
-            node = node,
-            id = screenNodeId(index = meaningfulIndex, node = node, salt = null),
-            label = node.nodeSearchLabel(),
-        )
-        if (consumesIndex) meaningfulIndex += 1
+    walkNodeCandidates { candidate ->
         val score = candidate.targetMatchScore(
             target = target,
             profile = profile,
@@ -424,8 +424,8 @@ internal fun AccessibilityNodeInfo.isMeaningfulScreenNode(): Boolean =
     isClickable ||
         isEditable ||
         isScrollable ||
-        text.normalizedNodeText().orEmpty().isNotBlank() ||
-        contentDescription.normalizedNodeText().orEmpty().isNotBlank()
+        text.normalizedNodeText() != null ||
+        contentDescription.normalizedNodeText() != null
 
 /**
  * Whether this node consumes a [screenNodeId] index.
@@ -507,11 +507,16 @@ internal fun UiOcrGroundingHint.matchesSubmitSearchText(): Boolean {
     return normalizedText in SUBMIT_SEARCH_OCR_TEXT_HINTS
 }
 
-internal fun AccessibilityNodeInfo.clickableSelfOrAncestor(): AccessibilityNodeInfo? {
+internal fun AccessibilityNodeInfo.clickableSelfOrAncestor(): AccessibilityNodeInfo? =
+    selfOrAncestor { node -> node.isEnabled && node.isClickable }
+
+private inline fun AccessibilityNodeInfo.selfOrAncestor(
+    predicate: (AccessibilityNodeInfo) -> Boolean,
+): AccessibilityNodeInfo? {
     var current: AccessibilityNodeInfo? = this
     repeat(MAX_SELF_OR_ANCESTOR_WALK_DEPTH) {
         val node = current ?: return null
-        if (node.isEnabled && node.isClickable) return node
+        if (predicate(node)) return node
         current = node.parent
     }
     return null
@@ -574,35 +579,19 @@ internal fun AccessibilityNodeInfo.performImeSearchAction(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
         performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
 
-/**
- * The currently-focused editable node, restricted to safe fields (enabled, editable, non-password).
- *
- * Enter/Delete deliberately require an ACTUALLY focused editable and never fall back to an arbitrary
- * first editable on screen: pressing Enter on an unintended field can submit a form, and Delete
- * mutates that field's text — acting on a field the user did not focus is a mis-operation. Password
- * fields are excluded so a system-key press can never disturb credential input.
- */
-internal fun AccessibilityNodeInfo.focusedSafeEditable(): AccessibilityNodeInfo? =
-    findNodeCandidate { candidate -> candidate.node.isSafeEditableForTyping() && candidate.node.isFocused }?.node
-
-internal fun AccessibilityNodeInfo.scrollableSelfOrAncestor(): AccessibilityNodeInfo? {
-    var current: AccessibilityNodeInfo? = this
-    repeat(MAX_SELF_OR_ANCESTOR_WALK_DEPTH) {
-        val node = current ?: return null
-        if (node.isEnabled && node.isScrollable) return node
-        current = node.parent
-    }
-    return null
-}
+internal fun AccessibilityNodeInfo.scrollableSelfOrAncestor(): AccessibilityNodeInfo? =
+    selfOrAncestor { node -> node.isEnabled && node.isScrollable }
 
 internal fun AccessibilityNodeInfo.scrollableSelfOrDescendant(): AccessibilityNodeInfo? {
     if (isEnabled && isScrollable) return this
     return findNodeCandidate { candidate -> candidate.node.isEnabled && candidate.node.isScrollable }?.node
 }
 
+private val NODE_TEXT_WHITESPACE = Regex("\\s+")
+
 internal fun CharSequence?.normalizedNodeText(): String? =
     this
         ?.toString()
-        ?.replace(Regex("\\s+"), " ")
+        ?.replace(NODE_TEXT_WHITESPACE, " ")
         ?.trim()
         ?.takeIf { it.isNotBlank() }

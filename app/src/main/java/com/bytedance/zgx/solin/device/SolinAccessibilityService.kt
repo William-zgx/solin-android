@@ -975,7 +975,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 reason = "当前屏幕没有可访问节点根节点",
                 failureKind = UiActionFailureKind.PageChanged,
             )
-        val editableNode = root.focusedSafeEditable()
+        val editableNode = root.findFocusedEditableForTyping()
             ?: return UiPrimitiveResult.failed(
                 reason = "当前没有可提交的输入框",
                 failureKind = UiActionFailureKind.EditableNotFound,
@@ -1012,7 +1012,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 reason = "当前屏幕没有可访问节点根节点",
                 failureKind = UiActionFailureKind.PageChanged,
             )
-        val editableNode = root.focusedSafeEditable()
+        val editableNode = root.findFocusedEditableForTyping()
             ?: return UiPrimitiveResult.failed(
                 reason = "当前没有可编辑的输入框",
                 failureKind = UiActionFailureKind.EditableNotFound,
