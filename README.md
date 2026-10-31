@@ -88,6 +88,11 @@ flowchart LR
   Screen egress is gated by the opt-in (plus a first confirmation in
   per-step mode) and a per-send audit; capture or send failures
   fail closed and stop the loop.
+- **Cloud/edge router (opt-in)**: in Auto mode, when both the on-device and the
+  configured remote model are eligible, the request text alone can be sent to
+  the Codiv OpenJev decision model to choose where to answer. Shadow mode only
+  measures; Active mode follows verdicts at confidence ≥ 0.9. The user supplies
+  the Codiv key in the Trust Center.
 - The chat surface only shows a safe result summary; structured tool fields stay
   available through the trace/audit surfaces, not a typed chat card.
 

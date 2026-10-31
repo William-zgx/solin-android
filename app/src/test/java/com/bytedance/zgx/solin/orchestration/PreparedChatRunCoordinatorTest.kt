@@ -379,7 +379,7 @@ class PreparedChatRunCoordinatorTest {
         val lifecycleEvents = CopyOnWriteArrayList<String>()
         lateinit var fixture: Fixture
         val coordinator = PreparedChatRunCoordinator(
-            policy = PreparedChatPlacementPolicy {
+            policy = PreparedChatPlacementPolicy { _, _ ->
                 policyCalls.incrementAndGet()
                 fixture.nextDecision
             },

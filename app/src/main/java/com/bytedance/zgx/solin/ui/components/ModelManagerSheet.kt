@@ -51,6 +51,8 @@ import com.bytedance.zgx.solin.ui.MODEL_MANAGER_POSITIONING_TEXT
 import com.bytedance.zgx.solin.ui.REMOTE_MODE_DISCLOSURE_TEXT
 import com.bytedance.zgx.solin.ui.modelHealthDisplayText
 import java.util.Locale
+import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
+import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
 internal const val MODEL_MANAGER_CURRENT_TAB_INDEX = 0
 internal const val MODEL_MANAGER_REMOTE_TAB_INDEX = 2
@@ -88,6 +90,9 @@ internal fun ModelManagerSheet(
     onRemoteGuiAutomationEnabledChanged: (Boolean) -> Unit,
     mcpCapability: McpCapabilityToggleUiState? = null,
     onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
+    decisionModelRouting: DecisionModelRoutingState? = null,
+    onDecisionModelRoutingModeSelected: (DecisionModelRouting) -> Unit = {},
+    onDecisionModelRoutingKeySaved: (String) -> Unit = {},
     memoryPanel: MemoryPanelState = MemoryPanelState(),
     onConfirmMemorySuggestion: (String) -> Unit = {},
     onDismissMemorySuggestion: (String) -> Unit = {},
@@ -198,6 +203,9 @@ internal fun ModelManagerSheet(
                 onRemoteGuiAutomationEnabledChanged = onRemoteGuiAutomationEnabledChanged,
                 mcpCapability = mcpCapability,
                 onMcpCapabilityEnabledChanged = onMcpCapabilityEnabledChanged,
+                decisionModelRouting = decisionModelRouting,
+                onDecisionModelRoutingModeSelected = onDecisionModelRoutingModeSelected,
+                onDecisionModelRoutingKeySaved = onDecisionModelRoutingKeySaved,
             )
         }
 

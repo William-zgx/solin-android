@@ -32,6 +32,7 @@ import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
+import com.bytedance.zgx.solin.orchestration.DecisionModelPlacementPolicy
 import com.bytedance.zgx.solin.presentation.AuditUiController
 import com.bytedance.zgx.solin.presentation.AutoInferenceAuthorizationCoordinator
 import com.bytedance.zgx.solin.presentation.BackgroundTaskController
@@ -139,6 +140,7 @@ class SolinViewModel internal constructor(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requireRemoteSendDisclosure: Boolean = true,
     private val adaptiveInferenceRollout: AdaptiveInferenceRollout = AdaptiveInferenceRollout.Off,
+    private val decisionModelPlacementPolicy: DecisionModelPlacementPolicy? = null,
     private val chatPlacementRuntime: ChatPlacementRuntime,
     private val stableResourceStateProvider: () -> StableResourceState,
     private val bootCountProvider: () -> Long,
@@ -272,6 +274,7 @@ class SolinViewModel internal constructor(
         runtimeLock = runtimeLock,
         requireRemoteSendDisclosure = requireRemoteSendDisclosure,
         adaptiveInferenceRollout = adaptiveInferenceRollout,
+        decisionModelPlacementPolicy = decisionModelPlacementPolicy,
         chatPlacementRuntime = chatPlacementRuntime,
         stableResourceStateProvider = stableResourceStateProvider,
         bootCountProvider = bootCountProvider,

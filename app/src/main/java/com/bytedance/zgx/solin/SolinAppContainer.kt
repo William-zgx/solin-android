@@ -121,6 +121,11 @@ import com.bytedance.zgx.solin.tool.OkHttpWebSearchProvider
 import com.bytedance.zgx.solin.plan.PlanToolHandler
 import com.bytedance.zgx.solin.plan.PlanToolsModule
 import com.bytedance.zgx.solin.plan.SessionPlanStore
+import com.bytedance.zgx.solin.safety.SafetyPolicy
+import com.bytedance.zgx.solin.runtime.CodivDecisionModelRouter
+import com.bytedance.zgx.solin.orchestration.DecisionModelPlacementPolicy
+import com.bytedance.zgx.solin.data.SharedPreferencesDecisionModelRoutingSettings
+import com.bytedance.zgx.solin.data.DecisionModelRoutingController
 
 class SolinAppContainer(
     context: Context,
@@ -145,6 +150,10 @@ class SolinAppContainer(
     val sessionPlanStore: SessionPlanStore = SessionPlanStore()
     private val mcpSettings: McpCapabilitySettings = SharedPreferencesMcpCapabilitySettings(appContext)
     private val mcpActiveThisSession: Boolean = enableMcp ?: mcpSettings.isEnabled()
+
+    /** Backs the Trust Center cloud/edge router setting (default Off). */
+    val decisionModelRoutingController: DecisionModelRoutingController =
+        DecisionModelRoutingController(SharedPreferencesDecisionModelRoutingSettings(appContext, secretStore))
 
     /** Backs the Trust Center MCP toggle (default OFF). */
     val mcpCapabilityController: McpCapabilityController =
@@ -467,6 +476,15 @@ class SolinAppContainer(
                     generationParametersRepository = generationParametersRepository,
                     remoteModelRepository = remoteModelRepository,
                     adaptiveInferenceRollout = adaptiveInferenceRollout,
+                    decisionModelPlacementPolicy = DecisionModelPlacementPolicy(
+                        routing = decisionModelRoutingController::effectiveMode,
+                        router = CodivDecisionModelRouter(
+                            credential = decisionModelRoutingController::apiKey,
+                            auditSink = remoteSendAuditRepository,
+                        ),
+                        mayLeaveDevice = { text -> !SafetyPolicy().containsSensitivePersonalOrSecretContent(text) },
+                        onSample = decisionModelRoutingController::record,
+                    ),
                     injectedRemoteConnectivityRefreshCoordinator = remoteConnectivityRefreshCoordinator,
                     huggingFaceAuthStore = huggingFaceAuthRepository,
                     firstRunSetupRepository = firstRunSetupRepository,

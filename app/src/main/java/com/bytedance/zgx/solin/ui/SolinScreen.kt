@@ -67,6 +67,8 @@ import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
+import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
+import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -103,6 +105,9 @@ fun SolinScreen(
     onRemoteGuiAutomationEnabledChanged: (Boolean) -> Unit,
     mcpCapability: McpCapabilityToggleUiState? = null,
     onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
+    decisionModelRouting: DecisionModelRoutingState? = null,
+    onDecisionModelRoutingModeSelected: (DecisionModelRouting) -> Unit = {},
+    onDecisionModelRoutingKeySaved: (String) -> Unit = {},
     memoryPanel: MemoryPanelState = MemoryPanelState(),
     onConfirmMemorySuggestion: (String) -> Unit = {},
     onDismissMemorySuggestion: (String) -> Unit = {},
@@ -372,6 +377,9 @@ fun SolinScreen(
                         onRemoteGuiAutomationEnabledChanged = onRemoteGuiAutomationEnabledChanged,
                         mcpCapability = mcpCapability,
                         onMcpCapabilityEnabledChanged = onMcpCapabilityEnabledChanged,
+                        decisionModelRouting = decisionModelRouting,
+                        onDecisionModelRoutingModeSelected = onDecisionModelRoutingModeSelected,
+                        onDecisionModelRoutingKeySaved = onDecisionModelRoutingKeySaved,
                         memoryPanel = memoryPanel,
                         onConfirmMemorySuggestion = onConfirmMemorySuggestion,
                         onDismissMemorySuggestion = onDismissMemorySuggestion,

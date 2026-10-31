@@ -39,6 +39,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
 class MainActivity : ComponentActivity() {
     private val appContainer: SolinAppContainer by lazy {
@@ -172,6 +173,11 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(mcpController) {
             mcpCapability = withContext(Dispatchers.IO) { mcpController.state().toToggleUiState() }
         }
+        val routingController = appContainer.decisionModelRoutingController
+        var decisionModelRouting by remember { mutableStateOf<DecisionModelRoutingState?>(null) }
+        LaunchedEffect(routingController) {
+            decisionModelRouting = withContext(Dispatchers.IO) { routingController.state() }
+        }
         SolinScreen(
                     state = state,
                     memoryPanel = memoryPanel,
@@ -180,6 +186,17 @@ class MainActivity : ComponentActivity() {
                     },
                     onDismissMemorySuggestion = { suggestionId ->
                         viewModel.launchPersistenceWork { viewModel.dismissMemorySuggestion(suggestionId) }
+                    },
+                    decisionModelRouting = decisionModelRouting,
+                    onDecisionModelRoutingModeSelected = { mode ->
+                        lifecycleScope.launch {
+                            decisionModelRouting = withContext(Dispatchers.IO) { routingController.setMode(mode) }
+                        }
+                    },
+                    onDecisionModelRoutingKeySaved = { key ->
+                        lifecycleScope.launch {
+                            decisionModelRouting = withContext(Dispatchers.IO) { routingController.saveApiKey(key) }
+                        }
                     },
                     mcpCapability = mcpCapability,
                     onMcpCapabilityEnabledChanged = { enabled, disclosureAccepted ->

@@ -58,6 +58,11 @@ Remote 只有在内容为 `RemoteEligible`、不要求本地模型，并且远�
 - 结构化复杂度为 Complex 时选择 Remote；70% 以上本地上下文压力、Medium/High
   reasoning、多步计划、工具循环或至少 4,096 输出 token 都会形成复杂信号。
 - 简单或信息不足的请求选择 Local。
+- 可选的云端路由（Codiv OpenJev，默认关闭）只在上面按复杂度二选一时介入：Shadow
+  只调用并计数、不改结果；Active 下置信度 ≥ 0.9 的判断决定本机或云端，记为
+  `AUTO_DECISION_MODEL_LOCAL/REMOTE`。只发送本条请求文字，疑似个人或密钥内容不发；
+  超时、HTTP 错误或不合协议的回复保持规则结果。准确率用
+  `scripts/run_decision_routing_eval.py` 在 `docs/decision_routing_eval.json` 上测量。
 
 资源状态使用手机进程内的稳定窗口，而不是单次 CPU 尖峰：10 秒窗口最多保留三次
 采样，至少两票形成稳定档位，并对 Hot/本地硬阻断保留 15 秒冷却。资源和复杂度只在

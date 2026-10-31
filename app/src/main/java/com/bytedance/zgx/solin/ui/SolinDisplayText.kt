@@ -71,6 +71,7 @@ internal fun activePlacementDisplayText(
     reason: PlacementReasonCode?,
 ): String? = when (placement) {
     RunPlacement.Local -> when (reason) {
+        PlacementReasonCode.AUTO_DECISION_MODEL_LOCAL -> "本次使用本地模型：云端路由判断本机即可回答。"
         PlacementReasonCode.USER_FORCED_LOCAL -> "本次使用本地模型：你选择了本地偏好。"
         PlacementReasonCode.PRIVACY_REQUIRES_LOCAL -> "本次使用本地模型：内容仅限本地处理。"
         PlacementReasonCode.REMOTE_NOT_AUTHORIZED -> "本次使用本地模型：自动模式尚未获得远程授权。"
@@ -94,6 +95,7 @@ internal fun activePlacementDisplayText(
         PlacementReasonCode.LOCAL_CAPABILITY_MISMATCH -> "本次使用远程模型：本地模型能力不满足本次请求。"
         PlacementReasonCode.AUTO_COMPLEX_REMOTE -> "本次使用远程模型：任务较复杂，且远程连接已验证。"
         PlacementReasonCode.AUTO_RESOURCE_REMOTE -> "本次使用远程模型：手机资源压力较高，且远程连接已验证。"
+        PlacementReasonCode.AUTO_DECISION_MODEL_REMOTE -> "本次使用远程模型：云端路由判断这条请求需要大模型。"
         PlacementReasonCode.MODEL_EXECUTION_FAILED -> "远程模型执行失败。"
         else -> "本次使用远程模型。"
     }

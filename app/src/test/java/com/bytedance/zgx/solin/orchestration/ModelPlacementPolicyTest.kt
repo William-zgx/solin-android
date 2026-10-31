@@ -33,6 +33,8 @@ class ModelPlacementPolicyTest {
                 "AUTO_IMAGE_LOCAL",
                 "AUTO_COMPLEX_REMOTE",
                 "AUTO_RESOURCE_REMOTE",
+                "AUTO_DECISION_MODEL_LOCAL",
+                "AUTO_DECISION_MODEL_REMOTE",
                 "NO_ELIGIBLE_TARGET",
                 "PLACEMENT_DECISION_MISSING",
                 "PLACEMENT_NOT_RESTORABLE",

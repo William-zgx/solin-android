@@ -10,7 +10,8 @@ import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.CancellationException
 
 internal fun interface PreparedChatPlacementPolicy {
-    fun decide(input: ModelPlacementInput): PlacementDecision
+    /** [routingText] is the user's own request text, for [DecisionModelPlacementPolicy] only. */
+    fun decide(input: ModelPlacementInput, routingText: String): PlacementDecision
 }
 
 internal interface PreparedChatBindingStore {
@@ -52,6 +53,8 @@ internal data class PrepareChatRunRequest(
     val localImageAttachments: List<LocalImageAttachment>,
     val generationParameters: GenerationParameters,
     val requiresRemoteDisclosure: Boolean,
+    /** What the user typed, without assembled context; only ever given to the placement policy. */
+    val routingText: String = "",
     val bootCount: Long,
     val boundAtElapsedRealtimeMillis: Long,
 ) {
@@ -175,7 +178,7 @@ internal class PreparedChatRunCoordinator(
     suspend fun prepare(request: PrepareChatRunRequest): PrepareChatRunResult {
         val frozenRequest = request.frozenCopy()
         val lifecycleToken = captureLifecycleToken(frozenRequest.runId, frozenRequest.sessionId)
-        val decision = policy.decide(frozenRequest.toPlacementInput())
+        val decision = policy.decide(frozenRequest.toPlacementInput(), frozenRequest.routingText)
         if (decision is PlacementDecision.Blocked) return PrepareChatRunResult.Blocked(decision)
         decision as PlacementDecision.Chosen
         val binding = runCatching {

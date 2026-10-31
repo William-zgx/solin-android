@@ -89,6 +89,22 @@ message, that new message can be sent. Current-screen screenshots are the one
 exception, and only under the explicit opt-in described in "Remote-Vision GUI
 Automation" below.
 
+### Cloud/Edge Router (opt-in)
+
+With the Trust-Center "云端路由" setting in Shadow or Active and the Auto
+inference preference, Solin may send the text of one chat request to the Codiv
+decision model (`https://api.codiv.ai/v1/systemone`, model `openjev-0.1`) to ask
+whether the on-device model can answer it. This happens only after the on-device
+rules found both the local and the configured remote model eligible and chose
+between them by request complexity, so `LocalOnly` content, images, and requests
+that must stay local are never sent. The request carries the text (capped at
+2,000 characters) and a fixed question; never history, memory, attachments,
+device context, or tool results. Text that looks like personal or secret data
+is not sent. The Codiv API key is entered by the user, stored encrypted on the
+device, and sent only to Codiv. Each send records a redacted remote-send audit
+entry without the text. Codiv's logging and retention policies apply. The
+setting is off by default, and clearing the key turns it off.
+
 Remote send reminders are policy-controlled for ordinary text. User-provided
 images and suspected sensitive content are stricter: they require per-send
 confirmation before they can leave the phone. Image bytes are attached as

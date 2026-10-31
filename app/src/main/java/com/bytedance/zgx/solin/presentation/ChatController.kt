@@ -40,6 +40,7 @@ import com.bytedance.zgx.solin.orchestration.PrepareChatRunResult
 import com.bytedance.zgx.solin.orchestration.PreparedChatDispatcher
 import com.bytedance.zgx.solin.orchestration.PreparedChatBindingStore
 import com.bytedance.zgx.solin.orchestration.PreparedChatPlacementPolicy
+import com.bytedance.zgx.solin.orchestration.DecisionModelPlacementPolicy
 import com.bytedance.zgx.solin.orchestration.PreparedChatRevisionValidator
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.PreparedChatRunCoordinator
@@ -100,6 +101,8 @@ class ChatController internal constructor(
     private val runtimeLock: Mutex,
     private val requireRemoteSendDisclosure: Boolean,
     private val adaptiveInferenceRollout: AdaptiveInferenceRollout,
+    /** Cloud/edge router for Auto runs; null keeps the rules alone. */
+    private val decisionModelPlacementPolicy: DecisionModelPlacementPolicy? = null,
     private val chatPlacementRuntime: ChatPlacementRuntime,
     private val stableResourceStateProvider: () -> StableResourceState,
     private val bootCountProvider: () -> Long,
@@ -153,7 +156,9 @@ class ChatController internal constructor(
         refreshAuditEvents = { remoteSendSupport.refreshRemoteSendAuditEvents() },
     )
     private val preparedChatRunCoordinator = PreparedChatRunCoordinator(
-        policy = PreparedChatPlacementPolicy(ModelPlacementPolicy::decide),
+        policy = PreparedChatPlacementPolicy { input, routingText ->
+            decisionModelPlacementPolicy?.decide(input, routingText) ?: ModelPlacementPolicy.decide(input)
+        },
         bindingStore = object : PreparedChatBindingStore {
             override fun bindAndReserve(binding: RunPlacementBinding) = bindAndShowPlacement(binding)
 
@@ -1078,6 +1083,7 @@ class ChatController internal constructor(
                 localImageAttachments = localImageAttachments,
                 generationParameters = stateBeforeSend.generationParameters,
                 requiresRemoteDisclosure = requiresDisclosure,
+                routingText = userPrompt,
                 bootCount = bootCountProvider(),
                 boundAtElapsedRealtimeMillis = elapsedRealtimeMillis(),
             ),

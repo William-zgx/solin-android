@@ -43,6 +43,8 @@ import com.bytedance.zgx.solin.ui.trustCenterCapabilityDisplayRows
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
+import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
 @Composable
 internal fun TrustBoundaryPanel(
@@ -54,6 +56,10 @@ internal fun TrustBoundaryPanel(
     mcpCapability: McpCapabilityToggleUiState? = null,
     /** `(enabled, disclosureAccepted)`; enabling the first time requires the disclosure. */
     onMcpCapabilityEnabledChanged: (Boolean, Boolean) -> Unit = { _, _ -> },
+    /** Cloud/edge router state; `null` hides the section until the caller wires it. */
+    decisionModelRouting: DecisionModelRoutingState? = null,
+    onDecisionModelRoutingModeSelected: (DecisionModelRouting) -> Unit = {},
+    onDecisionModelRoutingKeySaved: (String) -> Unit = {},
 ) {
     val sensitiveDisclosureRows = sensitiveCapabilityDisclosureDisplayRows()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -173,6 +179,14 @@ internal fun TrustBoundaryPanel(
                     onCheckedChange = onRemoteGuiAutomationEnabledChanged,
                 )
             }
+        }
+        if (decisionModelRouting != null) {
+            DecisionModelRoutingSection(
+                state = decisionModelRouting,
+                enabled = !state.isBusy,
+                onModeSelected = onDecisionModelRoutingModeSelected,
+                onApiKeySaved = onDecisionModelRoutingKeySaved,
+            )
         }
         if (mcpCapability != null) {
             McpCapabilityToggleSection(

@@ -239,6 +239,21 @@ Current status:
   repetition, empty output) and surfaces `GenerationQualityIssue`.
 - `RemoteModelConnectivityProbe` performs lightweight preflight checks
   before a remote generation is attempted.
+- Cloud/edge router (opt-in, `orchestration/DecisionModelRouter.kt` +
+  `runtime/CodivDecisionModelRouter.kt`): for Auto chat runs,
+  `DecisionModelPlacementPolicy` runs `ModelPlacementPolicy` first and asks
+  the Codiv OpenJev System One model (`POST /systemone`, one `local`/`remote`
+  choice question) only when the rules chose by complexity
+  (`AUTO_SIMPLE_LOCAL` / `AUTO_COMPLEX_REMOTE`). Only the user's request text
+  is sent: no history, memory, attachments, or tool results, and never text
+  that looks personal or secret. Off by default; the user saves a Codiv key in
+  the Trust Center (encrypted `SecretStore`, never in Git) and picks Shadow
+  (call and count, keep the rule decision) or Active (a verdict at confidence
+  ≥ 0.9 picks the side, as `AUTO_DECISION_MODEL_LOCAL/REMOTE`). Timeouts
+  (1.5 s), HTTP errors, and replies outside the declared contract keep the
+  rule decision. Each send is a redacted remote-send audit entry.
+  `scripts/run_decision_routing_eval.py` measures the same request on
+  `docs/decision_routing_eval.json`.
 - `TfliteTextEmbeddingRuntimeFactory` builds the TFLite embedding runtime
   used by the memory index.
 - `ChatPrompts` centralizes system prompt and tool-use prompt construction.
@@ -249,6 +264,8 @@ Tests:
 - `LiteRtRuntimeConfigTest`
 - `RemoteChatRuntimeTest`
 - `AdaptiveGenerationPolicyTest`
+- `DecisionModelPlacementPolicyTest`, `CodivDecisionModelRouterTest`,
+  `DecisionModelRoutingControllerTest`
 - `ModelOutputQualityGuardTest`
 
 ## Skill Framework
