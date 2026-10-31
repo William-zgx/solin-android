@@ -478,9 +478,6 @@ internal fun String.explicitSequentialActionTextAt(index: Int): String? {
     return explicitSequentialActionSegments().getOrNull(index)
 }
 
-internal fun String.requiresLocalModelBeforeSequentialTail(): Boolean =
-    requiresLocalModelBeforeSequentialTail(defaultSequentialToolRegistry)
-
 internal fun String.requiresLocalModelBeforeSequentialTail(toolRegistry: ToolRegistry): Boolean =
     toolRegistry.requiresSequentialLocalModelBeforeTail(this)
 

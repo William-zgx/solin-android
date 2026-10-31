@@ -134,7 +134,12 @@ internal class InitialToolPlanner(
         }
         val draft = result.plan.draft
         if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
-        if (!allowMultiStepSkillPlan && draft.functionName.requiresLocalModelBeforeSequentialTail()) return null
+        if (
+            !allowMultiStepSkillPlan &&
+            draft.functionName.requiresLocalModelBeforeSequentialTail(toolRegistry)
+        ) {
+            return null
+        }
         val request = ToolRequest(
             toolName = draft.functionName,
             arguments = draft.parameters,
