@@ -2,7 +2,6 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.solin.tool.ToolRegistry
-import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.rejected
 import java.util.concurrent.ConcurrentHashMap
@@ -59,10 +58,10 @@ internal class PendingConfirmationSupport(
     private val initialToolPlanner: InitialToolPlanner,
     private val valueFreeCompletedStepFrontiersByRunId: ConcurrentHashMap<String, Set<String>>,
     private val host: Host,
+    private val auditRecorder: ToolAuditRecorder,
 ) {
     interface Host {
         fun plannedSequentialSegmentCount(runId: String): Int
-        fun auditRejectedTool(runId: String, result: ToolResult)
         fun clearEphemeralRunState(runId: String)
     }
 
@@ -101,7 +100,7 @@ internal class PendingConfirmationSupport(
             ?: return true
         val rejection = snapshot.request.rejected(reason)
         traceStore.appendStep(snapshot.run.id, AgentStep.ToolRejected(rejection))
-        host.auditRejectedTool(snapshot.run.id, rejection)
+        auditRecorder.rejected(snapshot.run.id, rejection)
         traceStore.clearPendingConfirmation(snapshot.run.id, snapshot.request.id)
         traceStore.appendStep(snapshot.run.id, AgentStep.Failed(rejection.summary))
         traceStore.updateState(snapshot.run.id, AgentRunState.Failed)

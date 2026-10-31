@@ -27,6 +27,7 @@ internal class ModelToolRequestCoordinator(
     private val runBudget: AgentRunBudget,
     private val initialToolPlanner: InitialToolPlanner,
     private val host: Host,
+    private val auditRecorder: ToolAuditRecorder,
 ) {
     interface Host {
         fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult?
@@ -36,7 +37,6 @@ internal class ModelToolRequestCoordinator(
         fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
         fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean
         fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot
-        fun auditRejectedTool(runId: String, result: ToolResult)
         fun clearEphemeralRunState(runId: String)
         fun markStepStart(runId: String, stepType: String)
     }
@@ -64,7 +64,7 @@ internal class ModelToolRequestCoordinator(
             )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-            host.auditRejectedTool(runId, rejected)
+            auditRecorder.rejected(runId, rejected)
             val decision = AgentObservationDecision.Fail(rejected.summary)
             traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
             host.clearEphemeralRunState(runId)
@@ -89,7 +89,7 @@ internal class ModelToolRequestCoordinator(
             )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-            host.auditRejectedTool(runId, rejected)
+            auditRecorder.rejected(runId, rejected)
             val decision = AgentObservationDecision.Fail(rejected.summary)
             traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
             host.clearEphemeralRunState(runId)
@@ -149,7 +149,7 @@ internal class ModelToolRequestCoordinator(
                 )
                 traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
                 traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
-                host.auditRejectedTool(runId, plan.result)
+                auditRecorder.rejected(runId, plan.result)
                 val decision = AgentObservationDecision.Fail(plan.result.summary)
                 traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
                 host.clearEphemeralRunState(runId)

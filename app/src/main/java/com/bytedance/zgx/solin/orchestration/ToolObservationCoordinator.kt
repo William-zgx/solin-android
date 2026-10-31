@@ -72,23 +72,7 @@ internal class ToolObservationCoordinator(
             request: ToolRequest,
             result: ToolResult,
         ): Boolean
-        fun skillIdForRequest(runId: String, requestId: String): String?
         fun clearEphemeralRunState(runId: String)
-        fun auditToolRequest(
-            runId: String,
-            request: ToolRequest,
-            eventType: ToolAuditEventType,
-            status: ToolStatus?,
-            summary: String,
-        )
-        fun auditRejectedTool(runId: String, result: ToolResult)
-        fun auditToolEvent(
-            runId: String,
-            plan: AgentPlan.UseTool,
-            eventType: ToolAuditEventType,
-            status: ToolStatus?,
-            summary: String,
-        )
         fun safeRecordTelemetry(sample: MetricSample, label: String)
         fun recordStepLatency(stepType: String, runId: String?)
         fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
@@ -137,13 +121,9 @@ internal class ToolObservationCoordinator(
             val publicResult = host.publicEvidenceBatchResultOrFailure(validatedResult, plan.request)
             val traceResult = publicResult.redactedForTrace(plan.request, toolRegistry)
             traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
-            // One resolution for both sinks: the audit row and its event-bus copy must agree.
-            val resolvedSkillId = host.skillIdForRequest(runId, plan.request.id)
-            auditRecorder.record(
+            auditRecorder.request(
                 runId = runId,
-                requestId = traceResult.requestId,
-                toolName = plan.request.toolName,
-                skillId = resolvedSkillId,
+                request = plan.request,
                 eventType = ToolAuditEventType.ToolObserved,
                 status = traceResult.status,
                 summary = traceResult.auditSummaryForObservation(plan.request),
@@ -290,7 +270,7 @@ internal class ToolObservationCoordinator(
         )
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(result))
-        host.auditRejectedTool(runId, result)
+        auditRecorder.rejected(runId, result)
         val decision = AgentObservationDecision.Fail(result.summary)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         host.clearEphemeralRunState(runId)
@@ -536,16 +516,12 @@ internal class ToolObservationCoordinator(
         recordToolCompletedTelemetry(runId, request, observedResult, retryAttempt)
         host.recordStepLatency("tool_execution", runId)
         toolPlanCoordinator.recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
-        val resolvedSkillId = host.skillIdForRequest(runId, observedResult.requestId)
-        val observationSummary = observedResult.auditSummaryForObservation(request)
-        auditRecorder.record(
+        auditRecorder.request(
             runId = runId,
-            requestId = observedResult.requestId,
-            toolName = request.toolName,
-            skillId = resolvedSkillId,
+            request = request,
             eventType = ToolAuditEventType.ToolObserved,
             status = observedResult.status,
-            summary = observationSummary,
+            summary = observedResult.auditSummaryForObservation(request),
         )
         val recoveryAction = recoveryActionForObservation(request, observedResult)
         traceStore.appendStep(
@@ -630,7 +606,7 @@ internal class ToolObservationCoordinator(
         }
         traceStore.appendStep(runId, AgentStep.ObservationDecided(effectiveDecision))
         if (effectiveDecision is AgentObservationDecision.RetryTool) {
-            host.auditToolRequest(
+            auditRecorder.request(
                 runId = runId,
                 request = effectiveDecision.request,
                 eventType = ToolAuditEventType.ToolRetryScheduled,
@@ -804,10 +780,10 @@ internal class ToolObservationCoordinator(
                 requiresConfirmation = plan.requiresUserConfirmation(),
             ),
         )
-        host.auditToolEvent(runId, plan, ToolAuditEventType.ToolPlanned, null, plan.request.reason)
+        auditRecorder.plan(runId, plan, ToolAuditEventType.ToolPlanned, null, plan.request.reason)
         if (plan.requiresUserConfirmation()) {
             traceStore.appendStep(runId, AgentStep.UserConfirmationRequested(plan.request, plan.draft))
-            host.auditToolEvent(
+            auditRecorder.plan(
                 runId = runId,
                 plan = plan,
                 eventType = ToolAuditEventType.ConfirmationRequested,
@@ -850,7 +826,7 @@ internal class ToolObservationCoordinator(
     ): AgentLoopResult {
         traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
         traceStore.appendStep(run.id, AgentStep.ToolRejected(plan.result))
-        host.auditRejectedTool(run.id, plan.result)
+        auditRecorder.rejected(run.id, plan.result)
         val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
         host.clearEphemeralRunState(run.id)
         return AgentLoopResult(

@@ -164,11 +164,11 @@ class AgentLoopRuntime(
     private var closed = false
 
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
-    private val auditRecorder = ToolAuditRecorder(toolRegistry, auditSink, eventBus)
     // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
     // call sites unchanged.
     private val runScopedState = RunScopedState()
     private val traceQueries = AgentTraceQueries(traceStore)
+    private val auditRecorder = ToolAuditRecorder(toolRegistry, auditSink, eventBus, traceQueries)
     private val runEvents = RunTransitionEventPublisher(eventBus, runScopedState) { runId, stepType ->
         markStepStart(runId, stepType)
     }
@@ -304,10 +304,8 @@ class AgentLoopRuntime(
                 skillPlan: SkillPlan?,
             ): AgentPlan.UseTool =
                 confirmationBypassPolicy.withLowRiskAppControlContinuationBypass(runId, plan, skillPlan)
-
-            override fun auditRejectedTool(runId: String, result: ToolResult) =
-                this@AgentLoopRuntime.auditRejectedTool(runId, result)
         },
+        auditRecorder = auditRecorder,
     )
 
     private val toolObservationCoordinator = ToolObservationCoordinator(
@@ -360,41 +358,8 @@ class AgentLoopRuntime(
                 result: ToolResult,
             ): Boolean = this@AgentLoopRuntime.shouldAwaitExternalOutcomeConfirmation(runId, request, result)
 
-            override fun skillIdForRequest(runId: String, requestId: String): String? =
-                this@AgentLoopRuntime.skillIdForRequest(runId, requestId)
-
             override fun clearEphemeralRunState(runId: String) {
                 this@AgentLoopRuntime.clearEphemeralRunState(runId)
-            }
-
-            override fun auditToolRequest(
-                runId: String,
-                request: ToolRequest,
-                eventType: ToolAuditEventType,
-                status: ToolStatus?,
-                summary: String,
-            ) {
-                this@AgentLoopRuntime.auditToolRequest(
-                    runId = runId,
-                    request = request,
-                    eventType = eventType,
-                    status = status,
-                    summary = summary,
-                )
-            }
-
-            override fun auditRejectedTool(runId: String, result: ToolResult) {
-                this@AgentLoopRuntime.auditRejectedTool(runId, result)
-            }
-
-            override fun auditToolEvent(
-                runId: String,
-                plan: AgentPlan.UseTool,
-                eventType: ToolAuditEventType,
-                status: ToolStatus?,
-                summary: String,
-            ) {
-                this@AgentLoopRuntime.auditToolEvent(runId, plan, eventType, status, summary)
             }
 
             override fun safeRecordTelemetry(sample: MetricSample, label: String) {
@@ -464,12 +429,10 @@ class AgentLoopRuntime(
             override fun plannedSequentialSegmentCount(runId: String): Int =
                 this@AgentLoopRuntime.plannedSequentialSegmentCount(runId)
 
-            override fun auditRejectedTool(runId: String, result: ToolResult) =
-                this@AgentLoopRuntime.auditRejectedTool(runId, result)
-
             override fun clearEphemeralRunState(runId: String) =
                 this@AgentLoopRuntime.clearEphemeralRunState(runId)
         },
+        auditRecorder = auditRecorder,
     )
 
     private val modelToolRequestCoordinator = ModelToolRequestCoordinator(
@@ -502,15 +465,13 @@ class AgentLoopRuntime(
             override fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
                 pendingConfirmationSupport.toPendingSnapshot(plan, run)
 
-            override fun auditRejectedTool(runId: String, result: ToolResult) =
-                this@AgentLoopRuntime.auditRejectedTool(runId, result)
-
             override fun clearEphemeralRunState(runId: String) =
                 this@AgentLoopRuntime.clearEphemeralRunState(runId)
 
             override fun markStepStart(runId: String, stepType: String) =
                 this@AgentLoopRuntime.markStepStart(runId, stepType)
         },
+        auditRecorder = auditRecorder,
     )
 
     // Per-run monotonic turn counter for lifecycle events.
@@ -592,7 +553,7 @@ class AgentLoopRuntime(
     ): AgentLoopResult {
         traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
         traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
-        auditRejectedTool(runId, plan.result)
+        auditRecorder.rejected(runId, plan.result)
         failedStepMessage?.let { message -> traceStore.appendStep(runId, AgentStep.Failed(message)) }
         val failedRun = traceStore.updateState(runId, AgentRunState.Failed)
         eventBus.publish(
@@ -1199,7 +1160,7 @@ class AgentLoopRuntime(
         val rejectedPlan = AgentPlan.RejectedTool(request.rejected(hintReason))
         traceStore.appendStep(run.id, AgentStep.ModelPlanned(rejectedPlan))
         traceStore.appendStep(run.id, AgentStep.ToolRejected(rejectedPlan.result))
-        auditRejectedTool(run.id, rejectedPlan.result)
+        auditRecorder.rejected(run.id, rejectedPlan.result)
         traceStore.appendStep(run.id, AgentStep.Failed(rejectedPlan.result.summary))
         val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
         clearEphemeralRunState(run.id)
@@ -1217,7 +1178,7 @@ class AgentLoopRuntime(
             ?: return traceStore.run(runId) ?: run
         toolRegistry.validate(request)?.let { rejection ->
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
-            auditRejectedTool(runId, rejection)
+            auditRecorder.rejected(runId, rejection)
             traceStore.clearPendingConfirmation(runId, requestId)
             return traceStore.compareAndSetState(
                 runId = runId,
@@ -1230,7 +1191,7 @@ class AgentLoopRuntime(
         if (spec == null) {
             val rejection = request.rejected("Unknown tool: ${request.toolName}")
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
-            auditRejectedTool(runId, rejection)
+            auditRecorder.rejected(runId, rejection)
             traceStore.clearPendingConfirmation(runId, requestId)
             return traceStore.compareAndSetState(
                 runId = runId,
@@ -1244,7 +1205,7 @@ class AgentLoopRuntime(
             val rejection = request.rejected(safetyDecision.reason)
             traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
-            auditRejectedTool(runId, rejection)
+            auditRecorder.rejected(runId, rejection)
             traceStore.clearPendingConfirmation(runId, requestId)
             return traceStore.compareAndSetState(
                 runId = runId,
@@ -1263,7 +1224,7 @@ class AgentLoopRuntime(
                 actionLabel = request.toolName,
             ),
         )
-        auditToolRequest(
+        auditRecorder.request(
             runId = runId,
             request = request,
             eventType = ToolAuditEventType.UserConfirmed,
@@ -1294,7 +1255,7 @@ class AgentLoopRuntime(
                 actionLabel = request.toolName,
             ),
         )
-        auditToolRequest(
+        auditRecorder.request(
             runId = runId,
             request = request,
             eventType = ToolAuditEventType.UserCancelled,
@@ -1322,7 +1283,7 @@ class AgentLoopRuntime(
         if (result.requestId != request.id) return null
 
         traceStore.appendStep(runId, AgentStep.UserConfirmed(requestId))
-        auditToolRequest(
+        auditRecorder.request(
             runId = runId,
             request = request,
             eventType = ToolAuditEventType.UserConfirmed,
@@ -1408,7 +1369,7 @@ class AgentLoopRuntime(
         if (run.state != AgentRunState.AwaitingUserAnswer) return null
         val pending = pendingUserQuestionsByRunId[runId] ?: return null
         if (pending.questionId != questionId) return null
-        auditToolRequest(
+        auditRecorder.request(
             runId = runId,
             request = pending.request,
             eventType = ToolAuditEventType.UserCancelled,
@@ -1465,7 +1426,7 @@ class AgentLoopRuntime(
         if (safeResult.status != ToolStatus.Succeeded) return null
         val traceResult = safeResult.redactedForTrace(request, toolRegistry)
         traceStore.appendStep(runId, AgentStep.ExternalOutcomeConfirmed(requestId, outcome, traceResult))
-        auditToolRequest(
+        auditRecorder.request(
             runId = runId,
             request = request,
             eventType = ToolAuditEventType.ExternalOutcomeConfirmed,
@@ -1880,57 +1841,6 @@ class AgentLoopRuntime(
     private fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) =
         runEvents.publishRunFailed(runId, code, message)
 
-    private fun auditToolEvent(
-        runId: String,
-        plan: AgentPlan.UseTool,
-        eventType: ToolAuditEventType,
-        status: ToolStatus?,
-        summary: String,
-    ) {
-        auditToolRequest(
-            runId = runId,
-            request = plan.request,
-            eventType = eventType,
-            status = status,
-            skillId = plan.skillRequest?.skillId,
-            summary = summary,
-        )
-    }
-
-    private fun auditToolRequest(
-        runId: String,
-        request: ToolRequest,
-        eventType: ToolAuditEventType,
-        status: ToolStatus?,
-        skillId: String? = skillIdForRequest(runId, request.id),
-        summary: String,
-    ) {
-        auditRecorder.record(
-            runId = runId,
-            requestId = request.id,
-            toolName = request.toolName,
-            skillId = skillId,
-            eventType = eventType,
-            status = status,
-            summary = summary,
-        )
-    }
-
-    private fun auditRejectedTool(runId: String, result: ToolResult) {
-        val resolvedSkillId = result.requestId.takeIf { it.isNotBlank() }?.let { requestId ->
-            skillIdForRequest(runId, requestId)
-        }
-        auditRecorder.record(
-            runId = runId,
-            requestId = result.requestId,
-            toolName = result.data["toolName"],
-            skillId = resolvedSkillId,
-            eventType = ToolAuditEventType.ToolRejected,
-            status = result.status,
-            summary = result.summary,
-        )
-    }
-
     private val confirmationBypassPolicy = ConfirmationBypassPolicy(
         toolRegistry = toolRegistry,
         traceStore = traceStore,
@@ -1968,8 +1878,6 @@ class AgentLoopRuntime(
     private fun latestExecutableRequestId(runId: String): String? = traceQueries.latestExecutableRequestId(runId)
     private fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? =
         traceQueries.latestPlanToolBatch(runId)
-    private fun skillIdForRequest(runId: String, requestId: String): String? =
-        traceQueries.skillIdForRequest(runId, requestId)
     private fun latestSkillPlan(runId: String): SkillPlan? = traceQueries.latestSkillPlan(runId)
 
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {

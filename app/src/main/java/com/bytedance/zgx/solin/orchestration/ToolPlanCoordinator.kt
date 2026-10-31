@@ -66,6 +66,7 @@ internal class ToolPlanCoordinator(
     private val safetyPolicy: SafetyPolicy,
     private val runBudget: AgentRunBudget,
     private val host: Host,
+    private val auditRecorder: ToolAuditRecorder,
 ) {
     /**
      * Runtime-owned lookups and side effects the coordinator must not re-implement.
@@ -105,7 +106,6 @@ internal class ToolPlanCoordinator(
             plan: AgentPlan.UseTool,
             skillPlan: SkillPlan?,
         ): AgentPlan.UseTool
-        fun auditRejectedTool(runId: String, result: ToolResult)
     }
 
     fun planNextToolAfterObservation(
@@ -745,7 +745,7 @@ internal class ToolPlanCoordinator(
     fun rejectNextToolPlan(runId: String, result: ToolResult): NextObservationPlan {
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(result))
-        host.auditRejectedTool(runId, result)
+        auditRecorder.rejected(runId, result)
         return NextObservationPlan.Rejected(result.summary)
     }
 
@@ -765,7 +765,7 @@ internal class ToolPlanCoordinator(
         val rejected = request.rejected(hintReason)
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
-        host.auditRejectedTool(runId, rejected)
+        auditRecorder.rejected(runId, rejected)
         traceStore.appendStep(runId, AgentStep.Failed(rejected.summary))
         return NextObservationPlan.Rejected(rejected.summary)
     }
