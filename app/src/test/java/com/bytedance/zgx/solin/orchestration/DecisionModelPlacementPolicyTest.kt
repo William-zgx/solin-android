@@ -7,6 +7,9 @@ import com.bytedance.zgx.solin.resource.StableResourceBand
 import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.resource.ThermalPressure
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,6 +17,7 @@ import org.junit.Test
 class DecisionModelPlacementPolicyTest {
     private val sent = mutableListOf<String>()
     private val samples = mutableListOf<DecisionModelRoutingSample>()
+    private val shadowTasks = ArrayDeque<Runnable>()
     private var mode = DecisionModelRouting.Active
     private var verdict: DecisionModelVerdict = DecisionModelVerdict.Decided(RunPlacement.Remote, 0.95)
     private val policy = DecisionModelPlacementPolicy(
@@ -21,7 +25,12 @@ class DecisionModelPlacementPolicyTest {
         router = { text -> sent += text; verdict },
         mayLeaveDevice = { text -> "身份证" !in text },
         onSample = { samples += it },
+        shadowExecutor = { task -> shadowTasks.addLast(task) },
     )
+
+    private fun runShadowTasks() {
+        while (shadowTasks.isNotEmpty()) shadowTasks.removeFirst().run()
+    }
 
     @Test
     fun confidentVerdictOverridesTheComplexityGuessInActiveMode() {
@@ -47,13 +56,119 @@ class DecisionModelPlacementPolicyTest {
     }
 
     @Test
-    fun shadowModeCallsAndRecordsButNeverChangesTheDecision() {
+    fun shadowModeReturnsTheRuleDecisionBeforeTheVerdictArrives() {
         mode = DecisionModelRouting.Shadow
         val chosen = policy.decide(input(), "写一份三周的学习计划") as PlacementDecision.Chosen
         assertEquals(PlacementReasonCode.AUTO_SIMPLE_LOCAL, chosen.primaryReason)
+        assertEquals(RunPlacement.Local, chosen.placement)
+        assertTrue("router must not run on the reply path", sent.isEmpty())
+        assertTrue(samples.isEmpty())
+        assertEquals(1, shadowTasks.size)
+
+        runShadowTasks()
+        assertEquals(listOf("写一份三周的学习计划"), sent)
+        val sample = samples.single()
+        assertEquals(DecisionModelRouting.Shadow, sample.mode)
+        assertEquals(PlacementReasonCode.AUTO_SIMPLE_LOCAL, sample.ruleReason)
+        assertEquals(verdict, sample.verdict)
+        assertEquals(false, sample.applied)
+    }
+
+    @Test
+    fun shadowRequestWhileOneIsInFlightIsSkippedWithoutASample() {
+        mode = DecisionModelRouting.Shadow
+        policy.decide(input(), "写一份三周的学习计划")
+        val skipped = policy.decide(input(complexity = RequestComplexity.Complex), "分析这段代码")
+        assertEquals(PlacementReasonCode.AUTO_COMPLEX_REMOTE, skipped.primaryReason)
+        assertEquals(1, shadowTasks.size)
+
+        runShadowTasks()
+        assertEquals(listOf("写一份三周的学习计划"), sent)
+        assertEquals(1, samples.size)
+
+        // Once the first call finishes, the next Shadow request is submitted again.
+        policy.decide(input(), "你好")
+        runShadowTasks()
+        assertEquals(listOf("写一份三周的学习计划", "你好"), sent)
+        assertEquals(2, samples.size)
+    }
+
+    @Test
+    fun shadowRouterThrowingRecordsRouterThrewAndFreesTheSlot() {
+        val recorded = mutableListOf<DecisionModelRoutingSample>()
+        val tasks = ArrayDeque<Runnable>()
+        val throwing = DecisionModelPlacementPolicy(
+            routing = { DecisionModelRouting.Shadow },
+            router = { error("boom") },
+            mayLeaveDevice = { true },
+            onSample = { recorded += it },
+            shadowExecutor = { tasks.addLast(it) },
+        )
+        assertEquals(PlacementReasonCode.AUTO_SIMPLE_LOCAL, throwing.decide(input(), "你好").primaryReason)
+        tasks.removeFirst().run()
+        assertEquals(DecisionModelVerdict.Unavailable("router_threw"), recorded.single().verdict)
+        assertEquals(false, recorded.single().applied)
+
+        throwing.decide(input(), "你好")
+        assertEquals(1, tasks.size)
+    }
+
+    @Test
+    fun shadowExecutorRejectionSkipsTheRequestAndFreesTheSlot() {
+        var reject = true
+        val tasks = ArrayDeque<Runnable>()
+        val rejecting = DecisionModelPlacementPolicy(
+            routing = { DecisionModelRouting.Shadow },
+            router = { text -> sent += text; verdict },
+            mayLeaveDevice = { true },
+            onSample = { samples += it },
+            shadowExecutor = { task ->
+                if (reject) throw RejectedExecutionException("shut down")
+                tasks.addLast(task)
+            },
+        )
+        assertEquals(PlacementReasonCode.AUTO_SIMPLE_LOCAL, rejecting.decide(input(), "你好").primaryReason)
+        assertTrue(sent.isEmpty() && samples.isEmpty())
+        reject = false
+        rejecting.decide(input(), "你好")
+        assertEquals(1, tasks.size)
+    }
+
+    @Test
+    fun activeModeStaysSynchronousAndNeverUsesTheShadowExecutor() {
+        val chosen = policy.decide(input(), "写一份三周的学习计划")
+        assertEquals(PlacementReasonCode.AUTO_DECISION_MODEL_REMOTE, chosen.primaryReason)
         assertEquals(1, sent.size)
-        assertEquals(DecisionModelRouting.Shadow, samples.single().mode)
-        assertEquals(false, samples.single().applied)
+        assertEquals(true, samples.single().applied)
+        assertTrue(shadowTasks.isEmpty())
+    }
+
+    @Test
+    fun shadowGatesStillApplyBeforeAnythingIsSubmitted() {
+        mode = DecisionModelRouting.Shadow
+        policy.decide(input(privacy = MessagePrivacy.LocalOnly), "你好")
+        policy.decide(input(preference = InferenceMode.Local), "你好")
+        policy.decide(input(), "我的身份证号是多少")
+        policy.decide(input(), "   ")
+        assertTrue(shadowTasks.isEmpty())
+        assertTrue(sent.isEmpty())
+    }
+
+    @Test
+    fun defaultShadowExecutorRecordsFromABackgroundThread() {
+        val latch = CountDownLatch(1)
+        val threads = mutableListOf<Thread>()
+        val background = DecisionModelPlacementPolicy(
+            routing = { DecisionModelRouting.Shadow },
+            router = { verdict },
+            mayLeaveDevice = { true },
+            onSample = { synchronized(threads) { threads += Thread.currentThread() }; latch.countDown() },
+        )
+        assertEquals(PlacementReasonCode.AUTO_SIMPLE_LOCAL, background.decide(input(), "你好").primaryReason)
+        assertTrue(latch.await(5, TimeUnit.SECONDS))
+        val thread = synchronized(threads) { threads.single() }
+        assertTrue(thread !== Thread.currentThread())
+        assertTrue(thread.isDaemon)
     }
 
     @Test

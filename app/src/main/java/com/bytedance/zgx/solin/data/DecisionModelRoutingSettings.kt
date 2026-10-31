@@ -6,7 +6,6 @@ import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 import com.bytedance.zgx.solin.orchestration.DecisionModelRoutingSample
 import com.bytedance.zgx.solin.orchestration.DecisionModelVerdict
-import java.util.concurrent.atomic.AtomicInteger
 
 private const val PREFS_NAME = "solin_decision_model_routing"
 private const val KEY_MODE = "mode"
@@ -53,10 +52,12 @@ data class DecisionModelRoutingState(
  * before switching to Active; nothing about the request is kept.
  */
 class DecisionModelRoutingController(private val settings: DecisionModelRoutingSettings) {
-    private val calls = AtomicInteger()
-    private val unavailable = AtomicInteger()
-    private val disagreed = AtomicInteger()
-    private val applied = AtomicInteger()
+    /** Guards the counters: Shadow samples arrive on a background thread while the UI reads [state]. */
+    private val countsLock = Any()
+    private var calls = 0
+    private var unavailable = 0
+    private var disagreed = 0
+    private var applied = 0
 
     /** The mode in effect: Off whenever no key is saved. */
     fun effectiveMode(): DecisionModelRouting =
@@ -64,14 +65,21 @@ class DecisionModelRoutingController(private val settings: DecisionModelRoutingS
 
     fun apiKey(): String? = settings.apiKey()
 
-    fun state(): DecisionModelRoutingState = DecisionModelRoutingState(
-        mode = effectiveMode(),
-        keyConfigured = settings.apiKey() != null,
-        calls = calls.get(),
-        unavailable = unavailable.get(),
-        disagreedWithRules = disagreed.get(),
-        applied = applied.get(),
-    )
+    /** Thread-safe; the counts are one consistent snapshot. */
+    fun state(): DecisionModelRoutingState {
+        val mode = effectiveMode()
+        val keyConfigured = settings.apiKey() != null
+        return synchronized(countsLock) {
+            DecisionModelRoutingState(
+                mode = mode,
+                keyConfigured = keyConfigured,
+                calls = calls,
+                unavailable = unavailable,
+                disagreedWithRules = disagreed,
+                applied = applied,
+            )
+        }
+    }
 
     fun setMode(mode: DecisionModelRouting): DecisionModelRoutingState {
         if (mode == DecisionModelRouting.Off || settings.apiKey() != null) settings.setMode(mode)
@@ -85,17 +93,28 @@ class DecisionModelRoutingController(private val settings: DecisionModelRoutingS
         return state()
     }
 
+    /**
+     * Safe to call from any thread (Shadow samples arrive on a background executor). Logs only the
+     * mode, rule reason and verdict; the sample never carries request text.
+     */
     fun record(sample: DecisionModelRoutingSample) {
-        calls.incrementAndGet()
-        when (val verdict = sample.verdict) {
-            is DecisionModelVerdict.Unavailable -> {
-                unavailable.incrementAndGet()
-                solinD(TAG_REMOTE, "decision-model ${sample.mode}: unavailable (${verdict.reason})")
+        val verdict = sample.verdict
+        val disagrees = verdict is DecisionModelVerdict.Decided &&
+            !sample.ruleReason.name.substringAfterLast('_').equals(verdict.placement.name, ignoreCase = true)
+        synchronized(countsLock) {
+            calls++
+            when (verdict) {
+                is DecisionModelVerdict.Unavailable -> unavailable++
+                is DecisionModelVerdict.Decided -> {
+                    if (disagrees) disagreed++
+                    if (sample.applied) applied++
+                }
             }
+        }
+        when (verdict) {
+            is DecisionModelVerdict.Unavailable ->
+                solinD(TAG_REMOTE, "decision-model ${sample.mode}: unavailable (${verdict.reason})")
             is DecisionModelVerdict.Decided -> {
-                val rulePlacement = sample.ruleReason.name.substringAfterLast('_')
-                if (!rulePlacement.equals(verdict.placement.name, ignoreCase = true)) disagreed.incrementAndGet()
-                if (sample.applied) applied.incrementAndGet()
                 solinD(
                     TAG_REMOTE,
                     "decision-model ${sample.mode}: rule=${sample.ruleReason} model=${verdict.placement} " +

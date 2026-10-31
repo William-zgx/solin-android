@@ -248,8 +248,11 @@ Current status:
   is sent: no history, memory, attachments, or tool results, and never text
   that looks personal or secret. Off by default; the user saves a Codiv key in
   the Trust Center (encrypted `SecretStore`, never in Git) and picks Shadow
-  (call and count, keep the rule decision) or Active (a verdict at confidence
-  ≥ 0.9 picks the side, as `AUTO_DECISION_MODEL_LOCAL/REMOTE`). Timeouts
+  (call on a background daemon thread and count, keep the rule decision; the
+  reply never waits, at most one call is in flight, and a request arriving
+  while one runs is skipped without a sample) or Active (synchronous; a
+  verdict at confidence ≥ 0.9 picks the side, as
+  `AUTO_DECISION_MODEL_LOCAL/REMOTE`). Timeouts
   (1.5 s), HTTP errors, and replies outside the declared contract keep the
   rule decision. Each send is a redacted remote-send audit entry.
   `scripts/run_decision_routing_eval.py` measures the same request on

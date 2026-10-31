@@ -100,7 +100,9 @@ between them by request complexity, so `LocalOnly` content, images, and requests
 that must stay local are never sent. The request carries the text (capped at
 2,000 characters) and a fixed question; never history, memory, attachments,
 device context, or tool results. Text that looks like personal or secret data
-is not sent. The Codiv API key is entered by the user, stored encrypted on the
+is not sent. In Shadow the request is sent in the background and only counted;
+the reply does not wait for it and its answer is never applied. The Codiv API
+key is entered by the user, stored encrypted on the
 device, and sent only to Codiv. Each send records a redacted remote-send audit
 entry without the text. Codiv's logging and retention policies apply. The
 setting is off by default, and clearing the key turns it off.

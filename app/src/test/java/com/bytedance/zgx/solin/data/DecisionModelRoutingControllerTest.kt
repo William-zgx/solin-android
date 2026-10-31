@@ -5,7 +5,11 @@ import com.bytedance.zgx.solin.orchestration.DecisionModelRoutingSample
 import com.bytedance.zgx.solin.orchestration.DecisionModelVerdict
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DecisionModelRoutingControllerTest {
@@ -40,6 +44,40 @@ class DecisionModelRoutingControllerTest {
         assertEquals(3, state.calls)
         assertEquals(1, state.unavailable)
         assertEquals(1, state.disagreedWithRules)
+        assertEquals(0, state.applied)
+    }
+
+    @Test
+    fun recordIsSafeFromConcurrentBackgroundThreads() {
+        val threads = 8
+        val perThread = 500
+        val start = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(threads)
+        try {
+            repeat(threads) { index ->
+                pool.execute {
+                    start.await()
+                    repeat(perThread) {
+                        val verdict = if (index % 2 == 0) {
+                            DecisionModelVerdict.Decided(RunPlacement.Remote, 0.95)
+                        } else {
+                            DecisionModelVerdict.Unavailable("timeout")
+                        }
+                        controller.record(sample(PlacementReasonCode.AUTO_SIMPLE_LOCAL, verdict))
+                        controller.state()
+                    }
+                }
+            }
+            start.countDown()
+            pool.shutdown()
+            assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS))
+        } finally {
+            pool.shutdownNow()
+        }
+        val state = controller.state()
+        assertEquals(threads * perThread, state.calls)
+        assertEquals(threads / 2 * perThread, state.unavailable)
+        assertEquals(threads / 2 * perThread, state.disagreedWithRules)
         assertEquals(0, state.applied)
     }
 
