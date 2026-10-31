@@ -226,6 +226,12 @@ internal fun List<AccessibilityNodeInfo>.tapCheckNodes(): Pair<List<ScreenNode>,
     return nodes to complete
 }
 
+/** The node a named tap resolved to and the clickable node that receives it, for [CriticalTapGuard]. */
+internal fun AccessibilityNodeInfo?.tappedNodes(): List<TappedNode> =
+    listOfNotNull(this, this?.clickableSelfOrAncestor()).map { node ->
+        TappedNode(node.toScreenNode(id = ""), node.viewIdResourceName)
+    }
+
 internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
     var markerCount = 0
     walkScreenNodes(

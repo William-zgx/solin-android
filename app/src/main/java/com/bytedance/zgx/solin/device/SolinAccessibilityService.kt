@@ -710,32 +710,15 @@ class SolinAccessibilityService : AccessibilityService() {
         ).performed
     }
 
-    /**
-     * Last line of the never-tap-critical-controls rule: every tap the agent makes (named target,
-     * coordinate, OCR hint, search-entry focus) is checked here against the live window, on the
-     * node it will actually land on — target matching is fuzzy, so a pre-check on the requested
-     * target text alone cannot be exact. No readable window means the tap cannot be checked, and
-     * neither does a truncated walk unless it saw a labelled node under the point.
-     */
+    /** Reads the live windows for [CriticalTapGuard.checkTap]; throws [CriticalControlTapRefused]. */
     private fun refuseCriticalTapAt(x: Int, y: Int, node: AccessibilityNodeInfo? = null) {
-        listOfNotNull(node, node?.clickableSelfOrAncestor()).forEach { candidate ->
-            val critical = candidate.toScreenNode(id = "").hasButtonLikeCriticalLabel(windowShowsDangerText = false) ||
-                candidate.viewIdResourceName?.substringAfter("id/").hasDangerousTapTargetText()
-            if (critical) throw CriticalControlTapRefused()
-        }
         val (nodes, complete) = windowRootsForTapCheck().tapCheckNodes()
-        if (nodes.isEmpty()) throw CriticalControlTapRefused()
-        if (!complete && !nodes.hasLabelledActionableNodeAt(x, y)) throw CriticalControlTapRefused()
-        if (nodes.tapAtPointHitsDangerousControl(x, y)) throw CriticalControlTapRefused()
+        CriticalTapGuard.checkTap(x, y, node.tappedNodes(), nodes, complete).throwIfRefused()
     }
 
-    /** [ACTION_CLICK] fires the whole container, so everything inside it must be safe to fire. */
-    private fun refuseCriticalContainerClick(container: AccessibilityNodeInfo) {
-        val bounds = container.safeBounds() ?: throw CriticalControlTapRefused()
-        if (windowRootsForTapCheck().tapCheckNodes().first.holdsCriticalControl(bounds)) {
-            throw CriticalControlTapRefused()
-        }
-    }
+    private fun refuseCriticalContainerClick(container: AccessibilityNodeInfo) =
+        CriticalTapGuard.checkContainerClick(container.safeBounds(), windowRootsForTapCheck().tapCheckNodes().first)
+            .throwIfRefused()
 
     private fun windowRootsForTapCheck(): List<AccessibilityNodeInfo> =
         readOnMainThread { windows.mapNotNull { window -> window.root } }
@@ -1093,7 +1076,7 @@ class SolinAccessibilityService : AccessibilityService() {
         val gestureBounds = candidate.node.safeBounds() ?: clickNode?.safeBounds()
         val tapPoint = preferredPoint ?: gestureBounds?.let { bounds -> bounds.centerX to bounds.centerY }
         val checkPoint = tapPoint ?: clickNode?.safeBounds()?.let { bounds -> bounds.centerX to bounds.centerY }
-        if (checkPoint == null) throw CriticalControlTapRefused()
+        if (checkPoint == null) throw CriticalControlTapRefused(CriticalTapRefusalReason.MissingBounds)
         refuseCriticalTapAt(checkPoint.first, checkPoint.second, candidate.node)
         val outcome = tapPoint
             ?.let { (x, y) -> dispatchGestureOutcome(tapPathAt(x, y), TAP_GESTURE_STROKE_DURATION_MILLIS) }
@@ -1725,12 +1708,6 @@ private fun <T> submitUiRead(action: () -> T): T {
 private val deviceControlTasks = DeviceControlTaskCoordinator()
 
 private const val DEGENERATE_SWIPE_MAX_TRAVEL_PX = 48
-
-private const val CRITICAL_CONTROL_TAP_REFUSED_MESSAGE =
-    "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
-
-/** Thrown before a tap that would activate a critical control; ends the UI action as DangerousAction. */
-private class CriticalControlTapRefused : RuntimeException("critical control tap refused")
 
 private sealed class EditableFocusResult {
     data class Found(val node: AccessibilityNodeInfo) : EditableFocusResult()
