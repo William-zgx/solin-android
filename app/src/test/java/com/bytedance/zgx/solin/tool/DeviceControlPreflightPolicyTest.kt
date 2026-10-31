@@ -16,7 +16,8 @@ import org.junit.Test
  * Pins the per-action dangerous-control preflight policy when the screen cannot be read:
  * actions with no named-target second layer (normalized tap, swipe, long_press, press_key) fail
  * CLOSED; named-target actions (tap, type_text, submit_search, scroll) fall through (fail-open
- * here, their node matching is the second layer).
+ * here, their node matching and the service's live critical-tap check are the second layer),
+ * except that a named target that is itself a critical control is refused without reading.
  */
 class DeviceControlPreflightPolicyTest {
     @Test
@@ -26,6 +27,8 @@ class DeviceControlPreflightPolicyTest {
             val result = DeviceControlToolExecutor(provider = provider).execute(request)
             val outcome = if (result.data["summary"] == "dangerous_ui_action_preflight_unavailable") {
                 "blocked"
+            } else if (result.data["summary"] == "dangerous_ui_action_control_detected") {
+                "refused_critical dispatched=${provider.dispatched}"
             } else {
                 "dispatched=${provider.dispatched}"
             }
@@ -35,8 +38,10 @@ class DeviceControlPreflightPolicyTest {
         assertEquals(
             """
             tap_named -> dispatched=[tap]
+            tap_named_critical -> refused_critical dispatched=[]
             tap_normalized -> blocked
             type_text -> dispatched=[type_text]
+            type_text_critical_target -> refused_critical dispatched=[]
             submit_search -> dispatched=[submit_search]
             scroll -> dispatched=[scroll]
             swipe -> blocked
@@ -49,6 +54,7 @@ class DeviceControlPreflightPolicyTest {
 
     private val cases = listOf(
         "tap_named" to ToolRequest(toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索")),
+        "tap_named_critical" to ToolRequest(toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "确认支付")),
         "tap_normalized" to ToolRequest(
             toolName = MobileActionFunctions.UI_TAP,
             arguments = mapOf("targetX" to "500", "targetY" to "500"),
@@ -56,6 +62,10 @@ class DeviceControlPreflightPolicyTest {
         "type_text" to ToolRequest(
             toolName = MobileActionFunctions.UI_TYPE_TEXT,
             arguments = mapOf("text" to "abc", "target" to "搜索框"),
+        ),
+        "type_text_critical_target" to ToolRequest(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            arguments = mapOf("text" to "abc", "target" to "发送"),
         ),
         "submit_search" to ToolRequest(toolName = MobileActionFunctions.UI_SUBMIT_SEARCH),
         "scroll" to ToolRequest(toolName = MobileActionFunctions.UI_SCROLL, arguments = mapOf("direction" to "down")),

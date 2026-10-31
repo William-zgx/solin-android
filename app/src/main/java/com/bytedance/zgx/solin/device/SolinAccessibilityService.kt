@@ -313,9 +313,9 @@ class SolinAccessibilityService : AccessibilityService() {
     private fun observeSnapshot(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
         val root = activeWindowRoot()
             ?: return ScreenStateReadResult.Failed("当前屏幕没有可访问节点根节点")
-        val displayMetrics = runCatching { resources.displayMetrics }.getOrNull()
-        val widthPx = displayMetrics?.widthPixels
-        val heightPx = displayMetrics?.heightPixels
+        // Same size the gestures are dispatched against, so a normalized point resolves to the
+        // same pixel in the preflight hit test as in the real tap.
+        val (widthPx, heightPx) = runCatching { gestureScreenSizePx() }.getOrNull() ?: (null to null)
         return runCatching {
             ScreenStateReadResult.Available(
                 root.toScreenStateSnapshot(
@@ -651,6 +651,13 @@ class SolinAccessibilityService : AccessibilityService() {
         }
         throwIfInterrupted()
         val primitive = runCatching(operation).getOrElse { error ->
+            if (error is CriticalControlTapRefused) {
+                return@getOrElse UiPrimitiveResult.failed(
+                    reason = CRITICAL_CONTROL_TAP_REFUSED_MESSAGE,
+                    retryable = false,
+                    failureKind = UiActionFailureKind.DangerousAction,
+                )
+            }
             UiPrimitiveResult.failed(
                 reason = "UI 动作执行失败",
                 retryable = false,
@@ -686,11 +693,27 @@ class SolinAccessibilityService : AccessibilityService() {
         Thread.sleep(bounded)
     }
 
-    private fun dispatchTapGesture(x: Int, y: Int): Boolean =
-        dispatchGestureOutcome(
+    private fun dispatchTapGesture(x: Int, y: Int): Boolean {
+        refuseCriticalTapAt(x, y)
+        return dispatchGestureOutcome(
             path = tapPathAt(x, y),
             durationMillis = TAP_GESTURE_STROKE_DURATION_MILLIS,
         ).performed
+    }
+
+    /**
+     * Last line of the never-tap-critical-controls rule: every tap the agent makes (named target,
+     * coordinate, OCR hint, search-entry focus) is checked here against the live window, on the
+     * node it will actually land on — target matching is fuzzy, so a pre-check on the requested
+     * target text alone cannot be exact. No readable window means the tap cannot be checked.
+     */
+    private fun refuseCriticalTapAt(x: Int, y: Int, node: AccessibilityNodeInfo? = null) {
+        val labels = listOfNotNull(node, node?.clickableSelfOrAncestor())
+            .map { candidate -> candidate.toScreenNode(id = "").tapLabel() }
+        if (labels.any { label -> label.hasDangerousTapTargetText() }) throw CriticalControlTapRefused()
+        val root = activeWindowRoot() ?: throw CriticalControlTapRefused()
+        if (root.tapAtPointHitsDangerousControl(x, y)) throw CriticalControlTapRefused()
+    }
 
     /**
      * Dispatches one stroke and reports what the framework actually told us.
@@ -1036,6 +1059,9 @@ class SolinAccessibilityService : AccessibilityService() {
         val preferredPoint = candidate.node.searchEntryFallbackTapPoint(candidate.label)
         val gestureBounds = candidate.node.safeBounds() ?: clickNode?.safeBounds()
         val tapPoint = preferredPoint ?: gestureBounds?.let { bounds -> bounds.centerX to bounds.centerY }
+        val checkPoint = tapPoint ?: clickNode?.safeBounds()?.let { bounds -> bounds.centerX to bounds.centerY }
+        if (checkPoint == null) throw CriticalControlTapRefused()
+        refuseCriticalTapAt(checkPoint.first, checkPoint.second, candidate.node)
         val outcome = tapPoint
             ?.let { (x, y) -> dispatchGestureOutcome(tapPathAt(x, y), TAP_GESTURE_STROKE_DURATION_MILLIS) }
             ?: GestureOutcome.NotAccepted
@@ -1657,6 +1683,12 @@ private fun <T> submitUiRead(action: () -> T): T {
 }
 
 private val deviceControlTasks = DeviceControlTaskCoordinator()
+
+private const val CRITICAL_CONTROL_TAP_REFUSED_MESSAGE =
+    "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
+
+/** Thrown before a tap that would activate a critical control; ends the UI action as DangerousAction. */
+private class CriticalControlTapRefused : RuntimeException("critical control tap refused")
 
 private sealed class EditableFocusResult {
     data class Found(val node: AccessibilityNodeInfo) : EditableFocusResult()

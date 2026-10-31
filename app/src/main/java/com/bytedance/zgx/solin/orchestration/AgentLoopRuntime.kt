@@ -2000,6 +2000,7 @@ class AgentLoopRuntime(
         traceStore = traceStore,
         traceQueries = traceQueries,
         isCriticalOnlyConfirmationEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
+        safetyPolicy = safetyPolicy,
     )
     private val toolObservationContinuationBuilder by lazy {
         ToolObservationContinuationBuilder(

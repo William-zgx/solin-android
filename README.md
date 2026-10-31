@@ -45,8 +45,8 @@ screen text, OCR, contacts, calendar, low-risk app search).
 - **Only critical actions are confirmed**: device actions are validated locally
   and stay behind permission, disclosure, audit, and fail-closed boundaries.
   Reversible steps (opening apps, drafts, reminders, taps and scrolls) run
-  directly; external sends, sensitive steps, and outgoing sensitive queries are
-  confirmed, and pay / send / delete / publish / order / authorize buttons are
+  directly; external sends, sensitive steps, and outgoing queries or links that
+  carry sensitive text or follow a private read are confirmed, and pay / send / delete / publish / order / authorize buttons are
   always tapped by the user. A Trust-Center switch restores per-step confirmation.
 - **Users stay in control**: keys can be cleared, conversations and memories
   deleted, and privacy-sensitive behavior is documented before release.

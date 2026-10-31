@@ -61,6 +61,51 @@ class ModelObservationReplannerDangerousActionTest : ObservationReplannerTestFix
     }
 
     @Test
+    fun modelReplannerRejectsTypeTextAimedAtACriticalControl() {
+        // Finding the field taps a non-editable target, so typing "into" 发送 would tap it.
+        val runtime = RecordingModelActionRuntime(
+            toolName = MobileActionFunctions.UI_TYPE_TEXT,
+            parameters = mapOf("target" to "发送", "text" to "x"),
+        )
+        val replanner = ModelObservationReplanner(
+            actionPlanningRuntime = runtime,
+            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+        )
+        val previousRequest = ToolRequest(
+            id = "observe-type-into-send",
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        )
+
+        val replan = replanner.planNext(
+            AgentObservationReplanContext(
+                run = AgentRun(
+                    id = "run-type-into-send",
+                    input = "看当前屏幕继续操作",
+                    state = AgentRunState.Observing,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+                previousRequest = previousRequest,
+                observedResult = ToolResult(
+                    requestId = previousRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已观察当前屏幕。",
+                    data = mapOf(
+                        "toolName" to previousRequest.toolName,
+                        "privacy" to "LocalOnly",
+                        "requiresLocalModel" to true.toString(),
+                        "screenObservationJson" to searchInputWithDangerousSiblingObservationJson(),
+                    ),
+                ),
+                priorRequests = listOf(previousRequest),
+            ),
+        )
+
+        assertNull(replan)
+        assertEquals("dangerous_observation_action", replanner.lastDiagnosticSnapshot()?.reason)
+    }
+
+    @Test
     fun modelReplannerRejectsTargetedDangerousActionControl() {
         val runtime = RecordingModelActionRuntime(
             toolName = MobileActionFunctions.UI_TAP,

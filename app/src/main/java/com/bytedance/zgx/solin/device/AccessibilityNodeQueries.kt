@@ -203,6 +203,27 @@ internal fun AccessibilityNodeInfo.hasDangerousActionControlNode(): Boolean {
     return found
 }
 
+/**
+ * Live-node form of [tapAtPointHitsDangerousControl], run right before a gesture is dispatched.
+ * When the walk is cut short and nothing actionable under the point was seen, the tap cannot be
+ * attributed and is treated as critical (fail closed).
+ */
+internal fun AccessibilityNodeInfo.tapAtPointHitsDangerousControl(x: Int, y: Int): Boolean {
+    val nodes = mutableListOf<ScreenNode>()
+    val complete = walkScreenNodes(
+        maxWalkCount = MAX_SCREEN_STATE_NODE_WALK,
+        // Copied into ScreenNode values; nothing live is retained past the visit.
+        recycleVisitedNodes = true,
+    ) { node ->
+        if (node.isVisibleToUser) nodes += node.toScreenNode(id = "")
+        true
+    }
+    if (!complete && nodes.none { node -> node.enabled && (node.clickable || node.editable) && node.bounds?.let { b -> x in b.left..b.right && y in b.top..b.bottom } == true }) {
+        return true
+    }
+    return nodes.tapAtPointHitsDangerousControl(x, y)
+}
+
 internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
     var markerCount = 0
     walkScreenNodes(

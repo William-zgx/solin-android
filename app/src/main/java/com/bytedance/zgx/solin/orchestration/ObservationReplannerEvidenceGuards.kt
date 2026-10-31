@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.extractUiTargetArgumentValue
 import com.bytedance.zgx.solin.device.hasDangerousActionText
+import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.device.hasOcrDangerousActionText
 import com.bytedance.zgx.solin.device.hasStrongDangerousActionText
 import com.bytedance.zgx.solin.device.normalizedLookupKey
@@ -155,11 +156,11 @@ internal fun AgentObservationReplanContext.shouldRejectDangerousObservationActio
     parseCache: ObservationJsonParseCache,
 ): Boolean {
     if (!draft.functionName.isAutonomousUiControlAction()) return false
-    // Typing and scrolling never activate a control (mirrors the executor's dangerous preflight).
-    if (draft.functionName == MobileActionFunctions.UI_TYPE_TEXT ||
-        draft.functionName == MobileActionFunctions.UI_SCROLL
-    ) {
-        return false
+    // Scrolling never activates a control; typing only does when finding the field taps a named
+    // target (mirrors the executor's dangerous preflight).
+    if (draft.functionName == MobileActionFunctions.UI_SCROLL) return false
+    if (draft.functionName == MobileActionFunctions.UI_TYPE_TEXT) {
+        return draft.parameters["target"].hasDangerousTapTargetText()
     }
     val target = draft.parameters["target"].normalizedLookupKey()
     if (

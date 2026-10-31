@@ -25,9 +25,20 @@ enum class CriticalApprovalReason {
     /** The planning model marked the step as sensitive (e.g. "涉及支付"). */
     ModelFlaggedSensitive,
 
-    /** A web search whose query looks like personal or secret data would leave the device. */
+    /**
+     * A network-reaching step ([networkReachingArgument]) would carry personal or secret data off
+     * the device, or runs after this run already read private data (screen text, clipboard,
+     * contacts, …) that an injected instruction could smuggle into the query or link.
+     */
     SensitiveNetworkQuery,
 }
+
+/** Tools that reach the network or an external app with free text, and the argument carrying it. */
+private val networkReachingArgument: Map<String, String> = mapOf(
+    MobileActionFunctions.WEB_SEARCH to "query",
+    MobileActionFunctions.SEARCH_MAPS to "query",
+    MobileActionFunctions.OPEN_DEEP_LINK to "uri",
+)
 
 /**
  * Decides when a planned tool may skip the user-confirmation prompt.
@@ -54,20 +65,28 @@ internal class ConfirmationBypassPolicy(
 
     /** True when [request] runs without asking in this run (critical-only mode, no critical reason). */
     fun isAutoApproved(runId: String, request: ToolRequest): Boolean =
-        isCriticalOnlyConfirmationEnabled(runId) && criticalApprovalReason(request) == null
+        isCriticalOnlyConfirmationEnabled(runId) && criticalApprovalReason(runId, request) == null
 
-    fun criticalApprovalReason(request: ToolRequest): CriticalApprovalReason? {
+    fun criticalApprovalReason(runId: String, request: ToolRequest): CriticalApprovalReason? {
         val spec = toolRegistry.specFor(request.toolName) ?: return CriticalApprovalReason.UnknownTool
+        val networkArgument = networkReachingArgument[request.toolName]
         return when {
             spec.riskLevel == RiskLevel.HighExternalSend || spec.riskLevel == RiskLevel.CriticalDeviceOrPayment ->
                 CriticalApprovalReason.ExternalSendOrPayment
             request.sensitivityReason != null -> CriticalApprovalReason.ModelFlaggedSensitive
-            request.toolName == MobileActionFunctions.WEB_SEARCH &&
-                safetyPolicy.containsSensitivePersonalOrSecretContent(request.arguments["query"].orEmpty()) ->
-                CriticalApprovalReason.SensitiveNetworkQuery
+            networkArgument != null && (
+                safetyPolicy.containsSensitivePersonalOrSecretContent(request.arguments[networkArgument].orEmpty()) ||
+                    runReadPrivateData(runId, before = request.id)
+                ) -> CriticalApprovalReason.SensitiveNetworkQuery
             else -> null
         }
     }
+
+    /** Whether an earlier step of [runId] requested a tool whose output is private (LocalOnly). */
+    private fun runReadPrivateData(runId: String, before: String): Boolean =
+        traceQueries.toolRequestsFor(runId)
+            .takeWhile { request -> request.id != before }
+            .any { request -> toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty() }
 
     fun withLowRiskAppControlContinuationBypass(
         runId: String,

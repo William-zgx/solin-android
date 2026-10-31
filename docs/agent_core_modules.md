@@ -467,7 +467,9 @@ Current status:
   default Trust-Center setting) turns a `RequireConfirmation` decision into
   `Allow` unless `criticalApprovalReason` names one: unknown tool,
   `HighExternalSend` / `CriticalDeviceOrPayment` risk, a model-flagged
-  sensitivity reason, or a web search whose query looks personal or secret.
+  sensitivity reason, or a network step (`web_search`, `search_maps`,
+  `open_deep_link`) whose query/URI looks personal or secret or that follows a
+  private-output tool (screen, clipboard, contacts, …) in the same run.
   Rejections are never relaxed. Auto-run external launches complete as
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
@@ -475,8 +477,14 @@ Current status:
 - Critical on-screen controls (pay, send, delete, publish, order, transfer,
   authorize) are never activated by the agent: `DeviceControlToolExecutor`
   checks what each action can activate — the named target or the node under a
-  coordinate tap; nothing for typing and scrolling; the whole screen for
-  submit, Enter, swipe, and long-press — and stops with "需要你亲自操作".
+  coordinate tap (a named critical target is refused even when the screen is
+  unreadable); the named target for typing; nothing for scrolling; the whole
+  screen for submit, Enter, swipe, and long-press — and stops with
+  "需要你亲自操作". `SolinAccessibilityService` repeats the check on the live
+  window right before every tap gesture, on the node the tap actually lands on
+  (its label, its clickable container, the labels inside it, and bare
+  确定/OK on a dialog that shows critical text), because target matching is
+  fuzzy; an unreadable window refuses the tap.
 - Persistent audit records include time, event type, tool name, status, risk,
   permission names, and sanitized summaries. The Room repository keeps the most
   recent 500 records.

@@ -25,6 +25,7 @@ import com.bytedance.zgx.solin.device.DEFAULT_UI_LONG_PRESS_HOLD_MILLIS
 import com.bytedance.zgx.solin.device.blockingOverlayDismissTarget
 import com.bytedance.zgx.solin.device.hasBlockingOverlay
 import com.bytedance.zgx.solin.device.hasDangerousActionControl
+import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.device.normalizedPointHitsDangerousControl
 import com.bytedance.zgx.solin.device.tapTargetHitsDangerousControl
 import com.bytedance.zgx.solin.device.toScreenNodesJsonString
@@ -242,7 +243,8 @@ class DeviceControlToolExecutor(
             request,
             actionType = "type_text",
             target = target,
-            dangerScope = DangerScope.None,
+            // Finding the field may tap the named target, so a named target is checked like a tap.
+            dangerScope = if (target.isBlank()) DangerScope.None else DangerScope.Target(target),
             failClosedOnUnavailable = false,
             dismissBlockingOverlays = true,
         ) {
@@ -523,12 +525,21 @@ class DeviceControlToolExecutor(
         // and system-key presses there is NO named-target layer — this preflight is the sole guard
         // between the model and a raw-pixel/system action — so those callers pass
         // failClosedOnUnavailable=true and we BLOCK when the screen cannot be confirmed dangerous-free.
-        val snapshot = when (
-            val result = preflightProvider?.observeCurrentScreen(
-                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
-                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+        val screenRead = preflightProvider?.observeCurrentScreen(
+            maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+            maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+        )
+        // A named critical target is refused whatever the read returned, so an unreadable screen
+        // cannot let it through.
+        if (dangerScope is DangerScope.Target && dangerScope.target.hasDangerousTapTargetText()) {
+            return request.dangerousActionBlocked(
+                actionType = actionType,
+                target = dangerScope.target,
+                wholeScreen = false,
+                snapshot = (screenRead as? ScreenStateReadResult.Available)?.snapshot,
             )
-        ) {
+        }
+        val snapshot = when (val result = screenRead) {
             is ScreenStateReadResult.Available -> result.snapshot
             is ScreenStateReadResult.PermissionDenied ->
                 if (failClosedOnUnavailable) {
@@ -566,32 +577,40 @@ class DeviceControlToolExecutor(
             DangerScope.WholeScreen -> snapshot.hasDangerousActionControl()
         }
         if (!hitsDangerousControl) return null
-        return request.failed(
+        return request.dangerousActionBlocked(actionType, target, dangerScope == DangerScope.WholeScreen, snapshot)
+    }
+
+    private fun ToolRequest.dangerousActionBlocked(
+        actionType: String,
+        target: String,
+        wholeScreen: Boolean,
+        snapshot: ScreenStateSnapshot?,
+    ): ToolResult =
+        failed(
             code = ToolErrorCode.ExecutionFailed,
-            summary = if (dangerScope == DangerScope.WholeScreen) {
+            summary = if (wholeScreen) {
                 "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。"
             } else {
                 "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
             },
             retryable = false,
             data = (
-                request.deviceControlBaseData() +
+                deviceControlBaseData() +
                 mapOf(
                     "actionType" to actionType,
                     "status" to UiActionStatus.Failed.schemaValue(),
                     "retryable" to false.toString(),
                     "summary" to "dangerous_ui_action_control_detected",
                     "failureKind" to UiActionFailureKind.DangerousAction.schemaValue,
-                    "beforeObservationId" to snapshot.id,
+                    "beforeObservationId" to snapshot?.id.orEmpty(),
                     "afterObservationId" to "",
                     "verificationSummary" to "动作前检测到危险控件，未执行 UI 动作。",
                     "screenObservationDiffSummary" to "blocked_before_execution;reason=dangerous_action_control",
                 ) +
                 target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
-                snapshot.toBeforeObservationData()
+                snapshot?.toBeforeObservationData().orEmpty()
             ).withAppSearchProgressEvidence(),
         )
-    }
 
     /**
      * Before a low-risk UI action, if a blocking promotional overlay/interstitial occludes the

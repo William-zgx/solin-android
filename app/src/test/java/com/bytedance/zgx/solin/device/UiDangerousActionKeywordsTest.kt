@@ -65,6 +65,48 @@ class UiDangerousActionKeywordsTest {
         assertTrue("no screen size falls back to the screen-wide check", unsized.normalizedPointHitsDangerousControl(400, 500))
     }
 
+    @Test
+    fun pointTapLooksInsideAnUnlabelledClickableContainer() {
+        val container = node("bar", "", left = 0, right = 1000).copy(bounds = ScreenBounds(0, 900, 1000, 1000))
+        val payText = node("pay", "立即支付", left = 600, right = 900)
+            .copy(clickable = false, bounds = ScreenBounds(600, 920, 900, 980))
+        val nodes = listOf(container, payText)
+        assertTrue(nodes.tapAtPointHitsDangerousControl(x = 100, y = 950))
+        // A product card whose sales line mentions 付款 is not a pay button.
+        val card = container.copy(bounds = ScreenBounds(0, 0, 1000, 400))
+        val sales = payText.copy(text = "1000+人付款", bounds = ScreenBounds(10, 300, 300, 350))
+        assertFalse(listOf(card, sales).tapAtPointHitsDangerousControl(x = 500, y = 200))
+    }
+
+    @Test
+    fun pointTapWithNothingActionableUnderItFallsBackToTheScreenWideCheck() {
+        val send = node("send", "发送", left = 800, right = 1000).copy(bounds = ScreenBounds(800, 900, 1000, 1000))
+        assertTrue(listOf(send).tapAtPointHitsDangerousControl(x = 100, y = 100))
+        val search = send.copy(text = "搜索")
+        assertFalse(listOf(search).tapAtPointHitsDangerousControl(x = 100, y = 100))
+    }
+
+    @Test
+    fun pointTapOnAnEditableFieldIsSafeNextToASendButton() {
+        val input = node("input", "", left = 0, right = 800).copy(editable = true, clickable = true)
+        val send = node("send", "发送", left = 800, right = 1000)
+        assertFalse(listOf(input, send).tapAtPointHitsDangerousControl(x = 400, y = 500))
+        assertTrue(listOf(input, send).tapAtPointHitsDangerousControl(x = 900, y = 500))
+    }
+
+    @Test
+    fun bareConfirmIsCriticalOnlyUnderACriticalDialog() {
+        val title = node("title", "确定删除聊天记录？", left = 0, right = 1000)
+            .copy(clickable = false, bounds = ScreenBounds(0, 0, 1000, 100))
+        val ok = node("ok", "确定", left = 500, right = 1000).copy(bounds = ScreenBounds(500, 800, 1000, 900))
+        assertTrue(snapshot(title, ok).tapTargetHitsDangerousControl("确定"))
+        assertTrue(listOf(title, ok).tapAtPointHitsDangerousControl(x = 700, y = 850))
+        val filterTitle = title.copy(text = "筛选条件")
+        assertFalse(snapshot(filterTitle, ok).tapTargetHitsDangerousControl("好的"))
+        assertFalse(listOf(filterTitle, ok.copy(text = "好的")).tapAtPointHitsDangerousControl(x = 700, y = 850))
+        assertTrue("发表".hasDangerousTapTargetText())
+    }
+
     private fun node(id: String, text: String, left: Int, right: Int) = ScreenNode(
         id = id,
         text = text,
