@@ -203,25 +203,27 @@ internal fun AccessibilityNodeInfo.hasDangerousActionControlNode(): Boolean {
     return found
 }
 
+/** Larger than the observation walk: a critical control missed here would be tapped. */
+private const val MAX_TAP_CHECK_NODE_WALK = 600
+
 /**
- * Live-node form of [tapAtPointHitsDangerousControl], run right before a gesture is dispatched.
- * When the walk is cut short and nothing actionable under the point was seen, the tap cannot be
- * attributed and is treated as critical (fail closed).
+ * Visible nodes of every window, copied for the critical-tap check (an IME's send key lives in its
+ * own window). The second value is false when a walk was cut short.
  */
-internal fun AccessibilityNodeInfo.tapAtPointHitsDangerousControl(x: Int, y: Int): Boolean {
+internal fun List<AccessibilityNodeInfo>.tapCheckNodes(): Pair<List<ScreenNode>, Boolean> {
     val nodes = mutableListOf<ScreenNode>()
-    val complete = walkScreenNodes(
-        maxWalkCount = MAX_SCREEN_STATE_NODE_WALK,
-        // Copied into ScreenNode values; nothing live is retained past the visit.
-        recycleVisitedNodes = true,
-    ) { node ->
-        if (node.isVisibleToUser) nodes += node.toScreenNode(id = "")
-        true
+    var complete = true
+    forEach { root ->
+        complete = root.walkScreenNodes(
+            maxWalkCount = MAX_TAP_CHECK_NODE_WALK,
+            // Copied into ScreenNode values; nothing live is retained past the visit.
+            recycleVisitedNodes = true,
+        ) { node ->
+            if (node.isVisibleToUser) nodes += node.toScreenNode(id = "")
+            true
+        } && complete
     }
-    if (!complete && nodes.none { node -> node.enabled && (node.clickable || node.editable) && node.bounds?.let { b -> x in b.left..b.right && y in b.top..b.bottom } == true }) {
-        return true
-    }
-    return nodes.tapAtPointHitsDangerousControl(x, y)
+    return nodes to complete
 }
 
 internal fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {

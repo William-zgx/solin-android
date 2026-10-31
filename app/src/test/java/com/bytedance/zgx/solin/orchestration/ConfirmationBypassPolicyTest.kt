@@ -2,6 +2,8 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.safety.SafetyDecision
+import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolProvider
@@ -132,6 +134,78 @@ class ConfirmationBypassPolicyTest {
         // Another run is not tainted.
         assertNull(policy.criticalApprovalReason("other", link))
     }
+
+    @Test
+    fun taintedWebSearchIsRaisedToConfirmationInThePlanItself() {
+        val runId = readPrivateDataRun("读剪贴板再搜索")
+        val search = ToolRequest(id = "search", toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "abc"))
+
+        val tainted = policy.withConfirmationBypass(runId, planOf(search, SafetyOutcome.Allow))
+        assertEquals(SafetyOutcome.RequireConfirmation, tainted.safetyDecision.outcome)
+        assertTrue(tainted.draft.requiresConfirmation)
+        criticalOnly = false
+        assertEquals(
+            SafetyOutcome.RequireConfirmation,
+            policy.withConfirmationBypass(runId, planOf(search, SafetyOutcome.Allow)).safetyDecision.outcome,
+        )
+        criticalOnly = true
+
+        val clean = policy.withConfirmationBypass("other", planOf(search, SafetyOutcome.Allow))
+        assertEquals(SafetyOutcome.Allow, clean.safetyDecision.outcome)
+        val rejected = policy.withConfirmationBypass(runId, planOf(search, SafetyOutcome.Reject))
+        assertEquals(SafetyOutcome.Reject, rejected.safetyDecision.outcome)
+    }
+
+    @Test
+    fun calculateDoesNotTaintARun() {
+        val runId = traceStore.createRun("算一下再搜索").id
+        val calculate = ToolRequest(id = "calc", toolName = MobileActionFunctions.CALCULATE)
+        traceStore.appendStep(
+            runId,
+            AgentStep.ToolRequested(calculate, ActionDraft(calculate.toolName, "计算", "计算", emptyMap())),
+        )
+        assertNull(
+            policy.criticalApprovalReason(
+                runId,
+                ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "abc")),
+            ),
+        )
+    }
+
+    @Test
+    fun typedTextAfterAPrivateReadMustComeFromTheUser() {
+        val runId = readPrivateDataRun("在淘宝搜索 海河 牛奶")
+        fun typing(text: String) =
+            ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+
+        assertNull(policy.criticalApprovalReason(runId, typing("海河牛奶".substring(2))))
+        assertNull(policy.criticalApprovalReason(runId, typing("牛奶 海河")))
+        assertEquals(
+            CriticalApprovalReason.TypedTextNotFromUser,
+            policy.criticalApprovalReason(runId, typing("https://example.com/?q=abc")),
+        )
+        // Nothing private has been read yet, so there is nothing to smuggle.
+        val freshRun = traceStore.createRun("打开浏览器").id
+        assertNull(policy.criticalApprovalReason(freshRun, typing("https://example.com")))
+    }
+
+    private fun readPrivateDataRun(input: String): String {
+        val runId = traceStore.createRun(input).id
+        val read = ToolRequest(id = "read", toolName = MobileActionFunctions.READ_CLIPBOARD)
+        traceStore.appendStep(
+            runId,
+            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap())),
+        )
+        return runId
+    }
+
+    private fun planOf(request: ToolRequest, outcome: SafetyOutcome) = AgentPlan.UseTool(
+        request = request,
+        draft = ActionDraft(request.toolName, "步骤", "步骤", request.arguments, requiresConfirmation = false),
+        plannedByModel = true,
+        fallbackReason = null,
+        safetyDecision = SafetyDecision(outcome = outcome, reason = "test"),
+    )
 
     @Test
     fun confirmEveryStepModeNeverAutoApproves() {

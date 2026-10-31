@@ -95,6 +95,74 @@ class UiDangerousActionKeywordsTest {
     }
 
     @Test
+    fun anyCriticalControlUnderThePointRefusesEvenWithASmallerNodeBehindIt() {
+        val sheetButton = node("pay", "确认支付", left = 0, right = 1000).copy(bounds = ScreenBounds(0, 900, 1000, 1000))
+        val iconBehind = node("fav", "收藏", left = 100, right = 200).copy(bounds = ScreenBounds(100, 920, 200, 980))
+        assertTrue(listOf(sheetButton, iconBehind).tapAtPointHitsDangerousControl(x = 150, y = 950))
+        val fieldBehind = iconBehind.copy(text = "", editable = true)
+        assertTrue(listOf(sheetButton, fieldBehind).tapAtPointHitsDangerousControl(x = 150, y = 950))
+    }
+
+    @Test
+    fun contentDescriptionCountsWhenTextIsHarmless() {
+        val button = node("buy", "¥99", left = 0, right = 1000).copy(contentDescription = "立即支付")
+        assertTrue(listOf(button).tapAtPointHitsDangerousControl(x = 500, y = 500))
+        assertTrue(snapshot(button).tapTargetHitsDangerousControl("¥99"))
+    }
+
+    @Test
+    fun anyButtonLikeLabelInsideAnUnlabelledContainerIsCritical() {
+        val bar = node("bar", "", left = 0, right = 1000).copy(bounds = ScreenBounds(0, 900, 1000, 1000))
+        listOf("去支付", "马上下单", "Pay now").forEach { text ->
+            val inner = node("inner", text, left = 600, right = 900)
+                .copy(clickable = false, bounds = ScreenBounds(600, 920, 900, 980))
+            assertTrue(text, listOf(bar, inner).tapAtPointHitsDangerousControl(x = 100, y = 950))
+        }
+    }
+
+    @Test
+    fun everydayPhrasesAndWordsThatMerelyContainAMarkerAreNotCritical() {
+        listOf(
+            "发布于 2026-10-30", "最新发布", "发布时间", "苹果发布会", "1000+人付款", "支付宝",
+            "Voice Recorder", "Reposts", "display", "border",
+        ).forEach { label ->
+            assertFalse(label, label.hasDangerousTapTargetText())
+            assertFalse(label, label.hasStrongDangerousActionText())
+        }
+        listOf("Payment", "sendButton", "btn_send", "Post", "使用支付宝支付", "发布").forEach { label ->
+            assertTrue(label, label.hasDangerousTapTargetText())
+        }
+    }
+
+    @Test
+    fun longContentIsNotAButtonButTheNamedTargetStaysStrict() {
+        val row = node("row", "张三：我刚刚发送了一张图片，你看一下这个", left = 0, right = 1000)
+        assertFalse(listOf(row).tapAtPointHitsDangerousControl(x = 500, y = 500))
+    }
+
+    @Test
+    fun confirmOnAResultsPageWithSalesCountsIsNotCritical() {
+        val sales = node("sales", "1000+人付款", left = 0, right = 400)
+            .copy(clickable = false, bounds = ScreenBounds(0, 0, 400, 100))
+        val apply = node("ok", "确定", left = 500, right = 1000).copy(bounds = ScreenBounds(500, 800, 1000, 900))
+        assertFalse(listOf(sales, apply).tapAtPointHitsDangerousControl(x = 700, y = 850))
+    }
+
+    @Test
+    fun editableLabelsDoNotTriggerTheScreenWideCheck() {
+        val comment = node("comment", "发表评论", left = 0, right = 1000).copy(editable = true)
+        assertFalse(snapshot(comment).hasDangerousActionControl())
+    }
+
+    @Test
+    fun truncatedWalkTrustsOnlyALabelledNodeUnderThePoint() {
+        val labelled = node("tab", "销量", left = 0, right = 500)
+        val blank = node("bar", "", left = 500, right = 1000)
+        assertTrue(listOf(labelled, blank).hasLabelledActionableNodeAt(x = 100, y = 500))
+        assertFalse(listOf(labelled, blank).hasLabelledActionableNodeAt(x = 800, y = 500))
+    }
+
+    @Test
     fun bareConfirmIsCriticalOnlyUnderACriticalDialog() {
         val title = node("title", "确定删除聊天记录？", left = 0, right = 1000)
             .copy(clickable = false, bounds = ScreenBounds(0, 0, 1000, 100))

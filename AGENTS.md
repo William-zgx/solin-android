@@ -67,9 +67,9 @@ Scripts: `scripts/`. Docs: `docs/`.
    permission, disclosure, and audit. In the default critical-only mode
    (`orchestration/ConfirmationBypassPolicy.kt`) reversible steps run without a
    prompt; external sends, payments, unknown tools, model-flagged sensitive steps,
-   and network steps (web search, maps search, deep link) that carry sensitive
-   text or follow a private read in the same run are always confirmed, and the
-   agent never taps a
+   network steps (web search, maps search, deep link) that carry sensitive text
+   or follow a private read in the same run, and typed text the user did not ask
+   for after a private read, are always confirmed, and the agent never taps a
    pay / send / delete / publish / order / transfer / authorize control itself
    (the device-control executor stops and the user taps it). Do not widen what
    runs without a prompt beyond this documented list.

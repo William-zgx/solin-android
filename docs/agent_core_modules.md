@@ -471,7 +471,9 @@ Current status:
   `HighExternalSend` / `CriticalDeviceOrPayment` risk, a model-flagged
   sensitivity reason, or a network step (`web_search`, `search_maps`,
   `open_deep_link`) whose query/URI looks personal or secret or that follows a
-  private-output tool (screen, clipboard, contacts, …) in the same run.
+  private device read (screen, clipboard, contacts, …) in the same run, or
+  `ui_type_text` with words not in the user's request after such a read. Tainted
+  network steps are raised to `RequireConfirmation` in either mode.
   Rejections are never relaxed. Auto-run external launches complete as
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
@@ -484,9 +486,13 @@ Current status:
   screen for submit, Enter, swipe, and long-press — and stops with
   "需要你亲自操作". `SolinAccessibilityService` repeats the check on the live
   window right before every tap gesture, on the node the tap actually lands on
-  (its label, its clickable container, the labels inside it, and bare
-  确定/OK on a dialog that shows critical text), because target matching is
-  fuzzy; an unreadable window refuses the tap.
+  (any critical control under the point in any window, since z-order is not
+  exposed; the labels and view id of the tapped node; button-like labels inside
+  its container; and bare 确定/OK on a dialog that shows critical text), because
+  target matching is fuzzy. Long-press and barely-moving swipes count as taps. An
+  unreadable window refuses the tap, as does a truncated node walk that saw no
+  labelled node under the point. The check reads accessibility labels, so a control
+  with no usable label (custom-drawn, canvas, unlabelled icon) cannot be recognized.
 - Persistent audit records include time, event type, tool name, status, risk,
   permission names, and sanitized summaries. The Room repository keeps the most
   recent 500 records.

@@ -10,7 +10,8 @@ package com.bytedance.zgx.solin.device
  *   critical control, which the agent never does itself. It is the screen list plus generic
  *   submit/confirm verbs, so it only ever stops more often (fail closed).
  *
- * Only ever add to these lists.
+ * Only ever add to these lists. What keeps them usable: [benignDangerPhrases] are removed before
+ * matching, and Latin markers only match at the start of a word ("payment" yes, "display" no).
  */
 internal val dangerousActionTextMarkers: List<String> = listOf(
     "支付",
@@ -78,6 +79,20 @@ private val standaloneDangerousActionTextMarkers = listOf(
     "同意",
 )
 
+/** Everyday phrases that contain a marker but name no action: dates, sort tabs, sales counts, an app. */
+private val benignDangerPhrases = listOf("发布于", "发表于", "发布时间", "最新发布", "发布会", "人付款", "支付宝")
+
+/** Longer labels read as content (a list row, a description), not as a button. */
+private const val BUTTON_LABEL_MAX_CHARS = 16
+
+/** Longest text that can be a dialog's critical question rather than page content. */
+private const val DIALOG_TEXT_MAX_CHARS = 24
+
+private val CAMEL_CASE_BOUNDARY_REGEX = Regex("([a-z])([A-Z])")
+
+private fun String?.normalizedForDangerMatch(): String =
+    benignDangerPhrases.fold(normalizedLookupKey()) { text, phrase -> text.replace(phrase, "") }
+
 /**
  * Bare confirm buttons ("确定", "OK", …). Harmless on their own, but on a window that also shows a
  * critical phrase ("确定删除聊天记录?") they are the second step of that critical action.
@@ -92,13 +107,22 @@ internal fun String?.hasDangerousActionText(): Boolean = containsAnyMarker(dange
 internal fun String?.hasDangerousTapTargetText(): Boolean = containsAnyMarker(dangerousTapTargetMarkers)
 
 private fun String?.containsAnyMarker(markers: List<String>): Boolean {
-    val normalized = normalizedLookupKey()
+    val normalized = normalizedForDangerMatch()
     if (normalized.isBlank()) return false
-    return markers.any { marker -> normalized.contains(marker.normalizedLookupKey()) }
+    val words by lazy { orEmpty().replace(CAMEL_CASE_BOUNDARY_REGEX, "$1 $2").lowercase() }
+    return markers.any { marker ->
+        if (marker.first().isLatinLetter()) {
+            Regex("(?<![a-z])$marker").containsMatchIn(words)
+        } else {
+            normalized.contains(marker.normalizedLookupKey())
+        }
+    }
 }
 
+private fun Char.isLatinLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
+
 internal fun String?.hasOcrDangerousActionText(): Boolean {
-    val normalized = normalizedLookupKey()
+    val normalized = normalizedForDangerMatch()
     if (normalized.isBlank()) return false
     if (hasStrongDangerousActionText()) return true
     return standaloneDangerousActionTextMarkers.any { marker ->
@@ -107,7 +131,7 @@ internal fun String?.hasOcrDangerousActionText(): Boolean {
 }
 
 internal fun String?.hasStrongDangerousActionText(): Boolean {
-    val normalized = normalizedLookupKey()
+    val normalized = normalizedForDangerMatch()
     if (normalized.isBlank()) return false
     return strongDangerousActionTextMarkers.any { marker ->
         normalized.contains(marker.normalizedLookupKey())
@@ -123,12 +147,13 @@ internal fun ScreenStateSnapshot.hasDangerousActionControl(): Boolean =
  * same label) — so "search-entry" on a chat screen is fine while "send-button" labelled 发送 is not.
  */
 internal fun ScreenStateSnapshot.tapTargetHitsDangerousControl(target: String): Boolean {
-    if (target.isCriticalTapLabel(nodes.windowShowsDangerText())) return true
+    val dangerText = nodes.windowShowsDangerText()
+    if (target.isCriticalTapLabel(dangerText)) return true
     val key = target.normalizedLookupKey()
     if (key.isBlank()) return false
     return nodes.any { node ->
-        (node.id == target || node.tapLabel().normalizedLookupKey() == key) &&
-            node.tapLabel().isCriticalTapLabel(nodes.windowShowsDangerText())
+        (node.id == target || node.tapLabels().any { label -> label.normalizedLookupKey() == key }) &&
+            node.hasButtonLikeCriticalLabel(dangerText)
     }
 }
 
@@ -148,33 +173,53 @@ internal fun ScreenStateSnapshot.normalizedPointHitsDangerousControl(xNorm: Int,
  * the executor preflight (on a snapshot) and the accessibility service (on live nodes, right
  * before the gesture), so both stop the same taps.
  *
- * The innermost enabled clickable or editable node under the point is what the tap activates.
- * Editable fields are safe (focusing never commits). Otherwise the control is critical when its
- * own label is a critical tap label, or any labelled node inside it reads like a critical button
- * (an unlabelled container around a "立即支付" text). When nothing actionable covers the point the
- * tap cannot be attributed, so the screen-wide check decides (fail closed).
+ * Nodes do not expose z-order, so any clickable control under the point with a critical label
+ * refuses the tap, even a larger one: a sheet button may be drawn over a smaller icon behind it.
+ * Past that, the innermost actionable node is what the tap activates. An editable field is safe
+ * (focusing never commits); anything else is critical when a button-like label sits inside it (an
+ * unlabelled container around "立即支付"). When nothing actionable covers the point the tap cannot
+ * be attributed, so the screen-wide check decides (fail closed).
  */
 internal fun List<ScreenNode>.tapAtPointHitsDangerousControl(x: Int, y: Int): Boolean {
     val dangerText = windowShowsDangerText()
-    val hit = filter { node -> node.enabled && (node.clickable || node.editable) && node.bounds.covers(x, y) }
-        .minByOrNull { node -> node.bounds!!.area() }
-        ?: return any { node -> node.hasDangerousActionControl() }
-    if (hit.editable) return false
-    if (hit.tapLabel().isCriticalTapLabel(dangerText)) return true
-    val hitBounds = hit.bounds!!
-    return any { node ->
-        node !== hit && node.bounds?.isInside(hitBounds) == true &&
-            node.tapLabel().let { label -> label.hasOcrDangerousActionText() || (dangerText && label.isGenericConfirmLabel()) }
-    }
+    val covering = actionableNodesAt(x, y)
+    if (covering.isEmpty()) return any { node -> node.hasDangerousActionControl() }
+    if (covering.any { node -> !node.editable && node.hasButtonLikeCriticalLabel(dangerText) }) return true
+    val hit = covering.minBy { node -> node.bounds!!.area() }
+    return !hit.editable && holdsCriticalControl(hit.bounds!!, dangerText)
 }
 
+/** Whether a labelled node inside [container] reads like a critical button. */
+internal fun List<ScreenNode>.holdsCriticalControl(
+    container: ScreenBounds,
+    dangerText: Boolean = windowShowsDangerText(),
+): Boolean = any { node -> node.bounds?.isInside(container) == true && node.hasButtonLikeCriticalLabel(dangerText) }
+
+/** Whether the node a truncated walk found under the point can be trusted to stand for the tap. */
+internal fun List<ScreenNode>.hasLabelledActionableNodeAt(x: Int, y: Int): Boolean =
+    actionableNodesAt(x, y).minByOrNull { node -> node.bounds!!.area() }?.tapLabels()?.isNotEmpty() == true
+
+private fun List<ScreenNode>.actionableNodesAt(x: Int, y: Int): List<ScreenNode> =
+    filter { node -> node.enabled && (node.clickable || node.editable) && node.bounds.covers(x, y) }
+
+internal fun ScreenNode.tapLabels(): List<String> = listOf(text, contentDescription).filter { it.isNotBlank() }
+
 internal fun ScreenNode.tapLabel(): String = text.ifBlank { contentDescription }
+
+internal fun ScreenNode.hasButtonLikeCriticalLabel(windowShowsDangerText: Boolean): Boolean =
+    tapLabels().any { label -> label.isButtonLikeCriticalLabel(windowShowsDangerText) }
+
+internal fun String?.isButtonLikeCriticalLabel(windowShowsDangerText: Boolean): Boolean =
+    orEmpty().length <= BUTTON_LABEL_MAX_CHARS && isCriticalTapLabel(windowShowsDangerText)
 
 /** A tap label is critical on its own, or a bare confirm on a window showing critical text. */
 internal fun String?.isCriticalTapLabel(windowShowsDangerText: Boolean): Boolean =
     hasDangerousTapTargetText() || (windowShowsDangerText && isGenericConfirmLabel())
 
-private fun List<ScreenNode>.windowShowsDangerText(): Boolean = any { node -> node.tapLabel().hasDangerousActionText() }
+internal fun List<ScreenNode>.windowShowsDangerText(): Boolean =
+    any { node ->
+        node.tapLabels().any { label -> label.length <= DIALOG_TEXT_MAX_CHARS && label.hasDangerousActionText() }
+    }
 
 private fun ScreenBounds?.covers(x: Int, y: Int): Boolean =
     this != null && x in left..right && y in top..bottom
@@ -186,10 +231,9 @@ private fun ScreenBounds.area(): Long = (right - left).toLong() * (bottom - top)
 
 /** Shared with the accessibility service's own overlay-dismiss path, which walks live nodes. */
 internal fun ScreenNode.hasDangerousActionControl(): Boolean {
-    if (!enabled) return false
-    if (!clickable && !editable && !scrollable) return false
-    val label = text.ifBlank { contentDescription }
-    return label.hasDangerousActionText()
+    if (!enabled || editable) return false
+    if (!clickable && !scrollable) return false
+    return tapLabels().any { label -> label.hasDangerousActionText() }
 }
 
 // ── Blocking overlay / interstitial detection ────────────────────────────────────────────────────

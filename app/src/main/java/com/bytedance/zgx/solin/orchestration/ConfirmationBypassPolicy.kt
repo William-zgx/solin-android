@@ -31,6 +31,12 @@ enum class CriticalApprovalReason {
      * contacts, …) that an injected instruction could smuggle into the query or link.
      */
     SensitiveNetworkQuery,
+
+    /**
+     * Text to type that the user did not ask for, after this run read private data. Typing a link
+     * into a browser and pressing Enter is a network send that no other check sees.
+     */
+    TypedTextNotFromUser,
 }
 
 /** Tools that reach the network or an external app with free text, and the argument carrying it. */
@@ -78,15 +84,31 @@ internal class ConfirmationBypassPolicy(
                 safetyPolicy.containsSensitivePersonalOrSecretContent(request.arguments[networkArgument].orEmpty()) ||
                     runReadPrivateData(runId, before = request.id)
                 ) -> CriticalApprovalReason.SensitiveNetworkQuery
+            request.toolName == MobileActionFunctions.UI_TYPE_TEXT &&
+                runReadPrivateData(runId, before = request.id) &&
+                !isTextFromUser(runId, request.arguments["text"].orEmpty()) ->
+                CriticalApprovalReason.TypedTextNotFromUser
             else -> null
         }
     }
 
-    /** Whether an earlier step of [runId] requested a tool whose output is private (LocalOnly). */
+    /**
+     * Whether an earlier step of [runId] requested a tool that reads private device data.
+     * `calculate` marks its output private but reads nothing from the device.
+     */
     private fun runReadPrivateData(runId: String, before: String): Boolean =
         traceQueries.toolRequestsFor(runId)
             .takeWhile { request -> request.id != before }
-            .any { request -> toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty() }
+            .any { request ->
+                request.toolName != MobileActionFunctions.CALCULATE &&
+                    toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty()
+            }
+
+    /** Every word of [text] appears in what the user asked for, so a reworded query still counts. */
+    private fun isTextFromUser(runId: String, text: String): Boolean {
+        val input = traceStore.run(runId)?.input?.lowercase().orEmpty()
+        return text.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }.all { word -> word in input }
+    }
 
     fun withLowRiskAppControlContinuationBypass(
         runId: String,
@@ -95,6 +117,19 @@ internal class ConfirmationBypassPolicy(
     ): AgentPlan.UseTool = plan.withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
 
     private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
+        // web_search needs no confirmation in SafetyPolicy unless its own query looks sensitive, so
+        // a network step tainted by an earlier private read has to be raised here, in either mode.
+        if (safetyDecision.outcome == SafetyOutcome.Allow &&
+            criticalApprovalReason(runId, request) == CriticalApprovalReason.SensitiveNetworkQuery
+        ) {
+            return copy(
+                draft = draft.copy(requiresConfirmation = true),
+                safetyDecision = SafetyDecision(
+                    outcome = SafetyOutcome.RequireConfirmation,
+                    reason = "This network step follows a read of private data in the same run.",
+                ),
+            )
+        }
         if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
         if (!isAutoApproved(runId, request)) return this
         val bypassDecision = SafetyDecision(

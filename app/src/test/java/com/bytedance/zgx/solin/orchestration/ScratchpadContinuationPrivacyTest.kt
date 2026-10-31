@@ -122,6 +122,9 @@ class ScratchpadContinuationPrivacyTest {
         val runId = runWithObservedNote()
         val search = traceStore.steps(runId).filterIsInstance<AgentStep.ToolRequested>().last().request
         assertEquals(MobileActionFunctions.WEB_SEARCH, search.toolName)
+        // A network step after the run read a private note waits for the user.
+        assertEquals(AgentRunState.AwaitingUserConfirmation, traceStore.run(runId)?.state)
+        runtime.confirmToolRequest(runId, search.id)
         assertEquals(AgentRunState.ExecutingTool, traceStore.run(runId)?.state)
 
         val observed = runtime.observeToolResult(

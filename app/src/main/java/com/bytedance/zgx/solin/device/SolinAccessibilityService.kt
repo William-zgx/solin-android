@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 
 /**
  * Every traversal limit and wall-clock budget this file depends on, in one place.
@@ -468,7 +469,13 @@ class SolinAccessibilityService : AccessibilityService() {
                 return@executeUiAction UiPrimitiveResult.succeeded("已提交当前搜索输入")
             }
             val submitCandidate = refreshedRoot.findSearchSubmitCandidate(refreshedEditableNode ?: editableNode)
-            val clickPerformed = submitCandidate?.let { candidate -> activateCandidate(candidate) } ?: false
+            // The IME may already have submitted, so a refused extra click is not a failed search.
+            val clickPerformed = try {
+                submitCandidate?.let { candidate -> activateCandidate(candidate) } ?: false
+            } catch (refused: CriticalControlTapRefused) {
+                if (!imeAccepted) throw refused
+                false
+            }
             if (clickPerformed) {
                 UiPrimitiveResult.succeeded("已点击搜索提交入口")
             } else if (imeAccepted) {
@@ -594,14 +601,16 @@ class SolinAccessibilityService : AccessibilityService() {
             UiPrimitiveResult.succeeded("已等待屏幕稳定")
         }
 
-    private fun activeWindowRoot(): AccessibilityNodeInfo? {
+    private fun activeWindowRoot(): AccessibilityNodeInfo? = readOnMainThread { activeWindowRootDirect() }
+
+    private fun <T> readOnMainThread(read: () -> T?): T? {
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            return activeWindowRootDirect()
+            return read()
         }
         val latch = CountDownLatch(1)
-        var root: AccessibilityNodeInfo? = null
+        var value: T? = null
         mainHandler.post {
-            root = runCatching { activeWindowRootDirect() }.getOrNull()
+            value = runCatching(read).getOrNull()
             latch.countDown()
         }
         return if (
@@ -609,7 +618,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 latch.await(ACTIVE_WINDOW_ROOT_WAIT_MILLIS, TimeUnit.MILLISECONDS)
             }.getOrDefault(false)
         ) {
-            root
+            value
         } else {
             null
         }
@@ -705,15 +714,33 @@ class SolinAccessibilityService : AccessibilityService() {
      * Last line of the never-tap-critical-controls rule: every tap the agent makes (named target,
      * coordinate, OCR hint, search-entry focus) is checked here against the live window, on the
      * node it will actually land on — target matching is fuzzy, so a pre-check on the requested
-     * target text alone cannot be exact. No readable window means the tap cannot be checked.
+     * target text alone cannot be exact. No readable window means the tap cannot be checked, and
+     * neither does a truncated walk unless it saw a labelled node under the point.
      */
     private fun refuseCriticalTapAt(x: Int, y: Int, node: AccessibilityNodeInfo? = null) {
-        val labels = listOfNotNull(node, node?.clickableSelfOrAncestor())
-            .map { candidate -> candidate.toScreenNode(id = "").tapLabel() }
-        if (labels.any { label -> label.hasDangerousTapTargetText() }) throw CriticalControlTapRefused()
-        val root = activeWindowRoot() ?: throw CriticalControlTapRefused()
-        if (root.tapAtPointHitsDangerousControl(x, y)) throw CriticalControlTapRefused()
+        listOfNotNull(node, node?.clickableSelfOrAncestor()).forEach { candidate ->
+            val critical = candidate.toScreenNode(id = "").hasButtonLikeCriticalLabel(windowShowsDangerText = false) ||
+                candidate.viewIdResourceName?.substringAfter("id/").hasDangerousTapTargetText()
+            if (critical) throw CriticalControlTapRefused()
+        }
+        val (nodes, complete) = windowRootsForTapCheck().tapCheckNodes()
+        if (nodes.isEmpty()) throw CriticalControlTapRefused()
+        if (!complete && !nodes.hasLabelledActionableNodeAt(x, y)) throw CriticalControlTapRefused()
+        if (nodes.tapAtPointHitsDangerousControl(x, y)) throw CriticalControlTapRefused()
     }
+
+    /** [ACTION_CLICK] fires the whole container, so everything inside it must be safe to fire. */
+    private fun refuseCriticalContainerClick(container: AccessibilityNodeInfo) {
+        val bounds = container.safeBounds() ?: throw CriticalControlTapRefused()
+        if (windowRootsForTapCheck().tapCheckNodes().first.holdsCriticalControl(bounds)) {
+            throw CriticalControlTapRefused()
+        }
+    }
+
+    private fun windowRootsForTapCheck(): List<AccessibilityNodeInfo> =
+        readOnMainThread { windows.mapNotNull { window -> window.root } }
+            .orEmpty()
+            .ifEmpty { listOfNotNull(activeWindowRoot()) }
 
     /**
      * Dispatches one stroke and reports what the framework actually told us.
@@ -884,6 +911,10 @@ class SolinAccessibilityService : AccessibilityService() {
                 .toAbsolutePixels(screenWidth, screenHeight)
             val (endX, endY) = clampedNormalizedTarget(endXNorm, endYNorm)
                 .toAbsolutePixels(screenWidth, screenHeight)
+            // A swipe that barely moves lands as a tap.
+            if (abs(endX - startX) + abs(endY - startY) < DEGENERATE_SWIPE_MAX_TRAVEL_PX) {
+                refuseCriticalTapAt(startX, startY)
+            }
             val performed = dispatchSwipeGesture(startX, startY, endX, endY, durationMillis)
             if (performed) {
                 UiPrimitiveResult.succeeded(
@@ -907,6 +938,8 @@ class SolinAccessibilityService : AccessibilityService() {
             val (screenWidth, screenHeight) = gestureScreenSizePx()
             val (absX, absY) = clampedNormalizedTarget(xNorm, yNorm)
                 .toAbsolutePixels(screenWidth, screenHeight)
+            // A view with no long-click handler clicks on release.
+            refuseCriticalTapAt(absX, absY)
             val performed = dispatchLongPressGesture(absX, absY, holdMillis)
             if (performed) {
                 UiPrimitiveResult.succeeded("已长按坐标 ($xNorm, $yNorm)")
@@ -1072,6 +1105,7 @@ class SolinAccessibilityService : AccessibilityService() {
         // duplicate irreversible action, so we would rather report failure and let the caller re-plan
         // against a fresh observation than risk acting twice.
         if (!outcome.allowsFallbackClick) return false
+        clickNode?.let(::refuseCriticalContainerClick)
         return clickNode?.let { node ->
             submitUiSideEffect { node.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
         } == true
@@ -1295,7 +1329,13 @@ class SolinAccessibilityService : AccessibilityService() {
             if (candidate.node.isEditable) {
                 return EditableFocusResult.Found(candidate.node)
             }
-            if (!activateCandidate(candidate)) {
+            // A refused candidate is one search entry ruled out, not the end of the search for one.
+            val activated = try {
+                activateCandidate(candidate)
+            } catch (_: CriticalControlTapRefused) {
+                false
+            }
+            if (!activated) {
                 return@repeat
             }
             activatedCandidates += 1
@@ -1683,6 +1723,8 @@ private fun <T> submitUiRead(action: () -> T): T {
 }
 
 private val deviceControlTasks = DeviceControlTaskCoordinator()
+
+private const val DEGENERATE_SWIPE_MAX_TRAVEL_PX = 48
 
 private const val CRITICAL_CONTROL_TAP_REFUSED_MESSAGE =
     "这一步会点击支付、发送、删除、发布、下单、转账或授权类控件，需要你亲自操作。"
