@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Looper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.ToolAuditLog
@@ -709,10 +708,6 @@ class SolinViewModel internal constructor(
         modelLoadController.loadModel()
     }
 
-    fun resetConversation() {
-        sessionController.resetConversation()
-    }
-
     fun createNewSession() {
         sessionController.createNewSession()
     }
@@ -763,10 +758,6 @@ class SolinViewModel internal constructor(
 
     fun setRemoteSendDisclosurePolicy(policy: RemoteSendDisclosurePolicy) {
         chatController.setRemoteSendDisclosurePolicy(policy)
-    }
-
-    fun refreshRemoteSendAuditEvents() {
-        chatController.refreshRemoteSendAuditEvents()
     }
 
     fun ingestSharedInput(sharedInput: SharedInput) {
@@ -828,14 +819,6 @@ class SolinViewModel internal constructor(
         outcome: AgentExternalOutcome,
     ) {
         toolExecutionController.recordExternalOutcome(pending, outcome)
-    }
-
-    fun confirmActionDraft(draft: ActionDraft) {
-        toolExecutionController.confirmActionDraft(draft)
-    }
-
-    fun dismissActionDraft() {
-        toolExecutionController.dismissActionDraft()
     }
 
     override fun onCleared() {

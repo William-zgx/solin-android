@@ -1247,10 +1247,6 @@ class ChatController internal constructor(
         remoteSendSupport.failClosedPendingRemoteSendOnStartup()
     }
 
-    fun refreshRemoteSendAuditEvents() {
-        remoteSendSupport.refreshRemoteSendAuditEvents()
-    }
-
     fun dismissRemoteSendDisclosure() {
         remoteSendSupport.dismissRemoteSendDisclosure()
     }

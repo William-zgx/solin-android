@@ -45,10 +45,6 @@ class SessionController(
         sessionRestoreJob = null
     }
 
-    fun resetConversation() {
-        createNewSession()
-    }
-
     fun createNewSession() {
         if (uiState.value.isBusy) return
         clearPendingRemoteChatState()
