@@ -484,8 +484,11 @@ internal fun AuditEventRow(event: AuditEventSummary) {
     }
 }
 
-internal fun AuditEventSummary.auditTimeLabel(): String =
-    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
+/** "MM-dd HH:mm" in the device locale, used by every audit and task timestamp. */
+internal fun shortTimestamp(millis: Long): String =
+    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
+
+internal fun AuditEventSummary.auditTimeLabel(): String = shortTimestamp(createdAtMillis)
 
 internal val periodicCheckIntervalOptions = listOf(
     PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES to "1 小时",
@@ -504,7 +507,7 @@ internal fun PeriodicCheckPolicySummary.statusLine(): String {
     val policyLabel = if (isSwitchEnabled()) "已启用" else "未启用"
     val statusLabel = taskStatus?.label()?.let { "状态 $it" }
     val nextCheckLabel = nextAllowedRunAtMillis?.let {
-        "下次允许检查 ${SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(it))}"
+        "下次允许检查 ${shortTimestamp(it)}"
     }
     val lastRunLabel = lastRunSummary?.takeIf { it.isNotBlank() }?.let { "最近 $it" }
     return listOfNotNull(policyLabel, statusLabel, nextCheckLabel, lastRunLabel)
@@ -573,7 +576,7 @@ internal fun BackgroundTaskSummary.triggerLabel(): String {
         ScheduledTaskType.Reminder -> "触发"
         ScheduledTaskType.PeriodicCheck -> "下次允许检查"
     }
-    return "$prefix ${SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(triggerAtMillis))}"
+    return "$prefix ${shortTimestamp(triggerAtMillis)}"
 }
 
 internal fun ScheduledTaskType.label(): String =

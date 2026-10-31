@@ -1,11 +1,7 @@
 package com.bytedance.zgx.solin.ui.components
 
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -44,13 +40,7 @@ internal fun RemoteModeDisclosureSheet(
                 .testTag("remote_mode_confirm_button"),
             onClick = onConfirm,
         ) {
-            SolinGlyph(
-                kind = SolinGlyphKind.Spark,
-                modifier = Modifier.size(18.dp),
-                tint = LocalContentColor.current,
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("确认")
+            GlyphLabel(SolinGlyphKind.Spark, "确认")
         }
     }
 }

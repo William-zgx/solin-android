@@ -275,13 +275,7 @@ internal fun QuickModelSetup(
                 onClick = onOpenRemoteModelConfig,
                 enabled = !state.isBusy,
             ) {
-                SolinGlyph(
-                    kind = SolinGlyphKind.Spark,
-                    modifier = Modifier.size(18.dp),
-                    tint = LocalContentColor.current,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("配置远程模型")
+                GlyphLabel(SolinGlyphKind.Spark, "配置远程模型")
             }
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val stackModelActions = stackModelActionsForTextScale || maxWidth < 280.dp

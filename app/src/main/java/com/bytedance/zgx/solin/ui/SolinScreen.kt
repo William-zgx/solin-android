@@ -246,7 +246,7 @@ fun SolinScreen(
                                     message = message,
                                     isStreaming = state.isGenerating &&
                                         message.role == MessageRole.Assistant &&
-                                        message.id == state.messages.lastOrNull()?.id,
+                                        message.id == lastMessageId,
                                 )
                             }
                         }

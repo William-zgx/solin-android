@@ -4,12 +4,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -85,13 +83,7 @@ internal fun RemoteSendDisclosureSheet(
                     .testTag("remote_send_confirm_button"),
                 onClick = { onConfirm(canSuppressForSession && suppressForSession) },
             ) {
-                SolinGlyph(
-                    kind = SolinGlyphKind.Spark,
-                    modifier = Modifier.size(18.dp),
-                    tint = LocalContentColor.current,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("确认发送")
+                GlyphLabel(SolinGlyphKind.Spark, "确认发送")
             }
         }
         if (requiresSensitiveConsent) {
@@ -112,13 +104,7 @@ internal fun RemoteSendDisclosureSheet(
                         .testTag("remote_send_mask_button"),
                     onClick = onMaskAndSend,
                 ) {
-                    SolinGlyph(
-                        kind = SolinGlyphKind.Shield,
-                        modifier = Modifier.size(18.dp),
-                        tint = LocalContentColor.current,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("打码后发送")
+                    GlyphLabel(SolinGlyphKind.Shield, "打码后发送")
                 }
             }
             OutlinedButton(
@@ -127,13 +113,7 @@ internal fun RemoteSendDisclosureSheet(
                     .testTag("remote_send_anyway_button"),
                 onClick = onSendAnyway,
             ) {
-                SolinGlyph(
-                    kind = SolinGlyphKind.Spark,
-                    modifier = Modifier.size(18.dp),
-                    tint = LocalContentColor.current,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("仍然发送（已记录）")
+                GlyphLabel(SolinGlyphKind.Spark, "仍然发送（已记录）")
             }
         }
         OutlinedButton(
@@ -142,13 +122,7 @@ internal fun RemoteSendDisclosureSheet(
                 .testTag("remote_send_dismiss_button"),
             onClick = onDismiss,
         ) {
-            SolinGlyph(
-                kind = SolinGlyphKind.Close,
-                modifier = Modifier.size(18.dp),
-                tint = LocalContentColor.current,
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("取消")
+            GlyphLabel(SolinGlyphKind.Close, "取消")
         }
     }
 }

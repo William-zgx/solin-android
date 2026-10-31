@@ -40,9 +40,6 @@ import com.bytedance.zgx.solin.ui.TRUST_PERMISSION_BOUNDARY_TEXT
 import com.bytedance.zgx.solin.ui.TRUST_REMOTE_BOUNDARY_TEXT
 import com.bytedance.zgx.solin.ui.sensitiveCapabilityDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.trustCenterCapabilityDisplayRows
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
@@ -443,8 +440,7 @@ internal fun RemoteSendDisclosurePolicy.remoteSendPolicyDescription(): String =
         RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "普通文本直接发送；疑似敏感内容和图片仍会强制确认。"
     }
 
-internal fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
-    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
+internal fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String = shortTimestamp(createdAtMillis)
 
 @Composable
 internal fun TrustBoundaryRow(
@@ -490,7 +486,7 @@ internal fun semanticMemoryIndexStatusText(state: ChatUiState): String {
         "轻量索引"
     }
     val rebuilt = state.semanticMemory.lastRebuiltAtMillis
-        ?.let { millis -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(millis)) }
+        ?.let(::shortTimestamp)
         ?: "尚未建立"
     return "召回模式：$mode；索引：${state.semanticMemory.indexedRecordCount} 条长期记忆；最近重建：$rebuilt"
 }

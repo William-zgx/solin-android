@@ -3,13 +3,9 @@ package com.bytedance.zgx.solin.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -145,13 +141,7 @@ internal fun ActionDraftSheet(
                             .testTag("open_special_access_${requirement.id}"),
                         onClick = { onOpenSpecialAccessSettings(requirement) },
                     ) {
-                        SolinGlyph(
-                            kind = SolinGlyphKind.Check,
-                            modifier = Modifier.size(18.dp),
-                            tint = LocalContentColor.current,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("打开系统设置")
+                        GlyphLabel(SolinGlyphKind.Check, "打开系统设置")
                     }
                 }
             }
