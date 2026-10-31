@@ -2,10 +2,14 @@ package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.device.BLOCKING_OVERLAY_MARKER_THRESHOLD
 import com.bytedance.zgx.solin.device.UiScrollDirection
+import com.bytedance.zgx.solin.device.hasBlockingOverlayMarker
+import com.bytedance.zgx.solin.device.screenObservationFromJsonStringOrNull
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
@@ -65,6 +69,12 @@ sealed interface RemoteVisionDecision {
     data object Wait : RemoteVisionDecision
 
     /**
+     * Wait until [until] holds on the live screen, checked locally by `ui_wait` — no capture or send.
+     * Built only by the parser, after a step that carried `until` (or in place of a `wait` that did).
+     */
+    data class WaitUntil(val until: RemoteVisionUntil) : RemoteVisionDecision
+
+    /**
      * Several steps from one reply, so "tap the search box, type, submit" costs one round trip. The
      * first step may be anything; the rest are coordinate-free ([isCoordinateFreeStep]) because a
      * coordinate read from this screenshot is stale once a step has changed the screen. Built only
@@ -82,6 +92,18 @@ sealed interface RemoteVisionDecision {
      */
     data class Unavailable(val reason: String) : RemoteVisionDecision
 }
+
+/**
+ * A plan step's `until`: the conditions `ui_wait` polls for before the next queued step runs. At
+ * least one of [text] (appears), [gone] (disappears) or [packageName] (is foreground) is set; all set
+ * ones must hold. [timeoutMillis] null means the `ui_wait` default.
+ */
+data class RemoteVisionUntil(
+    val text: String? = null,
+    val gone: String? = null,
+    val packageName: String? = null,
+    val timeoutMillis: Long? = null,
+)
 
 /**
  * Captures the current screen, sends the screenshot to the remote vision model, and parses its
@@ -122,7 +144,12 @@ fun interface RemoteVisionDecider {
  *
  * A [RemoteVisionDecision.Plan]'s later steps run from a local queue with no capture or send. Each
  * one runs only if the step before it succeeded; otherwise the queue is dropped and the model
- * re-decides from a fresh screen. Every step still counts against the shared step budget.
+ * re-decides from a fresh screen. Every step still counts against the shared step budget, and every
+ * step re-enters the normal plan → confirm → execute path. The queue is also dropped when the step
+ * that just ran left the plan's app (its foreground package differs from the plan's expected one,
+ * or is unknown while one is expected) or newly showed a blocking overlay (the `hasBlockingOverlay`
+ * marker count the tap path's overlay dismissal uses). A [RemoteVisionDecision.WaitUntil] with a
+ * package is the one planned app switch: the wait itself checks it.
  *
  * @param decider the capture→send→parse seam (Android/coroutine/network isolated behind it)
  * @param gateProvider true only when inferenceMode==Remote AND the remote-GUI opt-in is on AND the
@@ -164,7 +191,17 @@ class RemoteVisionObservationReplanner(
             priorSteps = context.remoteVisionPriorSteps(),
         )
         val next = if (decided is RemoteVisionDecision.Plan) {
-            if (executeDecisions) queuedSteps.set(QueuedSteps(context.run.id, decided.steps.drop(1)))
+            if (executeDecisions) {
+                queuedSteps.set(
+                    QueuedSteps(
+                        runId = context.run.id,
+                        steps = decided.steps.drop(1),
+                        expectedPackage = (decided.steps.first() as? RemoteVisionDecision.WaitUntil)?.until?.packageName
+                            ?: context.inheritedForegroundPackage()
+                            ?: context.observedResult.foregroundPackage(),
+                    ),
+                )
+            }
             decided.steps.first()
         } else {
             decided
@@ -205,6 +242,11 @@ class RemoteVisionObservationReplanner(
                 context.toWaitReplan()
             }
 
+            is RemoteVisionDecision.WaitUntil -> {
+                logger("remote-vision: decision wait-until")
+                context.toWaitUntilReplan(decision.until)
+            }
+
             is RemoteVisionDecision.Plan -> {
                 logger("remote-vision: nested plan — fail closed, loop stops")
                 return null
@@ -237,17 +279,33 @@ class RemoteVisionObservationReplanner(
     }
 
     /**
-     * The next queued step of this run's plan, when the step that just ran was the plan's and it
-     * succeeded. Anything else drops the queue, so the model re-decides from a fresh screen.
+     * The next queued step of this run's plan, when the step that just ran was the plan's, it
+     * succeeded, it stayed in the plan's app and it did not raise a blocking overlay. Anything else
+     * drops the queue, so the model re-decides from a fresh screen.
      */
     private fun AgentObservationReplanContext.takeQueuedStep(): RemoteVisionDecision? {
         val queued = queuedSteps.getAndSet(null) ?: return null
         if (queued.runId != run.id) return null
         if (previousRequest.reason != REMOTE_VISION_REPLAN_REQUEST_REASON) return null
         if (observedResult.status != ToolStatus.Succeeded) return null
+        val next = queued.steps.firstOrNull() ?: return null
+        val switchWait = (next as? RemoteVisionDecision.WaitUntil)?.until?.packageName
+        // A wait for a package is itself the foreground check, so the switch before it is planned.
+        if (switchWait == null && queued.expectedPackage != null &&
+            observedResult.foregroundPackage() != queued.expectedPackage
+        ) {
+            logger("remote-vision: foreground left the plan's app — queue dropped")
+            return null
+        }
+        if (observedResult.raisedBlockingOverlay()) {
+            logger("remote-vision: a dialog or overlay appeared — queue dropped")
+            return null
+        }
         val rest = queued.steps.drop(1)
-        if (rest.isNotEmpty()) queuedSteps.set(queued.copy(steps = rest))
-        return queued.steps.firstOrNull()
+        if (rest.isNotEmpty()) {
+            queuedSteps.set(queued.copy(steps = rest, expectedPackage = switchWait ?: queued.expectedPackage))
+        }
+        return next
     }
 
     /**
@@ -316,6 +374,26 @@ class RemoteVisionObservationReplanner(
         )
 
     /**
+     * Builds a LOCAL `ui_wait` that polls for [until] and fails on timeout. A wait for a package
+     * carries no expectedPackageName: the switch to that package is what it waits for.
+     */
+    private fun AgentObservationReplanContext.toWaitUntilReplan(until: RemoteVisionUntil): AgentObservationReplan =
+        remoteVisionReplan(
+            toolName = MobileActionFunctions.UI_WAIT,
+            title = "等待页面条件",
+            summary = "远程视觉模型规划等待页面满足条件后再继续。",
+            arguments = buildMap {
+                until.text?.let { put("expectText", it) }
+                until.gone?.let { put("expectGoneText", it) }
+                until.packageName?.let { put("expectPackage", it) }
+                until.timeoutMillis?.let { put("timeoutMillis", it.toString()) }
+                if (until.packageName == null) {
+                    inheritedForegroundPackage()?.let { put("expectedPackageName", it) }
+                }
+            },
+        )
+
+    /**
      * Builds a LOCAL `ui_press_back`. Back operates on no content and has no foreground gate (its
      * schema accepts no package binding), matching how [ModelObservationReplanner] treats it.
      */
@@ -339,8 +417,13 @@ class RemoteVisionObservationReplanner(
             arguments = mapOf("message" to message),
         )
 
+    /** A succeeded wait for a package confirmed that package in front, so it binds what follows. */
     private fun AgentObservationReplanContext.inheritedForegroundPackage(): String? =
-        previousRequest.arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
+        previousRequest.arguments["expectPackage"]?.trim()?.takeIf {
+            it.isNotBlank() && previousRequest.toolName == MobileActionFunctions.UI_WAIT &&
+                observedResult.status == ToolStatus.Succeeded
+        }
+            ?: previousRequest.arguments["expectedPackageName"]?.trim()?.takeIf { it.isNotBlank() }
             ?: previousRequest.arguments["targetPackageName"]?.trim()?.takeIf { it.isNotBlank() }
             ?: inheritedExpectedForegroundPackage
 
@@ -367,13 +450,37 @@ class RemoteVisionObservationReplanner(
         )
 }
 
-private data class QueuedSteps(val runId: String, val steps: List<RemoteVisionDecision>)
+/** [expectedPackage] is the app the plan was made for; null when it was unknown at plan time. */
+private data class QueuedSteps(
+    val runId: String,
+    val steps: List<RemoteVisionDecision>,
+    val expectedPackage: String?,
+)
+
+/** The foreground package a device-control result reports after it ran (observe or UI action). */
+private fun ToolResult.foregroundPackage(): String? =
+    (data["afterPackageName"] ?: data["packageName"])?.trim()?.takeIf { it.isNotBlank() }
+
+/**
+ * True when the result's after-screen shows a blocking overlay its before-screen did not. Reads the
+ * LocalOnly observation JSON already in the result; nothing leaves the device.
+ */
+private fun ToolResult.raisedBlockingOverlay(): Boolean =
+    data["afterScreenObservationJson"].showsBlockingOverlay() &&
+        !data["beforeScreenObservationJson"].showsBlockingOverlay()
+
+private fun String?.showsBlockingOverlay(): Boolean {
+    val observation = this?.let(::screenObservationFromJsonStringOrNull) ?: return false
+    return observation.elements.count { element -> element.text.hasBlockingOverlayMarker() } >=
+        BLOCKING_OVERLAY_MARKER_THRESHOLD
+}
 
 /** Steps that stay valid after the screen changed, so they may follow another step in a plan. */
 internal fun RemoteVisionDecision.isCoordinateFreeStep(): Boolean =
     this is RemoteVisionDecision.Type ||
         this == RemoteVisionDecision.SubmitSearch ||
-        this == RemoteVisionDecision.Wait
+        this == RemoteVisionDecision.Wait ||
+        this is RemoteVisionDecision.WaitUntil
 
 /**
  * This run's remote-planned actions, oldest first, for the model's next decision: kinds and

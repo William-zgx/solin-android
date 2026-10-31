@@ -186,7 +186,20 @@ Current status:
   type, submit, or wait as a local `ui_*` action under the same preflight rules (and, in per-step mode, the same confirmation and 5-step
   checkpoint). One reply may plan up to 4 steps: only coordinate-free steps may
   follow the first, they run with no new capture, and any failed step drops the
-  rest so the model re-decides. A `stop` decision,
+  rest so the model re-decides. A step may carry
+  `"until": {"text"|"gone"|"package": …, "timeoutMs": …}`; it is followed by a
+  local `ui_wait` that polls the Accessibility snapshot for that condition
+  (`expectText` / `expectGoneText` / `expectPackage`, default 8 s, clamped to
+  0.5–20 s, `conditionMet` in the result) and fails on timeout, so the next
+  step runs only once the page is ready. A malformed `until` (unknown key, bad
+  type, no condition) drops the whole reply. The queue also stops when the
+  step that just ran left the plan's foreground package (or reported none
+  while one was expected) or newly showed a blocking overlay (the
+  `hasBlockingOverlay` marker heuristic); a `package` wait is the one planned
+  app switch. Window-type dialog detection was not added because snapshots
+  carry no window list; system dialogs surface as a package change. Every
+  queued step still goes through the normal plan, confirmation and preflight
+  path. A `stop` decision,
   or a repeat of the last action on an unchanged screen, ends the run with a
   local `finish` instead of falling back to the local action model. Capture or
   send failures fail closed and stop the loop.

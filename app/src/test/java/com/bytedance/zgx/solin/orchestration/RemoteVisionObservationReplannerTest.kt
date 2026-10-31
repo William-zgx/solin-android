@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
 import com.bytedance.zgx.solin.device.UiScrollDirection
 import com.bytedance.zgx.solin.device.sampledPixelsLookBlank
+import com.bytedance.zgx.solin.device.toScreenObservationJsonString
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
@@ -645,6 +646,229 @@ class RemoteVisionObservationReplannerTest {
             parseRemoteVisionDecision("""{"action":"tap","x":"500","y":"250"}"""),
         )
     }
+
+    // ── until: local wait conditions ─────────────────────────────────────────────────────────
+
+    @Test
+    fun parserTurnsUntilIntoAQueuedWait() {
+        assertEquals(
+            RemoteVisionDecision.Plan(
+                listOf(
+                    RemoteVisionDecision.Tap(500, 80),
+                    RemoteVisionDecision.WaitUntil(RemoteVisionUntil(text = "搜索", timeoutMillis = 8_000L)),
+                    RemoteVisionDecision.Type("牛奶"),
+                ),
+            ),
+            parseRemoteVisionDecision(
+                """{"steps":[{"action":"tap","x":500,"y":80,"until":{"text":"搜索","timeoutMs":8000}},{"action":"type","text":"牛奶"}]}""",
+            ),
+        )
+        // A single action with until is a two-step plan; a wait with until is just the wait.
+        assertEquals(
+            RemoteVisionDecision.Plan(
+                listOf(RemoteVisionDecision.SubmitSearch, RemoteVisionDecision.WaitUntil(RemoteVisionUntil(gone = "加载中"))),
+            ),
+            parseRemoteVisionDecision("""{"action":"submit","until":{"gone":"加载中"}}"""),
+        )
+        assertEquals(
+            RemoteVisionDecision.WaitUntil(RemoteVisionUntil(packageName = "com.xingin.xhs", timeoutMillis = 20_000L)),
+            parseRemoteVisionDecision("""{"action":"wait","until":{"package":"com.xingin.xhs","timeoutMs":99999}}"""),
+        )
+    }
+
+    @Test
+    fun badUntilDropsTheWholePlan() {
+        listOf(
+            """{"action":"tap","x":1,"y":1,"until":{"text":"a","colour":"red"}}""",
+            """{"action":"tap","x":1,"y":1,"until":"搜索"}""",
+            """{"action":"tap","x":1,"y":1,"until":{"text":5}}""",
+            """{"action":"tap","x":1,"y":1,"until":{"text":"a","timeoutMs":"8000"}}""",
+            """{"action":"tap","x":1,"y":1,"until":{"text":"a","timeoutMs":1.5}}""",
+            """{"action":"tap","x":1,"y":1,"until":{"timeoutMs":3000}}""",
+            """{"action":"tap","x":1,"y":1,"until":{"text":"  "}}""",
+            """{"action":"tap","x":1,"y":1,"until":{"package":"not a package"}}""",
+            """{"action":"tap","x":1,"y":1,"until":null}""",
+            """{"action":"stop","until":{"text":"a"}}""",
+            // Even on a step that would otherwise be cut off by truncation.
+            """{"steps":[{"action":"tap","x":1,"y":1},{"action":"tap","x":2,"y":2,"until":{"bogus":1}}]}""",
+        ).forEach { raw ->
+            assertEquals(raw, RemoteVisionDecision.Unavailable("plan_invalid_until"), parseRemoteVisionDecision(raw))
+        }
+    }
+
+    @Test
+    fun untilWaitRunsBeforeTheNextStepAndOnlyItsSuccessReleasesIt() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                if (calls == 1) {
+                    RemoteVisionDecision.Plan(
+                        listOf(
+                            RemoteVisionDecision.Tap(500, 80),
+                            RemoteVisionDecision.WaitUntil(RemoteVisionUntil(text = "搜索", timeoutMillis = 6_000L)),
+                            RemoteVisionDecision.Type("牛奶"),
+                        ),
+                    )
+                } else {
+                    RemoteVisionDecision.Back
+                }
+            },
+        )
+        val tap = replanner.planNext(context(inheritedPackage = "com.xingin.xhs"))!!.request
+        val wait = replanner.planNext(context(previous = tap).withAfterPackage("com.xingin.xhs"))!!.request
+        assertEquals(MobileActionFunctions.UI_WAIT, wait.toolName)
+        assertEquals(
+            mapOf("expectText" to "搜索", "timeoutMillis" to "6000", "expectedPackageName" to "com.xingin.xhs"),
+            wait.arguments,
+        )
+        assertNull(defaultBuiltInToolRegistry.validate(wait))
+
+        // The wait timed out: the queued type is dropped and the model decides again.
+        val timedOut = context(priorRequests = listOf(tap), previous = wait).let { ctx ->
+            ctx.copy(
+                observedResult = ctx.observedResult.copy(
+                    status = ToolStatus.Failed,
+                    retryable = true,
+                    data = mapOf("failureKind" to "timeout", "screenObservationDiffSummary" to "unchanged"),
+                ),
+            )
+        }
+        assertEquals(MobileActionFunctions.UI_PRESS_BACK, replanner.planNext(timedOut)!!.request.toolName)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun succeededUntilWaitReleasesTheNextStep() {
+        val replanner = plannerWith(
+            decider = {
+                RemoteVisionDecision.Plan(
+                    listOf(
+                        RemoteVisionDecision.Tap(500, 80),
+                        RemoteVisionDecision.WaitUntil(RemoteVisionUntil(text = "搜索")),
+                        RemoteVisionDecision.Type("牛奶"),
+                    ),
+                )
+            },
+        )
+        val tap = replanner.planNext(context())!!.request
+        val wait = replanner.planNext(context(previous = tap))!!.request
+        val typed = replanner.planNext(context(priorRequests = listOf(tap), previous = wait))!!.request
+
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typed.toolName)
+    }
+
+    @Test
+    fun packageChangeDropsTheQueue() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                if (calls == 1) {
+                    RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(500, 80), RemoteVisionDecision.Type("牛奶")))
+                } else {
+                    RemoteVisionDecision.Back
+                }
+            },
+        )
+        val tap = replanner.planNext(context(inheritedPackage = "com.xingin.xhs"))!!.request
+        val switched = context(previous = tap).withAfterPackage("com.android.launcher")
+
+        assertEquals(MobileActionFunctions.UI_PRESS_BACK, replanner.planNext(switched)!!.request.toolName)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun unknownForegroundDropsTheQueueWhenAPackageIsExpected() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(100 * calls, 80), RemoteVisionDecision.SubmitSearch))
+            },
+        )
+        val tap = replanner.planNext(context(inheritedPackage = "com.xingin.xhs"))!!.request
+
+        assertEquals(MobileActionFunctions.UI_TAP, replanner.planNext(context(previous = tap))!!.request.toolName)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun aPlannedPackageWaitIsNotAnAppSwitch() {
+        val replanner = plannerWith(
+            decider = {
+                RemoteVisionDecision.Plan(
+                    listOf(
+                        RemoteVisionDecision.Tap(500, 80),
+                        RemoteVisionDecision.WaitUntil(RemoteVisionUntil(packageName = "com.taobao.taobao")),
+                        RemoteVisionDecision.Type("牛奶"),
+                    ),
+                )
+            },
+        )
+        val tap = replanner.planNext(context(inheritedPackage = "com.xingin.xhs"))!!.request
+        val wait = replanner.planNext(context(previous = tap).withAfterPackage("com.android.launcher"))!!.request
+        assertEquals(mapOf("expectPackage" to "com.taobao.taobao"), wait.arguments)
+
+        val typed = replanner.planNext(
+            context(priorRequests = listOf(tap), previous = wait).withAfterPackage("com.taobao.taobao"),
+        )!!.request
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typed.toolName)
+    }
+
+    @Test
+    fun aNewOverlayDropsTheQueue() {
+        var calls = 0
+        val replanner = plannerWith(
+            decider = {
+                calls++
+                if (calls == 1) {
+                    RemoteVisionDecision.Plan(listOf(RemoteVisionDecision.Tap(500, 80), RemoteVisionDecision.Type("牛奶")))
+                } else {
+                    RemoteVisionDecision.Back
+                }
+            },
+        )
+        val tap = replanner.planNext(context())!!.request
+        val overlay = context(previous = tap).let { ctx ->
+            ctx.copy(
+                observedResult = ctx.observedResult.copy(
+                    data = ctx.observedResult.data + mapOf(
+                        "beforeScreenObservationJson" to observationJson("首页"),
+                        "afterScreenObservationJson" to observationJson("优惠券", "红包", "关闭"),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(MobileActionFunctions.UI_PRESS_BACK, replanner.planNext(overlay)!!.request.toolName)
+        assertEquals(2, calls)
+    }
+
+    private fun AgentObservationReplanContext.withAfterPackage(packageName: String): AgentObservationReplanContext =
+        copy(observedResult = observedResult.copy(data = observedResult.data + ("afterPackageName" to packageName)))
+
+    private fun observationJson(vararg texts: String): String =
+        ScreenStateSnapshot(
+            id = "o",
+            packageName = "com.xingin.xhs",
+            capturedAtMillis = 1L,
+            nodes = texts.map { text ->
+                ScreenNode(
+                    id = text,
+                    text = text,
+                    contentDescription = "",
+                    className = "",
+                    bounds = null,
+                    clickable = false,
+                    editable = false,
+                    scrollable = false,
+                    enabled = true,
+                )
+            },
+            textSummary = "",
+            truncated = false,
+        ).toScreenObservationJsonString()
 
     private fun assertFinishes(message: String, replan: AgentObservationReplan?) {
         assertEquals(message, MobileActionFunctions.FINISH, replan?.request?.toolName)

@@ -26,6 +26,9 @@ private const val REMOTE_VISION_MAX_NORMALIZED = 1_000
 private const val REMOTE_VISION_MAX_PLAN_STEPS = 4
 private const val REMOTE_VISION_SCREEN_TREE_MAX_CHARS = 4_000
 private const val REMOTE_VISION_SCREEN_TREE_LABEL_MAX_CHARS = 40
+private const val REMOTE_VISION_UNTIL_TEXT_MAX_CHARS = 200
+private const val REMOTE_VISION_UNTIL_MIN_TIMEOUT_MILLIS = 500L
+private const val REMOTE_VISION_UNTIL_MAX_TIMEOUT_MILLIS = 20_000L
 
 /**
  * The strict-JSON decision instruction handed to the remote vision model. It receives the current
@@ -59,6 +62,7 @@ internal fun remoteVisionDecisionPrompt(
     - 任务已完成或无需继续时：{"action":"stop"}
     能确定后续步骤时一次规划多步，例如：{"steps":[{"action":"tap","x":500,"y":80},{"action":"type","text":"牛奶"},{"action":"submit"}]}
     点击后屏幕会变化，所以第一步之后只能跟 type、submit、wait。
+    某一步之后要等页面加载时，给这一步加 until，本地会等条件满足再做下一步，例如：{"action":"submit","until":{"text":"综合","timeoutMs":8000}}（until 只能含 text 出现、gone 消失、package 前台应用、timeoutMs）
     遇到支付、发送、删除、发布、下单、购买、转账、授权等危险操作控件时，输出 {"action":"stop"}，不要点击。
     """.trimIndent()
 
@@ -151,7 +155,9 @@ class AndroidRemoteVisionDecider(
  * Parses the remote vision model's strict-JSON reply into a [RemoteVisionDecision]. Tolerant of
  * surrounding prose (extracts the first `{...}` block) but fail-closed on anything it cannot read as
  * a valid step. In a `steps` reply, the plan ends at the first later step that is invalid or not
- * coordinate-free; the model decides that step again from a fresh screen. Pure for unit testing.
+ * coordinate-free; the model decides that step again from a fresh screen. A step's `until` adds a
+ * [RemoteVisionDecision.WaitUntil] after it (a `wait` step becomes that wait); a malformed `until`
+ * on any step drops the whole reply. Pure for unit testing.
  */
 internal fun parseRemoteVisionDecision(raw: String): RemoteVisionDecision {
     val jsonText = raw.substringAfter('{', "").let { if (it.isBlank()) "" else "{$it" }
@@ -159,17 +165,73 @@ internal fun parseRemoteVisionDecision(raw: String): RemoteVisionDecision {
     if (jsonText.isBlank()) return RemoteVisionDecision.Unavailable("unparseable_no_json")
     val json = runCatching { JSONObject(jsonText) }.getOrNull()
         ?: return RemoteVisionDecision.Unavailable("unparseable_json")
-    val steps = json.optJSONArray("steps") ?: return json.toRemoteVisionStep()
-    val parsed = (0 until steps.length()).map { index ->
-        steps.optJSONObject(index)?.toRemoteVisionStep()
-            ?: RemoteVisionDecision.Unavailable("plan_step_not_object")
+    val stepObjects = json.optJSONArray("steps")
+        ?.let { steps -> (0 until steps.length()).map { index -> steps.optJSONObject(index) } }
+        ?: listOf(json)
+    // Checked on every step before any truncation, so one bad `until` drops the whole plan.
+    val untils = stepObjects.map { step -> step?.remoteVisionUntil() ?: UntilParse.Absent }
+    if (untils.any { it == UntilParse.Invalid }) return RemoteVisionDecision.Unavailable("plan_invalid_until")
+    val parsed = stepObjects.mapIndexed { index, step ->
+        val decision = step?.toRemoteVisionStep() ?: RemoteVisionDecision.Unavailable("plan_step_not_object")
+        decision to (untils[index] as? UntilParse.Valid)?.until
     }
-    val first = parsed.firstOrNull() ?: return RemoteVisionDecision.Unavailable("plan_empty")
-    if (first is RemoteVisionDecision.Unavailable || first == RemoteVisionDecision.Stop) return first
+    val (first, firstUntil) = parsed.firstOrNull() ?: return RemoteVisionDecision.Unavailable("plan_empty")
+    if (first is RemoteVisionDecision.Unavailable) return first
+    if (first == RemoteVisionDecision.Stop) {
+        return if (firstUntil == null) first else RemoteVisionDecision.Unavailable("plan_invalid_until")
+    }
     val followUps = parsed.drop(1)
-        .takeWhile { step -> step.isCoordinateFreeStep() }
+        .takeWhile { (step, _) -> step.isCoordinateFreeStep() }
         .take(REMOTE_VISION_MAX_PLAN_STEPS - 1)
-    return if (followUps.isEmpty()) first else RemoteVisionDecision.Plan(listOf(first) + followUps)
+    val expanded = (listOf(first to firstUntil) + followUps).flatMap { (step, until) -> step.withUntil(until) }
+    return expanded.singleOrNull() ?: RemoteVisionDecision.Plan(expanded)
+}
+
+private fun RemoteVisionDecision.withUntil(until: RemoteVisionUntil?): List<RemoteVisionDecision> =
+    when {
+        until == null -> listOf(this)
+        this == RemoteVisionDecision.Wait -> listOf(RemoteVisionDecision.WaitUntil(until))
+        else -> listOf(this, RemoteVisionDecision.WaitUntil(until))
+    }
+
+private sealed interface UntilParse {
+    data object Absent : UntilParse
+    data class Valid(val until: RemoteVisionUntil) : UntilParse
+    data object Invalid : UntilParse
+}
+
+private val remoteVisionUntilKeys = setOf("text", "gone", "package", "timeoutMs")
+private val remoteVisionPackageRegex = Regex("""[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+""")
+
+/**
+ * Strict on purpose: `until` must be an object with only [remoteVisionUntilKeys]; `text` / `gone` /
+ * `package` must be non-blank strings of at most [REMOTE_VISION_UNTIL_TEXT_MAX_CHARS] (`package`
+ * also package-shaped), `timeoutMs` a JSON integer, and at least one condition must be present.
+ * An in-range-typed timeout is clamped the same way `ui_wait` clamps it.
+ */
+private fun JSONObject.remoteVisionUntil(): UntilParse {
+    if (!has("until")) return UntilParse.Absent
+    val until = opt("until") as? JSONObject ?: return UntilParse.Invalid
+    if (until.keys().asSequence().any { key -> key !in remoteVisionUntilKeys }) return UntilParse.Invalid
+    val conditions = listOf("text", "gone", "package").associateWith { key ->
+        if (!until.has(key)) return@associateWith null
+        (until.opt(key) as? String)?.trim()
+            ?.takeIf { it.isNotEmpty() && it.length <= REMOTE_VISION_UNTIL_TEXT_MAX_CHARS }
+            ?: return UntilParse.Invalid
+    }
+    val packageName = conditions["package"]
+    if (packageName != null && !remoteVisionPackageRegex.matches(packageName)) return UntilParse.Invalid
+    if (conditions.values.all { it == null }) return UntilParse.Invalid
+    val timeoutMillis = if (until.has("timeoutMs")) {
+        when (val value = until.opt("timeoutMs")) {
+            is Int -> value.toLong()
+            is Long -> value
+            else -> return UntilParse.Invalid
+        }.coerceIn(REMOTE_VISION_UNTIL_MIN_TIMEOUT_MILLIS, REMOTE_VISION_UNTIL_MAX_TIMEOUT_MILLIS)
+    } else {
+        null
+    }
+    return UntilParse.Valid(RemoteVisionUntil(conditions["text"], conditions["gone"], packageName, timeoutMillis))
 }
 
 private fun JSONObject.toRemoteVisionStep(): RemoteVisionDecision {
