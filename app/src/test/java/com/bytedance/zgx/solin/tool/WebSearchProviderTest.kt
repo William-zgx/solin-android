@@ -1,11 +1,15 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
+import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
+import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import com.bytedance.zgx.solin.publicWebEvidencePackFromToolResultData
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Clock
@@ -517,9 +521,76 @@ class WebSearchProviderTest {
         }
     }
 
-    private fun provider(server: MockWebServer): OkHttpWebSearchProvider =
+    @Test
+    fun eachOutboundSearchRecordsARedactedAuditEntryWithoutTheQuery() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                htmlResponse(
+                    """
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fhot">今日热搜</a></h2>
+                          <a class="result__snippet">今日热点摘要</a>
+                        </div>
+                      </body>
+                    </html>
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val sink = RecordingAuditSink()
+            val query = "我的身份证号 110101199003071234 能查到什么"
+            val provider = provider(server, auditSink = sink)
+
+            val result = provider.search(
+                WebSearchRequest(query = query, maxResults = 1, freshness = WebSearchFreshness.Current),
+            )
+
+            require(result is WebSearchReadResult.Available)
+            val entry = sink.events.single()
+            assertEquals(RemoteSendDecision.Confirmed, entry.decision)
+            assertEquals("web_search", entry.modelName)
+            assertTrue("the entry names the provider host", entry.summary.contains("host=${server.hostName}"))
+            assertTrue(
+                "the entry records the query length, not the query",
+                Regex("queryChars=[0-9]+").containsMatchIn(entry.summary),
+            )
+            assertFalse("the query text must never reach the audit", entry.summary.contains("110101199003071234"))
+            assertFalse("the query text must never reach the audit", entry.summary.contains("能查到什么"))
+        }
+    }
+
+    @Test
+    fun searchWithoutAnAuditSinkStillWorks() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                jsonResponse(
+                    """{"AbstractText":"摘要","AbstractURL":"https://example.com/kotlin","Heading":"Kotlin"}""",
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            assertTrue(provider.search(WebSearchRequest(query = "Kotlin")) is WebSearchReadResult.Available)
+        }
+    }
+
+    private class RecordingAuditSink : RemoteSendAuditSink {
+        val events = mutableListOf<RemoteSendAuditEvent>()
+
+        override fun record(event: RemoteSendAuditEvent) {
+            events += event.redactedForAudit()
+        }
+    }
+
+    private fun provider(
+        server: MockWebServer,
+        auditSink: RemoteSendAuditSink? = null,
+    ): OkHttpWebSearchProvider =
         OkHttpWebSearchProvider(
             client = OkHttpClient(),
+            auditSink = auditSink,
             geocodingBaseUrl = server.url("/geo").toString(),
             forecastBaseUrl = server.url("/forecast").toString(),
             instantAnswerBaseUrl = server.url("/instant").toString(),

@@ -375,6 +375,11 @@ image count, remote history message count, and a redacted summary (capped at
 200 characters) — never message content, token counts, privacy level, or
 error codes.
 
+Every outbound path writes one of these entries: remote chat, remote vision,
+the cloud/edge decision router, MCP extension tools, and each `web_search`
+request. A `web_search` entry records the tool name, the provider host, and the
+query length only — never the query text or the request URL (which carries it).
+
 Agent trace and pending confirmation recovery are narrower than a full
 execution replay. Pending rows persist only allowlisted request arguments,
 redacted structure, and value-free checkpoint identifiers where possible.

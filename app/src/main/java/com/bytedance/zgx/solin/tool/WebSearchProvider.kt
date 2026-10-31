@@ -1,5 +1,9 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
+import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
+import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -21,6 +25,7 @@ private const val WEB_SEARCH_EVIDENCE_SCHEMA_VERSION = 1
 internal const val DEFAULT_WEB_SEARCH_MAX_RESULTS = 3
 internal const val MAX_WEB_SEARCH_MAX_RESULTS = 5
 private const val WEB_SEARCH_USER_AGENT = "Solin/0.1 Android WebSearch"
+private const val WEB_SEARCH_AUDIT_MODEL_NAME = "web_search"
 private val currentFreshnessTermRegex =
     Regex(
         """(?i)(最新|目前|当前|现在|近期|最近|今日|今天|今年|当下|热搜|热点|热门|火热|榜单|排行|排名|趋势|\blatest\b|\bcurrent\b|\bcurrently\b|\brecent\b|\btrending\b|\bhottest\b|\bpopular\b|\branking\b|\brankings\b|\bleaderboard\b|\btoday\b|\bnow\b)""",
@@ -142,6 +147,12 @@ class OkHttpWebSearchProvider(
     private val htmlSearchBaseUrl: String = "https://html.duckduckgo.com/html/",
     private val liteSearchBaseUrl: String = "https://lite.duckduckgo.com/lite/",
     private val clock: Clock = Clock.systemUTC(),
+    /**
+     * Egress audit for each outbound search request. Remote chat, remote vision, the router and MCP
+     * already record theirs; a web search carries the query off-device too. Null keeps the provider
+     * usable in tests, but production always wires it (SolinAppContainer).
+     */
+    private val auditSink: RemoteSendAuditSink? = null,
 ) : WebSearchProvider {
     override fun search(request: WebSearchRequest): WebSearchReadResult {
         val cleanedQuery = request.query.trim()
@@ -235,6 +246,7 @@ class OkHttpWebSearchProvider(
                         .addQueryParameter("format", "json")
                         .build()
                         .toString(),
+                    queryLength = locationQuery.length,
                 ),
             )
         }.getOrElse { throwable ->
@@ -261,6 +273,7 @@ class OkHttpWebSearchProvider(
                         .addQueryParameter("timezone", "auto")
                         .build()
                         .toString(),
+                    queryLength = locationQuery.length,
                 ),
             )
         }.getOrElse { throwable ->
@@ -373,6 +386,7 @@ class OkHttpWebSearchProvider(
                         .build()
                         .toString(),
                     accept = "application/json",
+                    queryLength = submittedQuery.length,
                 ),
             )
         }.getOrElse { throwable ->
@@ -431,6 +445,7 @@ class OkHttpWebSearchProvider(
                         .build()
                         .toString(),
                     accept = "text/html,application/xhtml+xml",
+                    queryLength = submittedQuery.length,
                 )
             }.getOrElse { throwable ->
                 failures += "${endpoint.sourceId}: ${throwable.cleanReason()}"
@@ -511,7 +526,8 @@ class OkHttpWebSearchProvider(
         )
     }
 
-    private fun get(url: String, accept: String? = null): String {
+    private fun get(url: String, accept: String? = null, queryLength: Int = 0): String {
+        recordEgress(url, queryLength)
         val requestBuilder = Request.Builder()
             .url(url)
             .get()
@@ -524,6 +540,22 @@ class OkHttpWebSearchProvider(
             }
             return safeResponse.body.string()
         }
+    }
+
+    /**
+     * Records one redacted egress entry: tool name, provider host and query length only — never
+     * the query text, and never the URL (it carries the query). Mirrors the router's audit entry.
+     */
+    private fun recordEgress(url: String, queryLength: Int) {
+        val sink = auditSink ?: return
+        val host = runCatching { url.toHttpUrl().host }.getOrNull() ?: return
+        sink.record(
+            RemoteSendAuditEvent(
+                decision = RemoteSendDecision.Confirmed,
+                modelName = WEB_SEARCH_AUDIT_MODEL_NAME,
+                summary = "${MobileActionFunctions.WEB_SEARCH} 已发送：host=$host，queryChars=$queryLength",
+            ),
+        )
     }
 }
 

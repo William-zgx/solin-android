@@ -141,7 +141,10 @@ partial implementations of the sensitive-text check:**
 Not covered: remote vision intent and
 screen text, and text handed to other apps (`share_text`, `compose_email`,
 SMS / calendar / contact drafts). Remote-send audit entries exist for remote
-chat, remote vision, the router and MCP, but not for web search or intents.
+chat, remote vision, the router, MCP and — since gap 5 (closed 2026-10-31) —
+each `web_search` request (`OkHttpWebSearchProvider` records the tool name,
+provider host and query length, never the query). Intents (`search_maps`,
+`open_deep_link`) still write none.
 
 **Remote tool-result continuation (gap 3, closed 2026-10-31).** The continuation
 prompt runs the same `ChatSendPreflight.preparedRemoteSend` as the first turn

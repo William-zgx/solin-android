@@ -349,7 +349,7 @@ class SolinAppContainer(
                 contactSummaryProvider = AndroidContactSummaryProvider(appContext),
                 notificationSummaryProvider = AndroidNotificationSummaryProvider(appContext),
                 recentFileProvider = AndroidRecentFileProvider(appContext),
-                webSearchProvider = OkHttpWebSearchProvider(),
+                webSearchProvider = OkHttpWebSearchProvider(auditSink = remoteSendAuditRepository),
                 delegate = ActionExecutor(
                     context = appContext,
                     backgroundTaskScheduler = backgroundTaskScheduler,
