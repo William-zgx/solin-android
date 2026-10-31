@@ -37,6 +37,10 @@ internal class ToolObservationCoordinator(
     private val toolPlanCoordinator: ToolPlanCoordinator,
     private val runBudget: AgentRunBudget,
     private val maxToolRetryAttempts: Int,
+    private val confirmationBypassPolicy: ConfirmationBypassPolicy,
+    private val pendingConfirmationSupport: PendingConfirmationSupport,
+    private val publicEvidenceContinuation: PublicEvidenceContinuation,
+    private val continuationBuilder: ToolObservationContinuationBuilder,
     private val host: Host,
 ) {
     /**
@@ -52,11 +56,6 @@ internal class ToolObservationCoordinator(
          */
         fun hasPendingUserInput(runId: String): Boolean = false
 
-        fun continuationForToolObservation(
-            run: AgentRun,
-            request: ToolRequest?,
-            result: ToolResult,
-        ): ToolObservationContinuation?
         fun failObservationBudget(
             runId: String,
             result: ToolResult,
@@ -73,23 +72,11 @@ internal class ToolObservationCoordinator(
         fun clearEphemeralRunState(runId: String)
         fun safeRecordTelemetry(sample: MetricSample, label: String)
         fun recordStepLatency(stepType: String, runId: String?)
-        fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
-        fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot
         fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult
         fun addScratchpadNote(runId: String, noteContent: String)
         fun markToolDispatchStarted(requestId: String)
         fun consumeToolDispatchLatencyMs(requestId: String): Long
         fun setRemoteToolScope(runId: String, scope: RemoteToolScope)
-        fun publicEvidenceBatchResultOrFailure(result: ToolResult, request: ToolRequest): ToolResult
-        fun publicEvidenceBatchAuditSummary(
-            successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-        ): String
-        fun publicEvidenceBatchContinuationPrompt(
-            run: AgentRun,
-            observedPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-            successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-            gapPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-        ): String?
     }
 
     fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? {
@@ -116,7 +103,7 @@ internal class ToolObservationCoordinator(
         val observedPairs = plans.map { plan ->
             val rawResult = resultsByRequestId.getValue(plan.request.id)
             val validatedResult = toolRegistry.validateResult(plan.request, rawResult) ?: rawResult
-            val publicResult = host.publicEvidenceBatchResultOrFailure(validatedResult, plan.request)
+            val publicResult = with(publicEvidenceContinuation) { validatedResult.publicEvidenceBatchResultOrFailure(plan.request) }
             val traceResult = publicResult.redactedForTrace(plan.request, toolRegistry)
             traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
             auditRecorder.request(
@@ -138,7 +125,7 @@ internal class ToolObservationCoordinator(
         }
         val failedPair = gapPairs.firstOrNull()
         val aggregatePair = cancelledPair ?: failedPair
-        val publicEvidenceSummary = host.publicEvidenceBatchAuditSummary(successfulPairs)
+        val publicEvidenceSummary = with(publicEvidenceContinuation) { successfulPairs.publicEvidenceBatchAuditSummary() }
         val assistantMessage = when {
             cancelledPair != null -> "工具批量执行已取消：${cancelledPair.second.summary}"
             failedPair != null && successfulPairs.isNotEmpty() ->
@@ -179,7 +166,7 @@ internal class ToolObservationCoordinator(
             )
         }
         val continuationPrompt = if (cancelledPair == null && successfulPairs.isNotEmpty()) {
-            host.publicEvidenceBatchContinuationPrompt(
+            publicEvidenceContinuation.publicEvidenceBatchContinuationPrompt(
                 run = run,
                 observedPairs = observedPairs,
                 successfulPairs = successfulPairs,
@@ -303,7 +290,7 @@ internal class ToolObservationCoordinator(
             expectedState = run.state,
             state = AgentRunState.Observing,
         ) ?: return null
-        val continuation = host.continuationForToolObservation(run, request, safeResult)
+        val continuation = continuationBuilder.continuationForToolObservation(run, request, safeResult)
         val continuationPrompt = continuation?.prompt
         val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false
         val continuationRemoteToolScope =
@@ -471,7 +458,7 @@ internal class ToolObservationCoordinator(
         }
         if (effectiveDecision is AgentObservationDecision.PlanNextTool) {
             if (!parkedForAskUser && effectiveDecision.plan.requiresUserConfirmation()) {
-                traceStore.savePendingConfirmation(host.toPendingSnapshot(effectiveDecision.plan, updatedRun))
+                traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(effectiveDecision.plan, updatedRun))
             }
         }
         return AgentObservationResult(
@@ -795,7 +782,7 @@ internal class ToolObservationCoordinator(
         run: AgentRun,
         plan: AgentPlan.UseTool,
     ): AgentLoopResult {
-        val effectivePlan = host.withConfirmationBypass(run.id, plan)
+        val effectivePlan = confirmationBypassPolicy.withConfirmationBypass(run.id, plan)
         if (runBudget.toolStepBudgetExceeded(run.id)) {
             return host.failInitialPlanBudget(run, effectivePlan.request)
         }
@@ -809,7 +796,7 @@ internal class ToolObservationCoordinator(
         host.parkForAskUserIfNeeded(run.id, effectivePlan)
         val waitingRun = traceStore.updateState(run.id, effectivePlan.nextExecutionState())
         if (effectivePlan.requiresUserConfirmation()) {
-            traceStore.savePendingConfirmation(host.toPendingSnapshot(effectivePlan, waitingRun))
+            traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(effectivePlan, waitingRun))
         }
         return AgentLoopResult(
             run = waitingRun,

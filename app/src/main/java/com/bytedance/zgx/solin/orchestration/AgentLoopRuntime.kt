@@ -24,7 +24,6 @@ import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
-import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.skill.SkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRunProgressor
 import com.bytedance.zgx.solin.tool.ToolRegistry
@@ -244,6 +243,32 @@ class AgentLoopRuntime(
         actionPlanningRuntime = actionPlanningRuntime,
         traceStore = traceStore,
     )
+    private val confirmationBypassPolicy = ConfirmationBypassPolicy(
+        toolRegistry = toolRegistry,
+        traceStore = traceStore,
+        traceQueries = traceQueries,
+        isCriticalOnlyConfirmationEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
+        safetyPolicy = safetyPolicy,
+    )
+    private val publicEvidenceContinuation = PublicEvidenceContinuation(
+        toolRegistry = toolRegistry,
+        traceStore = traceStore,
+        traceQueries = traceQueries,
+        evidenceBlobStore = evidenceBlobStore,
+    )
+    private val pendingConfirmationSupport = PendingConfirmationSupport(
+        toolRegistry = toolRegistry,
+        traceStore = traceStore,
+        traceQueries = traceQueries,
+        initialToolPlanner = initialToolPlanner,
+        valueFreeCompletedStepFrontiersByRunId = valueFreeCompletedStepFrontiersByRunId,
+        host = object : PendingConfirmationSupport.Host {
+            override fun clearEphemeralRunState(runId: String) =
+                this@AgentLoopRuntime.clearEphemeralRunState(runId)
+        },
+        auditRecorder = auditRecorder,
+    )
+
     private val toolPlanCoordinator = ToolPlanCoordinator(
         toolRegistry = toolRegistry,
         skillRuntime = skillRuntime,
@@ -255,6 +280,7 @@ class AgentLoopRuntime(
         safetyPolicy = safetyPolicy,
         runBudget = runBudget,
         initialToolPlanner = initialToolPlanner,
+        confirmationBypassPolicy = confirmationBypassPolicy,
         host = object : ToolPlanCoordinator.Host {
             override fun installedCapabilityProfiles(runId: String): List<ModelCapabilityProfile> =
                 installedCapabilityProfilesByRunId[runId].orEmpty()
@@ -273,18 +299,20 @@ class AgentLoopRuntime(
 
             override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> =
                 valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()
-
-            override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-                confirmationBypassPolicy.withConfirmationBypass(runId, plan)
-
-            override fun withLowRiskAppControlContinuationBypass(
-                runId: String,
-                plan: AgentPlan.UseTool,
-                skillPlan: SkillPlan?,
-            ): AgentPlan.UseTool =
-                confirmationBypassPolicy.withLowRiskAppControlContinuationBypass(runId, plan, skillPlan)
         },
         auditRecorder = auditRecorder,
+    )
+
+    // Eager: every dependency above is initialized by now.
+    private val toolObservationContinuationBuilder = ToolObservationContinuationBuilder(
+        toolRegistry = toolRegistry,
+        toolPlanCoordinator = toolPlanCoordinator,
+        initialToolPlanner = initialToolPlanner,
+        skillProgressor = skillProgressor,
+        traceQueries = traceQueries,
+        publicEvidenceContinuation = publicEvidenceContinuation,
+        scratchpad = scratchpad,
+        evidenceBlobStore = evidenceBlobStore,
     )
 
     private val toolObservationCoordinator = ToolObservationCoordinator(
@@ -297,16 +325,13 @@ class AgentLoopRuntime(
         toolPlanCoordinator = toolPlanCoordinator,
         runBudget = runBudget,
         maxToolRetryAttempts = maxToolRetryAttempts,
+        confirmationBypassPolicy = confirmationBypassPolicy,
+        pendingConfirmationSupport = pendingConfirmationSupport,
+        publicEvidenceContinuation = publicEvidenceContinuation,
+        continuationBuilder = toolObservationContinuationBuilder,
         host = object : ToolObservationCoordinator.Host {
             override fun hasPendingUserInput(runId: String): Boolean =
                 runScopedState.pendingUserInputByRunId[runId] == true
-
-            override fun continuationForToolObservation(
-                run: AgentRun,
-                request: ToolRequest?,
-                result: ToolResult,
-            ): ToolObservationContinuation? =
-                toolObservationContinuationBuilder.continuationForToolObservation(run, request, result)
 
             override fun failObservationBudget(
                 runId: String,
@@ -341,12 +366,6 @@ class AgentLoopRuntime(
                 this@AgentLoopRuntime.recordStepLatency(stepType, runId)
             }
 
-            override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-                confirmationBypassPolicy.withConfirmationBypass(runId, plan)
-
-            override fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
-                pendingConfirmationSupport.toPendingSnapshot(plan, run)
-
             override fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult =
                 this@AgentLoopRuntime.failInitialPlanBudget(run, request)
 
@@ -367,41 +386,7 @@ class AgentLoopRuntime(
             override fun setRemoteToolScope(runId: String, scope: RemoteToolScope) {
                 remoteToolScopesByRunId[runId] = scope
             }
-
-            override fun publicEvidenceBatchResultOrFailure(
-                result: ToolResult,
-                request: ToolRequest,
-            ): ToolResult = with(publicEvidenceContinuation) { result.publicEvidenceBatchResultOrFailure(request) }
-
-            override fun publicEvidenceBatchAuditSummary(
-                successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-            ): String = with(publicEvidenceContinuation) { successfulPairs.publicEvidenceBatchAuditSummary() }
-
-            override fun publicEvidenceBatchContinuationPrompt(
-                run: AgentRun,
-                observedPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-                successfulPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-                gapPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
-            ): String? = publicEvidenceContinuation.publicEvidenceBatchContinuationPrompt(
-                run = run,
-                observedPairs = observedPairs,
-                successfulPairs = successfulPairs,
-                gapPairs = gapPairs,
-            )
         },
-    )
-
-    private val pendingConfirmationSupport = PendingConfirmationSupport(
-        toolRegistry = toolRegistry,
-        traceStore = traceStore,
-        traceQueries = traceQueries,
-        initialToolPlanner = initialToolPlanner,
-        valueFreeCompletedStepFrontiersByRunId = valueFreeCompletedStepFrontiersByRunId,
-        host = object : PendingConfirmationSupport.Host {
-            override fun clearEphemeralRunState(runId: String) =
-                this@AgentLoopRuntime.clearEphemeralRunState(runId)
-        },
-        auditRecorder = auditRecorder,
     )
 
     private val modelToolRequestCoordinator = ModelToolRequestCoordinator(
@@ -413,6 +398,8 @@ class AgentLoopRuntime(
         toolObservationCoordinator = toolObservationCoordinator,
         runBudget = runBudget,
         initialToolPlanner = initialToolPlanner,
+        confirmationBypassPolicy = confirmationBypassPolicy,
+        pendingConfirmationSupport = pendingConfirmationSupport,
         host = object : ModelToolRequestCoordinator.Host {
             override fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult? =
                 this@AgentLoopRuntime.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)
@@ -420,14 +407,8 @@ class AgentLoopRuntime(
             override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? =
                 this@AgentLoopRuntime.failRunBudget(runId, reason)
 
-            override fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-                confirmationBypassPolicy.withConfirmationBypass(runId, plan)
-
             override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
                 this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
-
-            override fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot =
-                pendingConfirmationSupport.toPendingSnapshot(plan, run)
 
             override fun clearEphemeralRunState(runId: String) =
                 this@AgentLoopRuntime.clearEphemeralRunState(runId)
@@ -1805,31 +1786,6 @@ class AgentLoopRuntime(
     private fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) =
         runEvents.publishRunFailed(runId, code, message)
 
-    private val confirmationBypassPolicy = ConfirmationBypassPolicy(
-        toolRegistry = toolRegistry,
-        traceStore = traceStore,
-        traceQueries = traceQueries,
-        isCriticalOnlyConfirmationEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
-        safetyPolicy = safetyPolicy,
-    )
-    private val toolObservationContinuationBuilder by lazy {
-        ToolObservationContinuationBuilder(
-            toolRegistry = toolRegistry,
-            toolPlanCoordinator = toolPlanCoordinator,
-            initialToolPlanner = initialToolPlanner,
-            skillProgressor = skillProgressor,
-            traceQueries = traceQueries,
-            publicEvidenceContinuation = publicEvidenceContinuation,
-            scratchpad = scratchpad,
-            evidenceBlobStore = evidenceBlobStore,
-        )
-    }
-    private val publicEvidenceContinuation = PublicEvidenceContinuation(
-        toolRegistry = toolRegistry,
-        traceStore = traceStore,
-        traceQueries = traceQueries,
-        evidenceBlobStore = evidenceBlobStore,
-    )
 
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
         val restoredSnapshot = traceStore.latestPendingConfirmation()

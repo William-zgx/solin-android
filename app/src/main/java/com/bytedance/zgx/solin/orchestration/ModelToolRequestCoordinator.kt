@@ -27,15 +27,15 @@ internal class ModelToolRequestCoordinator(
     private val toolObservationCoordinator: ToolObservationCoordinator,
     private val runBudget: AgentRunBudget,
     private val initialToolPlanner: InitialToolPlanner,
+    private val confirmationBypassPolicy: ConfirmationBypassPolicy,
+    private val pendingConfirmationSupport: PendingConfirmationSupport,
     private val host: Host,
     private val auditRecorder: ToolAuditRecorder,
 ) {
     interface Host {
         fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult?
         fun failRunBudget(runId: String, reason: String): AgentModelObservationResult?
-        fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
         fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean
-        fun toPendingSnapshot(plan: AgentPlan.UseTool, run: AgentRun): PendingToolConfirmationSnapshot
         fun clearEphemeralRunState(runId: String)
         fun markStepStart(runId: String, stepType: String)
     }
@@ -109,7 +109,7 @@ internal class ModelToolRequestCoordinator(
         )
         return when (plan) {
             is AgentPlan.UseTool -> {
-                val effectivePlan = host.withConfirmationBypass(runId, plan)
+                val effectivePlan = confirmationBypassPolicy.withConfirmationBypass(runId, plan)
                 val decision = AgentObservationDecision.PlanNextTool(
                     plan = effectivePlan,
                     reason = "Remote model requested a tool call.",
@@ -125,7 +125,7 @@ internal class ModelToolRequestCoordinator(
                 val parkedForAskUser = host.parkForAskUserIfNeeded(runId, effectivePlan)
                 traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
                 if (!parkedForAskUser && effectivePlan.requiresUserConfirmation()) {
-                    traceStore.savePendingConfirmation(host.toPendingSnapshot(effectivePlan, updatedRun))
+                    traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(effectivePlan, updatedRun))
                 }
                 AgentModelObservationResult(
                     run = updatedRun,

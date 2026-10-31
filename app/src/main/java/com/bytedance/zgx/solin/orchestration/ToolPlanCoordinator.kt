@@ -66,6 +66,7 @@ internal class ToolPlanCoordinator(
     private val safetyPolicy: SafetyPolicy,
     private val runBudget: AgentRunBudget,
     private val initialToolPlanner: InitialToolPlanner,
+    private val confirmationBypassPolicy: ConfirmationBypassPolicy,
     private val host: Host,
     private val auditRecorder: ToolAuditRecorder,
 ) {
@@ -94,12 +95,6 @@ internal class ToolPlanCoordinator(
          */
         fun localScratchpadNotes(runId: String): List<String> = emptyList()
         fun valueFreeCompletedStepFrontiers(runId: String): Set<String>
-        fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool
-        fun withLowRiskAppControlContinuationBypass(
-            runId: String,
-            plan: AgentPlan.UseTool,
-            skillPlan: SkillPlan?,
-        ): AgentPlan.UseTool
     }
 
     fun planNextToolAfterObservation(
@@ -707,9 +702,9 @@ internal class ToolPlanCoordinator(
             skillPlan = skillPlan,
             safetyDecision = safetyDecision,
         ).let { built ->
-            host.withConfirmationBypass(runId, built)
+            confirmationBypassPolicy.withConfirmationBypass(runId, built)
         }.let { bypassed ->
-            host.withLowRiskAppControlContinuationBypass(runId, bypassed, skillPlan)
+            confirmationBypassPolicy.withLowRiskAppControlContinuationBypass(runId, bypassed, skillPlan)
         }
         return NextObservationPlan.Planned(
             plan,
