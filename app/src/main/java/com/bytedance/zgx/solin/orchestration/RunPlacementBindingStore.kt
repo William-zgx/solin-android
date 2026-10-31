@@ -79,9 +79,9 @@ class RoomRunPlacementBindingStore(
     ): TerminalizeRunResult {
         if (!state.isTerminal()) return TerminalizeRunResult.Rejected
         val lock = lifecycleLock(runId)
-        return synchronized(lock) {
+        val (result, stopHandle) = synchronized(lock) {
             val permit = activeBindings[runId]
-            val result = if (permit == null) {
+            val outcome = if (permit == null) {
                 terminalizePersisted(runId, state, updatedAtMillis, permit = null)
             } else {
                 synchronized(permit.entry) {
@@ -92,37 +92,53 @@ class RoomRunPlacementBindingStore(
             // terminal every later transition is a DB-side no-op (bindAndReserve/activate re-read the
             // persisted terminal state and reject), so drop it instead of keeping one per run forever.
             // A caller already waiting on this lock still observes the terminal state afterwards.
-            if (result is TerminalizeRunResult.Terminalized) {
+            if (outcome.result is TerminalizeRunResult.Terminalized) {
                 lifecycleLocks.remove(runId, lock)
             }
-            result
+            outcome
         }
+        // Stop the captured running invocation AFTER leaving both locks. terminalizePersisted also
+        // captures the handle when the run is already terminal in another state (it then returns
+        // Rejected so the caller's placement result stays accurate) — that invocation still has to
+        // stop, and stopping it while holding the entry lock risks a re-entrant stop deadlocking.
+        stopHandle?.stop()
+        return result
     }
 
+    /**
+     * Applies the terminal transition and returns the result together with the stop handle of a
+     * running invocation captured on the way.
+     *
+     * The handle is returned even when the run is already terminal in a DIFFERENT state: the caller
+     * gets [TerminalizeRunResult.Rejected] for the conflicting request, but a still-running
+     * invocation must not be left alive just because the persisted state disagreed with the caller.
+     */
     private fun terminalizePersisted(
         runId: String,
         state: AgentRunState,
         updatedAtMillis: Long,
         permit: ActiveRunPlacementPermit?,
-    ): TerminalizeRunResult {
+    ): TerminalizeOutcome {
         val result = runCatching {
             dao.terminalizeTransaction(
                 runId = runId,
                 state = state.name,
                 updatedAtMillis = updatedAtMillis,
             )
-        }.getOrNull() ?: return TerminalizeRunResult.Rejected
+        }.getOrNull() ?: return TerminalizeOutcome(TerminalizeRunResult.Rejected, stopHandle = null)
         val stopHandle = permit?.entry?.runtimeEntry
             ?.let { runtime -> (runtime as? RuntimeInvocationEntry.Running)?.stopHandle }
         permit?.let { active ->
             active.entry.binding = active.binding.copy(dispatchState = ModelDispatchState.Terminal)
             active.entry.runtimeEntry = RuntimeInvocationEntry.Terminal
         }
-        if (!result.targetStateMatched) return TerminalizeRunResult.Rejected
+        if (!result.targetStateMatched) {
+            return TerminalizeOutcome(TerminalizeRunResult.Rejected, stopHandle)
+        }
         val placement = result.binding?.placement?.let { raw ->
             runCatching { RunPlacement.valueOf(raw) }.getOrNull()
         }
-        return TerminalizeRunResult.Terminalized(placement, stopHandle)
+        return TerminalizeOutcome(TerminalizeRunResult.Terminalized(placement), stopHandle)
     }
 
     override fun bindAndReserve(binding: RunPlacementBinding): BindAndReserveResult {
@@ -411,6 +427,12 @@ class RoomRunPlacementBindingStore(
             snapshot.steps.haveConsistentPlacementTrace(this)
     }.getOrDefault(false)
 }
+
+private data class TerminalizeOutcome(
+    val result: TerminalizeRunResult,
+    /** A running invocation's stop handle captured under the entry lock, for the caller to stop. */
+    val stopHandle: RuntimeStopHandle?,
+)
 
 private fun RunPlacementBinding.isInitialCanonicalBinding(): Boolean =
     schemaVersion == RUN_PLACEMENT_BINDING_SCHEMA_VERSION &&

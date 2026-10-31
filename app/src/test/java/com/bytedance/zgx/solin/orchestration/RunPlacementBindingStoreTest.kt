@@ -475,6 +475,28 @@ class RunPlacementBindingStoreTest {
     }
 
     @Test
+    fun aRunTerminalInAnotherStateStillStopsItsRunningInvocation() {
+        // The run was failed by something else while its model call was still running. The caller's
+        // Cancelled request cannot win (the persisted state disagrees), so it is reported as
+        // Rejected — but the invocation must not be left running because of that.
+        val dao = FakeRunPlacementBindingDao()
+        val store = store(dao)
+        assertTrue(store.createCriticalRun(testRun("run-conflicting-terminal")))
+        val permit = (store.bindAndReserve(testBinding("run-conflicting-terminal")) as
+            BindAndReserveResult.Bound).permit
+        val invocation = (store.claimForDispatch(permit, testReceipt(RunPlacement.Local)) as
+            ClaimInvocationResult.Started).invocation
+        val stopHandle = RecordingRuntimeStopHandle()
+        store.startInvocation(permit, invocation) { FakeRunningModelRuntimeCall(stopHandle) }
+        dao.mutateRun("run-conflicting-terminal") { run -> run.copy(state = "Failed") }
+
+        val result = store.terminalizeRun("run-conflicting-terminal", AgentRunState.Cancelled, 2_000L)
+
+        assertTrue(result is TerminalizeRunResult.Rejected)
+        assertTrue("a conflicting terminal request must still stop the running invocation", stopHandle.stopped)
+    }
+
+    @Test
     fun remoteRevisionAcceptsOnlyCanonicalLowercaseUuidAndCorruptionFailsClosed() {
         val canaries = listOf(
             "https://private.example/v1",
@@ -645,4 +667,23 @@ class RunPlacementBindingStoreTest {
         elapsedRealtimeMillis = 2_000L,
         remoteProfileRevision = TEST_REMOTE_REVISION,
     )
+}
+
+/** Records whether a stop handle was invoked, without doing anything else. */
+private class RecordingRuntimeStopHandle : RuntimeStopHandle {
+    @Volatile
+    var stopped: Boolean = false
+
+    override fun stop() {
+        stopped = true
+    }
+}
+
+/** Minimal [RunningModelRuntimeCall] whose completion is irrelevant to the lifecycle test. */
+private class FakeRunningModelRuntimeCall(
+    private val handle: RuntimeStopHandle,
+) : RunningModelRuntimeCall<Unit> {
+    override suspend fun await(): Unit = Unit
+
+    override fun stop() = handle.stop()
 }
