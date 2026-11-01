@@ -10,74 +10,49 @@ internal const val ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE =
     "本次使用远程模型：图片发送前会确认；非图片附件、分享文本和 OCR 不会自动发送。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
-    "隐私优先的随身 AI 助手：可下载或导入本地模型，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界和权限。"
+    "隐私优先的随身助手；远程可选，设备动作必须确认。"
 
 internal const val PRODUCT_POSITIONING_SHORT_TEXT =
     "隐私优先的随身 AI 助手"
 
-internal const val PRODUCT_HOME_TITLE_TEXT =
-    "隐私优先的随身 AI 助手"
-
-internal const val PRODUCT_HOME_DESCRIPTION_TEXT =
-    "本地模型可下载或导入，远程多模态可选，设备动作必须确认执行。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
-
-internal enum class HomeValueKind {
-    Local,
-    Remote,
-    Action,
-}
-
-internal data class HomeValueProposition(
-    val kind: HomeValueKind,
-    val title: String,
-    val body: String,
+internal data class HomeSuggestion(
+    val text: String,
+    val category: String,
 )
 
-internal val HOME_VALUE_PROPOSITIONS = listOf(
-    HomeValueProposition(
-        kind = HomeValueKind.Local,
-        title = "本地可用",
-        body = "基础问答、图片输入、会话和显式记忆优先留在本机；离线模型可稍后下载或导入。",
-    ),
-    HomeValueProposition(
-        kind = HomeValueKind.Remote,
-        title = "远程多模态可选",
-        body = "远程模型只在你配置并切换后使用；切换时提醒一次，疑似敏感内容仍会单独确认。",
-    ),
-    HomeValueProposition(
-        kind = HomeValueKind.Action,
-        title = "动作确认执行",
-        body = "联系人、日历、分享、提醒和系统相关动作先说明权限与风险，再由你确认。",
-    ),
+/** Ready-home rows: a task the user can start in one tap, plus its capability category. */
+internal val HOME_SUGGESTIONS = listOf(
+    HomeSuggestion(text = "明早 7 点叫我起床", category = "闹钟"),
+    HomeSuggestion(text = "把这周的日程列给我", category = "日历"),
+    HomeSuggestion(text = "打开微信扫一扫", category = "操作手机"),
+    HomeSuggestion(text = "记住：我对花生过敏", category = "记忆"),
 )
 
-internal const val MODEL_STARTUP_BANNER_TITLE =
-    "模型未就绪"
+// Home: not-ready state picks one of three placements.
+internal const val PRODUCT_HOME_NOT_READY_TITLE = "先选一个大脑"
+internal const val PRODUCT_HOME_NOT_READY_LINE = "选好之前不读取手机内容，也不向外发送"
+internal const val PRODUCT_HOME_LOCAL_CHOICE_TITLE = "在本机运行"
+internal const val PRODUCT_HOME_LOCAL_CHOICE_LINE = "断网也能用，对话不离开手机"
+internal const val PRODUCT_HOME_REMOTE_CHOICE_TITLE = "连接远程模型"
+internal const val PRODUCT_HOME_REMOTE_CHOICE_LINE = "Key 加密保存在本机；图片发送前会确认"
+internal const val PRODUCT_HOME_IMPORT_CHOICE_TITLE = "导入 .litertlm 文件"
+internal const val PRODUCT_HOME_IMPORT_CHOICE_LINE = "已有模型文件时使用"
+internal const val PRODUCT_HOME_DOWNLOAD_ACTION = "下载"
+internal const val PRODUCT_HOME_CANCEL_DOWNLOAD_ACTION = "取消下载"
+internal const val PRODUCT_HOME_MODEL_SELECTION_ROW = "选择要下载的模型"
+internal const val PRODUCT_HOME_SKIP_ACTION = "稍后再说"
+internal const val PRODUCT_HOME_MODEL_GATED_LABEL = "需 HF 授权"
+internal const val PRODUCT_HOME_ARM64_REQUIRED_LINE = "此模型需要 64 位 ARM 设备"
 
-internal const val MODEL_STARTUP_BANNER_DESCRIPTION =
-    "配置远程模型可立即试用；下载或导入本地模型后可离线问答。切换远程会提醒，设备动作仍会先让你确认。"
-
-internal val HOME_CAPABILITY_PILLS = listOf(
-    "离线问答",
-    "显式记忆",
-    "图片/文件",
-    "确认动作",
-)
-
-internal const val LOCAL_SETUP_PANEL_TITLE =
-    "离线基础问答可选下载"
-
-internal const val LOCAL_SETUP_PANEL_DESCRIPTION =
-    "下载后基础问答和历史默认留在本机；也可以先跳过，稍后配置远程模型或导入可信 .litertlm。"
+// Home: ready state.
+internal const val PRODUCT_HOME_GREETING = "今天要我帮你做什么？"
+internal const val PRODUCT_HOME_PRIVACY_LINK = "哪些内容会留在本机？"
+internal const val PRODUCT_HOME_PLACEMENT_LOCAL = "在本机运行，对话留在手机上"
+internal const val PRODUCT_HOME_PLACEMENT_REMOTE = "远程模型回答"
+internal const val PRODUCT_HOME_PLACEMENT_AUTO = "自动选择运行位置"
 
 internal const val MODEL_MANAGER_POSITIONING_TEXT =
     "可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。"
-
-internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
-    "哪些内容留在本机？",
-    "把想法整理成本机待办",
-    "切换远程模型前提醒什么？",
-)
 
 internal const val PRODUCT_LOCAL_VALUE_TEXT =
     "下载或导入已验证本地模型后，基础问答可在手机上运行；支持图片的本地模型可处理主动选择的图片。会话、记忆和本地工具结果默认留在本机。"

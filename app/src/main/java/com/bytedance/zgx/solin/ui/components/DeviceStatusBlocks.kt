@@ -121,6 +121,20 @@ internal fun DeviceMetric(
     }
 }
 
+/**
+ * One quiet line about free space for the download the user is about to start, or `null` when
+ * there is nothing left to download. It never claims a download happened.
+ */
+internal fun modelStorageLine(state: ChatUiState, requiredBytes: Long): String? {
+    val available = ModelCatalog.formatBytes(state.availableModelStorageBytes)
+    if (requiredBytes <= 0L) return "可用 $available"
+    return if (ModelCatalog.hasEnoughSpace(state.availableModelStorageBytes, requiredBytes)) {
+        "可用 $available，足够下载"
+    } else {
+        "可用 $available，下载需 ${ModelCatalog.formatBytes(requiredBytes)}"
+    }
+}
+
 /** A download is starting, running, or has byte counts left to show. */
 internal fun ChatUiState.hasDownloadProgress(): Boolean =
     isPreparingDownload || isDownloading || downloadProgressPercent != null || totalBytes > 0L

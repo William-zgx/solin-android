@@ -67,43 +67,35 @@ class SolinScreenDisplayTest {
     fun trustBoundaryCopyNamesLocalRemotePermissionAndDeletionControls() {
         assertContainsAll(
             PRODUCT_POSITIONING_TEXT,
-            "隐私优先的随身 AI 助手",
-            "本地模型",
-            "下载或导入",
-            "远程多模态可选",
-            "必须确认执行",
-            "能力与信任中心",
+            "隐私优先",
+            "远程可选",
+            "设备动作必须确认",
         )
         assertContainsAll(PRODUCT_POSITIONING_SHORT_TEXT, "隐私优先的随身 AI 助手")
-        assertContainsAll(PRODUCT_HOME_TITLE_TEXT, "隐私优先的随身 AI 助手")
+        // Not-ready home: three placements, and the promise that nothing is read or sent first.
+        assertContainsAll(PRODUCT_HOME_NOT_READY_TITLE, "先选一个大脑")
+        assertContainsAll(PRODUCT_HOME_NOT_READY_LINE, "不读取手机内容", "不向外发送")
+        assertContainsAll(PRODUCT_HOME_LOCAL_CHOICE_TITLE, "在本机运行")
+        assertContainsAll(PRODUCT_HOME_LOCAL_CHOICE_LINE, "不离开手机")
+        assertContainsAll(PRODUCT_HOME_REMOTE_CHOICE_TITLE, "连接远程模型")
+        assertContainsAll(PRODUCT_HOME_REMOTE_CHOICE_LINE, "加密保存在本机", "图片发送前会确认")
+        assertContainsAll(PRODUCT_HOME_IMPORT_CHOICE_TITLE, ".litertlm")
+        assertContainsAll(PRODUCT_HOME_SKIP_ACTION, "稍后")
+        // Ready home: a greeting, the placement of this run, and four task rows.
+        assertContainsAll(PRODUCT_HOME_GREETING, "帮你做什么")
+        assertContainsAll(PRODUCT_HOME_PLACEMENT_LOCAL, "留在手机上")
+        assertContainsAll(PRODUCT_HOME_PLACEMENT_REMOTE, "远程")
+        assertContainsAll(PRODUCT_HOME_PLACEMENT_AUTO, "自动")
+        assertContainsAll(PRODUCT_HOME_PRIVACY_LINK, "留在本机")
+        assertEquals(4, HOME_SUGGESTIONS.size)
         assertContainsAll(
-            PRODUCT_HOME_DESCRIPTION_TEXT,
-            "本地模型",
-            "下载或导入",
-            "远程多模态可选",
-            "必须确认执行",
-            "不读取本地数据",
-            "不会自动发送远程请求",
+            HOME_SUGGESTIONS.joinToString("\n") { "${it.text}\n${it.category}" },
+            "闹钟",
+            "日历",
+            "操作手机",
+            "记忆",
         )
-        val homeValueText = HOME_VALUE_PROPOSITIONS.joinToString("\n") { "${it.title}\n${it.body}" }
-        assertEquals(3, HOME_VALUE_PROPOSITIONS.size)
-        assertContainsAll(
-            homeValueText,
-            "本地可用",
-            "显式记忆",
-            "远程多模态可选",
-            "切换时提醒一次",
-            "动作确认执行",
-            "权限与风险",
-        )
-        assertContainsAll(MODEL_STARTUP_BANNER_TITLE, "模型未就绪")
-        assertContainsAll(MODEL_STARTUP_BANNER_DESCRIPTION, "配置远程模型", "离线问答", "设备动作", "确认")
-        assertContainsAll(HOME_CAPABILITY_PILLS.joinToString("\n"), "离线问答", "显式记忆", "图片/文件", "确认动作")
-        assertContainsAll(LOCAL_SETUP_PANEL_TITLE, "离线基础问答")
-        assertContainsAll(LOCAL_SETUP_PANEL_DESCRIPTION, "留在本机", "配置远程模型")
         assertContainsAll(MODEL_MANAGER_POSITIONING_TEXT, "下载或导入本地模型", "离线使用", "远程多模态可选", "切换远程会提醒")
-        assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("留在本机") })
-        assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("切换远程模型") })
         assertContainsAll(PRODUCT_LOCAL_VALUE_TEXT, "基础问答", "主动选择的图片")
         assertContainsAll(PRODUCT_REMOTE_VALUE_TEXT, "图片")
         assertContainsAll(PRODUCT_ACTION_VALUE_TEXT, "确认或取消")
@@ -508,7 +500,9 @@ class SolinScreenDisplayTest {
 
     @Test
     fun statusSurfacesReadActualRunPlacementFromUiState() {
-        val source = listOf("ChatComposer.kt", "ChatTopBar.kt", "FirstRunSetupPanel.kt").joinToString("\n") { name ->
+        // FirstRunSetupPanel.kt was merged into ChatEmptyState.kt, which no longer shows the
+        // long run-status text; the placement strings live in the composer and top bar only.
+        val source = listOf("ChatComposer.kt", "ChatTopBar.kt").joinToString("\n") { name ->
             listOf(
                 File("src/main/java/com/bytedance/zgx/solin/ui/components/$name"),
                 File("app/src/main/java/com/bytedance/zgx/solin/ui/components/$name"),
