@@ -56,6 +56,8 @@ import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
 internal const val MODEL_MANAGER_CURRENT_TAB_INDEX = 0
+/** The "高级" tab owns memory settings; the session drawer's 记忆 entry opens it. */
+internal const val MODEL_MANAGER_MEMORY_TAB_INDEX = 3
 internal const val MODEL_MANAGER_REMOTE_TAB_INDEX = 2
 internal const val MODEL_MANAGER_PRIVACY_TAB_INDEX = 4
 

@@ -30,12 +30,6 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 
 /**
- * The model manager tab that owns memory settings. ModelManagerSheet keeps the memory controls in
- * its "高级" tab (index 3); this alias names the destination instead of the tab position.
- */
-internal const val MODEL_MANAGER_MEMORY_TAB_INDEX = 3
-
-/**
  * The session drawer: conversations on top, then the app-wide destinations the top bar no longer
  * carries (models, memory, privacy, background tasks). Rendered inside a ModalNavigationDrawer.
  */

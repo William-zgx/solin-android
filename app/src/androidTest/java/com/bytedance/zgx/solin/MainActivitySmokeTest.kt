@@ -115,7 +115,7 @@ class MainActivitySmokeTest {
         composeRule.openDrawerItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onAllNodesWithText("隐私说明").onFirst().assertIsDisplayed()
+        composeRule.onAllNodesWithText("隐私与权限").onFirst().assertIsDisplayed()
         composeRule.waitForText("为什么装它")
         composeRule.waitForText("本地可用")
         composeRule.waitForText("远程多模态可选")
@@ -143,7 +143,7 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("home_privacy_notice_button").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onAllNodesWithText("隐私说明").onFirst().assertIsDisplayed()
+        composeRule.onAllNodesWithText("隐私与权限").onFirst().assertIsDisplayed()
         composeRule.waitForText("能力与信任中心")
         composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("敏感能力披露")
