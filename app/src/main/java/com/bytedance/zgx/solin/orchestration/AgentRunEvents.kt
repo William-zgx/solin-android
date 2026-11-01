@@ -121,7 +121,6 @@ sealed class AgentRunEvent(
         override val eventId: String,
         override val runId: String,
         val answerId: String,
-        val safeAnswerPreview: String? = null,
         val outputLabel: String? = null,
         val privacyMarkers: Set<AgentRunPrivacyMarker> = emptySet(),
     ) : AgentRunEvent(eventId, runId, AgentRunEventKind.AnswerGenerated)
@@ -187,7 +186,6 @@ object AgentStepRunEventAdapter {
                     planId = "$runId:model-plan:$index",
                     stepCount = plan.estimatedStepCount(),
                     toolLabels = plan.safeLabels(),
-                    riskMarkers = plan.riskMarkers(),
                 ),
             )
 
@@ -285,7 +283,6 @@ object AgentStepRunEventAdapter {
                     eventId = "$runId:answer:$index",
                     runId = runId,
                     answerId = "$runId:answer:$index",
-                    safeAnswerPreview = text,
                     outputLabel = "answer",
                 ),
             )
@@ -379,12 +376,6 @@ object AgentStepRunEventAdapter {
             is AgentPlan.MissingModel -> listOf("missing ${capability.name}")
         }
 
-    private fun AgentPlan.riskMarkers(): Set<AgentRunRiskMarker> =
-        when (this) {
-            is AgentPlan.UseTool -> emptySet()
-            else -> emptySet()
-        }
-
     private fun com.bytedance.zgx.solin.tool.RiskLevel.toRiskMarkers(): Set<AgentRunRiskMarker> =
         when (this) {
             com.bytedance.zgx.solin.tool.RiskLevel.LowReadOnly -> emptySet()
@@ -411,7 +402,6 @@ object AgentStepRunEventAdapter {
     private fun com.bytedance.zgx.solin.tool.ToolResult.privacyMarkers(): Set<AgentRunPrivacyMarker> =
         when (data["privacy"]) {
             "LocalOnly" -> setOf(AgentRunPrivacyMarker.LocalOnly)
-            "RemoteEligible" -> emptySet()
             else -> emptySet()
         }
 }

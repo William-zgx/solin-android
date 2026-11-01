@@ -7,6 +7,7 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class AgentRunEventsTest {
@@ -91,5 +92,33 @@ class AgentRunEventsTest {
         // Terminal failure is reported.
         val failed = events.filterIsInstance<AgentRunEvent.RunFailed>().single()
         assertEquals("permission denied", failed.reasonLabel)
+    }
+
+    @Test
+    fun answerEventKeepsNoRawAnswerText() {
+        val privateAnswer = "无法分享给 secret@example.com"
+        val events = AgentStepRunEventAdapter.adapt(
+            run = AgentRun(
+                id = "run-answer",
+                input = "总结后分享",
+                state = AgentRunState.Completed,
+                createdAtMillis = 1L,
+                updatedAtMillis = 2L,
+            ),
+            steps = listOf(AgentStep.AssistantResponded(privateAnswer)),
+        )
+
+        val answer = events.filterIsInstance<AgentRunEvent.AnswerGenerated>().single()
+        assertEquals("answer", answer.outputLabel)
+        // The event is an audit/timeline marker: no field may hold the answer text itself.
+        assertFalse("raw answer text leaked: $answer", answer.toString().contains(privateAnswer))
+        assertEquals(
+            setOf("eventId", "runId", "answerId", "outputLabel", "privacyMarkers", "kind"),
+            generateSequence(AgentRunEvent.AnswerGenerated::class.java as Class<*>?) { type -> type.superclass }
+                .flatMap { type -> type.declaredFields.asSequence() }
+                .filterNot { field -> java.lang.reflect.Modifier.isStatic(field.modifiers) }
+                .map { field -> field.name }
+                .toSet(),
+        )
     }
 }
