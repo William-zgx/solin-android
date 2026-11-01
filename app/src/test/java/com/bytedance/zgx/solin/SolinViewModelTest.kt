@@ -489,7 +489,7 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun switchingToRemoteShowsModeDisclosureOnceAndDismissAllowsSend() = runTest(dispatcher) {
+    fun switchingToRemoteShowsModeDisclosureAndDismissRevertsToLocal() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
@@ -515,20 +515,104 @@ class SolinViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals("请先确认远程模式提醒", viewModel.uiState.value.statusText)
 
+        // A dismissed disclosure is a plain revert: Remote never took effect.
         viewModel.dismissRemoteModeDisclosure()
         advanceUntilIdle()
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
         viewModel.sendMessage("普通远程问题")
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingRemoteModeDisclosure)
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        viewModel.confirmRemoteModeDisclosure(
+            requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure),
+        )
+        advanceUntilIdle()
+        assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
 
         viewModel.selectInferenceMode(InferenceMode.Local)
         advanceUntilIdle()
         viewModel.selectInferenceMode(InferenceMode.Remote)
         advanceUntilIdle()
         assertNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+    }
+
+    @Test
+    fun dismissingRemoteModeDisclosureRevertsPersistedModeAndKeepsLocalRuntime() =
+        runTest(dispatcher) {
+            val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+            val remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Local,
+                config = configuredRemoteModel(),
+            )
+            val viewModel = createViewModel(
+                runtime = runtime,
+                remoteStore = remoteStore,
+                modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+                requireRemoteSendDisclosure = true,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            viewModel.selectInferenceMode(InferenceMode.Remote)
+            val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+
+            // Nothing may take effect before the user has seen the disclosure.
+            assertEquals(InferenceMode.Local, remoteStore.loadMode())
+            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+            assertEquals(0, runtime.closeCallCount)
+            assertTrue(runtime.isLoaded)
+
+            viewModel.dismissRemoteModeDisclosure()
+            advanceUntilIdle()
+
+            assertEquals(InferenceMode.Local, remoteStore.loadMode())
+            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+            assertEquals(0, runtime.closeCallCount)
+            assertTrue(runtime.isLoaded)
+            assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+
+            viewModel.selectInferenceMode(InferenceMode.Remote)
+            viewModel.confirmRemoteModeDisclosure(
+                requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure),
+            )
+            advanceUntilIdle()
+
+            assertEquals(InferenceMode.Remote, remoteStore.loadMode())
+            assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
+            assertEquals(1, runtime.closeCallCount)
+            assertFalse(runtime.isLoaded)
+            assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        }
+
+    @Test
+    fun switchingToRemoteWithoutDisclosureAppliesImmediately() = runTest(dispatcher) {
+        val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel(),
+        )
+        val viewModel = createViewModel(
+            runtime = runtime,
+            remoteStore = remoteStore,
+            requireRemoteSendDisclosure = false,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        advanceUntilIdle()
+
+        assertEquals(InferenceMode.Remote, remoteStore.loadMode())
+        assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
+        assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        assertEquals(1, runtime.closeCallCount)
     }
 
     @Test

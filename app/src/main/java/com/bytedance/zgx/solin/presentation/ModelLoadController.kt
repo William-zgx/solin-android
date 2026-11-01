@@ -1047,28 +1047,22 @@ internal class ModelLoadController(
         }
     }
 
-    fun updateRemoteReadiness(
-        prefix: String,
-        showModeDisclosure: Boolean = false,
-    ) {
+    /**
+     * Projects an already-committed Remote mode. A switch *to* Remote raises its disclosure in
+     * `InferenceModeController` before this runs, so there is no unconfirmed Remote projection here.
+     */
+    fun updateRemoteReadiness(prefix: String) {
         val config = uiState.value.remoteModelConfig
         clearPendingRemoteState()
-        val modeDisclosure = if (showModeDisclosure) {
-            buildRemoteModeDisclosure(config)
-        } else {
-            null
-        }
         uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Remote,
-                pendingRemoteModeDisclosure = modeDisclosure,
+                pendingRemoteModeDisclosure = null,
                 pendingRemoteSendDisclosure = null,
                 isBusy = false,
                 isDownloading = false,
                 isReady = config.isConfigured,
-                statusText = if (modeDisclosure != null) {
-                    "远程模式待确认"
-                } else if (config.isConfigured) {
+                statusText = if (config.isConfigured) {
                     if (prefix.endsWith("远程模型")) "${prefix}已就绪" else prefix
                 } else {
                     "请配置远程模型"

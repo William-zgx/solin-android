@@ -26,11 +26,22 @@ internal class InferenceModeController(
     private val modelLoadController: ModelLoadController,
     private val requireRemoteSendDisclosure: Boolean,
 ) {
+    /**
+     * A Remote selection whose disclosure is still open. The switch is not persisted and the local
+     * runtime is untouched until the user confirms; dismissing restores the previous mode.
+     */
+    private var pendingRemoteSwitch: PendingRemoteSwitch? = null
+
     fun selectInferenceMode(mode: InferenceMode) {
-        if (uiState.value.isBusy) return
+        // Still blocked during a download: its completion auto-loads the local model, which would
+        // silently override a mode chosen mid-download.
+        if (uiState.value.isBusy || uiState.value.isDownloading) return
         if (mode == InferenceMode.Auto) {
+            pendingRemoteSwitch = null
             if (!autoInferenceAuthorizationCoordinator.request()) {
-                uiState.update { it.copy(statusText = "自动模式当前未开放") }
+                uiState.update {
+                    it.copy(pendingRemoteModeDisclosure = null, statusText = "自动模式当前未开放")
+                }
                 return
             }
             chatController.clearPendingRemoteChatState()
@@ -52,19 +63,45 @@ internal class InferenceModeController(
         if (cancelledAutoSelection) {
             uiState.update { it.copy(pendingRemoteModeDisclosure = null) }
         }
-        if (uiState.value.inferenceMode == mode) return
+        if (uiState.value.inferenceMode == mode) {
+            // Selecting the mode already in effect withdraws any staged switch to the other one.
+            if (pendingRemoteSwitch != null) {
+                pendingRemoteSwitch = null
+                uiState.update { it.copy(pendingRemoteModeDisclosure = null) }
+            }
+            return
+        }
         // Trust boundary changed (inference mode switch): a prior session-scoped
         // "don't ask again" must not silently carry into the new destination.
         chatController.clearPendingRemoteChatState()
         chatController.resetRemoteSendDisclosureSuppression()
+        if (mode == InferenceMode.Remote && requireRemoteSendDisclosure) {
+            // The remote destination is only used after the disclosure is confirmed. Keeping the
+            // persisted mode and the local runtime untouched means a dismissal is a plain revert.
+            val openDisclosure = uiState.value.pendingRemoteModeDisclosure
+            val staged = pendingRemoteSwitch
+            val previousStatusText = staged
+                ?.takeIf { openDisclosure != null && it.disclosure == openDisclosure }
+                ?.previousStatusText
+                ?: uiState.value.statusText
+            val disclosure = modelLoadController.remoteModeDisclosure()
+            pendingRemoteSwitch = PendingRemoteSwitch(
+                disclosure = disclosure,
+                previousStatusText = previousStatusText,
+            )
+            uiState.update {
+                it.copy(
+                    pendingRemoteModeDisclosure = disclosure,
+                    pendingRemoteSendDisclosure = null,
+                    statusText = REMOTE_MODE_PENDING_STATUS,
+                )
+            }
+            return
+        }
+        pendingRemoteSwitch = null
         remoteModelRepository.saveMode(mode)
         if (mode == InferenceMode.Remote) {
-            runtime.close()
-            uiState.update { it.copy(pendingSharedInputDraft = null) }
-            modelLoadController.updateRemoteReadiness(
-                prefix = "已切换到远程模型",
-                showModeDisclosure = requireRemoteSendDisclosure,
-            )
+            applyRemoteSwitch()
             return
         }
 
@@ -103,6 +140,15 @@ internal class InferenceModeController(
         var refreshConnectivity = false
         autoInferenceAuthorizationCoordinator.serialized {
             if (uiState.value.pendingRemoteModeDisclosure !== disclosure) return@serialized
+            val remoteSwitch = pendingRemoteSwitch
+            if (remoteSwitch != null && remoteSwitch.disclosure == disclosure) {
+                // Remote was only staged: persist it now that the user has seen the disclosure.
+                remoteModelRepository.saveMode(InferenceMode.Remote)
+                pendingRemoteSwitch = null
+                applyRemoteSwitch()
+                return@serialized
+            }
+            pendingRemoteSwitch = null
             if (!autoInferenceAuthorizationCoordinator.hasPending) {
                 dismissRemoteModeDisclosure()
                 return@serialized
@@ -131,6 +177,8 @@ internal class InferenceModeController(
     fun dismissRemoteModeDisclosure() {
         val cancelledAutoSelection = autoInferenceAuthorizationCoordinator.hasPending
         autoInferenceAuthorizationCoordinator.cancel()
+        val remoteSwitch = pendingRemoteSwitch
+        pendingRemoteSwitch = null
         uiState.update {
             if (it.pendingRemoteModeDisclosure == null) {
                 it
@@ -138,6 +186,10 @@ internal class InferenceModeController(
                 it.copy(
                     pendingRemoteModeDisclosure = null,
                     statusText = when {
+                        // A dismissed Remote selection never took effect: stay on the previous mode.
+                        // Keep any status written since then; only our own prompt is replaced.
+                        remoteSwitch != null && it.statusText == REMOTE_MODE_PENDING_STATUS ->
+                            remoteSwitch.previousStatusText
                         cancelledAutoSelection && it.inferenceMode == InferenceMode.Local ->
                             if (runtime.isLoaded) "就绪 · ${it.backend.label()}" else it.statusText
                         cancelledAutoSelection -> it.statusText
@@ -149,4 +201,19 @@ internal class InferenceModeController(
             }
         }
     }
+
+    /** Projects the already-persisted Remote mode into the UI state. */
+    private fun applyRemoteSwitch() {
+        runtime.close()
+        uiState.update { it.copy(pendingSharedInputDraft = null) }
+        modelLoadController.updateRemoteReadiness(prefix = "已切换到远程模型")
+    }
 }
+
+private const val REMOTE_MODE_PENDING_STATUS = "远程模式待确认"
+
+/** A Remote selection awaiting its disclosure confirmation; dismissing it reverts. */
+private data class PendingRemoteSwitch(
+    val disclosure: PendingRemoteModeDisclosure,
+    val previousStatusText: String,
+)
