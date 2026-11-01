@@ -1,7 +1,6 @@
 package com.bytedance.zgx.solin.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -11,9 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -227,36 +224,5 @@ internal fun SolinGlyph(
                 drawLine(tint, p(0.82f, 0.55f), p(0.82f, 0.45f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
         }
-    }
-}
-
-@Composable
-internal fun Modifier.solinTechBackdrop(): Modifier {
-    val base = MaterialTheme.colorScheme.background
-    val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
-    val tertiary = MaterialTheme.colorScheme.tertiary
-    val lift = MaterialTheme.colorScheme.surfaceContainerLow
-    return background(base).drawBehind {
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    primary.copy(alpha = 0.12f),
-                    secondary.copy(alpha = 0.08f),
-                    lift.copy(alpha = 0.50f),
-                    base,
-                ),
-            ),
-        )
-        drawRect(
-            brush = Brush.horizontalGradient(
-                colors = listOf(
-                    tertiary.copy(alpha = 0.07f),
-                    primary.copy(alpha = 0.05f),
-                    secondary.copy(alpha = 0.06f),
-                    Color.Transparent,
-                ),
-            ),
-        )
     }
 }

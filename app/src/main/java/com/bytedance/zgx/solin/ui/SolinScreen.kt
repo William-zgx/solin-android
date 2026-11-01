@@ -48,7 +48,6 @@ import com.bytedance.zgx.solin.ui.components.RecoveryActionEntry
 import com.bytedance.zgx.solin.ui.components.RunTimelineStrip
 import com.bytedance.zgx.solin.ui.components.SourcesStrip
 import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
-import com.bytedance.zgx.solin.ui.components.solinTechBackdrop
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.GenerationParameters
@@ -176,7 +175,7 @@ fun SolinScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .solinTechBackdrop(),
+                .background(MaterialTheme.colorScheme.background),
         ) {
             Column(
                 modifier = Modifier
