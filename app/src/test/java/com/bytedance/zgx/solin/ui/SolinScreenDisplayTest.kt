@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL
 import com.bytedance.zgx.solin.InferenceMode
+import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
 import com.bytedance.zgx.solin.ModelHealth
@@ -35,6 +36,7 @@ import com.bytedance.zgx.solin.ui.components.actionTextDisplay
 import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
 import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
 import com.bytedance.zgx.solin.ui.components.homeOffersLoadModel
+import com.bytedance.zgx.solin.ui.components.meteredDownloadActionLabel
 import com.bytedance.zgx.solin.ui.components.composerNotice
 import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_BODY
 import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_TITLE
@@ -405,6 +407,15 @@ class SolinScreenDisplayTest {
                 inferenceMode = InferenceMode.Remote,
             ).homeOffersLoadModel(),
         )
+    }
+
+    @Test
+    fun meteredDownloadLabelStatesTheDataStillToFetch() {
+        assertEquals(
+            "用移动数据继续（约 ${ModelCatalog.formatBytes(1_500_000_000L)}）",
+            meteredDownloadActionLabel(ChatUiState(downloadedBytes = 500_000_000L, totalBytes = 2_000_000_000L)),
+        )
+        assertEquals("用移动数据继续", meteredDownloadActionLabel(ChatUiState()))
     }
 
     @Test

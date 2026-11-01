@@ -86,6 +86,7 @@ internal fun ChatEmptyState(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onAllowMeteredDownload: () -> Unit,
     onLoadModel: () -> Unit,
     onSendPrompt: (String) -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
@@ -111,6 +112,7 @@ internal fun ChatEmptyState(
                 onPickModel = onPickModel,
                 onDownloadModel = onDownloadModel,
                 onCancelDownload = onCancelDownload,
+                onAllowMeteredDownload = onAllowMeteredDownload,
                 onLoadModel = onLoadModel,
                 onSetupModelToggled = onSetupModelToggled,
                 onDownloadSetupModels = onDownloadSetupModels,
@@ -224,6 +226,7 @@ private fun NotReadyHome(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onAllowMeteredDownload: () -> Unit,
     onLoadModel: () -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
@@ -245,6 +248,7 @@ private fun NotReadyHome(
         state = state,
         onDownloadModel = onDownloadModel,
         onCancelDownload = onCancelDownload,
+        onAllowMeteredDownload = onAllowMeteredDownload,
         onLoadModel = onLoadModel,
         onSetupModelToggled = onSetupModelToggled,
         onDownloadSetupModels = onDownloadSetupModels,
@@ -301,6 +305,7 @@ private fun LocalChoiceCard(
     state: ChatUiState,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onAllowMeteredDownload: () -> Unit,
     onLoadModel: () -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
@@ -360,7 +365,7 @@ private fun LocalChoiceCard(
             }
             if (downloading) {
                 Spacer(modifier = Modifier.height(6.dp))
-                ProgressBlock(state)
+                ProgressBlock(state, onAllowMeteredDownload = onAllowMeteredDownload)
                 TextButton(
                     modifier = Modifier.heightIn(min = 48.dp),
                     onClick = onCancelDownload,

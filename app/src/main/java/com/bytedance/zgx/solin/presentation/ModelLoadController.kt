@@ -738,8 +738,9 @@ internal class ModelLoadController(
     }
 
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
-        // Remote readiness projection clears the download flags, so it must not run mid-download.
-        if (uiState.value.isBusy || uiState.value.isDownloading) return
+        // Editing the remote endpoint does not touch the downloading local model, so it stays
+        // allowed during a download; it is still blocked while a run owns isBusy.
+        if (uiState.value.isBusy) return
         clearPendingRemoteState()
         remoteConnectivityUiJob?.cancel()
         // Trust boundary changed (remote destination/credential): never let a prior
@@ -1120,8 +1121,8 @@ internal class ModelLoadController(
                 inferenceMode = InferenceMode.Remote,
                 pendingRemoteModeDisclosure = null,
                 pendingRemoteSendDisclosure = null,
-                isBusy = false,
-                isDownloading = false,
+                // Projecting remote readiness owns neither a run's busy state nor a background
+                // download, so it leaves isBusy / isDownloading as they are.
                 isReady = config.isConfigured,
                 statusText = if (config.isConfigured) {
                     if (prefix.endsWith("远程模型")) "${prefix}已就绪" else prefix

@@ -78,6 +78,7 @@ internal fun ModelManagerSheet(
     onSaveHuggingFaceAccessToken: () -> Unit,
     onClearHuggingFaceAccessToken: () -> Unit,
     onCancelDownload: () -> Unit,
+    onAllowMeteredDownload: () -> Unit = {},
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
     onInstalledModelSelected: (String) -> Unit,
@@ -217,7 +218,7 @@ internal fun ModelManagerSheet(
         if (
             state.hasDownloadProgress()
         ) {
-            ProgressBlock(state)
+            ProgressBlock(state, onAllowMeteredDownload = onAllowMeteredDownload)
             if (state.isPreparingDownload || state.isDownloading) {
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -279,7 +280,9 @@ internal fun CurrentModelPanel(
                         modifier = Modifier.testTag("inference_${preference.name.lowercase()}_chip"),
                         label = preference.label(),
                         selected = state.inferenceMode == preference,
-                        enabled = !state.isBusy,
+                        // Switching mode is blocked while a download runs (its completion loads
+                        // the local model); grey the chip instead of letting a tap do nothing.
+                        enabled = !state.isBusy && !state.isDownloading,
                         onClick = { onInferenceModeSelected(preference) },
                     )
                 }
@@ -296,14 +299,14 @@ internal fun CurrentModelPanel(
                     modifier = Modifier.testTag("backend_gpu_chip"),
                     label = "GPU",
                     selected = state.backend == BackendChoice.GPU,
-                    enabled = !state.isBusy && state.backendChoiceEnabled(BackendChoice.GPU),
+                    enabled = !state.isBusy && !state.isDownloading && state.backendChoiceEnabled(BackendChoice.GPU),
                     onClick = { onBackendSelected(BackendChoice.GPU) },
                 )
                 BackendChip(
                     modifier = Modifier.testTag("backend_cpu_chip"),
                     label = "CPU",
                     selected = state.backend == BackendChoice.CPU,
-                    enabled = !state.isBusy && state.backendChoiceEnabled(BackendChoice.CPU),
+                    enabled = !state.isBusy && !state.isDownloading && state.backendChoiceEnabled(BackendChoice.CPU),
                     onClick = { onBackendSelected(BackendChoice.CPU) },
                 )
                 }

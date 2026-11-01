@@ -2211,6 +2211,46 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun remoteConfigCanBeEditedWhileALocalModelDownloads() = runTest(dispatcher) {
+        // Regression: the download used to set isBusy, and later its own guard, so the remote
+        // fields were locked for the whole multi-GB transfer and typing was silently dropped.
+        withTempDownloadTarget { target ->
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_RUNNING,
+                        reason = 0,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L,
+                    ),
+                ),
+            )
+            val viewModel = createViewModel(
+                modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
+                downloadClient = downloadClient,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            viewModel.startModelDownload()
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isDownloading)
+
+            viewModel.updateRemoteModelConfig(
+                RemoteModelConfig(baseUrl = "https://example.invalid/v1", modelName = "m"),
+            )
+            runCurrent()
+
+            assertEquals("m", viewModel.uiState.value.remoteModelConfig.modelName)
+            // The edit leaves the download running.
+            assertTrue(viewModel.uiState.value.isDownloading)
+
+            viewModel.cancelModelDownload()
+            runCurrent()
+        }
+    }
+
+    @Test
     fun remoteModeProtectsSensitiveDirectPromptBeforeCallingRemoteRuntime() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()

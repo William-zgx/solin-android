@@ -117,7 +117,7 @@ internal fun ModelInventoryPanel(
                         subtitle = "${capabilityLabel(model.capability)} · ${model.fileName} · " +
                             "${ModelCatalog.formatBytes(model.fileBytes)} · ${model.verificationLabel()}",
                         selected = model.id == state.activeInstalledModelId,
-                        enabled = !state.isBusy && model.capability == ModelCapability.Chat && model.isUsable,
+                        enabled = !state.isBusy && !state.isDownloading && model.capability == ModelCapability.Chat && model.isUsable,
                         onClick = { onInstalledModelSelected(model.id) },
                         onDelete = { pendingDeleteModel = model },
                         deleteEnabled = !state.isBusy && !state.isDownloading && !state.isGenerating,
@@ -192,7 +192,8 @@ internal fun ModelInventoryPanel(
             onCustomModelUrlChanged = onCustomModelUrlChanged,
             onPickModel = onPickModel,
             onDownloadCustomModel = onDownloadCustomModel,
-            enabled = !state.isBusy,
+            // Importing or starting another download is refused while one runs.
+            enabled = !state.isBusy && !state.isDownloading,
         )
     }
 }
@@ -491,7 +492,7 @@ internal fun RecommendedModelCard(
                         .weight(1f)
                         .heightIn(min = 48.dp),
                     onClick = onSelect,
-                    enabled = !state.isBusy && !isSelectedChat,
+                    enabled = !state.isBusy && !state.isDownloading && !isSelectedChat,
                 ) {
                     Text(
                         text = if (isSelectedChat) "当前" else "选择",

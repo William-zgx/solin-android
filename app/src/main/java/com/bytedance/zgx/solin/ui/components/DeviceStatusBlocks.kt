@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -144,7 +147,10 @@ internal fun ChatUiState.isLocalModelLoading(): Boolean =
     inferenceMode != InferenceMode.Remote && modelPath != null && !isReady
 
 @Composable
-internal fun ProgressBlock(state: ChatUiState) {
+internal fun ProgressBlock(
+    state: ChatUiState,
+    onAllowMeteredDownload: (() -> Unit)? = null,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val progress = state.downloadProgressPercent
         if (progress == null) {
@@ -182,5 +188,28 @@ internal fun ProgressBlock(state: ChatUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // Downloads are Wi-Fi only by default. On cellular the task just waits, so the user gets
+        // an explicit, sized choice; nothing spends mobile data without this tap.
+        if (state.isWaitingForWifiDownload && onAllowMeteredDownload != null) {
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("download_allow_metered_button"),
+                onClick = onAllowMeteredDownload,
+            ) {
+                Text(meteredDownloadActionLabel(state))
+            }
+        }
+    }
+}
+
+/** "用移动数据继续（约 2.4 GB）": the size left to fetch, or the plain label when unknown. */
+internal fun meteredDownloadActionLabel(state: ChatUiState): String {
+    val remaining = (state.totalBytes - state.downloadedBytes).takeIf { state.totalBytes > 0L && it > 0L }
+    return if (remaining == null) {
+        "用移动数据继续"
+    } else {
+        "用移动数据继续（约 ${ModelCatalog.formatBytes(remaining)}）"
     }
 }

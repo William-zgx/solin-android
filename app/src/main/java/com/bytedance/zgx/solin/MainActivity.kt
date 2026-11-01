@@ -221,6 +221,7 @@ class MainActivity : ComponentActivity() {
                         viewModel.launchPersistenceWork(viewModel::clearHuggingFaceAccessToken)
                     },
                     onCancelDownload = { viewModel.launchPersistenceWork(viewModel::cancelModelDownload) },
+                    onAllowMeteredDownload = { viewModel.launchPersistenceWork(viewModel::allowMeteredDownload) },
                     onLoadModel = { viewModel.launchPersistenceWork(viewModel::loadModel) },
                     onRecommendedModelSelected = { modelId ->
                         viewModel.launchPersistenceWork { viewModel.selectRecommendedModel(modelId) }
