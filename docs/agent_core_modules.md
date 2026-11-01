@@ -349,10 +349,9 @@ Current status:
   tool-to-tool bindings, local model transform steps, and bounded progression.
 - `SkillRunProgressor` is the shared pure Kotlin boundary for structure
   validation, public-output binding, private-output fences, model-output to tool
-  progression, and current-process tool-result progression.
-- `SkillRunExecutor` can execute multi-step Skills until a confirmation
-  boundary, resume from a confirmed result, cancel pending work, and revalidate
-  successful tool output before any model step consumes it.
+  progression, and current-process tool-result progression. Tool execution itself
+  always goes through `presentation/ToolExecutionController` and
+  `tool/ToolExecutionBoundary`; the Skill layer never calls a tool executor.
 - Current built-ins cover drafts, maps/search, device settings, app navigation,
   reminders, periodic-check configuration, background-task queries, web search,
   clipboard context, summary-and-share flows, foreground/current-app context,
@@ -368,7 +367,6 @@ Tests:
 - `BuiltInSkillRuntimeTest`
 - `CompositeSkillRuntimeTest`
 - `ExternalSkillPackageTest`
-- `SkillRunExecutorTest`
 - `SkillRunProgressorTest`
 - `MainActivitySkillUiTest`
 

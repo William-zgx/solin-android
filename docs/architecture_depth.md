@@ -128,6 +128,29 @@ is a critical label, or when a send / publish / pay control sits beside the
 focused field (the composer row). A search box beside a 搜索 button is allowed,
 so the benchmark's in-app search path keeps working.
 
+**One execution entry (2026-11-01).** The live guard used to be called by some
+gesture paths and not others: the `ui_scroll` swipe fallback dispatched a stroke
+without the swipe-that-clicks check, and long-press checked in its caller rather
+than at the dispatch. Both checks now live in the gesture entries themselves —
+`dispatchSwipeGesture` runs `refuseSwipeThatClicks`, `dispatchLongPressGesture`
+runs `refuseCriticalTapAt` — so every caller inherits them. `ActionEntryArchitectureTest`
+enforces the shape: nothing outside `device/SolinAccessibilityService.kt` and
+`device/AccessibilityNodeQueries.kt` may call `dispatchGesture(`,
+`performGlobalAction(`, or `performAction(` with a click / long-click /
+IME-enter / type action, and every function in the service that injects input
+must call a guard or carry an `// action-gate: exempt (<reason>)` comment.
+Exemptions are deliberate and few: global back / home / recents (they leave the
+screen, never activate content), `SET_TEXT` / `PASTE` into an already-chosen
+safe editable (typing activates nothing), the raw stroke dispatcher, and the
+overlay dismiss (which taps through a guarded candidate). The test also refuses
+to run green if it no longer recognizes the known input functions, so a rename
+cannot make it vacuous.
+
+**Tool layer.** `skill/SkillRunExecutor.kt` used to call `toolExecutor.execute`
+directly, skipping the execution boundary's authorizer. It had no production
+caller; deleted 2026-11-01 along with its types and tests. Every tool call now
+passes `presentation/ToolExecutionController` → `tool/ToolExecutionBoundary`.
+
 **Egress rule ("private data does not leave without approval") has four
 partial implementations of the sensitive-text check:**
 
@@ -193,6 +216,7 @@ token-subset match against the user's input.
 | Goals, threat model, measures | This document |
 | Benchmark baseline | Pending: no device attached (2026-10-31) |
 | Gate map (current checkpoints) | Recorded above |
+| Action entry (one injection entry, guarded) | Enforced by `architecture/ActionEntryArchitectureTest` (2026-11-01) |
 | Action gate consolidation | Not started |
 | Egress gate consolidation | Not started |
 | Provenance labels | Not started |
