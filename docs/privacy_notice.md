@@ -238,10 +238,11 @@ gated by defense-in-depth:
 - **Transmitted, not persisted:** the compacted JPEG and control list are sent
   for a single request and then dropped; they are never written to local
   records, audit, or receipts.
-- **What each request carries:** the screenshot, the control list, the user's
-  request, and the kinds of action the model already had executed in this run
-  (with tap coordinates, never typed text or results). No chat history, memory,
-  or other tool results.
+- **What each request carries:** the screenshot, the control list, the public UI notes of the
+  foreground app (short reference facts about that app's on-screen layout, capped at 300
+  characters — these describe public app UI and contain no user data), the user's request, and
+  the kinds of action the model already had executed in this run (with tap coordinates, never
+  typed text or results). No chat history, memory, or other tool results.
 - **Protected screens:** the control list is read only after a capture succeeds.
   A failed or fully blank capture (the system blacks out secure windows) sends
   nothing. A secure surface covering only part of an otherwise normal screen is

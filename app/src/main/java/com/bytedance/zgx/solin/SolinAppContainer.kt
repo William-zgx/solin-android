@@ -70,7 +70,7 @@ import com.bytedance.zgx.solin.orchestration.InMemoryTelemetrySink
 import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.solin.orchestration.RemoteVisionObservationReplanner
-import com.bytedance.zgx.solin.orchestration.toRemoteVisionScreenTree
+import com.bytedance.zgx.solin.orchestration.toRemoteVisionScreenContext
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
 import com.bytedance.zgx.solin.orchestration.NoOpAgentHooks
 import com.bytedance.zgx.solin.orchestration.RoomRunPlacementBindingStore
@@ -426,10 +426,10 @@ class SolinAppContainer(
                         inferenceModeProvider = { remoteModelRepository.loadMode() },
                         generationParametersProvider = { generationParametersRepository.load() },
                         auditSink = remoteSendAuditRepository,
-                        screenTreeProvider = {
+                        screenContextProvider = {
                             (AndroidCurrentScreenControlProvider().observeCurrentScreen() as? ScreenStateReadResult.Available)
                                 ?.snapshot
-                                ?.toRemoteVisionScreenTree()
+                                ?.toRemoteVisionScreenContext()
                         },
                     ),
                     gateProvider = {

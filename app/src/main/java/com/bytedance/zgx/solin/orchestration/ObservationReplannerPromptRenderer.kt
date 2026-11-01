@@ -181,16 +181,25 @@ private fun String.withAppUiNotesInEvidenceBudget(
 
 /**
  * One-line block of [appUiNotesFor] facts for the observed foreground app, or null when the package is
- * unknown or has no notes. The label frames the notes as reference data, not instructions. Whole notes
- * are dropped (never cut mid-note) to stay within [maxChars], itself capped at
- * [MAX_APP_UI_NOTES_PROMPT_CHARS].
+ * unknown or has no notes. See [appUiNotesPromptLine] for the cap and whole-note rule.
  */
 internal fun ToolResult.appUiNotesPromptLine(
     parseCache: ObservationJsonParseCache? = null,
     maxChars: Int = MAX_APP_UI_NOTES_PROMPT_CHARS,
+): String? = appUiNotesPromptLine(observedForegroundPackageName(parseCache), maxChars)
+
+/**
+ * One-line block of [appUiNotesFor] facts for [packageName], or null when the package is unknown or
+ * has no notes. The label frames the notes as reference data, not instructions. Whole notes are
+ * dropped (never cut mid-note) to stay within [maxChars], itself capped at
+ * [MAX_APP_UI_NOTES_PROMPT_CHARS]. These notes describe public app UI and carry no user data.
+ */
+internal fun appUiNotesPromptLine(
+    packageName: String?,
+    maxChars: Int = MAX_APP_UI_NOTES_PROMPT_CHARS,
 ): String? {
     val limit = maxChars.coerceAtMost(MAX_APP_UI_NOTES_PROMPT_CHARS)
-    val notes = appUiNotesFor(observedForegroundPackageName(parseCache))
+    val notes = appUiNotesFor(packageName)
     if (notes.isEmpty()) return null
     val line = StringBuilder(APP_UI_NOTES_PROMPT_LABEL)
     var added = 0
