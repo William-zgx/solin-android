@@ -259,7 +259,7 @@ class PackageBoundaryArchitectureTest {
     )
 
     private companion object {
-        const val MAX_PRODUCTION_KOTLIN_FILES = 331
+        const val MAX_PRODUCTION_KOTLIN_FILES = 330
     }
 
     private data class GodObjectLimit(

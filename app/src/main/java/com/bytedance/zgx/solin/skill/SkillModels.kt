@@ -196,6 +196,20 @@ sealed class StepOutcomeCondition {
     data class ResultDataEquals(val key: String, val value: String) : StepOutcomeCondition()
 }
 
+/**
+ * Evaluate a branch condition against a completed source step's output map. Unknown/missing data
+ * fails the match (fail-closed): a branch never "matches" on absent evidence.
+ */
+internal fun StepOutcomeCondition.matches(sourceOutput: Map<String, String>): Boolean =
+    when (this) {
+        is StepOutcomeCondition.AppSearchOutcomeEquals ->
+            sourceOutput["uiActionOutcome"] == outcome
+        is StepOutcomeCondition.SearchVerified ->
+            sourceOutput["searchVerificationStatus"] == "verified"
+        is StepOutcomeCondition.ResultDataEquals ->
+            sourceOutput[key] == value
+    }
+
 data class SkillPlanValidation(
     val errors: List<String>,
 ) {

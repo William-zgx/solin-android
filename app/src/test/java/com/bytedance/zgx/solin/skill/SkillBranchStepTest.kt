@@ -14,9 +14,13 @@ import org.junit.Test
  * B2: progressive-fallback search via [SkillStep.BranchStep]. A branch after a search/verify step
  * skips the fallback step when the search verified, or falls into it (a simplified re-query) when
  * it did not — a forward-only, fail-closed control-flow construct.
+ *
+ * Branch resolution is exercised through [SkillRunProgressor], the production path that walks the
+ * plan across turns.
  */
 class SkillBranchStepTest {
     private val registry = ToolRegistry()
+    private val progressor = SkillRunProgressor(toolRegistry = registry)
 
     // Plan shape: search → branch(verified? → done : fallbackSearch) → fallbackSearch → done
     private fun searchWithFallbackPlan(): SkillPlan {
@@ -60,7 +64,7 @@ class SkillBranchStepTest {
     }
 
     private fun waitResult(verified: Boolean): ToolResult = ToolResult(
-        requestId = "",
+        requestId = "req-search",
         status = ToolStatus.Succeeded,
         summary = if (verified) "结果已验证" else "未验证",
         data = mapOf(
@@ -83,48 +87,30 @@ class SkillBranchStepTest {
 
     @Test
     fun verifiedSearchSkipsFallbackViaBranch() {
-        val toolExecutor = RecordingToolExecutor(
-            results = listOf(waitResult(verified = true), waitResult(verified = true)),
-        )
-        val executor = SkillRunExecutor(
-            toolExecutor = toolExecutor,
-            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
-            toolGate = allowAllSkillToolGate(),
-            toolRegistry = registry,
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = searchWithFallbackPlan(),
+            requestedRequestIds = setOf("req-search"),
+            result = waitResult(verified = true),
         )
 
-        val result = executor.execute(searchWithFallbackPlan())
-
-        assertEquals(SkillRunState.Succeeded, result.state)
-        // Branch matched (verified) → jumped to done, skipping the fallback search entirely.
-        assertEquals(listOf("search", "done"), executor.executedStepIds(toolExecutor))
-        assertTrue(result.trace.any { it is SkillRunTrace.BranchTaken && it.matched })
+        require(progression is SkillToolResultProgression.BoundTool)
+        // Branch matched (verified) → the next step is `done`, skipping the fallback search entirely.
+        assertEquals("done", progression.toolStep.id)
+        assertEquals("req-done", progression.request.id)
     }
 
     @Test
     fun unverifiedSearchFallsIntoFallbackQueryViaBranch() {
-        val toolExecutor = RecordingToolExecutor(
-            results = listOf(
-                waitResult(verified = false), // initial search: not verified
-                waitResult(verified = true),  // fallback simplified query: verified
-                waitResult(verified = true),  // done
-            ),
-        )
-        val executor = SkillRunExecutor(
-            toolExecutor = toolExecutor,
-            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
-            toolGate = allowAllSkillToolGate(),
-            toolRegistry = registry,
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = searchWithFallbackPlan(),
+            requestedRequestIds = setOf("req-search"),
+            result = waitResult(verified = false),
         )
 
-        val result = executor.execute(searchWithFallbackPlan())
-
-        assertEquals(SkillRunState.Succeeded, result.state)
-        // Branch did not match → fell into the fallback search, then continued to done.
-        assertEquals(listOf("search", "fallback_search", "done"), executor.executedStepIds(toolExecutor))
-        assertTrue(result.trace.any { it is SkillRunTrace.BranchTaken && !it.matched })
-        // The fallback used the simplified query.
-        assertEquals("海河牛奶", toolExecutor.requests[1].arguments["verifySearchQuery"])
+        require(progression is SkillToolResultProgression.BoundTool)
+        // Branch did not match → the next step is the fallback search with the simplified query.
+        assertEquals("fallback_search", progression.toolStep.id)
+        assertEquals("海河牛奶", progression.request.arguments["verifySearchQuery"])
     }
 
     @Test
@@ -189,14 +175,4 @@ class SkillBranchStepTest {
         assertNull("checkpoint with a completed BranchStep must validate", checkpoint.validationErrorFor(plan, registry))
         assertTrue("branch id must be in the completed prefix", checkpoint.completedStepIds.contains("branch_on_verified"))
     }
-
-    private fun SkillRunExecutor.executedStepIds(recording: RecordingToolExecutor): List<String> =
-        recording.requests.map { request ->
-            when (request.id) {
-                "req-search" -> "search"
-                "req-fallback" -> "fallback_search"
-                "req-done" -> "done"
-                else -> request.id
-            }
-        }
 }

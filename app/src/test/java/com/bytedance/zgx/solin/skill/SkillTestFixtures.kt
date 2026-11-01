@@ -1,15 +1,11 @@
 package com.bytedance.zgx.solin.skill
 
-import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolExecutor
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
-
-internal fun allowAllSkillToolGate(): SkillToolGate =
-    SkillToolGate { _, _ -> SkillToolGateDecision.Allow }
 
 internal fun testDraft(
     toolName: String,
@@ -94,45 +90,6 @@ internal fun testSkillPlan(
             riskLevel = riskLevel,
         ),
         steps = steps,
-    )
-
-internal fun clipboardSuccess(text: String): Map<String, String> =
-    mapOf(
-        "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-        "privacy" to MessagePrivacy.LocalOnly.name,
-        "requiresLocalModel" to "true",
-        "text" to text,
-        "truncated" to "false",
-    )
-
-internal fun currentScreenTextSuccess(text: String): Map<String, String> =
-    mapOf(
-        "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-        "privacy" to "LocalOnly",
-        "requiresLocalModel" to "true",
-        "source" to "accessibility_active_window",
-        "maxChars" to "1200",
-        "capturedAtMillis" to "1000",
-        "nodeCount" to "1",
-        "screenText" to text,
-        "truncated" to "false",
-        "screenTextIncluded" to "true",
-        "structureSummaryIncluded" to "false",
-        "rawTreeIncluded" to "false",
-        "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
-    )
-
-internal fun externalActivitySuccess(toolName: String): Map<String, String> =
-    mapOf(
-        "toolName" to toolName,
-        "completionState" to "ExternalActivityOpened",
-        "completionVerified" to "false",
-        "externalOutcome" to "Unknown",
-        "externalOutcomeSource" to "Unknown",
-        "targetKind" to "android_chooser",
-        "intentAction" to "android.intent.action.SEND",
-        "metadataPolicy" to "AllowlistedCompletionMetadata",
-        "rawPayloadIncluded" to "false",
     )
 
 internal class RecordingToolExecutor(

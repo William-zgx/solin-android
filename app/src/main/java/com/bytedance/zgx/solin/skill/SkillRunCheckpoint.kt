@@ -3,8 +3,6 @@ package com.bytedance.zgx.solin.skill
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
-import org.json.JSONArray
-import org.json.JSONObject
 import java.security.MessageDigest
 
 enum class SkillRunCheckpointPhase {
@@ -64,8 +62,8 @@ data class SkillRunCheckpoint(
         }
         // BranchStep produces no output; its output-key entry is legitimately empty, so the
         // empty-keys guard below must not reject it (the build path records branch ids with empty
-        // keys — see toValueFreeCheckpoint). Without this a plan whose BranchStep precedes a
-        // confirmation-gated ToolStep could never be restored, killing the run.
+        // keys — see valueFreeCheckpointForPendingTool). Without this a plan whose BranchStep precedes
+        // a confirmation-gated ToolStep could never be restored, killing the run.
         val branchStepIds = plan.steps
             .filterIsInstance<SkillStep.BranchStep>()
             .mapTo(mutableSetOf()) { step -> step.id }
@@ -121,52 +119,10 @@ data class SkillRunCheckpoint(
             ?.let { "skill checkpoint contains unsafe structural token" }
     }
 
-    fun toJsonObject(): JSONObject =
-        JSONObject()
-            .put("schemaVersion", schemaVersion)
-            .put("runId", runId)
-            .put("skillId", skillId)
-            .put("skillRequestId", skillRequestId)
-            .put("manifestId", manifestId)
-            .put("manifestVersion", manifestVersion)
-            .put("manifestHash", manifestHash)
-            .put("phase", phase.name)
-            .put("pendingStepIndex", pendingStepIndex)
-            .put("pendingStepId", pendingStepId)
-            .put("pendingRequestId", pendingRequestId)
-            .put("pendingToolName", pendingToolName)
-            .put("completedStepIds", completedStepIds.toJsonArray())
-            .put("outputKeysByStep", outputKeysByStep.toStringListMapJsonObject())
-            .put("privateOutputRefs", privateOutputRefs.sorted().toJsonArray())
-
     companion object {
         const val SCHEMA_VERSION = 1
     }
 }
-
-fun SkillRunContinuation.toValueFreeCheckpoint(
-    runId: String,
-    plan: SkillPlan,
-    toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
-): SkillRunCheckpoint =
-    SkillRunCheckpoint(
-        runId = runId,
-        skillId = skillId,
-        skillRequestId = planRequestId,
-        manifestId = plan.manifest.id,
-        manifestVersion = plan.manifest.version,
-        manifestHash = plan.manifest.checkpointHash(),
-        phase = SkillRunCheckpointPhase.AwaitingToolConfirmation,
-        pendingStepIndex = pendingStepIndex,
-        pendingStepId = pendingStepId,
-        pendingRequestId = pendingToolRequest.id,
-        pendingToolName = pendingToolRequest.toolName,
-        completedStepIds = plan.steps.take(pendingStepIndex).map { step -> step.id },
-        outputKeysByStep = plan.steps
-            .take(pendingStepIndex)
-            .associate { step -> step.id to step.knownValueFreeOutputKeys(toolRegistry) },
-        privateOutputRefs = privateOutputRefs.toSet(),
-    )
 
 fun SkillPlan.valueFreeCheckpointForPendingTool(
     runId: String,
@@ -250,16 +206,6 @@ private fun StringBuilder.appendLengthPrefixed(value: String) {
     append(value)
     append(';')
 }
-
-private fun Map<String, List<String>>.toStringListMapJsonObject(): JSONObject =
-    JSONObject().also { json ->
-        entries.sortedBy { it.key }.forEach { (key, values) ->
-            json.put(key, values.distinct().sorted().toJsonArray())
-        }
-    }
-
-private fun List<String>.toJsonArray(): JSONArray =
-    JSONArray().also { array -> forEach { value -> array.put(value) } }
 
 private fun String.isNotSafeCheckpointToken(): Boolean =
     !SAFE_CHECKPOINT_TOKEN.matches(this)
