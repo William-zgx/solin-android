@@ -7,12 +7,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -20,10 +19,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,8 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -60,43 +59,81 @@ import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
 internal const val MID_RUN_STEERING_COMPOSER_HINT = "运行中发送将插话调整"
 
+/** Shown above the field when no model can answer yet; the send button stays disabled. */
+internal const val COMPOSER_NOT_READY_HINT = "先下载本地模型或连接远程模型"
+
+/** The field's own prompt while no model is ready; the hint line above says what to do. */
+internal const val NOT_READY_PLACEHOLDER = "配置远程或下载本地后提问"
+
 /** Input/send-button state of the composer, including mid-run steering. */
 internal data class ComposerActionState(
     val inputEnabled: Boolean,
     val canSend: Boolean,
-    val actionIsStop: Boolean,
+    /** The stop button is shown whenever a generation is in flight, even next to a steer send. */
+    val showStop: Boolean,
+    /** The send button is hidden only while a run is showing stop and there is nothing to send. */
+    val showSend: Boolean,
     val placeholder: String,
 )
 
 /**
- * While a run is active and steering is available the input stays enabled: non-blank text turns the
- * stop button into send (the message steers or queues, see ChatMidRunSteering); blank input keeps
- * stop. Shared-input drafts are never sent mid-run.
+ * While a run is active and steering is available the input stays enabled: non-blank text sends a
+ * steer/queue message (see ChatMidRunSteering) *and* the stop button stays on screen next to it,
+ * so stopping never requires clearing the text. Blank input keeps only stop. Shared-input drafts
+ * are never sent mid-run, and nothing is sent before a model is ready.
  */
 internal fun composerActionState(state: ChatUiState, input: String): ComposerActionState {
     val hasPendingSharedInput = state.pendingSharedInputDraft != null
     val steering = state.isBusy && state.midRunSteeringAvailable && !hasPendingSharedInput
     val inputEnabled = !state.isBusy || steering
-    val canSend = if (steering) {
-        input.isNotBlank()
-    } else {
-        inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
+    val canSend = when {
+        !state.isReady && !state.isBusy -> false
+        steering -> input.isNotBlank()
+        else -> inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
     }
     val placeholder = when {
         steering && state.pendingSteerMessageCount > 0 ->
             "已插话 ${state.pendingSteerMessageCount} 条 · $MID_RUN_STEERING_COMPOSER_HINT"
         steering -> MID_RUN_STEERING_COMPOSER_HINT
         state.isBusy -> state.statusText
-        !state.isReady -> "配置远程或下载本地后提问"
+        !state.isReady -> NOT_READY_PLACEHOLDER
         hasPendingSharedInput -> "补充说明"
         else -> "输入问题"
     }
     return ComposerActionState(
         inputEnabled = inputEnabled,
         canSend = canSend,
-        actionIsStop = state.isGenerating && !(steering && canSend),
+        showStop = state.isGenerating,
+        showSend = !state.isGenerating || canSend,
         placeholder = placeholder,
     )
+}
+
+/** One short notice line above the composer; [fullText] keeps the complete wording for a11y. */
+internal data class ComposerNotice(
+    val text: String,
+    val fullText: String,
+)
+
+/**
+ * The single notice line the composer may show. It always says that an image is confirmed before
+ * it leaves the phone and that other attachments are not sent along; the long form stays in the
+ * content description and in the privacy notice page.
+ */
+internal fun composerNotice(
+    preference: InferenceMode,
+    actualPlacement: RunPlacement?,
+    actualReason: PlacementReasonCode?,
+): ComposerNotice? {
+    val fullText = attachmentProtectionNotice(preference, actualPlacement, actualReason) ?: return null
+    // Both safety facts survive in one line: an image is confirmed before it leaves the phone,
+    // and the other attachments are not sent along.
+    val shortText = when {
+        actualPlacement == RunPlacement.Remote -> "本次远程：图片发送前确认，其他附件不发"
+        preference == InferenceMode.Remote -> "远程：图片发送前确认，其他附件不发"
+        else -> "自动：远程时图片发送前确认，其他附件不发"
+    }
+    return ComposerNotice(text = shortText, fullText = fullText)
 }
 
 @Composable
@@ -116,16 +153,14 @@ internal fun Composer(
     val attachmentEnabled = !state.isBusy
     val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
     var showVoicePermissionDisclosure by rememberSaveable { mutableStateOf(false) }
-    val composerEdge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
     val composerAction = composerActionState(state, input)
-    val inputEnabled = composerAction.inputEnabled
-    val actionIsStop = composerAction.actionIsStop
-    val canSend = composerAction.canSend
-    val placeholder = composerAction.placeholder
+    val showNotReadyHint = !state.isReady && !state.isBusy
+    // app_status_text is part of the verification contract (other androidTests assert it), so it
+    // stays even when the busy text also appears as the field's placeholder.
     val showCompactStatus = state.isBusy ||
         state.statusText.isVoiceStatusText() ||
         state.statusText.isAgentExecutionOutcomeStatusText()
-    val attachmentNotice = attachmentProtectionNotice(
+    val attachmentNotice = composerNotice(
         preference = state.inferenceMode,
         actualPlacement = state.activeRunPlacement,
         actualReason = state.activeRunPlacementReason,
@@ -133,17 +168,8 @@ internal fun Composer(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.86f))
-            .drawBehind {
-                drawLine(
-                    color = composerEdge,
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 1.dp.toPx(),
-                )
-            }
             .navigationBarsPadding()
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (state.voiceCapture.isActive) {
@@ -157,7 +183,9 @@ internal fun Composer(
             )
             VoiceInputPrivacyNotice()
         }
-        if (attachmentNotice != null) {
+        // One notice line at most: while voice capture is running its own privacy line stands in,
+        // and attaching is disabled then, so the attachment warning comes back afterwards.
+        if (attachmentNotice != null && !state.voiceCapture.isActive) {
             AttachmentProtectionNotice(attachmentNotice)
         }
         state.pendingSharedInputDraft?.let { draft ->
@@ -178,13 +206,30 @@ internal fun Composer(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            // Narrow screens drop the model button; everything else renders identically.
-            val compactControls = maxWidth < 360.dp
+        ComposerContainer {
+            if (showNotReadyHint) {
+                Text(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, bottom = 2.dp)
+                        .testTag("composer_not_ready_hint"),
+                    text = COMPOSER_NOT_READY_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            ComposerTextInput(
+                input = input,
+                onInputChanged = onInputChanged,
+                inputEnabled = composerAction.inputEnabled,
+                placeholder = composerAction.placeholder,
+            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 ComposerAttachmentButton(
                     contentDescription = attachmentContentDescription(
@@ -195,29 +240,24 @@ internal fun Composer(
                     enabled = attachmentEnabled,
                     onClick = onPickSharedAttachment,
                 )
-                ComposerTextInput(
-                    modifier = Modifier.weight(1f),
-                    input = input,
-                    onInputChanged = onInputChanged,
-                    inputEnabled = inputEnabled,
-                    placeholder = placeholder,
-                )
                 ComposerVoiceButton(
                     enabled = voiceEnabled,
                     onClick = { showVoicePermissionDisclosure = true },
                 )
-                if (!compactControls) {
-                    ComposerModelButton(
-                        enabled = !state.isBusy,
-                        onClick = onOpenModelManager,
+                Spacer(modifier = Modifier.weight(1f))
+                ComposerPlacementPill(
+                    mode = state.inferenceMode,
+                    onClick = if (state.isBusy) null else onOpenModelManager,
+                )
+                if (composerAction.showStop) {
+                    ComposerStopButton(onStopGeneration = onStopGeneration)
+                }
+                if (composerAction.showSend) {
+                    ComposerSendButton(
+                        canSend = composerAction.canSend,
+                        onSend = onSend,
                     )
                 }
-                ComposerSendButton(
-                    actionIsStop = actionIsStop,
-                    canSend = canSend,
-                    onStopGeneration = onStopGeneration,
-                    onSend = onSend,
-                )
             }
         }
     }
@@ -232,6 +272,24 @@ internal fun Composer(
                 showVoicePermissionDisclosure = false
             },
         )
+    }
+}
+
+/** The single rounded composer surface: text on top, tools below, nothing else. */
+@Composable
+private fun ComposerContainer(content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            content()
+        }
     }
 }
 
@@ -296,24 +354,36 @@ private fun ComposerTextInput(
     placeholder: String,
     modifier: Modifier = Modifier,
 ) {
+    // Borderless, transparent field: the composer container is the only frame around the text.
     OutlinedTextField(
         modifier = modifier
-            .heightIn(min = 50.dp, max = 132.dp)
+            .fillMaxWidth()
+            .heightIn(min = 48.dp, max = 132.dp)
             .testTag("composer_input"),
         value = input,
         onValueChange = onInputChanged,
         enabled = inputEnabled,
         minLines = 1,
         maxLines = 5,
-        placeholder = { Text(placeholder) },
+        textStyle = MaterialTheme.typography.bodyLarge,
+        placeholder = {
+            Text(
+                text = placeholder,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
         shape = MaterialTheme.shapes.medium,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
-            disabledBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.34f),
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.96f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.70f),
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.32f),
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent,
+            disabledBorderColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent,
+            disabledContainerColor = Color.Transparent,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+            disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
             cursorColor = MaterialTheme.colorScheme.primary,
         ),
     )
@@ -340,96 +410,133 @@ private fun ComposerVoiceButton(
     }
 }
 
+/**
+ * The placement pill doubles as the model switch: it shows where the next message runs (本机 /
+ * 远程 / 自动) and opens the model manager when tapped.
+ */
 @Composable
-private fun ComposerModelButton(
-    enabled: Boolean,
-    onClick: () -> Unit,
+private fun ComposerPlacementPill(
+    mode: InferenceMode,
+    onClick: (() -> Unit)?,
 ) {
-    ComposerIconButton(
+    PlacementPill(
+        label = when (mode) {
+            InferenceMode.Local -> "本机"
+            InferenceMode.Auto -> "自动"
+            InferenceMode.Remote -> "远程"
+        },
+        leavesPhone = when (mode) {
+            InferenceMode.Local -> false
+            InferenceMode.Remote -> true
+            InferenceMode.Auto -> null
+        },
         modifier = Modifier
             .testTag("composer_model_button")
-            .semantics {
-                contentDescription = "模型管理"
-            },
+            .semantics { contentDescription = "模型管理" },
         onClick = onClick,
-        enabled = enabled,
-    ) {
-        SolinGlyph(
-            kind = SolinGlyphKind.Spark,
-            tint = LocalContentColor.current,
-        )
-    }
+    )
 }
 
 @Composable
 private fun ComposerSendButton(
-    actionIsStop: Boolean,
     canSend: Boolean,
-    onStopGeneration: () -> Unit,
     onSend: () -> Unit,
 ) {
-    val semanticColors = LocalSolinColors.current
-    IconButton(
+    ComposerRoundButton(
         modifier = Modifier
-            .height(46.dp)
-            .width(46.dp)
-            .clip(MaterialTheme.shapes.medium)
-            .border(
-                width = 1.dp,
-                color = if (canSend || actionIsStop) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)
-                },
-                shape = MaterialTheme.shapes.medium,
-            )
             .testTag("composer_send_button")
-            .semantics {
-                contentDescription = if (actionIsStop) "停止生成" else "发送"
-            },
-        onClick = when {
-            actionIsStop -> onStopGeneration
-            else -> onSend
+            .semantics { contentDescription = "发送" },
+        enabled = canSend,
+        containerColor = if (canSend) {
+            MaterialTheme.colorScheme.onSurface
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        enabled = when {
-            actionIsStop -> true
-            else -> canSend
+        contentColor = if (canSend) {
+            MaterialTheme.colorScheme.background
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         },
-        colors = IconButtonDefaults.iconButtonColors(
-            containerColor = when {
-                actionIsStop -> semanticColors.busy
-                canSend -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.surfaceContainerHigh
-            },
-            contentColor = when {
-                actionIsStop -> semanticColors.onBusy
-                canSend -> MaterialTheme.colorScheme.onPrimary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
-            },
-        ),
+        onClick = onSend,
     ) {
         SolinGlyph(
-            kind = if (actionIsStop) SolinGlyphKind.Stop else SolinGlyphKind.Send,
+            kind = SolinGlyphKind.Send,
+            modifier = Modifier.size(18.dp),
             tint = LocalContentColor.current,
         )
     }
 }
 
 @Composable
-private fun AttachmentProtectionNotice(notice: String) {
-    Surface(
+private fun ComposerStopButton(onStopGeneration: () -> Unit) {
+    val semanticColors = LocalSolinColors.current
+    ComposerRoundButton(
+        modifier = Modifier
+            .testTag("composer_stop_button")
+            .semantics { contentDescription = "停止生成" },
+        enabled = true,
+        containerColor = semanticColors.busy,
+        contentColor = semanticColors.onBusy,
+        onClick = onStopGeneration,
+    ) {
+        SolinGlyph(
+            kind = SolinGlyphKind.Stop,
+            modifier = Modifier.size(18.dp),
+            tint = LocalContentColor.current,
+        )
+    }
+}
+
+/** A 40dp circle drawn inside a 48dp touch target. */
+@Composable
+private fun ComposerRoundButton(
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
+    containerColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    IconButton(
+        modifier = modifier.size(48.dp),
+        onClick = onClick,
+        enabled = enabled,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(containerColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides contentColor) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentProtectionNotice(notice: ComposerNotice) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("remote_attachment_protection_notice"),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.24f),
+            .padding(horizontal = 4.dp)
+            .testTag("remote_attachment_protection_notice")
+            .semantics { contentDescription = notice.fullText },
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        PlacementMark(
+            leavesPhone = true,
+            modifier = Modifier.size(10.dp),
+            tint = LocalSolinColors.current.remote,
+        )
         Text(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-            text = notice,
+            text = notice.text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
+            color = LocalSolinColors.current.remote,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -471,7 +578,7 @@ private fun VoiceInputPrivacyNotice() {
         text = VOICE_INPUT_PRIVACY_DESCRIPTION,
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 2,
+        maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
 }
@@ -484,25 +591,19 @@ private fun ComposerIconButton(
     content: @Composable () -> Unit,
 ) {
     IconButton(
-        modifier = modifier
-            .height(46.dp)
-            .width(42.dp)
-            .clip(MaterialTheme.shapes.medium)
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f),
-                shape = MaterialTheme.shapes.medium,
-            ),
+        modifier = modifier.size(48.dp),
         onClick = onClick,
         enabled = enabled,
-        colors = IconButtonDefaults.iconButtonColors(
-            contentColor = MaterialTheme.colorScheme.primary,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-        ),
     ) {
-        content()
+        CompositionLocalProvider(
+            LocalContentColor provides if (enabled) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            },
+        ) {
+            content()
+        }
     }
 }
 
@@ -515,31 +616,30 @@ private fun PendingSharedInputStrip(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("pending_shared_input_strip"),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.66f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f)),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Row(
-            modifier = Modifier.padding(start = 10.dp, top = 6.dp, end = 4.dp, bottom = 6.dp),
+            modifier = Modifier.padding(start = 12.dp, top = 2.dp, end = 2.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SolinGlyph(
                 modifier = Modifier.size(16.dp),
                 kind = SolinGlyphKind.Add,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 modifier = Modifier.weight(1f),
                 text = summary,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                maxLines = 2,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             IconButton(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .semantics { contentDescription = "移除附件" },
                 onClick = onRemove,
             ) {
@@ -576,12 +676,11 @@ private fun VoiceCaptureBar(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("voice_capture_bar"),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.66f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+            modifier = Modifier.padding(start = 12.dp, top = 2.dp, end = 2.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -593,14 +692,14 @@ private fun VoiceCaptureBar(
             Text(
                 modifier = Modifier.weight(1f),
                 text = partialText.ifBlank { if (isTranscribing) "正在转写" else "正在收音" },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             IconButton(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(48.dp)
                     .semantics { contentDescription = "取消语音输入" },
                 onClick = onCancel,
             ) {
@@ -613,8 +712,8 @@ private fun VoiceCaptureBar(
             if (!isTranscribing) {
                 IconButton(
                     modifier = Modifier
-                        .size(38.dp)
-                    .semantics { contentDescription = "结束语音输入" },
+                        .size(48.dp)
+                        .semantics { contentDescription = "结束语音输入" },
                     onClick = onFinish,
                 ) {
                     SolinGlyph(
@@ -651,7 +750,7 @@ private fun VoiceWaveform(
                     .width(3.dp)
                     .height((7f + animated * 30f).dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.primary),
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant),
             )
         }
     }

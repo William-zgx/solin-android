@@ -19,17 +19,22 @@ import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.RunDataReceiptUiSummary
+import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.capability.CapabilityMatrix
+import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.ui.components.ACTION_SUMMARY_COLLAPSE_CHARS
+import com.bytedance.zgx.solin.ui.components.RunStepVisual
 import com.bytedance.zgx.solin.ui.components.actionDataBoundaryDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionDataLeavesPhone
 import com.bytedance.zgx.solin.ui.components.actionParameterDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionTextDisplay
 import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
 import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
+import com.bytedance.zgx.solin.ui.components.composerNotice
 import com.bytedance.zgx.solin.ui.components.hasAnySavedValue
 import com.bytedance.zgx.solin.ui.components.inferencePreferenceDescription
 import com.bytedance.zgx.solin.ui.components.memoryEvidenceDisplayText
@@ -37,10 +42,12 @@ import com.bytedance.zgx.solin.ui.components.modelPathGuidanceRows
 import com.bytedance.zgx.solin.ui.components.parseRemoteContextWindowTokens
 import com.bytedance.zgx.solin.ui.components.publicWebEvidenceDisplayRows
 import com.bytedance.zgx.solin.ui.components.publicWebSourceDisplayText
+import com.bytedance.zgx.solin.ui.components.recoveryActionButtonLabel
 import com.bytedance.zgx.solin.ui.components.remoteModeDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.components.remoteSendDisclosureCanSuppressForSession
 import com.bytedance.zgx.solin.ui.components.remoteSendDisclosureDisplayRows
 import com.bytedance.zgx.solin.ui.components.runTimelineItemDisplayText
+import com.bytedance.zgx.solin.ui.components.runTimelineStepVisuals
 import com.bytedance.zgx.solin.ui.components.selectableInferencePreferences
 import com.bytedance.zgx.solin.ui.components.semanticMemoryIndexStatusText
 import com.bytedance.zgx.solin.ui.components.trustDeletionBoundaryText
@@ -425,6 +432,44 @@ class SolinScreenDisplayTest {
     }
 
     @Test
+    fun composerNoticeShowsOneShortLineAndKeepsTheFullWording() {
+        val remote = composerNotice(InferenceMode.Remote, null, null)
+        assertEquals("远程：图片发送前确认，其他附件不发", remote?.text)
+        assertEquals(REMOTE_ATTACHMENT_PROTECTION_NOTICE, remote?.fullText)
+
+        val actualRemote = composerNotice(
+            preference = InferenceMode.Auto,
+            actualPlacement = RunPlacement.Remote,
+            actualReason = PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+        )
+        assertEquals("本次远程：图片发送前确认，其他附件不发", actualRemote?.text)
+        assertEquals(ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE, actualRemote?.fullText)
+
+        val auto = composerNotice(InferenceMode.Auto, null, null)
+        assertEquals("自动：远程时图片发送前确认，其他附件不发", auto?.text)
+        assertEquals(AUTO_ATTACHMENT_PROTECTION_NOTICE, auto?.fullText)
+
+        // Every notice line stays within the one-line copy limit and keeps both safety facts.
+        listOfNotNull(remote, actualRemote, auto).forEach { notice ->
+            assertTrue(
+                "Composer notice must stay one short line: ${notice.text}",
+                notice.text.length <= 24,
+            )
+            assertContainsAll(notice.text, "图片发送前确认", "附件不发")
+        }
+
+        assertEquals(null, composerNotice(InferenceMode.Local, null, null))
+        assertEquals(
+            null,
+            composerNotice(
+                preference = InferenceMode.Remote,
+                actualPlacement = RunPlacement.Local,
+                actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
+            ),
+        )
+    }
+
+    @Test
     fun placementDisplaySeparatesPreferenceFromActualRun() {
         assertEquals("偏好：自动", inferencePreferenceDisplayText(InferenceMode.Auto))
         assertEquals(null, activePlacementDisplayText(null, null))
@@ -772,6 +817,61 @@ class SolinScreenDisplayTest {
         assertContainsAll(timelineText, "执行工具", "打开设置", "仅本机", "需要确认")
         assertContainsAll(memoryText, "偏好", "语义召回", "高相关", "[redacted]")
         assertContainsNone(memoryText, "alice@example.com", "secret")
+    }
+
+    @Test
+    fun runTimelineStepVisualsMarkDoneCurrentAndPendingSteps() {
+        val running = listOf("Completed", "Completed", "Executing")
+            .mapIndexed { index, state ->
+                RunTimelineItemUiSummary(
+                    id = "t$index",
+                    label = "步骤 $index",
+                    state = state,
+                    detail = "",
+                )
+            }
+
+        assertEquals(
+            listOf(RunStepVisual.Done, RunStepVisual.Done, RunStepVisual.Current),
+            runTimelineStepVisuals(running),
+        )
+
+        // A finished run leaves every step done and nothing amber.
+        assertEquals(
+            listOf(RunStepVisual.Done, RunStepVisual.Done, RunStepVisual.Done),
+            runTimelineStepVisuals(running.map { it.copy(state = "Completed") }),
+        )
+        assertEquals(emptyList<RunStepVisual>(), runTimelineStepVisuals(emptyList()))
+    }
+
+    @Test
+    fun recoveryActionEntryLabelsUndoAsUndoAndNamesOtherActions() {
+        val undo = AgentRecoveryAction(
+            sourceRequestId = "r1",
+            sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "42"),
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "撤销提醒",
+                summary = "将取消提醒任务：42",
+                parameters = mapOf("taskId" to "42"),
+            ),
+        )
+        val other = undo.copy(
+            request = ToolRequest(toolName = MobileActionFunctions.DIAL_PHONE_NUMBER),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.DIAL_PHONE_NUMBER,
+                title = "拨打号码",
+                summary = "打开拨号盘",
+                parameters = emptyMap(),
+            ),
+        )
+
+        assertEquals("撤销", recoveryActionButtonLabel(undo))
+        assertEquals("拨打号码", recoveryActionButtonLabel(other))
     }
 
     @Test
