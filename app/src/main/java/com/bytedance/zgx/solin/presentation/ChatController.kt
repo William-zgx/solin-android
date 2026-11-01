@@ -1059,7 +1059,6 @@ class ChatController internal constructor(
                 localCandidate = placementInputs.localCandidate,
                 remoteCandidate = placementInputs.remoteCandidate,
                 remoteConfigRevision = normalizedRemoteConfig.profileRevision,
-                prompt = route.promptForModel,
                 history = stateBeforeSend.messages,
                 imageAttachments = imageAttachments,
                 localImageAttachments = localImageAttachments,

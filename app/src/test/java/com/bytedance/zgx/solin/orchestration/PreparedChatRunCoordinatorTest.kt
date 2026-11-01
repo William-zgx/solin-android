@@ -139,24 +139,40 @@ class PreparedChatRunCoordinatorTest {
     }
 
     @Test
-    fun preparedRunRedactsSensitiveTextAndKeepsChosenTargetAfterExternalPreferenceChange() = runTest {
+    fun preparedRunKeepsNoPromptOrPlacementInputsAndRedactsSensitiveText() = runTest {
         val fixture = fixture(chosen(RunPlacement.Local))
         val result = fixture.coordinator.prepare(
-            request(prompt = "raw secret prompt", history = listOf(ChatMessage(MessageRole.User, "raw history"))),
+            request(history = listOf(ChatMessage(MessageRole.User, "raw history"))),
         ) as PrepareChatRunResult.Ready
         fixture.nextDecision = chosen(RunPlacement.Remote, preference = InferenceMode.Remote)
 
         assertEquals(RunPlacement.Local, result.prepared.placement)
-        assertFalse(result.prepared.toString().contains("raw secret prompt"))
         assertFalse(result.prepared.toString().contains("raw history"))
         assertFalse(result.prepared.toString().contains("endpoint"))
         assertFalse(result.prepared.toString().contains("apiKey"))
+        // A prepared run is a dispatch handle: it must not retain the assembled prompt, the placement
+        // inputs or the chosen decision, and it must never carry remote credentials.
         assertTrue(
-            PreparedChatRun::class.java.declaredFields.none { field ->
-                field.name in setOf("remoteEndpoint", "remoteModelName", "remoteApiKey")
-            },
+            PreparedChatRun::class.java.declaredFields
+                .filterNot { field -> java.lang.reflect.Modifier.isStatic(field.modifiers) }
+                .none { field ->
+                    field.name in setOf(
+                        "prompt",
+                        "privacyPlan",
+                        "requirements",
+                        "complexity",
+                        "resources",
+                        "localCandidate",
+                        "remoteCandidate",
+                        "remoteConfigRevision",
+                        "generationParameters",
+                        "decision",
+                        "remoteEndpoint",
+                        "remoteModelName",
+                        "remoteApiKey",
+                    )
+                },
         )
-        assertFalse(request(prompt = "raw secret prompt").toString().contains("raw secret prompt"))
     }
 
     @Test
@@ -444,7 +460,6 @@ class PreparedChatRunCoordinatorTest {
         runId: String = "run-1",
         sessionId: String = "session-1",
         preference: InferenceMode = InferenceMode.Remote,
-        prompt: String = "prompt",
         history: List<ChatMessage> = emptyList(),
         localImages: List<LocalImageAttachment> = emptyList(),
     ): PrepareChatRunRequest = PrepareChatRunRequest(
@@ -458,7 +473,6 @@ class PreparedChatRunCoordinatorTest {
         localCandidate = candidate(),
         remoteCandidate = candidate(remote = true),
         remoteConfigRevision = REVISION_1,
-        prompt = prompt,
         history = history,
         imageAttachments = listOf(ChatImageAttachment("image/png", "data:image/png;base64,AA==")),
         localImageAttachments = localImages,

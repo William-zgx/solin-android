@@ -47,7 +47,6 @@ internal data class PrepareChatRunRequest(
     val localCandidate: ModelCandidateSnapshot,
     val remoteCandidate: ModelCandidateSnapshot,
     val remoteConfigRevision: String,
-    val prompt: String,
     val history: List<ChatMessage>,
     val imageAttachments: List<ChatImageAttachment>,
     val localImageAttachments: List<LocalImageAttachment>,
@@ -63,23 +62,18 @@ internal data class PrepareChatRunRequest(
             "imageCount=${imageAttachments.size}, localImageCount=${localImageAttachments.size})"
 }
 
+/**
+ * A prepared run that is bound to one placement and waiting to dispatch. It keeps only what a
+ * dispatch reads (run id, chosen placement and its binding/permit, frozen history and attachments).
+ * The placement inputs and the assembled prompt live in [PrepareChatRunRequest] for the decision
+ * only, so the prompt text is not retained past it.
+ */
 internal class PreparedChatRun private constructor(
     val runId: String,
-    val sessionId: String,
     val preference: InferenceMode,
-    val privacyPlan: PromptPrivacyPlan,
-    val requirements: ModelRequirements,
-    val complexity: RequestComplexity,
-    val resources: StableResourceState,
-    val localCandidate: ModelCandidateSnapshot,
-    val remoteCandidate: ModelCandidateSnapshot,
-    val remoteConfigRevision: String,
-    val prompt: String,
     val history: List<ChatMessage>,
     val imageAttachments: List<ChatImageAttachment>,
     private val frozenLocalImageAttachments: List<LocalImageAttachment>,
-    val generationParameters: GenerationParameters,
-    val decision: PlacementDecision.Chosen,
     val binding: RunPlacementBinding,
     val permit: ActiveRunPlacementPermit,
 ) {
@@ -96,26 +90,14 @@ internal class PreparedChatRun private constructor(
     companion object {
         fun freeze(
             request: PrepareChatRunRequest,
-            decision: PlacementDecision.Chosen,
             binding: RunPlacementBinding,
             permit: ActiveRunPlacementPermit,
         ): PreparedChatRun = PreparedChatRun(
             runId = request.runId,
-            sessionId = request.sessionId,
             preference = request.preference,
-            privacyPlan = request.privacyPlan,
-            requirements = request.requirements,
-            complexity = request.complexity,
-            resources = request.resources,
-            localCandidate = request.localCandidate,
-            remoteCandidate = request.remoteCandidate,
-            remoteConfigRevision = request.remoteConfigRevision,
-            prompt = request.prompt,
             history = request.history.toList(),
             imageAttachments = request.imageAttachments.toList(),
             frozenLocalImageAttachments = request.localImageAttachments.map { attachment -> attachment.frozenCopy() },
-            generationParameters = request.generationParameters,
-            decision = decision,
             binding = binding,
             permit = permit,
         )
@@ -193,7 +175,7 @@ internal class PreparedChatRunCoordinator(
         val permit = runCatching { bindingStore.bindAndReserve(binding) }.getOrNull()
             ?: return PrepareChatRunResult.BindingRejected
 
-        val prepared = PreparedChatRun.freeze(frozenRequest, decision, binding, permit)
+        val prepared = PreparedChatRun.freeze(frozenRequest, binding, permit)
         if (decision.placement == RunPlacement.Remote && frozenRequest.requiresRemoteDisclosure) {
             val registered = RegisteredPreparedRun(
                 frozenRequest.sessionId,
