@@ -25,6 +25,7 @@ import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.components.ACTION_SUMMARY_COLLAPSE_CHARS
 import com.bytedance.zgx.solin.ui.components.actionDataBoundaryDisplayRows
+import com.bytedance.zgx.solin.ui.components.actionDataLeavesPhone
 import com.bytedance.zgx.solin.ui.components.actionParameterDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionTextDisplay
 import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
@@ -137,7 +138,7 @@ class SolinScreenDisplayTest {
             "App 搜索技能与无障碍控制",
             "提醒创建与后台任务",
             "远程公开搜索工具",
-            "模型管理的隐私页",
+            "隐私与权限页",
             "仅本机数据",
             "本地后台任务",
             "公开信息",
@@ -259,13 +260,19 @@ class SolinScreenDisplayTest {
     @Test
     fun actionDataBoundaryNamesExternalLocalAndBackgroundDestinations() {
         val externalRows = actionDataBoundaryDisplayRows(MobileActionFunctions.SHARE_TEXT)
-        assertContainsAll(externalRows.joinToString(), "外部 App", "未确认结果前宣称已完成")
+        assertContainsAll(externalRows.joinToString(), "外部 App", "不会替你确认外部结果")
 
         val localRows = actionDataBoundaryDisplayRows(MobileActionFunctions.READ_CLIPBOARD)
-        assertContainsAll(localRows.joinToString(), "本机内容", "仅留在本机", "不会自动发送给远程模型")
+        assertContainsAll(localRows.joinToString(), "本机内容", "只留在本机", "不会自动发送给远程模型")
 
         val reminderRows = actionDataBoundaryDisplayRows(MobileActionFunctions.SCHEDULE_REMINDER)
         assertContainsAll(reminderRows.joinToString(), "后台任务", "默认留在本机")
+
+        // The placement mark next to the boundary line follows the same classification.
+        assertTrue(actionDataLeavesPhone(MobileActionFunctions.SHARE_TEXT))
+        assertTrue(actionDataLeavesPhone(MobileActionFunctions.OPEN_APP_BY_NAME))
+        assertFalse(actionDataLeavesPhone(MobileActionFunctions.READ_CLIPBOARD))
+        assertFalse(actionDataLeavesPhone(MobileActionFunctions.SCHEDULE_REMINDER))
     }
 
     @Test

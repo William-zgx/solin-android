@@ -1,17 +1,23 @@
 package com.bytedance.zgx.solin.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.PendingRemoteModeDisclosure
 import com.bytedance.zgx.solin.label
-import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
 @Composable
 internal fun RemoteModeDisclosureSheet(
@@ -19,28 +25,71 @@ internal fun RemoteModeDisclosureSheet(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    TrustSheetSurface(
-        modifier = Modifier.testTag("remote_mode_disclosure_sheet"),
-        accentColor = LocalSolinColors.current.remote,
-    ) {
-        SectionTitle(
-            text = "远程模型说明",
-            subtitle = "请确认当前远程目标与数据范围；普通发送不会逐条弹窗，疑似敏感内容仍会单独确认。",
+    TrustSheetSurface(modifier = Modifier.testTag("remote_mode_disclosure_sheet")) {
+        SheetPlacementHeader(
+            leavesPhone = true,
+            title = "远程模型说明",
+            subtitle = "普通发送不逐条弹窗，疑似敏感内容仍会单独确认。",
         )
         RemoteModeDisclosureRows(disclosure)
-        OutlinedButton(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            onClick = onDismiss,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("关闭")
+            FilledTonalButton(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .testTag("remote_mode_keep_local_button"),
+                onClick = onDismiss,
+            ) {
+                Text("保持本地")
+            }
+            Button(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .testTag("remote_mode_confirm_button"),
+                onClick = onConfirm,
+            ) {
+                Text("使用远程")
+            }
         }
-        Button(
+    }
+}
+
+/** Sheet title block: placement mark, title, one-line subtitle. */
+@Composable
+internal fun SheetPlacementHeader(
+    leavesPhone: Boolean,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        PlacementMark(
             modifier = Modifier
-                .fillMaxWidth()
-                .testTag("remote_mode_confirm_button"),
-            onClick = onConfirm,
+                .padding(top = 9.dp)
+                .size(10.dp),
+            leavesPhone = leavesPhone,
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            GlyphLabel(SolinGlyphKind.Spark, "确认")
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -51,7 +100,8 @@ private fun RemoteModeDisclosureRows(disclosure: PendingRemoteModeDisclosure) {
     TrustSheetGroup(
         modifier = Modifier.testTag("remote_mode_disclosure_rows"),
     ) {
-        rows.forEach { row ->
+        rows.forEachIndexed { index, row ->
+            if (index > 0) SheetRowDivider()
             Text(
                 text = row,
                 style = MaterialTheme.typography.bodySmall,
@@ -61,25 +111,33 @@ private fun RemoteModeDisclosureRows(disclosure: PendingRemoteModeDisclosure) {
     }
 }
 
+/**
+ * What the remote model does and does not receive. The destination and the protected-data list
+ * stay explicit: the user is agreeing to send conversation context off the phone.
+ */
 internal fun remoteModeDisclosureDisplayRows(disclosure: PendingRemoteModeDisclosure): List<String> {
     val imagePolicy = if (disclosure.supportsVisionInput) {
-        "主动选择的图片会在每次发送前弹出远程发送预览确认；请只选择你愿意交给该服务处理的图片。"
+        "主动选择的图片会在发送前预览确认。"
     } else {
-        "当前远程模型未启用图片输入；选择图片时会直接提示不支持，不会读取或发送。"
+        "当前模型不支持图片，选择时直接提示，不读取也不发送。"
     }
     val destinationSummary = if (disclosure.isConfigured) {
-        "远程地址：${disclosure.remoteHost}"
+        "发往 ${disclosure.remoteHost}"
     } else {
-        "远程地址：尚未配置，配置完成前不会发送远程请求"
+        "尚未配置地址，配置前不会发送任何远程请求"
     }
     return listOf(
         destinationSummary,
         "模型：${disclosure.remoteModelName}",
-        "发送范围：仅发送可远程发送的对话上下文、当前输入，以及确认后的主动选择图片。",
+        "会发送：可远程发送的对话上下文、当前输入，以及主动选择的图片（需确认）。",
         "不会发送：仅本机历史、本地记忆、设备上下文、非图片附件正文或 OCR 摘录。",
-        "图片规则：$imagePolicy",
-        "远程服务方可能按其政策记录或保留请求和响应。",
-        "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
+        imagePolicy,
+        "远程服务方可能按它的政策记录或保留请求和响应。",
+        if (disclosure.apiKeyConfigured) {
+            "已配置 API Key，加密保存在本机"
+        } else {
+            "尚未配置 API Key"
+        },
         "连接状态：${disclosure.connectivityStatus.label}",
     )
 }

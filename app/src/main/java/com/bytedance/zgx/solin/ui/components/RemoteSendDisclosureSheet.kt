@@ -1,16 +1,20 @@
 package com.bytedance.zgx.solin.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
-import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
 @Composable
 internal fun RemoteSendDisclosureSheet(
@@ -40,17 +43,15 @@ internal fun RemoteSendDisclosureSheet(
     )
     val requiresSensitiveConsent = disclosure.requiresSensitiveConsent
     var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
-    TrustSheetSurface(
-        modifier = Modifier.testTag("remote_send_disclosure_sheet"),
-        accentColor = if (requiresSensitiveConsent) {
-            MaterialTheme.colorScheme.error
-        } else {
-            LocalSolinColors.current.remote
-        },
-    ) {
-        SectionTitle(
-            text = "即将发送到远程模型",
-            subtitle = "确认后才会把本次内容交给远程模型；API Key 只作为请求凭据使用，不在界面显示。",
+    TrustSheetSurface(modifier = Modifier.testTag("remote_send_disclosure_sheet")) {
+        SheetPlacementHeader(
+            leavesPhone = true,
+            title = if (requiresSensitiveConsent) "内容可能敏感" else "即将发送到远程",
+            subtitle = if (requiresSensitiveConsent) {
+                "确认后才会把这段内容交给远程模型。"
+            } else {
+                "确认后才会把本次内容交给远程模型。"
+            },
         )
         RemoteSendDisclosureRows(disclosure)
         if (canSuppressForSession) {
@@ -58,6 +59,7 @@ internal fun RemoteSendDisclosureSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clickable { suppressForSession = !suppressForSession }
                         .testTag("remote_send_suppress_session_row"),
                     verticalAlignment = Alignment.CenterVertically,
@@ -69,60 +71,88 @@ internal fun RemoteSendDisclosureSheet(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "本次会话不再提示（含敏感内容或图片时仍会提示）",
+                        text = "本次会话不再提示（敏感内容或图片仍会提示）",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
+        if (requiresSensitiveConsent && disclosure.maskedPromptPreview.isNotBlank()) {
+            SheetRowDivider()
+            TrustSheetGroup {
+                Text(
+                    modifier = Modifier.testTag("remote_send_masked_preview"),
+                    text = "打码后将发送：${disclosure.maskedPromptPreview}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // The safe choice is the filled primary. Sending unredacted sensitive text is the
+        // exception, so it stays a quiet error-coloured text button, never the default target.
         if (!requiresSensitiveConsent) {
             Button(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .testTag("remote_send_confirm_button"),
                 onClick = { onConfirm(canSuppressForSession && suppressForSession) },
             ) {
-                GlyphLabel(SolinGlyphKind.Spark, "确认发送")
+                Text("确认发送")
             }
-        }
-        if (requiresSensitiveConsent) {
-            if (disclosure.maskedPromptPreview.isNotBlank()) {
-                TrustSheetGroup {
-                    Text(
-                        modifier = Modifier.testTag("remote_send_masked_preview"),
-                        text = "打码后将发送：${disclosure.maskedPromptPreview}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            TextButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("remote_send_dismiss_button"),
+                onClick = onDismiss,
+            ) {
+                Text("取消")
             }
+        } else {
             if (disclosure.allowMaskedSend) {
-                FilledTonalButton(
+                Button(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .testTag("remote_send_mask_button"),
                     onClick = onMaskAndSend,
                 ) {
-                    GlyphLabel(SolinGlyphKind.Shield, "打码后发送")
+                    Text("打码后发送")
+                }
+                FilledTonalButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("remote_send_dismiss_button"),
+                    onClick = onDismiss,
+                ) {
+                    Text("取消")
+                }
+            } else {
+                Button(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("remote_send_dismiss_button"),
+                    onClick = onDismiss,
+                ) {
+                    Text("取消")
                 }
             }
-            OutlinedButton(
+            TextButton(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .testTag("remote_send_anyway_button"),
                 onClick = onSendAnyway,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
             ) {
-                GlyphLabel(SolinGlyphKind.Spark, "仍然发送（已记录）")
+                Text("仍然发送（已记录）")
             }
-        }
-        OutlinedButton(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("remote_send_dismiss_button"),
-            onClick = onDismiss,
-        ) {
-            GlyphLabel(SolinGlyphKind.Close, "取消")
         }
     }
 }
@@ -142,7 +172,8 @@ private fun RemoteSendDisclosureRows(disclosure: PendingRemoteSendDisclosure) {
     TrustSheetGroup(
         modifier = Modifier.testTag("remote_send_disclosure_rows"),
     ) {
-        rows.forEach { row ->
+        rows.forEachIndexed { index, row ->
+            if (index > 0) SheetRowDivider()
             Text(
                 text = row,
                 style = MaterialTheme.typography.bodySmall,
@@ -152,6 +183,10 @@ private fun RemoteSendDisclosureRows(disclosure: PendingRemoteSendDisclosure) {
     }
 }
 
+/**
+ * Destination, what is sent, what is protected, and the sensitive categories that forced this
+ * confirmation. None of these rows may be dropped: they are the evidence the user is agreeing to.
+ */
 internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclosure): List<String> {
     val sendSummary = when (disclosure.kind) {
         RemoteSendDisclosureKind.CurrentInput ->
