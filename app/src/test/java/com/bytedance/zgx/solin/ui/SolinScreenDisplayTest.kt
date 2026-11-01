@@ -35,6 +35,8 @@ import com.bytedance.zgx.solin.ui.components.actionTextDisplay
 import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
 import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
 import com.bytedance.zgx.solin.ui.components.composerNotice
+import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_BODY
+import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_TITLE
 import com.bytedance.zgx.solin.ui.components.hasAnySavedValue
 import com.bytedance.zgx.solin.ui.components.inferencePreferenceDescription
 import com.bytedance.zgx.solin.ui.components.memoryEvidenceDisplayText
@@ -428,6 +430,19 @@ class SolinScreenDisplayTest {
                 actualPlacement = RunPlacement.Local,
                 actualReason = PlacementReasonCode.PRIVACY_REQUIRES_LOCAL,
             ),
+        )
+    }
+
+    @Test
+    fun voiceConsentCopyKeepsTheFourConsentFacts() {
+        assertEquals("开启语音输入", VOICE_CONSENT_TITLE)
+        assertContainsAll(
+            VOICE_CONSENT_BODY,
+            "系统语音识别服务",
+            "不保存音频",
+            "只填入输入框",
+            "不会自动发送",
+            "请求麦克风权限",
         )
     }
 

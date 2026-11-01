@@ -52,8 +52,6 @@ import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.ui.ACTUAL_REMOTE_ATTACHMENT_PROTECTION_NOTICE
 import com.bytedance.zgx.solin.ui.AUTO_ATTACHMENT_PROTECTION_NOTICE
 import com.bytedance.zgx.solin.ui.REMOTE_ATTACHMENT_PROTECTION_NOTICE
-import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_BODY
-import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
@@ -64,6 +62,15 @@ internal const val COMPOSER_NOT_READY_HINT = "先下载本地模型或连接远�
 
 /** The field's own prompt while no model is ready; the hint line above says what to do. */
 internal const val NOT_READY_PLACEHOLDER = "配置远程或下载本地后提问"
+
+internal const val VOICE_CONSENT_TITLE = "开启语音输入"
+
+/**
+ * Four facts, one short paragraph: the system speech service does the work, no audio is stored,
+ * the transcript only fills the input box, and nothing is sent automatically.
+ */
+internal const val VOICE_CONSENT_BODY =
+    "由系统语音识别服务处理，Solin 不保存音频；转写只填入输入框，不会自动发送；确认后才请求麦克风权限。"
 
 /** Input/send-button state of the composer, including mid-run steering. */
 internal data class ComposerActionState(
@@ -302,8 +309,8 @@ private fun VoiceInputPermissionDisclosureDialog(
     AlertDialog(
         modifier = Modifier.testTag("voice_permission_disclosure_dialog"),
         onDismissRequest = onDismiss,
-        title = { Text(VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE) },
-        text = { Text(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY) },
+        title = { Text(VOICE_CONSENT_TITLE) },
+        text = { Text(VOICE_CONSENT_BODY) },
         confirmButton = {
             TextButton(
                 modifier = Modifier.testTag("voice_permission_consent_button"),
