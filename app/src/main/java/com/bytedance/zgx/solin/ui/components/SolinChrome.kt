@@ -1,6 +1,16 @@
 package com.bytedance.zgx.solin.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.text.style.TextOverflow
+import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -27,6 +37,7 @@ internal enum class SolinGlyphKind {
     Delete,
     Download,
     Memory,
+    Menu,
     More,
     Spark,
     Shield,
@@ -152,6 +163,12 @@ internal fun SolinGlyph(
                 drawLine(tint, p(0.39f, 0.32f), p(0.61f, 0.32f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
 
+            SolinGlyphKind.Menu -> {
+                drawLine(tint, p(0.20f, 0.30f), p(0.80f, 0.30f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.20f, 0.50f), p(0.64f, 0.50f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.20f, 0.70f), p(0.80f, 0.70f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
             SolinGlyphKind.More -> {
                 drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.26f))
                 drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.5f))
@@ -224,5 +241,84 @@ internal fun SolinGlyph(
                 drawLine(tint, p(0.82f, 0.55f), p(0.82f, 0.45f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
         }
+    }
+}
+
+/**
+ * The placement mark: Solin's one visual signature. A filled dot means the work runs on this
+ * phone; a ring with a dashed outer ring means content leaves the phone. Use it wherever the
+ * user needs to know where their data goes (top bar, composer, reply footers, setup choices).
+ */
+@Composable
+internal fun PlacementMark(
+    leavesPhone: Boolean,
+    modifier: Modifier = Modifier.size(10.dp),
+    tint: Color = if (leavesPhone) LocalSolinColors.current.remote else LocalSolinColors.current.local,
+) {
+    Canvas(modifier = modifier) {
+        val unit = size.minDimension
+        val center = Offset(size.width / 2f, size.height / 2f)
+        if (!leavesPhone) {
+            drawCircle(tint, radius = unit * 0.5f, center = center)
+        } else {
+            drawCircle(tint, radius = unit * 0.34f, center = center, style = Stroke(width = unit * 0.14f))
+            drawCircle(
+                tint.copy(alpha = 0.7f),
+                radius = unit * 0.5f - unit * 0.04f,
+                center = center,
+                style = Stroke(
+                    width = unit * 0.08f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(unit * 0.12f, unit * 0.10f)),
+                ),
+            )
+        }
+    }
+}
+
+/** A rounded pill with a [PlacementMark] and a short label, tinted by placement. */
+@Composable
+internal fun PlacementPill(
+    label: String,
+    leavesPhone: Boolean?,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = LocalSolinColors.current
+    val container = when (leavesPhone) {
+        true -> colors.remoteContainer
+        false -> colors.localContainer
+        null -> MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val content = when (leavesPhone) {
+        true -> colors.onRemoteContainer
+        false -> colors.onLocalContainer
+        null -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val body: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .heightIn(min = 32.dp)
+                .padding(start = 10.dp, end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlacementMark(
+                leavesPhone = leavesPhone == true,
+                tint = if (leavesPhone == null) content else (if (leavesPhone) colors.remote else colors.local),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    // A clickable M3 Surface pads its touch target to 48dp but draws at the pill's size.
+    if (onClick != null) {
+        Surface(onClick = onClick, modifier = modifier, shape = CircleShape, color = container) { body() }
+    } else {
+        Surface(modifier = modifier, shape = CircleShape, color = container) { body() }
     }
 }
