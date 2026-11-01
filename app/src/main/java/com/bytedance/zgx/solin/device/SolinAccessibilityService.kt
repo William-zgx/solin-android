@@ -583,6 +583,7 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
+    // action-gate: exempt (global back leaves the screen; it never activates content)
     private fun pressBack(timeoutMillis: Long): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
             throwIfInterrupted()
@@ -756,6 +757,7 @@ class SolinAccessibilityService : AccessibilityService() {
      * value is kept too, because "callback said cancelled" and "callback never arrived" must not be
      * collapsed: only the former is safe to compensate for with a second input event.
      */
+    // action-gate: exempt (raw stroke dispatcher; every caller is a guarded tap / swipe / long-press entry)
     private fun dispatchGestureOutcome(path: Path, durationMillis: Long): GestureOutcome {
         throwIfInterrupted()
         val gesture = GestureDescription.Builder()
@@ -916,7 +918,6 @@ class SolinAccessibilityService : AccessibilityService() {
                 .toAbsolutePixels(screenWidth, screenHeight)
             val (endX, endY) = clampedNormalizedTarget(endXNorm, endYNorm)
                 .toAbsolutePixels(screenWidth, screenHeight)
-            refuseSwipeThatClicks(startX, startY, endX, endY)
             val performed = dispatchSwipeGesture(startX, startY, endX, endY, durationMillis)
             if (performed) {
                 UiPrimitiveResult.succeeded(
@@ -940,8 +941,6 @@ class SolinAccessibilityService : AccessibilityService() {
             val (screenWidth, screenHeight) = gestureScreenSizePx()
             val (absX, absY) = clampedNormalizedTarget(xNorm, yNorm)
                 .toAbsolutePixels(screenWidth, screenHeight)
-            // A view with no long-click handler clicks on release.
-            refuseCriticalTapAt(absX, absY)
             val performed = dispatchLongPressGesture(absX, absY, holdMillis)
             if (performed) {
                 UiPrimitiveResult.succeeded("已长按坐标 ($xNorm, $yNorm)")
@@ -963,6 +962,7 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
 
+    // action-gate: exempt (global home / recents leave the screen; they never activate content)
     private fun globalActionPrimitive(action: Int, successSummary: String): UiPrimitiveResult {
         throwIfInterrupted()
         return if (submitUiSideEffect { performGlobalAction(action) }) {
@@ -1064,30 +1064,39 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * The swipe entry. It runs the live guard itself, so no caller can dispatch a stroke that clicks
+     * the control it starts and ends on — including the `ui_scroll` gesture fallback, which has no
+     * preflight of its own.
+     */
     private fun dispatchSwipeGesture(x1: Int, y1: Int, x2: Int, y2: Int, durationMillis: Long): Boolean {
         throwIfInterrupted()
+        refuseSwipeThatClicks(x1, y1, x2, y2)
         val path = Path().apply {
             moveTo(x1.toFloat(), y1.toFloat())
             lineTo(x2.toFloat(), y2.toFloat())
         }
-        return dispatchStrokeGesture(path, durationMillis)
+        return dispatchGestureOutcome(path = path, durationMillis = boundedStrokeDuration(durationMillis))
+            .performed
     }
 
+    /** The long-press entry; a view with no long-click handler clicks on release, so it guards as a tap. */
     private fun dispatchLongPressGesture(x: Int, y: Int, holdMillis: Long): Boolean {
         throwIfInterrupted()
+        refuseCriticalTapAt(x, y)
         val path = Path().apply {
             moveTo(x.toFloat(), y.toFloat())
         }
-        return dispatchStrokeGesture(path, holdMillis)
+        return dispatchGestureOutcome(path = path, durationMillis = boundedStrokeDuration(holdMillis))
+            .performed
     }
 
-    private fun dispatchStrokeGesture(path: Path, durationMillis: Long): Boolean {
-        val bounded = durationMillis.coerceIn(
+    /** Keeps a stroke inside the range the schema and the long-press hold already assume. */
+    private fun boundedStrokeDuration(durationMillis: Long): Long =
+        durationMillis.coerceIn(
             MIN_UI_GESTURE_DURATION_MILLIS,
             MAX_UI_LONG_PRESS_HOLD_MILLIS,
         )
-        return dispatchGestureOutcome(path = path, durationMillis = bounded).performed
-    }
 
     private fun activateCandidate(candidate: NodeCandidate): Boolean {
         throwIfInterrupted()
@@ -1141,6 +1150,7 @@ class SolinAccessibilityService : AccessibilityService() {
             hint = hint?.takeIf { candidate -> candidate.matchesSubmitSearchText() },
         )
 
+    // action-gate: exempt (dismiss taps a guarded candidate, and the fallback is global back)
     private fun dismissTransientSearchOverlay(root: AccessibilityNodeInfo): Boolean {
         // Same fail-closed rule as `blockingOverlayDismissTarget` on the executor side: never
         // auto-tap a dismiss affordance on a window that also carries a payment/send/delete/authorize
@@ -1168,6 +1178,7 @@ class SolinAccessibilityService : AccessibilityService() {
         sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
     }
 
+    // action-gate: exempt (SET_TEXT writes into an already-chosen safe editable; typing activates nothing)
     private fun setTextDirectly(editableNode: AccessibilityNodeInfo, text: String): Boolean {
         throwIfInterrupted()
         val args = Bundle().apply {
@@ -1181,6 +1192,7 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
+    // action-gate: exempt (PASTE writes into an already-chosen safe editable; typing activates nothing)
     private fun pasteTextIntoEditable(editableNode: AccessibilityNodeInfo, text: String): Boolean {
         throwIfInterrupted()
         val clipboard = getSystemService(ClipboardManager::class.java)
