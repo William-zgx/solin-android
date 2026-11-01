@@ -28,7 +28,7 @@ API36_AVD_CONFIG
 FAKE_SDKMANAGER_INSTALLED=$'system-images;android-28;google_apis;arm64-v8a | 1 | Fake\nsystem-images;android-36;google_apis;arm64-v8a | 1 | Fake'
 expect_success \
   "emulator api matrix readiness accepts installed images and avds" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   scripts/check_emulator_api_matrix.sh \
     --sdkmanager "$FAKE_SDKMANAGER" \
@@ -50,7 +50,7 @@ FAKE_SDKMANAGER_INSTALLED_PREPARE=$'system-images;android-36;google_apis;arm64-v
 : > "$FAKE_AVDMANAGER_LOG"
 expect_success \
   "emulator api matrix prepare dry-run reports missing work without applying" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_SDKMANAGER_LOG="$FAKE_SDKMANAGER_LOG" \
   FAKE_AVDMANAGER_LOG="$FAKE_AVDMANAGER_LOG" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED_PREPARE" \
@@ -76,7 +76,7 @@ fi
 : > "$FAKE_AVDMANAGER_LOG"
 expect_success \
   "emulator api matrix prepare applies missing packages and avds" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_SDKMANAGER_LOG="$FAKE_SDKMANAGER_LOG" \
   FAKE_AVDMANAGER_LOG="$FAKE_AVDMANAGER_LOG" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED_PREPARE" \
@@ -101,7 +101,7 @@ X86_CPUINFO_FIXTURE
 : > "$X86_KVM_DEVICE"
 expect_success \
   "x86 emulator host check passes with x86 cpu virtualization and kvm" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   HOST_MACHINE="x86_64" \
   CPUINFO_FILE="$X86_CPUINFO" \
   KVM_DEVICE="$X86_KVM_DEVICE" \
@@ -117,7 +117,7 @@ assert_report_contains "$ARTIFACT_DIR/x86-emulator-host.properties" "glibcGuiRea
 
 expect_failure \
   "x86 emulator host check fails without virtualization and kvm" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   HOST_MACHINE="x86_64" \
   CPUINFO_FILE="$TMP_DIR/missing-cpuinfo" \
   KVM_DEVICE="$TMP_DIR/missing-kvm" \
@@ -134,7 +134,7 @@ assert_report_contains_text "$ARTIFACT_DIR/x86-emulator-host-missing.properties"
 FAKE_SDKMANAGER_INSTALLED=""
 expect_success \
   "x86 emulator prepare wraps matrix prepare defaults" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_SDKMANAGER_LOG="$FAKE_SDKMANAGER_LOG" \
   FAKE_AVDMANAGER_LOG="$FAKE_AVDMANAGER_LOG" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
@@ -161,7 +161,7 @@ API36_X86_SPACED_AVD_CONFIG
 FAKE_SDKMANAGER_INSTALLED=$'system-images;android-36;google_apis;x86_64 | 7 | Fake'
 expect_success \
   "emulator api matrix readiness accepts avdmanager config spacing" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   scripts/check_emulator_api_matrix.sh \
     --sdkmanager "$FAKE_SDKMANAGER" \
@@ -177,7 +177,7 @@ rm -rf "$FAKE_AVD_ROOT/api28.avd"
 FAKE_SDKMANAGER_INSTALLED=$'system-images;android-36;google_apis;arm64-v8a | 1 | Fake'
 expect_failure \
   "emulator api matrix readiness reports missing image and avd" \
-  env ANDROID_HOME="$FAKE_SDK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   scripts/check_emulator_api_matrix.sh \
     --sdkmanager "$FAKE_SDKMANAGER" \
@@ -202,7 +202,7 @@ MATRIX_REPORT="$ARTIFACT_DIR/regression-emulator-api-matrix.properties"
 MATRIX_CI_SHA="1111111111111111111111111111111111111111"
 expect_success \
   "emulator api matrix regression accepts all api reports" \
-  env ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   GITHUB_WORKFLOW="Android Verification" GITHUB_JOB="emulator-api-matrix" \
   GITHUB_RUN_ID=123456 GITHUB_SHA="$MATRIX_CI_SHA" \
@@ -231,7 +231,7 @@ MATRIX_SKIPPED_ARTIFACT_DIR="$ARTIFACT_DIR/emulator-api-matrix-skipped"
 MATRIX_SKIPPED_REPORT="$ARTIFACT_DIR/regression-emulator-api-matrix-skipped.properties"
 expect_success \
   "emulator api matrix regression records allowed infra skips without passing them" \
-  env ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   FAKE_MATRIX_SKIP_API=28 ALLOW_EMULATOR_INFRA_UNAVAILABLE=1 \
   scripts/regression_emulator_api_matrix.sh \
@@ -253,7 +253,7 @@ MATRIX_EXPLICIT_ENV_REPORT="$ARTIFACT_DIR/regression-emulator-api-matrix-explici
 MATRIX_EXPLICIT_ENV_ARTIFACT_DIR="$ARTIFACT_DIR/emulator-api-matrix-explicit-env"
 expect_success \
   "emulator api matrix artifact-dir keeps explicit env report" \
-  env ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   REPORT_FILE="$MATRIX_EXPLICIT_ENV_REPORT" \
   scripts/regression_emulator_api_matrix.sh \
@@ -267,7 +267,7 @@ assert_report_contains "$MATRIX_EXPLICIT_ENV_REPORT" "status=passed"
 assert_report_contains "$MATRIX_EXPLICIT_ENV_REPORT" "artifactDir=$MATRIX_EXPLICIT_ENV_ARTIFACT_DIR"
 expect_failure \
   "emulator api matrix regression reports api failure" \
-  env ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
   FAKE_MATRIX_FAIL_API=28 \
   scripts/regression_emulator_api_matrix.sh \
