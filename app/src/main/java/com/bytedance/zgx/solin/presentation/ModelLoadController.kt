@@ -578,10 +578,11 @@ internal class ModelLoadController(
         targetFile: File,
         source: ModelDownloadSource,
     ) {
+        // Hashing a file already on disk is still download-owned work, like the post-download
+        // check: it keeps isDownloading so model guards hold, but never takes over isBusy.
         uiState.update {
             it.copy(
-                isBusy = true,
-                isDownloading = false,
+                isDownloading = true,
                 downloadProgressPercent = null,
                 statusText = "正在校验模型文件",
                 isReady = false,
@@ -711,7 +712,8 @@ internal class ModelLoadController(
                     loadModel()
                 },
                 onFailure = { throwable ->
-                    uiState.update { it.downloadFinished("导入失败：${throwable.cleanMessage()}") }
+                    // Import owns isBusy (it closed the runtime), so its failure ends it explicitly.
+                    uiState.update { it.downloadFinished("导入失败：${throwable.cleanMessage()}").copy(isBusy = false) }
                 },
             )
         }
@@ -1192,16 +1194,18 @@ private fun ChatUiState.loadSettled(
 private fun ChatUiState.withDownloadProgressReset(): ChatUiState =
     copy(downloadProgressPercent = null, downloadedBytes = 0L, totalBytes = 0L)
 
-/** Ends the busy download state but keeps the last byte counts on screen. */
+/**
+ * Ends the download state but keeps the last byte counts on screen. A download never owns
+ * `isBusy` (a chat may be generating meanwhile), so ending it must not clear `isBusy` either.
+ */
 private fun ChatUiState.downloadStopped(statusText: String): ChatUiState =
     copy(
-        isBusy = false,
         isDownloading = false,
         isWaitingForWifiDownload = false,
         downloadProgressPercent = null,
         statusText = statusText,
     )
 
-/** Clears all download progress and ends the busy state. */
+/** Clears all download progress and ends the download state. */
 internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState =
     withDownloadProgressReset().downloadStopped(statusText)
