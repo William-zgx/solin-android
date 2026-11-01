@@ -137,10 +137,10 @@ remote_models_source = source_text["remoteModels"]
 stores_source = source_text["stores"]
 
 capability_persistence_markers = [
-    "supportsVisionInput = readBoolean(Keys.REMOTE_SUPPORTS_VISION_INPUT",
-    "supportsToolCalls = readBoolean(Keys.REMOTE_SUPPORTS_TOOL_CALLS",
-    "contextWindowTokens = readInt(Keys.REMOTE_CONTEXT_WINDOW_TOKENS",
-    "profileRevision = readString(Keys.REMOTE_PROFILE_REVISION",
+    "supportsVisionInput = prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT]",
+    "supportsToolCalls = prefs[Keys.REMOTE_SUPPORTS_TOOL_CALLS]",
+    "contextWindowTokens = (prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS]",
+    "profileRevision = prefs[Keys.REMOTE_PROFILE_REVISION]",
     "prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT] = normalized.supportsVisionInput",
     "prefs[Keys.REMOTE_SUPPORTS_TOOL_CALLS] = normalized.supportsToolCalls",
     "prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS] = value",
