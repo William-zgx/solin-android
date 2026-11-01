@@ -4,10 +4,13 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
@@ -54,7 +57,11 @@ internal fun BackgroundTaskSheet(
     onCancelBackgroundTask: (String) -> Unit,
     onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
     onDisablePeriodicCheckPolicy: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
+    // Only the id is saveable; the summary itself is derived from state so a rotation cannot
+    // resurrect a stale task that has since been cancelled.
+    var cancelCandidateId by rememberSaveable { mutableStateOf<String?>(null) }
     SheetColumn(spacing = 12.dp) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -66,8 +73,8 @@ internal fun BackgroundTaskSheet(
                     .weight(1f)
                     .testTag("background_task_manager_title"),
                 text = "后台任务",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
             )
             TextButton(
                 modifier = Modifier.testTag("background_task_refresh_button"),
@@ -79,6 +86,12 @@ internal fun BackgroundTaskSheet(
             ) {
                 Text("刷新")
             }
+            CloseIconButton(
+                testTag = "background_task_close_button",
+                contentDescription = "关闭后台任务",
+                enabled = true,
+                onClick = onDismiss,
+            )
         }
 
         PeriodicCheckPolicySection(
@@ -88,7 +101,7 @@ internal fun BackgroundTaskSheet(
             onDisablePeriodicCheckPolicy = onDisablePeriodicCheckPolicy,
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         if (state.backgroundTasks.isEmpty()) {
             EmptyPanelText("暂无运行中的后台任务")
@@ -98,7 +111,7 @@ internal fun BackgroundTaskSheet(
                     task = task,
                     enabled = !state.isBusy,
                     onCancel = if (task.status == ScheduledTaskStatus.Scheduled) {
-                        { onCancelBackgroundTask(task.id) }
+                        { cancelCandidateId = task.id }
                     } else {
                         null
                     },
@@ -106,7 +119,7 @@ internal fun BackgroundTaskSheet(
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         SectionTitle(
             text = "最近后台任务",
@@ -124,8 +137,6 @@ internal fun BackgroundTaskSheet(
                 )
             }
         }
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -154,7 +165,7 @@ internal fun BackgroundTaskSheet(
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         SectionTitle(
             text = "最近 Agent 轨迹",
@@ -168,6 +179,36 @@ internal fun BackgroundTaskSheet(
                 AgentTraceRunRow(run)
             }
         }
+    }
+
+    // The dialog disappears on its own if the task leaves the list before the user confirms.
+    val cancelCandidate = state.backgroundTasks.firstOrNull { it.id == cancelCandidateId }
+    cancelCandidate?.let { task ->
+        AlertDialog(
+            modifier = Modifier.testTag("background_task_cancel_confirm_dialog"),
+            onDismissRequest = { cancelCandidateId = null },
+            title = { Text("取消这条提醒？") },
+            text = { Text("取消后这条提醒不会再触发。") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("background_task_cancel_confirm_button"),
+                    onClick = {
+                        cancelCandidateId = null
+                        onCancelBackgroundTask(task.id)
+                    },
+                ) {
+                    Text("取消提醒", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.testTag("background_task_cancel_dismiss_button"),
+                    onClick = { cancelCandidateId = null },
+                ) {
+                    Text("保留")
+                }
+            },
+        )
     }
 }
 
@@ -525,49 +566,60 @@ internal fun BackgroundTaskRow(
     enabled: Boolean,
     onCancel: (() -> Unit)?,
 ) {
-    TaskCardSurface(testTag = "background_task_${task.id}") {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("background_task_${task.id}"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = task.title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "${task.type.label()} · ${task.status.label()} · ${task.triggerLabel()}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (task.body.isNotBlank()) {
-                    Text(
-                        text = task.body,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            if (onCancel != null) {
-                CloseIconButton(
-                    testTag = "background_task_cancel_${task.id}",
-                    contentDescription = "取消后台任务",
-                    enabled = enabled,
-                    onClick = onCancel,
-                )
             }
         }
+        if (task.body.isNotBlank()) {
+            Text(
+                modifier = Modifier.padding(bottom = 2.dp),
+                text = task.body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onCancel != null) {
+            // A text button names what happens; the bare X gave no clue that it cancels a reminder.
+            TextButton(
+                modifier = Modifier
+                    .heightIn(min = 40.dp)
+                    .testTag("background_task_cancel_${task.id}"),
+                onClick = onCancel,
+                enabled = enabled,
+                contentPadding = PaddingValues(horizontal = 0.dp),
+            ) {
+                Text("取消提醒")
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

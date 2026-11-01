@@ -1,16 +1,14 @@
 package com.bytedance.zgx.solin.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -30,11 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -44,168 +39,178 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InferenceMode
-import com.bytedance.zgx.solin.R
 import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.ui.activePlacementDisplayText
-import com.bytedance.zgx.solin.ui.downloadStatusLabel
-import com.bytedance.zgx.solin.ui.inferencePreferenceDisplayText
-import com.bytedance.zgx.solin.ui.PRODUCT_POSITIONING_SHORT_TEXT
 import com.bytedance.zgx.solin.ui.ResourcePressureOverlay
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
+/**
+ * The app shell's top bar: menu (opens the session drawer), the current conversation title,
+ * the placement pill (tap = model manager), and per-session actions.
+ *
+ * Buttons keep a 48dp touch target even when the row is tight; the placement pill states where
+ * this run happens in one short word and carries the full explanation in its state description.
+ */
 @Composable
 internal fun ChatTopBar(
     state: ChatUiState,
     resourceSampler: (suspend () -> SystemResourceSnapshot?)?,
-    onOpenModelManager: () -> Unit,
-    onOpenPrivacyNotice: () -> Unit,
     onOpenSessions: () -> Unit,
-    onOpenBackgroundTasks: () -> Unit,
+    onOpenModelManager: () -> Unit,
     onCreateSession: () -> Unit,
+    onDeleteSession: () -> Unit,
 ) {
-    val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
-    Surface(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .drawBehind {
-                drawLine(
-                    color = topEdgeColor,
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, size.height),
-                    strokeWidth = 1.dp.toPx(),
-                )
-            },
-        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
-        shadowElevation = 0.dp,
+            .statusBarsPadding()
+            .heightIn(min = 56.dp)
+            .padding(start = 4.dp, end = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val compactTopBar = maxWidth < 430.dp
-            val actionButtonSize = if (compactTopBar) 30.dp else 36.dp
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(
-                        horizontal = if (compactTopBar) 8.dp else 14.dp,
-                        vertical = if (compactTopBar) 4.dp else 5.dp,
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 4.dp else 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        TopActionButton(
+            modifier = Modifier.testTag("top_session_button"),
+            glyph = SolinGlyphKind.Menu,
+            label = "会话",
+            size = 48.dp,
+            onClick = onOpenSessions,
+        )
+        Text(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 2.dp)
+                .testTag("app_title"),
+            text = topBarSessionTitle(state),
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (resourceSampler != null) {
+            // The badge hides itself unless the device is under pressure; it keeps its 48dp target.
+            ResourcePressureOverlay(resourceSampler = resourceSampler)
+        }
+        PlacementPill(
+            modifier = Modifier
+                .widthIn(max = 132.dp)
+                .testTag("top_model_button")
+                .semantics {
+                    contentDescription = "模型管理"
+                    stateDescription = placementStateDescription(state)
+                },
+            label = topBarPlacementStatus(state),
+            leavesPhone = topBarLeavesPhone(state),
+            onClick = onOpenModelManager,
+        )
+        Box {
+            TopActionButton(
+                modifier = Modifier.testTag("top_more_button"),
+                glyph = SolinGlyphKind.More,
+                label = "更多",
+                size = 48.dp,
+                onClick = { menuExpanded = true },
+            )
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                modifier = Modifier.widthIn(min = 152.dp, max = 172.dp),
             ) {
-                Image(
-                    modifier = Modifier
-                        .size(if (compactTopBar) 32.dp else 38.dp),
-                    painter = painterResource(R.drawable.solin_brand_mark),
-                    contentDescription = null,
+                TopMenuItem(
+                    modifier = Modifier.testTag("top_create_session_button"),
+                    glyph = SolinGlyphKind.Add,
+                    label = "新建会话",
+                    enabled = !state.isBusy,
+                    onClick = {
+                        menuExpanded = false
+                        onCreateSession()
+                    },
                 )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .widthIn(min = if (compactTopBar) 56.dp else 132.dp),
-                    verticalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    Text(
-                        modifier = Modifier.testTag("app_title"),
-                        text = "Solin",
-                        style = if (compactTopBar) {
-                            MaterialTheme.typography.titleSmall
-                        } else {
-                            MaterialTheme.typography.titleMedium
-                        },
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        modifier = Modifier.testTag("app_positioning_subtitle"),
-                        text = if (compactTopBar) "隐私优先" else PRODUCT_POSITIONING_SHORT_TEXT,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (resourceSampler != null) {
-                    // No size cap here: the badge needs its full 48dp touch target.
-                    ResourcePressureOverlay(resourceSampler = resourceSampler)
-                }
-                CompactModelStatusChip(
-                    modifier = Modifier.widthIn(
-                        min = if (compactTopBar) 58.dp else 96.dp,
-                        max = if (compactTopBar) 96.dp else 148.dp,
-                    ),
-                    state = state,
-                    compact = compactTopBar,
-                    onClick = onOpenModelManager,
+                TopMenuItem(
+                    modifier = Modifier.testTag("top_delete_session_button"),
+                    glyph = SolinGlyphKind.Delete,
+                    label = "删除会话",
+                    enabled = !state.isBusy && state.activeSessionId != null,
+                    onClick = {
+                        menuExpanded = false
+                        onDeleteSession()
+                    },
                 )
-                TopActionButton(
-                    modifier = Modifier.testTag("top_session_button"),
-                    glyph = SolinGlyphKind.Chat,
-                    label = "会话",
-                    size = actionButtonSize,
-                    onClick = onOpenSessions,
-                )
-                Box {
-                    TopActionButton(
-                        modifier = Modifier.testTag("top_more_button"),
-                        glyph = SolinGlyphKind.More,
-                        label = "更多",
-                        size = actionButtonSize,
-                        onClick = { menuExpanded = true },
-                    )
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                        modifier = Modifier.widthIn(min = 152.dp, max = 164.dp),
-                    ) {
-                        TopMenuItem(
-                            modifier = Modifier.testTag("top_create_session_button"),
-                            glyph = SolinGlyphKind.Add,
-                            label = "新建会话",
-                            enabled = !state.isBusy,
-                            onClick = {
-                                menuExpanded = false
-                                onCreateSession()
-                            },
-                        )
-                        TopMenuItem(
-                            modifier = Modifier.testTag("top_model_menu_button"),
-                            glyph = SolinGlyphKind.Spark,
-                            label = "模型管理",
-                            onClick = {
-                                menuExpanded = false
-                                onOpenModelManager()
-                            },
-                        )
-                        TopMenuItem(
-                            modifier = Modifier.testTag("top_privacy_button"),
-                            glyph = SolinGlyphKind.Shield,
-                            label = "隐私说明",
-                            onClick = {
-                                menuExpanded = false
-                                onOpenPrivacyNotice()
-                            },
-                        )
-                        TopMenuItem(
-                            modifier = Modifier.testTag("top_background_tasks_button"),
-                            glyph = SolinGlyphKind.Bell,
-                            label = "后台任务",
-                            onClick = {
-                                menuExpanded = false
-                                onOpenBackgroundTasks()
-                            },
-                        )
-                    }
-                }
             }
         }
     }
 }
 
-/** Container/content colours for the model status chip and badge: busy, bound remote/local, or neutral. */
+/** The conversation title, or "新对话" while the active session has no messages yet. */
+internal fun topBarSessionTitle(state: ChatUiState): String {
+    if (state.messages.isEmpty()) return "新对话"
+    return state.sessions
+        .firstOrNull { it.id == state.activeSessionId }
+        ?.title
+        ?.takeIf { it.isNotBlank() }
+        ?: "新对话"
+}
+
+/**
+ * One short word for where this run happens: "本机 · E2B", "远程", "自动", "下载中 38%",
+ * "未就绪". The full reason sentence lives in the pill's state description.
+ */
+internal fun topBarPlacementStatus(state: ChatUiState): String = when {
+    state.isDownloading -> state.downloadShortLabel()
+    state.isBusy -> compactModelStatusShort(state)
+
+    state.activeRunPlacement == RunPlacement.Remote -> "远程" + state.remoteModelSuffix()
+    state.activeRunPlacement == RunPlacement.Local -> "本机 · " + state.localModelShortName()
+    state.activeRunPlacementReason != null -> "不可用"
+    !state.isReady -> "未就绪"
+    state.inferenceMode == InferenceMode.Remote -> "远程" + state.remoteModelSuffix()
+    state.inferenceMode == InferenceMode.Auto -> "自动"
+    else -> "本机 · " + state.localModelShortName()
+}
+
+/**
+ * Filled dot = this phone, ring = leaves the phone, null = neutral (not decided / not ready).
+ */
+internal fun topBarLeavesPhone(state: ChatUiState): Boolean? = when {
+    state.activeRunPlacement == RunPlacement.Remote -> true
+    state.activeRunPlacement == RunPlacement.Local -> false
+    state.activeRunPlacementReason != null -> null
+    !state.isReady -> null
+    state.inferenceMode == InferenceMode.Remote -> true
+    state.inferenceMode == InferenceMode.Local -> false
+    else -> null
+}
+
+internal fun placementStateDescription(state: ChatUiState): String =
+    activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason)
+        ?: "本次运行位置尚未确定"
+
+internal fun ChatUiState.downloadShortLabel(): String =
+    downloadProgressPercent?.let { "下载中 $it%" } ?: "下载中"
+
+/** "基础对话 E2B" -> "E2B"; unknown names keep their first characters so the pill stays short. */
+internal fun compactModelShortName(displayName: String): String =
+    Regex("""E\d+B""").find(displayName)?.value
+        ?: displayName.trim().take(8).ifBlank { "模型" }
+
+private fun ChatUiState.localModelShortName(): String {
+    val name = installedModels
+        .firstOrNull { it.id == activeInstalledModelId }
+        ?.displayName
+        ?: selectedRecommendedModel.shortName
+    return compactModelShortName(name)
+}
+
+private fun ChatUiState.remoteModelSuffix(): String =
+    remoteModelConfig.modelName
+        .trim()
+        .takeIf { it.isNotBlank() && it.length <= 12 }
+        ?.let { " · $it" }
+        .orEmpty()
+
+/** Container/content colours for the runtime status badge: busy, bound remote/local, or neutral. */
 @Composable
 private fun modelStatusColors(state: ChatUiState): Pair<Color, Color> {
     val semanticColors = LocalSolinColors.current
@@ -217,54 +222,6 @@ private fun modelStatusColors(state: ChatUiState): Pair<Color, Color> {
         active && state.activeRunPlacement == RunPlacement.Local ->
             semanticColors.localContainer to semanticColors.onLocalContainer
         else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-}
-
-@Composable
-internal fun CompactModelStatusChip(
-    state: ChatUiState,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
-) {
-    val (container, content) = modelStatusColors(state)
-
-    Surface(
-        onClick = onClick,
-        modifier = modifier
-            .testTag("top_model_button")
-            .semantics {
-                contentDescription = "模型管理"
-                stateDescription = compactModelStatus(state)
-            },
-        shape = CircleShape,
-        color = container,
-        border = BorderStroke(1.dp, content.copy(alpha = 0.18f)),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(content),
-            )
-            Text(
-                text = if (compact) {
-                    compactModelStatusShort(state)
-                } else {
-                    compactModelStatus(state)
-                },
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
 }
 
@@ -341,7 +298,7 @@ internal fun RuntimeStatusBadge(
     state: ChatUiState,
 ) {
     val label = when {
-        state.isDownloading -> state.downloadStatusLabel()
+        state.isDownloading -> state.downloadShortLabel()
         state.isBusy -> "处理中"
         state.activeRunPlacement == RunPlacement.Remote -> "本次远程"
         state.activeRunPlacement == RunPlacement.Local -> "本次本地"
@@ -381,17 +338,10 @@ internal fun RuntimeStatusBadge(
     }
 }
 
-private fun compactModelStatus(
-    state: ChatUiState,
-): String = listOfNotNull(
-    inferencePreferenceDisplayText(state.inferenceMode),
-    activePlacementDisplayText(state.activeRunPlacement, state.activeRunPlacementReason),
-).joinToString(separator = "；")
-
 internal fun compactModelStatusShort(
     state: ChatUiState,
 ): String = when {
-    state.isDownloading -> state.downloadStatusLabel()
+    state.isDownloading -> state.downloadShortLabel()
     state.activeRunPlacement == RunPlacement.Remote -> "${state.inferenceMode.label()}→远程"
     state.activeRunPlacement == RunPlacement.Local -> "${state.inferenceMode.label()}→本地"
     state.activeRunPlacementReason != null -> "${state.inferenceMode.label()}·阻断"

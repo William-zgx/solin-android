@@ -12,18 +12,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,8 +42,10 @@ import com.bytedance.zgx.solin.ui.components.McpCapabilityToggleUiState
 import com.bytedance.zgx.solin.presentation.MemoryPanelState
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_PRIVACY_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_REMOTE_TAB_INDEX
+import com.bytedance.zgx.solin.ui.components.DeleteSessionConfirmDialog
+import com.bytedance.zgx.solin.ui.components.MODEL_MANAGER_MEMORY_TAB_INDEX
 import com.bytedance.zgx.solin.ui.components.ModelManagerSheet
-import com.bytedance.zgx.solin.ui.components.SessionManagerSheet
+import com.bytedance.zgx.solin.ui.components.SessionDrawer
 import com.bytedance.zgx.solin.ui.components.SolinSheetHost
 import com.bytedance.zgx.solin.ui.components.ChatEmptyState
 import com.bytedance.zgx.solin.ui.components.ChatTopBar
@@ -66,6 +74,7 @@ import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 import com.bytedance.zgx.solin.data.DecisionModelRoutingState
+import kotlinx.coroutines.launch
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,15 +161,50 @@ fun SolinScreen(
     var huggingFaceAccessTokenInput by remember { mutableStateOf("") }
     var showModelManager by rememberSaveable { mutableStateOf(false) }
     var modelManagerInitialTab by rememberSaveable { mutableStateOf(MODEL_MANAGER_CURRENT_TAB_INDEX) }
-    var showSessions by rememberSaveable { mutableStateOf(false) }
     var showBackgroundTasks by rememberSaveable { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showDeleteSession by rememberSaveable { mutableStateOf(false) }
+    // One sheet state per sheet: a shared state lets one sheet's animation hide another.
+    val modelManagerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val backgroundTaskSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     val lastMessageId = state.messages.lastOrNull()?.id
+    val lastMessageText = state.messages.lastOrNull()?.text.orEmpty()
 
+    // Follow the growing last message only while the user is already at the bottom; scrolling up
+    // to read earlier text must never be yanked back by the next streamed token.
     LaunchedEffect(state.activeSessionId, lastMessageId) {
         if (state.messages.isNotEmpty()) {
             listState.animateScrollToItem(state.messages.lastIndex)
         }
+    }
+    LaunchedEffect(lastMessageText) {
+        // canScrollForward is false exactly when the list sits at its end. Streaming tokens then
+        // keep the newest line visible; a user who scrolled up is left where they are.
+        if (state.messages.isNotEmpty() && !listState.canScrollForward) {
+            listState.scrollToItem(state.messages.lastIndex)
+        }
+    }
+
+    // A remote-mode disclosure must never sit behind the model manager it was raised from.
+    LaunchedEffect(state.pendingRemoteModeDisclosure) {
+        if (state.pendingRemoteModeDisclosure != null) showModelManager = false
+    }
+
+    val closeDrawer: () -> Unit = {
+        if (drawerState.isOpen) scope.launch { drawerState.close() }
+    }
+    val openModelManager: (Int) -> Unit = { tab ->
+        // While the agent waits for the user, the decision sheet must not be covered by a
+        // settings sheet; the user can open settings again once the run is no longer waiting.
+        if (!(state.isBusy && state.pendingConfirmation != null)) {
+            modelManagerInitialTab = tab
+            showModelManager = true
+        }
+    }
+    val openDrawerDestination: (Int) -> Unit = { tab ->
+        closeDrawer()
+        openModelManager(tab)
     }
     LaunchedEffect(state.voiceInputDraft?.id) {
         val draft = state.voiceInputDraft ?: return@LaunchedEffect
@@ -177,30 +221,55 @@ fun SolinScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .imePadding(),
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                gesturesEnabled = !state.isBusy,
+                drawerContent = {
+                    ModalDrawerSheet(
+                        drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                    ) {
+                        SessionDrawer(
+                            state = state,
+                            onCreateSession = {
+                                closeDrawer()
+                                onCreateSession()
+                            },
+                            onSessionSelected = { id ->
+                                closeDrawer()
+                                onSessionSelected(id)
+                            },
+                            onOpenModelManager = { openDrawerDestination(MODEL_MANAGER_CURRENT_TAB_INDEX) },
+                            onOpenMemory = { openDrawerDestination(MODEL_MANAGER_MEMORY_TAB_INDEX) },
+                            onOpenPrivacyNotice = { openDrawerDestination(MODEL_MANAGER_PRIVACY_TAB_INDEX) },
+                            onOpenBackgroundTasks = {
+                                closeDrawer()
+                                onRefreshBackgroundTasks()
+                                onRefreshAuditEvents()
+                                showBackgroundTasks = true
+                            },
+                            onRequestDeleteSession = {
+                                closeDrawer()
+                                showDeleteSession = true
+                            },
+                            onClose = { closeDrawer() },
+                        )
+                    }
+                },
             ) {
-                ChatTopBar(
-                    state = state,
-                    resourceSampler = resourceSampler,
-                    onOpenModelManager = {
-                        modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
-                        showModelManager = true
-                    },
-                    onOpenPrivacyNotice = {
-                        modelManagerInitialTab = MODEL_MANAGER_PRIVACY_TAB_INDEX
-                        showModelManager = true
-                    },
-                    onOpenSessions = { showSessions = true },
-                    onOpenBackgroundTasks = {
-                        onRefreshBackgroundTasks()
-                        onRefreshAuditEvents()
-                        showBackgroundTasks = true
-                    },
-                    onCreateSession = onCreateSession,
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding(),
+                ) {
+                    ChatTopBar(
+                        state = state,
+                        resourceSampler = resourceSampler,
+                        onOpenSessions = { scope.launch { drawerState.open() } },
+                        onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
+                        onCreateSession = onCreateSession,
+                        onDeleteSession = { showDeleteSession = true },
+                    )
 
                 Box(
                     modifier = Modifier
@@ -210,18 +279,9 @@ fun SolinScreen(
                     if (state.messages.isEmpty()) {
                         ChatEmptyState(
                             state = state,
-                            onOpenModelManager = {
-                                modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
-                                showModelManager = true
-                            },
-                            onOpenPrivacyNotice = {
-                                modelManagerInitialTab = MODEL_MANAGER_PRIVACY_TAB_INDEX
-                                showModelManager = true
-                            },
-                            onOpenRemoteModelConfig = {
-                                modelManagerInitialTab = MODEL_MANAGER_REMOTE_TAB_INDEX
-                                showModelManager = true
-                            },
+                            onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
+                            onOpenPrivacyNotice = { openModelManager(MODEL_MANAGER_PRIVACY_TAB_INDEX) },
+                            onOpenRemoteModelConfig = { openModelManager(MODEL_MANAGER_REMOTE_TAB_INDEX) },
                             onPickModel = { pickModel.launch(arrayOf("*/*")) },
                             onDownloadModel = onDownloadModel,
                             onCancelDownload = onCancelDownload,
@@ -234,7 +294,7 @@ fun SolinScreen(
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             state = listState,
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             items(
@@ -258,7 +318,7 @@ fun SolinScreen(
                 if (publicSourceRows.isNotEmpty()) {
                     SourcesStrip(
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
                             .testTag("public_sources_strip"),
                         rows = publicSourceRows,
                     )
@@ -267,7 +327,7 @@ fun SolinScreen(
                 if (state.activeRunTimeline.isNotEmpty()) {
                     RunTimelineStrip(
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
                             .testTag("run_timeline_strip"),
                         items = state.activeRunTimeline,
                     )
@@ -276,7 +336,7 @@ fun SolinScreen(
                 if (state.activeMemoryEvidence.isNotEmpty()) {
                     MemoryContextStrip(
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
                             .testTag("memory_context_strip"),
                         evidence = state.activeMemoryEvidence,
                     )
@@ -287,7 +347,7 @@ fun SolinScreen(
                     ?.let { recoveryAction ->
                     RecoveryActionEntry(
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
                             .testTag("latest_recovery_action_entry"),
                         action = recoveryAction,
                         enabled = !state.isBusy,
@@ -299,10 +359,7 @@ fun SolinScreen(
                     state = state,
                     input = input,
                     onInputChanged = { input = it },
-                    onOpenModelManager = {
-                        modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
-                        showModelManager = true
-                    },
+                    onOpenModelManager = { openModelManager(MODEL_MANAGER_CURRENT_TAB_INDEX) },
                     onStartVoiceInput = onStartVoiceInput,
                     onCancelVoiceInput = onCancelVoiceInput,
                     onFinishVoiceInput = onFinishVoiceInput,
@@ -320,11 +377,12 @@ fun SolinScreen(
                     },
                     onStopGeneration = onStopGeneration,
                 )
+                }
             }
 
             if (showModelManager) {
                 ModalBottomSheet(
-                    sheetState = sheetState,
+                    sheetState = modelManagerSheetState,
                     onDismissRequest = { showModelManager = false },
                 ) {
                     ModelManagerSheet(
@@ -378,30 +436,9 @@ fun SolinScreen(
                 }
             }
 
-            if (showSessions) {
-                ModalBottomSheet(
-                    sheetState = sheetState,
-                    onDismissRequest = { showSessions = false },
-                ) {
-                    SessionManagerSheet(
-                        state = state,
-                        onCreateSession = {
-                            onCreateSession()
-                            showSessions = false
-                        },
-                        onSessionSelected = {
-                            onSessionSelected(it)
-                            showSessions = false
-                        },
-                        onDeleteSession = onDeleteSession,
-                        onDismiss = { showSessions = false },
-                    )
-                }
-            }
-
             if (showBackgroundTasks) {
                 ModalBottomSheet(
-                    sheetState = sheetState,
+                    sheetState = backgroundTaskSheetState,
                     onDismissRequest = { showBackgroundTasks = false },
                 ) {
                     BackgroundTaskSheet(
@@ -411,8 +448,19 @@ fun SolinScreen(
                         onCancelBackgroundTask = onCancelBackgroundTask,
                         onSetPeriodicCheckPolicy = onSetPeriodicCheckPolicy,
                         onDisablePeriodicCheckPolicy = onDisablePeriodicCheckPolicy,
+                        onDismiss = { showBackgroundTasks = false },
                     )
                 }
+            }
+
+            if (showDeleteSession) {
+                DeleteSessionConfirmDialog(
+                    onConfirm = {
+                        showDeleteSession = false
+                        onDeleteSession()
+                    },
+                    onDismiss = { showDeleteSession = false },
+                )
             }
 
             SolinSheetHost(

@@ -17,6 +17,7 @@ import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.resource.ThermalPressure
 import com.bytedance.zgx.solin.ui.ResourcePressureBadge
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -57,6 +58,34 @@ class SolinResourceIndicatorUiTest {
         composeRule.onNodeWithText("82%").assertIsDisplayed()
         composeRule.onNodeWithText("温度").assertIsDisplayed()
         composeRule.onNodeWithText("可用 RAM").assertIsDisplayed()
+    }
+
+    /**
+     * A quiet phone shows nothing in the top bar: the badge is a warning, not a permanent readout,
+     * and it must not keep PSS/heap numbers on screen when there is no pressure.
+     */
+    @Test
+    fun badgeIsAbsentWhileResourcesAreNormal() {
+        composeRule.setContent {
+            SolinTheme {
+                ResourcePressureBadge(
+                    snapshot = SystemResourceSnapshot(
+                        appPssBytes = 180L * 1024L * 1024L,
+                        javaHeapBytes = 40L * 1024L * 1024L,
+                        nativeHeapBytes = 60L * 1024L * 1024L,
+                        availableRamBytes = 3L * 1024L * 1024L * 1024L,
+                        lowMemory = false,
+                        appCpuPercent = 12,
+                        thermalPressure = ThermalPressure.Normal,
+                    ),
+                )
+            }
+        }
+
+        assertEquals(
+            0,
+            composeRule.onAllNodesWithTag("resource_pressure_badge").fetchSemanticsNodes().size,
+        )
     }
 }
 

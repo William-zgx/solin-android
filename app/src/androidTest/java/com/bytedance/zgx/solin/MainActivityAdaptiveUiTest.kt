@@ -149,7 +149,14 @@ class MainActivityAdaptiveUiTest {
 
             composeRule.onNodeWithTag("top_more_button").performClick()
             composeRule.assertLabeledAction("top_create_session_button", "新建会话")
-            composeRule.assertLabeledAction("top_privacy_button", "隐私说明")
+            composeRule.assertLabeledAction("top_delete_session_button", "删除会话")
+
+            // The app-wide destinations moved into the session drawer.
+            composeRule.onNodeWithTag("top_session_button").performClick()
+            composeRule.waitForTag("session_manager_title")
+            composeRule.assertLabeledAction("top_model_menu_button", "模型管理")
+            composeRule.assertLabeledAction("drawer_memory_button", "记忆")
+            composeRule.assertLabeledAction("top_privacy_button", "隐私与权限")
             composeRule.assertLabeledAction("top_background_tasks_button", "后台任务")
         }
     }

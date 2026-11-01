@@ -43,8 +43,6 @@ class MainActivitySmokeTest {
         composeRule.waitForTag("app_title")
 
         composeRule.onNodeWithTag("app_title").assertIsDisplayed()
-        composeRule.onNodeWithTag("app_positioning_subtitle").assertIsDisplayed()
-        composeRule.waitForText("隐私优先", substring = true)
         composeRule.waitForText("先配置远程模型或下载本地模型", substring = true)
         composeRule.waitForText("模型未就绪")
         composeRule.onNodeWithTag("home_positioning_panel").performScrollTo().assertIsDisplayed()
@@ -116,7 +114,7 @@ class MainActivitySmokeTest {
     fun privacyButtonOpensAppPrivacyNotice() {
         composeRule.waitForTag("app_title")
 
-        composeRule.openTopMenuItem("top_privacy_button")
+        composeRule.openDrawerItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
         composeRule.onAllNodesWithText("隐私说明").onFirst().assertIsDisplayed()
@@ -164,13 +162,34 @@ class MainActivitySmokeTest {
 
         composeRule.onNodeWithTag("session_manager_title").assertIsDisplayed()
         composeRule.onNodeWithTag("session_create_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("top_model_menu_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("drawer_memory_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("top_privacy_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("top_background_tasks_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("session_manager_close_button").performClick()
+        composeRule.waitForTagGone("session_manager_title")
+    }
+
+    @Test
+    fun moreMenuOffersDeleteSessionWithConfirmation() {
+        composeRule.waitForTag("app_title")
+
+        composeRule.onNodeWithTag("top_more_button").performClick()
+        composeRule.waitForTag("top_delete_session_button")
+        composeRule.onNodeWithTag("top_delete_session_button").performClick()
+        composeRule.waitForTag("session_delete_confirm_dialog")
+
+        composeRule.onNodeWithText("删除这个对话？").assertIsDisplayed()
+        composeRule.onNodeWithText("删除后无法恢复。").assertIsDisplayed()
+        composeRule.onNodeWithTag("session_delete_cancel_button").performClick()
+        composeRule.waitForTagGone("session_delete_confirm_dialog")
     }
 
     @Test
     fun backgroundTaskManagerShowsEmptyState() {
         composeRule.waitForTag("app_title")
 
-        composeRule.openTopMenuItem("top_background_tasks_button")
+        composeRule.openDrawerItem("top_background_tasks_button")
         composeRule.waitForTag("background_task_manager_title")
 
         composeRule.onNodeWithText("后台任务").assertIsDisplayed()
@@ -199,12 +218,21 @@ class MainActivitySmokeTest {
         }
     }
 
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForTagGone(
+        tag: String,
+        timeoutMillis: Long = 5_000,
+    ) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(text: String) =
         onNode(hasText(text) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
 
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openTopMenuItem(tag: String) {
-        onNodeWithTag("top_more_button").performClick()
-        waitForTag(tag)
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openDrawerItem(tag: String) {
+        onNodeWithTag("top_session_button").performClick()
+        waitForTag("session_manager_title")
         onNodeWithTag(tag).performClick()
     }
 }

@@ -155,8 +155,9 @@ class MainActivitySkillUiTest {
         }
     }
 
+    /** App-wide destinations (privacy, background tasks) live in the session drawer. */
     private fun ComposeTestRule.openTopMenuItem(tag: String) {
-        onNodeWithTag("top_more_button").performClick()
+        onNodeWithTag("top_session_button").performClick()
         waitForTag(tag)
         onNodeWithTag(tag).performClick()
     }

@@ -1,11 +1,13 @@
 package com.bytedance.zgx.solin.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,26 +24,35 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.resource.ResourcePressure
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
+/**
+ * The device-resource indicator. It only exists while the phone is under pressure: a quiet dot
+ * that expands into the numbers. When everything is fine the top bar shows nothing, because a
+ * permanently visible PSS/heap badge was noise, not information.
+ *
+ * The badge keeps a 48dp touch target; the glyph is a small "gauge", and every number lives in the
+ * dropdown panel.
+ */
 @Composable
 fun ResourcePressureBadge(
     snapshot: SystemResourceSnapshot,
     modifier: Modifier = Modifier,
 ) {
+    if (!snapshot.pressure.isElevated()) return
     var expanded by rememberSaveable { mutableStateOf(false) }
     val palette = pressurePalette(snapshot.pressure)
     Box(
@@ -50,30 +61,23 @@ fun ResourcePressureBadge(
             .testTag("resource_pressure_badge")
             .semantics {
                 role = Role.Button
-                contentDescription = "设备资源压力：${snapshot.pressurePercent}%，${snapshot.pressure.label}"
+                contentDescription = "设备资源压力：${snapshot.pressure.label}"
             }
             .clickable { expanded = !expanded },
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(28.dp),
             shape = CircleShape,
             color = palette.container,
-            border = BorderStroke(1.dp, palette.accent.copy(alpha = 0.22f)),
-            tonalElevation = 1.dp,
+            border = BorderStroke(1.dp, palette.accent.copy(alpha = 0.30f)),
+            tonalElevation = 0.dp,
         ) {
             Box(
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "${snapshot.pressurePercent}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 8.sp,
-                    lineHeight = 10.sp,
-                    textAlign = TextAlign.Center,
-                    color = palette.content,
-                )
+                PressureGauge(accent = palette.accent)
             }
         }
 
@@ -91,6 +95,38 @@ fun ResourcePressureBadge(
     }
 }
 
+/** Memory pressure is "elevated" once the sample crosses Warm; Normal stays hidden. */
+internal fun ResourcePressure.isElevated(): Boolean = this != ResourcePressure.Normal
+
+/**
+ * A three-bar gauge: the bar heights rise together. Deliberately no text, so no fixed tiny font
+ * size is needed at any scale.
+ */
+@Composable
+private fun PressureGauge(
+    modifier: Modifier = Modifier,
+    accent: Color,
+) {
+    Canvas(modifier = modifier.size(16.dp)) {
+        val unit = size.minDimension
+        val barWidth = unit * 0.18f
+        val gap = unit * 0.14f
+        val totalWidth = barWidth * 3 + gap * 2
+        val startX = (size.width - totalWidth) / 2f
+        val heights = listOf(0.45f, 0.70f, 1f)
+        heights.forEachIndexed { index, fraction ->
+            val barHeight = unit * fraction
+            val x = startX + index * (barWidth + gap)
+            drawRoundRect(
+                color = accent,
+                topLeft = Offset(x, size.height - barHeight),
+                size = Size(barWidth, barHeight),
+                cornerRadius = CornerRadius(barWidth / 2f),
+            )
+        }
+    }
+}
+
 @Composable
 private fun ResourcePressurePanel(
     snapshot: SystemResourceSnapshot,
@@ -99,14 +135,13 @@ private fun ResourcePressurePanel(
     val palette = pressurePalette(snapshot.pressure)
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
         tonalElevation = 2.dp,
         shadowElevation = 8.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ResourceRow("状态", snapshot.pressure.label, valueColor = palette.accent)
@@ -153,7 +188,6 @@ private fun ResourceRow(
             text = value,
             style = MaterialTheme.typography.labelMedium,
             color = valueColor ?: MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.SemiBold,
             maxLines = 2,
         )
     }
@@ -165,9 +199,9 @@ private fun pressurePalette(pressure: ResourcePressure): PressurePalette {
     val colorScheme = MaterialTheme.colorScheme
     return when (pressure) {
         ResourcePressure.Normal -> PressurePalette(
-            accent = semanticColors.remote,
-            container = semanticColors.remoteContainer,
-            content = semanticColors.onRemoteContainer,
+            accent = semanticColors.local,
+            container = semanticColors.localContainer,
+            content = semanticColors.onLocalContainer,
         )
         ResourcePressure.Warm -> PressurePalette(
             accent = semanticColors.busy,

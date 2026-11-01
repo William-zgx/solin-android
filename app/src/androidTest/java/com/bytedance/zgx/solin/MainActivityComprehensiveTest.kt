@@ -251,8 +251,12 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("session_create_button").performClick()
         composeRule.waitForTextGone("记忆回答")
         composeRule.onNodeWithTag("top_session_button").performClick()
-        composeRule.waitForTag("session_delete_button")
+        composeRule.waitForTag("session_delete_entry_button")
+        composeRule.onNodeWithTag("session_delete_entry_button").performClick()
+        // Deleting a conversation asks for confirmation first (audit #8).
+        composeRule.waitForTag("session_delete_confirm_dialog")
         composeRule.onNodeWithTag("session_delete_button").performClick()
+        composeRule.waitForTagGone("session_delete_confirm_dialog", timeoutMillis = 5_000)
         closeSheet("session_manager_title")
     }
 
