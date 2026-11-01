@@ -1,13 +1,15 @@
 package com.bytedance.zgx.solin.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -16,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +46,13 @@ import com.bytedance.zgx.solin.ui.trustCenterCapabilityDisplayRows
 import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
+/**
+ * The privacy and permission surface: what stays on the phone, what leaves it, what needs
+ * consent, and the switches that change those boundaries.
+ *
+ * Long explanations sit behind [TrustFactRow] so the page opens as a scannable list of one-line
+ * facts; every fact that says something leaves the phone or needs consent stays present.
+ */
 @Composable
 internal fun TrustBoundaryPanel(
     state: ChatUiState,
@@ -59,124 +69,107 @@ internal fun TrustBoundaryPanel(
     onDecisionModelRoutingKeySaved: (String) -> Unit = {},
 ) {
     val sensitiveDisclosureRows = sensitiveCapabilityDisclosureDisplayRows()
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    text = "为什么装它",
-                    subtitle = PRODUCT_POSITIONING_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Shield,
-                    title = "本地可用",
-                    body = PRODUCT_LOCAL_VALUE_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Spark,
-                    title = "远程多模态可选",
-                    body = PRODUCT_REMOTE_VALUE_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Check,
-                    title = "动作确认执行",
-                    body = PRODUCT_ACTION_VALUE_TEXT,
+            SectionTitle(
+                text = "为什么装它",
+                subtitle = PRODUCT_POSITIONING_TEXT,
+            )
+            TrustFactRow(
+                leavesPhone = false,
+                title = "本地可用",
+                summary = "基础问答、记忆和本地工具结果留在本机。",
+                detail = PRODUCT_LOCAL_VALUE_TEXT,
+            )
+            SheetRowDivider()
+            TrustFactRow(
+                leavesPhone = true,
+                title = "远程多模态可选",
+                summary = "远程只在你配置并切换后使用，敏感内容仍会确认。",
+                detail = PRODUCT_REMOTE_VALUE_TEXT,
+            )
+            SheetRowDivider()
+            TrustFactRow(
+                leavesPhone = false,
+                title = "动作确认执行",
+                summary = "联系人、日历、分享和系统动作都先确认。",
+                detail = PRODUCT_ACTION_VALUE_TEXT,
+            )
+        }
+        PanelSurface {
+            SectionTitle(
+                text = "能力与信任中心",
+                subtitle = "每项能力的数据边界、确认方式和失败处理。",
+            )
+            trustCenterCapabilityDisplayRows().forEach { row ->
+                TrustFactRow(
+                    leavesPhone = false,
+                    title = row.title,
+                    summary = row.summary,
+                    detail = row.body,
                 )
             }
         }
         PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    text = "能力与信任中心",
-                    subtitle = TRUST_CENTER_CAPABILITY_TEXT,
-                )
-                trustCenterCapabilityDisplayRows().forEach { row ->
-                    TrustBoundaryRow(
-                        icon = SolinGlyphKind.Shield,
-                        title = row.title,
-                        body = row.body,
-                    )
-                }
-            }
+            SectionTitle(
+                text = "隐私说明",
+                subtitle = PRIVACY_POLICY_ENTRY_TEXT,
+            )
+            TrustFactRow(
+                leavesPhone = false,
+                title = "本地优先",
+                summary = "会话、记忆、设备上下文默认留在本机。",
+                detail = TRUST_LOCAL_BOUNDARY_TEXT,
+            )
+            SheetRowDivider()
+            TrustFactRow(
+                leavesPhone = true,
+                title = "远程模型",
+                summary = "只发当前可远程发送的上下文；图片逐次确认。",
+                detail = TRUST_REMOTE_BOUNDARY_TEXT,
+            )
+            SheetRowDivider()
+            TrustFactRow(
+                leavesPhone = false,
+                title = "敏感权限",
+                summary = "联系人、屏幕、截图等需要授权或前台确认。",
+                detail = TRUST_PERMISSION_BOUNDARY_TEXT,
+            )
+            SheetRowDivider()
+            TrustFactRow(
+                leavesPhone = false,
+                title = "用户控制",
+                summary = "可清空记忆、删除会话、清除远程配置。",
+                detail = trustDeletionBoundaryText(state),
+            )
         }
         PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    text = "隐私说明",
-                    subtitle = PRIVACY_POLICY_ENTRY_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Shield,
-                    title = "本地优先",
-                    body = TRUST_LOCAL_BOUNDARY_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Spark,
-                    title = "远程模型",
-                    body = TRUST_REMOTE_BOUNDARY_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Check,
-                    title = "敏感权限",
-                    body = TRUST_PERMISSION_BOUNDARY_TEXT,
-                )
-                TrustBoundaryRow(
-                    icon = SolinGlyphKind.Delete,
-                    title = "用户控制",
-                    body = trustDeletionBoundaryText(state),
-                )
-            }
+            SectionTitle(
+                text = "远程模式提醒",
+                subtitle = "默认切换远程时提醒一次；敏感内容仍单独确认。",
+            )
+            RemoteSendDisclosurePolicySelector(
+                selectedPolicy = state.remoteSendDisclosurePolicy,
+                enabled = !state.isBusy,
+                onSelected = onRemoteSendDisclosurePolicySelected,
+            )
         }
         PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    text = "远程模式提醒",
-                    subtitle = "默认切换到远程模型时提醒一次；疑似敏感内容发送仍会单独确认。",
-                )
-                RemoteSendDisclosurePolicySelector(
-                    selectedPolicy = state.remoteSendDisclosurePolicy,
-                    enabled = !state.isBusy,
-                    onSelected = onRemoteSendDisclosurePolicySelected,
-                )
-            }
+            TrustToggleRow(
+                title = "只确认关键操作（推荐）",
+                summary = "支付、发送、删除、发布、转账、授权仍由你亲手点。",
+                detail = "开启后，打开应用、填写草稿、设置提醒、点击滚动等可撤销的操作直接执行；支付、发送、删除、发布、下单、转账、授权等按钮由你亲手点击，外发数据和模型标注的敏感步骤仍会确认。关闭后每个手机操作都先确认。",
+                switchTag = "reduce_device_action_confirmations_switch",
+                checked = state.reduceDeviceActionConfirmations,
+                enabled = !state.isBusy,
+                onCheckedChange = onReduceDeviceActionConfirmationsChanged,
+            )
         }
-        PanelSurface {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SectionTitle(
-                    modifier = Modifier.weight(1f),
-                    text = "只确认关键操作（推荐）",
-                    subtitle = "开启后，打开应用、填写草稿、设置提醒、点击滚动等可撤销的操作直接执行；支付、发送、删除、发布、下单、转账、授权等按钮由你亲手点击，外发数据和模型标注的敏感步骤仍会确认。关闭后每个手机操作都先确认。",
-                )
-                Switch(
-                    modifier = Modifier.testTag("reduce_device_action_confirmations_switch"),
-                    checked = state.reduceDeviceActionConfirmations,
-                    enabled = !state.isBusy,
-                    onCheckedChange = onReduceDeviceActionConfirmationsChanged,
-                )
-            }
-        }
-        PanelSurface {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SectionTitle(
-                    modifier = Modifier.weight(1f),
-                    text = "远程视觉操作应用（需知情同意）",
-                    subtitle = "仅远程模式生效。开启后，操作应用时会把当前屏幕截图和屏幕上的文字（不含密码框）发给远程视觉模型，由它规划点击和输入；支付、发送、删除、发布等按钮始终由你亲手点击。截图被系统拦截或为空白的页面不外发。关闭则屏幕内容不外发，改由本地动作模型驱动。",
-                )
-                Switch(
-                    modifier = Modifier.testTag("remote_gui_automation_switch"),
-                    checked = state.remoteGuiAutomationEnabled,
-                    enabled = !state.isBusy,
-                    onCheckedChange = onRemoteGuiAutomationEnabledChanged,
-                )
-            }
-        }
+        RemoteGuiAutomationToggleRow(
+            checked = state.remoteGuiAutomationEnabled,
+            enabled = !state.isBusy,
+            onEnabledChanged = onRemoteGuiAutomationEnabledChanged,
+        )
         if (decisionModelRouting != null) {
             DecisionModelRoutingSection(
                 state = decisionModelRouting,
@@ -193,47 +186,210 @@ internal fun TrustBoundaryPanel(
             )
         }
         PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    text = "远程发送记录",
-                    subtitle = "只记录决策、模型和类别，不保存原始 prompt。",
-                )
-                RemoteSendAuditList(events = state.remoteSendAuditEvents)
-            }
+            SectionTitle(
+                text = "远程发送记录",
+                subtitle = "只记录决策、模型和类别，不保存原始 prompt。",
+            )
+            RemoteSendAuditList(events = state.remoteSendAuditEvents)
         }
         PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionTitle(
-                    text = "敏感能力披露",
-                    subtitle = SENSITIVE_CAPABILITY_DISCLOSURE_TEXT,
+            SectionTitle(
+                text = "敏感能力披露",
+                subtitle = SENSITIVE_CAPABILITY_DISCLOSURE_TEXT,
+            )
+            sensitiveDisclosureRows.forEach { row ->
+                TrustFactRow(
+                    leavesPhone = false,
+                    title = row.title,
+                    summary = row.summary,
+                    detail = row.body,
                 )
-                sensitiveDisclosureRows.forEach { row ->
-                    TrustBoundaryRow(
-                        icon = SolinGlyphKind.Shield,
-                        title = row.title,
-                        body = row.body,
-                    )
-                }
             }
         }
-        PanelSurface {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionTitle(
-                    text = "发布前仍需人工完成",
-                    subtitle = "这些不是 App 代码能自动替代的事项。",
-                )
-                listOf(
-                    "使用生产签名或 Play App Signing，不使用本地 debug keystore 发布。",
-                    "准备公开隐私政策 URL，并与 Play Console Data safety 表单保持一致。",
-                    "接入 crash/ANR 监控，并完成真机矩阵、无障碍和大字体验收。",
-                ).forEach { item ->
-                    Text(
-                        text = "• $item",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+    }
+}
+
+/**
+ * Remote-vision consent (audit #2): turning the switch ON first explains what leaves the phone.
+ * Only "允许" calls back; turning it OFF is immediate because it narrows what leaves the device.
+ */
+@Composable
+private fun RemoteGuiAutomationToggleRow(
+    checked: Boolean,
+    enabled: Boolean,
+    onEnabledChanged: (Boolean) -> Unit,
+) {
+    var showDisclosure by remember { mutableStateOf(false) }
+    PanelSurface {
+        TrustToggleRow(
+            title = "远程视觉操作应用（需知情同意）",
+            summary = "仅远程模式：屏幕截图和文字发给远程视觉模型。",
+            detail = REMOTE_GUI_AUTOMATION_DETAIL,
+            switchTag = "remote_gui_automation_switch",
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = { next ->
+                if (remoteGuiAutomationRequiresDisclosure(next, checked)) {
+                    showDisclosure = true
+                } else {
+                    onEnabledChanged(next)
                 }
+            },
+        )
+    }
+    if (showDisclosure) {
+        AlertDialog(
+            modifier = Modifier.testTag("remote_gui_automation_disclosure_dialog"),
+            onDismissRequest = { showDisclosure = false },
+            title = { Text(REMOTE_GUI_AUTOMATION_DISCLOSURE_TITLE) },
+            text = { Text(REMOTE_GUI_AUTOMATION_DISCLOSURE_BODY) },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("remote_gui_automation_disclosure_confirm"),
+                    onClick = {
+                        showDisclosure = false
+                        onEnabledChanged(true)
+                    },
+                ) {
+                    Text("允许")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.testTag("remote_gui_automation_disclosure_cancel"),
+                    onClick = { showDisclosure = false },
+                ) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+}
+
+internal const val REMOTE_GUI_AUTOMATION_DISCLOSURE_TITLE = "允许把屏幕发给远程模型？"
+
+internal const val REMOTE_GUI_AUTOMATION_DISCLOSURE_BODY =
+    "开启后，操作应用时会把当前屏幕截图和屏幕上的文字（不含密码框）发给远程视觉模型，由它规划点击和输入；支付、发送、删除等按钮始终由你亲手点击；截图被系统拦截或为空白的页面不外发。"
+
+internal const val REMOTE_GUI_AUTOMATION_DETAIL =
+    "仅远程模式生效。开启后，操作应用时会把当前屏幕截图和屏幕上的文字（不含密码框）发给远程视觉模型，由它规划点击和输入；支付、发送、删除、发布等按钮始终由你亲手点击。截图被系统拦截或为空白的页面不外发。关闭则屏幕内容不外发，改由本地动作模型驱动。"
+
+/**
+ * Turning the remote-vision switch ON widens what leaves the phone, so it needs the disclosure
+ * first; turning it OFF narrows egress and applies immediately.
+ */
+internal fun remoteGuiAutomationRequiresDisclosure(next: Boolean, current: Boolean): Boolean =
+    next && !current
+
+/**
+ * One line the user can scan, plus an expandable row for the full boundary. The summary must
+ * carry the safety meaning; the detail must not add a fact the summary contradicts.
+ */
+@Composable
+internal fun TrustFactRow(
+    leavesPhone: Boolean,
+    title: String,
+    summary: String,
+    detail: String,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable { expanded = !expanded },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlacementMark(leavesPhone = leavesPhone)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            Text(
+                text = if (expanded) "收起" else "详情",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (expanded) {
+            Text(
+                modifier = Modifier.padding(start = 18.dp),
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** A switch row with a one-line summary and an expandable detail, used for every consent toggle. */
+@Composable
+private fun TrustToggleRow(
+    title: String,
+    summary: String,
+    detail: String,
+    switchTag: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { expanded = !expanded },
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                modifier = Modifier.testTag(switchTag),
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+            )
+        }
+        if (expanded) {
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -272,33 +428,25 @@ private fun McpCapabilityToggleSection(
 ) {
     var showDisclosure by remember { mutableStateOf(false) }
     PanelSurface {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SectionTitle(
-                modifier = Modifier.weight(1f),
-                text = MCP_CAPABILITY_TITLE,
-                subtitle = buildString {
-                    append(MCP_CAPABILITY_SUBTITLE)
-                    append(" 已批准工具：${state.approvedToolCount} 个。")
-                    if (state.restartRequired) append(" 重启应用后生效。")
-                },
-            )
-            Switch(
-                modifier = Modifier.testTag("mcp_capability_switch"),
-                checked = state.enabled,
-                enabled = enabled,
-                onCheckedChange = { checked ->
-                    if (checked && !state.disclosureAcknowledged) {
-                        showDisclosure = true
-                    } else {
-                        onEnabledChanged(checked, false)
-                    }
-                },
-            )
-        }
+        TrustToggleRow(
+            title = MCP_CAPABILITY_TITLE,
+            summary = "参数会离开本机发给已批准的应用，每次调用都要确认。",
+            detail = buildString {
+                append(MCP_CAPABILITY_SUBTITLE)
+                append(" 已批准工具：${state.approvedToolCount} 个。")
+                if (state.restartRequired) append(" 重启应用后生效。")
+            },
+            switchTag = "mcp_capability_switch",
+            checked = state.enabled,
+            enabled = enabled,
+            onCheckedChange = { checked ->
+                if (checked && !state.disclosureAcknowledged) {
+                    showDisclosure = true
+                } else {
+                    onEnabledChanged(checked, false)
+                }
+            },
+        )
     }
     if (showDisclosure) {
         AlertDialog(
@@ -378,7 +526,7 @@ internal fun RemoteSendAuditList(events: List<RemoteSendAuditSummary>) {
         visibleEvents.forEachIndexed { index, event ->
             RemoteSendAuditRow(event)
             if (index < visibleEvents.lastIndex) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                SheetRowDivider()
             }
         }
     }
@@ -407,7 +555,7 @@ internal fun RemoteSendAuditRow(event: RemoteSendAuditSummary) {
             )
             Text(
                 text = event.remoteSendAuditTimeLabel(),
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
@@ -490,4 +638,3 @@ internal fun semanticMemoryIndexStatusText(state: ChatUiState): String {
         ?: "尚未建立"
     return "召回模式：$mode；索引：${state.semanticMemory.indexedRecordCount} 条长期记忆；最近重建：$rebuilt"
 }
-
