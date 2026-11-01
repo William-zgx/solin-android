@@ -12,9 +12,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.bytedance.zgx.solin.ui.SolinScreen
-import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_BODY
-import com.bytedance.zgx.solin.ui.VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE
 import com.bytedance.zgx.solin.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
+import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_BODY
+import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_TITLE
 import com.bytedance.zgx.solin.ui.theme.SolinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -46,8 +46,8 @@ class SolinVoiceInputConsentUiTest {
 
         assertEquals(0, startVoiceInputCount)
         composeRule.onNodeWithTag("voice_permission_disclosure_dialog").assertIsDisplayed()
-        composeRule.onNodeWithText(VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE).assertIsDisplayed()
-        composeRule.onNodeWithText(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY).assertIsDisplayed()
+        composeRule.onNodeWithText(VOICE_CONSENT_TITLE).assertIsDisplayed()
+        composeRule.onNodeWithText(VOICE_CONSENT_BODY).assertIsDisplayed()
         composeRule.onNodeWithText("同意并开启语音输入").assertIsDisplayed()
 
         composeRule.onNodeWithTag("voice_permission_cancel_button").performClick()

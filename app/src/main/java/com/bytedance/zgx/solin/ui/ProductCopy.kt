@@ -38,6 +38,7 @@ internal const val PRODUCT_HOME_REMOTE_CHOICE_LINE = "Key 加密保存在本机�
 internal const val PRODUCT_HOME_IMPORT_CHOICE_TITLE = "导入 .litertlm 文件"
 internal const val PRODUCT_HOME_IMPORT_CHOICE_LINE = "已有模型文件时使用"
 internal const val PRODUCT_HOME_DOWNLOAD_ACTION = "下载"
+internal const val PRODUCT_HOME_LOAD_ACTION = "加载模型"
 internal const val PRODUCT_HOME_CANCEL_DOWNLOAD_ACTION = "取消下载"
 internal const val PRODUCT_HOME_MODEL_SELECTION_ROW = "选择要下载的模型"
 internal const val PRODUCT_HOME_SKIP_ACTION = "稍后再说"

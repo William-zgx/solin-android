@@ -46,6 +46,7 @@ import com.bytedance.zgx.solin.ui.HOME_SUGGESTIONS
 import com.bytedance.zgx.solin.ui.PRODUCT_HOME_ARM64_REQUIRED_LINE
 import com.bytedance.zgx.solin.ui.PRODUCT_HOME_CANCEL_DOWNLOAD_ACTION
 import com.bytedance.zgx.solin.ui.PRODUCT_HOME_DOWNLOAD_ACTION
+import com.bytedance.zgx.solin.ui.PRODUCT_HOME_LOAD_ACTION
 import com.bytedance.zgx.solin.ui.PRODUCT_HOME_GREETING
 import com.bytedance.zgx.solin.ui.PRODUCT_HOME_IMPORT_CHOICE_LINE
 import com.bytedance.zgx.solin.ui.PRODUCT_HOME_IMPORT_CHOICE_TITLE
@@ -85,6 +86,7 @@ internal fun ChatEmptyState(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onLoadModel: () -> Unit,
     onSendPrompt: (String) -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
@@ -109,6 +111,7 @@ internal fun ChatEmptyState(
                 onPickModel = onPickModel,
                 onDownloadModel = onDownloadModel,
                 onCancelDownload = onCancelDownload,
+                onLoadModel = onLoadModel,
                 onSetupModelToggled = onSetupModelToggled,
                 onDownloadSetupModels = onDownloadSetupModels,
                 onSkipFirstRunSetup = onSkipFirstRunSetup,
@@ -221,6 +224,7 @@ private fun NotReadyHome(
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onLoadModel: () -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
@@ -241,6 +245,7 @@ private fun NotReadyHome(
         state = state,
         onDownloadModel = onDownloadModel,
         onCancelDownload = onCancelDownload,
+        onLoadModel = onLoadModel,
         onSetupModelToggled = onSetupModelToggled,
         onDownloadSetupModels = onDownloadSetupModels,
         onSkipFirstRunSetup = onSkipFirstRunSetup,
@@ -296,12 +301,14 @@ private fun LocalChoiceCard(
     state: ChatUiState,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onLoadModel: () -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
 ) {
     val downloading = state.hasDownloadProgress()
     val chatModelInstalled = state.isModelInstalled(state.selectedRecommendedModel.id)
+    val canLoadInstalled = state.homeOffersLoadModel()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -368,39 +375,52 @@ private fun LocalChoiceCard(
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                if (canLoadInstalled) {
                     Button(
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .heightIn(min = 48.dp)
-                            .testTag("first_run_download_button"),
-                        onClick = if (state.showFirstRunSetup) {
-                            onDownloadSetupModels
-                        } else {
-                            onDownloadModel
-                        },
-                        enabled = !state.isBusy &&
-                            !state.isDownloading &&
-                            state.isArm64Supported &&
-                            !chatModelInstalled &&
-                            (!state.showFirstRunSetup || state.selectedDownloadModelIds().isNotEmpty()),
+                            .testTag("home_load_model_button"),
+                        onClick = onLoadModel,
+                        enabled = !state.isBusy,
                     ) {
-                        Text(PRODUCT_HOME_DOWNLOAD_ACTION)
+                        Text(PRODUCT_HOME_LOAD_ACTION)
                     }
-                    if (state.showFirstRunSetup) {
-                        TextButton(
-                            modifier = Modifier.heightIn(min = 48.dp),
-                            onClick = onSkipFirstRunSetup,
-                            enabled = !state.isBusy,
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Button(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("first_run_download_button"),
+                            onClick = if (state.showFirstRunSetup) {
+                                onDownloadSetupModels
+                            } else {
+                                onDownloadModel
+                            },
+                            enabled = !state.isBusy &&
+                                !state.isDownloading &&
+                                state.isArm64Supported &&
+                                !chatModelInstalled &&
+                                (!state.showFirstRunSetup || state.selectedDownloadModelIds().isNotEmpty()),
                         ) {
-                            Text(
-                                text = PRODUCT_HOME_SKIP_ACTION,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Text(PRODUCT_HOME_DOWNLOAD_ACTION)
+                        }
+                        if (state.showFirstRunSetup) {
+                            TextButton(
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                onClick = onSkipFirstRunSetup,
+                                enabled = !state.isBusy,
+                            ) {
+                                Text(
+                                    text = PRODUCT_HOME_SKIP_ACTION,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -618,3 +638,11 @@ private fun ChatUiState.selectedDownloadModelIds(): Set<String> =
         }
         .map { it.id }
         .toSet()
+
+/**
+ * A local model file is on disk but not loaded (common right after an app restart). The home then
+ * offers "加载模型" in place of a download button that would be disabled, so the user is not sent
+ * to the model manager to find the only way forward.
+ */
+internal fun ChatUiState.homeOffersLoadModel(): Boolean =
+    !hasDownloadProgress() && isLocalModelLoading()

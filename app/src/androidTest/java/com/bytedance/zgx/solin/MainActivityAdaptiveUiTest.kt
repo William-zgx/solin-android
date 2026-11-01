@@ -20,6 +20,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -127,7 +128,8 @@ class MainActivityAdaptiveUiTest {
             )
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()
-            composeRule.onNodeWithText(REMOTE_ATTACHMENT_PROTECTION_NOTICE).assertIsDisplayed()
+            composeRule.onNodeWithText("远程：图片发送前确认，其他附件不发").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription(REMOTE_ATTACHMENT_PROTECTION_NOTICE).assertIsDisplayed()
 
             composeRule.waitForReadyComposer()
             val initialComposerHeight = composeRule.onNodeWithTag("composer_input")

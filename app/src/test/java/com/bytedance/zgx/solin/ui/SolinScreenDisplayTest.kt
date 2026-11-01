@@ -34,6 +34,7 @@ import com.bytedance.zgx.solin.ui.components.actionParameterDisplayRows
 import com.bytedance.zgx.solin.ui.components.actionTextDisplay
 import com.bytedance.zgx.solin.ui.components.attachmentProtectionNotice
 import com.bytedance.zgx.solin.ui.components.compactModelStatusShort
+import com.bytedance.zgx.solin.ui.components.homeOffersLoadModel
 import com.bytedance.zgx.solin.ui.components.composerNotice
 import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_BODY
 import com.bytedance.zgx.solin.ui.components.VOICE_CONSENT_TITLE
@@ -388,6 +389,22 @@ class SolinScreenDisplayTest {
         assertFalse(RemoteModelConfig().hasAnySavedValue())
         assertTrue(RemoteModelConfig(supportsToolCalls = true).hasAnySavedValue())
         assertTrue(RemoteModelConfig(contextWindowTokens = 8_192).hasAnySavedValue())
+    }
+
+    @Test
+    fun homeOffersLoadModelOnlyForAnInstalledUnloadedLocalModel() {
+        // Regression: after a restart the chat model is on disk but not loaded; the new home used
+        // to show only a disabled download button there.
+        assertTrue(ChatUiState(modelPath = "/models/chat.litertlm", isReady = false).homeOffersLoadModel())
+        assertFalse(ChatUiState(modelPath = null, isReady = false).homeOffersLoadModel())
+        assertFalse(ChatUiState(modelPath = "/models/chat.litertlm", isReady = true).homeOffersLoadModel())
+        assertFalse(
+            ChatUiState(
+                modelPath = "/models/chat.litertlm",
+                isReady = false,
+                inferenceMode = InferenceMode.Remote,
+            ).homeOffersLoadModel(),
+        )
     }
 
     @Test

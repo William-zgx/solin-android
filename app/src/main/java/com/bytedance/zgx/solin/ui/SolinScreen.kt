@@ -285,6 +285,7 @@ fun SolinScreen(
                             onPickModel = { pickModel.launch(arrayOf("*/*")) },
                             onDownloadModel = onDownloadModel,
                             onCancelDownload = onCancelDownload,
+                            onLoadModel = onLoadModel,
                             onSendPrompt = onSendMessage,
                             onSetupModelToggled = onSetupModelToggled,
                             onDownloadSetupModels = onDownloadSetupModels,
