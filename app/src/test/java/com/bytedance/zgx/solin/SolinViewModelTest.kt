@@ -5190,6 +5190,29 @@ class SolinViewModelTest {
         assertFalse(viewModel.uiState.value.midRunSteeringAvailable)
         assertEquals(1, localRuntime.prompts.size)
         assertFalse(viewModel.uiState.value.messages.any { it.text == "排队的消息" })
+        // Dropping held input silently would hide the loss; the status says what was discarded.
+        assertEquals("已停止，丢弃 1 条插话", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun stopGenerationWithoutHeldMessagesKeepsThePlainStoppedStatus() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("第一个问题")
+        advanceUntilIdle()
+        assertEquals(0, viewModel.uiState.value.pendingSteerMessageCount)
+
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.statusText.startsWith("已停止"))
+        assertFalse(viewModel.uiState.value.statusText.contains("插话"))
     }
 
     /** Emulates the runtime's steer contract: steer cancels the registered model call only while generating. */

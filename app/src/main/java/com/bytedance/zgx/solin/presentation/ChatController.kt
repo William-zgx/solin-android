@@ -1259,8 +1259,17 @@ class ChatController internal constructor(
         val job = generationJob
         val runId = activeGenerationRunId ?: preparedChatExecutions.keys.singleOrNull()
         // An explicit stop discards input sent mid-run: the user asked the run to end, not to adjust.
+        val discardedSteerCount = uiState.value.pendingSteerMessageCount
         midRunSteering.clear()
-        if (job == null && runId == null) return
+        val discardNotice = if (discardedSteerCount > 0) {
+            "已停止，丢弃 $discardedSteerCount 条插话"
+        } else {
+            null
+        }
+        if (job == null && runId == null) {
+            discardNotice?.let { notice -> uiState.update { it.copy(statusText = notice) } }
+            return
+        }
         if (runId != null) {
             chatPlacementRuntime.stop(runId, AgentRunState.Cancelled)
             preparedChatRunCoordinator.cancel(runId)
@@ -1268,8 +1277,15 @@ class ChatController internal constructor(
             deferredAudit.discard(runId)
         }
         cancelActiveGenerationRun(runId)
+        // The job's own cancellation handlers write their "已停止" status; announce what the stop
+        // threw away after they have all run, so the notice is what the user ends up seeing.
+        discardNotice?.let { notice ->
+            job?.invokeOnCompletion { uiState.update { it.copy(statusText = notice) } }
+        }
         job?.cancel()
         generationSupport.finishStoppedGeneration(runId)
+        // Synchronous (unconfined) cancellation completes the job inside cancel(); re-apply last.
+        discardNotice?.let { notice -> uiState.update { it.copy(statusText = notice) } }
     }
 
     /**
