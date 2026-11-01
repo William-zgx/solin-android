@@ -21,7 +21,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 interface ModelDownloadClient {
-    fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long>
+    /**
+     * Enqueues [source]. Wi-Fi only by default; [allowMetered] is the user's explicit choice to
+     * continue a Wi-Fi-paused download over cellular data.
+     */
+    fun enqueue(source: ModelDownloadSource, targetFile: File, allowMetered: Boolean = false): Result<Long>
     fun cancelPreflight() = Unit
     fun cancel(downloadId: Long)
     fun query(downloadId: Long): DownloadInfo?
@@ -41,7 +45,11 @@ class ModelDownloadService(
     @Volatile
     private var preflightCancelled = false
 
-    override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> =
+    override fun enqueue(
+        source: ModelDownloadSource,
+        targetFile: File,
+        allowMetered: Boolean,
+    ): Result<Long> =
         runCatching {
             preflightCancelled = false
             val preparedDownloadUrl = huggingFaceDownloadUrlResolver.prepare(
@@ -69,8 +77,8 @@ class ModelDownloadService(
                     targetFile.name,
                 )
             request
-                .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
-                .setAllowedOverMetered(false)
+                .setAllowedNetworkTypes(downloadNetworkTypes(allowMetered))
+                .setAllowedOverMetered(allowMetered)
             preparedDownloadUrl.authorizationHeader?.let { authorizationHeader ->
                 request.addRequestHeader("Authorization", authorizationHeader)
             }
@@ -247,12 +255,28 @@ internal fun downloadExceedsByteLimit(
 internal fun isLocalDebugModelDownloadUrl(downloadUrl: String): Boolean =
     runCatching { URI(downloadUrl).host.isLocalDebugHost() }.getOrDefault(false)
 
+/**
+ * DownloadManager network types for a model download. Wi-Fi only unless the user explicitly chose
+ * to continue over cellular data ([allowMetered]).
+ */
+internal fun downloadNetworkTypes(allowMetered: Boolean): Int =
+    if (allowMetered) {
+        DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE
+    } else {
+        DownloadManager.Request.NETWORK_WIFI
+    }
+
 data class DownloadInfo(
     val status: Int,
     val reason: Int,
     val downloadedBytes: Long,
     val totalBytes: Long,
 ) {
+    /** Paused only because the request is Wi-Fi only and the device is on cellular data. */
+    val isWaitingForWifi: Boolean
+        get() = status == DownloadManager.STATUS_PAUSED &&
+            reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI
+
     val progressPercent: Int?
         get() = ModelCatalog.progressPercent(downloadedBytes, totalBytes)
 

@@ -481,6 +481,8 @@ data class ChatUiState(
     val pendingSteerMessageCount: Int = 0,
     val isPreparingDownload: Boolean = false,
     val isDownloading: Boolean = false,
+    /** A running download is paused because it is Wi-Fi only; the user may allow metered data. */
+    val isWaitingForWifiDownload: Boolean = false,
     val downloadProgressPercent: Int? = null,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = 0L,

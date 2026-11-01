@@ -1857,7 +1857,8 @@ class SolinViewModelTest {
             viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
 
             assertTrue(viewModel.uiState.value.isPreparingDownload)
-            assertTrue(viewModel.uiState.value.isBusy)
+            // Preparing a download is download-only state; it does not block the rest of the app.
+            assertFalse(viewModel.uiState.value.isBusy)
             assertFalse(viewModel.uiState.value.isDownloading)
 
             viewModel.cancelModelDownload()
@@ -1904,7 +1905,7 @@ class SolinViewModelTest {
 
                 assertTrue(enteredPreflight.await(5, TimeUnit.SECONDS))
                 assertTrue(viewModel.uiState.value.isPreparingDownload)
-                assertTrue(viewModel.uiState.value.isBusy)
+                assertFalse(viewModel.uiState.value.isBusy)
                 assertFalse(viewModel.uiState.value.isDownloading)
                 assertEquals("正在验证 Hugging Face 授权", viewModel.uiState.value.statusText)
 
@@ -2001,6 +2002,211 @@ class SolinViewModelTest {
             assertFalse(viewModel.uiState.value.isDownloading)
             assertEquals(1, modelRepository.clearPendingDownloadCount)
             assertEquals(listOf(42L), downloadClient.queriedDownloadIds)
+        }
+    }
+
+    @Test
+    fun modelDownloadDefaultsToWifiOnlyAndDoesNotLockTheWholeApp() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_RUNNING,
+                        reason = 0,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L,
+                    ),
+                ),
+            )
+            val viewModel = createViewModel(
+                modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
+                downloadClient = downloadClient,
+            )
+
+            viewModel.startModelDownload()
+            runCurrent()
+
+            // Default stays Wi-Fi only: the user has to opt in to metered data explicitly.
+            assertEquals(listOf(false), downloadClient.enqueuedMeteredFlags)
+            assertTrue(viewModel.uiState.value.isDownloading)
+            assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
+            // A download is background work: it must not make the rest of the app "busy".
+            assertFalse(viewModel.uiState.value.isBusy)
+            assertNotNull(viewModel.uiState.value.downloadProgressPercent)
+
+            viewModel.cancelModelDownload()
+            runCurrent()
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertFalse(viewModel.uiState.value.isBusy)
+        }
+    }
+
+    @Test
+    fun wifiPausedDownloadOffersMeteredResumeAndReEnqueuesWithMeteredAllowed() =
+        runTest(dispatcher) {
+            withTempDownloadTarget { target ->
+                val downloadClient = FakeModelDownloadClient(
+                    queryResults = mutableListOf(
+                        DownloadInfo(
+                            status = DownloadManager.STATUS_PAUSED,
+                            reason = DownloadManager.PAUSED_QUEUED_FOR_WIFI,
+                            downloadedBytes = 10L,
+                            totalBytes = 100L,
+                        ),
+                        DownloadInfo(
+                            status = DownloadManager.STATUS_RUNNING,
+                            reason = 0,
+                            downloadedBytes = 10L,
+                            totalBytes = 100L,
+                        ),
+                    ),
+                )
+                val viewModel = createViewModel(
+                    modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
+                    downloadClient = downloadClient,
+                )
+
+                viewModel.startModelDownload()
+                runCurrent()
+
+                assertTrue(viewModel.uiState.value.isWaitingForWifiDownload)
+                assertEquals("等待 Wi-Fi，可改用移动数据", viewModel.uiState.value.statusText)
+                assertEquals(listOf(false), downloadClient.enqueuedMeteredFlags)
+                assertFalse(viewModel.uiState.value.isBusy)
+
+                viewModel.allowMeteredDownload()
+                runCurrent()
+
+                assertEquals(listOf(false, true), downloadClient.enqueuedMeteredFlags)
+                assertEquals(listOf(1L), downloadClient.cancelledDownloadIds)
+                assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
+                assertTrue(viewModel.uiState.value.isDownloading)
+                assertFalse(viewModel.uiState.value.isBusy)
+
+                viewModel.cancelModelDownload()
+                runCurrent()
+                assertFalse(viewModel.uiState.value.isDownloading)
+                assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
+            }
+        }
+
+    @Test
+    fun meteredResumeIsIgnoredWhileTheDownloadIsRunningOnWifi() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_RUNNING,
+                        reason = 0,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L,
+                    ),
+                ),
+            )
+            val viewModel = createViewModel(
+                modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
+                downloadClient = downloadClient,
+            )
+
+            viewModel.startModelDownload()
+            runCurrent()
+
+            viewModel.allowMeteredDownload()
+            runCurrent()
+
+            assertEquals(listOf(false), downloadClient.enqueuedMeteredFlags)
+            assertTrue(downloadClient.cancelledDownloadIds.isEmpty())
+
+            viewModel.cancelModelDownload()
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun loadingAndSwitchingTheModelStayBlockedWhileADownloadRuns() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val runtime = FakeLiteRtRuntime()
+            val installed = installedModelSummary(
+                id = "installed-chat",
+                displayName = "已装模型",
+                path = TEST_LOCAL_MODEL_PATH,
+            )
+            val modelRepository = FakeModelRepository(
+                activeInstalledModelId = installed.id,
+                initialInstalledModels = listOf(installed),
+                downloadedModelFileProvider = { target },
+            )
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_RUNNING,
+                        reason = 0,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L,
+                    ),
+                ),
+            )
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+                runtime = runtime,
+            )
+
+            viewModel.startModelDownload()
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isDownloading)
+
+            // The same model must not be loaded, re-selected or deleted out from under the download.
+            viewModel.loadModel()
+            viewModel.deleteInstalledModel(installed.id)
+            viewModel.selectInstalledModel(installed.id)
+            runCurrent()
+
+            assertTrue(runtime.loadCalls.isEmpty())
+            assertTrue(modelRepository.deletedModelIds.isEmpty())
+            assertTrue(viewModel.uiState.value.isDownloading)
+            assertEquals(installed.id, viewModel.uiState.value.activeInstalledModelId)
+            assertFalse(viewModel.uiState.value.isBusy)
+
+            viewModel.cancelModelDownload()
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun downloadOnlyStateAllowsNonModelSettingsChanges() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_RUNNING,
+                        reason = 0,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L,
+                    ),
+                ),
+            )
+            val sessionStore = FakeSessionStore()
+            val viewModel = createViewModel(
+                sessionStore = sessionStore,
+                modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
+                downloadClient = downloadClient,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            viewModel.startModelDownload()
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isDownloading)
+
+            viewModel.createNewSession()
+            runCurrent()
+
+            assertEquals(2, sessionStore.summaries().size)
+            assertTrue(viewModel.uiState.value.isDownloading)
+
+            viewModel.cancelModelDownload()
+            runCurrent()
         }
     }
 
@@ -10625,12 +10831,18 @@ class SolinViewModelTest {
         private val onCancel: (Long) -> Unit = {},
     ) : ModelDownloadClient {
         val enqueuedDownloads = mutableListOf<Pair<ModelDownloadSource, File>>()
+        val enqueuedMeteredFlags = mutableListOf<Boolean>()
         val queriedDownloadIds = mutableListOf<Long>()
         val cancelledDownloadIds = mutableListOf<Long>()
         var preflightCancelCount = 0
 
-        override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> {
+        override fun enqueue(
+            source: ModelDownloadSource,
+            targetFile: File,
+            allowMetered: Boolean,
+        ): Result<Long> {
             enqueuedDownloads += source to targetFile
+            enqueuedMeteredFlags += allowMetered
             onEnqueue(source, targetFile)
             return enqueueResult
         }

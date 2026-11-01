@@ -83,6 +83,8 @@ internal class ModelLoadController(
     private var downloadMonitorJob: Job? = null
     private var downloadPreflightJob: Job? = null
     private var activeDownloadId: Long? = null
+    /** The running download's source; kept so the user can resume it over cellular data. */
+    private var activeDownloadSource: ModelDownloadSource? = null
 
     /** Companion files (and further setup models) still to download after the current one. */
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
@@ -245,7 +247,7 @@ internal class ModelLoadController(
     }
 
     fun toggleSetupModel(modelId: String, selected: Boolean) {
-        if (uiState.value.isBusy) return
+        if (uiState.value.isBusy || uiState.value.isDownloading) return
         uiState.update { state ->
             state.copy(
                 setupSelectedModelIds = if (selected) {
@@ -319,6 +321,27 @@ internal class ModelLoadController(
         beginModelDownload(source)
     }
 
+    /**
+     * The user's explicit choice to finish a Wi-Fi-only download over cellular data. The paused
+     * task is cancelled and re-enqueued with metered data allowed; nothing changes while on Wi-Fi.
+     */
+    fun allowMeteredDownload() {
+        val downloadId = activeDownloadId ?: return
+        val source = activeDownloadSource ?: return
+        if (!uiState.value.isWaitingForWifiDownload) return
+        downloadMonitorJob?.cancel()
+        downloadMonitorJob = null
+        downloadService.cancel(downloadId)
+        clearActiveDownload()
+        modelRepository.clearPendingDownload()
+        uiState.update { it.copy(isDownloading = false, isWaitingForWifiDownload = false) }
+        // Re-running the normal preflight re-checks space, auth and the target file; the cancel
+        // above already removed the partial file. A refused preflight drops the queue with it.
+        if (!beginModelDownload(source, allowMetered = true)) {
+            clearSetupQueue()
+        }
+    }
+
     fun cancelModelDownload() {
         val downloadId = activeDownloadId ?: modelRepository.pendingDownloadId()
         downloadPreflightJob?.cancel()
@@ -326,6 +349,7 @@ internal class ModelLoadController(
         downloadMonitorJob?.cancel()
         downloadMonitorJob = null
         activeDownloadId = null
+        activeDownloadSource = null
         clearSetupQueue()
         downloadService.cancelPreflight()
         downloadService.cancel(downloadId)
@@ -338,7 +362,10 @@ internal class ModelLoadController(
         setupDownloadInProgress = false
     }
 
-    private fun beginModelDownload(source: ModelDownloadSource): Boolean {
+    private fun beginModelDownload(
+        source: ModelDownloadSource,
+        allowMetered: Boolean = false,
+    ): Boolean {
         refreshDeviceStatus()
         if (uiState.value.isBusy || uiState.value.isDownloading) return false
         if (blockDownloadForMissingHuggingFaceAuthorization(source)) return false
@@ -378,9 +405,9 @@ internal class ModelLoadController(
         }
         uiState.update {
             it.withDownloadProgressReset().copy(
-                isBusy = true,
                 isPreparingDownload = true,
                 isDownloading = false,
+                isWaitingForWifiDownload = false,
                 statusText = if (source.requiresHuggingFaceAuthorization) {
                     "正在验证 Hugging Face 授权"
                 } else {
@@ -390,8 +417,23 @@ internal class ModelLoadController(
                 showFirstRunSetup = false,
             )
         }
+        enqueueModelDownload(source, target, allowMetered)
+        return true
+    }
+
+    /**
+     * Starts one download task. Downloading is a background activity: it sets the download flags
+     * but not `isBusy`, which stays reserved for work that owns the model (loading, importing,
+     * deleting, generating). Every guard that must still block during a download checks
+     * `isDownloading` too.
+     */
+    private fun enqueueModelDownload(
+        source: ModelDownloadSource,
+        target: File,
+        allowMetered: Boolean,
+    ) {
         val preflightJob = scope.launch(ioDispatcher) {
-            val downloadResult = downloadService.enqueue(source, target)
+            val downloadResult = downloadService.enqueue(source, target, allowMetered)
             if (!isActive) {
                 downloadResult.getOrNull()?.let(downloadService::cancel)
                 return@launch
@@ -405,12 +447,13 @@ internal class ModelLoadController(
                 return@launch
             }
             activeDownloadId = downloadId
+            activeDownloadSource = source
             modelRepository.savePendingDownload(downloadId, source)
             uiState.update {
                 it.withDownloadProgressReset().copy(
-                    isBusy = true,
                     isPreparingDownload = false,
                     isDownloading = true,
+                    isWaitingForWifiDownload = false,
                     statusText = "模型下载中",
                     isReady = false,
                     showFirstRunSetup = false,
@@ -424,7 +467,6 @@ internal class ModelLoadController(
                 downloadPreflightJob = null
             }
         }
-        return true
     }
 
     private fun blockDownloadForMissingHuggingFaceAuthorization(source: ModelDownloadSource): Boolean {
@@ -447,12 +489,13 @@ internal class ModelLoadController(
     ) {
         downloadMonitorJob?.cancel()
         activeDownloadId = downloadId
+        activeDownloadSource = source
         downloadMonitorJob = scope.launch(ioDispatcher) {
             while (isActive && activeDownloadId == downloadId) {
                 val info = downloadService.query(downloadId)
                 if (info == null) {
                     if (activeDownloadId == downloadId) {
-                        activeDownloadId = null
+                        clearActiveDownload()
                         clearSetupQueue()
                         modelRepository.clearPendingDownload()
                         uiState.update { it.downloadStopped("下载任务不存在") }
@@ -465,18 +508,22 @@ internal class ModelLoadController(
 
                 uiState.update {
                     it.copy(
-                        isBusy = true,
                         isDownloading = true,
+                        isWaitingForWifiDownload = info.isWaitingForWifi,
                         downloadProgressPercent = info.progressPercent,
                         downloadedBytes = info.downloadedBytes,
                         totalBytes = info.totalBytes,
-                        statusText = info.statusText,
+                        statusText = if (info.isWaitingForWifi) {
+                            "等待 Wi-Fi，可改用移动数据"
+                        } else {
+                            info.statusText
+                        },
                     )
                 }
 
                 when (info.status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {
-                        activeDownloadId = null
+                        clearActiveDownload()
                         if (!targetFile.exists() || !source.hasExpectedSize(targetFile.length())) {
                             clearSetupQueue()
                             modelRepository.clearPendingDownload()
@@ -484,10 +531,11 @@ internal class ModelLoadController(
                             uiState.update { it.downloadStopped("下载文件不可用，请重新下载") }
                             return@launch
                         }
+                        // Still a download-owned state: the file is being hashed and registered.
                         uiState.update {
                             it.copy(
-                                isBusy = true,
-                                isDownloading = false,
+                                isDownloading = true,
+                                isWaitingForWifiDownload = false,
                                 downloadProgressPercent = null,
                                 statusText = "正在校验模型文件",
                             )
@@ -504,7 +552,7 @@ internal class ModelLoadController(
                         val restoreFirstRunSetup = setupDownloadInProgress &&
                             uiState.value.modelPath == null &&
                             !uiState.value.isReady
-                        activeDownloadId = null
+                        clearActiveDownload()
                         clearSetupQueue()
                         modelRepository.clearPendingDownload()
                         targetFile.delete()
@@ -519,6 +567,11 @@ internal class ModelLoadController(
                 delay(1_000L)
             }
         }
+    }
+
+    private fun clearActiveDownload() {
+        activeDownloadId = null
+        activeDownloadSource = null
     }
 
     private fun verifyAndRegisterDownloadedModel(
@@ -604,7 +657,7 @@ internal class ModelLoadController(
 
     fun importModel(uri: Uri) {
         refreshDeviceStatus()
-        if (uiState.value.isBusy) return
+        if (uiState.value.isBusy || uiState.value.isDownloading) return
         if (!isArm64DeviceProvider()) {
             uiState.update {
                 it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
@@ -665,7 +718,7 @@ internal class ModelLoadController(
     }
 
     fun selectBackend(choice: BackendChoice) {
-        if (uiState.value.isBusy || uiState.value.backend == choice) return
+        if (uiState.value.isBusy || uiState.value.isDownloading || uiState.value.backend == choice) return
         if (!backendAllowedForActiveModel(uiState.value, choice)) {
             uiState.update {
                 it.copy(statusText = "当前模型不支持 ${choice.label()}，请使用可用后端")
@@ -683,7 +736,8 @@ internal class ModelLoadController(
     }
 
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
-        if (uiState.value.isBusy) return
+        // Remote readiness projection clears the download flags, so it must not run mid-download.
+        if (uiState.value.isBusy || uiState.value.isDownloading) return
         clearPendingRemoteState()
         remoteConnectivityUiJob?.cancel()
         // Trust boundary changed (remote destination/credential): never let a prior
@@ -800,7 +854,7 @@ internal class ModelLoadController(
     }
 
     fun selectRecommendedModel(modelId: String) {
-        if (uiState.value.isBusy || uiState.value.selectedModelId == modelId) return
+        if (uiState.value.isBusy || uiState.value.isDownloading || uiState.value.selectedModelId == modelId) return
         val result = modelRepository.selectRecommendedModel(modelId)
         updateModelState(result.state)
         val activated = result.activatedModel
@@ -816,7 +870,11 @@ internal class ModelLoadController(
     }
 
     fun selectInstalledModel(modelId: String) {
-        if (uiState.value.isBusy || uiState.value.activeInstalledModelId == modelId) return
+        if (uiState.value.isBusy || uiState.value.isDownloading ||
+            uiState.value.activeInstalledModelId == modelId
+        ) {
+            return
+        }
         val installed = modelRepository.selectInstalledModel(modelId) ?: return
         remoteModelRepository.saveMode(InferenceMode.Local)
         clearPendingRemoteState()
@@ -889,7 +947,8 @@ internal class ModelLoadController(
 
     fun loadModel() {
         val path = uiState.value.modelPath ?: return
-        if (uiState.value.isBusy) return
+        // Downloading must not be replaced by a load: the in-flight file is not installed yet.
+        if (uiState.value.isBusy || uiState.value.isDownloading) return
         val backendChoice = preferredBackendForActiveModel(uiState.value, uiState.value.backend)
         solinI(TAG_MODEL, "loadModel: path=$path backend=${backendChoice.name}")
         remoteModelRepository.saveMode(InferenceMode.Local)
@@ -1135,7 +1194,13 @@ private fun ChatUiState.withDownloadProgressReset(): ChatUiState =
 
 /** Ends the busy download state but keeps the last byte counts on screen. */
 private fun ChatUiState.downloadStopped(statusText: String): ChatUiState =
-    copy(isBusy = false, isDownloading = false, downloadProgressPercent = null, statusText = statusText)
+    copy(
+        isBusy = false,
+        isDownloading = false,
+        isWaitingForWifiDownload = false,
+        downloadProgressPercent = null,
+        statusText = statusText,
+    )
 
 /** Clears all download progress and ends the busy state. */
 internal fun ChatUiState.downloadFinished(statusText: String): ChatUiState =

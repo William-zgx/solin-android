@@ -35,6 +35,42 @@ class ModelDownloadServiceTest {
     }
 
     @Test
+    fun modelDownloadsStayWifiOnlyUnlessTheUserAllowsMeteredData() {
+        // The default request must never spend the user's cellular data.
+        assertEquals(DownloadManager.Request.NETWORK_WIFI, downloadNetworkTypes(allowMetered = false))
+        assertEquals(
+            DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE,
+            downloadNetworkTypes(allowMetered = true),
+        )
+    }
+
+    @Test
+    fun wifiPausedTaskIsReportedAsWaitingForWifiOnly() {
+        val waiting = DownloadInfo(
+            status = DownloadManager.STATUS_PAUSED,
+            reason = DownloadManager.PAUSED_QUEUED_FOR_WIFI,
+            downloadedBytes = 1L,
+            totalBytes = 10L,
+        )
+        val otherPause = DownloadInfo(
+            status = DownloadManager.STATUS_PAUSED,
+            reason = DownloadManager.PAUSED_WAITING_FOR_NETWORK,
+            downloadedBytes = 1L,
+            totalBytes = 10L,
+        )
+        val running = DownloadInfo(
+            status = DownloadManager.STATUS_RUNNING,
+            reason = 0,
+            downloadedBytes = 1L,
+            totalBytes = 10L,
+        )
+
+        assertTrue(waiting.isWaitingForWifi)
+        assertFalse(otherPause.isWaitingForWifi)
+        assertFalse(running.isWaitingForWifi)
+    }
+
+    @Test
     fun chunkedDownloadRejectsOversizeAndDeletesPartialFile() {
         withTempDownloadFile { targetFile ->
             val progress = mutableListOf<Long>()

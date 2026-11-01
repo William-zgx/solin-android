@@ -955,6 +955,10 @@ Boundaries:
 
 - Downloads are bounded by `CUSTOM_MODEL_MAX_BYTES`; oversized transfers fail
   with `ModelTransferSizeLimitExceededException`.
+- Model downloads are Wi-Fi only by default. A download paused for Wi-Fi
+  (`isWaitingForWifiDownload`) offers the user an explicit metered-data resume
+  (`allowMeteredDownload()`); no download ever spends cellular data without
+  that choice.
 - Hugging Face gated downloads require a user-provided `SOLIN_HF_TOKEN`; the
   token is never committed or logged.
 

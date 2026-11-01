@@ -650,6 +650,10 @@ class SolinViewModel internal constructor(
         modelLoadController.cancelModelDownload()
     }
 
+    fun allowMeteredDownload() {
+        modelLoadController.allowMeteredDownload()
+    }
+
     fun importModel(uri: Uri) {
         modelLoadController.importModel(uri)
     }
