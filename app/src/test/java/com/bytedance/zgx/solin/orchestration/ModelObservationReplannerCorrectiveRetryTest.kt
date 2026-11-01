@@ -48,6 +48,52 @@ class ModelObservationReplannerCorrectiveRetryTest {
     }
 
     @Test
+    fun longUserRequestSurvivesTheCorrectivePromptIntact() {
+        // A late constraint in a long request must reach the corrective prompt: only the non-user
+        // lines are shortened, never the user's own wording.
+        val request = userRequestOf(400)
+
+        val runtime = ScriptedDraftRuntime(tapDraft("not-on-screen"), tapDraft("search-input"))
+        val replanner = replanner(runtime)
+
+        assertNotNull(replanner.planNext(observeContext(searchInputObservationJson(), input = request)))
+
+        val corrective = runtime.inputs[1]
+        assertTrue(corrective, corrective.contains("用户请求: $request"))
+        assertTrue("prompt should still be capped: ${corrective.length}", corrective.length <= MAX_CORRECTIVE_PROMPT_CHARS)
+    }
+
+    @Test
+    fun overCapCorrectivePromptDropsNonUserLinesButKeepsTheRequestWhole() {
+        // The user's request alone is longer than the cap, so every other line must give way; the
+        // request still arrives byte-identical and ends with its late constraint.
+        val request = userRequestOf(MAX_CORRECTIVE_PROMPT_CHARS + 200)
+
+        val runtime = ScriptedDraftRuntime(tapDraft("not-on-screen"), tapDraft("search-input"))
+        val replanner = replanner(runtime)
+
+        assertNotNull(replanner.planNext(observeContext(searchInputObservationJson(), input = request)))
+
+        val corrective = runtime.inputs[1]
+        assertTrue(corrective, corrective.contains("用户请求: $request"))
+        assertTrue("prompt should not exceed the cap plus user text", corrective.length <= request.length + 200)
+    }
+
+    /** A user request of exactly [length] chars whose last words are a late "don't send" constraint. */
+    private fun userRequestOf(length: Int): String {
+        val tail = "但不要发送"
+        val body = "帮我打开设置页面，找到蓝牙开关，把已经列出的每一台设备都看清楚，" +
+            "记下它们的名字和配对状态，然后回到上一页，只做查看和记录，" +
+            "不要点任何开关，不要修改任何设置，不要退出应用，不要分享任何内容，" +
+            "不要复制任何文字，不要连接任何设备，不要断开任何连接，不要关闭蓝牙，" +
+            "不要打开蓝牙，不要重启手机，不要卸载任何应用，不要清除任何数据，" +
+            "不要重置任何设置，不要恢复出厂设置，整个过程只在我确认之后再继续，" +
+            "如果没有把握就停下来问我，完成后只告诉我你看到了什么，" +
+            "不要自己替我做出任何决定，再多核对两遍刚才记下的内容，"
+        return body.repeat(length / body.length + 1).take(length - tail.length) + tail
+    }
+
+    @Test
     fun badThenBadDraftFailsClosedWithoutAThirdCall() {
         val runtime = ScriptedDraftRuntime(
             tapDraft("not-on-screen"),
@@ -151,12 +197,15 @@ class ModelObservationReplannerCorrectiveRetryTest {
         }
     }
 
-    private fun observeContext(observationJson: String): AgentObservationReplanContext {
+    private fun observeContext(
+        observationJson: String,
+        input: String = "点击搜索输入框",
+    ): AgentObservationReplanContext {
         val previousRequest = ToolRequest(id = "observe-1", toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
         return AgentObservationReplanContext(
             run = AgentRun(
                 id = "run-corrective",
-                input = "点击搜索输入框",
+                input = input,
                 state = AgentRunState.Observing,
                 createdAtMillis = 1L,
                 updatedAtMillis = 1L,

@@ -307,9 +307,10 @@ private fun List<String>.joinPrioritizedObservationPrompt(maxChars: Int): String
 /**
  * Hard cap with "..." like before, except that a user-text line is never cut or dropped: when the
  * plain cut would reach one, non-user lines are shortened or skipped instead, and the result may
- * exceed [maxChars] only by user text.
+ * exceed [maxChars] only by user text. Shared with prompts outside the observation replanner
+ * ([correctiveObservationModelPrompt]) that also carry user-authored text.
  */
-private fun String.capPreservingUserTextLines(maxChars: Int): String {
+internal fun String.capPreservingUserTextLines(maxChars: Int): String {
     if (length <= maxChars) return this
     val lines = lines()
     val userLines = lines.filter { line -> line.isUserTextPromptLine() }

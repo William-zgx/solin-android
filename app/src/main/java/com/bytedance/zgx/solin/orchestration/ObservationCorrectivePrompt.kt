@@ -8,6 +8,10 @@ import com.bytedance.zgx.solin.tool.ToolRegistry
  * produced a draft that an acceptance guard rejected. It states the rejection reason and the
  * allowed target shortlist so a small model can fix its own mistake; the corrected draft goes
  * through exactly the same guards. LOCAL model only — this prompt may quote LocalOnly screen targets.
+ *
+ * The user's request line is redacted but never length-capped ([userIntentPromptText]); when the
+ * whole prompt exceeds [MAX_CORRECTIVE_PROMPT_CHARS], only the non-user lines are shortened or
+ * dropped ([capPreservingUserTextLines]), so a late constraint such as "…但不要发送" survives.
  */
 internal const val CORRECTIVE_OBSERVATION_PROMPT_INDEX = 2
 internal const val MAX_CORRECTIVE_PROMPT_CHARS = 1_200
@@ -38,7 +42,7 @@ internal fun AgentObservationReplanContext.correctiveObservationModelPrompt(
     parseCache: ObservationJsonParseCache? = null,
 ): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
-        .shortTraceText(maxLength = 120)
+        .userIntentPromptText()
     val allowedTools = localOnlyObservationAllowedToolsPrompt(toolRegistry)
     val shortlist = observedResult.localObservationEvidencePrompt(intentPreview, parseCache)
         .targetShortlistTargetValues()
@@ -63,7 +67,5 @@ internal fun AgentObservationReplanContext.correctiveObservationModelPrompt(
         当前进度: ${observedResult.appSearchProgressPromptText(parseCache)}
         可用 target（只能原样复制其一）: $shortlistText
         格式: call:ui_tap{"target":"候选target"}
-    """.trimIndent().let { prompt ->
-        if (prompt.length <= MAX_CORRECTIVE_PROMPT_CHARS) prompt else prompt.take(MAX_CORRECTIVE_PROMPT_CHARS)
-    }
+    """.trimIndent().capPreservingUserTextLines(MAX_CORRECTIVE_PROMPT_CHARS)
 }
