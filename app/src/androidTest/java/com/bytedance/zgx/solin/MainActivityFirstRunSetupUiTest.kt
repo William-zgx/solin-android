@@ -36,8 +36,10 @@ class MainActivityFirstRunSetupUiTest {
             composeRule.onNodeWithTag("quick_remote_config_button")
                 .performScrollTo()
                 .assertIsDisplayed()
-            composeRule.waitForText("模型未就绪", timeoutMillis = 10_000)
-            composeRule.waitForText("配置远程模型", timeoutMillis = 10_000)
+            composeRule.onNodeWithTag("home_choice_local")
+                .performScrollTo()
+                .assertIsDisplayed()
+            composeRule.waitForText("连接远程模型", timeoutMillis = 10_000)
             composeRule.waitForTag("first_run_setup_panel", timeoutMillis = 10_000)
             composeRule.onNodeWithTag("first_run_setup_panel")
                 .performScrollTo()
@@ -50,7 +52,7 @@ class MainActivityFirstRunSetupUiTest {
                 .performScrollTo()
                 .assertIsDisplayed()
 
-            composeRule.onNodeWithText("先跳过")
+            composeRule.onNodeWithText("稍后再说")
                 .performScrollTo()
                 .performClick()
 

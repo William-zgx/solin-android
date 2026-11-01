@@ -179,15 +179,13 @@ class MainActivityComprehensiveTest {
     }
 
     private fun dismissFirstRunSetupIfPresent() {
-        val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
+        val setupVisible = composeRule.waitForOptionalTag("first_run_setup_panel", timeoutMillis = 3_000)
         if (!setupVisible) return
         composeRule.onNodeWithTag("first_run_model_chat-e2b").performScrollTo().assertIsOn()
         composeRule.onNodeWithTag("first_run_model_$MEMORY_EMBEDDING_MODEL_ID").performScrollTo().assertIsOff()
         composeRule.onNodeWithTag("first_run_model_mobile-action-270m").performScrollTo().assertIsOff()
-        composeRule.onNodeWithText("先跳过").performScrollTo().performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("离线基础问答可选下载").fetchSemanticsNodes().isEmpty()
-        }
+        composeRule.onNodeWithText("稍后再说").performScrollTo().performClick()
+        composeRule.waitForTagGone("first_run_setup_panel", timeoutMillis = 5_000)
     }
 
     private fun configureRemoteModel(baseUrl: String) {
@@ -380,12 +378,6 @@ class MainActivityComprehensiveTest {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isEmpty()
         }
     }
-
-    private fun ComposeTestRule.waitForOptionalText(text: String, timeoutMillis: Long): Boolean =
-        runCatching {
-            waitForText(text, timeoutMillis = timeoutMillis)
-            true
-        }.getOrDefault(false)
 
     private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean =
         runCatching {
