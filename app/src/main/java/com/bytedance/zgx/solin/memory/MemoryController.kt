@@ -11,7 +11,7 @@ import com.bytedance.zgx.solin.data.SessionStore
 import kotlinx.coroutines.CoroutineDispatcher
 
 /**
- * Snapshot of memory-related state that the ViewModel should apply to its UI state
+ * Snapshot of memory-related state that the UI layer should apply to its UI state
  * after a [MemoryController] operation completes.
  */
 data class MemoryControllerResult(
@@ -26,9 +26,9 @@ data class MemoryControllerResult(
 )
 
 /**
- * Result of enabling/disabling local memory. Preference persistence remains in the
- * ViewModel ([com.bytedance.zgx.solin.data.FirstRunSetupStore]); this result covers
- * index/sync/load/rebuild side effects for the UI layer.
+ * Result of enabling/disabling local memory. Preference persistence stays with the UI layer
+ * (`presentation/MemoryUiController` via [com.bytedance.zgx.solin.data.FirstRunSetupStore]);
+ * this result covers index/sync/load/rebuild side effects.
  */
 data class SetMemoryEnabledResult(
     val enabled: Boolean,
@@ -58,15 +58,17 @@ data class ClearLongTermMemoryResult(
 )
 
 /**
- * Encapsulates all memory-related business logic currently living in [SolinViewModel].
+ * Encapsulates all memory-related business logic: index rebuild, long-term memory reads and the
+ * explicit preference / fact / forget commands.
  *
  * This class is intentionally **not** a ViewModel; it is a pure controller that takes
- * its dependencies via the constructor and returns result snapshots that the caller
- * (typically the ViewModel) applies to its own UI state.
+ * its dependencies via the constructor and returns result snapshots. The UI-state side
+ * (`presentation/MemoryUiController`) applies those results to [ChatUiState] and owns the
+ * memory panel's suggestion state; `SolinViewModel` is a thin facade over it.
  *
  * Public mutators and rebuild/load/sync/explicit command paths are synchronous so
- * ViewModel helpers and unit tests keep the same call style (already dispatched onto
- * IO via `launchPersistenceWork` / test dispatcher when needed).
+ * callers and unit tests keep the same call style (already dispatched onto IO via
+ * `launchPersistenceWork` / test dispatcher when needed).
  *
  * [ioDispatcher] is retained for future suspend migration of the data layer.
  */
@@ -179,7 +181,7 @@ class MemoryController(
 
     /**
      * Current semantic-memory runtime fields without rebuilding the index.
-     * Used by ViewModel initial state construction.
+     * Used by initial UI-state construction.
      */
     fun semanticMemoryState(): MemoryControllerResult =
         MemoryControllerResult(
@@ -318,7 +320,7 @@ class MemoryController(
     /**
      * Handles an explicit "remember this preference" command.
      *
-     * Session message writes go through [sessionStore]; the ViewModel applies the
+     * Session message writes go through [sessionStore]; the UI layer applies the
      * returned [MemoryCommandResult] to UI state (messages, status, semantic fields).
      */
     fun handleExplicitPreferenceCommand(
@@ -494,7 +496,7 @@ data class MemorySuggestionResult(
 
 /**
  * Result of an explicit memory command (preference/fact/forget) handled by
- * [MemoryController].  The ViewModel uses this to update its message list,
+ * [MemoryController]. The UI layer uses this to update its message list,
  * long-term memory display, and status text.
  */
 data class MemoryCommandResult(

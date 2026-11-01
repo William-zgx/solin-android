@@ -97,11 +97,11 @@ logging/        SolinLog 结构化日志门面
 
 Wave 1–6 已完成（见 `docs/optimization_plan_weaknesses.md` §20–§22）。三大热点文件已大幅瘦身：
 
-| 文件 | 原始行数 | 现行 | 协作面 |
+| 文件 | 原始行数 | 现行（`wc -l`） | 协作面 |
 | --- | ---: | ---: | --- |
-| `SolinViewModel.kt` | ~6,800 | ~860 | `presentation/*` 29 个文件 |
-| `SolinScreen.kt` | ~6,300 | ~450 | `ui/components/*` 20 个叶子组件 |
-| `AgentLoopRuntime.kt` | ~5,400 | ~2,150 | `orchestration/ToolPlanCoordinator` 等 5+ 协作类 |
+| `SolinViewModel.kt` | ~6,800 | 848 | `presentation/*` 29 个文件 |
+| `SolinScreen.kt` | ~6,300 | 446 | `ui/components/*` 21 个叶子组件 |
+| `AgentLoopRuntime.kt` | ~5,400 | 1,924 | `orchestration/ToolPlanCoordinator` 等 5+ 协作类 |
 
 **原则：** 先逻辑边界与架构测试，再物理 Gradle module；增量可合并，禁止 Big Bang。  
 **并行改代码时：** 遵守 `optimization_plan_weaknesses.md` §5 文件所有权表（与 `AGENTS.md` 一致）。

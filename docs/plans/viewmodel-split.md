@@ -99,8 +99,6 @@
 |---|---|
 | `confirmAgentConfirmation()` | public |
 | `dismissAgentConfirmation()` | public |
-| `confirmActionDraft()` | public |
-| `dismissActionDraft()` | public |
 | `rejectAgentConfirmationForPolicyDenial()` | public |
 | `rejectAgentConfirmationForCapabilityDenial()` | public |
 | `requestRecoveryActionConfirmation(...)` | public |
@@ -179,7 +177,6 @@
 | Method | Visibility |
 |---|---|
 | `refreshAuditEvents()` | public |
-| `refreshRemoteSendAuditEvents()` | public |
 | `loadAuditEvents()` | private |
 | `loadAgentTraceRuns()` | private |
 | `activeRunTimelineFor(runId)` | private |
@@ -401,8 +398,6 @@ class ToolExecutionController(
 **Public API:**
 - `suspend fun confirmAgentConfirmation(state: ChatUiState): ToolExecutionResult`
 - `suspend fun dismissAgentConfirmation(state: ChatUiState): ToolExecutionResult`
-- `suspend fun confirmActionDraft(state: ChatUiState): ToolExecutionResult`
-- `suspend fun dismissActionDraft(state: ChatUiState): ToolExecutionResult`
 - `suspend fun rejectAgentConfirmationForPolicyDenial(state: ChatUiState): ToolExecutionResult`
 - `suspend fun rejectAgentConfirmationForCapabilityDenial(state: ChatUiState): ToolExecutionResult`
 - `suspend fun requestRecoveryActionConfirmation(action: AgentRecoveryAction): ToolExecutionResult`
@@ -534,7 +529,6 @@ class AuditController(
 
 **Public API:**
 - `suspend fun refreshAuditEvents(): AuditResult`
-- `suspend fun refreshRemoteSendAuditEvents(): AuditResult`
 - `suspend fun loadAuditEvents(): List<AuditEventSummary>`
 - `suspend fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary>`
 - `suspend fun activeRunTimelineFor(runId: String): List<RunTimelineItemUiSummary>`
