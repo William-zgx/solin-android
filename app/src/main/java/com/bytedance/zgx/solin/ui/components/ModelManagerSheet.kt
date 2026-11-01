@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LocalContentColor
@@ -58,6 +59,9 @@ internal const val MODEL_MANAGER_CURRENT_TAB_INDEX = 0
 internal const val MODEL_MANAGER_REMOTE_TAB_INDEX = 2
 internal const val MODEL_MANAGER_PRIVACY_TAB_INDEX = 4
 
+/** One name for the privacy surface, used by the tab, the sheet title and the entry points. */
+internal const val PRIVACY_TAB_LABEL = "隐私与权限"
+
 @Composable
 internal fun ModelManagerSheet(
     state: ChatUiState,
@@ -103,9 +107,9 @@ internal fun ModelManagerSheet(
     val autoSelectable = AdaptiveInferenceRollout.parse(
         BuildConfig.ADAPTIVE_INFERENCE_ROLLOUT_STAGE,
     ).autoSelectable
-    val tabs = listOf("当前", "模型", "远程", "高级", "隐私")
-    val sheetTitle = if (selectedTab == MODEL_MANAGER_PRIVACY_TAB_INDEX) "隐私说明" else "模型管理"
-    SheetColumn(modifier = Modifier.testTag("model_manager_sheet"), spacing = 14.dp) {
+    val tabs = listOf("当前", "模型", "远程", "高级", PRIVACY_TAB_LABEL)
+    val sheetTitle = if (selectedTab == MODEL_MANAGER_PRIVACY_TAB_INDEX) PRIVACY_TAB_LABEL else "模型管理"
+    SheetColumn(modifier = Modifier.testTag("model_manager_sheet"), spacing = 16.dp) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -117,8 +121,7 @@ internal fun ModelManagerSheet(
             ) {
                 Text(
                     text = sheetTitle,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleLarge,
                 )
                 Text(
                     text = MODEL_MANAGER_POSITIONING_TEXT,
@@ -131,7 +134,8 @@ internal fun ModelManagerSheet(
             CloseIconButton(
                 testTag = "model_manager_close_button",
                 contentDescription = "关闭$sheetTitle",
-                enabled = !state.isBusy,
+                // Closing must never wait on work: the sheet is the only way back to the chat.
+                enabled = true,
                 onClick = onDismiss,
             )
         }
@@ -232,7 +236,6 @@ internal fun labelToTabTag(label: String): String =
         "高级" -> "advanced"
         else -> "privacy"
     }
-
 @Composable
 internal fun CurrentModelPanel(
     state: ChatUiState,
@@ -331,6 +334,10 @@ internal fun RemoteModelPanel(
     onTestRemoteModelConnectivity: () -> Unit,
 ) {
     val config = state.remoteModelConfig
+    var confirmClear by remember { mutableStateOf(false) }
+    // `ModelLoadController.updateRemoteModelConfig` ignores writes while `isBusy`, and a download
+    // sets `isBusy = true`, so an enabled field would silently drop what the user types.
+    val fieldsEnabled = !state.isBusy
     PanelSurface {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -347,7 +354,7 @@ internal fun RemoteModelPanel(
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(baseUrl = it))
                 },
-                enabled = !state.isBusy,
+                enabled = fieldsEnabled,
                 singleLine = true,
                 placeholder = { Text("https://api.example.com/v1") },
                 label = { Text("服务地址") },
@@ -360,7 +367,7 @@ internal fun RemoteModelPanel(
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(modelName = it))
                 },
-                enabled = !state.isBusy,
+                enabled = fieldsEnabled,
                 singleLine = true,
                 placeholder = { Text("model-name") },
                 label = { Text("模型名") },
@@ -373,7 +380,7 @@ internal fun RemoteModelPanel(
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(apiKey = it))
                 },
-                enabled = !state.isBusy,
+                enabled = fieldsEnabled,
                 singleLine = true,
                 placeholder = { Text("可留空") },
                 label = { Text("API Key") },
@@ -394,7 +401,7 @@ internal fun RemoteModelPanel(
                 )
                 Switch(
                     checked = config.supportsVisionInput,
-                    enabled = !state.isBusy,
+                    enabled = fieldsEnabled,
                     onCheckedChange = {
                         onRemoteModelConfigChanged(config.copy(supportsVisionInput = it))
                     },
@@ -416,7 +423,7 @@ internal fun RemoteModelPanel(
                 Switch(
                     modifier = Modifier.testTag("remote_tool_calls_switch"),
                     checked = config.supportsToolCalls,
-                    enabled = !state.isBusy,
+                    enabled = fieldsEnabled,
                     onCheckedChange = {
                         onRemoteModelConfigChanged(config.copy(supportsToolCalls = it))
                     },
@@ -433,7 +440,7 @@ internal fun RemoteModelPanel(
                         onRemoteModelConfigChanged(config.copy(contextWindowTokens = parsed))
                     }
                 },
-                enabled = !state.isBusy,
+                enabled = fieldsEnabled,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 label = { Text("上下文窗口（tokens）") },
@@ -470,7 +477,7 @@ internal fun RemoteModelPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("remote_config_clear_button"),
-                onClick = { onRemoteModelConfigChanged(RemoteModelConfig()) },
+                onClick = { confirmClear = true },
                 enabled = !state.isBusy && config.hasAnySavedValue(),
             ) {
                 SolinGlyph(
@@ -481,6 +488,33 @@ internal fun RemoteModelPanel(
                 Text(" 清除远程配置")
             }
         }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            modifier = Modifier.testTag("remote_config_clear_dialog"),
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清除远程配置？") },
+            text = { Text("清除后需重新填写 Key。已保存的会话不受影响。") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("remote_config_clear_confirm_button"),
+                    onClick = {
+                        confirmClear = false
+                        onRemoteModelConfigChanged(RemoteModelConfig())
+                    },
+                ) {
+                    Text("清除")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.testTag("remote_config_clear_cancel_button"),
+                    onClick = { confirmClear = false },
+                ) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

@@ -1,14 +1,13 @@
 package com.bytedance.zgx.solin.ui.components
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -18,7 +17,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -154,7 +151,8 @@ internal fun ModelInventoryPanel(
             ModelPathGuidance(
                 selectedModel = state.selectedRecommendedModel,
             )
-            state.basicSetupModels.forEach { model ->
+            state.basicSetupModels.forEachIndexed { index, model ->
+                if (index > 0) SheetRowDivider()
                 RecommendedModelCard(
                     model = model,
                     state = state,
@@ -177,7 +175,8 @@ internal fun ModelInventoryPanel(
                     text = "可选模型",
                     subtitle = "用于高质量对话或低资源实验动作规划，不参与首装默认下载。",
                 )
-                state.optionalModels.forEach { model ->
+                state.optionalModels.forEachIndexed { index, model ->
+                    if (index > 0) SheetRowDivider()
                     RecommendedModelCard(
                         model = model,
                         state = state,
@@ -209,111 +208,94 @@ internal fun HuggingFaceAuthorizationPanel(
     onOpenModelAuthorization: () -> Unit,
     onOpenTokenSettings: () -> Unit,
 ) {
-    Surface(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("hugging_face_authorization_panel"),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (pendingAuthorization) 0.9f else 0.58f),
-        ),
-        tonalElevation = 0.dp,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                CapabilityMark(
-                    icon = SolinGlyphKind.Shield,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = "Hugging Face 授权",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = if (tokenConfigured) {
-                            "read token 已保存在本机加密区，下载 gated 模型时会临时使用。"
-                        } else {
-                            "先登录并接受模型许可，再保存 read token 才能下载原始记忆模型。"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
                 Text(
-                    text = if (tokenConfigured) "已保存" else "待授权",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (tokenConfigured) {
-                        MaterialTheme.colorScheme.primary
+                    text = "Hugging Face 授权",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = if (tokenConfigured) {
+                        "read token 已加密保存在本机，下载 gated 模型时临时使用。"
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        "先登录并接受模型许可，再保存 read token 才能下载。"
                     },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenModelAuthorization,
-                ) {
-                    Text("模型授权页", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenTokenSettings,
-                ) {
-                    Text("Token 页面", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("hugging_face_token_input"),
-                value = tokenInput,
-                onValueChange = onTokenInputChanged,
-                enabled = !tokenConfigured,
-                maxLines = 1,
-                placeholder = { Text("粘贴 Hugging Face read token") },
-                visualTransformation = PasswordVisualTransformation(),
+            Text(
+                text = if (tokenConfigured) "已保存" else "待授权",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (tokenConfigured) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = onOpenModelAuthorization,
             ) {
-                Button(
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("hugging_face_token_save_button"),
-                    onClick = onSaveToken,
-                    enabled = !tokenConfigured && tokenInput.isNotBlank(),
-                ) {
-                    Text("保存授权", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                OutlinedButton(
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("hugging_face_token_clear_button"),
-                    onClick = onClearToken,
-                    enabled = tokenConfigured,
-                ) {
-                    Text("清除", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                Text("模型授权页", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = onOpenTokenSettings,
+            ) {
+                Text("Token 页面", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        OutlinedTextField(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("hugging_face_token_input"),
+            value = tokenInput,
+            onValueChange = onTokenInputChanged,
+            enabled = !tokenConfigured,
+            maxLines = 1,
+            placeholder = { Text("粘贴 Hugging Face read token") },
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("hugging_face_token_save_button"),
+                onClick = onSaveToken,
+                enabled = !tokenConfigured && tokenInput.isNotBlank(),
+            ) {
+                Text("保存授权", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            OutlinedButton(
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("hugging_face_token_clear_button"),
+                onClick = onClearToken,
+                enabled = tokenConfigured,
+            ) {
+                Text("清除", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -454,102 +436,98 @@ internal fun RecommendedModelCard(
         model.setupTier == SetupTier.OptionalExperimental -> "实验可选"
         else -> "可选"
     }
-    Surface(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.86f),
-        tonalElevation = 0.dp,
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isSelectedChat) {
-                accent.copy(alpha = 0.9f)
-            } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
-            },
-        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top,
+            PlacementMark(
+                modifier = Modifier
+                    .padding(top = 5.dp)
+                    .size(10.dp),
+                leavesPhone = false,
+                tint = accent,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                CapabilityMark(
-                    icon = capabilityIcon(model.capability),
-                    tint = accent,
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = model.shortName,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (installed) {
-                        accent
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    text = model.shortName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val hasSelectButton = model.capability == ModelCapability.Chat
-                if (model.capability == ModelCapability.Chat) {
-                    OutlinedButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = onSelect,
-                        enabled = !state.isBusy && !isSelectedChat,
-                    ) {
-                        Text(
-                            text = if (isSelectedChat) "当前" else "选择",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                FilledTonalButton(
-                    modifier = if (hasSelectButton) Modifier.weight(1f) else Modifier.fillMaxWidth(),
-                    onClick = onDownload,
-                    enabled = !state.isBusy && !state.isDownloading,
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (installed) {
+                    accent
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val hasSelectButton = model.capability == ModelCapability.Chat
+            if (model.capability == ModelCapability.Chat) {
+                OutlinedButton(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp),
+                    onClick = onSelect,
+                    enabled = !state.isBusy && !isSelectedChat,
                 ) {
-                    SolinGlyph(
-                        kind = SolinGlyphKind.Download,
-                        tint = LocalContentColor.current,
-                    )
                     Text(
-                        text = when {
-                            installed -> " 重新下载"
-                            model.requiresHuggingFaceAccessToken() && !state.huggingFaceAccessTokenConfigured ->
-                                " 授权下载"
-
-                            else -> " 下载"
-                        },
+                        text = if (isSelectedChat) "当前" else "选择",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            FilledTonalButton(
+                modifier = if (hasSelectButton) {
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                },
+                onClick = onDownload,
+                enabled = !state.isBusy && !state.isDownloading,
+            ) {
+                SolinGlyph(
+                    kind = SolinGlyphKind.Download,
+                    tint = LocalContentColor.current,
+                )
+                Text(
+                    text = when {
+                        installed -> " 重新下载"
+                        model.requiresHuggingFaceAccessToken() && !state.huggingFaceAccessTokenConfigured ->
+                            " 授权下载"
+
+                        else -> " 下载"
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -584,109 +562,69 @@ internal fun ModelRow(
     deleteEnabled: Boolean = false,
     deleteButtonTag: String = "",
 ) {
-    val shape = MaterialTheme.shapes.medium
-    Surface(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.58f)
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-                },
-                shape = shape,
-            ),
-        shape = shape,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f)
-        },
-        tonalElevation = 0.dp,
-        onClick = onClick,
-        enabled = enabled,
+            .heightIn(min = 56.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        PlacementMark(
+            leavesPhone = false,
+            tint = if (selected) {
+                LocalSolinColors.current.local
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (selected) {
+            Text(
+                text = "已选",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (onDelete != null) {
+            IconButton(
+                modifier = Modifier.testTag(deleteButtonTag),
+                onClick = onDelete,
+                enabled = deleteEnabled,
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                ),
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                SolinGlyph(
+                    kind = SolinGlyphKind.Delete,
+                    tint = LocalContentColor.current,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .semantics { contentDescription = "删除模型 $title" },
                 )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (selected) {
-                Text(
-                    text = "已选",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            if (onDelete != null) {
-                IconButton(
-                    modifier = Modifier.testTag(deleteButtonTag),
-                    onClick = onDelete,
-                    enabled = deleteEnabled,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                    ),
-                ) {
-                    SolinGlyph(
-                        kind = SolinGlyphKind.Delete,
-                        tint = LocalContentColor.current,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .semantics { contentDescription = "删除模型 $title" },
-                    )
-                }
             }
         }
     }
 }
-
-@Composable
-internal fun CapabilityMark(
-    icon: SolinGlyphKind,
-    tint: Color,
-) {
-    Surface(
-        shape = CircleShape,
-        color = tint.copy(alpha = 0.16f),
-    ) {
-        SolinGlyph(
-            modifier = Modifier
-                .padding(7.dp)
-                .size(18.dp),
-            kind = icon,
-            tint = tint,
-        )
-    }
-}
-
-internal fun capabilityIcon(capability: ModelCapability): SolinGlyphKind =
-    when (capability) {
-        ModelCapability.Chat -> SolinGlyphKind.Chat
-        ModelCapability.MemoryEmbedding -> SolinGlyphKind.Memory
-        ModelCapability.MobileAction -> SolinGlyphKind.Check
-    }
 
 internal fun InstalledModelSummary.verificationLabel(): String =
     when (verificationStatus) {

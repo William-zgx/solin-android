@@ -2,8 +2,10 @@ package com.bytedance.zgx.solin.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -25,7 +28,10 @@ import com.bytedance.zgx.solin.orchestration.DecisionModelRouting
 internal const val DECISION_MODEL_ROUTING_TITLE = "云端路由（Codiv OpenJev）"
 
 internal const val DECISION_MODEL_ROUTING_SUBTITLE =
-    "仅在“自动”推理偏好下生效。规则先判断：隐私、图片、资源压力仍按本机规则处理；只有本机和云端都可用、" +
+    "只在“自动”偏好下生效；隐私、图片和资源压力仍按本机规则处理。"
+
+internal const val DECISION_MODEL_ROUTING_DETAIL =
+    "规则先判断：隐私、图片、资源压力仍按本机规则处理；只有本机和云端都可用、" +
         "且规则按复杂度二选一时，才把本条请求的文字（不含历史、记忆、附件，疑似个人或密钥内容不发）发给 " +
         "Codiv 决策模型。置信度达到 0.9 才采用，否则保持规则结果。每次外发记入远程发送记录。"
 
@@ -38,12 +44,30 @@ internal fun DecisionModelRoutingSection(
     onApiKeySaved: (String) -> Unit,
 ) {
     var keyInput by remember { mutableStateOf("") }
+    var showDetail by rememberSaveable { mutableStateOf(false) }
     PanelSurface {
         Column(
             modifier = Modifier.testTag("decision_model_routing_section"),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SectionTitle(text = DECISION_MODEL_ROUTING_TITLE, subtitle = DECISION_MODEL_ROUTING_SUBTITLE)
+            SectionTitle(
+                text = DECISION_MODEL_ROUTING_TITLE,
+                subtitle = DECISION_MODEL_ROUTING_SUBTITLE,
+            )
+            TextButton(
+                modifier = Modifier.testTag("decision_model_routing_detail_toggle"),
+                onClick = { showDetail = !showDetail },
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+            ) {
+                Text(if (showDetail) "收起" else "会发送什么？")
+            }
+            if (showDetail) {
+                Text(
+                    text = DECISION_MODEL_ROUTING_DETAIL,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (state.keyConfigured) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DecisionModelRouting.entries.forEach { mode ->
@@ -59,11 +83,13 @@ internal fun DecisionModelRoutingSection(
                 Text(
                     text = "本次启动：调用 ${state.calls} 次，不可用 ${state.unavailable} 次，" +
                         "与规则不同 ${state.disagreedWithRules} 次，已采用 ${state.applied} 次。",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TextButton(
-                    modifier = Modifier.testTag("decision_model_routing_clear_key"),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("decision_model_routing_clear_key"),
                     enabled = enabled,
                     onClick = { onApiKeySaved("") },
                 ) {
@@ -82,7 +108,9 @@ internal fun DecisionModelRoutingSection(
                     visualTransformation = PasswordVisualTransformation(),
                 )
                 Button(
-                    modifier = Modifier.testTag("decision_model_routing_save_key"),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("decision_model_routing_save_key"),
                     enabled = enabled && keyInput.isNotBlank(),
                     onClick = {
                         onApiKeySaved(keyInput)
