@@ -954,6 +954,42 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun stopDuringCallCreationCancelsBeforeExecution() = runTest {
+        lateinit var runtime: OkHttpRemoteChatRuntime
+        lateinit var call: BlockingCall
+        var attempts = 0
+        var executions = 0
+        val factory = Call.Factory { request ->
+            attempts++
+            call = BlockingCall(request)
+            // Stop exactly after creation but before the runtime registers the call.
+            runtime.stop()
+            object : Call by call {
+                override fun execute(): Response {
+                    executions++
+                    // Fail immediately on the old implementation instead of hanging on a fake call.
+                    throw AssertionError("Stopped call reached execution")
+                }
+            }
+        }
+        runtime = OkHttpRemoteChatRuntime(factory)
+
+        val failure = runCatching {
+            runtime.send(
+                prompt = "stop before registration",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            ).toList()
+        }.exceptionOrNull()
+
+        assertTrue(failure is kotlinx.coroutines.CancellationException)
+        assertTrue("The unregistered call must be canceled", call.isCanceled())
+        assertEquals("A stopped call must never execute", 0, executions)
+        assertEquals("Stopping must not trigger a retry", 1, attempts)
+    }
+
+    @Test
     fun stopDuringRetryBackoffPreventsNextAttempt() = runTest {
         val factory = FailingCallFactory()
         val runtime = OkHttpRemoteChatRuntime(

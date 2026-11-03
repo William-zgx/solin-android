@@ -135,6 +135,12 @@ class OkHttpRemoteChatRuntime(
             activeCalls.add(call)
             currentCall.set(call)
             try {
+                // stop() may run while newCall is creating a call not yet in activeCalls.
+                // Once registered, either this check sees the stop or stop() cancels the call.
+                if (stopGeneration.value != generation) {
+                    call.cancel()
+                    throw RemoteGenerationStoppedException()
+                }
                 attemptBlock(call) { hasEmittedOutput = true }
                 return
             } catch (throwable: Throwable) {
