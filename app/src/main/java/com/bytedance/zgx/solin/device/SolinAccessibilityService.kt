@@ -681,7 +681,11 @@ class SolinAccessibilityService : AccessibilityService() {
                     val id = binding.requireActive().displayId
                     val windowIds = readOnMainThread {
                         binding.requireLocallyActive()
-                        windowsOnAllDisplays[id].orEmpty().map { it.id }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            windowsOnAllDisplays[id].orEmpty().map { it.id }
+                        } else {
+                            error("Background displays require Android 11 or newer")
+                        }
                     }.orEmpty()
                     windowIds.maxOfOrNull { lastUiEventByWindow[it] ?: 0L } ?: SystemClock.uptimeMillis()
                 }
@@ -755,8 +759,12 @@ class SolinAccessibilityService : AccessibilityService() {
     private fun activeWindowRootDirect(displayId: Int?): AccessibilityNodeInfo? {
         // T2/T3: unreadable background windows never fall back to the user's main screen.
         val candidates = if (displayId == null) windows else {
-            check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && displayId > 0)
-            windowsOnAllDisplays[displayId].orEmpty()
+            check(displayId > 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                windowsOnAllDisplays[displayId].orEmpty()
+            } else {
+                error("Background displays require Android 11 or newer")
+            }
         }
         return candidates.asSequence()
             .sortedWith(
@@ -869,8 +877,12 @@ class SolinAccessibilityService : AccessibilityService() {
         val roots = readOnMainThread {
             binding?.requireLocallyActive()
             val targetWindows = if (displayId == null) windows else {
-                check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && displayId > 0)
-                windowsOnAllDisplays[displayId].orEmpty()
+                check(displayId > 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    windowsOnAllDisplays[displayId].orEmpty()
+                } else {
+                    error("Background displays require Android 11 or newer")
+                }
             }
             targetWindows.mapNotNull { window -> window.root }
         }.orEmpty()
@@ -893,8 +905,11 @@ class SolinAccessibilityService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .apply {
                 if (displayId != null) {
-                    check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-                    setDisplayId(displayId)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        setDisplayId(displayId)
+                    } else {
+                        error("Background gestures require Android 11 or newer")
+                    }
                 }
             }
             .addStroke(GestureDescription.StrokeDescription(path, 0L, durationMillis))

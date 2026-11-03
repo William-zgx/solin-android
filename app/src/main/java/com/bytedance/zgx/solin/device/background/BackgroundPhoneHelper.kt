@@ -298,6 +298,7 @@ object BackgroundPhoneHelper {
     private class ShellIdentity(base: Context) : ContextWrapper(base) {
         override fun getPackageName() = "com.android.shell"
         override fun getOpPackageName() = "com.android.shell"
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
         override fun getAttributionSource(): AttributionSource = AttributionSource.Builder(2000).setPackageName(packageName).build()
         override fun getApplicationContext(): Context = this
         companion object {
