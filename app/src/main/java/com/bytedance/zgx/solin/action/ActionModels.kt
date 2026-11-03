@@ -192,6 +192,9 @@ object MobileActionFunctions {
     const val UI_PRESS_KEY = "ui_press_key"
     const val UI_PRESS_BACK = "ui_press_back"
     const val UI_WAIT = "ui_wait"
+    const val UI_COLLECT = "ui_collect"
+    const val UI_FIND = "ui_find"
+    const val UI_SET_WHEEL = "ui_set_wheel"
     const val CANCEL_REMINDER = "cancel_reminder"
     const val ASK_USER = "ask_user"
 
@@ -258,6 +261,7 @@ object MobileActionFunctions {
         COMPOSE_SMS,
         CONTROL_MEDIA,
         CALCULATE,
+        // ui_collect/ui_find/ui_set_wheel are registry tools executed by the boundary, not built-in Skill manifests.
         // NOTE: `ask_user`, `note`, `finish`, and `take_over` are registered in ToolRegistry
         // (builtInToolSpecs) and intercepted by AgentLoopRuntime at plan-apply time, but they are
         // NOT dispatched by BuiltInSkillRuntime — they are orchestration-level tools available to

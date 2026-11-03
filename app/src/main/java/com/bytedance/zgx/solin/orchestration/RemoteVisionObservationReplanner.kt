@@ -169,6 +169,8 @@ class RemoteVisionObservationReplanner(
     private val queuedSteps = AtomicReference<QueuedSteps?>(null)
 
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
+        // T6: experimental background displays have no remote screenshot-egress contract.
+        if (com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.currentBinding() != null) return null
         if (!gateProvider()) return null
         if (replanLimit == 0) return null
         if (!context.observedResult.isModelReplannableObservation()) return null

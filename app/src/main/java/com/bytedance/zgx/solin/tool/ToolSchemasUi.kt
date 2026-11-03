@@ -391,6 +391,8 @@ private fun uiActionOutputSchema(extraProperties: String = ""): String = """
         "beforeObservationId": {"type": "string"},
         "afterObservationId": {"type": "string"},
         "verificationSummary": {"type": "string", "minLength": 1},
+        "inputVerification": {"type": "string", "enum": ["match", "mismatch", "unknown"]},
+        "screenStability": {"type": "string", "enum": ["stable", "timed_out", "unknown"]},
         "screenObservationDiffSummary": {
           "type": "string",
           "description": "Bounded LocalOnly before/after Accessibility observation diff summary for local action replanning.",

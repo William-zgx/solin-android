@@ -542,7 +542,8 @@ private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {
         } else {
             "拒绝、取消或权限失败时不执行外部动作。"
         },
-        requiredTests = listOf("ToolSchemaContractTest", "SafetyPolicyTest", "AgentLoopRuntimeTest"),
+        requiredTests = listOf("ToolSchemaContractTest", "SafetyPolicyTest", "AgentLoopRuntimeTest") +
+            if (name in setOf("ui_collect", "ui_find", "ui_set_wheel")) listOf("PhoneCompositeOperationsTest") else emptyList(),
         ownerAgent = CapabilityOwnerAgent.AgentRuntime,
     )
 }

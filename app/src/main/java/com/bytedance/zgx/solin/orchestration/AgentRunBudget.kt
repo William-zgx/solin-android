@@ -57,13 +57,15 @@ internal class AgentRunBudget(
     private val runParkedMillis: (runId: String) -> Long = { 0L },
     private val maxRunWallClockMillis: Long = SolinConstants.AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS,
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
+    private val compositeStepCount: (String) -> Int = { 0 },
 ) {
     fun effectiveMaxToolSteps(runId: String): Int =
         profilesByRunId[runId]?.effectiveMaxToolSteps() ?: maxRunToolSteps
 
     fun toolStepBudgetExceeded(runId: String): Boolean {
         if (stepHistoryDegradedFailClosed(runId, budgetName = "tool step")) return true
-        return toolRequestsFor(runId).size >= effectiveMaxToolSteps(runId)
+        return toolRequestsFor(runId).size.toLong() + compositeStepCount(runId).coerceAtLeast(0) >=
+            effectiveMaxToolSteps(runId)
     }
 
     fun observationDecisionBudgetExceeded(runId: String): Boolean {

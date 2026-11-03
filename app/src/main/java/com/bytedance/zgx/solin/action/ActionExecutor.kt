@@ -1143,6 +1143,18 @@ class ActionExecutor(
         startExternalActivity { starter(launch) }
 
     private fun startActivity(intent: Intent): ExternalActivityStartResult {
+        com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.currentBinding()?.let { binding ->
+            return startExternalActivity {
+                // T2/T4: background routing supports launcher navigation only, never a silent main-screen intent.
+                check(intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+                    "此 Intent 不支持后台屏幕，已停止"
+                }
+                val packageName = intent.`package` ?: intent.component?.packageName
+                    ?: error("后台启动缺少目标应用")
+                binding.launch(packageName)
+                true
+            }
+        }
         activityStarter?.let { starter ->
             val launchIntent = runCatching { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrDefault(intent)
             return startExternalActivity { starter(launchIntent) }

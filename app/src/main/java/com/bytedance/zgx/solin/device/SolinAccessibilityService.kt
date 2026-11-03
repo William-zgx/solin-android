@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Display
 import android.view.Gravity
 import android.view.WindowManager
@@ -21,6 +22,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.TextView
 import com.bytedance.zgx.solin.action.NormalizedTarget
+import com.bytedance.zgx.solin.device.background.BackgroundPhoneSession
 import com.bytedance.zgx.solin.multimodal.RawScreenshotReadResult
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -202,7 +204,16 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    @Volatile private var lastUiEventAtMillis = 0L
+    private val lastUiEventByWindow = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event != null && event.packageName?.toString() != packageName) {
+            lastUiEventAtMillis = SystemClock.uptimeMillis()
+            if (lastUiEventByWindow.size > 256) lastUiEventByWindow.clear()
+            lastUiEventByWindow[event.windowId] = lastUiEventAtMillis
+        }
+    }
 
     override fun onInterrupt() {
         deviceControlTasks.interrupt(this)
@@ -411,14 +422,67 @@ class SolinAccessibilityService : AccessibilityService() {
                             )
                     }
             }
+            // T5/T8: do not read or write a field that turned secret after target resolution.
+            if (!editableNode.refresh() || !editableNode.isSafeEditableForTyping()) {
+                return@executeUiAction UiPrimitiveResult.failed(
+                    reason = "输入框已失效或不可安全输入",
+                    retryable = false,
+                    failureKind = UiActionFailureKind.PageChanged,
+                )
+            }
+            val inputWindow = editableNode.windowId
+            val inputPackage = editableNode.packageName?.toString()
+            val inputClass = editableNode.className?.toString()
+            val inputViewId = editableNode.viewIdResourceName
             prepareEditableForTextInput(editableNode)
+            if (!editableNode.refresh() || !editableNode.isSafeEditableForTyping() ||
+                !editableNode.isFocused || editableNode.windowId != inputWindow ||
+                editableNode.packageName?.toString() != inputPackage ||
+                editableNode.className?.toString() != inputClass ||
+                editableNode.viewIdResourceName != inputViewId
+            ) {
+                return@executeUiAction UiPrimitiveResult.failed(
+                    reason = "输入框在获得焦点后已失效",
+                    retryable = false,
+                    failureKind = UiActionFailureKind.PageChanged,
+                )
+            }
             val directTextPerformed = setTextDirectly(editableNode, text)
             val pasteFallbackPerformed = !directTextPerformed &&
                 allowClipboardPasteFallback &&
                 pasteTextIntoEditable(editableNode, text)
             val performed = directTextPerformed || pasteFallbackPerformed
             if (performed) {
-                UiPrimitiveResult.succeeded("已向输入框写入 ${text.length} 个字符")
+                val verification = verifyWrittenText(
+                    expected = text,
+                    timeoutMillis = timeoutMillis,
+                    now = SystemClock::uptimeMillis,
+                    pause = { Thread.sleep(it) },
+                    requireActive = ::throwIfInterrupted,
+                    read = {
+                        // T5/T8: refresh the original node only, never find a replacement field.
+                        if (!editableNode.refresh() || !editableNode.isSafeEditableForTyping() ||
+                            editableNode.windowId != inputWindow ||
+                            editableNode.packageName?.toString() != inputPackage ||
+                            editableNode.className?.toString() != inputClass ||
+                            editableNode.viewIdResourceName != inputViewId ||
+                            editableNode.isShowingHintText
+                        ) null else editableNode.text?.toString().orEmpty()
+                    },
+                )
+                when (verification) {
+                    UiInputVerification.Match -> UiPrimitiveResult.succeeded("已核对输入框文字，共 ${text.length} 个字符")
+                    UiInputVerification.Mismatch -> UiPrimitiveResult.failed(
+                        reason = "输入已执行，但读回文字不匹配；未重复输入",
+                        retryable = false,
+                        failureKind = UiActionFailureKind.ResultNotVerified,
+                    )
+                    UiInputVerification.Unknown -> UiPrimitiveResult.failed(
+                        reason = "输入已执行，但无法核对输入框；未重复输入",
+                        retryable = false,
+                        failureKind = UiActionFailureKind.ResultNotVerified,
+                    )
+                }.copy(inputVerification = verification)
             } else {
                 UiPrimitiveResult.failed(
                     reason = if (allowClipboardPasteFallback) {
@@ -587,6 +651,11 @@ class SolinAccessibilityService : AccessibilityService() {
     private fun pressBack(timeoutMillis: Long): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
             throwIfInterrupted()
+            if (BackgroundPhoneSession.currentBinding() != null) return@executeUiAction UiPrimitiveResult.failed(
+                reason = "后台屏幕不支持系统返回；不会向主屏发送按键",
+                retryable = false,
+                failureKind = UiActionFailureKind.Unknown,
+            )
             if (submitUiSideEffect { performGlobalAction(GLOBAL_ACTION_BACK) }) {
                 UiPrimitiveResult.succeeded("已执行系统返回")
             } else {
@@ -597,12 +666,61 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
 
-    private fun waitForScreen(timeoutMillis: Long): UiActionReadResult =
-        executeUiAction(timeoutMillis = timeoutMillis, preActionWaitMillis = timeoutMillis) {
-            UiPrimitiveResult.succeeded("已等待屏幕稳定")
-        }
+    private fun waitForScreen(timeoutMillis: Long): UiActionReadResult {
+        var before: ScreenStateSnapshot? = null
+        var after: ScreenStateSnapshot? = null
+        var sampled = false
+        val stability = awaitStableUiEvidence(
+            timeoutMillis = timeoutMillis,
+            now = SystemClock::uptimeMillis,
+            pause = { Thread.sleep(it) },
+            requireActive = ::throwIfInterrupted,
+            quietForMillis = {
+                val binding = BackgroundPhoneSession.currentBinding()
+                val lastEvent = if (binding == null) lastUiEventAtMillis else {
+                    val id = binding.requireActive().displayId
+                    val windowIds = readOnMainThread {
+                        binding.requireLocallyActive()
+                        windowsOnAllDisplays[id].orEmpty().map { it.id }
+                    }.orEmpty()
+                    windowIds.maxOfOrNull { lastUiEventByWindow[it] ?: 0L } ?: SystemClock.uptimeMillis()
+                }
+                SystemClock.uptimeMillis() - lastEvent
+            },
+            sample = {
+                after = observeSnapshot(
+                    maxTextChars = MAX_DEVICE_CONTROL_TEXT_CHARS,
+                    maxNodes = MAX_DEVICE_CONTROL_NODES,
+                ).snapshotOrNull()
+                if (!sampled) { before = after; sampled = true }
+                after?.stabilityEvidence()
+            },
+        )
+        return UiActionReadResult.Available(
+            UiActionExecutionResult(
+                status = if (stability == UiScreenStability.Stable) UiActionStatus.Succeeded else UiActionStatus.Failed,
+                before = before,
+                after = after,
+                summary = when (stability) {
+                    UiScreenStability.Stable -> "已观察到无障碍控件树稳定；不代表任务完成"
+                    UiScreenStability.TimedOut -> "等待已结束，尚未观察到稳定的控件树"
+                    UiScreenStability.Unknown -> "屏幕证据不可用或不完整，无法确认稳定"
+                },
+                retryable = false,
+                failureKind = if (stability == UiScreenStability.Stable) null else UiActionFailureKind.ResultNotVerified,
+                screenStability = stability,
+            ),
+        )
+    }
 
-    private fun activeWindowRoot(): AccessibilityNodeInfo? = readOnMainThread { activeWindowRootDirect() }
+    private fun activeWindowRoot(): AccessibilityNodeInfo? {
+        val binding = BackgroundPhoneSession.currentBinding()
+        val displayId = binding?.requireActive()?.displayId
+        return readOnMainThread {
+            binding?.requireLocallyActive()
+            activeWindowRootDirect(displayId)
+        }
+    }
 
     private fun <T> readOnMainThread(read: () -> T?): T? {
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -634,9 +752,13 @@ class SolinAccessibilityService : AccessibilityService() {
      * (then focused) identifies the window receiving input, and only among equals does preferring an
      * application window over system chrome help.
      */
-    private fun activeWindowRootDirect(): AccessibilityNodeInfo? =
-        windows
-            .asSequence()
+    private fun activeWindowRootDirect(displayId: Int?): AccessibilityNodeInfo? {
+        // T2/T3: unreadable background windows never fall back to the user's main screen.
+        val candidates = if (displayId == null) windows else {
+            check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && displayId > 0)
+            windowsOnAllDisplays[displayId].orEmpty()
+        }
+        return candidates.asSequence()
             .sortedWith(
                 compareByDescending<AccessibilityWindowInfo> { it.isActive }
                     .thenByDescending { it.isFocused }
@@ -644,11 +766,11 @@ class SolinAccessibilityService : AccessibilityService() {
             )
             .mapNotNull { window -> window.root }
             .firstOrNull()
-            ?: rootInActiveWindow
+            ?: if (displayId == null) rootInActiveWindow else null
+    }
 
     private fun executeUiAction(
         timeoutMillis: Long,
-        preActionWaitMillis: Long = 0L,
         operation: () -> UiPrimitiveResult,
     ): UiActionReadResult {
         throwIfInterrupted()
@@ -656,9 +778,6 @@ class SolinAccessibilityService : AccessibilityService() {
             maxTextChars = DEFAULT_DEVICE_CONTROL_MAX_TEXT_CHARS,
             maxNodes = DEFAULT_DEVICE_CONTROL_MAX_NODES,
         ).snapshotOrNull()
-        if (preActionWaitMillis > 0L) {
-            sleepForUiIdle(preActionWaitMillis)
-        }
         throwIfInterrupted()
         val primitive = runCatching(operation).getOrElse { error ->
             if (error is CriticalControlTapRefused) {
@@ -694,6 +813,7 @@ class SolinAccessibilityService : AccessibilityService() {
                 summary = primitive.summary,
                 retryable = primitive.retryable,
                 failureKind = primitive.failureKind,
+                inputVerification = primitive.inputVerification,
             ),
         )
     }
@@ -743,10 +863,19 @@ class SolinAccessibilityService : AccessibilityService() {
         ).throwIfRefused()
     }
 
-    private fun windowRootsForTapCheck(): List<AccessibilityNodeInfo> =
-        readOnMainThread { windows.mapNotNull { window -> window.root } }
-            .orEmpty()
-            .ifEmpty { listOfNotNull(activeWindowRoot()) }
+    private fun windowRootsForTapCheck(): List<AccessibilityNodeInfo> {
+        val binding = BackgroundPhoneSession.currentBinding()
+        val displayId = binding?.requireActive()?.displayId
+        val roots = readOnMainThread {
+            binding?.requireLocallyActive()
+            val targetWindows = if (displayId == null) windows else {
+                check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && displayId > 0)
+                windowsOnAllDisplays[displayId].orEmpty()
+            }
+            targetWindows.mapNotNull { window -> window.root }
+        }.orEmpty()
+        return if (displayId == null) roots.ifEmpty { listOfNotNull(activeWindowRoot()) } else roots
+    }
 
     /**
      * Dispatches one stroke and reports what the framework actually told us.
@@ -760,7 +889,14 @@ class SolinAccessibilityService : AccessibilityService() {
     // action-gate: exempt (raw stroke dispatcher; every caller is a guarded tap / swipe / long-press entry)
     private fun dispatchGestureOutcome(path: Path, durationMillis: Long): GestureOutcome {
         throwIfInterrupted()
+        val displayId = BackgroundPhoneSession.currentBinding()?.requireActive()?.displayId
         val gesture = GestureDescription.Builder()
+            .apply {
+                if (displayId != null) {
+                    check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                    setDisplayId(displayId)
+                }
+            }
             .addStroke(GestureDescription.StrokeDescription(path, 0L, durationMillis))
             .build()
         val latch = CountDownLatch(1)
@@ -831,7 +967,7 @@ class SolinAccessibilityService : AccessibilityService() {
         try {
             submitUiRead {
                 takeScreenshot(
-                    Display.DEFAULT_DISPLAY,
+                    BackgroundPhoneSession.currentBinding()?.requireActive()?.displayId ?: Display.DEFAULT_DISPLAY,
                     screenshotCallbackExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(screenshot: ScreenshotResult) {
@@ -893,6 +1029,7 @@ class SolinAccessibilityService : AccessibilityService() {
      * the previous behaviour, never worse.
      */
     private fun gestureScreenSizePx(): Pair<Int, Int> {
+        BackgroundPhoneSession.currentBinding()?.requireActive()?.let { return it.width to it.height }
         val appMetrics = resources.displayMetrics
         val fallback = appMetrics.widthPixels to appMetrics.heightPixels
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return fallback
@@ -965,6 +1102,11 @@ class SolinAccessibilityService : AccessibilityService() {
     // action-gate: exempt (global home / recents leave the screen; they never activate content)
     private fun globalActionPrimitive(action: Int, successSummary: String): UiPrimitiveResult {
         throwIfInterrupted()
+        if (BackgroundPhoneSession.currentBinding() != null) return UiPrimitiveResult.failed(
+            reason = "后台屏幕不支持全局系统按键；不会操作主屏",
+            retryable = false,
+            failureKind = UiActionFailureKind.Unknown,
+        )
         return if (submitUiSideEffect { performGlobalAction(action) }) {
             UiPrimitiveResult.succeeded(successSummary)
         } else {
@@ -1164,6 +1306,7 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
         if (!root.looksLikeSearchBlockingOverlay()) return false
+        if (BackgroundPhoneSession.currentBinding() != null) return false
         throwIfInterrupted()
         val dismissed = submitUiSideEffect { performGlobalAction(GLOBAL_ACTION_BACK) }
         if (dismissed) sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
@@ -1655,14 +1798,18 @@ class SolinAccessibilityService : AccessibilityService() {
             fallback: () -> T,
             operation: () -> T,
         ): T {
+            val binding = BackgroundPhoneSession.currentBinding()
             val future: Future<T> = deviceControlExecutor.submit<T> {
-                try {
-                    task.requireActive()
-                    deviceControlTask.set(task)
-                    operation()
-                } finally {
-                    deviceControlTask.remove()
-                    task.finish()
+                BackgroundPhoneSession.withBinding(binding) {
+                    try {
+                        task.requireActive()
+                        binding?.requireActive()
+                        deviceControlTask.set(task)
+                        operation()
+                    } finally {
+                        deviceControlTask.remove()
+                        task.finish()
+                    }
                 }
             }
             task.attachFuture(future)
@@ -1727,12 +1874,15 @@ internal fun postActionWaitMillis(requestedTimeoutMillis: Long): Long =
     requestedTimeoutMillis.coerceIn(DEFAULT_POST_ACTION_WAIT_MILLIS, MAX_POST_ACTION_WAIT_MILLIS)
 
 private fun <T> submitUiSideEffect(action: () -> T): T {
+    // T2/T3: revalidate the explicitly bound display immediately before every side effect.
+    BackgroundPhoneSession.currentBinding()?.requireActive()
     val task = deviceControlTask.get()
     return task?.submitUiSideEffect(action) ?: action()
 }
 
 /** Like [submitUiSideEffect] for read-only framework calls: lease-checked, but not marked as a UI change. */
 private fun <T> submitUiRead(action: () -> T): T {
+    BackgroundPhoneSession.currentBinding()?.requireActive()
     val task = deviceControlTask.get()
     return task?.submitUiRead(action) ?: action()
 }
@@ -1767,6 +1917,7 @@ private data class UiPrimitiveResult(
     val summary: String,
     val retryable: Boolean,
     val failureKind: UiActionFailureKind?,
+    val inputVerification: UiInputVerification? = null,
 ) {
     companion object {
         fun succeeded(summary: String): UiPrimitiveResult =

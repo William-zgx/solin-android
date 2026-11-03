@@ -40,6 +40,71 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
 
+## 2026-11-04 — Mika phone capability integration
+
+本轮覆盖项：输入原文读回、无障碍树稳定等待、有界采集/查找/滚轮、同会话验证路线复用、
+后台显示绑定与恢复拒绝，以及仅本机回环的认证 helper。分支 `feat/mika-phone-capabilities`，
+基于 `93b0c6aa` 的未提交集成树；来源与限制见 [移植记录](plans/mika-phone-capabilities.md)。
+
+验证命令：
+
+- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`
+- `scripts/tests/test_background_phone_helper.sh`
+- `scripts/privacy_scan.sh`、`scripts/verify_capability_matrix.sh`、`git diff --check`
+- API 36 AVD `solin_validation_api36`：`am instrument -w -r -e class com.bytedance.zgx.solin.MikaPhoneCapabilitiesDeviceTest,com.bytedance.zgx.solin.device.background.BackgroundPhoneSessionDeviceTest com.bytedance.zgx.solin.test/androidx.test.runner.AndroidJUnitRunner`。
+  instrumentation 启动后重新启用无障碍服务，避免安装/启动造成的解绑被误计为通过。
+
+结果：最终生产代码 2687 项 JVM 测试全部通过，零失败、错误和跳过；debug 与 androidTest APK 构建成功。
+六项设备测试实际执行通过、零跳过：含中文的原始空格/换行输入读回、稳定等待、仅观察查找、部分
+LocalOnly 采集、未授权滚动不执行、后台默认禁用。脚本、隐私扫描、能力矩阵与补丁格式检查通过。
+本机原始证据位于 `/tmp/solin-mika-validation/`：`hmac-gate.log`、
+`final-background-gate.log`、`device-capabilities-final.log`、`privacy-final.log`、`capability-final.log`。
+后续仅 debug 截图按钮的构建证据为 `debug-capture-build.log`，固定失败枚举诊断页为
+`debug-diagnostic-build.log`；服务临时结构化诊断为 `service-diagnostic-build.log`。
+生产测试证据沿用，按钮本身通过设备显式点击验收，
+不重复执行未受影响的 JVM 全量测试。
+
+本轮已测试 APK SHA-256：
+
+- app：`c2922574a4034eb1b937dc0bc0674d6d431daf64c3227eb15726cab7262b541f`
+- androidTest：`bbe019d164915d22d5037fa706182f0fba18af8b41b4bb836510d0e38788d663`
+
+移除临时诊断后的交付包再次构建安装并运行上述六项设备测试：6 passed / 0 failed /
+0 skipped，逐项 instrumentation 状态码均为 0。证据 `delivery-build.log`、
+`delivery-device-tests.log`；app SHA-256 为
+`4bdbb134e7297a9e9e24fad3248455c74fef098cd036bd7c73215be46132ec96`，androidTest hash
+仍为上述值。生产代码恢复到全量 JVM 通过的状态，最后变化仅为 debug 页面固定错误分类。
+
+失败与证据边界：
+
+- 早期设备断言把归一化规划文本当成原始输入，并假设按钮暴露固定标签；已改为读取真实
+  EditText 和实际节点标签后重新执行上述六项，不能把早期 assumption skip 当作通过。
+- `failedTarget=background-unix-transport`，`reason=selinux-connectto-denied`：
+  API 36 拒绝 App 连接 shell Unix socket；已改用 loopback HMAC，不更改 SELinux。
+  随后在上述 app hash 实测建屏、启动 Settings 至独立显示并读到后台节点；主屏仍为
+  Solin。设备另复现主机/手机时差和 30 秒空闲关闭，最终代码改用设备时钟、区分空闲与
+  五秒半帧接收期限，并修复 helper 主 Looper 退出异常；对应独立审查已闭环。
+  最终后台显示设备结果另见本机 `background-device-report.md`，不能由协议 JVM 测试推断通过。
+- 后台生命周期 APK `d7fbf5d74af9a79ce1f875682b2fd1bf69d466ae6dbb697af8bdb93214694326`：
+  API 36 再次建屏/启动成功，capture 返回 92904 字节 PNG，约 38 秒合法空闲后仍成功；
+  选择会话后销毁调试页、进入聊天页，后台显示保持；重开页面 Stop 后显示/helper 清理，
+  启动脚本退出 0。helper 返回的截图内容未保存，主屏调试页截图仅作测试证据。
+- 后台点击/观察复验 APK `b9036359aa2c30b7f25d00c5c86b106d776ecb1ee18e0cd1a13051ac377cf521`：
+  初始 Failed/Timeout 实为验收动作后立即执行 `uiautomator dump` 中断无障碍租约，
+  诊断栈为 `CancellationException` / `FutureTask.get`。同包改用截图与 dumpsys 后，
+  observe 读到 Settings，受控 `tap("Apps")` 成功，后台转到 `.SubSettings`，再次观察
+  读到 Apps / Recently opened apps / See all 27 apps；主屏仍为 Solin。
+  原图为 `background-observe-no-uiautomator.png`、`background-tap-completed.png`、
+  `background-apps-observe.png`。无需改动守卫/路由；临时服务日志已移除。
+  后台独立危险控件 fixture 的负向设备验收仍 pending，不能用前台守卫测试替代。
+- `failedTarget=paired-phone-benchmark`，`reason=invalid-model-placement-baseline`：
+  基线曾出现未恢复确认及 loopback 诊断模型无法放置，集成运行停在 ExecutingTool。
+  `baseline-critical-only/`、`integrated-critical-only/diagnosis.md` 保留结果；本次没有
+  有效的同模型三次配对比较，不能宣称成功率或性能提升，也不满足该结构变更的合并基准。
+- WebView、真实 NumberPicker 吸附、真实 App 中文输入兼容性、OEM/物理设备焦点及锁屏、完整模型任务
+  和 API 28/32/33/34 矩阵在本批仍为 pending。上述结果不是完整模拟器回归或发布验收。
+  隐私审查记录只刷新当前文件摘要，release/security/legal 决策保持 pending。
+
 ## 2026-07-08 — Architecture Improvements Wave (commit 4ad758e)
 
 ### Changes Implemented

@@ -794,6 +794,8 @@ class DeviceControlToolExecutor(
                         ),
                     ) +
                     target.targetData() +
+                    execution.inputVerification?.let { mapOf("inputVerification" to it.schemaValue) }.orEmpty() +
+                    execution.screenStability?.let { mapOf("screenStability" to it.schemaValue) }.orEmpty() +
                     execution.failureKind?.let { mapOf("failureKind" to it.schemaValue) }.orEmpty() +
                     execution.before?.toPrefixedObservationData("before").orEmpty() +
                     after?.toPrefixedObservationData("after").orEmpty() +

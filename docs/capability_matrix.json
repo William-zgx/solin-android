@@ -1182,6 +1182,60 @@
       "ownerAgent": "AgentRuntime"
     },
     {
+      "capabilityId": "tool_ui_collect",
+      "entrypoint": "tool_registry",
+      "toolName": "ui_collect",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest",
+        "PhoneCompositeOperationsTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_ui_find",
+      "entrypoint": "tool_registry",
+      "toolName": "ui_find",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest",
+        "PhoneCompositeOperationsTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_ui_set_wheel",
+      "entrypoint": "tool_registry",
+      "toolName": "ui_set_wheel",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest",
+        "PhoneCompositeOperationsTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
       "capabilityId": "tool_cancel_reminder",
       "entrypoint": "tool_registry",
       "toolName": "cancel_reminder",

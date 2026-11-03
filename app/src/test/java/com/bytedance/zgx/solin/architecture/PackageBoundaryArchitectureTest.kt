@@ -259,7 +259,9 @@ class PackageBoundaryArchitectureTest {
     )
 
     private companion object {
-        const val MAX_PRODUCTION_KOTLIN_FILES = 329
+        // Five capability-owning modules approved in docs/plans/mika-phone-capabilities.md:
+        // input/stability verification, bounded composites, verified routes, background session/helper.
+        const val MAX_PRODUCTION_KOTLIN_FILES = 334
     }
 
     private data class GodObjectLimit(

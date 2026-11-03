@@ -96,6 +96,32 @@ stay only as a growth guard.
 | Adversarial cases refused or confirmed | replay fixtures written by someone other than the gate author | 100% |
 | Bytes leaving the device in LocalOnly | packet capture on a phone (mitmproxy / tcpdump) | 0 |
 
+### Bounded additions for phone capabilities
+
+The Mika phone-capability batch introduces real new behavior rather than
+pass-through wrappers: input/read stability verification, bounded composite
+operations, verified session routes, and the experimental background helper/session
+pair. The proposed production owners are `UiExecutionVerification`,
+`PhoneCompositeOperations`, `VerifiedPhoneRoutes`, `BackgroundPhoneHelper`, and
+`BackgroundPhoneSession`. Their contracts and limits are in
+[`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md).
+
+This batch permits a finite, explicitly reviewed file-count increase for those
+capabilities. The integrated tree contains **334** production Kotlin files, up
+from **329**; the ratchet is set to that measured count. Do not merge or split
+unrelated files just to conceal growth. Every added module must keep substantive
+logic behind a smaller interface. Tool registration, per-child authorization and
+route proposals reuse the existing execution boundary; the shell helper does not
+become an alternative permission or critical-action gate.
+
+Threat mapping for this batch: T1/T2/T3 require fresh target evidence and the
+existing live action guards for composite, replayed, and background steps;
+T4/T5/T7 require LocalOnly results and session-scoped route digests rather than raw
+private payload retention; T6 requires keeping the experimental background-display
+path out of remote vision until display-specific capture and egress authorization
+are independently verified. The device benchmark and adversarial acceptance
+requirements above still apply; JVM success alone does not establish those facts.
+
 ## Evidence beyond the code author
 
 - Benchmark numbers against the recorded baseline, same script and tasks.

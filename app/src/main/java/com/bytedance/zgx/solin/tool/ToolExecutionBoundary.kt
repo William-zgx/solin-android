@@ -40,8 +40,36 @@ class TimeoutToolExecutionBoundary(
         DEFAULT_PUBLIC_EVIDENCE_BATCH_RETRY_ATTEMPTS,
     private val publicEvidenceBatchRequestValidator: (ToolRequest) -> ToolResult? = { null },
     private val executionAuthorizer: ToolExecutionAuthorizer? = null,
+    private val compositeChildAuthorizer: (suspend (ToolRequest, ToolRequest) -> Boolean)? = null,
+    private val compositeChildObserver: (suspend (ToolRequest, ToolRequest, ToolResult) -> Unit)? = null,
+    private val executionScope: (ToolRequest, () -> ToolResult) -> ToolResult = { _, execute -> execute() },
 ) {
     suspend fun execute(request: ToolRequest, userConfirmed: Boolean = false): ToolResult {
+        if (request.toolName in PhoneCompositeOperations.TOOL_NAMES) {
+            // T2/T4: composites require explicit registry and policy wiring, never a raw executor.
+            val registry = toolRegistry ?: return request.rejected("Composite operation requires a tool registry.")
+            if (executionAuthorizer == null) return request.rejected("Composite operation requires an execution authorizer.")
+            registry.validate(request)?.let { return it }
+            executionAuthorizer.authorize(request, userConfirmed)?.let { return it }
+            val operation = PhoneCompositeOperations(request) { child ->
+                registry.validate(child)?.let { return@PhoneCompositeOperations it }
+                // Each child gets fresh, run-scoped authorization. Parent approval is not transferable.
+                val allowed = compositeChildAuthorizer?.invoke(request, child) == true
+                val raw = execute(child, userConfirmed = allowed)
+                val result = registry.validateResult(child, raw) ?: raw
+                compositeChildObserver?.invoke(request, child, result)
+                result
+            }
+            val raw = try {
+                withTimeoutOrNull(timeoutFor(request)) { operation.execute() } ?: operation.timedOut()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // T2/T7: a callback or malformed observation may fail after a write; no replay or raw error text.
+                operation.interrupted()
+            }
+            return registry.validateResult(request, raw) ?: raw
+        }
         executionAuthorizer?.authorize(request, userConfirmed)?.let { return it }
         return executeInternal(request)
     }
@@ -60,7 +88,7 @@ class TimeoutToolExecutionBoundary(
         return withTimeoutOrNull(timeout) {
             withContext(dispatcher) {
                 runCatching {
-                    executor.execute(request)
+                    executionScope(request) { executor.execute(request) }
                 }.getOrElse { throwable ->
                     if (throwable is CancellationException) throw throwable
                     request.failed(
@@ -97,6 +125,10 @@ class TimeoutToolExecutionBoundary(
         onRetry: suspend () -> Unit = {},
     ): List<ToolResult> {
         if (requests.isEmpty()) return emptyList()
+        if (requests.any { it.toolName in PhoneCompositeOperations.TOOL_NAMES }) {
+            // A batch cannot bypass per-child authorization or retry an unknown composite outcome.
+            return requests.map { it.rejected("Phone composites must execute individually.") }
+        }
 
         // Step 1: pre-validate the whole batch. Any rejection short-circuits execution.
         val rejectedByRequestId = requests.mapNotNull { request ->

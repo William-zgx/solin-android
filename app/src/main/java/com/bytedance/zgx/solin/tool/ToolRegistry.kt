@@ -229,6 +229,26 @@ class ToolRegistry private constructor(
                     ?.let { value -> sanitizedData[key] = value }
             }
         }
+        if (spec.capability == ToolCapability.DeviceControl) {
+            data["inputVerification"]?.takeIf { it in setOf("match", "mismatch", "unknown") }
+                ?.let { sanitizedData["inputVerification"] = it }
+            data["screenStability"]?.takeIf { it in setOf("stable", "timed_out", "unknown") }
+                ?.let { sanitizedData["screenStability"] = it }
+        }
+        if (request.toolName in PhoneCompositeOperations.TOOL_NAMES) {
+            // T7: retain bounded progress diagnostics, never partial screen text in shared audit data.
+            for (key in listOf("completed", "partial")) {
+                data[key]?.takeIf { it == "true" || it == "false" }?.let { sanitizedData[key] = it }
+            }
+            for (key in listOf("pagesInspected", "writesAttempted")) {
+                data[key]?.toIntOrNull()?.takeIf { it in 0..6 }?.let { sanitizedData[key] = it.toString() }
+            }
+            data["stopReason"]?.takeIf { it in setOf("unknown", "timeout", "authorization_required", "read_failed",
+                "invalid_observation", "app_changed", "write_limit", "scroll_failed", "item_limit", "no_new_content",
+                "page_limit", "ambiguous_target", "no_change", "invalid_range", "wheel_not_unique", "wheel_unreadable",
+                "wheel_not_converging", "input_failed", "wheel_changed", "execution_interrupted") }?.let { sanitizedData["stopReason"] = it }
+            data["remaining"]?.takeIf { it == "observe_before_continuing" }?.let { sanitizedData["remaining"] = it }
+        }
         sanitizedData["toolName"] = request.toolName
         sanitizedData["privacy"] = MessagePrivacy.LocalOnly.name
         sanitizedData["requiresLocalModel"] = true.toString()

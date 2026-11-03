@@ -109,7 +109,7 @@ internal fun AgentObservationReplanContext.shouldRejectNonLocalObservationTool(
     toolRegistry: ToolRegistry,
 ): Boolean {
     if (!observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))) return false
-    if (draft.functionName !in MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES) return true
+    if (observationReplanToolSpecs(toolRegistry).none { it.name == draft.functionName }) return true
     return toolRegistry.specFor(draft.functionName)?.capability != ToolCapability.DeviceControl
 }
 

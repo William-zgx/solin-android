@@ -59,6 +59,7 @@ flowchart TD
 | `optimization_plan_weaknesses.md` | Structural debt & Wave plan | Known weaknesses, thin-facade target, multi-agent file ownership, Wave metrics |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_driven_app_control_multi_agent_plan.md` | Model-driven app control plan | Multi-agent development split, runtime observe-act contract, acceptance |
+| [`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md) | Mika phone capability integration | Source provenance, implemented contracts, bounded composite tools, session route reuse, and experimental background-display limits; not device or release approval |
 | `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
 | `model_capability_profiles.json` | Model capability contract | Local/remote runtime capability, modality, privacy, and release-gate profile facts |
 | `bundled_model_package.md` | Internal model-included package | Split package build/sign/install contract and caveats |

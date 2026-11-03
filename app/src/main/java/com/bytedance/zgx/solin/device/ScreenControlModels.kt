@@ -245,6 +245,8 @@ data class UiActionExecutionResult(
     val summary: String,
     val retryable: Boolean,
     val failureKind: UiActionFailureKind? = null,
+    val inputVerification: UiInputVerification? = null,
+    val screenStability: UiScreenStability? = null,
 )
 
 sealed class UiActionReadResult {

@@ -240,5 +240,7 @@ model-driven 应用搜索 eval 属于 debug/device 检查，需显式设置
 
 ## 许可证
 
-Solin Android 应用代码基于 MIT License 发布。推荐模型下载是第三方产物，受其上游许可证
+Solin Android 应用代码基于 MIT License 发布，第三方源码另有声明的部分除外。从 Mika
+适配的手机操作代码保留 Apache-2.0 许可，详见 [NOTICE](NOTICE) 和
+[随附许可证](licenses/Apache-2.0.txt)。推荐模型下载是第三方产物，受其上游许可证
 约束；请参考 `docs/model_manifest.md` 和 `docs/model_license_review.json`。

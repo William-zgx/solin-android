@@ -150,6 +150,27 @@ internal class ConfirmationBypassPolicy(
     fun isAutoApproved(runId: String, request: ToolRequest): Boolean =
         isCriticalOnlyConfirmationEnabled(runId) && criticalApprovalReason(runId, request) == null
 
+    /** T2/T5: a composite approval never approves its children or supplies fresh user intent. */
+    fun canAuthorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean {
+        val run = traceStore.run(runId) ?: return false
+        if (run.state != AgentRunState.ExecutingTool || traceStore.stepHistoryDegraded(runId)) return false
+        if (parent.toolName !in setOf("ui_collect", "ui_find", "ui_set_wheel")) return false
+        if (traceQueries.latestExecutableRequestId(runId) != parent.id ||
+            traceQueries.toolRequestFor(runId, parent.id) != parent) return false
+        val sequence = child.id.removePrefix("${parent.id}:child:").toIntOrNull()
+        if (!child.id.startsWith("${parent.id}:child:") || sequence == null || sequence !in 1..32) return false
+        val allowed = when (parent.toolName) {
+            "ui_set_wheel" -> setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL,
+                MobileActionFunctions.UI_TYPE_TEXT, MobileActionFunctions.UI_WAIT)
+            else -> setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL)
+        }
+        if (child.toolName !in allowed || toolRegistry.validate(child) != null) return false
+        if (parent.sensitivityReason != null && child.sensitivityReason != parent.sensitivityReason) return false
+        val expectedPackage = parent.arguments["expectedPackageName"]
+        if (!expectedPackage.isNullOrBlank() && child.arguments["expectedPackageName"] != expectedPackage) return false
+        return isAutoApproved(runId, child)
+    }
+
     fun criticalApprovalReason(runId: String, request: ToolRequest): CriticalApprovalReason? {
         val spec = toolRegistry.specFor(request.toolName) ?: return CriticalApprovalReason.UnknownTool
         val networkArgument = networkReachingArgument[request.toolName]

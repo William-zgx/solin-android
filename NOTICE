@@ -1,0 +1,13 @@
+Solin Android
+
+This distribution includes code adapted from Mika:
+https://github.com/wangzan101/Mika
+Revision: 0091d2d67b541a417df913a23fefbb8e3a04e4a7
+Mika
+Copyright 2026 wangzan101
+Licensed under the Apache License, Version 2.0.
+See licenses/Apache-2.0.txt and the source file notices for modifications.
+
+The Solin integration adapts phone-operation algorithms to Solin's local-only
+observation, action authorization, cancellation, and audit boundaries. Inclusion
+does not imply endorsement by the upstream authors.

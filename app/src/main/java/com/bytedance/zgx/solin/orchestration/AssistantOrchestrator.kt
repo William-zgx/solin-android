@@ -131,6 +131,10 @@ interface AssistantRouter : AutoCloseable {
 
     fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult?
 
+    fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean = false
+
+    fun observeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest, result: ToolResult) = Unit
+
     fun recordExternalOutcome(
         runId: String,
         requestId: String,
@@ -363,6 +367,12 @@ class AssistantOrchestrator(
 
     override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =
         agentLoopRuntime.observeToolResult(runId, result)
+
+    override fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean =
+        agentLoopRuntime.authorizeCompositeChild(runId, parent, child)
+
+    override fun observeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest, result: ToolResult) =
+        agentLoopRuntime.observeCompositeChild(runId, parent, child, result)
 
     override fun recordExternalOutcome(
         runId: String,

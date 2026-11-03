@@ -97,6 +97,50 @@ ANDROID_SERIAL=<physical-device-serial> \
 scripts/install_and_test_device.sh
 ```
 
+## Mika 手机操作增量验收
+
+实现合同与上游来源见 [Mika 移植记录](plans/mika-phone-capabilities.md)。以下是当前 APK 的
+独立设备验收项；存在 JVM 测试或上游演示，不代表这些项目已经通过。只用人工准备的测试
+内容和可逆测试页面，未执行项记录 `pending`。
+
+| 能力 | 必须观察的结果 | 失败或停止证据 |
+| --- | --- | --- |
+| 输入读回 | 中文、多行、连续空白、已有同文内容及 WebView 输入实际生效；区分匹配、不匹配、未知 | 节点失效或不可读不能报匹配，不清空同文后重写，不在超时后重放输入 |
+| 稳定等待 | 延迟跳转、动态列表、持续动画下等待有界且可取消 | 当前检测是控件树稳定，不得写成像素稳定或任务已完成；缺失观察为未知 |
+| `ui_collect` | 跨页重叠合并，保留两条独立同文内容；返回部分结果与停止原因 | 切包、无新增、页数/写次数/时间上限、拒绝与取消均停止；不得上传采集内容 |
+| `ui_find` | 每次滚动后重新查找，返回当前页候选 | 找到不自动点击，歧义不选任意一个；每个写子动作仍经授权与前台检查 |
+| `ui_set_wheel` | 可输入和不可输入滚轮均以实际读回验证目标；观察吸附后的值 | 范围外、不动、越过、未知读回与取消不能误报成功；不得越过危险控件守卫 |
+| 路线复用 | 同会话相同目标在真实成功验证后逐步复用；新请求仍有正常执行检查 | 改需求、切包、重复目标、失败副作用或敏感页面使回放退出；清理历史后不再命中 |
+| 后台屏幕 | 显式启用后应用落在目标显示；用户主屏和输入焦点未被抢占 | 锁屏、授权到期、helper 退出、显示失效及用户介入均不能执行残留动作 |
+
+组合工具每次最多五个写子动作、30 秒总上限；采集和查找最多五页。应分别覆盖默认
+critical-only 模式与逐步确认模式，确认不能因为组合调用或历史路线而被绕过。
+
+后台实验先安装当前 debuggable APK，再从已授权 ADB 连接显式启动 helper：
+
+```bash
+ANDROID_SERIAL=<authorized-device-serial> scripts/start_background_phone_helper.sh
+# 在另一个终端打开调试页；打开页面不会自动创建或选择后台会话。
+adb -s <authorized-device-serial> shell am start -n com.bytedance.zgx.solin/com.bytedance.zgx.solin.debug.BackgroundPhoneControlActivity
+```
+
+保持该终端打开，并在 App 的 debug 实验入口显式启用。helper 仅监听本机回环随机端口，
+通过一次性私有凭据与双向 HMAC 认证；不会放宽 SELinux。脚本不替用户开启调试、解锁或
+授予系统设置权限；授权有效期为 15 分钟。Android 12+ 可做 helper 能力检查，独立焦点
+后台应用启动要求 Android 14+；不满足条件应记录明确拒绝。创建会话后，可在调试页点击
+“为随后发起的 Agent 任务选用此后台屏幕”；已有任务不切换。停止按钮清除后续任务的选择，
+旧任务保留失效绑定并拒绝执行。截图验证按钮只显示 PNG 字节数，不保存或展示画面。
+普通聊天完整模型任务仍须单独验收，不因 debug 页可用而宣称完成。实验后台路径不能开启
+远程视觉或主屏 MediaProjection OCR，避免混用不同显示屏的证据。
+
+验收时不要在无障碍动作进行中启动 `uiautomator dump`：它的 UiAutomation 会话可能抑制
+或中断 App 无障碍服务，使操作因取消而失败。观察页面可使用 `adb exec-out screencap -p`；
+instrumentation 需要保留 `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES` 并确认服务实际绑定。
+
+报告分别记录前台/后台后端、APK SHA、API/OEM、工具结果、实际屏幕变化及失败类别。
+主屏无干扰、锁屏和 OEM 后台存活需要物理设备证据；模拟器通过不得替代。原有前台
+操作基准必须同时回归，保留所有失败与跳过原因。
+
 ## 覆盖安装与人工安装
 
 人工查看当前 debug 包时，不要把完整 smoke 脚本作为最后一步；它会运行 instrumentation，和人工安装证据不是同一口径。使用只负责安装和报告的脚本：

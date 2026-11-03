@@ -236,6 +236,7 @@ class SolinAppContainer(
     private val containerScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     init {
+        com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.initialize(appContext)
         evidenceBlobStore.gc()
         LegacyPrefsMigrator(appContext, database, settingsStore, secretStore).migrateIfNeeded()
 
@@ -336,7 +337,8 @@ class SolinAppContainer(
             toolRegistry = toolRegistry,
         )
         val observationActionToolRegistry = ToolRegistry.fromSupportedActions(
-            MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES,
+            MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES +
+                com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES,
         )
         observationActionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
@@ -411,7 +413,7 @@ class SolinAppContainer(
                     ),
                 ),
             ),
-            observationReplanner = CompositeAgentObservationReplanner(
+            observationReplanner = com.bytedance.zgx.solin.orchestration.VerifiedPhoneRouteReplanner(CompositeAgentObservationReplanner(
                 DeadLoopDetectionReplanner(),
                 // Remote-vision GUI driving: when the user opted in and the remote model supports
                 // vision, kimi sees screenshots and decides taps. Outranks the local action model
@@ -451,7 +453,7 @@ class SolinAppContainer(
                     actionPlanningRuntime = actionPlanningRuntime,
                     toolRegistry = toolRegistry,
                 ),
-            ),
+            )),
             deviceControlSessionFinisher = {
                 DeviceControlSessionService.stop(appContext)
             },

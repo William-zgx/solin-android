@@ -12,6 +12,7 @@ import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.skill.VerifiedPhoneRoutes
 import java.util.concurrent.atomic.AtomicReference
 
 // Replan budgets live in SolinConstants.AgentLoop so the worst-case cost of one run (tool steps x
@@ -40,6 +41,8 @@ private const val MODEL_OBSERVATION_REPLAN_FALLBACK_REASON = "observation model 
 /** Fixed retention window for [ModelObservationReplanner]'s diagnostics ring buffer. */
 private const val MAX_RETAINED_DIAGNOSTICS = 32
 
+// Local-only planning vocabulary. Composite tools still authorize every primitive at the boundary;
+// adding them here does not expose private observations or these tools to remote chat planning.
 internal val MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
     MobileActionFunctions.UI_TAP,
@@ -53,6 +56,13 @@ internal val MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.UI_PRESS_BACK,
 )
 
+/** Registered local composite capabilities; prompt exposure additionally requires matching intent/evidence. */
+internal val MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES = setOf(
+    MobileActionFunctions.UI_COLLECT,
+    MobileActionFunctions.UI_FIND,
+    MobileActionFunctions.UI_SET_WHEEL,
+)
+
 /**
  * UI actions whose executor enforces the expected-foreground-package preflight. When a replan
  * inherits an expected package from a post-launch continuation observe, only these actions should
@@ -63,6 +73,9 @@ private val FOREGROUND_GATED_UI_ACTION_TOOL_NAMES = setOf(
     MobileActionFunctions.UI_TYPE_TEXT,
     MobileActionFunctions.UI_SUBMIT_SEARCH,
     MobileActionFunctions.UI_SCROLL,
+    MobileActionFunctions.UI_COLLECT,
+    MobileActionFunctions.UI_FIND,
+    MobileActionFunctions.UI_SET_WHEEL,
     MobileActionFunctions.UI_SWIPE,
     MobileActionFunctions.UI_LONG_PRESS,
     MobileActionFunctions.UI_PRESS_KEY,
@@ -147,6 +160,46 @@ data class AgentObservationReplan(
 
 object NoOpAgentObservationReplanner : AgentObservationReplanner {
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? = null
+}
+
+/**
+ * Local, session-memory route proposals. The runtime must call [observe] for every actual tool
+ * result, including terminal verified searches; planning alone does not see those completions.
+ * The wrapper never executes actions and never inherits approval from a previously learned route.
+ */
+class VerifiedPhoneRouteReplanner(
+    private val delegate: AgentObservationReplanner,
+    private val routes: VerifiedPhoneRoutes = VerifiedPhoneRoutes(),
+) : LocalOnlyNotesObservationReplanner {
+    fun observe(run: AgentRun, request: ToolRequest, result: ToolResult) {
+        routes.observe(run.id, run.sessionId, run.input, request, result)
+    }
+
+    fun clear() = routes.clear()
+
+    override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
+        observe(context.run, context.previousRequest, context.observedResult)
+        if (routes.awaitingResult(context.run.id)) return null
+        // A pending sequential tail is a different intent; do not restart a saved full-goal route.
+        if (!context.nextActionInput.isNullOrBlank()) {
+            routes.abandon(context.run.id, context.run.sessionId, context.run.input)
+        } else {
+            routes.propose(context.run.id, context.run.sessionId, context.run.input, context.observedResult)?.let { request ->
+                return AgentObservationReplan(
+                    request = request,
+                    draft = ActionDraft(
+                        functionName = request.toolName,
+                        title = "复用已验证的搜索步骤",
+                        summary = "逐步核对当前页面；执行前仍检查权限与危险控件",
+                        parameters = request.arguments,
+                        requiresConfirmation = true,
+                    ),
+                    fallbackReason = "verified_local_search_route",
+                )
+            }
+        }
+        return delegate.planNext(context.scopedForReplanner(delegate))
+    }
 }
 
 class CompositeAgentObservationReplanner(

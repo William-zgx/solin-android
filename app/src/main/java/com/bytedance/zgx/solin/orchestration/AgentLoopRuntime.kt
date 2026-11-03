@@ -235,6 +235,7 @@ class AgentLoopRuntime(
         // run-level wall-clock deadline (step counts alone cannot bound an untimed model generation).
         runStartedAtMillis = { runId -> runStartedAtMillis[runId] },
         runParkedMillis = ::parkedMillisFor,
+        compositeStepCount = { runScopedState.compositeStepsByRunId[it] ?: 0 },
     )
     private val initialToolPlanner = InitialToolPlanner(
         toolRegistry = toolRegistry,
@@ -319,6 +320,7 @@ class AgentLoopRuntime(
     )
 
     private val toolObservationCoordinator = ToolObservationCoordinator(
+        routeObserver = (observationReplanner as? VerifiedPhoneRouteReplanner)?.let { routes -> routes::observe },
         toolRegistry = toolRegistry,
         auditRecorder = auditRecorder,
         runEvents = runEvents,
@@ -534,6 +536,7 @@ class AgentLoopRuntime(
     ): AgentLoopResult {
         val profile = options.profile
         val createdRun = createRunOrEphemeral(input, sessionId)
+        com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.captureForRun(createdRun.id)
         val startedAt = System.currentTimeMillis()
         // Only register an explicit (non-default) profile so the constructor's
         // maxRunToolSteps remains the effective cap for callers that don't opt in
@@ -815,7 +818,9 @@ class AgentLoopRuntime(
             .toList()
         runIds.forEach { runId -> terminateRun(runId, RUN_DELETED_SESSION_REASON) }
         val deletedCount = traceStore.deleteRunsForSession(sessionId)
+        (observationReplanner as? VerifiedPhoneRouteReplanner)?.clear()
         runIds.forEach(runScopedState::forgetRun)
+        runIds.forEach(com.bytedance.zgx.solin.device.background.BackgroundPhoneSession::forgetRun)
         return deletedCount
     }
 
@@ -918,7 +923,10 @@ class AgentLoopRuntime(
         runStartedAtMillis.keys.toList().forEach { runId ->
             runCatching { scratchpad.clear(runId) }
         }
+        // Owner disposal is not a terminal transition: retain restored background-run markers.
+        runScopedState.trackedRunIds().forEach(com.bytedance.zgx.solin.device.background.BackgroundPhoneSession::releaseRun)
         runScopedState.clear()
+        (observationReplanner as? VerifiedPhoneRouteReplanner)?.clear()
     }
 
     private fun cancelAndClearModelCallJob(runId: String) {
@@ -1353,6 +1361,25 @@ class AgentLoopRuntime(
             allowedStates = setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool),
         )
 
+    fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean =
+        synchronized(runScopedState) {
+            if (runScopedState.pendingUserInputByRunId[runId] == true || runBudget.toolStepBudgetExceeded(runId) ||
+                runBudget.runDeadlineExceeded(runId) ||
+                !confirmationBypassPolicy.canAuthorizeCompositeChild(runId, parent, child)) return@synchronized false
+            val ids = runScopedState.compositeChildIdsByRunId.getOrPut(runId) { mutableSetOf() }
+            if (!ids.add(child.id)) return@synchronized false
+            runScopedState.compositeStepsByRunId.merge(runId, 1, Int::plus)
+            auditRecorder.request(runId, child, ToolAuditEventType.ToolPlanned, null,
+                "Composite child authorized by current run policy.")
+            true
+        }
+
+    fun observeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest, result: ToolResult) {
+        if (result.requestId != child.id || !child.id.startsWith("${parent.id}:child:")) return
+        auditRecorder.request(runId, child, ToolAuditEventType.ToolObserved, result.status,
+            "Composite child finished; private evidence remains local.")
+    }
+
     fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? =
         toolObservationCoordinator.observeToolResults(runId, results)
 
@@ -1768,6 +1795,7 @@ class AgentLoopRuntime(
         // step markers that used to survive until session delete. Lifecycle events that read them
         // (RunEnded, RunFailed) are always published before this cleanup runs.
         runScopedState.forgetRun(runId)
+        com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.forgetRun(runId)
         // Best-effort drain of queued steer/queued batches for the terminating run so the
         // channels don't accumulate messages for dead runs. Off-target batches are re-enqueued
         // by pumpChannel; this is safe to call after the run has gone terminal.

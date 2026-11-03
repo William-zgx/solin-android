@@ -97,6 +97,19 @@ Current status:
   with a critical control.
 - UI control tools remain unavailable to remote model planning. App-search
   observation is `LocalOnly` and can only feed the local action-planning model.
+- Mika-derived phone capabilities are integrated at the existing boundaries:
+  `device/UiExecutionVerification.kt` owns input readback and bounded tree-stability
+  results; `tool/PhoneCompositeOperations.kt` owns `ui_collect`, `ui_find`, and
+  `ui_set_wheel` orchestration through `ToolExecutionBoundary`; and
+  `skill/VerifiedPhoneRoutes.kt` owns session-memory route evidence. The
+  `VerifiedPhoneRouteReplanner` wrapper proposes one ordinary request at a time,
+  so learning does not grant execution authority. Terminal search verification
+  must reach the wrapper's observation hook before the loop completes.
+  Composite results remain `LocalOnly`; each child action is authorized separately.
+  The experimental `device/background/` helper/session pair is a separate explicit
+  debug backend, not a replacement for the default foreground service. Source
+  attribution, limits, and integration/device verification status are owned by
+  [`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md).
 
 Tests:
 

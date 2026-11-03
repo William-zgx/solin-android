@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- Debug-only manual console. Intents never start sessions or execute commands. -->
+        <activity
+            android:name=".debug.BackgroundPhoneControlActivity"
+            android:exported="true" />
         <activity
             android:name=".debug.DeviceControlEvalActivity"
             android:exported="true"

@@ -42,6 +42,7 @@ internal class ToolObservationCoordinator(
     private val publicEvidenceContinuation: PublicEvidenceContinuation,
     private val continuationBuilder: ToolObservationContinuationBuilder,
     private val host: Host,
+    private val routeObserver: ((AgentRun, ToolRequest, ToolResult) -> Unit)? = null,
 ) {
     /**
      * Runtime-owned lookups and side effects the coordinator must not re-implement.
@@ -294,6 +295,8 @@ internal class ToolObservationCoordinator(
             expectedState = run.state,
             state = AgentRunState.Observing,
         ) ?: return null
+        // Only schema-validated evidence can teach routes, including a terminal verified search.
+        routeObserver?.invoke(run, request, safeResult)
         val continuation = continuationBuilder.continuationForToolObservation(run, request, safeResult)
         val continuationPrompt = continuation?.prompt
         val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false

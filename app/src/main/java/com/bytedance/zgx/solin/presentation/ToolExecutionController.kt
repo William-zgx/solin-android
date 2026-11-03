@@ -20,6 +20,7 @@ import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
+import kotlinx.coroutines.withContext
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
@@ -73,6 +74,7 @@ class ToolExecutionController(
     private val sessionHost: PresentationSessionHost,
     private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null },
 ) {
+    private val compositeRunBindings = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val toolExecutionBoundary = TimeoutToolExecutionBoundary(
         // Needed so device-control tools get their longer boundary; without the registry the
         // boundary fails closed to the shorter shared default.
@@ -81,6 +83,22 @@ class ToolExecutionController(
         dispatcher = ioDispatcher,
         publicEvidenceBatchRequestValidator = toolRegistry::validatePublicEvidenceBatchRequest,
         executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(toolRegistry),
+        compositeChildAuthorizer = { parent, child ->
+            compositeRunBindings[parent.id]?.let { runId ->
+                assistantOrchestrator.authorizeCompositeChild(runId, parent, child)
+            } == true
+        },
+        executionScope = { request, execute ->
+            val parentId = request.id.substringBefore(":child:")
+            val runId = compositeRunBindings[parentId]
+            val background = runId?.let { com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.forRun(it) }
+            if (background == null) execute() else background.withControl(execute)
+        },
+        compositeChildObserver = { parent, child, result ->
+            compositeRunBindings[parent.id]?.let { runId ->
+                assistantOrchestrator.observeCompositeChild(runId, parent, child, result)
+            }
+        },
     )
 
     fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
@@ -242,9 +260,25 @@ class ToolExecutionController(
         var observationPrivacy: MessagePrivacy
         var messagesWithObservation: List<ChatMessage>
         while (true) {
-            result = executeToolWithBoundary(executedRequest, userConfirmed)
+            confirmation.runId?.let { compositeRunBindings[executedRequest.id] = it }
+            result = try {
+                executeToolWithBoundary(executedRequest, userConfirmed)
+            } finally {
+                compositeRunBindings.remove(executedRequest.id)
+            }
             observation = confirmation.runId?.let { runId ->
-                assistantOrchestrator.observeToolResult(runId, result)
+                withContext(ioDispatcher) {
+                    try {
+                        val background = com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.forRun(runId)
+                        if (background == null) assistantOrchestrator.observeToolResult(runId, result)
+                        else background.withControl { assistantOrchestrator.observeToolResult(runId, result) }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        assistantOrchestrator.cancelRun(runId, "后台屏幕会话失效，已停止；不会改用主屏幕")
+                        null
+                    }
+                }
             }
             observationPrivacy = observation.privacyForObservation(fallbackToolName = executedRequest.toolName)
             messagesWithObservation = appendObservationMessage(

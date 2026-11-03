@@ -21,6 +21,12 @@ class CurrentScreenshotOcrToolExecutor(
             return request.unknownToolFailure()
         }
 
+        // T6: MediaProjection mirrors the user's screen, not the scoped background display.
+        if (com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.currentBinding() != null) {
+            return request.failed(ToolErrorCode.PermissionDenied,
+                "实验后台屏幕不支持主屏截图 OCR，未截取或混合其他屏幕证据",
+                retryable = false, data = request.localOnlyData())
+        }
         val nowMillis = clockMillis()
         val screenObservationBeforeCapture = provider
             ?.takeIf { candidate -> candidate.hasOneShotConsent(request.id, nowMillis) }

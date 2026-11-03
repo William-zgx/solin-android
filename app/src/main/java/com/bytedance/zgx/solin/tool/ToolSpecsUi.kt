@@ -263,4 +263,46 @@ internal val uiControlToolSpecs: List<ToolSpec> = listOf(
         resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         tags = checkpointedLowRiskSequentialContinuationTags,
     ),
+) + phoneCompositeToolSpecs
+
+private val phoneCompositeOutputSchema: String get() = """
+    {"type":"object","required":["toolName","privacy","requiresLocalModel","completed","partial","stopReason","remaining","pagesInspected","writesAttempted"],
+    "properties":{
+      "toolName":{"type":"string"},"privacy":{"type":"string","enum":["LocalOnly"]},"requiresLocalModel":{"type":"boolean"},
+      "completed":{"type":"boolean"},"partial":{"type":"boolean"},"stopReason":{"type":"string"},"remaining":{"type":"string"},
+      "pagesInspected":{"type":"integer","minimum":0,"maximum":6},"writesAttempted":{"type":"integer","minimum":0,"maximum":5},
+      "packageName":{"type":"string"},"observationId":{"type":"string"},"text":{"type":"string","maxLength":12000},
+      "candidateIds":{"type":"string"},"actualValue":{"type":"string"},"truncated":{"type":"boolean"}},"additionalProperties": false}
+""".trimIndent()
+
+private fun phoneCompositeSpec(name: String, title: String, required: String, properties: String): ToolSpec = ToolSpec(
+    name = name,
+    title = title,
+    description = "$title；仅本地、最多五次写动作，每个子步骤重新授权。未完成时停止，找到目标不会自动点击；不启用OCR。",
+    inputSchemaJson = """{"type":"object","required":[$required],"properties":{
+      "expectedPackageName":{"type":"string","minLength":1,"maxLength":200},$properties},"additionalProperties": false}""",
+    outputSchemaJson = phoneCompositeOutputSchema,
+    capability = ToolCapability.DeviceControl,
+    permissions = setOf(ToolPermission.ReadsDeviceContext, ToolPermission.ReadsAccessibilityText, ToolPermission.PerformsAccessibilityGesture),
+    riskLevel = RiskLevel.MediumDraftOrNavigation,
+    confirmationPolicy = ConfirmationPolicy.Required,
+    privateOutputKeys = setOf("text", "candidateIds", "actualValue", "packageName", "observationId"),
+    redactedResultSummary = "已处理本地组合操作",
+    resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
 )
+
+private val phonePageProperties: String get() = """
+    "pages":{"type":"integer","minimum":1,"maximum":5},
+    "direction":{"type":"string","enum":["up","down"]},
+    "container":{"type":"string","minLength":1,"maxLength":200}
+""".trimIndent()
+
+private val phoneCompositeToolSpecs: List<ToolSpec>
+    get() = listOf(
+        phoneCompositeSpec(MobileActionFunctions.UI_COLLECT, "采集多屏文字", "", """$phonePageProperties,"maxItems":{"type":"integer","minimum":1,"maximum":300}"""),
+        phoneCompositeSpec(MobileActionFunctions.UI_FIND, "滚动查找目标", "\"text\"", """$phonePageProperties,"text":{"type":"string","minLength":1,"maxLength":200},"role":{"type":"string","enum":["text","editable","scrollable"]}"""),
+        phoneCompositeSpec(MobileActionFunctions.UI_SET_WHEEL, "设置数字滚轮", "\"target\",\"value\"", """
+            "target":{"type":"string","minLength":1,"maxLength":200},"value":{"type":"integer","minimum":-999999,"maximum":999999},
+            "minValue":{"type":"integer","minimum":-999999,"maximum":999999},"maxValue":{"type":"integer","minimum":-999999,"maximum":999999}
+        """.trimIndent()),
+    )

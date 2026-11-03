@@ -29,6 +29,9 @@ internal class RunScopedState {
     val remoteGuiDrivingEnabledByRunId = ConcurrentHashMap<String, Boolean>()
     val installedCapabilityProfilesByRunId = ConcurrentHashMap<String, List<ModelCapabilityProfile>>()
     val profilesByRunId = ConcurrentHashMap<String, AgentProfile>()
+    /** Composite child steps count against the same run budget, without replacing its parent plan. */
+    val compositeStepsByRunId = ConcurrentHashMap<String, Int>()
+    val compositeChildIdsByRunId = ConcurrentHashMap<String, MutableSet<String>>()
 
     /** Wall-clock start per run: lifecycle event durations and the run wall-clock deadline. */
     val runStartedAtMillis = ConcurrentHashMap<String, Long>()
@@ -57,6 +60,8 @@ internal class RunScopedState {
         remoteGuiDrivingEnabledByRunId,
         installedCapabilityProfilesByRunId,
         profilesByRunId,
+        compositeStepsByRunId,
+        compositeChildIdsByRunId,
         runStartedAtMillis,
         parkedMillisByRunId,
         lastParkSampleAtMillis,

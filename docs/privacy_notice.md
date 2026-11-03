@@ -296,6 +296,42 @@ Protocol (MCP). This capability is **off by default** and is controlled by the
   dropped. Results become `RemoteEligible` only for a server the user
   explicitly marked as public.
 
+## Bounded Phone Operations And Experimental Background Display
+
+Multi-screen collection, scrolling to find a target, and number-wheel adjustment
+use the existing local observation and action tools. Each child operation is
+reauthorized; a parent approval never grants its children permission. Collected
+text and target evidence remain `LocalOnly`, with no automatic OCR or upload.
+Limited collection reports partial coverage rather than claiming the full page
+or task was read. Input verification reads back the same safe field after one
+write; it does not retain passwords or repeat an uncertain write.
+
+Verified search routes are held only in process memory for the same conversation
+and exact request. They retain salted evidence digests and argument positions,
+not raw screen text, screenshots, or user input. Clearing conversation history or
+closing the runtime clears them. A prior route never carries prior consent.
+
+Debug builds additionally offer an explicitly provisioned background-display
+experiment. It requires already-authorized ADB and a user-enabled session, expires
+after 15 minutes, and exposes only a restricted local display protocol. The
+helper has no arbitrary shell, input-injection, unlocking, or permission-granting
+API. Input still passes the app's live action guard on that display. Its
+credentials are provisioned through authorized ADB into app-private storage and
+consumed once. The helper listens only on `127.0.0.1` at a random port. Mutual
+HMAC challenges authenticate possession of the provisioned key without sending
+that key over TCP; authenticated frames bind direction, session nonces, and a
+monotonic sequence number. No externally reachable listener is opened. Background run identifiers may be retained
+locally without task content so a restarted app can refuse an unrecoverable
+background binding instead of acting on the main screen.
+
+The background display is not enabled by default. An expired, stopped, or
+unrecoverable bound session fails closed. Remote vision and main-screen
+MediaProjection OCR are unavailable inside a background control scope: evidence
+from the user's main screen must never be substituted for the task display.
+Background frame buffers are local and transient; secure-display protections are
+not disabled. Device/OEM compatibility remains experimental; see
+[the capability record](plans/mika-phone-capabilities.md).
+
 ## External Intents And Attachments
 
 Confirmed tools may open Android system screens, the share sheet, email drafts,

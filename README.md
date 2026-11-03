@@ -278,6 +278,9 @@ regression test where practical.
 
 ## License
 
-Solin Android app code is distributed under the MIT License. Recommended model
+Solin Android app code is distributed under the MIT License, except where
+third-party source notices specify otherwise. Phone-operation portions adapted
+from Mika retain Apache-2.0 licensing; see [NOTICE](NOTICE) and
+[the included license](licenses/Apache-2.0.txt). Recommended model
 downloads are third-party artifacts governed by their upstream licenses; see
 `docs/model_manifest.md` and `docs/model_license_review.json`.
