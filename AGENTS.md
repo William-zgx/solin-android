@@ -83,7 +83,7 @@ Activity-side coordinators (`ConfirmationPermissionCoordinator`,
 not the root.
 
 Repository layout: `app/` (product code and tests), `releaseSmoke/`,
-`modelpack*/` (Gradle modules above), `gradle/` (version catalog and
+`modelpacks/` (the four model-pack modules above; Gradle paths stay `:modelpackX`), `gradle/` (version catalog and
 bundled-model config), `scripts/` (doctor, verification, device and release
 scripts; script tests in `scripts/tests/`), `docs/`, `licenses/`.
 

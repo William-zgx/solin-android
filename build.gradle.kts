@@ -18,7 +18,7 @@ val bundledModelPackModules = listOf(
 val bundledModelsPackageApks =
     listOf("app/build/outputs/apk/bundledModels/app-bundledModels-unsigned.apk") +
         bundledModelPackModules.map { module ->
-            "$module/build/outputs/apk/bundledModels/$module-bundledModels.apk"
+            "modelpacks/$module/build/outputs/apk/bundledModels/$module-bundledModels.apk"
         }
 
 val bundledModelAssetRoot = "assets/solin-bundled-models/"

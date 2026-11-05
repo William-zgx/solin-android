@@ -30,10 +30,10 @@ MODEL_LICENSE_GATE_COMMAND="VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scrip
 
 RAW_APKS=(
   "app/build/outputs/apk/bundledModels/app-bundledModels-unsigned.apk"
-  "modelpackE2b/build/outputs/apk/bundledModels/modelpackE2b-bundledModels.apk"
-  "modelpackE2bExtra/build/outputs/apk/bundledModels/modelpackE2bExtra-bundledModels.apk"
-  "modelpackE4b/build/outputs/apk/bundledModels/modelpackE4b-bundledModels.apk"
-  "modelpackE4bExtra/build/outputs/apk/bundledModels/modelpackE4bExtra-bundledModels.apk"
+  "modelpacks/modelpackE2b/build/outputs/apk/bundledModels/modelpackE2b-bundledModels.apk"
+  "modelpacks/modelpackE2bExtra/build/outputs/apk/bundledModels/modelpackE2bExtra-bundledModels.apk"
+  "modelpacks/modelpackE4b/build/outputs/apk/bundledModels/modelpackE4b-bundledModels.apk"
+  "modelpacks/modelpackE4bExtra/build/outputs/apk/bundledModels/modelpackE4bExtra-bundledModels.apk"
 )
 EXPECTED_SPLITS=(
   "base.apk"

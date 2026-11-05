@@ -112,7 +112,7 @@ class BundledModelAssetsCatalogTest {
                 val module = chunk.getString("module")
                 assertTrue(
                     "missing model pack module $module",
-                    File(repoRoot, "$module/build.gradle.kts").isFile,
+                    File(repoRoot, "modelpacks/$module/build.gradle.kts").isFile,
                 )
                 assertTrue(
                     chunk.getString("assetFileName"),

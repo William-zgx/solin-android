@@ -17,7 +17,9 @@ dependencyResolutionManagement {
 rootProject.name = "Solin"
 include(":app")
 include(":releaseSmoke")
-include(":modelpackE2b")
-include(":modelpackE2bExtra")
-include(":modelpackE4b")
-include(":modelpackE4bExtra")
+// Model-pack asset modules live under modelpacks/; their Gradle paths stay :modelpackX so the
+// split APK names (split_modelpackX.apk) do not change.
+listOf("modelpackE2b", "modelpackE2bExtra", "modelpackE4b", "modelpackE4bExtra").forEach { module ->
+    include(":$module")
+    project(":$module").projectDir = file("modelpacks/$module")
+}

@@ -124,10 +124,10 @@ Raw split APK outputs:
 
 ```text
 app/build/outputs/apk/bundledModels/app-bundledModels-unsigned.apk
-modelpackE2b/build/outputs/apk/bundledModels/modelpackE2b-bundledModels.apk
-modelpackE2bExtra/build/outputs/apk/bundledModels/modelpackE2bExtra-bundledModels.apk
-modelpackE4b/build/outputs/apk/bundledModels/modelpackE4b-bundledModels.apk
-modelpackE4bExtra/build/outputs/apk/bundledModels/modelpackE4bExtra-bundledModels.apk
+modelpacks/modelpackE2b/build/outputs/apk/bundledModels/modelpackE2b-bundledModels.apk
+modelpacks/modelpackE2bExtra/build/outputs/apk/bundledModels/modelpackE2bExtra-bundledModels.apk
+modelpacks/modelpackE4b/build/outputs/apk/bundledModels/modelpackE4b-bundledModels.apk
+modelpacks/modelpackE4bExtra/build/outputs/apk/bundledModels/modelpackE4bExtra-bundledModels.apk
 ```
 
 The AAB output is:

@@ -15,7 +15,7 @@ Agent 协议（必读）: [`AGENTS.md`](AGENTS.md)
 - 工具 / Skill 在用户确认后执行手机侧动作（提醒、分享、导航、屏幕文本、OCR 等）
 - 默认 **LocalOnly**；远程与高风险动作 fail-closed + 确认 + 审计
 
-仓库形态：**mainline 单仓**（源码 + 文档 + 脚本同树），不是多包 monorepo 产品 harness。产品代码全部在 `:app`；另有 `:releaseSmoke`（release 冒烟测试模块）和 `:modelpackE2b` / `:modelpackE2bExtra` / `:modelpackE4b` / `:modelpackE4bExtra`（内部 `bundledModels` 变体的模型资源模块），均不含产品逻辑。
+仓库形态：**mainline 单仓**（源码 + 文档 + 脚本同树），不是多包 monorepo 产品 harness。产品代码全部在 `:app`；另有 `:releaseSmoke`（release 冒烟测试模块）和 `:modelpackE2b` / `:modelpackE2bExtra` / `:modelpackE4b` / `:modelpackE4bExtra`（内部 `bundledModels` 变体的模型资源模块，目录在 `modelpacks/` 下），均不含产品逻辑。
 
 ---
 
