@@ -134,15 +134,26 @@ internal class ScreenStateCollector(
 
     fun visit(node: AccessibilityNodeInfo) {
         if (!node.isVisibleToUser || node.isPassword) return
-        collectText(node.text)
-        collectText(node.contentDescription)
-        if (!node.isMeaningfulScreenNode()) return
+        // Normalized once and reused below; each use used to re-normalize the node's own fields.
+        val text = node.text.normalizedNodeText()
+        val contentDescription = node.contentDescription.normalizedNodeText()
+        collectText(text)
+        collectText(contentDescription)
+        if (!node.isMeaningfulScreenNode(text, contentDescription)) return
         if (collectedNodes.size >= maxNodes) {
             truncated = true
             return
         }
         collectedNodes += node.toScreenNode(
-            id = screenNodeId(index = collectedNodes.size, node = node, salt = snapshotSalt),
+            id = screenNodeId(
+                index = collectedNodes.size,
+                node = node,
+                salt = snapshotSalt,
+                normalizedText = text,
+                normalizedContentDescription = contentDescription,
+            ),
+            normalizedText = text,
+            normalizedContentDescription = contentDescription,
         )
     }
 
@@ -150,9 +161,8 @@ internal class ScreenStateCollector(
         truncated = true
     }
 
-    private fun collectText(raw: CharSequence?) {
-        if (raw == null || usedTextChars >= maxTextChars) return
-        val normalized = raw.normalizedNodeText() ?: return
+    private fun collectText(normalized: String?) {
+        if (normalized == null || usedTextChars >= maxTextChars) return
         if (!seenText.add(normalized)) return
         val separatorChars = if (textValues.isEmpty()) 0 else 1
         val remaining = maxTextChars - usedTextChars - separatorChars

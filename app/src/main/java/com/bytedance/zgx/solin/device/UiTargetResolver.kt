@@ -329,18 +329,41 @@ internal fun runtimeTargetMatchScore(
     profile: AppInteractionProfile?,
     rootBounds: ScreenBounds?,
     effectivelyClickable: () -> Boolean = { node.clickable },
+): Int? = runtimeTargetMatchScore(
+    node = node,
+    label = label,
+    query = RuntimeTargetQuery(target, rootBounds),
+    profile = profile,
+    effectivelyClickable = effectivelyClickable,
+)
+
+/**
+ * The per-target inputs of [runtimeTargetMatchScore], derived once per tree walk instead of once per
+ * scored node: they depend only on the target text and the window root, never on the node.
+ */
+internal class RuntimeTargetQuery(val target: String, rootBounds: ScreenBounds?) {
+    val normalizedTarget: String = target.normalizedLookupKey()
+    val kind: UiTargetKind? = UiTargetResolver.kindForTarget(target)
+    val metrics: SnapshotBoundsMetrics = SnapshotBoundsMetrics.fromRootBounds(rootBounds)
+}
+
+internal fun runtimeTargetMatchScore(
+    node: ScreenNode,
+    label: String,
+    query: RuntimeTargetQuery,
+    profile: AppInteractionProfile?,
+    effectivelyClickable: () -> Boolean = { node.clickable },
 ): Int? {
     if (!node.enabled) return null
-    val normalizedTarget = target.normalizedLookupKey()
-    if (normalizedTarget.isBlank()) return null
-    val kind = UiTargetResolver.kindForTarget(target)
+    if (query.normalizedTarget.isBlank()) return null
+    val kind = query.kind
     val outcome = scoreTargetCandidate(
         node = node,
         label = label,
         kind = kind,
-        normalizedTarget = normalizedTarget,
+        normalizedTarget = query.normalizedTarget,
         profile = profile,
-        metrics = SnapshotBoundsMetrics.fromRootBounds(rootBounds),
+        metrics = query.metrics,
         effectivelyClickable = effectivelyClickable,
     ) ?: return null
     return outcome.score.finalScore.takeIf { it >= kind.minimumTargetScore() }

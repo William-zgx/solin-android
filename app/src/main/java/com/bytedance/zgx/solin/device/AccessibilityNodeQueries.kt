@@ -75,24 +75,22 @@ internal data class NodeCandidate(
      * supply: the transient node-id direct hit, and "clickable through an ancestor".
      */
     fun targetMatchScore(
-        target: String,
+        query: RuntimeTargetQuery,
         profile: AppInteractionProfile? = null,
-        rootBounds: ScreenBounds? = null,
     ): Int? {
         if (!node.isEnabled) return null
         val screenNode = node.toScreenNode(id = id)
         // A model addressing an observed node id has named THE node; that is stronger evidence than any
         // text heuristic and deliberately bypasses the kind-specific minimum score. Kept ahead of the
         // shared core (which knows nothing about transient ids) rather than folded into it.
-        transientNodeIdTargetMatchScore(id, target)?.let { score ->
+        transientNodeIdTargetMatchScore(id, query.target, query.normalizedTarget)?.let { score ->
             return score + screenNodeActionabilityScore(screenNode)
         }
         return runtimeTargetMatchScore(
             node = screenNode,
             label = label,
-            target = target,
+            query = query,
             profile = profile,
-            rootBounds = rootBounds,
             // A row whose own `clickable` is false but whose parent handles the touch is still tappable
             // via [activateCandidate]; the offline resolver has no parent to walk, so this reach is
             // supplied here. Lazy because the walk costs binder round-trips and only the SubmitSearch
@@ -113,16 +111,25 @@ internal data class NodeCandidate(
  * defined as the ordinal among nodes passing [isMeaningfulScreenNode] — see
  * [transientNodeIdTargetMatchScore] for the salt-tolerant comparison on the click side.
  */
-internal fun screenNodeId(index: Int, node: AccessibilityNodeInfo, salt: String?): String {
-    val base = "n${index}_${node.fingerprint().shortStableHash()}"
+internal fun screenNodeId(
+    index: Int,
+    node: AccessibilityNodeInfo,
+    salt: String?,
+    normalizedText: String? = node.text.normalizedNodeText(),
+    normalizedContentDescription: String? = node.contentDescription.normalizedNodeText(),
+): String {
+    val base = "n${index}_${node.fingerprint(normalizedText, normalizedContentDescription).shortStableHash()}"
     return if (salt.isNullOrBlank()) base else "${base}_$salt"
 }
 
-internal fun transientNodeIdTargetMatchScore(candidateId: String, target: String): Int? {
+internal fun transientNodeIdTargetMatchScore(
+    candidateId: String,
+    target: String,
+    normalizedTarget: String = target.normalizedLookupKey(),
+): Int? {
     val rawTarget = target.trim()
     if (rawTarget == candidateId) return 1_000
     if (rawTarget.startsWith("${candidateId}_")) return 950
-    val normalizedTarget = target.normalizedLookupKey()
     if (normalizedTarget.isBlank()) return null
     val normalizedId = candidateId.normalizedLookupKey()
     if (normalizedId == normalizedTarget) return 1_000
@@ -149,12 +156,20 @@ internal fun AccessibilityNodeInfo.findNodeCandidate(
 private fun AccessibilityNodeInfo.walkNodeCandidates(visitor: (NodeCandidate) -> Boolean) {
     var meaningfulIndex = 0
     walkScreenNodes(maxWalkCount = MAX_SCREEN_STATE_NODE_WALK) { node ->
+        val text = node.text.normalizedNodeText()
+        val contentDescription = node.contentDescription.normalizedNodeText()
         val candidate = NodeCandidate(
             node = node,
-            id = screenNodeId(index = meaningfulIndex, node = node, salt = null),
-            label = node.nodeSearchLabel(),
+            id = screenNodeId(
+                index = meaningfulIndex,
+                node = node,
+                salt = null,
+                normalizedText = text,
+                normalizedContentDescription = contentDescription,
+            ),
+            label = node.nodeSearchLabel(text, contentDescription),
         )
-        if (node.countsTowardScreenNodeIndex()) meaningfulIndex += 1
+        if (node.countsTowardScreenNodeIndex(text, contentDescription)) meaningfulIndex += 1
         visitor(candidate)
     }
 }
@@ -265,13 +280,9 @@ internal fun AccessibilityNodeInfo.findTargetCandidates(
 ): List<NodeCandidate> {
     val candidates = mutableListOf<Pair<NodeCandidate, Int>>()
     val profile = AppInteractionProfiles.forPackage(packageName?.toString())
-    val rootBounds = safeBounds()
+    val query = RuntimeTargetQuery(target, safeBounds())
     walkNodeCandidates { candidate ->
-        val score = candidate.targetMatchScore(
-            target = target,
-            profile = profile,
-            rootBounds = rootBounds,
-        )
+        val score = candidate.targetMatchScore(query = query, profile = profile)
         if (score != null && predicate(candidate)) {
             candidates += candidate to score
         }
@@ -298,9 +309,8 @@ internal fun AccessibilityNodeInfo.findSearchSubmitCandidate(
             }?.let { candidate ->
                 candidate to (
                     candidate.targetMatchScore(
-                        target = target,
+                        query = RuntimeTargetQuery(target, rootBounds),
                         profile = profile,
-                        rootBounds = rootBounds,
                     ) ?: 0
                     )
             }
@@ -407,11 +417,19 @@ internal fun AccessibilityNodeInfo.walkScreenNodes(
     return exhausted
 }
 
-internal fun AccessibilityNodeInfo.toScreenNode(id: String): ScreenNode =
+/**
+ * The `normalized*` parameters of this and the helpers below let a visitor that needs a node's text in
+ * several places normalize it once; they default to normalizing the node's own fields.
+ */
+internal fun AccessibilityNodeInfo.toScreenNode(
+    id: String,
+    normalizedText: String? = text.normalizedNodeText(),
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText(),
+): ScreenNode =
     ScreenNode(
         id = id,
-        text = text.normalizedNodeText().orEmpty(),
-        contentDescription = contentDescription.normalizedNodeText().orEmpty(),
+        text = normalizedText.orEmpty(),
+        contentDescription = normalizedContentDescription.orEmpty(),
         className = className?.toString().orEmpty(),
         bounds = safeBounds(),
         clickable = isClickable,
@@ -420,12 +438,15 @@ internal fun AccessibilityNodeInfo.toScreenNode(id: String): ScreenNode =
         enabled = isEnabled,
     )
 
-internal fun AccessibilityNodeInfo.isMeaningfulScreenNode(): Boolean =
+internal fun AccessibilityNodeInfo.isMeaningfulScreenNode(
+    normalizedText: String?,
+    normalizedContentDescription: String?,
+): Boolean =
     isClickable ||
         isEditable ||
         isScrollable ||
-        text.normalizedNodeText() != null ||
-        contentDescription.normalizedNodeText() != null
+        normalizedText != null ||
+        normalizedContentDescription != null
 
 /**
  * Whether this node consumes a [screenNodeId] index.
@@ -435,24 +456,33 @@ internal fun AccessibilityNodeInfo.isMeaningfulScreenNode(): Boolean =
  * too — otherwise the two index sequences drift apart again the moment a screen contains an offscreen
  * or password field.
  */
-private fun AccessibilityNodeInfo.countsTowardScreenNodeIndex(): Boolean =
-    isVisibleToUser && !isPassword && isMeaningfulScreenNode()
+private fun AccessibilityNodeInfo.countsTowardScreenNodeIndex(
+    normalizedText: String?,
+    normalizedContentDescription: String?,
+): Boolean =
+    isVisibleToUser && !isPassword && isMeaningfulScreenNode(normalizedText, normalizedContentDescription)
 
-internal fun AccessibilityNodeInfo.nodeSearchLabel(): String =
+internal fun AccessibilityNodeInfo.nodeSearchLabel(
+    normalizedText: String? = text.normalizedNodeText(),
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText(),
+): String =
     runtimeNodeSearchLabel(
-        text = text.normalizedNodeText(),
-        contentDescription = contentDescription.normalizedNodeText(),
+        text = normalizedText,
+        contentDescription = normalizedContentDescription,
         viewIdResourceName = viewIdResourceName,
         className = className?.toString(),
     )
 
-internal fun AccessibilityNodeInfo.fingerprint(): String {
+internal fun AccessibilityNodeInfo.fingerprint(
+    normalizedText: String? = text.normalizedNodeText(),
+    normalizedContentDescription: String? = contentDescription.normalizedNodeText(),
+): String {
     val bounds = safeBounds()
     return listOf(
         className?.toString().orEmpty(),
         viewIdResourceName.orEmpty(),
-        text.normalizedNodeText().orEmpty(),
-        contentDescription.normalizedNodeText().orEmpty(),
+        normalizedText.orEmpty(),
+        normalizedContentDescription.orEmpty(),
         bounds?.left?.toString().orEmpty(),
         bounds?.top?.toString().orEmpty(),
         bounds?.right?.toString().orEmpty(),
