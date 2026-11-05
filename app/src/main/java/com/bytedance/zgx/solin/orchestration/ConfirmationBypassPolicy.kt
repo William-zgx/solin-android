@@ -6,7 +6,9 @@ import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.tool.RiskLevel
+import com.bytedance.zgx.solin.tool.PhoneCompositeOperations
 import com.bytedance.zgx.solin.tool.ToolCapability
+import com.bytedance.zgx.solin.tool.ToolCapabilityTag
 import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -30,7 +32,7 @@ enum class CriticalApprovalReason {
     ModelFlaggedSensitive,
 
     /**
-     * A network-reaching step ([networkReachingArgument]) would carry personal or secret data off
+     * A network-reaching step ([ToolSpec.egressTextArguments]) would carry personal or secret data off
      * the device, or runs after this run already read private data (screen text, clipboard,
      * contacts, …) that an injected instruction could smuggle into the query or link.
      */
@@ -59,38 +61,15 @@ enum class CriticalApprovalReason {
     TextHandedToExternalApp,
 }
 
-/** Tools that reach the network or an external app with free text, and the argument carrying it. */
-private val networkReachingArgument: Map<String, String> = mapOf(
-    MobileActionFunctions.WEB_SEARCH to "query",
-    MobileActionFunctions.SEARCH_MAPS to "query",
-    MobileActionFunctions.OPEN_DEEP_LINK to "uri",
-)
-
 /**
- * App-launch tools that hand the run to the in-app observe→act loop the remote-vision model drives;
- * the screenshot is captured by the replan after that step's observation, so it is the run's
- * "first send" gate. `search_maps` / `open_deep_link` are also `ExternalNavigation`, but they launch
- * another app and end the loop rather than starting it, so they do not count.
+ * A network-reaching step: the spec declares [ToolSpec.egressTextArguments] and does not hand text
+ * to another app (that case is [CriticalApprovalReason.TextHandedToExternalApp]).
  */
-private val remoteVisionStartingToolNames = setOf(
-    MobileActionFunctions.OPEN_APP_BY_NAME,
-    MobileActionFunctions.OPEN_APP_INTENT,
-    MobileActionFunctions.OPEN_APP_DEEP_TARGET,
-)
+private fun ToolSpec.reachesNetworkWithText(): Boolean =
+    egressTextArguments.isNotEmpty() && ToolPermission.SendsTextToExternalApp !in permissions
 
-/**
- * The prose each tool hands to another app, keyed by tool. Structured identifiers (a phone number,
- * an address) are not prose: the run-taint check covers them, so a draft built only from the
- * user's own words stays auto-approved (AGENTS.md non-negotiable #3).
- */
-private val externalAppFreeTextArguments: Map<String, Set<String>> = mapOf(
-    MobileActionFunctions.SHARE_TEXT to setOf("text", "title"),
-    MobileActionFunctions.COMPOSE_EMAIL to setOf("subject", "body"),
-    MobileActionFunctions.COMPOSE_SMS to setOf("body"),
-    MobileActionFunctions.CREATE_CALENDAR_EVENT to setOf("title", "description"),
-    MobileActionFunctions.CREATE_CONTACT_DRAFT to setOf("name"),
-    MobileActionFunctions.DIAL_PHONE_NUMBER to emptySet(),
-)
+private fun ToolRequest.egressTexts(spec: ToolSpec): List<String> =
+    spec.egressTextArguments.mapNotNull { name -> arguments[name]?.takeIf(String::isNotBlank) }
 
 private fun CriticalApprovalReason.confirmationReason(toolName: String): String = when (this) {
     CriticalApprovalReason.UnknownTool -> "Tool $toolName is not registered."
@@ -154,16 +133,12 @@ internal class ConfirmationBypassPolicy(
     fun canAuthorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean {
         val run = traceStore.run(runId) ?: return false
         if (run.state != AgentRunState.ExecutingTool || traceStore.stepHistoryDegraded(runId)) return false
-        if (parent.toolName !in setOf("ui_collect", "ui_find", "ui_set_wheel")) return false
+        val allowed = PhoneCompositeOperations.childToolsFor(parent.toolName)
+        if (allowed.isEmpty()) return false
         if (traceQueries.latestExecutableRequestId(runId) != parent.id ||
             traceQueries.toolRequestFor(runId, parent.id) != parent) return false
         val sequence = child.id.removePrefix("${parent.id}:child:").toIntOrNull()
         if (!child.id.startsWith("${parent.id}:child:") || sequence == null || sequence !in 1..32) return false
-        val allowed = when (parent.toolName) {
-            "ui_set_wheel" -> setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL,
-                MobileActionFunctions.UI_TYPE_TEXT, MobileActionFunctions.UI_WAIT)
-            else -> setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL)
-        }
         if (child.toolName !in allowed || toolRegistry.validate(child) != null) return false
         if (parent.sensitivityReason != null && child.sensitivityReason != parent.sensitivityReason) return false
         val expectedPackage = parent.arguments["expectedPackageName"]
@@ -182,13 +157,12 @@ internal class ConfirmationBypassPolicy(
 
     fun criticalApprovalReason(runId: String, request: ToolRequest): CriticalApprovalReason? {
         val spec = toolRegistry.specFor(request.toolName) ?: return CriticalApprovalReason.UnknownTool
-        val networkArgument = networkReachingArgument[request.toolName]
         return when {
             spec.riskLevel == RiskLevel.HighExternalSend || spec.riskLevel == RiskLevel.CriticalDeviceOrPayment ->
                 CriticalApprovalReason.ExternalSendOrPayment
             request.sensitivityReason != null -> CriticalApprovalReason.ModelFlaggedSensitive
-            networkArgument != null && (
-                safetyPolicy.containsSensitivePersonalOrSecretContent(request.arguments[networkArgument].orEmpty()) ||
+            spec.reachesNetworkWithText() && (
+                request.egressTexts(spec).any(safetyPolicy::containsSensitivePersonalOrSecretContent) ||
                     runReadPrivateData(runId, before = request.id)
                 ) -> CriticalApprovalReason.SensitiveNetworkQuery
             request.toolName == MobileActionFunctions.UI_TYPE_TEXT &&
@@ -214,8 +188,9 @@ internal class ConfirmationBypassPolicy(
         spec: ToolSpec,
     ): Boolean {
         if (ToolPermission.SendsTextToExternalApp !in spec.permissions) return false
-        val textArguments = externalAppFreeTextArguments[request.toolName].orEmpty()
-            .mapNotNull { name -> request.arguments[name]?.takeIf(String::isNotBlank) }
+        // Structured identifiers (a phone number) are not egress prose: the run-taint check covers
+        // them, so a draft built only from the user's own words stays auto-approved.
+        val textArguments = request.egressTexts(spec)
         if (textArguments.isEmpty()) return false
         if (textArguments.any { text -> safetyPolicy.containsSensitivePersonalOrSecretContent(text) }) {
             return true
@@ -236,7 +211,9 @@ internal class ConfirmationBypassPolicy(
         spec: ToolSpec,
     ): Boolean =
         isRemoteVisionDrivingEnabled(runId) &&
-            (spec.capability == ToolCapability.DeviceControl || request.toolName in remoteVisionStartingToolNames) &&
+            // ToolCapabilityTag.StartsInAppLoop: the app launches the observe→act loop then drives.
+            // search_maps / open_deep_link launch another app and end the loop, so they do not count.
+            (spec.capability == ToolCapability.DeviceControl || ToolCapabilityTag.StartsInAppLoop in spec.tags) &&
             traceStore.steps(runId).none { step -> step is AgentStep.UserConfirmed }
 
     /**

@@ -196,6 +196,48 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun egressTextArgumentsMustBeDeclaredInInputSchema() {
+        val failure = runCatching {
+            ToolRegistry(
+                ToolProvider {
+                    listOf(
+                        ToolSpec(
+                            name = "egress_typo",
+                            title = "egress",
+                            description = "egress",
+                            inputSchemaJson = """{"type":"object","properties":{"query":{"type":"string"}},"additionalProperties":false}""",
+                            capability = ToolCapability.WebSearch,
+                            egressTextArguments = setOf("qeury"),
+                        ),
+                    )
+                },
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("egress text argument(s) not declared"))
+    }
+
+    @Test
+    fun everyBuiltInEgressAndInAppLoopToolIsDeclaredOnItsSpec() {
+        val egress = defaultBuiltInToolRegistry.specs().filter { it.egressTextArguments.isNotEmpty() }.map { it.name }.toSet()
+        assertEquals(
+            setOf(
+                MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.SEARCH_MAPS, MobileActionFunctions.OPEN_DEEP_LINK,
+                MobileActionFunctions.SHARE_TEXT, MobileActionFunctions.COMPOSE_EMAIL, MobileActionFunctions.COMPOSE_SMS,
+                MobileActionFunctions.CREATE_CALENDAR_EVENT, MobileActionFunctions.CREATE_CONTACT_DRAFT,
+            ),
+            egress,
+        )
+        val inAppLoop = defaultBuiltInToolRegistry.specs()
+            .filter { ToolCapabilityTag.StartsInAppLoop in it.tags }.map { it.name }.toSet()
+        assertEquals(
+            setOf(MobileActionFunctions.OPEN_APP_BY_NAME, MobileActionFunctions.OPEN_APP_INTENT, MobileActionFunctions.OPEN_APP_DEEP_TARGET),
+            inAppLoop,
+        )
+    }
+
+    @Test
     fun uiTapOnPermissionGrantTargetsRequiresConfirmation() {
         listOf("允许", "授权", "同意", "同意并继续", "始终允许", "授权登录").forEach { target ->
             assertFalse(

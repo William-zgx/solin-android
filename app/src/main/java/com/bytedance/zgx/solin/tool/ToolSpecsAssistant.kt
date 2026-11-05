@@ -138,6 +138,7 @@ internal val assistantIntentToolSpecs: List<ToolSpec> = listOf(
         ),
         riskLevel = RiskLevel.MediumDraftOrNavigation,
         confirmationPolicy = ConfirmationPolicy.Required,
+        egressTextArguments = setOf("body"),
     ),
     ToolSpec(
         name = MobileActionFunctions.CONTROL_MEDIA,

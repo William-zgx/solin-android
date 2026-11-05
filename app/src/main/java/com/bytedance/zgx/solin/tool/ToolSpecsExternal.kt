@@ -53,6 +53,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
         capability = ToolCapability.ExternalNavigation,
         permissions = setOf(ToolPermission.StartsExternalActivity),
         tags = restoredPopupDeviceControlSessionTags,
+        egressTextArguments = setOf("query"),
     ),
     ToolSpec(
         name = MobileActionFunctions.WEB_SEARCH,
@@ -65,6 +66,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
         confirmationPolicy = ConfirmationPolicy.NotRequired,
         resultContinuationPolicy = ToolResultContinuationPolicy.PublicEvidence,
         executionMode = ToolExecutionMode.ConcurrentWhenIndependent,
+        egressTextArguments = setOf("query"),
     ),
     ToolSpec(
         name = MobileActionFunctions.COMPOSE_EMAIL,
@@ -77,6 +79,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
         ),
+        egressTextArguments = setOf("subject", "body"),
     ),
     ToolSpec(
         name = MobileActionFunctions.CREATE_CALENDAR_EVENT,
@@ -89,6 +92,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
         ),
+        egressTextArguments = setOf("title", "description"),
     ),
     ToolSpec(
         name = MobileActionFunctions.CREATE_CONTACT_DRAFT,
@@ -101,6 +105,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
         ),
+        egressTextArguments = setOf("name"),
     ),
     ToolSpec(
         name = MobileActionFunctions.QUERY_CONTACTS,
@@ -249,6 +254,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
         ),
+        egressTextArguments = setOf("text", "title"),
     ),
     ToolSpec(
         name = MobileActionFunctions.OPEN_DEEP_LINK,
@@ -258,6 +264,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
         outputSchemaJson = externalActivityOutputSchemaJson,
         capability = ToolCapability.ExternalNavigation,
         permissions = setOf(ToolPermission.StartsExternalActivity),
+        egressTextArguments = setOf("uri"),
     ),
     ToolSpec(
         name = MobileActionFunctions.OPEN_CAMERA,
@@ -282,7 +289,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
         riskLevel = RiskLevel.MediumDraftOrNavigation,
         confirmationPolicy = ConfirmationPolicy.Required,
         pendingArgumentAllowlist = setOf("appName", "followUpIntent"),
-        tags = lowRiskDeviceControlSessionTags + ToolCapabilityTag.OpenAppLaunch,
+        tags = lowRiskDeviceControlSessionTags + ToolCapabilityTag.OpenAppLaunch + ToolCapabilityTag.StartsInAppLoop,
     ),
     ToolSpec(
         name = MobileActionFunctions.OPEN_APP_INTENT,
@@ -293,7 +300,7 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
         capability = ToolCapability.ExternalNavigation,
         permissions = setOf(ToolPermission.StartsExternalActivity),
         pendingArgumentAllowlist = setOf("packageName"),
-        tags = lowRiskDeviceControlSessionTags + ToolCapabilityTag.OpenAppLaunch,
+        tags = lowRiskDeviceControlSessionTags + ToolCapabilityTag.OpenAppLaunch + ToolCapabilityTag.StartsInAppLoop,
     ),
     ToolSpec(
         name = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
@@ -304,6 +311,6 @@ internal val externalAndDraftToolSpecs: List<ToolSpec> = listOf(
         capability = ToolCapability.ExternalNavigation,
         permissions = setOf(ToolPermission.StartsExternalActivity),
         pendingArgumentAllowlist = setOf("targetId", "packageName"),
-        tags = deviceControlSessionTags,
+        tags = deviceControlSessionTags + ToolCapabilityTag.StartsInAppLoop,
     ),
 )

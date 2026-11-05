@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.safety
 
-import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.ConfirmationPolicy
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolPermission
@@ -206,10 +205,10 @@ class SafetyPolicy {
             )
         }
 
-        if (!context.userConfirmed && request.requiresSensitiveNetworkQueryConfirmation()) {
+        if (!context.userConfirmed && request.carriesSensitiveEgressText(spec)) {
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
-                reason = "Web search query may contain personal or secret data and requires confirmation before network access.",
+                reason = "Tool ${request.toolName} text may contain personal or secret data and requires confirmation before it leaves the device.",
             )
         }
 
@@ -239,9 +238,8 @@ class SafetyPolicy {
     private fun RiskLevel.requiresHardConfirmation(): Boolean =
         this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
 
-    private fun ToolRequest.requiresSensitiveNetworkQueryConfirmation(): Boolean =
-        toolName == MobileActionFunctions.WEB_SEARCH &&
-            arguments["query"].orEmpty().containsSensitiveNetworkSearchContent()
+    private fun ToolRequest.carriesSensitiveEgressText(spec: ToolSpec): Boolean =
+        spec.egressTextArguments.any { name -> arguments[name].orEmpty().containsSensitiveNetworkSearchContent() }
 
     /**
      * Same decision as a non-empty [detectSensitiveCategories]: it evaluated exactly the same

@@ -43,7 +43,7 @@ internal class PhoneCompositeOperations(
 
     private suspend fun call(tool: String, arguments: Map<String, String> = emptyMap()): ToolResult {
         currentCoroutineContext().ensureActive()
-        require(tool in CHILD_TOOLS) // T2: no recursive composites, arbitrary tools or external sends.
+        require(tool in childToolsFor(request.toolName)) // T2: no recursive composites, arbitrary tools or external sends.
         if (tool != MobileActionFunctions.OBSERVE_CURRENT_SCREEN) {
             if (writes >= MAX_WRITES) return request.failed(ToolErrorCode.ExecutionFailed, "Composite write budget exhausted", false)
             writes++
@@ -259,7 +259,14 @@ internal class PhoneCompositeOperations(
         const val MAX_WRITES = 5
         const val MAX_TEXT = 12_000
         val TOOL_NAMES = setOf(MobileActionFunctions.UI_COLLECT, MobileActionFunctions.UI_FIND, MobileActionFunctions.UI_SET_WHEEL)
-        private val CHILD_TOOLS = setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL, MobileActionFunctions.UI_TYPE_TEXT)
+        private val READ_AND_SCROLL = setOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, MobileActionFunctions.UI_SCROLL)
+
+        /** The only child tools [parentToolName] may run; empty for a non-composite tool. */
+        fun childToolsFor(parentToolName: String): Set<String> = when (parentToolName) {
+            MobileActionFunctions.UI_SET_WHEEL -> READ_AND_SCROLL + MobileActionFunctions.UI_TYPE_TEXT
+            MobileActionFunctions.UI_COLLECT, MobileActionFunctions.UI_FIND -> READ_AND_SCROLL
+            else -> emptySet()
+        }
 
         /** Mika's adjacent-page overlap merge: equal messages elsewhere remain separate entries. */
         internal fun appendPage(previous: List<String>, next: List<String>): List<String> {

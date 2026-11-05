@@ -21,6 +21,7 @@ class ToolRegistry private constructor(
         definitions.forEach { definition ->
             validateRuntimePermissionDescriptorContract(definition.spec)
             validateExactlyOneOfContract(definition.spec)
+            validateEgressTextArgumentContract(definition.spec)
         }
     }
 
@@ -325,6 +326,14 @@ private fun validateRuntimePermissionDescriptorContract(spec: ToolSpec) {
         require(argumentName in argumentNames) {
             "Tool ${spec.name} Android runtime permission argument $argumentName is not declared in input schema."
         }
+    }
+}
+
+/** A misspelled [ToolSpec.egressTextArguments] name would silently drop an egress check. */
+private fun validateEgressTextArgumentContract(spec: ToolSpec) {
+    val undeclared = spec.egressTextArguments - spec.inputSchemaJson.schemaPropertyNames()
+    require(undeclared.isEmpty()) {
+        "Tool ${spec.name} egress text argument(s) not declared in input schema: " + undeclared.sorted().joinToString()
     }
 }
 

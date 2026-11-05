@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.capability
 
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.tool.ConfirmationPolicy
+import com.bytedance.zgx.solin.tool.PhoneCompositeOperations
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
@@ -543,7 +544,7 @@ private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {
             "拒绝、取消或权限失败时不执行外部动作。"
         },
         requiredTests = listOf("ToolSchemaContractTest", "SafetyPolicyTest", "AgentLoopRuntimeTest") +
-            if (name in setOf("ui_collect", "ui_find", "ui_set_wheel")) listOf("PhoneCompositeOperationsTest") else emptyList(),
+            if (name in PhoneCompositeOperations.TOOL_NAMES) listOf("PhoneCompositeOperationsTest") else emptyList(),
         ownerAgent = CapabilityOwnerAgent.AgentRuntime,
     )
 }

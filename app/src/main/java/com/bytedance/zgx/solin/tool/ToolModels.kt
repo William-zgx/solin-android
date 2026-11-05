@@ -49,6 +49,13 @@ data class ToolSpec(
      * Violations fail [ToolRegistry] construction rather than silently skipping the check.
      */
     val exactlyOneOf: Set<Set<String>> = emptySet(),
+    /**
+     * Arguments whose free text leaves the device: a network query or link, or (with
+     * [ToolPermission.SendsTextToExternalApp]) the prose put into another app's draft. Structured
+     * identifiers such as a phone number are not listed. Safety checks read sensitive content and
+     * run taint from these; every name must be declared in [inputSchemaJson].
+     */
+    val egressTextArguments: Set<String> = emptySet(),
 )
 
 fun interface ToolProvider {
@@ -187,6 +194,8 @@ enum class ToolCapabilityTag {
     LowRiskAppControlContinuation,
     CheckpointedUiAction,
     OpenAppLaunch,
+    /** Launches an app whose screen the in-app observe→act loop then drives (remote-vision first send). */
+    StartsInAppLoop,
     RestoredExternalOutcomePopupSkippable,
     ConditionalRestoredExternalOutcomePopupSkippable,
     BackgroundSkillAllowed,

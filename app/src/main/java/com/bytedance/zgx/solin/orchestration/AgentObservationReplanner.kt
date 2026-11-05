@@ -7,6 +7,7 @@ import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.tool.PhoneCompositeOperations
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
@@ -57,11 +58,7 @@ internal val MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES = setOf(
 )
 
 /** Registered local composite capabilities; prompt exposure additionally requires matching intent/evidence. */
-internal val MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES = setOf(
-    MobileActionFunctions.UI_COLLECT,
-    MobileActionFunctions.UI_FIND,
-    MobileActionFunctions.UI_SET_WHEEL,
-)
+internal val MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES = PhoneCompositeOperations.TOOL_NAMES
 
 /**
  * UI actions whose executor enforces the expected-foreground-package preflight. When a replan
