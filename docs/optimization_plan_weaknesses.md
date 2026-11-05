@@ -375,7 +375,7 @@ Wave 3 新增协作面：
 
 1. **`ChatController`**：`sendMessageInternal` + remote disclosure send + shared input + **`continueAfterToolObservation`**（VM 最大剩余）  
 2. **AgentLoop 拆分**：`ToolPlanCoordinator` / turn runner（Loop 现为三大热点之最）  
-3. **UiState 拆分**：高频 voice/download 子状态（`docs/plans/archive/uistate-split.md`）  
+3. **UiState 拆分**：高频 voice/download 子状态（`docs/plans/archive/uistate-split.md`）
 4. 可选：`SettingsController`（voice / generation params / reduce confirmations）  
 
 ---

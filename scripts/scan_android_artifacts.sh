@@ -212,7 +212,7 @@ artifact_signing_status() {
         return
       fi
       local output
-      output="$(jarsigner -verify "$artifact" 2>&1 || true)"
+      output="$(jarsigner -J-Duser.language=en -J-Duser.country=US -verify "$artifact" 2>&1 || true)"
       if grep -q 'jar verified[.]' <<<"$output" && ! grep -qi 'jar is unsigned' <<<"$output"; then
         echo "verified"
       else
@@ -243,7 +243,7 @@ artifact_certificate_sha256() {
         echo ""
         return
       fi
-      (keytool -printcert -jarfile "$artifact" 2>/dev/null || true) |
+      (keytool -J-Duser.language=en -J-Duser.country=US -printcert -jarfile "$artifact" 2>/dev/null || true) |
         awk -F': ' '/SHA256:/ {gsub(":", "", $2); print tolower($2); exit}'
       ;;
     *)
@@ -270,7 +270,7 @@ artifact_certificate_subject() {
         echo ""
         return
       fi
-      (keytool -printcert -jarfile "$artifact" 2>/dev/null || true) |
+      (keytool -J-Duser.language=en -J-Duser.country=US -printcert -jarfile "$artifact" 2>/dev/null || true) |
         awk -F': ' '/Owner:/ {print $2; exit}'
       ;;
     *)

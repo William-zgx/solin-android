@@ -13,4 +13,3 @@ internal fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
 
 internal fun AgentTraceStepSummary.requestIdFromJson(): String? =
     jsonObjectOrNull()?.optString("requestId")?.takeIf { it.isNotBlank() }
-

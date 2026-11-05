@@ -103,7 +103,7 @@ bundle_signer_sha256() {
   local output
   [[ -f "$bundle" ]] || return 0
   command -v keytool >/dev/null 2>&1 || return 0
-  output="$(keytool -printcert -jarfile "$bundle" 2>/dev/null || true)"
+  output="$(keytool -J-Duser.language=en -J-Duser.country=US -printcert -jarfile "$bundle" 2>/dev/null || true)"
   printf '%s\n' "$output" |
     awk -F': ' '/SHA256:/ {
       value = tolower($2)

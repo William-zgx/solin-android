@@ -569,4 +569,3 @@ private fun ScreenBounds.area(): Int =
 
 private fun boundsDimension(value: Int): Int =
     value.coerceAtLeast(0).coerceAtMost(10_000)
-

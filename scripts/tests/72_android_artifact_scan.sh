@@ -142,7 +142,7 @@ jarsigner \
   "$DEBUG_SIGNED_AAB" \
   androiddebugkey >/dev/null
 DEBUG_SIGNED_AAB_CERT_SHA="$(
-  keytool -printcert -jarfile "$DEBUG_SIGNED_AAB" 2>/dev/null |
+  keytool -J-Duser.language=en -J-Duser.country=US -printcert -jarfile "$DEBUG_SIGNED_AAB" 2>/dev/null |
     awk -F': ' '/SHA256:/ {gsub(":", "", $2); print tolower($2); exit}'
 )"
 expect_failure \
