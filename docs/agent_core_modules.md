@@ -114,7 +114,9 @@ Current status:
   `VerifiedPhoneRouteReplanner` wrapper proposes one ordinary request at a time,
   so learning does not grant execution authority. Terminal search verification
   must reach the wrapper's observation hook before the loop completes.
-  Composite results remain `LocalOnly`; each child action is authorized separately.
+  Composite results remain `LocalOnly`; each child action is authorized separately,
+  and `PhoneCompositeOperations.childToolsFor` is the one child-tool allowlist
+  used by both the executor and `ConfirmationBypassPolicy.canAuthorizeCompositeChild`.
   The experimental `device/background/` helper/session pair is a separate explicit
   debug backend, not a replacement for the default foreground service. Source
   attribution, limits, and integration/device verification status are owned by

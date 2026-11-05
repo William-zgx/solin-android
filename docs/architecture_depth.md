@@ -185,14 +185,16 @@ partial implementations of the sensitive-text check:**
 
 | Check | Covers |
 | --- | --- |
-| `SafetyPolicy` sensitive query | `web_search` only |
-| `ConfirmationBypassPolicy` network argument + run taint | `web_search`, `search_maps`, `open_deep_link`; typed text |
+| `SafetyPolicy` sensitive egress text | every `ToolSpec.egressTextArguments` argument (only `web_search` reaches it unconfirmed) |
+| `ConfirmationBypassPolicy` egress text + run taint | specs with `egressTextArguments` (`web_search`, `search_maps`, `open_deep_link`, and the external-app drafts below); typed text. Parallel `web_search` batches run the same check (2026-11-05) |
 | `DecisionModelPlacementPolicy.mayLeaveDevice` | router text |
 | Chat send preflight | first remote chat turn and the remote tool-result continuation |
 
-Not covered: remote vision intent and
-screen text, and text handed to other apps (`share_text`, `compose_email`,
-SMS / calendar / contact drafts). Remote-send audit entries exist for remote
+Which arguments carry egress text is declared on the tool's `ToolSpec`
+(`egressTextArguments`, checked against the input schema when the registry is
+built), not in per-tool maps inside the policies.
+
+Not covered: remote vision intent and screen text. Remote-send audit entries exist for remote
 chat, remote vision, the router, MCP and — since gap 5 (closed 2026-10-31) —
 each `web_search` request (`OkHttpWebSearchProvider` records the tool name,
 provider host and query length, never the query). Intents (`search_maps`,
@@ -216,7 +218,8 @@ user's words stays auto-approved.
 leaves only after a `UserConfirmed` step exists in the run, in both
 confirmation modes (`AgentLoopRuntime.runHasUserConfirmedStep`). Critical-only
 mode rarely prompts, so `ConfirmationBypassPolicy` raises the run's first
-in-app step (`DeviceControl` / `ExternalNavigation` capability) to a
+in-app step (`DeviceControl` capability, or a launch tool tagged
+`ToolCapabilityTag.StartsInAppLoop`) to a
 confirmation (`CriticalApprovalReason.RemoteVisionFirstSend`); confirming it
 opens the gate. A run that never confirms sends no screenshot and falls back to
 the local action model.
@@ -248,6 +251,6 @@ token-subset match against the user's input.
 | Action entry (one injection entry, guarded) | Enforced by `architecture/ActionEntryArchitectureTest` (2026-11-01) |
 | Main Kotlin file count | Done for this pass: 324, ratcheted in `architecture/PackageBoundaryArchitectureTest` (2026-11-05) |
 | Action gate consolidation | Not started |
-| Egress gate consolidation | Not started |
+| Egress gate consolidation | Started: egress arguments and in-app launch declared on `ToolSpec` (2026-11-05); one `EgressGate` not started |
 | Provenance labels | Not started |
 | Mutation testing | Not started |
