@@ -1,5 +1,10 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.common.keysSet
+import com.bytedance.zgx.solin.common.optDoubleOrNull
+import com.bytedance.zgx.solin.common.optStringOrNull
+import com.bytedance.zgx.solin.common.optStringSet
+import com.bytedance.zgx.solin.common.optStringSetOrNull
 import java.time.Instant
 import org.json.JSONArray
 import org.json.JSONObject
@@ -639,24 +644,6 @@ internal fun String.schemaPropertyNames(): Set<String> {
 internal fun String.schemaRequiredPropertyNames(): Set<String> =
     JSONObject(this).optStringSet("required")
 
-private fun JSONObject.keysSet(): Set<String> {
-    val result = linkedSetOf<String>()
-    val iterator = keys()
-    while (iterator.hasNext()) {
-        result += iterator.next()
-    }
-    return result
-}
-
-private fun JSONObject.optStringSet(name: String): Set<String> {
-    val array = optJSONArray(name) ?: return emptySet()
-    return buildSet {
-        for (index in 0 until array.length()) {
-            add(array.getString(index))
-        }
-    }
-}
-
 private fun JSONObject.optIntOrNull(name: String): Int? {
     if (!has(name) || isNull(name)) return null
     val value = get(name)
@@ -667,23 +654,6 @@ private fun JSONObject.optIntOrNull(name: String): Int? {
         "Schema keyword $name must fit in Int range"
     }
     return (value as Number).toInt()
-}
-
-private fun JSONObject.optStringOrNull(name: String): String? =
-    if (!has(name) || isNull(name)) null else optString(name)
-
-private fun JSONObject.optDoubleOrNull(name: String): Double? {
-    if (!has(name) || isNull(name)) return null
-    return optDouble(name)
-}
-
-private fun JSONObject.optStringSetOrNull(name: String): Set<String>? {
-    val array = optJSONArray(name) ?: return null
-    return buildSet {
-        for (index in 0 until array.length()) {
-            add(array.getString(index))
-        }
-    }
 }
 
 private fun JSONObject.optConstStringOrNull(): String? {

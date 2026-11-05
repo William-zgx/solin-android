@@ -28,7 +28,6 @@ internal class RunScopedState {
     val lowRiskDeviceActionConfirmationBypassByRunId = ConcurrentHashMap<String, Boolean>()
     val remoteGuiDrivingEnabledByRunId = ConcurrentHashMap<String, Boolean>()
     val installedCapabilityProfilesByRunId = ConcurrentHashMap<String, List<ModelCapabilityProfile>>()
-    val profilesByRunId = ConcurrentHashMap<String, AgentProfile>()
     /** Composite child steps count against the same run budget, without replacing its parent plan. */
     val compositeStepsByRunId = ConcurrentHashMap<String, Int>()
     val compositeChildIdsByRunId = ConcurrentHashMap<String, MutableSet<String>>()
@@ -59,7 +58,6 @@ internal class RunScopedState {
         lowRiskDeviceActionConfirmationBypassByRunId,
         remoteGuiDrivingEnabledByRunId,
         installedCapabilityProfilesByRunId,
-        profilesByRunId,
         compositeStepsByRunId,
         compositeChildIdsByRunId,
         runStartedAtMillis,

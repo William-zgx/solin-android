@@ -590,40 +590,6 @@ internal fun RemoteSendDisclosurePolicy.remoteSendPolicyDescription(): String =
 
 internal fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String = shortTimestamp(createdAtMillis)
 
-@Composable
-internal fun TrustBoundaryRow(
-    icon: SolinGlyphKind,
-    title: String,
-    body: String,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        SolinGlyph(
-            modifier = Modifier.size(20.dp),
-            kind = icon,
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 internal fun trustDeletionBoundaryText(state: ChatUiState): String =
     "可清空长期记忆、删除当前会话、取消后台任务，并可一键清除远程服务地址、模型名和 API Key。当前已保存长期记忆 ${state.longTermMemories.size} 条。"
 

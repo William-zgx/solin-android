@@ -2,14 +2,13 @@ package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.AgentTraceRunUiSummary
 import com.bytedance.zgx.solin.AuditEventSummary
-import com.bytedance.zgx.solin.BackgroundTaskSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.LongTermMemorySummary
 import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
 import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RunTimelineItemUiSummary
-import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.solin.background.BackgroundTaskSnapshot
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memoryEvidenceSummariesFor
@@ -64,11 +63,7 @@ interface PresentationSessionHost {
 
     fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary>
 
-    fun loadBackgroundTasks(): List<BackgroundTaskSummary>
-
-    fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary>
-
-    fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary
+    fun loadBackgroundTaskSnapshot(): BackgroundTaskSnapshot
 
     fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary>
 
@@ -153,14 +148,8 @@ internal class DefaultPresentationSessionHost(
     override fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> =
         auditUiController.loadAgentTraceRuns()
 
-    override fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
-        backgroundTaskController.loadBackgroundTasks()
-
-    override fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> =
-        backgroundTaskController.loadBackgroundTaskHistory()
-
-    override fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary =
-        backgroundTaskController.loadPeriodicCheckPolicy()
+    override fun loadBackgroundTaskSnapshot(): BackgroundTaskSnapshot =
+        backgroundTaskController.loadBackgroundTaskSnapshot()
 
     override fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> =
         runId

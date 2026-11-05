@@ -197,7 +197,7 @@ internal class ModelToolRequestCoordinator(
                 ).rejected("Remote model returned an empty tool batch."),
             )
         }
-        if (traceQueries.toolRequestsFor(runId).size + requests.size > runBudget.effectiveMaxToolSteps(runId)) {
+        if (traceQueries.toolRequestsFor(runId).size + requests.size > runBudget.maxRunToolSteps) {
             return host.failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         requests.groupingBy { request -> request.id }

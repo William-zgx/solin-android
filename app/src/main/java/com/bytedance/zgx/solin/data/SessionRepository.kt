@@ -22,15 +22,17 @@ class SessionRepository(
     override var activeSessionId: String = resolveActiveSessionId()
         private set
 
-    override fun summaries(): List<ChatSessionSummary> =
-        sessionDao.sessions().map { session ->
+    override fun summaries(): List<ChatSessionSummary> {
+        val counts = sessionDao.messageCountsBySession().associate { row -> row.sessionId to row.messageCount }
+        return sessionDao.sessions().map { session ->
             ChatSessionSummary(
                 id = session.id,
                 title = session.title,
                 updatedAtMillis = session.updatedAtMillis,
-                messageCount = sessionDao.messagesForSession(session.id).size,
+                messageCount = counts[session.id] ?: 0,
             )
         }
+    }
 
     override fun activeMessages(): List<ChatMessage> =
         sessionDao.messagesForSession(activeSessionId).toChatMessages()

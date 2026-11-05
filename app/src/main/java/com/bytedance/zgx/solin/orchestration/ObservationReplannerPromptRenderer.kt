@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.common.jsonObjects
+import com.bytedance.zgx.solin.common.optNullableString
 import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.ScreenObservation
 import com.bytedance.zgx.solin.device.UiTargetEvidenceCandidate
@@ -564,7 +566,7 @@ private fun JSONObject?.clickabilityModeTags(): List<String> {
 }
 
 private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(): List<LocalTargetCandidatePrompt> {
-    val allElements = objects()
+    val allElements = jsonObjects()
     val ocrElements = allElements
         .filter { element ->
             element.optString("source") == "ocr" &&

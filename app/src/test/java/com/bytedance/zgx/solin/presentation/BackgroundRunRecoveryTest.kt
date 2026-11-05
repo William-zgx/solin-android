@@ -2,7 +2,6 @@ package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.AgentTraceRunUiSummary
 import com.bytedance.zgx.solin.AuditEventSummary
-import com.bytedance.zgx.solin.BackgroundTaskSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.LongTermMemorySummary
@@ -12,6 +11,7 @@ import com.bytedance.zgx.solin.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.background.BackgroundTaskSnapshot
 import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.device.background.BackgroundPhoneSession
 import com.bytedance.zgx.solin.memory.MemoryHit
@@ -134,9 +134,8 @@ class BackgroundRunRecoveryTest {
         override fun loadLongTermMemories(): List<LongTermMemorySummary> = emptyList()
         override fun loadAuditEvents(): List<AuditEventSummary> = emptyList()
         override fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> = emptyList()
-        override fun loadBackgroundTasks(): List<BackgroundTaskSummary> = emptyList()
-        override fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> = emptyList()
-        override fun loadPeriodicCheckPolicy() = PeriodicCheckPolicySummary.disabled()
+        override fun loadBackgroundTaskSnapshot() =
+            BackgroundTaskSnapshot(emptyList(), emptyList(), PeriodicCheckPolicySummary.disabled())
         override fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> = emptyList()
         override fun activePublicWebEvidenceFor(runId: String?): List<PublicWebEvidencePack> = emptyList()
         override fun activeMemoryEvidenceFor(memoryHits: List<MemoryHit>, includePrivateLocalContext: Boolean): List<MemoryEvidenceUiSummary> = emptyList()

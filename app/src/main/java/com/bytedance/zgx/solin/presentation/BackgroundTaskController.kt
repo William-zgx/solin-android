@@ -1,11 +1,10 @@
 package com.bytedance.zgx.solin.presentation
 
-import com.bytedance.zgx.solin.BackgroundTaskSummary
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.LongTermMemorySummary
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
+import com.bytedance.zgx.solin.background.BackgroundTaskSnapshot
 import com.bytedance.zgx.solin.background.BackgroundTaskUseCases
-import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.solin.background.isActivePeriodicCheck
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
@@ -34,40 +33,21 @@ class BackgroundTaskController(
         this.uiState = uiState
     }
 
-    fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
-        backgroundTaskUseCases.snapshot().activeTasks
-
-    fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> =
-        backgroundTaskUseCases.snapshot().history
-
-    fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary =
-        backgroundTaskUseCases.snapshot().periodicCheckPolicy
+    fun loadBackgroundTaskSnapshot(): BackgroundTaskSnapshot = backgroundTaskUseCases.snapshot()
 
     fun recoverBackgroundTasksOnStartup() {
         val state = uiState ?: return
         backgroundTaskScheduler.rescheduleScheduledReminders()
         backgroundTaskScheduler.reconcilePeriodicCheckOnStartup()
-        state.update {
-            it.copy(
-                backgroundTasks = loadBackgroundTasks(),
-                backgroundTaskHistory = loadBackgroundTaskHistory(),
-                periodicCheckPolicy = loadPeriodicCheckPolicy(),
-            )
-        }
+        val snapshot = loadBackgroundTaskSnapshot()
+        state.update { it.withBackgroundTasks(snapshot) }
     }
 
     fun refreshBackgroundTasks() {
         val state = uiState ?: return
         syncTaskStateMemories()
-        val snapshot = backgroundTaskUseCases.snapshot()
-        state.update {
-            it.copy(
-                backgroundTasks = snapshot.activeTasks,
-                backgroundTaskHistory = snapshot.history,
-                periodicCheckPolicy = snapshot.periodicCheckPolicy,
-                longTermMemories = loadLongTermMemories(),
-            )
-        }
+        val snapshot = loadBackgroundTaskSnapshot()
+        state.update { it.withBackgroundTasks(snapshot).copy(longTermMemories = loadLongTermMemories()) }
     }
 
     fun cancelBackgroundTask(taskId: String) {
@@ -76,10 +56,7 @@ class BackgroundTaskController(
         val result = backgroundTaskUseCases.cancelScheduledTask(taskId)
         syncTaskStateMemories()
         state.update { current ->
-            current.copy(
-                backgroundTasks = result.snapshot.activeTasks,
-                backgroundTaskHistory = result.snapshot.history,
-                periodicCheckPolicy = result.snapshot.periodicCheckPolicy,
+            current.withBackgroundTasks(result.snapshot).copy(
                 longTermMemories = loadLongTermMemories(),
                 statusText = result.statusText,
             )
@@ -89,7 +66,7 @@ class BackgroundTaskController(
     fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest) {
         val state = uiState ?: return
         if (state.value.isBusy) return
-        val previousPolicy = loadPeriodicCheckPolicy()
+        val previousPolicy = loadBackgroundTaskSnapshot().periodicCheckPolicy
         val result = backgroundTaskUseCases.setPeriodicCheckPolicy(request)
         if (
             result.succeeded &&
@@ -102,10 +79,7 @@ class BackgroundTaskController(
         }
         syncTaskStateMemories()
         state.update { current ->
-            current.copy(
-                backgroundTasks = result.snapshot.activeTasks,
-                backgroundTaskHistory = result.snapshot.history,
-                periodicCheckPolicy = result.snapshot.periodicCheckPolicy,
+            current.withBackgroundTasks(result.snapshot).copy(
                 longTermMemories = loadLongTermMemories(),
                 statusText = result.statusText,
             )
@@ -118,13 +92,17 @@ class BackgroundTaskController(
         val result = backgroundTaskUseCases.disablePeriodicCheckPolicy()
         syncTaskStateMemories()
         state.update { current ->
-            current.copy(
-                backgroundTasks = result.snapshot.activeTasks,
-                backgroundTaskHistory = result.snapshot.history,
-                periodicCheckPolicy = result.snapshot.periodicCheckPolicy,
+            current.withBackgroundTasks(result.snapshot).copy(
                 longTermMemories = loadLongTermMemories(),
                 statusText = result.statusText,
             )
         }
     }
 }
+
+internal fun ChatUiState.withBackgroundTasks(snapshot: BackgroundTaskSnapshot): ChatUiState =
+    copy(
+        backgroundTasks = snapshot.activeTasks,
+        backgroundTaskHistory = snapshot.history,
+        periodicCheckPolicy = snapshot.periodicCheckPolicy,
+    )

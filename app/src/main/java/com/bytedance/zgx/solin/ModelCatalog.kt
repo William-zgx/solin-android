@@ -284,9 +284,6 @@ internal object ModelCatalog {
             it.id == modelId && profileFor(it).supportsChatGeneration
         } ?: DEFAULT_CHAT_MODEL
 
-    fun recommendedModelsFor(capability: ModelCapability): List<RecommendedModel> =
-        RECOMMENDED_MODELS.filter { it.capability == capability }
-
     fun profileFor(model: RecommendedModel): ModelProfile =
         ModelProfile(
             id = model.id,

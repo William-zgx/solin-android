@@ -110,17 +110,6 @@ class McpServerRegistry(
         consentStore.revokeTool(serverId, toolName)
     }
 
-    /** Test/internal helper: insert an already-constructed connection directly. */
-    internal fun putConnection(conn: McpServerConnection) {
-        synchronized(lock) { servers[conn.serverId] = conn }
-    }
-
-    fun unregisterServer(serverId: String) {
-        synchronized(lock) { servers.remove(serverId) }?.close()
-        settings.removeServer(serverId)
-        consentStore.revokeServer(serverId)
-    }
-
     /** Closes live connections; the persisted catalog is kept. */
     fun clear() {
         val closing = synchronized(lock) { servers.values.toList().also { servers.clear() } }

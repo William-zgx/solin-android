@@ -5,7 +5,6 @@ import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.plan.PlanItemStatus
 import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.tool.ToolRequest
-import java.util.concurrent.ConcurrentHashMap
 
 internal const val TOOL_STEP_BUDGET_EXCEEDED_REASON = "Agent run tool step budget exceeded."
 internal const val OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON =
@@ -25,9 +24,8 @@ private const val TAG = "AgentRunBudget"
  * compiling (Kotlin data/constructor evolution rule).
  */
 internal class AgentRunBudget(
-    private val maxRunToolSteps: Int,
+    val maxRunToolSteps: Int,
     private val maxObservationDecisions: Int,
-    private val profilesByRunId: ConcurrentHashMap<String, AgentProfile>,
     private val toolRequestsFor: (runId: String) -> List<ToolRequest>,
     private val observationDecidedCount: (runId: String) -> Int,
     private val sessionPlanStore: SessionPlanStore?,
@@ -59,13 +57,10 @@ internal class AgentRunBudget(
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
     private val compositeStepCount: (String) -> Int = { 0 },
 ) {
-    fun effectiveMaxToolSteps(runId: String): Int =
-        profilesByRunId[runId]?.effectiveMaxToolSteps() ?: maxRunToolSteps
-
     fun toolStepBudgetExceeded(runId: String): Boolean {
         if (stepHistoryDegradedFailClosed(runId, budgetName = "tool step")) return true
         return toolRequestsFor(runId).size.toLong() + compositeStepCount(runId).coerceAtLeast(0) >=
-            effectiveMaxToolSteps(runId)
+            maxRunToolSteps
     }
 
     fun observationDecisionBudgetExceeded(runId: String): Boolean {

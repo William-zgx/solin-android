@@ -44,12 +44,6 @@ data class CompactionResult(
  */
 data class CompactionConfig(
     /**
-     * No-op, kept for source compatibility. [ChatMessage] has no System role (system prompts are
-     * supplied out of band via conversation config), so there is never a system prefix to keep.
-     */
-    val preserveSystemMessages: Boolean = true,
-
-    /**
      * Always keep the last N user/assistant pairs (i.e. 2*N messages) untouched at the tail of
      * the conversation. 6 turns == 12 messages, which gives the model ~3 recent exchanges of
      * context. Compaction will only touch messages before this tail.

@@ -1,7 +1,5 @@
 package com.bytedance.zgx.solin.ui.components
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,12 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,7 +40,6 @@ import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.resource.SystemResourceSnapshot
 import com.bytedance.zgx.solin.ui.activePlacementDisplayText
 import com.bytedance.zgx.solin.ui.ResourcePressureOverlay
-import com.bytedance.zgx.solin.ui.theme.LocalSolinColors
 
 /**
  * The app shell's top bar: menu (opens the session drawer), the current conversation title,
@@ -210,21 +205,6 @@ private fun ChatUiState.remoteModelSuffix(): String =
         ?.let { " · $it" }
         .orEmpty()
 
-/** Container/content colours for the runtime status badge: busy, bound remote/local, or neutral. */
-@Composable
-private fun modelStatusColors(state: ChatUiState): Pair<Color, Color> {
-    val semanticColors = LocalSolinColors.current
-    val active = state.isReady && !state.isBusy
-    return when {
-        state.isBusy || state.isDownloading -> semanticColors.busyContainer to semanticColors.onBusyContainer
-        active && state.activeRunPlacement == RunPlacement.Remote ->
-            semanticColors.remoteContainer to semanticColors.onRemoteContainer
-        active && state.activeRunPlacement == RunPlacement.Local ->
-            semanticColors.localContainer to semanticColors.onLocalContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-}
-
 @Composable
 internal fun TopMenuItem(
     glyph: SolinGlyphKind,
@@ -290,51 +270,6 @@ internal fun TopActionButton(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(size * 0.56f),
         )
-    }
-}
-
-@Composable
-internal fun RuntimeStatusBadge(
-    state: ChatUiState,
-) {
-    val label = when {
-        state.isDownloading -> state.downloadShortLabel()
-        state.isBusy -> "处理中"
-        state.activeRunPlacement == RunPlacement.Remote -> "本次远程"
-        state.activeRunPlacement == RunPlacement.Local -> "本次本地"
-        state.activeRunPlacementReason != null -> "本次已阻断"
-        state.inferenceMode == InferenceMode.Remote -> "远程偏好"
-        state.inferenceMode == InferenceMode.Auto -> "自动偏好"
-        state.isReady -> "本地偏好"
-        state.modelPath != null -> "可加载"
-        else -> "待准备"
-    }
-    val (container, content) = modelStatusColors(state)
-
-    Surface(
-        shape = CircleShape,
-        color = container,
-        border = BorderStroke(1.dp, content.copy(alpha = 0.16f)),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(content),
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = content,
-                maxLines = 1,
-            )
-        }
     }
 }
 

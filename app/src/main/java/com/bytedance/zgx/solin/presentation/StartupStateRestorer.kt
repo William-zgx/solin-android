@@ -57,6 +57,7 @@ internal class InitialChatStateFactory(
         memoryRepository.enabled = memoryEnabled
         memoryController.syncTaskStateMemories(memoryEnabled = memoryEnabled)
         val semanticMemory = memoryController.semanticMemoryState().toSemanticMemoryStatus()
+        val backgroundTasks = backgroundTaskController.loadBackgroundTaskSnapshot()
         return ChatUiState(
             modelPath = modelState.activeModelPath,
             activeInstalledModelId = modelState.activeInstalledModelId,
@@ -75,9 +76,9 @@ internal class InitialChatStateFactory(
             semanticMemory = semanticMemory,
             huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
             longTermMemories = memoryController.loadLongTermMemories(),
-            backgroundTasks = backgroundTaskController.loadBackgroundTasks(),
-            backgroundTaskHistory = backgroundTaskController.loadBackgroundTaskHistory(),
-            periodicCheckPolicy = backgroundTaskController.loadPeriodicCheckPolicy(),
+            backgroundTasks = backgroundTasks.activeTasks,
+            backgroundTaskHistory = backgroundTasks.history,
+            periodicCheckPolicy = backgroundTasks.periodicCheckPolicy,
             auditEvents = auditUiController.loadAuditEvents(),
             remoteSendAuditEvents = remoteSendAuditLog.recentRemoteSendSummaries(),
             agentTraceRuns = auditUiController.loadAgentTraceRuns(),

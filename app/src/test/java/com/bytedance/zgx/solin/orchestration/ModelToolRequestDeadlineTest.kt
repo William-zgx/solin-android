@@ -12,7 +12,6 @@ import com.bytedance.zgx.solin.skill.SkillRunProgressor
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
-import java.util.concurrent.ConcurrentHashMap
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -86,7 +85,6 @@ class ModelToolRequestDeadlineTest {
         private val budget = AgentRunBudget(
             maxRunToolSteps = 4,
             maxObservationDecisions = 4,
-            profilesByRunId = ConcurrentHashMap(),
             toolRequestsFor = { emptyList() },
             observationDecidedCount = { 0 },
             sessionPlanStore = null,

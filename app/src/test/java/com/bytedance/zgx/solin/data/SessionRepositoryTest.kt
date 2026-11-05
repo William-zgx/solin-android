@@ -113,6 +113,9 @@ class SessionRepositoryTest {
         override fun messagesForSession(sessionId: String): List<ChatMessageEntity> =
             messagesBySession[sessionId].orEmpty().sortedBy { it.position }
 
+        override fun messageCountsBySession(): List<SessionMessageCount> =
+            messagesBySession.map { (sessionId, messages) -> SessionMessageCount(sessionId, messages.size) }
+
         override fun recentMessages(limit: Int): List<ChatMessageEntity> =
             messagesBySession.values
                 .flatten()

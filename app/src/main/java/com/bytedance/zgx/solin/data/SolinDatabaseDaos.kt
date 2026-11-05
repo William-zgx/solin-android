@@ -8,6 +8,9 @@ import androidx.room.Transaction
 
 /* Room DAOs of [SolinDatabase]. Split out of SolinDatabase.kt; queries unchanged. */
 
+/** Row of [SessionDao.messageCountsBySession]. */
+data class SessionMessageCount(val sessionId: String, val messageCount: Int)
+
 @Dao
 interface SessionDao {
     @Query("SELECT * FROM chat_sessions ORDER BY updatedAtMillis DESC")
@@ -18,6 +21,9 @@ interface SessionDao {
 
     @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY position ASC")
     fun messagesForSession(sessionId: String): List<ChatMessageEntity>
+
+    @Query("SELECT sessionId, COUNT(*) AS messageCount FROM chat_messages GROUP BY sessionId")
+    fun messageCountsBySession(): List<SessionMessageCount>
 
     @Query("SELECT * FROM chat_messages ORDER BY rowid DESC LIMIT :limit")
     fun recentMessages(limit: Int): List<ChatMessageEntity>

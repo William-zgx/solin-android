@@ -17,7 +17,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * MCP transport over Android Binder Messenger. Connects to a remote Service
@@ -52,7 +51,6 @@ class BinderMcpTransport(
 
     override val serverId: String = component.flattenToShortString()
 
-    private val nextId = AtomicLong(1)
     private val stateLock = Any()
 
     @Volatile private var expectedServerUid: Int? = null
@@ -254,9 +252,6 @@ class BinderMcpTransport(
         }
         toCancel.forEach { it.cancel() }
     }
-
-    /** Allocate the next request id for callers that don't supply one. */
-    fun newRequestId(): Long = nextId.getAndIncrement()
 
     companion object {
         private const val TAG = "BinderMcpTransport"

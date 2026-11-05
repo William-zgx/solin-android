@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.memory
 
 import android.content.Context
+import com.bytedance.zgx.solin.common.sha256Hex
 import com.bytedance.zgx.solin.storage.LocalVectorIndexContract
 import com.bytedance.zgx.solin.storage.LocalDocument
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore

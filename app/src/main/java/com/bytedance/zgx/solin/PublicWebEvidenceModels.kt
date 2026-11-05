@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin
 
+import com.bytedance.zgx.solin.common.firstNonBlank
+import com.bytedance.zgx.solin.common.jsonObjects
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
@@ -38,8 +40,7 @@ fun publicWebEvidencePackFromToolResultData(
     val sourceNamesById = json.optJSONArray("sources").sourceNamesById()
     val sourceUrlsById = json.optJSONArray("sources").sourceUrlsById()
     val summaryText = data["summaryText"].orEmpty()
-    val items = json.optJSONArray("results")
-        .objects()
+    val items = json.optJSONArray("results")?.jsonObjects().orEmpty()
         .mapIndexedNotNull { index, result ->
             result.toPublicWebEvidenceItem(
                 sourceIndex = index + 1,
@@ -171,16 +172,8 @@ private fun String.normalizedPublicWebEvidenceKey(): String? =
         ?.trimEnd('/')
         ?.lowercase()
 
-private fun JSONArray?.objects(): List<JSONObject> =
-    buildList {
-        val array = this@objects ?: return@buildList
-        for (index in 0 until array.length()) {
-            array.optJSONObject(index)?.let(::add)
-        }
-    }
-
 private fun JSONArray?.sourceNamesById(): Map<String, String> =
-    objects()
+    this?.jsonObjects().orEmpty()
         .mapNotNull { source ->
             val id = source.optString("id").trim().takeIf { value -> value.isNotBlank() }
                 ?: return@mapNotNull null
@@ -189,16 +182,13 @@ private fun JSONArray?.sourceNamesById(): Map<String, String> =
         .toMap()
 
 private fun JSONArray?.sourceUrlsById(): Map<String, String> =
-    objects()
+    this?.jsonObjects().orEmpty()
         .mapNotNull { source ->
             val id = source.optString("id").trim().takeIf { value -> value.isNotBlank() }
                 ?: return@mapNotNull null
             id to source.optString("url").trim()
         }
         .toMap()
-
-private fun firstNonBlank(vararg values: String): String? =
-    values.firstOrNull { value -> value.isNotBlank() }
 
 private fun String.publicWebDomain(): String? =
     runCatching {

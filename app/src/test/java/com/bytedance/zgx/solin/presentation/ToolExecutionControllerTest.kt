@@ -2,7 +2,6 @@ package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.AgentTraceRunUiSummary
 import com.bytedance.zgx.solin.AuditEventSummary
-import com.bytedance.zgx.solin.BackgroundTaskSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.LongTermMemorySummary
@@ -18,6 +17,7 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
+import com.bytedance.zgx.solin.background.BackgroundTaskSnapshot
 import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
@@ -481,11 +481,8 @@ class ToolExecutionControllerTest {
 
         override fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> = emptyList()
 
-        override fun loadBackgroundTasks(): List<BackgroundTaskSummary> = emptyList()
-
-        override fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> = emptyList()
-
-        override fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled()
+        override fun loadBackgroundTaskSnapshot() =
+            BackgroundTaskSnapshot(emptyList(), emptyList(), PeriodicCheckPolicySummary.disabled())
 
         override fun activeRunTimelineFor(runId: String?): List<RunTimelineItemUiSummary> = emptyList()
 

@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.orchestration
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -12,6 +13,15 @@ interface SolinEventBus {
     fun publish(event: SolinEvent)
     fun <E : SolinEvent> subscribe(type: KClass<E>): Flow<E>
     fun <E : SolinEvent> recent(type: KClass<out E>, limit: Int = 50): List<E>
+}
+
+/** Bus that drops every event: subscribe() never emits, recent() is empty. For tests and defaults. */
+object NoOpSolinEventBus : SolinEventBus {
+    override fun publish(event: SolinEvent) = Unit
+
+    override fun <E : SolinEvent> subscribe(type: KClass<E>): Flow<E> = emptyFlow()
+
+    override fun <E : SolinEvent> recent(type: KClass<out E>, limit: Int): List<E> = emptyList()
 }
 
 class DefaultSolinEventBus : SolinEventBus {

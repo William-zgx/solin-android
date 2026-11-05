@@ -7,7 +7,6 @@ object McpProtocol {
     const val METHOD_INITIALIZED_NOTIF = "notifications/initialized"
     const val METHOD_TOOLS_LIST = "tools/list"
     const val METHOD_TOOLS_CALL = "tools/call"
-    const val METHOD_PING = "ping"
     const val PROTOCOL_VERSION = "2024-11-05"
     const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
 }
@@ -33,11 +32,6 @@ data class McpTool(
     val description: String?,
     val inputSchema: Map<String, Any?>,
     val annotations: Map<String, Any?>? = null,
-)
-
-data class McpCallResult(
-    val content: List<McpContent>,
-    val isError: Boolean = false,
 )
 
 sealed class McpContent {

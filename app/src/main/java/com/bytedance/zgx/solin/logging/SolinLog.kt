@@ -79,3 +79,7 @@ fun solinW(tag: String, msg: String) = SolinLogHolder.current.w(tag, msg)
 fun solinW(tag: String, msg: String, t: Throwable) = SolinLogHolder.current.w(tag, msg, t)
 
 fun solinE(tag: String, msg: String, t: Throwable) = SolinLogHolder.current.e(tag, msg, t)
+
+/** A throwable's message for user-facing summaries, falling back to its class name. */
+internal fun Throwable.cleanMessage(): String =
+    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName

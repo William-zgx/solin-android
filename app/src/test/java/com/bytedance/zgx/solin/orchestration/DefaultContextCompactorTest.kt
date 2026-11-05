@@ -270,26 +270,6 @@ class DefaultContextCompactorTest {
     }
 
     @Test
-    fun systemPreservationFlagIsAcceptedAndDoesNotCrash() = runTest {
-        // Documenting current (Wave 2) behavior: ChatMessage has no System role, so the
-        // preserveSystemMessages flag is a forward-compat no-op. The prefix is always empty
-        // today, but setting the flag must not throw and both settings must produce the same
-        // result for User/Assistant-only histories.
-        val messages = history(turnCount = 10, charsPerMsg = 80)
-        val before = charEstimator(messages)
-        val budget = (before * 2) // under threshold
-        val resultOn = DefaultContextCompactor(CompactionConfig(preserveSystemMessages = true))
-            .compact(messages, budget, charEstimator)
-        val resultOff = DefaultContextCompactor(CompactionConfig(preserveSystemMessages = false))
-            .compact(messages, budget, charEstimator)
-        // Both paths should return messages unchanged (under threshold) and both succeed.
-        assertEquals(CompactionTrigger.None, resultOn.triggerReason)
-        assertEquals(CompactionTrigger.None, resultOff.triggerReason)
-        assertEquals(messages.size, resultOn.messages.size)
-        assertEquals(messages.size, resultOff.messages.size)
-    }
-
-    @Test
     fun compactionProducesApproachingBudgetTriggerWhenBetweenThresholdAndBudget() = runTest {
         // thresholdRatio=0.5 so threshold = budget/2. We craft history whose tokens are
         // 0.75*budget (between threshold and budget) -> ApproachingBudget.

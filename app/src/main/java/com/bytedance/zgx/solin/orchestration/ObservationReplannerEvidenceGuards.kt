@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.extractUiTargetArgumentValue
+import com.bytedance.zgx.solin.common.jsonObjects
 import com.bytedance.zgx.solin.device.hasDangerousActionText
 import com.bytedance.zgx.solin.device.hasDangerousTapTargetText
 import com.bytedance.zgx.solin.device.hasOcrDangerousActionText
@@ -201,7 +202,7 @@ private fun ToolResult.hasDangerousTargetEvidence(
 
 private fun String?.observationHasDangerousActionEvidence(parseCache: ObservationJsonParseCache): Boolean =
     withObservationElements(parseCache) { elements ->
-        elements.objects().any { element -> element.isDangerousActionEvidence() }
+        elements.jsonObjects().any { element -> element.isDangerousActionEvidence() }
     }
 
 private fun String?.observationHasDangerousTargetEvidence(
@@ -210,7 +211,7 @@ private fun String?.observationHasDangerousTargetEvidence(
     parseCache: ObservationJsonParseCache,
 ): Boolean =
     withObservationElements(parseCache) { elements ->
-        elements.objects().any { element ->
+        elements.jsonObjects().any { element ->
             element.isDangerousTargetEvidence(normalizedTarget, toolName)
         }
     }
@@ -237,7 +238,7 @@ private fun JSONObject.isDangerousTargetEvidence(normalizedTarget: String, toolN
 
 private fun String?.ocrBlocksHaveDangerousActionEvidence(parseCache: ObservationJsonParseCache): Boolean =
     withOcrBlocks(parseCache) { blocks ->
-        blocks.objects().any { block ->
+        blocks.jsonObjects().any { block ->
             block.optString("text").hasOcrDangerousActionText()
         }
     }
@@ -247,7 +248,7 @@ private fun String?.ocrBlocksHaveDangerousTargetEvidence(
     parseCache: ObservationJsonParseCache,
 ): Boolean =
     withOcrBlocks(parseCache) { blocks ->
-        blocks.objects().any { block ->
+        blocks.jsonObjects().any { block ->
             val text = block.optString("text")
             text.normalizedLookupKey() == normalizedTarget &&
                 text.hasOcrDangerousActionText()
@@ -415,7 +416,7 @@ private fun String?.observationHasScrollableEvidence(
     parseCache: ObservationJsonParseCache? = null,
 ): Boolean =
     withObservationElements(parseCache) { elements ->
-        elements.objects().any { element -> element.hasScrollableModeForPrompt() }
+        elements.jsonObjects().any { element -> element.hasScrollableModeForPrompt() }
     }
 
 private fun String?.observationHasSearchSubmitEvidence(
@@ -423,7 +424,7 @@ private fun String?.observationHasSearchSubmitEvidence(
 ): Boolean =
     withObservationElements(parseCache) { elements ->
         val ocrTexts = mutableListOf<String>()
-        val hasStructuredSearchSubmitEvidence = elements.objects().any { element ->
+        val hasStructuredSearchSubmitEvidence = elements.jsonObjects().any { element ->
             if (element.optString("source") == "ocr") {
                 ocrTexts += element.optString("text")
                 false
@@ -439,7 +440,7 @@ private fun String?.observationHasTargetlessTypingEvidence(
 ): Boolean =
     withObservationElements(parseCache) { elements ->
         val ocrTexts = mutableListOf<String>()
-        val hasStructuredTypingEvidence = elements.objects().any { element ->
+        val hasStructuredTypingEvidence = elements.jsonObjects().any { element ->
             if (element.optString("source") == "ocr") {
                 ocrTexts += element.optString("text")
                 false
@@ -454,7 +455,7 @@ private fun String?.ocrBlocksHaveSearchSubmitEvidence(
     parseCache: ObservationJsonParseCache? = null,
 ): Boolean =
     withOcrBlocks(parseCache) { blocks ->
-        val texts = blocks.objects().map { block -> block.optString("text") }
+        val texts = blocks.jsonObjects().map { block -> block.optString("text") }
         texts.hasOcrSearchSubmitEvidence()
     }
 
@@ -462,7 +463,7 @@ private fun String?.ocrBlocksHaveTargetlessTypingEvidence(
     parseCache: ObservationJsonParseCache? = null,
 ): Boolean =
     withOcrBlocks(parseCache) { blocks ->
-        blocks.objects().any { block ->
+        blocks.jsonObjects().any { block ->
             block.optString("text").hasStrongSearchContextText()
         }
     }
@@ -472,7 +473,7 @@ private fun List<String>.hasOcrSearchSubmitEvidence(): Boolean =
         any { text -> text.hasStandaloneSearchSubmitText() }
 
 private fun JSONArray.hasTargetEvidence(normalizedTarget: String, toolName: String): Boolean {
-    val elements = objects()
+    val elements = jsonObjects()
     if (elements.any { element -> element.isTargetIdEvidence(normalizedTarget, toolName) }) return true
     if (elements.any { element -> element.isAccessibilityTextTargetEvidence(normalizedTarget, toolName) }) return true
     return elements
@@ -481,7 +482,7 @@ private fun JSONArray.hasTargetEvidence(normalizedTarget: String, toolName: Stri
 }
 
 private fun JSONArray.hasSearchTapTargetEvidence(normalizedTarget: String): Boolean {
-    val elements = objects()
+    val elements = jsonObjects()
     val ocrElements = elements.filter { element -> element.optString("source") == "ocr" }
     return elements.any { element ->
         element.isTargetEvidenceMatch(normalizedTarget) &&

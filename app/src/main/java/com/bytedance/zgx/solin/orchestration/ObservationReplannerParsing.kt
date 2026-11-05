@@ -114,9 +114,6 @@ internal class ObservationJsonParseCache {
     }
 }
 
-internal fun JSONArray.objects(): List<JSONObject> =
-    (0 until length()).mapNotNull(::optJSONObject)
-
 internal fun JSONArray.indexedObjects(limit: Int = length()): List<Pair<Int, JSONObject>> =
     (0 until minOf(length(), limit)).mapNotNull { index ->
         optJSONObject(index)?.let { element -> index to element }
@@ -162,6 +159,3 @@ internal fun JSONObject.joinCompact(): String =
         .sorted()
         .joinToString(separator = ",") { key -> "$key=${opt(key)}" }
         .ifBlank { "none" }
-
-internal fun JSONObject.optNullableString(name: String): String? =
-    if (isNull(name)) null else optString(name).takeIf { value -> value.isNotBlank() }

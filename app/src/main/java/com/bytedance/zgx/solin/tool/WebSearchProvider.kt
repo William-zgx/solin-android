@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
+import com.bytedance.zgx.solin.logging.cleanMessage
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -225,7 +226,7 @@ class OkHttpWebSearchProvider(
         }
         val snapshots = locationQueries.take(request.maxResults.coerceAtMost(2)).map { locationQuery ->
             readWeatherSnapshot(locationQuery).getOrElse { throwable ->
-                return WebSearchReadResult.Failed(throwable.cleanReason())
+                return WebSearchReadResult.Failed(throwable.cleanMessage())
             }
         }
         return if (snapshots.size > 1) {
@@ -250,7 +251,7 @@ class OkHttpWebSearchProvider(
                 ),
             )
         }.getOrElse { throwable ->
-            throw IOException("地点解析失败：${throwable.cleanReason()}")
+            throw IOException("地点解析失败：${throwable.cleanMessage()}")
         }
         val location = geocodingJson.optJSONArray("results")?.optJSONObject(0)
             ?: throw IOException("没有找到地点：$locationQuery")
@@ -277,7 +278,7 @@ class OkHttpWebSearchProvider(
                 ),
             )
         }.getOrElse { throwable ->
-            throw IOException("天气查询失败：${throwable.cleanReason()}")
+            throw IOException("天气查询失败：${throwable.cleanMessage()}")
         }
         val current = forecastJson.optJSONObject("current")
             ?: throw IOException("天气接口没有返回当前天气")
@@ -390,7 +391,7 @@ class OkHttpWebSearchProvider(
                 ),
             )
         }.getOrElse { throwable ->
-            return WebSearchReadResult.Failed("搜索失败：${throwable.cleanReason()}")
+            return WebSearchReadResult.Failed("搜索失败：${throwable.cleanMessage()}")
         }
         val results = buildList {
             val abstractText = json.optString("AbstractText").trim()
@@ -448,7 +449,7 @@ class OkHttpWebSearchProvider(
                     queryLength = submittedQuery.length,
                 )
             }.getOrElse { throwable ->
-                failures += "${endpoint.sourceId}: ${throwable.cleanReason()}"
+                failures += "${endpoint.sourceId}: ${throwable.cleanMessage()}"
                 return@forEach
             }
             val results = html.duckDuckGoHtmlItems(
@@ -842,6 +843,3 @@ private fun duckDuckGoPageSources(endpoint: DuckDuckGoPageEndpoint): JSONArray =
 
 private fun String.boundedText(maxChars: Int): String =
     if (length <= maxChars) this else take(maxChars).trimEnd() + "..."
-
-private fun Throwable.cleanReason(): String =
-    message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName

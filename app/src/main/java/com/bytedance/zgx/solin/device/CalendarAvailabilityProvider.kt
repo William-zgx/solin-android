@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
+import com.bytedance.zgx.solin.logging.cleanMessage
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -203,7 +204,7 @@ class AndroidCalendarAvailabilityProvider(
             CalendarAvailabilityReadResult.MissingPermission
         } catch (throwable: Throwable) {
             CalendarAvailabilityReadResult.Failed(
-                throwable.message?.takeIf { it.isNotBlank() } ?: throwable::class.java.simpleName,
+                throwable.cleanMessage(),
             )
         }
     }

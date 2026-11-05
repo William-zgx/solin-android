@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.common.keysSet
 import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.RunPlacementRecoverySnapshotEntity
@@ -637,8 +638,6 @@ private val TOOL_OBSERVED_EXTERNAL_TRACE_KEYS = setOf(
     "retryable",
     "completionMetadata",
 )
-
-internal fun JSONObject.keysSet(): Set<String> = keys().asSequence().toSet()
 
 private fun JSONObject.nullableString(key: String): String? =
     if (isNull(key)) null else getString(key)

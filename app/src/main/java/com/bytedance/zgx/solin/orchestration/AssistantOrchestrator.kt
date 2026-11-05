@@ -74,25 +74,16 @@ interface AssistantRouter : AutoCloseable {
         cancelRun(runId, reason)
 
     /**
-     * Queue mid-run steering [messages] for [runId]. When the run is currently mid-model-stream,
-     * the in-flight generation is cooperatively cancelled (tool execution is NEVER interrupted for
-     * safety) and the steer messages are injected as the next user turn before the replan. Messages
-     * are drained (steer first, then any normal-queued user input) at the top of each model call.
-     * Returns true if the run is currently active (messages enqueued); false if unknown/terminal
-     * (messages discarded).
-     *
-     * Default impl returns false (no-op router).
+     * High-priority mid-run steering for [runId]. When the run is mid-model-stream, the in-flight
+     * generation is cooperatively cancelled (tool execution is NEVER interrupted for safety) and
+     * [messages] are injected as the next user turn before the replan. Messages are drained (steer
+     * first, then any normal-queued user input) at the top of each model call. Returns true if the
+     * run is active (messages enqueued); false if unknown/terminal (messages discarded).
      */
-    fun steerRun(runId: String, messages: List<ChatMessage>): Boolean = false
+    fun steer(runId: String, messages: List<ChatMessage>): Boolean = false
 
     /** Current state of [runId], or null when unknown. Used to classify mid-run steering. */
     fun runState(runId: String): AgentRunState? = null
-
-    /**
-     * High-priority steer for [runId]: enqueue [messages] and cooperatively cancel the registered
-     * in-flight model call when the run is generating. Never interrupts tool execution.
-     */
-    fun steer(runId: String, messages: List<ChatMessage>): Boolean = steerRun(runId, messages)
 
     /** Normal-priority mid-run input for [runId]; never cancels anything. */
     fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean = false
@@ -226,7 +217,6 @@ class AssistantOrchestrator(
     ),
     deviceControlSessionFinisher: () -> Unit = {},
     private val eventBus: SolinEventBus = NoOpSolinEventBus,
-    private val hooks: AgentHooks = NoOpAgentHooks,
     private val telemetrySink: TelemetrySink = NoOpTelemetrySink,
     private val systemContextContributors: List<SystemContextContributor> = emptyList(),
     systemPromptBuilder: SystemPromptBuilder? = null,
@@ -253,7 +243,6 @@ class AssistantOrchestrator(
         observationReplanner = observationReplanner,
         deviceControlSessionFinisher = deviceControlSessionFinisher,
         eventBus = eventBus,
-        hooks = hooks,
         telemetrySink = telemetrySink,
         systemPromptBuilder = resolvedSystemPromptBuilder,
         evidenceBlobStore = evidenceBlobStore,
@@ -299,15 +288,6 @@ class AssistantOrchestrator(
     override fun terminateRun(runId: String, reason: String): AgentModelObservationResult? =
         agentLoopRuntime.terminateRun(runId, reason)
 
-    override fun steerRun(runId: String, messages: List<ChatMessage>): Boolean =
-        agentLoopRuntime.steer(messages = messages, runId = runId)
-
-    /**
-     * High-priority steer: cancels the in-flight model generation (when the run is mid-model-
-     * stream; never interrupts tool execution for safety) and enqueues [messages] to be the next
-     * user turn on the immediately-following model call. Mirrors [steerRun] on AssistantRouter
-     * but returns the boolean accepted/active flag from the runtime.
-     */
     override fun steer(runId: String, messages: List<ChatMessage>): Boolean =
         agentLoopRuntime.steer(messages = messages, runId = runId)
 
@@ -324,7 +304,7 @@ class AssistantOrchestrator(
 
     /**
      * Register/unregister the currently in-flight model streaming Job for [runId] so the runtime
-     * can cooperatively cancel it when [steerRun] / [steer] arrives mid-model-stream. Callers
+     * can cooperatively cancel it when [steer] arrives mid-model-stream. Callers
      * (typically SolinViewModel) MUST pair these calls around their `.collect { chunk -> ... }`
      * loop, ideally via `try/finally` to clear the reference on normal completion or error.
      *
@@ -457,10 +437,6 @@ class AssistantOrchestrator(
         agentLoopRuntime.close()
         (actionPlanningRuntime as? AutoCloseable)?.close()
     }
-
-    /** Suspend-aware drain returning steer vs queued buckets; includes hook messages in steer. */
-    suspend fun drainPendingMessagesSuspend(runId: String): PendingMessagesDrain =
-        agentLoopRuntime.drainPendingMessagesSuspend(runId)
 
     /**
      * Compact [messages] to fit [tokenBudget]. Passthrough to [AgentLoopRuntime.compactHistory]

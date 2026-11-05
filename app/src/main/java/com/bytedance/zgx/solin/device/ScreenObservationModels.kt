@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.device
 
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.common.optNullableString
 import com.bytedance.zgx.solin.multimodal.OcrTextBlock
 import com.bytedance.zgx.solin.multimodal.OcrTextBounds
 import com.bytedance.zgx.solin.multimodal.OcrTextElement
@@ -407,8 +408,6 @@ private fun JSONArray?.stringList(): List<String> =
         }
     }.orEmpty()
 
-private fun JSONObject.optNullableString(name: String): String? =
-    if (isNull(name)) null else optString(name).takeIf { value -> value.isNotBlank() }
 
 private fun String.toMessagePrivacyOrNull(): MessagePrivacy? =
     runCatching { MessagePrivacy.valueOf(this) }.getOrNull()

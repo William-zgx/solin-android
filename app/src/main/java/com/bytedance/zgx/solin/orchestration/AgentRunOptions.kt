@@ -12,7 +12,6 @@ data class AgentRunOptions(
      * MissingModel gate passes on the remote-vision path.
      */
     val remoteGuiDrivingEnabled: Boolean = false,
-    val profile: AgentProfile = AgentProfile.DEFAULT,
 )
 
 enum class InitialPlanningMode {

@@ -6,10 +6,11 @@ import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
+import com.bytedance.zgx.solin.common.appendLengthPrefixed
+import com.bytedance.zgx.solin.common.sha256Hex
 import com.bytedance.zgx.solin.hasSameConnectivityTarget
 import com.bytedance.zgx.solin.logging.solinW
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
-import java.security.MessageDigest
 import java.util.UUID
 
 private const val LEGACY_PREFS_NAME = "solin"
@@ -274,14 +275,5 @@ private fun RemoteModelConfig.remoteConfigIntegritySha256(): String {
         appendLengthPrefixed(normalized.contextWindowTokens?.toString().orEmpty())
         appendLengthPrefixed(normalized.profileRevision)
     }
-    return MessageDigest.getInstance("SHA-256")
-        .digest(encoded.toByteArray(Charsets.UTF_8))
-        .toLowerHex()
-}
-
-private fun StringBuilder.appendLengthPrefixed(value: String) {
-    append(value.length)
-    append(':')
-    append(value)
-    append(';')
+    return sha256Hex(encoded)
 }

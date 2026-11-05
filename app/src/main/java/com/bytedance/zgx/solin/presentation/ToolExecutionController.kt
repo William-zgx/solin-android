@@ -434,15 +434,14 @@ class ToolExecutionController(
         statusText: String,
         publicWebEvidence: List<PublicWebEvidencePack>,
     ): ChatUiState =
-        sessionHost.finishedRun(state, runId = runId, statusText = statusText).copy(
-            pendingConfirmation = null,
-            backgroundTasks = sessionHost.loadBackgroundTasks(),
-            backgroundTaskHistory = sessionHost.loadBackgroundTaskHistory(),
-            periodicCheckPolicy = sessionHost.loadPeriodicCheckPolicy(),
-            longTermMemories = sessionHost.loadLongTermMemories(),
-            auditEvents = sessionHost.loadAuditEvents(),
-            activePublicWebEvidence = publicWebEvidence,
-        )
+        sessionHost.finishedRun(state, runId = runId, statusText = statusText)
+            .withBackgroundTasks(sessionHost.loadBackgroundTaskSnapshot())
+            .copy(
+                pendingConfirmation = null,
+                longTermMemories = sessionHost.loadLongTermMemories(),
+                auditEvents = sessionHost.loadAuditEvents(),
+                activePublicWebEvidence = publicWebEvidence,
+            )
 
     private suspend fun executeToolWithBoundary(
         request: ToolRequest,

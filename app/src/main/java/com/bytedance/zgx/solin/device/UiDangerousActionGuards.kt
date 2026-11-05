@@ -124,23 +124,45 @@ private val genericConfirmLabels = setOf("确定", "确认", "好", "好的", "�
 
 internal fun String?.isGenericConfirmLabel(): Boolean = normalizedLookupKey() in genericConfirmLabels
 
-internal fun String?.hasDangerousActionText(): Boolean = containsAnyMarker(dangerousActionTextMarkers)
+internal fun String?.hasDangerousActionText(): Boolean = dangerousActionTextMatcher.matches(this)
 
 /** Whether a single `ui_tap` target needs confirmation; stricter than [hasDangerousActionText]. */
-internal fun String?.hasDangerousTapTargetText(): Boolean = containsAnyMarker(dangerousTapTargetMarkers)
+internal fun String?.hasDangerousTapTargetText(): Boolean = dangerousTapTargetMatcher.matches(this)
 
-private fun String?.containsAnyMarker(markers: List<String>): Boolean {
-    val normalized = normalizedForDangerMatch()
-    if (normalized.isBlank()) return false
-    val words by lazy { orEmpty().replace(CAMEL_CASE_BOUNDARY_REGEX, "$1 $2").lowercase() }
-    return markers.any { marker ->
-        if (marker.first().isLatinLetter()) {
-            Regex("(?<![a-z])$marker").containsMatchIn(words)
-        } else {
-            normalized.contains(marker.normalizedLookupKey())
-        }
+/**
+ * Precompiled form of a marker list: Latin markers match at a word start, others as a substring
+ * of the normalized text. Built once because the guards run per node before every tap.
+ */
+private class DangerMarkerMatcher(markers: List<String>) {
+    private val latinWordStarts = markers
+        .filter { marker -> marker.first().isLatinLetter() }
+        .map { marker -> Regex("(?<![a-z])$marker") }
+    private val normalizedKeys = markers
+        .filterNot { marker -> marker.first().isLatinLetter() }
+        .map { marker -> marker.normalizedLookupKey() }
+
+    fun matches(text: String?): Boolean {
+        val normalized = text.normalizedForDangerMatch()
+        if (normalized.isBlank()) return false
+        if (normalizedKeys.any { key -> normalized.contains(key) }) return true
+        if (latinWordStarts.isEmpty()) return false
+        val words = text.orEmpty().replace(CAMEL_CASE_BOUNDARY_REGEX, "$1 $2").lowercase()
+        return latinWordStarts.any { regex -> regex.containsMatchIn(words) }
     }
 }
+
+private val dangerousActionTextMatcher by lazy { DangerMarkerMatcher(dangerousActionTextMarkers) }
+private val dangerousTapTargetMatcher by lazy { DangerMarkerMatcher(dangerousTapTargetMarkers) }
+private val standaloneDangerousActionTextKeys by lazy {
+    standaloneDangerousActionTextMarkers.map { marker -> marker.normalizedLookupKey() }.toSet()
+}
+private val strongDangerousActionTextKeys by lazy {
+    strongDangerousActionTextMarkers.map { marker -> marker.normalizedLookupKey() }
+}
+private val paymentContextTextKeys by lazy { paymentContextTextMarkers.map { marker -> marker.normalizedLookupKey() } }
+private val dangerousTapTargetKeys by lazy { dangerousTapTargetMarkers.map { marker -> marker.normalizedLookupKey() } }
+private val overlayDismissLabelKeys by lazy { overlayDismissLabels.map { label -> label.normalizedLookupKey() }.toSet() }
+private val blockingOverlayMarkerKeys by lazy { blockingOverlayMarkers.map { marker -> marker.normalizedLookupKey() } }
 
 private fun Char.isLatinLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
 
@@ -148,17 +170,13 @@ internal fun String?.hasOcrDangerousActionText(): Boolean {
     val normalized = normalizedForDangerMatch()
     if (normalized.isBlank()) return false
     if (hasStrongDangerousActionText()) return true
-    return standaloneDangerousActionTextMarkers.any { marker ->
-        normalized == marker.normalizedLookupKey()
-    }
+    return normalized in standaloneDangerousActionTextKeys
 }
 
 internal fun String?.hasStrongDangerousActionText(): Boolean {
     val normalized = normalizedForDangerMatch()
     if (normalized.isBlank()) return false
-    return strongDangerousActionTextMarkers.any { marker ->
-        normalized.contains(marker.normalizedLookupKey())
-    }
+    return strongDangerousActionTextKeys.any { key -> normalized.contains(key) }
 }
 
 internal fun ScreenStateSnapshot.hasDangerousActionControl(): Boolean =
@@ -262,7 +280,7 @@ internal fun List<ScreenNode>.windowShowsPaymentContext(): Boolean =
 
 private fun String.hasPaymentContextText(): Boolean {
     val normalized = normalizedForDangerMatch()
-    return paymentContextTextMarkers.any { marker -> normalized.contains(marker.normalizedLookupKey()) }
+    return paymentContextTextKeys.any { key -> normalized.contains(key) }
 }
 
 private fun List<ScreenNode>.actionableNodesAt(x: Int, y: Int): List<ScreenNode> =
@@ -315,8 +333,7 @@ private val WHITESPACE_REGEX = Regex("""\s+""")
 private fun String.isExactDangerousTapTarget(): Boolean {
     val bare = normalizedForDangerMatch().replace(CAPTION_AMOUNT_REGEX, "")
     if (bare.isEmpty()) return false
-    return dangerousTapTargetMarkers.any { marker ->
-        val key = marker.normalizedLookupKey()
+    return dangerousTapTargetKeys.any { key ->
         bare == key || captionActionPrefixes.any { prefix -> bare == prefix + key }
     }
 }
@@ -459,7 +476,7 @@ internal fun String?.isOverlayDismissLabel(): Boolean {
     // Require an (almost) exact close/skip affordance, not a substring of longer content text.
     // A real dialog close control is a short standalone label; matching substrings of long text
     // (e.g. a product description that happens to contain 关闭/跳过) caused false-positive taps.
-    if (overlayDismissLabels.any { label -> normalized == label.normalizedLookupKey() }) return true
+    if (normalized in overlayDismissLabelKeys) return true
     if (normalized.isCountdownSkipLabel()) return true
     val exactAscii = setOf("close", "dismiss", "skip", "x", "×")
     return normalized in exactAscii
@@ -470,7 +487,7 @@ internal fun String?.hasBlockingOverlayMarker(): Boolean {
     if (normalized.isBlank()) return false
     // A counting-down skip control only exists on splash/interstitial ads, so it is itself a marker.
     if (normalized.isCountdownSkipLabel()) return true
-    return blockingOverlayMarkers.any { marker -> normalized.contains(marker.normalizedLookupKey()) }
+    return blockingOverlayMarkerKeys.any { key -> normalized.contains(key) }
 }
 
 private fun ScreenNode.overlayLabel(): String = text.ifBlank { contentDescription }

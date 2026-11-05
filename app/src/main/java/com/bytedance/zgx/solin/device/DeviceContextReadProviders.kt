@@ -12,6 +12,7 @@ import android.os.Process
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
+import com.bytedance.zgx.solin.logging.cleanMessage
 import com.bytedance.zgx.solin.multimodal.ImageTextExtractor
 import com.bytedance.zgx.solin.multimodal.MlKitImageTextExtractor
 import com.bytedance.zgx.solin.multimodal.SharedTextPreview
@@ -288,7 +289,7 @@ class AndroidContactSummaryProvider(
             ContactSummaryReadResult.PermissionDenied("未授权“读取联系人”权限")
         } catch (throwable: Throwable) {
             ContactSummaryReadResult.Failed(
-                throwable.message?.takeIf { it.isNotBlank() } ?: throwable::class.java.simpleName,
+                throwable.cleanMessage(),
             )
         }
     }
@@ -574,7 +575,7 @@ class AndroidRecentFileProvider(
             RecentFileReadResult.PermissionDenied("未授权“读取文件”权限")
         } catch (throwable: Throwable) {
             RecentFileReadResult.Failed(
-                throwable.message?.takeIf { it.isNotBlank() } ?: throwable::class.java.simpleName,
+                throwable.cleanMessage(),
             )
         }
     }

@@ -7,9 +7,6 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.SolinConstants
-import com.bytedance.zgx.solin.credentials.ApiKeyCredentialResolver
-import com.bytedance.zgx.solin.credentials.Credential
-import com.bytedance.zgx.solin.credentials.CredentialResolver
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
@@ -86,7 +83,6 @@ class OkHttpRemoteChatRuntime(
         .readTimeout(SolinConstants.Network.CHAT_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         .build(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val credentialResolver: CredentialResolver = ApiKeyCredentialResolver,
     private val retryPolicy: RemoteRetryPolicy = RemoteRetryPolicy(),
     /**
      * Optional override for the remote `max_tokens` cap. `null` uses the per-model default from
@@ -262,9 +258,9 @@ class OkHttpRemoteChatRuntime(
         }
 
     /**
-     * Shared plumbing for both chat paths: config validation, credential resolution, request
-     * building, the retrying worker, cancellation mapping and `awaitClose`. [handleResponse] reads one
-     * successful response and must call `markEmitted` before each downstream emission.
+     * Shared plumbing for both chat paths: config validation, request building, the retrying
+     * worker, cancellation mapping and `awaitClose`. [handleResponse] reads one successful
+     * response and must call `markEmitted` before each downstream emission.
      */
     private fun <T> streamChatCompletion(
         config: RemoteModelConfig,
@@ -274,14 +270,9 @@ class OkHttpRemoteChatRuntime(
     ): Flow<T> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
-        val credential = runCatching { credentialResolver.resolve(normalized) }
-            .getOrElse { throwable ->
-                close(IllegalStateException("凭证解析失败：${throwable.message ?: throwable.javaClass.simpleName}", throwable))
-                return@callbackFlow
-            }
         // Captured before the IO worker starts so a stop() racing the worker launch is not lost.
         val generation = stopGeneration.value
-        val request = buildChatCompletionRequest(normalized, credential, body(normalized))
+        val request = buildChatCompletionRequest(normalized, body(normalized))
         val currentCall = AtomicReference<Call?>(null)
         val worker = launch(ioDispatcher) {
             try {
@@ -318,7 +309,6 @@ class OkHttpRemoteChatRuntime(
 
 private fun buildChatCompletionRequest(
     normalized: RemoteModelConfig,
-    credential: Credential,
     body: JSONObject,
 ): Request =
     Request.Builder()
@@ -327,9 +317,7 @@ private fun buildChatCompletionRequest(
         .header("Accept", "text/event-stream, application/json")
         .header("Content-Type", "application/json")
         .apply {
-            credential.authorizationHeader.takeIf { credential.hasAuthorization() }?.let {
-                header("Authorization", it)
-            }
+            if (normalized.apiKey.isNotBlank()) header("Authorization", "Bearer ${normalized.apiKey}")
         }
         .build()
 
@@ -796,9 +784,4 @@ private fun JSONArray.appendHistory(history: List<ChatMessage>): JSONArray {
             put(JSONObject().put("role", role).put("content", message.text))
         }
     return this
-}
-
-private fun Credential.hasAuthorization(): Boolean = when (this) {
-    is Credential.ApiKey -> apiKey.isNotBlank()
-    is Credential.OAuth -> accessToken.isNotBlank()
 }

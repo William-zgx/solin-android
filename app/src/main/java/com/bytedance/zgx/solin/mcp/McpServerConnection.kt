@@ -64,11 +64,6 @@ class McpServerConnection(
     /** Backwards-compatible alias for [ensureInitialized]. */
     suspend fun initialize(): McpInitializeResult = ensureInitialized()
 
-    suspend fun refreshTools(): List<McpTool> = mutex.withLock {
-        refreshToolsLocked()
-        cachedTools
-    }
-
     private suspend fun refreshToolsLocked() {
         val resp = transport.request(
             McpRequest(id = nextRequestId.getAndIncrement(), method = McpProtocol.METHOD_TOOLS_LIST),

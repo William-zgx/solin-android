@@ -1,13 +1,19 @@
 package com.bytedance.zgx.solin.skill
 
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.common.appendLengthPrefixed
+import com.bytedance.zgx.solin.common.keysSet
+import com.bytedance.zgx.solin.common.optDoubleOrNull
+import com.bytedance.zgx.solin.common.optStringOrNull
+import com.bytedance.zgx.solin.common.optStringSet
+import com.bytedance.zgx.solin.common.optStringSetOrNull
+import com.bytedance.zgx.solin.common.sha256Hex
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.MessageDigest
 import com.bytedance.zgx.solin.logging.cleanMessage
 
 data class SkillManifest(
@@ -109,9 +115,7 @@ fun SkillManifest.authorizationContractHash(): String {
         requiredTools.sorted().forEach(::appendLengthPrefixed)
         appendLengthPrefixed(inputSchemaJson.normalizedJsonForContract())
     }
-    return MessageDigest.getInstance("SHA-256")
-        .digest(identity.toByteArray(Charsets.UTF_8))
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+    return sha256Hex(identity)
 }
 
 private fun SkillBackgroundExecution.authorizationIdentity(): String =
@@ -624,51 +628,10 @@ private fun String.schemaContract(): SchemaContract =
 private fun String.isInvalidSourceRefComponent(): Boolean =
     contains('.')
 
-private fun JSONObject.keysSet(): Set<String> {
-    val result = linkedSetOf<String>()
-    val iterator = keys()
-    while (iterator.hasNext()) {
-        result += iterator.next()
-    }
-    return result
-}
-
-private fun JSONObject.optStringSet(name: String): Set<String> {
-    val array = optJSONArray(name) ?: return emptySet()
-    return buildSet {
-        for (index in 0 until array.length()) {
-            add(array.getString(index))
-        }
-    }
-}
-
 private fun JSONObject.optIntOrNull(name: String): Int? =
     if (has(name)) optInt(name) else null
 
-private fun JSONObject.optDoubleOrNull(name: String): Double? {
-    if (!has(name) || isNull(name)) return null
-    return optDouble(name)
-}
 
-private fun JSONObject.optStringOrNull(name: String): String? =
-    if (!has(name) || isNull(name)) null else optString(name)
-
-private fun JSONObject.optStringSetOrNull(name: String): Set<String>? {
-    val array = optJSONArray(name) ?: return null
-    return buildSet {
-        for (index in 0 until array.length()) {
-            add(array.getString(index))
-        }
-    }
-}
-
-
-private fun StringBuilder.appendLengthPrefixed(value: String) {
-    append(value.length)
-    append(':')
-    append(value)
-    append(';')
-}
 
 private fun String.normalizedJsonForContract(): String =
     runCatching { JSONObject(this).canonicalJsonString() }

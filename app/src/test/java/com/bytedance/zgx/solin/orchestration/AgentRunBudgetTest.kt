@@ -7,7 +7,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Regression coverage for the anti-runaway gates in [AgentRunBudget].
@@ -49,7 +48,6 @@ class AgentRunBudgetTest {
         val budget = AgentRunBudget(
             maxRunToolSteps = 2,
             maxObservationDecisions = 2,
-            profilesByRunId = ConcurrentHashMap(),
             toolRequestsFor = { emptyList() },
             observationDecidedCount = { 0 },
             sessionPlanStore = null,
@@ -71,7 +69,6 @@ class AgentRunBudgetTest {
         val budget = AgentRunBudget(
             maxRunToolSteps = 10,
             maxObservationDecisions = 10,
-            profilesByRunId = ConcurrentHashMap(),
             toolRequestsFor = { emptyList() },
             observationDecidedCount = { 0 },
             sessionPlanStore = null,
@@ -130,7 +127,6 @@ class AgentRunBudgetTest {
         val budget = AgentRunBudget(
             maxRunToolSteps = 10,
             maxObservationDecisions = 10,
-            profilesByRunId = ConcurrentHashMap(),
             toolRequestsFor = { emptyList() },
             observationDecidedCount = { 0 },
             sessionPlanStore = null,
@@ -160,7 +156,6 @@ class AgentRunBudgetTest {
     ): AgentRunBudget = AgentRunBudget(
         maxRunToolSteps = 2,
         maxObservationDecisions = 2,
-        profilesByRunId = ConcurrentHashMap(),
         toolRequestsFor = {
             onHistoryRead()
             toolRequests

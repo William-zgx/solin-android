@@ -277,8 +277,8 @@ Current status:
 - `LiteRtRuntime` wraps the Google AI Edge LiteRT-LM `Engine` with GPU/CPU
   fallback and explicit model loading.
 - `RemoteChatRuntime` streams from an OpenAI-compatible endpoint using
-  OkHttp, with `CredentialResolver` for auth and `RemoteModelEndpoints` for
-  base URL resolution.
+  OkHttp, sending the configured API key as a `Bearer` header, with
+  `RemoteModelEndpoints` for base URL resolution.
 - `AdaptiveGenerationPolicy` decides backend, token limits, and image caps
   from `AdaptiveGenerationPolicyInput` (preferred backend, context window,
   last-gen stats, quality issues, image count).
@@ -925,32 +925,22 @@ Tests:
 
 Code:
 
-- `app/src/main/java/com/bytedance/zgx/solin/credentials/`
+- `app/src/main/java/com/bytedance/zgx/solin/runtime/RemoteChatRuntime.kt`
 
 Responsibilities:
 
-- Resolve API keys and OAuth bearer tokens for remote model and MCP calls.
+- Send the remote model API key as `Authorization: Bearer <key>`, and send no
+  `Authorization` header when the key is blank.
 - Keep credential material out of chat history, traces, and audit logs.
 
 Boundaries:
 
-- `CredentialResolver` never persists raw tokens; it returns a short-lived
-  `Credential` sealed value.
-- Refresh is not automatic; callers invoke `refreshWith(refresher)` when
-  `isExpired` is true.
-
-Current status:
-
-- `Credential` sealed class has `ApiKey` (static, never expires) and `OAuth`
-  (bearer with optional refresh token and expiry) variants.
-- `ApiKeyCredentialResolver` reads from encrypted preferences.
-- `NoOpCredentialResolver` is the default when no remote endpoint is configured.
+- The key comes from `RemoteModelConfig.apiKey` (encrypted settings). There is
+  no OAuth or token refresh path.
 
 Tests:
 
-- `ApiKeyCredentialResolverTest`
-- `NoOpCredentialResolverTest`
-- `CredentialTest`
+- `RemoteChatRuntimeTest`
 
 ## Model Download
 

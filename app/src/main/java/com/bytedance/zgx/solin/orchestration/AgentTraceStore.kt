@@ -1923,8 +1923,10 @@ private fun AgentObservationDecision.traceJson(): JSONObject {
 internal fun String.shortTraceText(maxLength: Int = 160): String {
     val compact = lineSequence()
         .joinToString(" ") { line -> line.trim() }
-        .replace(Regex("\\s+"), " ")
+        .replace(TRACE_WHITESPACE_REGEX, " ")
         .trim()
     val redacted = ToolAuditSummaryRedactor.redact(compact)
     return if (redacted.length <= maxLength) redacted else redacted.take(maxLength - 3) + "..."
 }
+
+private val TRACE_WHITESPACE_REGEX = Regex("\\s+")

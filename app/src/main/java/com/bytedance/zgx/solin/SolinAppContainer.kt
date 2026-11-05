@@ -57,7 +57,6 @@ import com.bytedance.zgx.solin.memory.LegacyMemoryStorageRetirement
 import com.bytedance.zgx.solin.multimodal.AndroidCurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.RawScreenshotProvider
-import com.bytedance.zgx.solin.orchestration.AgentHooks
 import com.bytedance.zgx.solin.orchestration.AndroidRemoteVisionDecider
 import com.bytedance.zgx.solin.orchestration.AvailableSkillsContributor
 import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
@@ -72,7 +71,6 @@ import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.solin.orchestration.RemoteVisionObservationReplanner
 import com.bytedance.zgx.solin.orchestration.toRemoteVisionScreenContext
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeDispatcher
-import com.bytedance.zgx.solin.orchestration.NoOpAgentHooks
 import com.bytedance.zgx.solin.orchestration.RoomRunPlacementBindingStore
 import com.bytedance.zgx.solin.orchestration.RunPlacementRecoveryContext
 import com.bytedance.zgx.solin.orchestration.RoomAgentTraceStore
@@ -229,7 +227,6 @@ class SolinAppContainer(
     private val assistantOrchestrator: AssistantOrchestrator
     private val eventBus: SolinEventBus
     private val telemetrySink: TelemetrySink
-    private val agentHooks: AgentHooks
     private val systemContextContributors: List<SystemContextContributor>
     private val systemPromptBuilder: SystemPromptBuilder
     private val toolProgressPublisher: ToolProgressPublisher
@@ -316,10 +313,9 @@ class SolinAppContainer(
         // service. Egress is governed by the in-app opt-in + first-confirm gate + per-send audit.
         // The MediaProjection-based OCR provider above stays the LocalOnly OCR tool's capture path.
         rawScreenshotProvider = AccessibilityRawScreenshotProvider()
-        // Seams: event bus, telemetry, hooks, and system-context contributors.
+        // Seams: event bus, telemetry, and system-context contributors.
         eventBus = DefaultSolinEventBus()
         telemetrySink = InMemoryTelemetrySink()
-        agentHooks = NoOpAgentHooks
         systemContextContributors = listOf(
             AvailableSkillsContributor(
                 manifestsProvider = { moduleRegistry.skillSources.flatMap { source -> source.manifests() } },
@@ -458,7 +454,6 @@ class SolinAppContainer(
                 DeviceControlSessionService.stop(appContext)
             },
             eventBus = eventBus,
-            hooks = agentHooks,
             telemetrySink = telemetrySink,
             systemContextContributors = systemContextContributors,
             systemPromptBuilder = systemPromptBuilder,

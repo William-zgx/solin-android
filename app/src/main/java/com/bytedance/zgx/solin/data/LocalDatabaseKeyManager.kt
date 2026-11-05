@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import com.bytedance.zgx.solin.common.toLowerHex
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
@@ -130,7 +131,3 @@ internal class LocalDatabaseKeyManager(
         val MAGIC = byteArrayOf('S'.code.toByte(), 'L'.code.toByte(), 'D'.code.toByte(), 'K'.code.toByte())
     }
 }
-
-/** Lowercase two-digit hex per byte. */
-internal fun ByteArray.toLowerHex(): String =
-    joinToString(separator = "") { byte -> "%02x".format(byte) }

@@ -3,9 +3,6 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.data.PendingAgentConfirmationEntity
-import com.bytedance.zgx.solin.presentation.BoundGenerationAttemptResolver
-import com.bytedance.zgx.solin.presentation.BoundGenerationStopResolution
-import com.bytedance.zgx.solin.presentation.BoundGenerationStopResolver
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -190,15 +187,12 @@ class RunPlacementRecoveryTest {
         assertTrue(remoteStarted.await(5, TimeUnit.SECONDS))
 
         nextRunPreference = InferenceMode.Local
-        val resolution = BoundGenerationStopResolver.resolve(
-            bindingStore = fixture.store,
-            runId = fixture.permit.binding.runId,
-            state = AgentRunState.Cancelled,
-            updatedAtMillis = 3_000L,
-        )
-        val resolved = resolution as BoundGenerationStopResolution.Resolved
+        val resolved = fixture.store.terminalizeRun(
+            fixture.permit.binding.runId,
+            AgentRunState.Cancelled,
+            3_000L,
+        ) as TerminalizeRunResult.Terminalized
         assertEquals(RunPlacement.Remote, resolved.placement)
-        resolved.stopHandle?.stop()
         dispatch.await()
 
         assertEquals(InferenceMode.Local, nextRunPreference)
@@ -315,9 +309,8 @@ class RunPlacementRecoveryTest {
         val dispatcher: ModelRuntimeDispatcher,
     ) {
         fun resolveAttempt(privacyPlan: PromptPrivacyPlan): ActiveRunPlacementPermit {
-            val resolution = BoundGenerationAttemptResolver.resolve(
-                bindingStore = store,
-                runId = permit.binding.runId,
+            val resolution = BoundRunContinuationResolver.resolve(
+                permit = store.activeBinding(permit.binding.runId),
                 privacyPlan = privacyPlan,
             )
             return (resolution as BoundRunContinuationResolution.Dispatch).permit

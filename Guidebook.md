@@ -60,7 +60,6 @@ multimodal/     分享、附件、OCR 边界
 background/     提醒与定时任务
 module/         SolinModule 注册与冻结
 mcp/            Model Context Protocol 服务器接入
-credentials/    API Key / OAuth 凭证解析
 download/       模型下载与校验
 capability/     能力矩阵与产品定位
 plan/           多步计划持久化与工具桥接

@@ -215,6 +215,30 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun okHttpRuntimeSendsBearerApiKeyOnlyWhenConfigured() = runTest {
+        MockWebServer().use { server ->
+            repeat(2) {
+                server.enqueue(
+                    MockResponse.Builder()
+                        .code(200)
+                        .addHeader("Content-Type", "application/json")
+                        .body("""{"choices":[{"message":{"content":"ok"}}]}""")
+                        .build(),
+                )
+            }
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+            val baseUrl = server.url("/v1").toString().trimEnd('/')
+
+            runtime.send("你好", emptyList(), GenerationParameters(), RemoteModelConfig(baseUrl, "model-a", apiKey = "  sk-1  ")).toList()
+            runtime.send("你好", emptyList(), GenerationParameters(), RemoteModelConfig(baseUrl, "model-a", apiKey = "   ")).toList()
+
+            assertEquals("Bearer sk-1", server.takeRequest().headers["Authorization"])
+            assertEquals(null, server.takeRequest().headers["Authorization"])
+        }
+    }
+
+    @Test
     fun okHttpRuntimeSendsResolvedMaxTokensInRequestBody() = runTest {
         MockWebServer().use { server ->
             server.enqueue(

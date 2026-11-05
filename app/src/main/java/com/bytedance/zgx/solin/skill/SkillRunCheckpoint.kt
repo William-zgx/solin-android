@@ -1,9 +1,10 @@
 package com.bytedance.zgx.solin.skill
 
+import com.bytedance.zgx.solin.common.appendLengthPrefixed
+import com.bytedance.zgx.solin.common.sha256Hex
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
-import java.security.MessageDigest
 
 enum class SkillRunCheckpointPhase {
     AwaitingToolConfirmation,
@@ -172,9 +173,7 @@ fun SkillManifest.checkpointHash(): String {
         appendLengthPrefixed(inputSchemaJson)
         appendLengthPrefixed(riskLevel.name)
     }
-    return MessageDigest.getInstance("SHA-256")
-        .digest(identity.toByteArray(Charsets.UTF_8))
-        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+    return sha256Hex(identity)
 }
 
 private fun SkillStep.knownValueFreeOutputKeys(toolRegistry: ToolRegistry): List<String> =
@@ -198,13 +197,6 @@ private fun SkillStep.ToolStep.unpersistablePendingBindingTargets(toolRegistry: 
     return argumentBindings.keys
         .filter { target -> target !in persistableTargets }
         .sorted()
-}
-
-private fun StringBuilder.appendLengthPrefixed(value: String) {
-    append(value.length)
-    append(':')
-    append(value)
-    append(';')
 }
 
 private fun String.isNotSafeCheckpointToken(): Boolean =

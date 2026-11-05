@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.common.optNullableString
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
 import com.bytedance.zgx.solin.device.ScreenBounds
 import com.bytedance.zgx.solin.device.ScreenNode
@@ -569,5 +570,3 @@ private fun ScreenBounds.area(): Int =
 private fun boundsDimension(value: Int): Int =
     value.coerceAtLeast(0).coerceAtMost(10_000)
 
-private fun JSONObject.optNullableString(name: String): String? =
-    if (isNull(name)) null else optString(name).takeIf { value -> value.isNotBlank() }

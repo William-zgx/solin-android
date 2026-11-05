@@ -118,7 +118,6 @@ class AgentLoopRuntime(
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
     private val eventBus: SolinEventBus = NoOpSolinEventBus,
-    private val hooks: AgentHooks = NoOpAgentHooks,
     private val telemetrySink: TelemetrySink = NoOpTelemetrySink,
     private val maxToolRetryAttempts: Int = SolinConstants.AgentLoop.MAX_TOOL_RETRY_ATTEMPTS,
     private val maxRunToolSteps: Int = SolinConstants.AgentLoop.MAX_RUN_TOOL_STEPS,
@@ -177,7 +176,6 @@ class AgentLoopRuntime(
     private val lowRiskDeviceActionConfirmationBypassByRunId = runScopedState.lowRiskDeviceActionConfirmationBypassByRunId
     private val remoteGuiDrivingEnabledByRunId = runScopedState.remoteGuiDrivingEnabledByRunId
     private val installedCapabilityProfilesByRunId = runScopedState.installedCapabilityProfilesByRunId
-    private val profilesByRunId = runScopedState.profilesByRunId
     private val scratchpad = com.bytedance.zgx.solin.memory.PerRunScratchpad()
 
     // Per-run wall-clock start time for lifecycle events. Declared ahead of [runBudget] because the
@@ -221,7 +219,6 @@ class AgentLoopRuntime(
     private val runBudget = AgentRunBudget(
         maxRunToolSteps = maxRunToolSteps,
         maxObservationDecisions = maxObservationDecisions,
-        profilesByRunId = profilesByRunId,
         toolRequestsFor = traceQueries::toolRequestsFor,
         observationDecidedCount = { runId ->
             traceStore.steps(runId).count { step -> step is AgentStep.ObservationDecided }
@@ -534,16 +531,9 @@ class AgentLoopRuntime(
         options: AgentRunOptions = AgentRunOptions(),
         installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AgentLoopResult {
-        val profile = options.profile
         val createdRun = createRunOrEphemeral(input, sessionId)
         com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.captureForRun(createdRun.id)
         val startedAt = System.currentTimeMillis()
-        // Only register an explicit (non-default) profile so the constructor's
-        // maxRunToolSteps remains the effective cap for callers that don't opt in
-        // to per-profile budgets (preserves backward-compat for tests/clients).
-        if (profile != AgentProfile.DEFAULT) {
-            profilesByRunId[createdRun.id] = profile
-        }
         runStartedAtMillis[createdRun.id] = startedAt
         runTurnIndex[createdRun.id] = 0
         remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
@@ -556,9 +546,6 @@ class AgentLoopRuntime(
                 runId = createdRun.id,
                 modelLabel = actionModelPath ?: "local",
                 inputText = input,
-                profileId = profile.profileId,
-                parentRunId = (profile as? AgentProfile.Subagent)?.parentRunId,
-                depth = (profile as? AgentProfile.Subagent)?.depth ?: 0,
             ),
         )
         eventBus.publish(
@@ -568,19 +555,6 @@ class AgentLoopRuntime(
                 occurredAtMillis = startedAt,
             ),
         )
-        // Subagent depth validation: reject nested runs exceeding the hard cap immediately
-        // after lifecycle bookkeeping so subscribers see a paired RunStarted/RunFailed.
-        if (profile is AgentProfile.Subagent && profile.depth > AgentProfile.MAX_SUBAGENT_DEPTH) {
-            val message = "Subagent depth ${profile.depth} exceeds maximum ${AgentProfile.MAX_SUBAGENT_DEPTH}."
-            val syntheticRequest = ToolRequest(
-                id = "subagent-depth-guard",
-                toolName = "subagent",
-                reason = "subagent depth validation",
-            )
-            val rejectedPlan = AgentPlan.RejectedTool(syntheticRequest.rejected(message))
-            return failInitialPlanValidation(createdRun.id, rejectedPlan, failedStepMessage = message)
-        }
-
         val memoryHits = memoryRetrieval.retrieve(input, memoryEnabled).hits
         traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(memoryHits, deviceContext))
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
@@ -960,10 +934,7 @@ class AgentLoopRuntime(
     /**
      * Drain point for the steer/queued channels for [runId]. Drains ALL pending steer
      * batches first (high priority), then ALL pending normal-queued batches. The returned lists
-     * are ordered by arrival (FIFO) within each priority class. Hook-supplied steering messages
-     * ([AgentHooks.getSteeringMessages]) are NOT appended here because this method is non-suspend;
-     * prefer [drainPendingMessagesSuspend] when a coroutine scope is available so hook messages
-     * flow through the same prepend path.
+     * are ordered by arrival (FIFO) within each priority class.
      *
      * Publishes [SolinEvent.Agent.RunSteered] once when the combined injected count is non-empty.
      *
@@ -1034,26 +1005,6 @@ class AgentLoopRuntime(
         }
         for (b in requeue) {
             channel.trySend(b)
-        }
-    }
-
-    /**
-     * Suspend-aware drain: behaves like [drainPendingMessages] but also appends any hook-supplied
-     * messages from [AgentHooks.getSteeringMessages] (treated as steer-priority). Upper layers
-     * that hold a coroutine scope (e.g. ViewModel) should prefer this overload so hook-injected
-     * messages flow through the same injection path.
-     */
-    suspend fun drainPendingMessagesSuspend(runId: String): PendingMessagesDrain {
-        val base = drainPendingMessages(runId)
-        // A throwing hook must not crash the agent loop; fall back to no hook messages.
-        val hookMessages = runCatching { hooks.getSteeringMessages() }.getOrElse { throwable ->
-            Log.e(TAG, "Agent hook 'getSteeringMessages' failed; using safe default", throwable)
-            emptyList()
-        }
-        return if (hookMessages.isEmpty()) {
-            base
-        } else {
-            base.copy(steer = base.steer + hookMessages)
         }
     }
 

@@ -1,18 +1,12 @@
 package com.bytedance.zgx.solin.memory
 
-import java.security.MessageDigest
+import com.bytedance.zgx.solin.common.sha256Hex
 import java.util.Locale
 
 /*
  * Memory text analysis: tokenization, search aliases, stop words and stable hashing. Split out of
  * MemoryRepository.kt; behaviour unchanged.
  */
-
-/** Lowercase hex SHA-256 of [text] encoded as UTF-8. */
-internal fun sha256Hex(text: String): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(text.toByteArray(Charsets.UTF_8))
-        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
 internal fun deterministicMemoryRecordId(prefix: String, key: String): String =
     "$prefix-${sha256Hex(key).take(16)}"
@@ -365,11 +359,16 @@ internal fun String.containsAny(terms: Set<String>): Boolean =
 
 private fun String.containsTerm(term: String): Boolean =
     if (term.all { char -> char.isAsciiLetterOrDigit() }) {
-        Regex("""(?<![a-z0-9])${Regex.escape(term)}(?![a-z0-9])""")
-            .containsMatchIn(this)
+        asciiTermRegex(term).containsMatchIn(this)
     } else {
         contains(term)
     }
+
+/** Word-bounded regex per ASCII term; the term sets are small constants, so the cache stays bounded. */
+private val asciiTermRegexes = java.util.concurrent.ConcurrentHashMap<String, Regex>()
+
+private fun asciiTermRegex(term: String): Regex =
+    asciiTermRegexes.getOrPut(term) { Regex("""(?<![a-z0-9])${Regex.escape(term)}(?![a-z0-9])""") }
 
 private fun Char.isAsciiLetterOrDigit(): Boolean =
     this in 'a'..'z' || this in '0'..'9'

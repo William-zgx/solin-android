@@ -3,9 +3,9 @@ package com.bytedance.zgx.solin.evidence
 import android.content.Context
 import android.util.AtomicFile
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.common.sha256Hex
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -97,12 +97,6 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "OnDeviceEvidenceBlob"
-        private fun sha256Hex(bytes: ByteArray): String {
-            val md = MessageDigest.getInstance("SHA-256")
-            val digest = md.digest(bytes)
-            return digest.joinToString("") { "%02x".format(it) }
-        }
-
         private fun loge(msg: String, t: Throwable? = null) {
             runCatching { android.util.Log.e(TAG, msg, t) }
                 .onFailure { println("E/$TAG: $msg ${t?.message}") }
