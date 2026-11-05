@@ -2,6 +2,11 @@
 
 > **Status: NOT STARTED** — `runBlocking` is still used in `PreferenceSettingsStore.kt`
 > (and other data-layer call sites). This plan remains available for future execution.
+>
+> Line numbers in §1–§3.3 and §3.5–§3.7 were re-checked against the tree on 2026-11-05. The
+> `SolinViewModel` call-site inventory in §3.4 after `createInitialState()` predates the
+> controller split; most of those call sites now live in `presentation/*` controllers, so
+> re-inventory them before Step 3.
 
 ## Overview
 
@@ -12,124 +17,124 @@ and cancellation impossible. This plan migrates all data-layer interfaces to use
 eliminating `runBlocking` from the data layer entirely.
 
 **Scope**: 13 interfaces, 17+ implementations, ~170 methods, ~60 call sites in `SolinViewModel`,
-plus call sites in `MemoryController`, `SolinAppContainer`, `LegacyPrefsMigrator`, and `SystemPromptBuilder`.
+plus call sites in the `presentation/*` controllers, `MemoryController`, `SolinAppContainer`, `LegacyPrefsMigrator`, and `SystemPromptBuilder`.
 
 ---
 
 ## 1. Complete List of Interfaces and Functions Needing `suspend`
 
-### 1.1 `SessionStore` (`app/src/main/java/com/bytedance/zgx/solin/data/Stores.kt`, lines 13-23)
+### 1.1 `SessionStore` (`app/src/main/java/com/bytedance/zgx/solin/data/Stores.kt`, lines 15-25)
 
 | Line | Current Signature | Target Signature | Rationale |
 |------|-------------------|------------------|-----------|
-| 14 | `val activeSessionId: String` | `suspend fun activeSessionId(): String` | Backed by Room + ActiveSessionStore I/O; property access cannot be `suspend` |
-| 15 | `fun summaries(): List<ChatSessionSummary>` | `suspend fun summaries(): List<ChatSessionSummary>` | Room query `sessionDao.sessions()` |
-| 16 | `fun activeMessages(): List<ChatMessage>` | `suspend fun activeMessages(): List<ChatMessage>` | Room query `sessionDao.messagesForSession(activeSessionId)` |
-| 17 | `fun allMessages(limit: Int): List<ChatMessage>` | `suspend fun allMessages(limit: Int): List<ChatMessage>` | Room query across sessions |
-| 18 | `fun createNewSession(): List<ChatMessage>` | `suspend fun createNewSession(): List<ChatMessage>` | Room insert + ActiveSessionStore write |
-| 19 | `fun selectSession(sessionId: String): List<ChatMessage>?` | `suspend fun selectSession(sessionId: String): List<ChatMessage>?` | Room query + ActiveSessionStore write |
-| 20 | `fun deleteActiveSession(): List<ChatMessage>?` | `suspend fun deleteActiveSession(): List<ChatMessage>?` | Room delete + ActiveSessionStore write |
-| 21 | `fun replaceActiveSessionMessages(messages: List<ChatMessage>, persistNow: Boolean)` | `suspend fun replaceActiveSessionMessages(...)` | Room upsert + optional insert |
-| 22 | `fun persistActiveSessionFrom(messages: List<ChatMessage>)` | `suspend fun persistActiveSessionFrom(messages: List<ChatMessage>)` | Room write |
+| 16 | `val activeSessionId: String` | `suspend fun activeSessionId(): String` | Backed by Room + ActiveSessionStore I/O; property access cannot be `suspend` |
+| 17 | `fun summaries(): List<ChatSessionSummary>` | `suspend fun summaries(): List<ChatSessionSummary>` | Room query `sessionDao.sessions()` |
+| 18 | `fun activeMessages(): List<ChatMessage>` | `suspend fun activeMessages(): List<ChatMessage>` | Room query `sessionDao.messagesForSession(activeSessionId)` |
+| 19 | `fun allMessages(limit: Int): List<ChatMessage>` | `suspend fun allMessages(limit: Int): List<ChatMessage>` | Room query across sessions |
+| 20 | `fun createNewSession(): List<ChatMessage>` | `suspend fun createNewSession(): List<ChatMessage>` | Room insert + ActiveSessionStore write |
+| 21 | `fun selectSession(sessionId: String): List<ChatMessage>?` | `suspend fun selectSession(sessionId: String): List<ChatMessage>?` | Room query + ActiveSessionStore write |
+| 22 | `fun deleteActiveSession(): List<ChatMessage>?` | `suspend fun deleteActiveSession(): List<ChatMessage>?` | Room delete + ActiveSessionStore write |
+| 23 | `fun replaceActiveSessionMessages(messages: List<ChatMessage>, persistNow: Boolean)` | `suspend fun replaceActiveSessionMessages(...)` | Room upsert + optional insert |
+| 24 | `fun persistActiveSessionFrom(messages: List<ChatMessage>)` | `suspend fun persistActiveSessionFrom(messages: List<ChatMessage>)` | Room write |
 
-### 1.2 `ActiveSessionStore` (`Stores.kt`, lines 25-28)
-
-| Line | Current | Target | Rationale |
-|------|---------|--------|-----------|
-| 26 | `fun activeSessionId(): String?` | `suspend fun activeSessionId(): String?` | DataStore read |
-| 27 | `fun saveActiveSessionId(sessionId: String)` | `suspend fun saveActiveSessionId(sessionId: String)` | DataStore write |
-
-### 1.3 `ModelRepositoryFacade` (`Stores.kt`, lines 30-55)
+### 1.2 `ActiveSessionStore` (`Stores.kt`, lines 27-30)
 
 | Line | Current | Target | Rationale |
 |------|---------|--------|-----------|
-| 31 | `fun currentState(): ModelSelectionState` | `suspend fun currentState(): ModelSelectionState` | Calls `settingsStore.selectedModelId()` + `settingsStore.activeInstalledModelId()` + Room queries |
-| 32 | `fun selectedRecommendedModel(): RecommendedModel` | `suspend fun selectedRecommendedModel(): RecommendedModel` | Calls `settingsStore.selectedModelId()` |
-| 33 | `fun selectRecommendedModel(modelId: String): ModelSelectionResult` | `suspend fun selectRecommendedModel(modelId: String): ModelSelectionResult` | Calls `settingsStore.saveSelectedModelId()` + `currentState()` |
-| 34 | `fun selectInstalledModel(modelId: String): InstalledModelSummary?` | `suspend fun selectInstalledModel(modelId: String): InstalledModelSummary?` | Room query + `settingsStore.activeInstalledModelId()` |
-| 35 | `fun deleteInstalledModel(modelId: String): Boolean` | `suspend fun deleteInstalledModel(modelId: String): Boolean` | Room delete + file I/O + `settingsStore.saveActiveInstalledModelId()` |
-| 36-42 | `fun registerInstalledModel(...)` | `suspend fun registerInstalledModel(...)` | Room upsert + `settingsStore.saveActiveInstalledModelId()` + `settingsStore.saveSelectedModelId()` |
-| 43 | `fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource?` | `suspend fun createCustomDownloadSource(...)` | Pure URL parsing; **low priority** but must match interface for consistency |
-| 44 | `fun downloadedModelFile(fileName: String): File?` | `suspend fun downloadedModelFile(fileName: String): File?` | Pure computation; **low priority** |
-| 45 | `fun pendingDownloadId(): Long` | `suspend fun pendingDownloadId(): Long` | Room query `downloadRecordDao.record()` |
-| 46 | `fun savePendingDownload(downloadId: Long, source: ModelDownloadSource)` | `suspend fun savePendingDownload(...)` | Room upsert |
-| 47 | `fun clearPendingDownload()` | `suspend fun clearPendingDownload()` | Room delete |
-| 48 | `fun loadPendingDownloadSource(): ModelDownloadSource?` | `suspend fun loadPendingDownloadSource(): ModelDownloadSource?` | Room query |
-| 49 | `fun resolveModelStorageBytes(): Long` | `suspend fun resolveModelStorageBytes(): Long` | File system stat; **low priority** (fast) |
-| 50 | `fun verifiedActionModelPath(): String?` | `suspend fun verifiedActionModelPath(): String?` | Room queries + file existence checks |
-| 51 | `fun verifiedObservationActionModelPath(): String?` | `suspend fun verifiedObservationActionModelPath(): String?` | Room queries + file existence checks |
-| 52 | `fun verifiedMemoryEmbeddingModelPath(): String?` | `suspend fun verifiedMemoryEmbeddingModelPath(): String?` | Room queries + file existence checks |
-| 53 | `fun verifyLegacyRecommendedModels(): Boolean` | `suspend fun verifyLegacyRecommendedModels(): Boolean` | Room queries + file I/O + SHA-256 verification |
-| 54 | `fun importModel(uri: Uri, onProgress: ...): String` | `suspend fun importModel(uri: Uri, onProgress: ...): String` | File copy + Room upsert; already called inside `withContext` |
+| 28 | `fun activeSessionId(): String?` | `suspend fun activeSessionId(): String?` | DataStore read |
+| 29 | `fun saveActiveSessionId(sessionId: String)` | `suspend fun saveActiveSessionId(sessionId: String)` | DataStore write |
 
-### 1.4 `GenerationParametersStore` (`Stores.kt`, lines 57-63)
+### 1.3 `ModelRepositoryFacade` (`Stores.kt`, lines 32-58)
 
 | Line | Current | Target | Rationale |
 |------|---------|--------|-----------|
-| 58 | `fun load(): GenerationParameters` | `suspend fun load(): GenerationParameters` | DataStore reads (4 keys) |
-| 59 | `fun save(parameters: GenerationParameters): GenerationParameters` | `suspend fun save(parameters: GenerationParameters): GenerationParameters` | DataStore writes (uses `runBlocking` today) |
-| 60 | `fun reset(): GenerationParameters` | `suspend fun reset(): GenerationParameters` | Delegates to `save()` |
-| 61 | `fun loadBackend(): BackendChoice` | `suspend fun loadBackend(): BackendChoice` | DataStore read |
-| 62 | `fun saveBackend(backend: BackendChoice)` | `suspend fun saveBackend(backend: BackendChoice)` | DataStore write |
+| 33 | `fun currentState(): ModelSelectionState` | `suspend fun currentState(): ModelSelectionState` | Calls `settingsStore.selectedModelId()` + `settingsStore.activeInstalledModelId()` + Room queries |
+| 35 | `fun selectedRecommendedModel(): RecommendedModel` | `suspend fun selectedRecommendedModel(): RecommendedModel` | Calls `settingsStore.selectedModelId()` |
+| 36 | `fun selectRecommendedModel(modelId: String): ModelSelectionResult` | `suspend fun selectRecommendedModel(modelId: String): ModelSelectionResult` | Calls `settingsStore.saveSelectedModelId()` + `currentState()` |
+| 37 | `fun selectInstalledModel(modelId: String): InstalledModelSummary?` | `suspend fun selectInstalledModel(modelId: String): InstalledModelSummary?` | Room query + `settingsStore.activeInstalledModelId()` |
+| 38 | `fun deleteInstalledModel(modelId: String): Boolean` | `suspend fun deleteInstalledModel(modelId: String): Boolean` | Room delete + file I/O + `settingsStore.saveActiveInstalledModelId()` |
+| 39-45 | `fun registerInstalledModel(...)` | `suspend fun registerInstalledModel(...)` | Room upsert + `settingsStore.saveActiveInstalledModelId()` + `settingsStore.saveSelectedModelId()` |
+| 46 | `fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource?` | `suspend fun createCustomDownloadSource(...)` | Pure URL parsing; **low priority** but must match interface for consistency |
+| 47 | `fun downloadedModelFile(fileName: String): File?` | `suspend fun downloadedModelFile(fileName: String): File?` | Pure computation; **low priority** |
+| 48 | `fun pendingDownloadId(): Long` | `suspend fun pendingDownloadId(): Long` | Room query `downloadRecordDao.record()` |
+| 49 | `fun savePendingDownload(downloadId: Long, source: ModelDownloadSource)` | `suspend fun savePendingDownload(...)` | Room upsert |
+| 50 | `fun clearPendingDownload()` | `suspend fun clearPendingDownload()` | Room delete |
+| 51 | `fun loadPendingDownloadSource(): ModelDownloadSource?` | `suspend fun loadPendingDownloadSource(): ModelDownloadSource?` | Room query |
+| 52 | `fun resolveModelStorageBytes(): Long` | `suspend fun resolveModelStorageBytes(): Long` | File system stat; **low priority** (fast) |
+| 53 | `fun verifiedActionModelPath(): String?` | `suspend fun verifiedActionModelPath(): String?` | Room queries + file existence checks |
+| 54 | `fun verifiedObservationActionModelPath(): String?` | `suspend fun verifiedObservationActionModelPath(): String?` | Room queries + file existence checks |
+| 55 | `fun verifiedMemoryEmbeddingModelPath(): String?` | `suspend fun verifiedMemoryEmbeddingModelPath(): String?` | Room queries + file existence checks |
+| 56 | `fun verifyLegacyRecommendedModels(): Boolean` | `suspend fun verifyLegacyRecommendedModels(): Boolean` | Room queries + file I/O + SHA-256 verification |
+| 57 | `fun importModel(uri: Uri, onProgress: ...): String` | `suspend fun importModel(uri: Uri, onProgress: ...): String` | File copy + Room upsert; already called inside `withContext` |
 
-### 1.5 `FirstRunSetupStore` (`Stores.kt`, lines 65-72)
-
-| Line | Current | Target | Rationale |
-|------|---------|--------|-----------|
-| 66 | `fun isSetupDismissed(): Boolean` | `suspend fun isSetupDismissed(): Boolean` | DataStore read |
-| 67 | `fun markSetupDismissed()` | `suspend fun markSetupDismissed()` | DataStore write |
-| 68 | `fun isMemoryEnabled(): Boolean` | `suspend fun isMemoryEnabled(): Boolean` | DataStore read |
-| 69 | `fun setMemoryEnabled(enabled: Boolean)` | `suspend fun setMemoryEnabled(enabled: Boolean)` | DataStore write |
-| 70 | `fun reduceDeviceActionConfirmations(): Boolean` | `suspend fun reduceDeviceActionConfirmations(): Boolean` | DataStore read |
-| 71 | `fun setReduceDeviceActionConfirmations(enabled: Boolean)` | `suspend fun setReduceDeviceActionConfirmations(enabled: Boolean)` | DataStore write |
-
-### 1.6 `RemoteModelStore` (`Stores.kt`, lines 74-81)
-
-| Line | Current | Target | Rationale |
-|------|---------|--------|-----------|
-| 75 | `fun loadMode(): InferenceMode` | `suspend fun loadMode(): InferenceMode` | DataStore read via SettingsStore |
-| 76 | `fun saveMode(mode: InferenceMode): InferenceMode` | `suspend fun saveMode(mode: InferenceMode): InferenceMode` | DataStore write via SettingsStore |
-| 77 | `fun loadConfig(): RemoteModelConfig` | `suspend fun loadConfig(): RemoteModelConfig` | DataStore read + SecretStore read (API key) |
-| 78 | `fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>` | `suspend fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>` | SecretStore write + DataStore write |
-| 79-80 | `fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig>` | `suspend fun saveConfigWithoutApiKey(...): Result<RemoteModelConfig>` | DataStore write |
-
-### 1.7 `RemoteSendPendingStore` (`Stores.kt`, lines 83-87)
+### 1.4 `GenerationParametersStore` (`Stores.kt`, lines 60-66)
 
 | Line | Current | Target | Rationale |
 |------|---------|--------|-----------|
-| 84 | `fun savePendingRemoteSend(marker: PendingRemoteSendMarker)` | `suspend fun savePendingRemoteSend(marker: PendingRemoteSendMarker)` | DataStore write (JSON serialization + string write) |
-| 85 | `fun consumePendingRemoteSend(): PendingRemoteSendMarker?` | `suspend fun consumePendingRemoteSend(): PendingRemoteSendMarker?` | DataStore read + write (read-then-clear) |
-| 86 | `fun clearPendingRemoteSend()` | `suspend fun clearPendingRemoteSend()` | DataStore write |
+| 61 | `fun load(): GenerationParameters` | `suspend fun load(): GenerationParameters` | DataStore reads (4 keys) |
+| 62 | `fun save(parameters: GenerationParameters): GenerationParameters` | `suspend fun save(parameters: GenerationParameters): GenerationParameters` | DataStore writes (uses `runBlocking` today) |
+| 63 | `fun reset(): GenerationParameters` | `suspend fun reset(): GenerationParameters` | Delegates to `save()` |
+| 64 | `fun loadBackend(): BackendChoice` | `suspend fun loadBackend(): BackendChoice` | DataStore read |
+| 65 | `fun saveBackend(backend: BackendChoice)` | `suspend fun saveBackend(backend: BackendChoice)` | DataStore write |
 
-### 1.8 `SettingsStore` (`Stores.kt`, lines 89-108)
-
-| Line | Current | Target | Rationale |
-|------|---------|--------|-----------|
-| 90 | `fun isSetupDismissed(): Boolean` | `suspend fun isSetupDismissed(): Boolean` | DataStore read |
-| 91 | `fun markSetupDismissed()` | `suspend fun markSetupDismissed()` | DataStore write |
-| 92 | `fun isMemoryEnabled(): Boolean` | `suspend fun isMemoryEnabled(): Boolean` | DataStore read |
-| 93 | `fun setMemoryEnabled(enabled: Boolean)` | `suspend fun setMemoryEnabled(enabled: Boolean)` | DataStore write |
-| 94 | `fun reduceDeviceActionConfirmations(): Boolean` | `suspend fun reduceDeviceActionConfirmations(): Boolean` | DataStore read |
-| 95 | `fun setReduceDeviceActionConfirmations(enabled: Boolean)` | `suspend fun setReduceDeviceActionConfirmations(enabled: Boolean)` | DataStore write |
-| 96 | `fun loadGenerationParameters(): GenerationParameters` | `suspend fun loadGenerationParameters(): GenerationParameters` | DataStore reads (4 keys) |
-| 97 | `fun saveGenerationParameters(parameters: GenerationParameters): GenerationParameters` | `suspend fun saveGenerationParameters(...): GenerationParameters` | DataStore write (uses `runBlocking` at line 83 today) |
-| 98 | `fun loadBackend(): BackendChoice` | `suspend fun loadBackend(): BackendChoice` | DataStore read |
-| 99 | `fun saveBackend(backend: BackendChoice)` | `suspend fun saveBackend(backend: BackendChoice)` | DataStore write |
-| 100 | `fun loadInferenceMode(): InferenceMode` | `suspend fun loadInferenceMode(): InferenceMode` | DataStore read |
-| 101 | `fun saveInferenceMode(mode: InferenceMode): InferenceMode` | `suspend fun saveInferenceMode(mode: InferenceMode): InferenceMode` | DataStore write |
-| 102 | `fun loadRemoteConfig(apiKey: String): RemoteModelConfig` | `suspend fun loadRemoteConfig(apiKey: String): RemoteModelConfig` | DataStore reads (5 keys) |
-| 103 | `fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig` | `suspend fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig` | DataStore write (uses `runBlocking` at line 149 today) |
-| 104 | `fun selectedModelId(): String?` | `suspend fun selectedModelId(): String?` | DataStore read |
-| 105 | `fun saveSelectedModelId(modelId: String)` | `suspend fun saveSelectedModelId(modelId: String)` | DataStore write |
-| 106 | `fun activeInstalledModelId(): String?` | `suspend fun activeInstalledModelId(): String?` | DataStore read |
-| 107 | `fun saveActiveInstalledModelId(modelId: String?)` | `suspend fun saveActiveInstalledModelId(modelId: String?)` | DataStore write |
-
-### 1.9 `SecretStore` (`Stores.kt`, lines 110-113)
+### 1.5 `FirstRunSetupStore` (`Stores.kt`, lines 68-77)
 
 | Line | Current | Target | Rationale |
 |------|---------|--------|-----------|
-| 111 | `fun loadString(name: String): Result<String>` | `suspend fun loadString(name: String): Result<String>` | EncryptedSharedPreferences read |
-| 112 | `fun saveString(name: String, value: String): Result<Unit>` | `suspend fun saveString(name: String, value: String): Result<Unit>` | EncryptedSharedPreferences write |
+| 69 | `fun isSetupDismissed(): Boolean` | `suspend fun isSetupDismissed(): Boolean` | DataStore read |
+| 70 | `fun markSetupDismissed()` | `suspend fun markSetupDismissed()` | DataStore write |
+| 71 | `fun isMemoryEnabled(): Boolean` | `suspend fun isMemoryEnabled(): Boolean` | DataStore read |
+| 72 | `fun setMemoryEnabled(enabled: Boolean)` | `suspend fun setMemoryEnabled(enabled: Boolean)` | DataStore write |
+| 73 | `fun reduceDeviceActionConfirmations(): Boolean` | `suspend fun reduceDeviceActionConfirmations(): Boolean` | DataStore read |
+| 74 | `fun setReduceDeviceActionConfirmations(enabled: Boolean)` | `suspend fun setReduceDeviceActionConfirmations(enabled: Boolean)` | DataStore write |
+
+### 1.6 `RemoteModelStore` (`Stores.kt`, lines 79-89)
+
+| Line | Current | Target | Rationale |
+|------|---------|--------|-----------|
+| 80 | `fun loadMode(): InferenceMode` | `suspend fun loadMode(): InferenceMode` | DataStore read via SettingsStore |
+| 81 | `fun saveMode(mode: InferenceMode): InferenceMode` | `suspend fun saveMode(mode: InferenceMode): InferenceMode` | DataStore write via SettingsStore |
+| 82 | `fun loadConfig(): RemoteModelConfig` | `suspend fun loadConfig(): RemoteModelConfig` | DataStore read + SecretStore read (API key) |
+| 83 | `fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>` | `suspend fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>` | SecretStore write + DataStore write |
+| 84-85 | `fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig>` | `suspend fun saveConfigWithoutApiKey(...): Result<RemoteModelConfig>` | DataStore write |
+
+### 1.7 `RemoteSendPendingStore` (`Stores.kt`, lines 91-95)
+
+| Line | Current | Target | Rationale |
+|------|---------|--------|-----------|
+| 92 | `fun savePendingRemoteSend(marker: PendingRemoteSendMarker)` | `suspend fun savePendingRemoteSend(marker: PendingRemoteSendMarker)` | DataStore write (JSON serialization + string write) |
+| 93 | `fun consumePendingRemoteSend(): PendingRemoteSendMarker?` | `suspend fun consumePendingRemoteSend(): PendingRemoteSendMarker?` | DataStore read + write (read-then-clear) |
+| 94 | `fun clearPendingRemoteSend()` | `suspend fun clearPendingRemoteSend()` | DataStore write |
+
+### 1.8 `SettingsStore` (`Stores.kt`, lines 97-118)
+
+| Line | Current | Target | Rationale |
+|------|---------|--------|-----------|
+| 98 | `fun isSetupDismissed(): Boolean` | `suspend fun isSetupDismissed(): Boolean` | DataStore read |
+| 99 | `fun markSetupDismissed()` | `suspend fun markSetupDismissed()` | DataStore write |
+| 100 | `fun isMemoryEnabled(): Boolean` | `suspend fun isMemoryEnabled(): Boolean` | DataStore read |
+| 101 | `fun setMemoryEnabled(enabled: Boolean)` | `suspend fun setMemoryEnabled(enabled: Boolean)` | DataStore write |
+| 102 | `fun reduceDeviceActionConfirmations(): Boolean` | `suspend fun reduceDeviceActionConfirmations(): Boolean` | DataStore read |
+| 103 | `fun setReduceDeviceActionConfirmations(enabled: Boolean)` | `suspend fun setReduceDeviceActionConfirmations(enabled: Boolean)` | DataStore write |
+| 106 | `fun loadGenerationParameters(): GenerationParameters` | `suspend fun loadGenerationParameters(): GenerationParameters` | DataStore reads (4 keys) |
+| 107 | `fun saveGenerationParameters(parameters: GenerationParameters): GenerationParameters` | `suspend fun saveGenerationParameters(...): GenerationParameters` | DataStore write (uses `runBlocking` at line 83 today) |
+| 108 | `fun loadBackend(): BackendChoice` | `suspend fun loadBackend(): BackendChoice` | DataStore read |
+| 109 | `fun saveBackend(backend: BackendChoice)` | `suspend fun saveBackend(backend: BackendChoice)` | DataStore write |
+| 110 | `fun loadInferenceMode(): InferenceMode` | `suspend fun loadInferenceMode(): InferenceMode` | DataStore read |
+| 111 | `fun saveInferenceMode(mode: InferenceMode): InferenceMode` | `suspend fun saveInferenceMode(mode: InferenceMode): InferenceMode` | DataStore write |
+| 112 | `fun loadRemoteConfig(apiKey: String): RemoteModelConfig` | `suspend fun loadRemoteConfig(apiKey: String): RemoteModelConfig` | DataStore reads (5 keys) |
+| 113 | `fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig` | `suspend fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig` | DataStore write (uses `runBlocking` at line 149 today) |
+| 114 | `fun selectedModelId(): String?` | `suspend fun selectedModelId(): String?` | DataStore read |
+| 115 | `fun saveSelectedModelId(modelId: String)` | `suspend fun saveSelectedModelId(modelId: String)` | DataStore write |
+| 116 | `fun activeInstalledModelId(): String?` | `suspend fun activeInstalledModelId(): String?` | DataStore read |
+| 117 | `fun saveActiveInstalledModelId(modelId: String?)` | `suspend fun saveActiveInstalledModelId(modelId: String?)` | DataStore write |
+
+### 1.9 `SecretStore` (`Stores.kt`, lines 120-123)
+
+| Line | Current | Target | Rationale |
+|------|---------|--------|-----------|
+| 121 | `fun loadString(name: String): Result<String>` | `suspend fun loadString(name: String): Result<String>` | EncryptedSharedPreferences read |
+| 122 | `fun saveString(name: String, value: String): Result<Unit>` | `suspend fun saveString(name: String, value: String): Result<Unit>` | EncryptedSharedPreferences write |
 
 ### 1.10 `HuggingFaceAuthStore` (`app/src/main/java/com/bytedance/zgx/solin/data/HuggingFaceAuthRepository.kt`, lines 5-10)
 
@@ -140,44 +145,44 @@ plus call sites in `MemoryController`, `SolinAppContainer`, `LegacyPrefsMigrator
 | 8 | `fun saveAccessToken(token: String): Result<Unit>` | `suspend fun saveAccessToken(token: String): Result<Unit>` | Delegates to `SecretStore.saveString` |
 | 9 | `fun clearAccessToken(): Result<Unit>` | `suspend fun clearAccessToken(): Result<Unit>` | Delegates to `SecretStore.saveString` |
 
-### 1.11 `MemoryRecordStore` (`app/src/main/java/com/bytedance/zgx/solin/memory/MemoryRepository.kt`, lines 968-973)
+### 1.11 `MemoryRecordStore` (`app/src/main/java/com/bytedance/zgx/solin/memory/MemoryStores.kt`, lines 39-44)
 
 | Line | Current | Target | Rationale |
 |------|---------|--------|-----------|
-| 969 | `fun records(): List<PersistedMemoryRecord>` | `suspend fun records(): List<PersistedMemoryRecord>` | Room query or LocalDocumentStore list |
-| 970 | `fun upsert(record: PersistedMemoryRecord)` | `suspend fun upsert(record: PersistedMemoryRecord)` | Room upsert or document write |
-| 971 | `fun delete(id: String): Boolean` | `suspend fun delete(id: String): Boolean` | Room delete or document delete |
-| 972 | `fun clear()` | `suspend fun clear()` | Room deleteAll or document delete |
+| 40 | `fun records(): List<PersistedMemoryRecord>` | `suspend fun records(): List<PersistedMemoryRecord>` | Room query or LocalDocumentStore list |
+| 41 | `fun upsert(record: PersistedMemoryRecord)` | `suspend fun upsert(record: PersistedMemoryRecord)` | Room upsert or document write |
+| 42 | `fun delete(id: String): Boolean` | `suspend fun delete(id: String): Boolean` | Room delete or document delete |
+| 43 | `fun clear()` | `suspend fun clear()` | Room deleteAll or document delete |
 
-### 1.12 `MemoryDeletionEventStore` (`MemoryRepository.kt`, lines 975-995)
-
-| Line | Current | Target | Rationale |
-|------|---------|--------|-----------|
-| 976 | `fun events(): List<MemoryDeletionEvent>` | `suspend fun events(): List<MemoryDeletionEvent>` | Room query |
-| 977 | `fun append(event: MemoryDeletionEvent)` | `suspend fun append(event: MemoryDeletionEvent)` | Room insert |
-| 978-986 | `fun deleteRecordAndAppendEvent(...)` | `suspend fun deleteRecordAndAppendEvent(...)` | Room transaction (delete + insert) |
-| 988-994 | `fun clearRecordsAndAppendEvents(...)` | `suspend fun clearRecordsAndAppendEvents(...)` | Room transaction (clearAll + insert) |
-
-### 1.13 `MemoryEmbeddingStore` (`MemoryRepository.kt`, lines 1006-1012)
+### 1.12 `MemoryDeletionEventStore` (`MemoryStores.kt`, lines 46-66)
 
 | Line | Current | Target | Rationale |
 |------|---------|--------|-----------|
-| 1007 | `fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding?` | `suspend fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding?` | Room query or vector index lookup |
-| 1008 | `fun upsert(embedding: PersistedMemoryEmbedding)` | `suspend fun upsert(embedding: PersistedMemoryEmbedding)` | Room upsert or vector write |
-| 1009 | `fun delete(recordId: String)` | `suspend fun delete(recordId: String)` | Room delete or vector delete |
-| 1010 | `fun deleteForModel(modelId: String)` | `suspend fun deleteForModel(modelId: String)` | Room delete or vector delete |
-| 1011 | `fun clear()` | `suspend fun clear()` | Room deleteAll or vector clear |
+| 47 | `fun events(): List<MemoryDeletionEvent>` | `suspend fun events(): List<MemoryDeletionEvent>` | Room query |
+| 48 | `fun append(event: MemoryDeletionEvent)` | `suspend fun append(event: MemoryDeletionEvent)` | Room insert |
+| 49-57 | `fun deleteRecordAndAppendEvent(...)` | `suspend fun deleteRecordAndAppendEvent(...)` | Room transaction (delete + insert) |
+| 59-65 | `fun clearRecordsAndAppendEvents(...)` | `suspend fun clearRecordsAndAppendEvents(...)` | Room transaction (clearAll + insert) |
+
+### 1.13 `MemoryEmbeddingStore` (`MemoryStores.kt`, lines 77-83)
+
+| Line | Current | Target | Rationale |
+|------|---------|--------|-----------|
+| 78 | `fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding?` | `suspend fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding?` | Room query or vector index lookup |
+| 79 | `fun upsert(embedding: PersistedMemoryEmbedding)` | `suspend fun upsert(embedding: PersistedMemoryEmbedding)` | Room upsert or vector write |
+| 80 | `fun delete(recordId: String)` | `suspend fun delete(recordId: String)` | Room delete or vector delete |
+| 81 | `fun deleteForModel(modelId: String)` | `suspend fun deleteForModel(modelId: String)` | Room delete or vector delete |
+| 82 | `fun clear()` | `suspend fun clear()` | Room deleteAll or vector clear |
 
 ### 1.14 Higher-Level Memory Interfaces (`MemoryRepository.kt`)
 
 These interfaces do not directly perform I/O but their implementations call the stores above.
 They become `suspend` transitively:
 
-- **`MemoryIndex`** (lines 108-114): `rebuild()` calls `recordStore.records()`; `index()` calls `recordStore.upsert()` via `indexRecord()`
-- **`LongTermMemoryControls`** (lines 116-129): all methods delegate to MemoryRecordStore/EmbeddingStore
-- **`SemanticMemoryRuntimeController`** (lines 131-141): `useMemoryModel()` calls `embeddingStore.deleteForModel()` and `runtime.embed()`; `clearSemanticMemoryForModel()` calls `embeddingStore.deleteForModel()`
+- **`MemoryIndex`** (lines 92-98): `rebuild()` calls `recordStore.records()`; `index()` calls `recordStore.upsert()` via `indexRecord()`
+- **`LongTermMemoryControls`** (lines 100-113): all methods delegate to MemoryRecordStore/EmbeddingStore
+- **`SemanticMemoryRuntimeController`** (lines 115-125): `useMemoryModel()` calls `embeddingStore.deleteForModel()` and `runtime.embed()`; `clearSemanticMemoryForModel()` calls `embeddingStore.deleteForModel()`
 
-### 1.15 `EmbeddingRuntime` (`MemoryRepository.kt`, lines 81-106)
+### 1.15 `EmbeddingRuntime` (`MemoryRepository.kt`, lines 65-90)
 
 `embed()` and `embedBatch()` are CPU-bound operations. They do not need to become `suspend` since
 they are pure computation; callers should use `withContext(Dispatchers.Default)` when invoking them.
@@ -192,34 +197,34 @@ initialization path should be `suspend`.
 
 - **Implements**: `SettingsStore`, `ActiveSessionStore`, `RemoteSendPendingStore`
 - **Key changes**:
-  - Remove all 9 `runBlocking` usages (lines 83, 149, 207, 210, 214, 217, 220, 224, 227)
-  - Convert private helpers to `suspend fun`: `readBoolean` (line 206), `writeBoolean` (209), `readFloat` (213), `readInt` (216), `writeInt` (219), `readString` (223), `writeString` (226)
-  - All 18 public override functions become `suspend fun`
-  - `migrationVersion()` (line 199) and `setMigrationVersion()` (line 202) are not part of any interface but also use `runBlocking`; make them `suspend` too
+  - Remove all 4 `runBlocking` usages (lines 82, 147, 213, 219)
+  - Convert private helpers to `suspend fun`: `snapshot` (line 212), `read` (215), `write` (218)
+  - All 25 public override functions become `suspend fun`
+  - `migrationVersion()` (line 204) and `setMigrationVersion()` (line 207) are not part of any interface but also use `runBlocking`; make them `suspend` too
 
 ### 2.2 `SessionRepository` (`data/SessionRepository.kt`)
 
 - **Implements**: `SessionStore`
 - **Key changes**:
   - `activeSessionId` property (line 22) becomes a `suspend fun` or is backed by a `suspend` initializer
-  - `resolveActiveSessionId()` (line 110) becomes `suspend`
+  - `resolveActiveSessionId()` (line 112) becomes `suspend`
   - All Room DAO calls become `suspend` (Room DAOs already support suspend natively)
-  - `summaries()` (line 25), `activeMessages()` (35), `allMessages()` (38), `createNewSession()` (49), `selectSession()` (57), `deleteActiveSession()` (64), `replaceActiveSessionMessages()` (72), `persistActiveSessionFrom()` (89) all become `suspend`
+  - `summaries()` (line 25), `activeMessages()` (37), `allMessages()` (40), `createNewSession()` (51), `selectSession()` (59), `deleteActiveSession()` (66), `replaceActiveSessionMessages()` (74), `persistActiveSessionFrom()` (91) all become `suspend`
 
 ### 2.3 `ModelRepository` (`data/ModelRepository.kt`)
 
 - **Implements**: `ModelRepositoryFacade`
 - **Key changes**:
-  - `init` block (lines 194-197) calls `cleanTemporaryModelFiles()` and `discoverRecommendedDownloadedModels()` which do file I/O + Room I/O; needs restructuring to `CoroutineScope.launch` or a `suspend fun initialize()`
-  - All methods calling `settingsStore.*` become `suspend`: `currentState()` (199), `selectedRecommendedModel()` (211), `selectRecommendedModel()` (214), `selectInstalledModel()` (224), `deleteInstalledModel()` (230), `registerInstalledModel()` (280), `pendingDownloadId()` (322), `savePendingDownload()` (325), `clearPendingDownload()` (336), `loadPendingDownloadSource()` (340), `verifiedActionModelPath()` (470), `verifiedObservationActionModelPath()` (490), `verifiedMemoryEmbeddingModelPath()` (500), `verifyLegacyRecommendedModels()` (510), `importModel()` (600)
-  - Private helpers become `suspend`: `activeInstalledModel()` (375), `activateInstalledModel()` (483), `installedModels()` (492), `installedModelSummaries()` (355), `refreshCompletedRecommendedBundles()` (440), `markRecommendedVerificationFailed()` (610)
+  - `init` block (lines 240-243) calls `cleanTemporaryModelFiles()` and `discoverRecommendedDownloadedModels()` which do file I/O + Room I/O; needs restructuring to `CoroutineScope.launch` or a `suspend fun initialize()`
+  - All methods calling `settingsStore.*` become `suspend`: `currentState()` (245), `selectedRecommendedModel()` (268), `selectRecommendedModel()` (271), `selectInstalledModel()` (281), `deleteInstalledModel()` (287), `registerInstalledModel()` (316), `pendingDownloadId()` (379), `savePendingDownload()` (382), `clearPendingDownload()` (393), `loadPendingDownloadSource()` (397), `verifiedActionModelPath()` (419), `verifiedObservationActionModelPath()` (427), `verifiedMemoryEmbeddingModelPath()` (435), `verifyLegacyRecommendedModels()` (443), `importModel()` (355)
+  - Private helpers become `suspend`: `activeInstalledModel()` (512), `activateInstalledModel()` (522), `installedModels()` (529), `installedModelSummaries()` (532), `refreshCompletedRecommendedBundles()` (620), `markRecommendedVerificationFailed()` (639)
 
 ### 2.4 `RemoteModelRepository` (`data/RemoteModelRepository.kt`)
 
 - **Implements**: `RemoteModelStore`
 - **Key changes**:
-  - `loadMode()` (line 24), `saveMode()` (27), `loadConfig()` (30), `saveConfig()` (33), `saveConfigWithoutApiKey()` (42) all become `suspend`
-  - `loadApiKey()` (line 50) becomes `suspend` (calls `secretStore.loadString()` and `secretStore.saveString()`)
+  - `loadMode()` (line 38), `saveMode()` (41), `loadConfig()` (44), `saveConfig()` (58), `saveConfigWithoutApiKey()` (118) all become `suspend`
+  - `loadApiKey()` (line 240) becomes `suspend` (calls `secretStore.loadString()` and `secretStore.saveString()`)
 
 ### 2.5 `GenerationParametersRepository` (`data/GenerationParametersRepository.kt`)
 
@@ -245,49 +250,47 @@ initialization path should be `suspend`.
 
 - **Implements**: `MemoryIndex`, `LongTermMemoryControls`, `SemanticMemoryRuntimeController`
 - **Key changes**:
-  - `rebuild()` (line 263) becomes `suspend` (calls `visibleRecords()` -> `recordStore.records()`)
-  - `index()` (line 295) becomes `suspend` (calls `indexRecord()` -> `recordStore.upsert()`)
-  - `savedRecords()` (line 306) becomes `suspend` (calls `visibleRecords()`)
-  - `indexPreference()` (309), `indexUserFact()` (324), `indexTaskState()` (339) become `suspend`
-  - `suppressAutoManagedTaskState()` (353), `unsuppressAutoManagedTaskState()` (372), `isAutoManagedTaskStateSuppressed()` (376) become `suspend`
-  - `forget()` (382), `forgetAutoManagedTaskState()` (386), `forgetPreference()` (391), `forgetUserFact()` (413), `clear()` (435) become `suspend`
-  - `useMemoryModel()` (line 204) becomes `suspend` (calls `embeddingStore.deleteForModel()` via `clearSemanticMemoryForModel()` and `reembedEntries()`)
-  - `clearSemanticMemoryForModel()` (line 192) becomes `suspend`
-  - Private helpers become `suspend`: `indexRecord()` (460), `visibleRecords()` (450), `forgetConflictingPreferences()` (673), `forgetConflictingUserFacts()` (697), `forget()` (720), `forgetWithoutDeletionAudit()` (744), `recordForDeletionAudit()` (752), `deletionAuditableRecords()` (759), `semanticEmbeddingFor()` (587), `reembedEntries()` (633), `refreshSemanticIndexStats()` (649)
+  - `rebuild()` (line 252) becomes `suspend` (calls `visibleRecords()` -> `recordStore.records()`)
+  - `index()` (line 289) becomes `suspend` (calls `indexRecord()` -> `recordStore.upsert()`)
+  - `savedRecords()` (line 300) becomes `suspend` (calls `visibleRecords()`)
+  - `indexPreference()` (304), `indexUserFact()` (319), `indexTaskState()` (334) become `suspend`
+  - `suppressAutoManagedTaskState()` (348), `unsuppressAutoManagedTaskState()` (367), `isAutoManagedTaskStateSuppressed()` (371) become `suspend`
+  - `forget()` (378), `forgetAutoManagedTaskState()` (382), `forgetPreference()` (387), `forgetUserFact()` (399), `clear()` (410) become `suspend`
+  - `useMemoryModel()` (line 210) becomes `suspend` (calls `embeddingStore.deleteForModel()` via `clearSemanticMemoryForModel()` and `reembedEntries()`)
+  - `clearSemanticMemoryForModel()` (line 200) becomes `suspend`
+  - Private helpers become `suspend`: `indexRecord()` (428), `visibleRecords()` (425), `forgetConflictingPreferences()` (640), `forgetConflictingUserFacts()` (648), `forget()` (671), `forgetWithoutDeletionAudit()` (695), `recordForDeletionAudit()` (703), `deletionAuditableRecords()` (710), `semanticEmbeddingFor()` (551), `reembedEntries()` (597), `refreshSemanticIndexStats()` (612)
 
-### 2.10 `NoOpMemoryRecordStore` (`MemoryRepository.kt`, line 1014)
+### 2.10 `NoOpMemoryRecordStore` (`MemoryStores.kt`, line 85)
 
 - Add `suspend` modifier to all overrides (trivial since they are no-ops)
 
-### 2.11 `ZvecMemoryRecordStore` (`MemoryRepository.kt`, line 1029)
+### 2.11 ~~`ZvecMemoryRecordStore`~~ (deleted)
 
-- **Implements**: `MemoryRecordStore`
-- All `documents.*` calls become `suspend` (depends on LocalDocumentStore API)
+- Removed on 2026-10-30 (`a57bc0ee`); production memory records live only in encrypted Room.
 
-### 2.12 `RoomMemoryRecordStore` (`MemoryRepository.kt`, line 1251)
+### 2.12 `RoomMemoryRecordStore` (`RoomMemoryStores.kt`, line 18)
 
 - **Implements**: `MemoryRecordStore`
 - All DAO calls become `suspend`
 
-### 2.13 `NoOpMemoryEmbeddingStore` (`MemoryRepository.kt`, line 1021)
+### 2.13 `NoOpMemoryEmbeddingStore` (`MemoryStores.kt`, line 92)
 
 - Add `suspend` modifier to all overrides
 
-### 2.14 `ZvecMemoryEmbeddingStore` (`MemoryRepository.kt`, line 1104)
+### 2.14 ~~`ZvecMemoryEmbeddingStore`~~ (deleted)
 
-- **Implements**: `MemoryEmbeddingStore`
-- All `vectors.*` and `documents.*` calls become `suspend`
+- Removed on 2026-10-30 (`a57bc0ee`) together with `ZvecMemoryRecordStore`.
 
-### 2.15 `RoomMemoryEmbeddingStore` (`MemoryRepository.kt`, line 1368)
+### 2.15 `RoomMemoryEmbeddingStore` (`RoomMemoryStores.kt`, line 135)
 
 - **Implements**: `MemoryEmbeddingStore`
 - All DAO calls become `suspend`
 
-### 2.16 `NoOpMemoryDeletionEventStore` (`MemoryRepository.kt`, line 1246)
+### 2.16 `NoOpMemoryDeletionEventStore` (`MemoryStores.kt`, line 100)
 
 - Add `suspend` modifier to all overrides
 
-### 2.17 `RoomMemoryDeletionEventStore` (`MemoryRepository.kt`, line 1301)
+### 2.17 `RoomMemoryDeletionEventStore` (`RoomMemoryStores.kt`, line 68)
 
 - **Implements**: `MemoryDeletionEventStore`
 - All DAO calls become `suspend`
@@ -300,65 +303,62 @@ initialization path should be `suspend`.
 
 | File | Line | Context |
 |------|------|---------|
-| `PreferenceSettingsStore.kt` | 83 | `saveGenerationParameters`: `runBlocking { dataStore.edit { prefs -> ... } }` |
-| `PreferenceSettingsStore.kt` | 149 | `saveRemoteConfig`: `runBlocking { dataStore.edit { prefs -> ... } }` |
-| `PreferenceSettingsStore.kt` | 207 | `readBoolean` private helper: `runBlocking { dataStore.data.first()[key] ?: default }` |
-| `PreferenceSettingsStore.kt` | 210 | `writeBoolean` private helper: `runBlocking { dataStore.edit { it[key] = value } }` |
-| `PreferenceSettingsStore.kt` | 214 | `readFloat` private helper |
-| `PreferenceSettingsStore.kt` | 217 | `readInt` private helper |
-| `PreferenceSettingsStore.kt` | 220 | `writeInt` private helper |
-| `PreferenceSettingsStore.kt` | 224 | `readString` private helper |
-| `PreferenceSettingsStore.kt` | 227 | `writeString` private helper |
+| `PreferenceSettingsStore.kt` | 82 | `saveGenerationParameters`: `runBlocking { dataStore.edit { prefs -> ... } }` |
+| `PreferenceSettingsStore.kt` | 147 | `saveRemoteConfig`: `runBlocking { dataStore.edit { prefs -> ... } }` |
+| `PreferenceSettingsStore.kt` | 213 | `snapshot` private helper: `runBlocking { dataStore.data.first() }` (used by `read`) |
+| `PreferenceSettingsStore.kt` | 219 | `write` private helper: `runBlocking { dataStore.edit { it[key] = value } }` |
 
 ### 3.2 `runBlocking` in Non-Data-Layer Code (Not Directly In Scope But Documented)
 
 | File | Line | Context |
 |------|------|---------|
-| `runtime/LiteRtRuntime.kt` | 290 | Context compaction; calls `compactor.compact()` which is already `suspend`. Not data layer I/O. |
-| `action/ActionPlanningRuntime.kt` | 125 | Model inference streaming. Not data layer. |
-| `orchestration/SystemPromptBuilder.kt` | 132 | `buildSystemPromptBlocking` convenience wrapper. Already has `suspend fun buildSystemPrompt()`. |
-| `tool/ToolExecutor.kt` | 196, 255 | Tool handler execution. Not data layer. |
+| `runtime/LiteRtRuntime.kt` | 443, 523 | Context compaction (`compactor.compact()` is already `suspend`) and one-shot generation. Not data layer I/O. |
+| `action/ActionPlanningRuntime.kt` | 145 | Model inference streaming. Not data layer. |
+| `orchestration/SystemPromptBuilder.kt` | 129 | `buildSystemPromptBlocking` convenience wrapper. Already has `suspend fun buildSystemPrompt()`. |
+| `tool/ToolExecutor.kt` | 140, 197 | Tool handler execution. Not data layer. |
+| `tool/DeviceControlToolExecutor.kt` | 77, 722 | Device observation / action bridge. Not data layer. |
+| `orchestration/AndroidRemoteVisionDecider.kt` | 151 | Remote vision request with timeout. Not data layer. |
 
 ### 3.3 Manual `withContext` Wrapping Data Calls
 
 | File | Line | Context |
 |------|------|---------|
-| `SolinViewModel.kt` | 867 | `withContext(ioDispatcher) { modelRepository.importModel(uri) { ... } }` -- importModel already does heavy I/O |
-| `MemoryController.kt` | 64 | `withContext(ioDispatcher) { ... sessionStore.allMessages(limit = 500) }` |
-| `MemoryController.kt` | 94 | `withContext(ioDispatcher) { ... longTermMemoryControls.savedRecords() }` |
-| `MemoryController.kt` | 118 | `withContext(ioDispatcher) { ... longTermMemoryControls.* }` |
-| `MemoryController.kt` | 199 | `withContext(ioDispatcher) { ... sessionStore.replaceActiveSessionMessages(...) }` |
-| `MemoryController.kt` | 252 | `withContext(ioDispatcher) { ... sessionStore.replaceActiveSessionMessages(...) }` |
-| `MemoryController.kt` | 309 | `syncSemanticMemoryRuntime` calls `modelRepository.verifiedMemoryEmbeddingModelPath()` (sync) |
+| `presentation/ModelLoadController.kt` | 679 | `withContext(ioDispatcher) { ... modelRepository.importModel(uri) { ... } }` -- importModel already does heavy I/O |
+| `MemoryController.kt` | 466 | `syncSemanticMemoryRuntime` calls `modelRepository.verifiedMemoryEmbeddingModelPath()` (sync; no `withContext` wrapper in `MemoryController` today, see §3.7) |
 
 ### 3.4 Critical Synchronous Call Sites in `SolinViewModel`
 
-The most impactful call site is `createInitialState()` (line 5024), invoked during ViewModel
-property initialization:
+The most impactful call site is `InitialChatStateFactory.createInitialState()`
+(`presentation/StartupStateRestorer.kt`, line 45), invoked during ViewModel property
+initialization unless persistence initialization is deferred:
 
 ```kotlin
-// SolinViewModel.kt line 251
-private val _uiState = MutableStateFlow(createInitialState())
+// SolinViewModel.kt line 229
+private val _uiState: MutableStateFlow<ChatUiState> = MutableStateFlow(
+    if (deferPersistenceInitialization) ChatUiState(statusText = "正在初始化本地数据", ...)
+    else initialChatStateFactory.createInitialState(),
+)
 ```
 
-`createInitialState()` synchronously calls:
-- `modelRepository.currentState()` (line 5025)
-- `generationParametersRepository.loadBackend()` (5026)
-- `firstRunSetupRepository.isMemoryEnabled()` (5027)
-- `firstRunSetupRepository.reduceDeviceActionConfirmations()` (5028)
-- `remoteModelRepository.loadMode()` (5029)
-- `remoteModelRepository.loadConfig()` (5030)
-- `firstRunSetupRepository.isSetupDismissed()` (5032)
-- `memoryRepository.enabled = memoryEnabled` (5033)
-- `syncTaskStateMemories(memoryEnabled)` (5034) -- calls `longTermMemoryControls.savedRecords()`
-- `syncSemanticMemoryRuntime()` (5035) -- calls `modelRepository.verifiedMemoryEmbeddingModelPath()`
-- `huggingFaceAuthStore.hasAccessToken()` (5054)
-- `loadLongTermMemories()` (5055) -- calls `longTermMemoryControls.savedRecords()`
-- `generationParametersRepository.load()` (5062)
-- `sessionRepository.summaries()` (5063)
-- `sessionRepository.activeSessionId` (5064) -- property access
-- `sessionRepository.activeMessages()` (5065)
-- `modelRepository.resolveModelStorageBytes()` (5067)
+`createInitialState()` (`StartupStateRestorer.kt`) synchronously calls:
+- `modelRepository.currentState()` (line 46)
+- `generationParametersRepository.loadBackend()` (47)
+- `firstRunSetupRepository.isMemoryEnabled()` (48)
+- `firstRunSetupRepository.reduceDeviceActionConfirmations()` (49)
+- `firstRunSetupRepository.remoteGuiAutomationEnabled()` (50)
+- `remoteModelRepository.loadMode()` (51) and, when the mode changes, `saveMode()` (53)
+- `remoteModelRepository.loadConfig()` (54)
+- `firstRunSetupRepository.isSetupDismissed()` (56)
+- `memoryRepository.enabled = memoryEnabled` (57)
+- `memoryController.syncTaskStateMemories(memoryEnabled)` (58) -- calls `longTermMemoryControls.savedRecords()`
+- `memoryController.semanticMemoryState()` (59)
+- `huggingFaceAuthStore.hasAccessToken()` (77)
+- `memoryController.loadLongTermMemories()` (78) -- calls `longTermMemoryControls.savedRecords()`
+- `generationParametersRepository.load()` (85)
+- `sessionRepository.summaries()` (86)
+- `sessionRepository.activeSessionId` (87) -- property access
+- `sessionRepository.activeMessages()` (88)
+- `modelRepository.resolveModelStorageBytes()` (90)
 
 Additional synchronous call sites in the ViewModel (called from `viewModelScope.launch` blocks
 but calling sync methods directly -- each must be audited):
@@ -442,47 +442,47 @@ but calling sync methods directly -- each must be audited):
 
 | Line | Context |
 |------|---------|
-| 168 | `LegacyPrefsMigrator(appContext, database, settingsStore, secretStore).migrateIfNeeded()` -- called during construction; `LegacyPrefsMigrator` calls 10+ settingsStore methods + secretStore |
-| 330 | `modelRepository.verifiedObservationActionModelPath()` -- called as lambda provider for `appSearchPlanningModeProvider` |
-| 340 | `modelRepository::verifiedObservationActionModelPath` -- method reference as `actionModelPathProvider` |
-| 380 | `remoteSendPendingStore = settingsStore` -- wires settingsStore as RemoteSendPendingStore implementation |
-| 396 | `source.records()` and `target.records()` in `backfillRoomMemoryRecords()` |
-| 420 | `target.upsert(record)` in `backfillRoomMemoryRecords()` |
+| 238 | `LegacyPrefsMigrator(appContext, database, settingsStore, secretStore).migrateIfNeeded()` -- called during construction; `LegacyPrefsMigrator` calls 10+ settingsStore methods + secretStore |
+| 403 | `modelRepository.verifiedObservationActionModelPath()` -- called as lambda provider for `appSearchPlanningModeProvider` |
+| 444 | `modelRepository::verifiedObservationActionModelPath` -- method reference as `actionModelPathProvider` |
+| 497 | `remoteSendPendingStore = settingsStore` -- wires settingsStore as RemoteSendPendingStore implementation |
+| 291 | `LegacyMemoryStorageRetirement(...).retireAfterSecureImport()` -- reads and upserts Room memory records during construction (replaced `backfillRoomMemoryRecords()`) |
 
 ### 3.6 Call Sites in `LegacyPrefsMigrator`
 
 | Line | Context |
 |------|---------|
-| 25 | `settingsStore.migrationVersion()` |
-| 37 | `settingsStore.setMigrationVersion()` |
-| 68 | `settingsStore.saveActiveSessionId()` |
-| 78 | `settingsStore.saveSelectedModelId()` |
-| 83 | `settingsStore.saveActiveInstalledModelId()` |
-| 161 | `settingsStore.setMemoryEnabled()` |
-| 162 | `settingsStore.markSetupDismissed()` |
-| 163 | `settingsStore.saveGenerationParameters()` |
-| 171 | `settingsStore.saveInferenceMode()` |
-| 176 | `settingsStore.saveBackend()` |
-| 183 | `settingsStore.saveRemoteConfig()` |
-| 190 | `secretStore.saveString("remote_model_api_key", legacyKey)` |
+| 31 | `settingsStore.migrationVersion()` |
+| 69 | `settingsStore.setMigrationVersion()` |
+| 109 | `settingsStore.saveActiveSessionId()` |
+| 119 | `settingsStore.saveSelectedModelId()` |
+| 121 | `settingsStore.saveActiveInstalledModelId()` |
+| 213 | `settingsStore.setMemoryEnabled()` |
+| 214 | `settingsStore.markSetupDismissed()` |
+| 215 | `settingsStore.saveGenerationParameters()` |
+| 222 | `settingsStore.saveInferenceMode()` |
+| 226 | `settingsStore.saveBackend()` |
+| 233 | `settingsStore.saveRemoteConfig()` |
+| 241 | `secretStore.saveString(LEGACY_REMOTE_API_KEY, legacyKey)` |
 
 ### 3.7 Call Sites in `MemoryController`
 
-`MemoryController` already uses `suspend fun` for all public methods and wraps work in
-`withContext(ioDispatcher)`. After migration, the `withContext` wrappers for data calls can be
-removed (the called methods are already `suspend` and handle their own threading). However,
-`withContext` should be kept for CPU-bound work (embedding computation, text processing).
+`MemoryController`'s public methods are synchronous today; callers dispatch them onto IO
+(`launchPersistenceWork`), and its `ioDispatcher` parameter is unused, kept for this
+migration. After migration, its methods become `suspend` and call the suspend data APIs
+directly; CPU-bound work (embedding computation, text processing) should still use an
+explicit dispatcher.
 
 Key call sites that become pure `suspend` calls:
-- Line 68: `sessionStore.allMessages(limit = 500)` -- becomes direct suspend call
-- Line 96: `longTermMemoryControls.savedRecords()` -- becomes direct suspend call
-- Lines 127-134: `longTermMemoryControls.savedRecords()` and `longTermMemoryControls.forgetAutoManagedTaskState()` -- become suspend
-- Lines 139-145: `longTermMemoryControls.isAutoManagedTaskStateSuppressed()` and `longTermMemoryControls.indexTaskState()` -- become suspend
-- Lines 207-209: `sessionStore.replaceActiveSessionMessages()` + `sessionStore.activeMessages()` -- become suspend
-- Lines 222-224: `sessionStore.replaceActiveSessionMessages()` + `sessionStore.activeMessages()` -- become suspend
-- Lines 259-261: `sessionStore.replaceActiveSessionMessages()` + `sessionStore.activeMessages()` -- become suspend
-- Lines 266-267: `longTermMemoryControls.forgetPreference()` + `longTermMemoryControls.forgetUserFact()` -- become suspend
-- Line 309: `modelRepository.verifiedMemoryEmbeddingModelPath()` -- becomes suspend
+- Line 122, 124: `longTermMemoryControls.forget()` + `suppressAutoManagedTaskState()`
+- Lines 147, 149: `longTermMemoryControls.clear()` + `suppressAutoManagedTaskState()`
+- Line 172: `memoryIndex.rebuild(sessionStore.allMessages(limit = 500))`
+- Lines 200, 227: `longTermMemoryControls.savedRecords()`
+- Lines 234-242: `longTermMemoryControls.forgetAutoManagedTaskState()`, `isAutoManagedTaskStateSuppressed()`, `indexTaskState()`
+- Lines 261, 279: `longTermMemoryControls.indexPreference()` / `indexUserFact()`
+- Lines 396-397: `longTermMemoryControls.forgetPreference()` + `forgetUserFact()`
+- Lines 426, 433: `sessionStore.replaceActiveSessionMessages()` + `sessionStore.activeMessages()`
+- Line 466: `modelRepository.verifiedMemoryEmbeddingModelPath()`
 
 ---
 
@@ -561,7 +561,7 @@ tests pass.
    - `markRecommendedVerificationFailed()` -> `suspend fun`
    - `discoverRecommendedDownloadedModels()` -> `suspend fun`
 
-   The `init` block (lines 194-197) becomes a `CoroutineScope`-launched initialization:
+   The `init` block (lines 240-243) becomes a `CoroutineScope`-launched initialization:
    ```kotlin
    private val initScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
    init {
@@ -573,7 +573,7 @@ tests pass.
    ```
    Or better: expose a `suspend fun initialize()` and let `SolinAppContainer` call it.
 
-3. **`SessionRepository.kt`**: `resolveActiveSessionId()` (line 110) becomes `suspend`. The
+3. **`SessionRepository.kt`**: `resolveActiveSessionId()` (line 112) becomes `suspend`. The
    `activeSessionId` property initialization must be deferred:
    ```kotlin
    private var _activeSessionId: String? = null
@@ -594,15 +594,15 @@ tests pass.
    `semanticEmbeddingFor()`, `reembedEntries()`, `refreshSemanticIndexStats()`,
    `clearSemanticMemoryForModel()`, `useMemoryModel()` to `suspend`.
 
-   **Thread safety note**: `MemoryRepository` uses a `linkedMapOf<String, MemoryEntry>()` (line 175)
+   **Thread safety note**: `MemoryRepository` uses a `linkedMapOf<String, MemoryEntry>()` (line 172)
    which is not thread-safe. Add `Mutex` protection for all mutations of `entries`, or switch to
    `ConcurrentHashMap`.
 
-5. **`MemoryController.kt`**: Remove `withContext(ioDispatcher)` wrappers for data calls since
-   the called methods are now `suspend` and handle their own threading. Keep `withContext` for
+5. **`MemoryController.kt`**: Make the public methods `suspend` and call the suspend data APIs
+   directly (it has no `withContext` wrappers today). Use an explicit dispatcher only for
    CPU-bound work (embedding computation in `rebuildMemoryIndex`).
 
-6. **`RemoteModelRepository.kt`**: `loadApiKey()` (line 50) becomes `suspend`.
+6. **`RemoteModelRepository.kt`**: `loadApiKey()` (line 240) becomes `suspend`.
 
 7. **`LegacyPrefsMigrator.kt`**: `migrateIfNeeded()` becomes `suspend`. Called from
    `SolinAppContainer` init; wrap in `runBlocking` for now (one-time startup cost).
@@ -652,16 +652,16 @@ Migrate `SolinViewModel` and `SolinAppContainer` call sites to use the `suspend`
    - Be called from within a `viewModelScope.launch` block, or
    - Cache the state in a `StateFlow` that is updated via suspend calls.
 
-   The `updateModelState()` helper (line 5094) calls `modelRepository.currentState()`; this should
-   be called from a coroutine context.
+   `ModelLoadController.updateModelState()` (line 1073) is fed by `modelRepository.currentState()`
+   at its callers; those calls should run from a coroutine context.
 
 3. **`SolinAppContainer.kt`**:
-   - The lambda providers (lines 330, 340) that call `modelRepository.verifiedObservationActionModelPath()`
+   - The lambda providers (lines 403, 444) that call `modelRepository.verifiedObservationActionModelPath()`
      must become `suspend` lambdas or the provider interface must accept suspend functions.
-   - `LegacyPrefsMigrator.migrateIfNeeded()` call at line 168: wrap in `runBlocking` for now
+   - `LegacyPrefsMigrator.migrateIfNeeded()` call at line 238: wrap in `runBlocking` for now
      (one-time startup migration, acceptable blocking).
-   - `backfillRoomMemoryRecords()` (line 389): called during init; wrap in `runBlocking` or
-     launch in a background scope.
+   - `LegacyMemoryStorageRetirement.retireAfterSecureImport()` (line 291): called during init;
+     wrap in `runBlocking` or launch in a background scope.
 
 4. **Add `@Deprecated` annotations** to all `*Blocking` methods:
    ```kotlin
@@ -673,7 +673,7 @@ Migrate `SolinViewModel` and `SolinAppContainer` call sites to use the `suspend`
    fun loadBlocking(): GenerationParameters
    ```
 
-5. **`SystemPromptBuilder.kt`**: The `buildSystemPromptBlocking()` method (line 97) can be
+5. **`SystemPromptBuilder.kt`**: The `buildSystemPromptBlocking()` method (line 94) can be
    deprecated since `buildSystemPrompt()` is already `suspend`.
 
 **Deliverable**: All `*Blocking` methods show deprecation warnings. `SolinViewModel` uses
@@ -695,8 +695,8 @@ fully suspend-only.
 3. Remove `import kotlinx.coroutines.runBlocking` from `PreferenceSettingsStore.kt`.
 4. Remove `buildSystemPromptBlocking()` from `SystemPromptBuilder.kt` (or keep with a clear
    comment that it is a convenience for non-coroutine callers).
-5. Verify that `runBlocking` usage in `LiteRtRuntime.kt` (line 290), `ActionPlanningRuntime.kt`
-   (line 125), and `ToolExecutor.kt` (lines 196, 255) are acceptable (they bridge to non-data-layer
+5. Verify that `runBlocking` usage in `LiteRtRuntime.kt` (lines 443, 523), `ActionPlanningRuntime.kt`
+   (line 145), and `ToolExecutor.kt` (lines 140, 197) are acceptable (they bridge to non-data-layer
    concerns: model inference and tool execution).
 6. Update `LegacyPrefsMigrator.kt`: Remove `runBlocking` wrapper from `SolinAppContainer`; call
    `migrateIfNeeded()` from a coroutine scope during app initialization.
@@ -736,9 +736,9 @@ usages are in non-data-layer code (model runtime, tool execution, action plannin
 | `createInitialState()` called during ViewModel construction | **High** | Changing to async initialization means the UI sees a loading state. Must ensure all UI components handle null/empty initial data gracefully. Add loading indicators. Test on cold start. |
 | UI flicker on startup (loading state -> real state) | **Medium** | Use a "skeleton" loading state that looks similar to the real state, or keep the splash screen visible until initialization completes. |
 | Call sites in `SolinViewModel` that are not in coroutines | **Medium** | Audit every call site. Methods like `updateModelState()` that call `modelRepository.currentState()` directly must be refactored. |
-| `SolinAppContainer` lambda providers not suspend | **Medium** | The `actionModelPathProvider` lambda (line 340) is a method reference; if the interface expects a non-suspend lambda, the interface must change to accept `suspend () -> String?`. |
+| `SolinAppContainer` lambda providers not suspend | **Medium** | The `actionModelPathProvider` lambda (line 444) is a method reference; if the interface expects a non-suspend lambda, the interface must change to accept `suspend () -> String?`. |
 | Deprecation warnings in test code | Low | Tests may use sync methods; update tests to use `runTest { ... }` and suspend APIs. |
-| `backfillRoomMemoryRecords` called during AppContainer init | Medium | This calls `source.records()` and `target.upsert()` which become suspend. Either keep `runBlocking` for this migration path or launch in a background scope. |
+| `LegacyMemoryStorageRetirement.retireAfterSecureImport` called during AppContainer init | Medium | This calls `records.records()` and `records.upsert()` which become suspend. Either keep `runBlocking` for this migration path or launch in a background scope. |
 
 ### Step 4 Risks (Low)
 
@@ -771,7 +771,7 @@ usages are in non-data-layer code (model runtime, tool execution, action plannin
   from multiple coroutines on `Dispatchers.Default`. Verify no `ConcurrentModificationException`.
 - **SessionRepository**: Test that `activeSessionId()` resolves correctly on first call
   (lazy initialization). Test concurrent `createNewSession()` + `selectSession()` calls.
-- **Integration**: Verify `MemoryController` works without manual `withContext` switching.
+- **Integration**: Verify `MemoryController` works as `suspend` without manual `withContext` switching.
 - **Run `./gradlew testDebugUnitTest`** after each implementation file change.
 
 ### Step 3 Testing
@@ -808,7 +808,7 @@ usages are in non-data-layer code (model runtime, tool execution, action plannin
 |------|-------|-------|
 | **Step 1: Add suspend variants** | 6-8 | ~170 methods across 13 interfaces + 17 implementations. Most are mechanical: add `suspend`, extract suspend impl, wrap sync impl in `runBlocking`. SettingsStore is the largest (18 methods). Memory stores add ~20 more. NoOp implementations are trivial. |
 | **Step 2: Update internal callers** | 10-14 | ModelRepository internal refactor (4h), MemoryRepository suspend conversion + Mutex protection (4h), SessionRepository property->function bridge (2h), PreferenceSettingsStore runBlocking removal (1h), RemoteModelRepository + EncryptedSecretStore + HuggingFaceAuthRepository + others (1-2h). Plus concurrency safety review. |
-| **Step 3: Deprecate sync, update ViewModel** | 12-16 | `createInitialState()` async initialization design + implementation (4h), auditing and migrating all ViewModel call sites (~60 call sites across 6500 lines) (5h), SolinAppContainer lambda provider changes + LegacyPrefsMigrator + backfillRoomMemoryRecords (2h), loading state UI handling (1-2h). |
+| **Step 3: Deprecate sync, update ViewModel** | 12-16 | `createInitialState()` async initialization design + implementation (4h), auditing and migrating all ViewModel call sites (~60 call sites across 6500 lines) (5h), SolinAppContainer lambda provider changes + LegacyPrefsMigrator + LegacyMemoryStorageRetirement (2h), loading state UI handling (1-2h). |
 | **Step 4: Remove sync variants** | 2-3 | Delete all `*Blocking` methods, remove imports, verify compilation. Low effort if Steps 1-3 were thorough. Compiler does most of the work. |
 | **Testing (across all steps)** | 8-10 | Writing paired tests for Step 1 (2h), concurrency tests for Step 2 (3h), ViewModel initialization test for Step 3 (2h), full regression for Step 4 (1-2h). |
 | **Total** | **38-51 hours** | Approximately 1-1.5 weeks of focused work for a single developer. Can be parallelized by interface area (e.g., one person does SettingsStore+repositories, another does Memory subsystem). |
@@ -897,7 +897,7 @@ DataStore I/O). Must become:
 
 ### B.4 MemoryRepository Thread Safety
 
-`MemoryRepository` uses `linkedMapOf<String, MemoryEntry>()` (line 175) which is not thread-safe.
+`MemoryRepository` uses `linkedMapOf<String, MemoryEntry>()` (line 172) which is not thread-safe.
 After migration to `suspend`, multiple coroutines may access `entries` concurrently.
 
 - **Option 1 (RECOMMENDED)**: Add `private val mutex = Mutex()` and wrap all `entries` mutations
@@ -906,12 +906,12 @@ After migration to `suspend`, multiple coroutines may access `entries` concurren
 - **Option 2**: Switch to `java.util.concurrent.ConcurrentHashMap`. Simpler but changes iteration
   semantics (no ordering guarantees).
 
-### B.5 LegacyPrefsMigrator and backfillRoomMemoryRecords
+### B.5 LegacyPrefsMigrator and LegacyMemoryStorageRetirement
 
 Both are called during `SolinAppContainer` initialization and do data layer I/O.
 
 - **Option 1 (RECOMMENDED)**: Keep `runBlocking` for these one-time startup operations.
-  They run exactly once per app install (migration) or once per launch (backfill). The blocking
+  They run exactly once per app install (migration) or once per launch (legacy retirement). The blocking
   cost is paid during the splash screen and is invisible to the user.
 
 - **Option 2**: Launch in a background scope and let the app start without the migrated data.
@@ -934,13 +934,13 @@ Both are called during `SolinAppContainer` initialization and do data layer I/O.
 10. `app/src/main/java/com/bytedance/zgx/solin/data/LegacyPrefsMigrator.kt` -- migration code using settingsStore/secretStore
 
 ### Memory Subsystem
-11. `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryRepository.kt` -- MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController, MemoryRecordStore, MemoryEmbeddingStore, MemoryDeletionEventStore interfaces + all implementations
+11. `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryRepository.kt` -- MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController interfaces + `MemoryRepository`; `memory/MemoryStores.kt` -- MemoryRecordStore, MemoryEmbeddingStore, MemoryDeletionEventStore interfaces + NoOp implementations; `memory/RoomMemoryStores.kt` -- Room implementations
 
 ### Consumers
 12. `app/src/main/java/com/bytedance/zgx/solin/SolinViewModel.kt` -- primary consumer (~60 call sites)
-13. `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryController.kt` -- already suspend, needs withContext cleanup
+13. `app/src/main/java/com/bytedance/zgx/solin/memory/MemoryController.kt` -- synchronous today; methods become suspend
 14. `app/src/main/java/com/bytedance/zgx/solin/SolinAppContainer.kt` -- wiring + lambda providers
 15. `app/src/main/java/com/bytedance/zgx/solin/orchestration/SystemPromptBuilder.kt` -- already has suspend + blocking pattern
 
 ### Room DAOs (if not already suspend)
-16. `app/src/main/java/com/bytedance/zgx/solin/data/SolinDatabase.kt` -- SessionDao, ModelDao, DownloadRecordDao, MemoryRecordDao, MemoryEmbeddingDao, MemoryDeletionEventDao, MemoryDeletionTransactionDao interfaces
+16. `app/src/main/java/com/bytedance/zgx/solin/data/SolinDatabaseDaos.kt` -- SessionDao, ModelDao, DownloadRecordDao, MemoryRecordDao, MemoryEmbeddingDao, MemoryDeletionEventDao, MemoryDeletionTransactionDao interfaces

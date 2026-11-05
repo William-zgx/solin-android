@@ -47,7 +47,7 @@ checkpoint budget rather than on search verification.
 These supporting improvements have been merged and are available for use by the model-driven app control system:
 
 - **SolinConstants** — all timeout, retry, and UI tuning values in one place (`SolinConstants.kt`)
-- **SolinLog** — structured logging with standard tags including `TAG_TOOL`, `TAG_DEVICE`, `TAG_UI`
+- **SolinLog** — structured logging with standard tags including `TAG_MODEL`, `TAG_TOOL`, `TAG_REMOTE`
 - **Network security config** — HTTPS-by-default with loopback exceptions for local model endpoints
 
 ## Existing Base

@@ -3,7 +3,7 @@
 > 2026-10-31 起，架构方向改为“更少、更深的模块”，以 `architecture_depth.md` 为准。本文记录 Wave 1–6 的历史与所有权规则；其中“瘦 facade / 继续拆分”的目标不再适用。
 
 > 状态：Wave 1–6 已完成（见 §20–§22 战役总结）
-> 关联：`docs/plans/archive/viewmodel-split.md`、`solin-screen-split.md`、`uistate-split.md`、`data-layer-suspend-migration.md`
+> 关联：`docs/plans/archive/viewmodel-split.md`、`archive/solin-screen-split.md`、`archive/uistate-split.md`、`docs/plans/data-layer-suspend-migration.md`
 > 目标：把「安全 harness 很强、热点文件不可演进」的债务，变成可并行交付的结构改进。
 > 架构原则与愿景见 §2；已落地的结构化改进（日志/常量/加密/并发等）见 `agent_core_modules.md` 对应章节。
 
@@ -103,7 +103,7 @@ tool/                            # 后续：contract / registry / executor 再�
 
 ### Wave 3 — UiState + Screen 编排（并行于 Wave 2 后半）
 
-按 `uistate-split.md` + `solin-screen-split.md`：
+按 `docs/plans/archive/uistate-split.md` + `docs/plans/archive/solin-screen-split.md`：
 
 1. 引入 `SolinScreenActions` 收敛 50+ 回调
 2. `ChatUiState` 拆子状态（先 download/voice 高频面）
@@ -541,7 +541,7 @@ Wave 6 新增协作面（节选）：
 | --- | --- |
 | `ChatGenerationSupport` / `ChatToolContinuationSupport` | 生成流与工具 continuation |
 | `InitialToolPlanner` / `PendingConfirmationSupport` / `ModelToolRequestCoordinator` | Loop 初始规划与模型 tool 请求 |
-| `ChatTopBar` / `ChatEmptyState` / `MessageBubble` / `ChatMessageChrome` / `FirstRunSetupPanel` | 聊天 chrome |
+| `ChatTopBar` / `ChatEmptyState` / `MessageBubble` / `ChatMessageChrome` / `FirstRunSetupPanel`（后并入 `ChatEmptyState.kt`） | 聊天 chrome |
 | `VoiceInputController` / `BackgroundTaskController` / `AuditUiController` / `DeviceContextPresentation` | VM 残留能力 |
 
 验证：compile + architecture / ui / SolinViewModelTest / orchestration / tool / memory — SUCCESS。

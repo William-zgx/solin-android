@@ -107,8 +107,11 @@ pair. The proposed production owners are `UiExecutionVerification`,
 [`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md).
 
 This batch permits a finite, explicitly reviewed file-count increase for those
-capabilities. The integrated tree contains **334** production Kotlin files, up
-from **329**; the ratchet is set to that measured count. Do not merge or split
+capabilities. The integrated tree contained **334** production Kotlin files, up
+from **329**, and the ratchet was set to that measured count. The 2026-11-05
+cleanup (dead seams such as `AgentHooks`, `AgentProfile` and the credential
+resolvers removed; root-package helpers merged into their owners) brought the
+tree to **324**, and the ratchet now sits at 324. Do not merge or split
 unrelated files just to conceal growth. Every added module must keep substantive
 logic behind a smaller interface. Tool registration, per-child authorization and
 route proposals reuse the existing execution boundary; the shell helper does not
@@ -243,6 +246,7 @@ token-subset match against the user's input.
 | Benchmark baseline | Pending: no device attached (2026-10-31) |
 | Gate map (current checkpoints) | Recorded above |
 | Action entry (one injection entry, guarded) | Enforced by `architecture/ActionEntryArchitectureTest` (2026-11-01) |
+| Main Kotlin file count | Done for this pass: 324, ratcheted in `architecture/PackageBoundaryArchitectureTest` (2026-11-05) |
 | Action gate consolidation | Not started |
 | Egress gate consolidation | Not started |
 | Provenance labels | Not started |
