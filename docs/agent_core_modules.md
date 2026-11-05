@@ -5,6 +5,13 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 `docs/validation_report.md`.
 
+Shared helpers live in `app/src/main/java/com/bytedance/zgx/solin/common/`:
+`JsonReaders.kt` (`keysSet`, `jsonObjects`, `optNullableString`,
+`optStringOrNull`, `optDoubleOrNull`, `optStringSet`, `optStringSetOrNull`,
+`firstNonBlank`) and `Hashing.kt` (`sha256Hex`, `toLowerHex`,
+`appendLengthPrefixed`). They are `internal` and carry no policy. The readers
+fail soft (null or empty) so each caller decides how to fail closed.
+
 ```mermaid
 flowchart LR
     Input["User input"] --> Preflight["Skill-first local preflight"]
@@ -62,10 +69,9 @@ Current status:
 - Input schemas reject unknown tools, unknown fields, missing required values,
   bad enums, regex mismatches, and numeric bounds failures. Output schemas are
   also enforced for successful `ToolResult.data`.
-- `ToolSpec.tags` owns runtime policy categories that previously lived as
-  scattered tool-name lists: device-control sessions, low-risk app-control
-  continuations, UI checkpoints, app-launch continuation, and local-model
-  requirements.
+- `ToolSpec.tags` owns runtime policy categories: device-control sessions,
+  low-risk app-control continuations, UI checkpoints, app-launch continuation,
+  and local-model requirements.
 - `ToolSpec.resultContinuationPolicy` separates tool safety from answer
   synthesis. `PublicEvidence` tools such as `web_search` can continue through
   the configured model; `LocalEvidence` tools such as contacts, calendar,
@@ -76,8 +82,10 @@ Current status:
   notification, navigation, share, or other side-effect boundary.
 - `web_search` uses typed evidence requests. `searchMode=general` stays on
   public search; `searchMode=weather_current` is the only weather endpoint.
+  Public web results are carried as `PublicWebEvidencePack` /
+  `PublicWebEvidenceItem` (`tool/PublicWebEvidence.kt`).
 - Phone-control tools return `LocalOnly` observations and structured
-  `UiActionResult` values. `UiTargetResolver` ranks Accessibility nodes for
+  `UiActionExecutionResult` values (`device/ScreenControlModels.kt`). `UiTargetResolver` ranks Accessibility nodes for
   search/edit/submit/filter/result/scroll targets; app profiles improve
   ranking, not safety policy. Profiles also carry `uiNotes`: at most five
   short UI facts per app (search entry, tab names, Settings toggles switch on
@@ -100,7 +108,8 @@ Current status:
 - Mika-derived phone capabilities are integrated at the existing boundaries:
   `device/UiExecutionVerification.kt` owns input readback and bounded tree-stability
   results; `tool/PhoneCompositeOperations.kt` owns `ui_collect`, `ui_find`, and
-  `ui_set_wheel` orchestration through `ToolExecutionBoundary`; and
+  `ui_set_wheel` orchestration through `TimeoutToolExecutionBoundary`
+  (`tool/ToolExecutionBoundary.kt`); and
   `skill/VerifiedPhoneRoutes.kt` owns session-memory route evidence. The
   `VerifiedPhoneRouteReplanner` wrapper proposes one ordinary request at a time,
   so learning does not grant execution authority. Terminal search verification
@@ -230,6 +239,18 @@ Current status:
   `device/AccessibilityRawScreenshotProvider.kt`.
 - Run-level step and observation budgets fail closed before another pending
   confirmation, retry, replan, or model continuation is saved.
+  `orchestration/AgentRunBudget.kt` owns the tool-step budget, the
+  observation-decision budget, and a wall-clock deadline
+  (`SolinConstants.AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS`, 5 minutes) that does
+  not count time parked on a confirmation, an answer, or an external outcome.
+- Mid-run user input goes through `AssistantRouter.steer` (cancels an
+  in-flight model stream, never a running tool) or
+  `AssistantRouter.queueUserInput` (never cancels anything).
+- Public-evidence continuations (`orchestration/PublicEvidenceContinuation.kt`)
+  check the final answer's `[S<n>]` citations against the numbered sources
+  (`checkPublicWebAnswerCitations`) and ask for at most one rewrite when the
+  check fails: no citation, an unknown source id, or a confirmation claim with
+  no verifiable URL.
 - **User text is never truncated by compaction.** History compaction
   (`orchestration/ContextCompactor.kt`) and observation-replanner prompt
   compression (`orchestration/ObservationReplannerPromptCompression.kt`)
@@ -242,11 +263,16 @@ Current status:
   check runs after every compaction and puts back, at its original position,
   any user message or user-text prompt line that went missing. A summary or
   omission line is `LocalOnly` when any message it covers is.
-- **Concurrency safety**: All 8 internal `mutableMapOf` fields in `AgentLoopRuntime` are now `ConcurrentHashMap` for safe multi-coroutine access.
+- **Concurrency safety**: runId-keyed bookkeeping lives in
+  `orchestration/RunScopedState.kt` as `ConcurrentHashMap` fields and is
+  dropped by `forgetRun` when a run reaches a terminal state. The remaining
+  maps on `AgentLoopRuntime` (in-flight model-call jobs, pending ask_user
+  questions, tool dispatch timestamps) are also `ConcurrentHashMap`.
 
 Tests:
 
 - `AgentLoopRuntimeTest`
+- `AgentRunBudgetTest`
 - `AssistantOrchestratorTest`
 - `ToolExecutionBoundaryTest`
 - `SolinViewModelTest`
@@ -268,9 +294,10 @@ Boundaries:
 
 - Runtime modules do not mutate `ChatUiState`; they return typed results that
   the orchestration layer folds into state.
-- Local runtime never sends data off-device; remote runtime filters
-  `LocalOnly` context before dispatch.
-- Prompt templates are centralized here, not scattered across callers.
+- Local runtime never sends data off-device; remote runtime sends only
+  `RemoteEligible` history (`LocalOnly` messages are filtered before dispatch).
+- The runtime owns only the base system instruction; per-turn prompt assembly
+  and continuation prompts live in `orchestration/`.
 
 Current status:
 
@@ -278,12 +305,14 @@ Current status:
   fallback and explicit model loading.
 - `RemoteChatRuntime` streams from an OpenAI-compatible endpoint using
   OkHttp, sending the configured API key as a `Bearer` header, with
-  `RemoteModelEndpoints` for base URL resolution.
+  `RemoteModelEndpoints.kt` building the chat-completions and models URLs and
+  `RemoteRetryPolicy` retrying only transient provider-side failures.
 - `AdaptiveGenerationPolicy` decides backend, token limits, and image caps
   from `AdaptiveGenerationPolicyInput` (preferred backend, context window,
   last-gen stats, quality issues, image count).
-- `ModelOutputQualityGuard` detects degraded generations (truncation,
-  repetition, empty output) and surfaces `GenerationQualityIssue`.
+- `ModelOutputQualityGuard` stops degraded streamed generations (repetition
+  loops, malformed characters, over-length, empty output, format violations)
+  and surfaces a `GenerationQualityIssue`.
 - `RemoteModelConnectivityProbe` performs lightweight preflight checks
   before a remote generation is attempted.
 - Cloud/edge router (opt-in, `orchestration/DecisionModelRouter.kt` +
@@ -306,7 +335,9 @@ Current status:
   `docs/decision_routing_eval.json`.
 - `TfliteTextEmbeddingRuntimeFactory` builds the TFLite embedding runtime
   used by the memory index.
-- `ChatPrompts` centralizes system prompt and tool-use prompt construction.
+- `runtime/ChatPrompts.kt` holds the default chat system instruction
+  (`DEFAULT_CHAT_SYSTEM_INSTRUCTION`); `orchestration/SystemPromptBuilder.kt`
+  adds per-turn evidence cards to it.
 
 Tests:
 
@@ -353,18 +384,21 @@ Current status:
 - `CompositeSkillRuntime` merges module manifests into one discovery catalog,
   rejects duplicate ids, and fails startup if a planner advertises an
   unregistered Skill.
-- External Skill Packages use an allowlisted ZIP layout with bounded file count
-  and sizes. The loader validates raw-manifest Ed25519 signatures from trusted
-  publishers, frozen tool references, minimum app version, declared risk, and
-  SHA-256 for every payload resource before returning a `SkillSource`; failures
-  remove staging. Unknown privacy metadata fails closed as `LocalOnly`.
+- External Skill Packages (`skill/external/`, package
+  `com.bytedance.zgx.solin.skill.external`) use an allowlisted ZIP layout with
+  bounded file count and sizes. The loader validates raw-manifest Ed25519
+  signatures from trusted publishers, frozen tool references, minimum app
+  version, declared risk, and SHA-256 for every payload resource before
+  returning a `SkillSource`; failures remove staging. Unknown privacy metadata
+  fails closed as `LocalOnly`.
 - Declarative Skill plans support stable step ids, dependencies,
   tool-to-tool bindings, local model transform steps, and bounded progression.
 - `SkillRunProgressor` is the shared pure Kotlin boundary for structure
   validation, public-output binding, private-output fences, model-output to tool
   progression, and current-process tool-result progression. Tool execution itself
   always goes through `presentation/ToolExecutionController` and
-  `tool/ToolExecutionBoundary`; the Skill layer never calls a tool executor.
+  `TimeoutToolExecutionBoundary` (`tool/ToolExecutionBoundary.kt`); the Skill
+  layer never calls a tool executor.
 - Current built-ins cover drafts, maps/search, device settings, app navigation,
   reminders, periodic-check configuration, background-task queries, web search,
   clipboard context, summary-and-share flows, foreground/current-app context,
@@ -553,6 +587,9 @@ Current status:
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
   confirmation, up to 5 UI actions, but never past one of these reasons).
+  A private device read is an earlier tool in the run with private output
+  keys; `ToolCapability.LocalCompute` tools (such as `calculate`) mark their
+  output private but read nothing from the device, so they do not count.
 - Critical on-screen controls (pay, send, delete, publish, order, transfer,
   authorize) are never activated by the agent: `DeviceControlToolExecutor`
   checks what each action can activate — the named target or the node under a
@@ -697,6 +734,9 @@ Current status:
 - The background task surface shows active scheduled tasks, read-only terminal
   history, and periodic-check policy state. Running internals stay available to
   memory/recovery logic but are not shown as user-cancellable work.
+- The surface reads one `BackgroundTaskSnapshot` (active tasks, history, and
+  periodic-check policy) through `PresentationSessionHost.loadBackgroundTaskSnapshot()`,
+  backed by `BackgroundTaskController`.
 
 Tests:
 
@@ -765,19 +805,29 @@ Responsibilities:
 
 - Provide a test-safe logging facade that does not directly reference `android.util.Log`.
 - Route log calls through `SolinLogHolder.current` (default: `AndroidSolinLog` in debug, `NoOpSolinLog` in release).
-- Define 12 standard tag constants so log filtering is consistent across modules.
+- Define the shared tag constants in `SolinLogTags` (`TAG_MODEL`, `TAG_TOOL`,
+  `TAG_MEMORY`, `TAG_REMOTE`, `TAG_LIFECYCLE`) so log filtering is consistent
+  across modules.
+- Provide `Throwable.cleanMessage()` (message, or the class name when the
+  message is blank) for user-facing failure summaries.
 
 Boundaries:
 
 - `AndroidSolinLog` wraps every `android.util.Log` call in `runCatching` so unit tests never crash from unmocked Log.
-- Top-level `solinD/solinI/solinW/solinE` functions are the preferred entry point; avoid raw `android.util.Log` in production code.
-- Tests may swap the implementation via `setSolinLog()` to capture or silence output.
+- Top-level `solinD/solinI/solinW/solinE` functions are the preferred entry point for new code.
+- Tests may replace `SolinLogHolder.current` to capture or silence output.
 
 Current status:
 
-- `SolinViewModel` emits structured logs for model load, message send, and tool execution.
-- `RemoteModelRepository` uses `solinW(TAG_REMOTE, ...)` for migration warnings.
-- Log facade is used across Agent loop, tool execution, and model runtime layers.
+- Presentation controllers (chat, generation, tool continuation, tool
+  execution, model load, memory UI), remote vision, memory retrieval,
+  `RemoteChatRuntime`, and the data-layer settings and remote-model
+  repositories log through the facade. `RemoteModelRepository` uses
+  `solinW(TAG_REMOTE, ...)` for API-key migration warnings.
+- Some files still call `android.util.Log` directly, including
+  `AgentLoopRuntime`, `AgentRunBudget`, `InitialToolPlanner`,
+  `AgentTraceStore`, `LiteRtRuntime`, `BinderMcpTransport`,
+  `OnDeviceEvidenceBlobStore`, and `SolinAppContainer`.
 
 Tests:
 
@@ -791,20 +841,24 @@ Code:
 
 Responsibilities:
 
-- Hold all magic numbers and tuning parameters in one typed, documented location.
+- Hold shared tuning parameters in one typed, documented location.
 - Expose nested objects: `Network`, `AgentLoop`, `Ui`, `Embedding`.
 
 Boundaries:
 
-- Prefer `SolinConstants.X.Y` over scattered `private const val`.
+- Prefer `SolinConstants.X.Y` for values shared across files; file-local
+  `private const val` values remain where only one file uses them.
 - Each value carries KDoc explaining its purpose and units.
 
 Current status:
 
-- `SolinConstants` centralizes timeouts, retry counts, UI thresholds, and embedding parameters previously scattered across multiple files.
+- `SolinConstants` holds network timeouts, Agent-loop budgets (including
+  `AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS`), UI thresholds, and embedding
+  parameters.
 
 Tests:
 
+- `AgentRunBudgetTest` and `ModelToolRequestDeadlineTest` exercise budgets read from `SolinConstants.AgentLoop`.
 - `AgentLoopRuntimeTest` validates behavior that depends on `SolinConstants.AgentLoop` values.
 
 ## Memory Controller
@@ -821,7 +875,8 @@ Responsibilities:
 Boundaries:
 
 - Returns `MemoryControllerResult` / `MemoryCommandResult` data classes; does not directly mutate UI state.
-- Runs on an injected `ioDispatcher`.
+- Its methods are synchronous. The constructor takes an `ioDispatcher`, which
+  is unused until the data layer moves to `suspend`.
 
 Current status:
 
@@ -840,19 +895,31 @@ Code:
 
 Responsibilities:
 
-- Encrypt evidence blobs at rest using AES/CBC/PKCS5Padding with an AndroidKeyStore key (`solin_evidence_key`).
-- Prepend a 16-byte IV to each ciphertext blob.
-- Auto-migrate legacy plaintext blobs on read (decrypt failure → fall back to plaintext).
+- Store overflow evidence (tool results and other long values cut by
+  `EvidenceBounds.headTail`) as content-addressed blobs: the file name and
+  `ev://<sha256>` URI are the SHA-256 of the plaintext.
+- Encrypt blobs at rest with AES/GCM/NoPadding under an AndroidKeyStore key
+  (`solin_evidence_aes_gcm_v1`). Each blob is a versioned envelope (`SEV1`
+  magic, version, 12-byte nonce) followed by the ciphertext.
+- Keep reading legacy plaintext and AES/CBC blobs (old key `solin_evidence_key`)
+  when they match their content address, and rewrite them in the GCM format.
 
 Boundaries:
 
-- Encryption is enabled only when a valid `Context` is provided; test constructors pass `null` to disable.
-- Meta files include an `encrypted=true/false` line.
+- Encryption is enabled only when a `Context` is provided; the no-context
+  constructor is plaintext and exists for JVM tests.
+- A production store fails closed when AndroidKeyStore is unavailable or a
+  blob cannot be authenticated or matched to its content address.
+- `LocalOnly` blobs go under `noBackupFilesDir`, `RemoteEligible` blobs under
+  `cacheDir`. Meta files record `encrypted=true/false` and the envelope kind.
+- Blobs expire after a 7-day default TTL; total size is capped at 64 MiB, and
+  `SolinAppContainer` runs `gc()` at startup.
 
 Current status:
 
-- Evidence encryption protects agent trace and audit blobs stored on device.
-- Legacy plaintext migration ensures backward compatibility for existing installations.
+- `SolinAppContainer` wires one `OnDeviceEvidenceBlobStore` into the tool
+  executor and the orchestrator, which passes it to the Agent loop;
+  prompt-value overflow is always tagged `LocalOnly`.
 
 Tests:
 
@@ -879,12 +946,16 @@ Boundaries:
 
 Current status:
 
-- Network security config is active in debug and release builds.
-- Remote model repositories and web search providers use HTTPS exclusively.
+- Network security config applies to every build type.
+- Remote model endpoints (`RemoteModelConfig`) and custom model download URLs
+  accept `https`, or `http` only for the same loopback hosts; web search
+  providers use HTTPS endpoints.
 
 Tests:
 
-- `RemoteModelRepositoryTest` validates HTTPS endpoint configuration.
+- `RemoteModelConfigTest`
+- `ModelRepositoryTest`
+- `RemoteModelRepositoryTest`
 
 ## Capability Matrix
 
@@ -959,23 +1030,29 @@ Responsibilities:
 
 Boundaries:
 
-- Downloads are bounded by `CUSTOM_MODEL_MAX_BYTES`; oversized transfers fail
-  with `ModelTransferSizeLimitExceededException`.
+- Downloads are bounded by the expected size, or by `CUSTOM_MODEL_MAX_BYTES`
+  (8 GiB) for custom URLs; oversized transfers fail with
+  `ModelTransferSizeLimitExceededException`.
 - Model downloads are Wi-Fi only by default. A download paused for Wi-Fi
   (`isWaitingForWifiDownload`) offers the user an explicit metered-data resume
   (`allowMeteredDownload()`); no download ever spends cellular data without
   that choice.
-- Hugging Face gated downloads require a user-provided `SOLIN_HF_TOKEN`; the
-  token is never committed or logged.
+- Gated Hugging Face models need a user-saved read token
+  (`HuggingFaceAuthRepository`, encrypted `SecretStore`), sent only as an
+  `Authorization: Bearer` header. Build-time bundled-model packaging reads a
+  separate `SOLIN_HF_TOKEN` from the environment. Neither token is committed or
+  logged.
 
 Current status:
 
-- `ModelDownloadService` wraps Android `DownloadManager` for large files and
-  falls back to a direct `HttpURLConnection` path for preflight checks.
-- `HuggingFaceDownloadUrlResolver` normalizes HF repository URLs to direct
-  download endpoints.
-- Downloads are tracked in a `ConcurrentHashMap` of active jobs with atomic
-  byte counters.
+- `ModelDownloadService` enqueues downloads through Android `DownloadManager`.
+  Loopback debug URLs are fetched directly over `HttpURLConnection` with the
+  same byte limit.
+- `HuggingFaceDownloadUrlResolver` probes gated URLs with a HEAD (or a
+  one-byte range GET) and follows redirects to the direct download URL.
+- `ModelDownloadSource.verifiedSha256` checks size and SHA-256 after a
+  download completes.
+- Active downloads are tracked in `ConcurrentHashMap`s keyed by download id.
 
 Tests:
 
@@ -1021,29 +1098,34 @@ Code:
 
 Responsibilities:
 
-- Persist multi-step plan items for an active run so the UI can show progress
-  and the loop can resume after process death.
-- Convert plan steps into tool requests through the frozen registry.
+- Keep the Agent's own checklist for a run: the `plan_write` and `plan_read`
+  tools replace and read the ordered plan items.
+- Publish plan updates so the loop can emit `PlanUpdated` events and add
+  pending items to a step-budget failure message.
 
 Boundaries:
 
-- Plans store titles, status, and notes only; raw tool arguments and model
-  output are not persisted in plan items.
-- Plan progression is gated by the same confirmation and safety boundaries as
-  direct tool execution.
+- Plan items hold a title, status, position, and optional note; they carry no
+  tool arguments and do not execute anything.
+- Plans are in memory only (`SessionPlanStore` is a per-process map keyed by
+  run id); they are not restored after process death.
+- Both plan tools are `Orchestration` capability, `LowReadOnly` risk, and
+  need no confirmation.
 
 Current status:
 
 - `PlanItem` tracks `PENDING`, `IN_PROGRESS`, `DONE`, `BLOCKED`, `SKIPPED`
   status with position ordering.
-- `SessionPlanStore` persists plan snapshots per run id.
-- `PlanToolHandler` and `PlanToolsModule` bridge plan items to the tool
-  registry.
+- `SessionPlanStore` keeps the latest snapshot per run id and emits it on
+  `updates`.
+- `plan/PlanToolHandler.kt` holds `PlanToolHandler` (specs and handler) and
+  `PlanToolsModule`, which registers them with the module registry.
 
 Tests:
 
 - `SessionPlanStoreTest`
 - `PlanToolHandlerTest`
+- `PlanModelsTest`
 
 ## Presentation Controllers
 
@@ -1053,26 +1135,30 @@ Code:
 
 Responsibilities:
 
-- Hold extracted ViewModel logic as focused controllers that assemble and
+- Hold ViewModel logic as focused controllers that assemble and
   mutate `ChatUiState` sub-states.
 - Keep `SolinViewModel` as a thin facade that forwards to controllers and
   combines their state.
 
 Boundaries:
 
-- Controllers do not call Android APIs directly; they depend on injected
-  repositories and runtimes.
+- Controllers do not start activities or look up Android system services;
+  they depend on injected repositories and runtimes.
 - Controllers do not own cross-cutting state; `SolinViewModel` remains the
   single composition root for `ChatUiState`.
 
 Current status:
 
-- 19 controllers cover chat, model load, tool execution, session, device
-  context, background tasks, shared input, voice input, model selection,
-  audit UI, generation streaming, generation quality, remote send, tool
-  continuation, and auto-inference authorization.
-- `SolinViewModel` is reduced from ~6,500 lines to ~1,500 lines; it now
-  delegates to controllers and assembles the composite UI state.
+- Controllers cover chat (`ChatController` plus its generation, remote-send,
+  shared-input, tool-continuation, and route-outcome helpers), model load,
+  inference mode, tool execution, sessions, background tasks, memory UI,
+  voice input, audit UI, and auto-inference authorization.
+- `PresentationSessionHost` gives controllers one interface to session
+  persistence, memory commands, audit/trace reads, background-task snapshots,
+  and the run read models in `presentation/InteractionReadModels.kt`.
+- `SolinViewModel` (about 850 lines) delegates to these controllers and
+  assembles the composite UI state; its line watermark is in
+  `PackageBoundaryArchitectureTest`.
 - `GenerationStreamReducer` is a pure-Kotlin reducer for typed
   started/delta/completed/failed/cancelled generation events.
 
@@ -1083,6 +1169,8 @@ Tests:
 - `ChatPlacementInputsTest`
 - `ToolExecutionControllerTest`
 - `GenerationStreamReducerTest`
+- `InteractionReadModelsTest`
+- `BackgroundRunRecoveryTest`
 
 ## UI Layer
 
@@ -1107,23 +1195,27 @@ Boundaries:
 
 Current status:
 
-- `SolinScreen.kt` is the root composable; it is reduced from ~6,300 lines
-  to ~1,600 lines by delegating to 17 leaf components under
-  `ui/components/`.
-- Leaf components cover top bar, empty state, message bubble/chrome,
-  first-run setup, memory panel, model manager, remote mode/send
-  disclosure, session manager, trust boundary, action draft, background
-  task, and external outcome sheets.
-- `MessageMarkdown` renders assistant message content with safe link
-  handling.
-- `ResourcePressureBadge` / `ResourcePressureOverlay` surface device
-  resource pressure from the `resource/` module.
-- `theme/` holds the Compose color, typography, and shape definitions.
+- `SolinScreen.kt` is the root composable (about 500 lines; watermark in
+  `PackageBoundaryArchitectureTest`) and delegates to the leaf components
+  under `ui/components/`.
+- Leaf components cover the top bar, composer, empty state, message
+  bubble/chrome, memory panel, model manager, remote mode/send disclosure,
+  decision-model routing, session manager, trust boundary, action draft,
+  background task, and external outcome sheets; `SolinSheetHost` hosts the
+  sheets.
+- `MessageMarkdown.kt` splits message text into code and prose segments
+  (`splitMessageSegments`); `MessageBubble` renders headings, bullets, and
+  bold text from the prose segments.
+- `ResourcePressureOverlay` samples resources while the screen is started and
+  shows `ResourcePressureBadge` only when pressure is above normal.
+- `theme/Theme.kt` holds the Compose color, typography, and shape definitions.
 
 Tests:
 
 - `SolinScreenDisplayTest`
-- Component-specific Compose UI tests under `ui/components/`
+- `AppShellDisplayTest`
+- `MessageMarkdownTest`
+- `ComposerMidRunSteeringTest`
 
 ## Resource Monitoring
 
@@ -1134,25 +1226,26 @@ Code:
 Responsibilities:
 
 - Sample system resource state (PSS, Java/native heap, available RAM, CPU,
-  thermal pressure) on a fixed interval and expose a stable, debounced view
-  to the UI and runtime.
+  thermal pressure) and keep a stable, debounced view for model placement and
+  the UI.
 
 Boundaries:
 
 - This module only observes; it never throttles, kills, or reconfigures
-  inference. Policy decisions based on resource state live in the runtime
-  and presentation layers.
-- Sampling runs on a background coroutine; the UI receives immutable
-  snapshots via the `StableResourceState` model.
+  inference. `ModelPlacementPolicy` reads `StableResourceState` to bias or
+  block local placement; the UI only shows a badge.
+- It reads no user content.
 
 Current status:
 
-- `SystemResourceMonitor` reads `/proc` stats, `ActivityManager`, and
-  `PowerManager` thermal APIs to build `SystemResourceSnapshot` samples
-  every 1.5 s.
-- `StableResourceSnapshotAggregator` smooths raw samples into
-  `StableResourceState` (Normal / Warm / Hot band) with hysteresis so the
-  UI badge does not flicker on transient spikes.
+- `SystemResourceMonitor.sample()` reads `/proc/self/stat`, `Debug` memory
+  info, `ActivityManager`, and the `PowerManager` thermal status into one
+  `SystemResourceSnapshot`. `ResourcePressureOverlay` calls it every 1.5 s
+  (`SYSTEM_RESOURCE_SAMPLE_INTERVAL_MS`) while the screen is started.
+- `StableResourceSnapshotAggregator` keeps the last 3 samples in a 10 s window
+  and needs 2 votes for a Warm or Hot `StableResourceBand`; Hot and local
+  hard-block states hold for a 15 s cooldown so placement does not flip on
+  transient spikes.
 - `ResourcePressure` and `ThermalPressure` enums define the user-facing
   pressure levels surfaced by `ResourcePressureBadge` /
   `ResourcePressureOverlay` in the UI layer.
@@ -1195,10 +1288,19 @@ Current status:
 
 - `McpCapabilitySettings` persists the toggle, disclosure acknowledgement, and
   the server catalog; `McpCapabilityController` backs the Trust Center toggle.
-- `McpClient` manages server connections and approved tool specs.
+- `McpServerRegistry` owns the persisted catalog and creates live
+  `McpServerConnection`s on demand; registration (`registerServer`) and tool
+  approval (`approveTools`) are explicit calls, never automatic discovery.
+- `McpClient` exposes approved tools as Solin tools and proxies confirmed
+  calls. Each call is refused unless the toggle is on, the tool is in the
+  approved catalog, the server passes verification, and the live schema still
+  matches the approved snapshot. Each send is recorded in the remote-send
+  audit with tool/server names and an argument count only.
 - `McpModule` registers approved MCP tool specs and handlers with the module
   registry at startup when the toggle was on.
-- `McpConsentStore` persists user approval decisions per server.
+- `McpConsentStore` is the in-memory, per-server and per-tool call-time
+  approval store; `McpServerRegistry` mirrors durable approvals into it from
+  the catalog.
 - `BinderMcpTransport` binds verified out-of-process servers.
 - No server management UI yet; the catalog is empty until servers are added.
 
@@ -1227,16 +1329,21 @@ Responsibilities:
 
 Boundaries:
 
-- Read-only: production never writes legacy documents or vectors.
+- Read-only apart from the final clear: production never writes legacy
+  documents or vectors.
 - Vector dimensions are fixed at 768 (`LocalVectorIndexContract.DIMENSIONS`)
   to match the EmbeddingGemma model; other dimensions fail closed.
 
 Current status:
 
-- `LocalStorageContracts` defines the legacy `LocalDocument` and
-  `LegacyVector` shapes.
-- `AndroidLocalStorageStores` reads legacy documents from `SharedPreferences`
-  and vectors through `ZvecNativeStore`.
+- `storage/LocalStorageContracts.kt` defines `LocalVectorIndexContract` and
+  the legacy `LocalDocument` and `LegacyVector` shapes.
+- `storage/AndroidLocalStorageStores.kt` holds
+  `SharedPreferencesLocalDocumentStore` (reads legacy documents and clears them
+  after migration) and `ZvecNativeLocalVectorIndex` (reads vectors through
+  `ZvecNativeStore`).
+- `storage/OpenableMetadata.kt` reads a content URI's display name and size in
+  one query for shared-input and model-import callers.
 
 Tests:
 
@@ -1279,7 +1386,9 @@ Current status:
   `HuggingFaceAuthRepository`, and `RemoteModelRepository` cover their
   respective domains.
 - `BundledModelInstaller` installs models from the app's bundled assets
-  for the internal `bundledModels` build variant.
+  for the internal `bundledModels` build type.
+- `SessionRepository.summaries()` reads every session's message count with
+  one `SessionDao.messageCountsBySession()` `GROUP BY` query.
 - `LegacyPrefsMigrator` migrates old `SharedPreferences` data to the
   current storage scheme.
 
@@ -1312,10 +1421,14 @@ Boundaries:
 
 Current status:
 
-- `RcPerfResult` reports `Available` (with `tokensPerSecond` and
+- `RcPerfResult` reports `Success` (with `RcPerfMetrics`: load, first-token,
+  `tokensPerSecond`, stop-recovery, vision, memory-search timings, and
   `GpuFallbackStatus`) or `Failure` (with reason).
-- `GpuFallbackStatus` maps 1:1 to `verify_perf_baseline.sh` wire values:
-  `not-needed`, `fallback-to-cpu`, `gpu-unavailable`.
+- `GpuFallbackStatus` maps 1:1 to `scripts/verify_perf_baseline.sh` wire
+  values: `not-needed` and `cpu-fallback-passed`. A total load failure is a
+  `Failure`, never a fallback status.
+- The `rcPerfRelease` build type wires this logic to the real runtime through
+  `RcPerfHarnessService`.
 - Benchmark logic is exercised by `testDebugUnitTest`; it never reads,
   deletes, or resets real model files or user data.
 
@@ -1345,10 +1458,15 @@ Boundaries:
 
 Current status:
 
-- `AgentBehaviorEvalModels` covers `RunPlacement`, `RunDataReceipt`,
-  `RunDataDestination`, `PlacementReasonCode`, and trace schema versioning.
-- Models are consumed by `scripts/verify_ai_behavior_eval.sh` and
-  `scripts/collect_ai_behavior_actual_trace.sh`.
+- `AgentBehaviorEvalModels.kt` defines `AgentBehaviorEvalCase` (fixture rows,
+  parsed by `AgentBehaviorEvalCase.fromJson`), `AgentBehaviorActualTrace`, and
+  `reconcilePlacementTrace`, which projects a run's steps onto `RunPlacement`,
+  `PlacementReasonCode`, and `RunDataReceipt` from `orchestration/`.
+  `AuditUiController` uses the same projection for the trace UI.
+- Fixtures live in `app/src/test/resources/ai_behavior_eval/`.
+  `scripts/verify_ai_behavior_eval.sh` validates them, and
+  `scripts/collect_ai_behavior_actual_trace.sh` runs
+  `AiBehaviorActualTraceGeneratorTest` to produce actual traces.
 
 Tests:
 
