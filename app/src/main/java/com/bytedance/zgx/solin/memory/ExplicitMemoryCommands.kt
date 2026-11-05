@@ -20,17 +20,22 @@ internal fun explicitUserFactFrom(text: String): String? {
     return remembered.takeIf(::isExplicitUserFactPayload)
 }
 
+private val EXPLICIT_USER_PREFERENCE_FORGET_FROM_ZH1_REGEX =
+    Regex("""^(?:请)?(?:忘记|遗忘|删除|移除|不要再记住|别再记住)[:：]?\s*(.+)$""")
+
+private val EXPLICIT_USER_PREFERENCE_FORGET_FROM_PLEASE_FORGET_REGEX = Regex(
+    pattern = """^(?:please\s+)?(?:forget|delete|remove)\s+(?:that\s+)?(.+)$""",
+    option = RegexOption.IGNORE_CASE,
+)
+
 internal fun explicitUserPreferenceForgetFrom(text: String): String? {
     val trimmed = text.trim()
-    val chinesePrefix = Regex("""^(?:请)?(?:忘记|遗忘|删除|移除|不要再记住|别再记住)[:：]?\s*(.+)$""")
+    val chinesePrefix = EXPLICIT_USER_PREFERENCE_FORGET_FROM_ZH1_REGEX
     chinesePrefix.find(trimmed)?.groupValues?.getOrNull(1)?.toPreferenceForgetTarget()?.let { preference ->
         if (preference.isNotBlank()) return preference
     }
 
-    val englishPrefix = Regex(
-        pattern = """^(?:please\s+)?(?:forget|delete|remove)\s+(?:that\s+)?(.+)$""",
-        option = RegexOption.IGNORE_CASE,
-    )
+    val englishPrefix = EXPLICIT_USER_PREFERENCE_FORGET_FROM_PLEASE_FORGET_REGEX
     return englishPrefix.find(trimmed)
         ?.groupValues
         ?.getOrNull(1)
@@ -56,17 +61,21 @@ private fun String.toPreferenceForgetTarget(): String =
         .removePrefix("user fact:")
         .trim()
 
+private val EXPLICIT_REMEMBER_PAYLOAD_FROM_ZH1_REGEX = Regex("""^(请)?记住[:：]?\s*(.+)$""")
+
+private val EXPLICIT_REMEMBER_PAYLOAD_FROM_PLEASE_REMEMBER_REGEX = Regex(
+    pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
+    option = RegexOption.IGNORE_CASE,
+)
+
 private fun explicitRememberPayloadFrom(text: String): String? {
     val trimmed = text.trim()
-    val chinesePrefix = Regex("""^(请)?记住[:：]?\s*(.+)$""")
+    val chinesePrefix = EXPLICIT_REMEMBER_PAYLOAD_FROM_ZH1_REGEX
     chinesePrefix.find(trimmed)?.groupValues?.getOrNull(2)?.trim()?.let { payload ->
         if (payload.isNotBlank()) return payload
     }
 
-    val englishPrefix = Regex(
-        pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
-        option = RegexOption.IGNORE_CASE,
-    )
+    val englishPrefix = EXPLICIT_REMEMBER_PAYLOAD_FROM_PLEASE_REMEMBER_REGEX
     return englishPrefix.find(trimmed)
         ?.groupValues
         ?.getOrNull(3)
@@ -115,18 +124,20 @@ private fun normalizedPreferenceText(text: String): String =
 private fun normalizedMemoryText(text: String): String =
     text.trim().replace(WHITESPACE_RUN_REGEX, " ").lowercase(Locale.ROOT)
 
+private val USER_FACT_KEY_FROM_ZH1_REGEX = Regex("""^(?:我(?:的)?)(.+?)(?:是|为)(.+)$""")
+
+private val USER_FACT_KEY_FROM_MY_IS_REGEX = Regex("""^my\s+(.+?)\s+(?:is|are)\s+(.+)$""")
+
 internal fun userFactKeyFrom(text: String): String? {
     val normalized = normalizedUserFactText(text)
-    val chineseMatch = Regex("""^(?:我(?:的)?)(.+?)(?:是|为)(.+)$""")
-        .find(normalized)
+    val chineseMatch = USER_FACT_KEY_FROM_ZH1_REGEX.find(normalized)
     if (chineseMatch != null) {
         return chineseMatch.groupValues.getOrNull(1)
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.let { "zh:$it" }
     }
-    val englishMatch = Regex("""^my\s+(.+?)\s+(?:is|are)\s+(.+)$""")
-        .find(normalized)
+    val englishMatch = USER_FACT_KEY_FROM_MY_IS_REGEX.find(normalized)
     return englishMatch
         ?.groupValues
         ?.getOrNull(1)

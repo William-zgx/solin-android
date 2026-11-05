@@ -5,6 +5,14 @@ package com.bytedance.zgx.solin.action
  * foreground-app query.
  */
 
+private val DEEP_LINK_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:open|visit|go\s+to|launch)\b""")
+
+private val DEEP_LINK_NON_ACTION_HOW_DO_REGEX =
+    Regex("""^\s*how\s+do\s+i\s+(?:open|visit|go\s+to|launch)\b""")
+
+private val DEEP_LINK_NON_ACTION_WHAT_IS_REGEX = Regex("""^\s*(what\s+is|explain|describe)\b""")
+
 internal object DeepLinkActionParser {
     private val uriPattern = Regex("""\bhttps://\S+""", RegexOption.IGNORE_CASE)
     private val englishOpenPattern = Regex("""\b(open|visit|go\s+to|launch)\b""", RegexOption.IGNORE_CASE)
@@ -47,13 +55,19 @@ internal object DeepLinkActionParser {
             "什么意思",
             "是什么",
         ).any { it in this } ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|visit|go\s+to|launch)\b""")) ||
-            normalized.contains(Regex("""^\s*how\s+do\s+i\s+(?:open|visit|go\s+to|launch)\b""")) ||
-            normalized.contains(Regex("""^\s*(what\s+is|explain|describe)\b"""))
+            normalized.contains(DEEP_LINK_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(DEEP_LINK_NON_ACTION_HOW_DO_REGEX) ||
+            normalized.contains(DEEP_LINK_NON_ACTION_WHAT_IS_REGEX)
     }
 
     private const val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
 }
+
+private val CAMERA_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:open|launch|start|use)\s+(?:the\s+)?camera\b""")
+
+private val CAMERA_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|permissions?)\b.*\bcamera\b""")
 
 internal object CameraActionParser {
     private val englishPattern =
@@ -100,10 +114,43 @@ internal object CameraActionParser {
                 "实现",
                 "设计",
             ).any { it in this } ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|launch|start|use)\s+(?:the\s+)?camera\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|permissions?)\b.*\bcamera\b"""))
+            normalized.contains(CAMERA_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(CAMERA_NON_ACTION_WHAT_IS_REGEX)
     }
 }
+
+private val FOLLOW_UP_VERB_REGEX = Regex(
+    """(搜索|搜一搜|查找|查询|找一?下|打开|进入|点击|看看|浏览|search|find|look\s+up|open|go\s+to|tap|browse)""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val APP_NAME_LEADING_OPEN_VERB_REGEX =
+    Regex("""(?i)^\s*(?:open|launch|start)\s+(?:the\s+)?(?:app(?:lication)?\s+)?""")
+
+private val APP_NAME_LEADING_APP_WORD_REGEX =
+    Regex("""^\s*(?:应用|app|应用程序)\s*""", RegexOption.IGNORE_CASE)
+
+private val APP_NAME_TRAILING_APP_WORD_REGEX =
+    Regex("""\s*(?:应用|app|应用程序)\s*$""", RegexOption.IGNORE_CASE)
+
+private val APP_NAME_PATH_CHARS_REGEX = Regex("""[/:\\]""")
+
+private val APP_NAVIGATION_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:open|launch|start)\b""")
+
+private val APP_NAVIGATION_NON_ACTION_OPEN_SOURCE_REGEX =
+    Regex("""(?:open\s+source|start\s+using|package:|intent:|content:|file:)""")
+
+private val APP_NAVIGATION_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|activity|extras?|data\s+uri|intent|app\s+settings|then|after\s+that)\b""")
+
+private val APP_WORD_REGEX = Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE)
+
+private val SYSTEM_FUNCTION_RATHER_THAN_APP_REGEX =
+    Regex("""\b(?:flashlight|torch)\b""", RegexOption.IGNORE_CASE)
+
+private val WEB_TARGET_RATHER_THAN_APP_REGEX =
+    Regex("""\b(?:web\s*page|website|link|url)\b""", RegexOption.IGNORE_CASE)
 
 internal object AppNavigationActionParser {
     private val packageNamePattern =
@@ -177,10 +224,7 @@ internal object AppNavigationActionParser {
      */
     private fun followUpIntentFromInput(input: String, appName: String): String? {
         if (appName.isBlank()) return null
-        val followUpVerb = Regex(
-            """(搜索|搜一搜|查找|查询|找一?下|打开|进入|点击|看看|浏览|search|find|look\s+up|open|go\s+to|tap|browse)""",
-            RegexOption.IGNORE_CASE,
-        )
+        val followUpVerb = FOLLOW_UP_VERB_REGEX
         // Take the text after the app name; if the app name isn't literally present (fuzzy alias),
         // fall back to the text after the launch verb.
         val afterApp = input.substringAfter(appName, missingDelimiterValue = "")
@@ -235,15 +279,15 @@ internal object AppNavigationActionParser {
         if (input.isBareAppInfoTarget() || packageNamePattern.containsMatchIn(input)) return null
         val cleaned = cleanedObject(input)
             .replace(chineseLaunchPattern, "")
-            .replace(Regex("""(?i)^\s*(?:open|launch|start)\s+(?:the\s+)?(?:app(?:lication)?\s+)?"""), "")
-            .replace(Regex("""^\s*(?:应用|app|应用程序)\s*""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\s*(?:应用|app|应用程序)\s*$""", RegexOption.IGNORE_CASE), "")
+            .replace(APP_NAME_LEADING_OPEN_VERB_REGEX, "")
+            .replace(APP_NAME_LEADING_APP_WORD_REGEX, "")
+            .replace(APP_NAME_TRAILING_APP_WORD_REGEX, "")
             .trim()
             .trimEnd('。', '.', '！', '!', '，', ',')
         return cleaned.takeIf { candidate ->
             candidate.length in 1..80 &&
                 candidate !in setOf("应用", "app", "应用程序", "软件") &&
-                !candidate.contains(Regex("""[/:\\]"""))
+                !candidate.contains(APP_NAME_PATH_CHARS_REGEX)
         }
     }
 
@@ -316,26 +360,26 @@ internal object AppNavigationActionParser {
             "接着",
             "/",
         ).any { it in this } ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|launch|start)\b""")) ||
-            normalized.contains(Regex("""(?:open\s+source|start\s+using|package:|intent:|content:|file:)""")) ||
-            normalized.contains(Regex("""\b(what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|activity|extras?|data\s+uri|intent|app\s+settings|then|after\s+that)\b"""))
+            normalized.contains(APP_NAVIGATION_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(APP_NAVIGATION_NON_ACTION_OPEN_SOURCE_REGEX) ||
+            normalized.contains(APP_NAVIGATION_NON_ACTION_WHAT_IS_REGEX)
     }
 
     private fun String.looksLikeSystemFunctionRatherThanApp(): Boolean {
         val normalized = lowercase()
         val referencesExplicitApp = listOf("应用", "app", "应用程序").any { it in this } ||
-            Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+            APP_WORD_REGEX.containsMatchIn(normalized)
         val referencesFlashlight = "手电筒" in this ||
-            Regex("""\b(?:flashlight|torch)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+            SYSTEM_FUNCTION_RATHER_THAN_APP_REGEX.containsMatchIn(normalized)
         return referencesFlashlight && !referencesExplicitApp
     }
 
     private fun String.looksLikeWebTargetRatherThanApp(): Boolean {
         val normalized = lowercase()
         val referencesExplicitApp = listOf("应用", "app", "应用程序").any { it in this } ||
-            Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+            APP_WORD_REGEX.containsMatchIn(normalized)
         val referencesWebTarget = listOf("网页", "网站", "链接", "网址").any { it in this } ||
-            Regex("""\b(?:web\s*page|website|link|url)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+            WEB_TARGET_RATHER_THAN_APP_REGEX.containsMatchIn(normalized)
         return referencesWebTarget && !referencesExplicitApp
     }
 
@@ -426,6 +470,17 @@ internal object AppNavigationActionParser {
     )
 }
 
+private val FOREGROUND_APP_NON_ACTION_NOTIFICATIONS_REGEX = Regex("""\bnotifications?\b""")
+
+private val FOREGROUND_APP_NON_ACTION_FOREGROUND_SERVICES_REGEX =
+    Regex("""\bforeground\s+services?\b""")
+
+private val FOREGROUND_APP_NON_ACTION_CURRENT_FOREGROUND_REGEX =
+    Regex("""\b(current|foreground|active)\s+app\s+(architecture|module|component|code|api|screen|state)\b""")
+
+private val FOREGROUND_APP_NON_ACTION_HOW_DO_REGEX =
+    Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\b(current|foreground|active)\s+app\b""")
+
 internal object ForegroundAppActionParser {
     private val englishPattern =
         Regex(
@@ -480,9 +535,9 @@ internal object ForegroundAppActionParser {
             "如何实现",
             "怎么设计",
         ).any { it in this } ||
-            normalized.contains(Regex("""\bnotifications?\b""")) ||
-            normalized.contains(Regex("""\bforeground\s+services?\b""")) ||
-            normalized.contains(Regex("""\b(current|foreground|active)\s+app\s+(architecture|module|component|code|api|screen|state)\b""")) ||
-            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\b(current|foreground|active)\s+app\b"""))
+            normalized.contains(FOREGROUND_APP_NON_ACTION_NOTIFICATIONS_REGEX) ||
+            normalized.contains(FOREGROUND_APP_NON_ACTION_FOREGROUND_SERVICES_REGEX) ||
+            normalized.contains(FOREGROUND_APP_NON_ACTION_CURRENT_FOREGROUND_REGEX) ||
+            normalized.contains(FOREGROUND_APP_NON_ACTION_HOW_DO_REGEX)
     }
 }

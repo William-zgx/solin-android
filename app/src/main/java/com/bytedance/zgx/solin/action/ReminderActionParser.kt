@@ -3,6 +3,18 @@ package com.bytedance.zgx.solin.action
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
 import kotlin.math.roundToLong
 
+private val CLEANED_REMINDER_TITLE_ZH1_REGEX = Regex("""^(请\s*)?(帮我\s*)?提醒我\s*""")
+
+private val CLEANED_REMINDER_TITLE_PLEASE_CAN_REGEX = Regex(
+    """(?i)^(please\s+)?(?:(can|could)\s+you\s+)?(?:remind me|set (?:a )?reminder)\s+""",
+)
+
+private val CLEANED_REMINDER_TITLE_ZH2_REGEX = Regex("""^一下\s*""")
+
+private val CLEANED_REMINDER_TITLE_TO_REGEX = Regex("""(?i)^\s*to\s+""")
+
+private val MULTI_SPACE_REGEX = Regex("""\s{2,}""")
+
 internal object ReminderActionParser {
     private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
     private val englishRelativeDelayPattern =
@@ -63,16 +75,14 @@ internal object ReminderActionParser {
             input.removeRange(delay.range.first, delay.range.last + 1)
         } ?: input
         return withoutSelectedDelay.trim()
-            .replace(Regex("""^(请\s*)?(帮我\s*)?提醒我\s*"""), "")
+            .replace(CLEANED_REMINDER_TITLE_ZH1_REGEX, "")
             .replace(
-                Regex(
-                    """(?i)^(please\s+)?(?:(can|could)\s+you\s+)?(?:remind me|set (?:a )?reminder)\s+""",
-                ),
+                CLEANED_REMINDER_TITLE_PLEASE_CAN_REGEX,
                 "",
             )
-            .replace(Regex("""^一下\s*"""), "")
-            .replace(Regex("""(?i)^\s*to\s+"""), "")
-            .replace(Regex("""\s{2,}"""), " ")
+            .replace(CLEANED_REMINDER_TITLE_ZH2_REGEX, "")
+            .replace(CLEANED_REMINDER_TITLE_TO_REGEX, "")
+            .replace(MULTI_SPACE_REGEX, " ")
             .trim { it <= ' ' || it == '，' || it == ',' || it == ':' || it == '：' }
             .ifBlank { cleanedObject(input) }
     }
@@ -108,6 +118,15 @@ internal object ReminderActionParser {
         val range: IntRange,
     )
 }
+
+private val CANCEL_REMINDER_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:cancel|undo|dismiss|remove)\s+(?:the\s+)?(?:reminder|scheduled\s+reminder|background\s+task)\b""")
+
+private val CANCEL_REMINDER_NON_ACTION_CANCEL_UNDO_REGEX =
+    Regex("""\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?)\b""")
+
+private val CANCEL_REMINDER_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\b""")
 
 internal object CancelReminderActionParser {
     private val taskIdPattern = Regex("""task-[A-Za-z0-9_-]+""")
@@ -164,11 +183,37 @@ internal object CancelReminderActionParser {
             "如何实现",
             "怎么设计",
         ).any { it in this } ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:cancel|undo|dismiss|remove)\s+(?:the\s+)?(?:reminder|scheduled\s+reminder|background\s+task)\b""")) ||
-            normalized.contains(Regex("""\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?)\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\b"""))
+            normalized.contains(CANCEL_REMINDER_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(CANCEL_REMINDER_NON_ACTION_CANCEL_UNDO_REGEX) ||
+            normalized.contains(CANCEL_REMINDER_NON_ACTION_WHAT_IS_REGEX)
     }
 }
+
+private val SCOPE_PERIODIC_CHECK_REGEX =
+    Regex("""\bperiodic\s+check\s+(?:status|policy|settings?)\b""", RegexOption.IGNORE_CASE)
+
+private val SCOPE_HISTORY_RECENT_REGEX =
+    Regex("""\b(?:history|recent|completed|cancelled|canceled|failed)\b""", RegexOption.IGNORE_CASE)
+
+private val SCOPE_ACTIVE_SCHEDULED_REGEX =
+    Regex("""\b(?:active|scheduled|running|pending)\b""", RegexOption.IGNORE_CASE)
+
+private val SCOPE_ALL_EVERYTHING_REGEX =
+    Regex("""\b(?:all|everything)\b""", RegexOption.IGNORE_CASE)
+
+private val WHITESPACE_RUN_REGEX = Regex("\\s+")
+
+private val BACKGROUND_TASKS_QUERY_NON_ACTION_API_IMPLEMENTATION_REGEX =
+    Regex("""\b(?:api|implementation|architecture|design|schema|tests?|parser|docs?|documentation)\b.*\b(?:background\s+tasks?|scheduled\s+tasks?|periodic\s+checks?)\b""")
+
+private val BACKGROUND_TASKS_QUERY_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|can|to)|implement|design)\b.*\b(?:background\s+tasks?|scheduled\s+tasks?|periodic\s+checks?)\b""")
+
+private val BACKGROUND_TASKS_QUERY_NON_ACTION_CANCEL_DELETE_REGEX =
+    Regex("""\b(?:cancel|delete|remove)\s+(?:background\s+tasks?|scheduled\s+tasks?|reminders?)\b""")
+
+private val BACKGROUND_TASKS_QUERY_NON_ACTION_ENABLE_DISABLE_REGEX =
+    Regex("""\b(?:enable|disable|turn\s+on|turn\s+off|configure|set)\s+(?:local\s+)?periodic\s+checks?\b""")
 
 internal object BackgroundTasksQueryActionParser {
     private val englishPattern =
@@ -206,18 +251,15 @@ internal object BackgroundTasksQueryActionParser {
         val normalized = input.lowercase()
         val wantsPolicy = listOf("周期检查状态", "周期检查策略", "周期检查设置", "后台检查状态", "后台检查策略")
             .any { it in input } ||
-            Regex("""\bperiodic\s+check\s+(?:status|policy|settings?)\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(normalized)
+            SCOPE_PERIODIC_CHECK_REGEX.containsMatchIn(normalized)
         val wantsHistory = listOf("历史", "最近完成", "已完成", "已取消", "失败记录", "执行记录")
             .any { it in input } ||
-            Regex("""\b(?:history|recent|completed|cancelled|canceled|failed)\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(normalized)
+            SCOPE_HISTORY_RECENT_REGEX.containsMatchIn(normalized)
         val wantsActive = listOf("活动", "当前", "正在", "已安排", "待执行", "提醒列表", "有哪些提醒")
             .any { it in input } ||
-            Regex("""\b(?:active|scheduled|running|pending)\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(normalized)
+            SCOPE_ACTIVE_SCHEDULED_REGEX.containsMatchIn(normalized)
         val wantsAll = listOf("全部", "所有", "完整", "都列出来").any { it in input } ||
-            Regex("""\b(?:all|everything)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
+            SCOPE_ALL_EVERYTHING_REGEX.containsMatchIn(normalized) ||
             (wantsPolicy && (wantsActive || wantsHistory || "后台任务" in input))
         return when {
             wantsAll -> "all"
@@ -230,7 +272,7 @@ internal object BackgroundTasksQueryActionParser {
 
     private fun maxCount(input: String): Int? {
         val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
+        val cleaned = input.replace(WHITESPACE_RUN_REGEX, "")
         return maxCountPattern.find(cleaned)
             ?.groupValues
             ?.getOrNull(1)
@@ -295,12 +337,20 @@ internal object BackgroundTasksQueryActionParser {
                 "配置周期检查",
                 "设置周期检查",
             ).any { it in this } ||
-            normalized.contains(Regex("""\b(?:api|implementation|architecture|design|schema|tests?|parser|docs?|documentation)\b.*\b(?:background\s+tasks?|scheduled\s+tasks?|periodic\s+checks?)\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|can|to)|implement|design)\b.*\b(?:background\s+tasks?|scheduled\s+tasks?|periodic\s+checks?)\b""")) ||
-            normalized.contains(Regex("""\b(?:cancel|delete|remove)\s+(?:background\s+tasks?|scheduled\s+tasks?|reminders?)\b""")) ||
-            normalized.contains(Regex("""\b(?:enable|disable|turn\s+on|turn\s+off|configure|set)\s+(?:local\s+)?periodic\s+checks?\b"""))
+            normalized.contains(BACKGROUND_TASKS_QUERY_NON_ACTION_API_IMPLEMENTATION_REGEX) ||
+            normalized.contains(BACKGROUND_TASKS_QUERY_NON_ACTION_WHAT_IS_REGEX) ||
+            normalized.contains(BACKGROUND_TASKS_QUERY_NON_ACTION_CANCEL_DELETE_REGEX) ||
+            normalized.contains(BACKGROUND_TASKS_QUERY_NON_ACTION_ENABLE_DISABLE_REGEX)
     }
 }
+
+private val PERIODIC_CHECK_WORD_REGEX = Regex("""\bperiodic\s+checks?\b""", RegexOption.IGNORE_CASE)
+
+private val PERIODIC_CHECK_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|can|to)|implement|design)\b.*\bperiodic\s+checks?\b""")
+
+private val PERIODIC_CHECK_NON_ACTION_PERIODIC_CHECKS_REGEX =
+    Regex("""\bperiodic\s+checks?\s+(?:api|implementation|architecture|design|schema|tests?|docs?)\b""")
 
 internal object PeriodicCheckActionParser {
     private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
@@ -350,7 +400,7 @@ internal object PeriodicCheckActionParser {
         val normalized = input.lowercase()
         val requestsPeriodicCheck = "周期检查" in input ||
             "后台检查" in input ||
-            Regex("""\bperiodic\s+checks?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+            PERIODIC_CHECK_WORD_REGEX.containsMatchIn(normalized)
         if (!requestsPeriodicCheck) return null
 
         val requestsDisable = listOf("关闭", "停用", "禁用", "取消周期检查", "停止周期检查", "关闭后台检查")
@@ -410,10 +460,10 @@ internal object PeriodicCheckActionParser {
             "怎么设计",
         ).any { it in this } ||
             normalized.contains(
-                Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|can|to)|implement|design)\b.*\bperiodic\s+checks?\b"""),
+                PERIODIC_CHECK_NON_ACTION_WHAT_IS_REGEX,
             ) ||
             normalized.contains(
-                Regex("""\bperiodic\s+checks?\s+(?:api|implementation|architecture|design|schema|tests?|docs?)\b"""),
+                PERIODIC_CHECK_NON_ACTION_PERIODIC_CHECKS_REGEX,
             )
     }
 }

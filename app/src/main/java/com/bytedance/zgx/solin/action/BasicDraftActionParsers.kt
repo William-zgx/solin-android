@@ -2,6 +2,18 @@ package com.bytedance.zgx.solin.action
 
 import java.time.ZoneId
 
+private val CLEANED_SEARCH_QUERY_MAPS_REGEX =
+    Regex("""^(?:打开|启动|进入)?\s*(?:高德地图|高德|地图|maps?)\s*(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?\s*""", RegexOption.IGNORE_CASE)
+
+private val CLEANED_SEARCH_QUERY_ZH1_REGEX = Regex("""^(地图)?\s*(搜索|搜|查)(一下|一查)?\s*地图?\s*[:：]?\s*""")
+
+private val CLEANED_SEARCH_QUERY_ZH2_REGEX = Regex("""^查(一下)?\s*(去|到)?\s*""")
+
+private val CLEANED_SEARCH_QUERY_ZH3_REGEX = Regex("""^导航(到|去)?\s*""")
+
+private val CLEANED_SEARCH_QUERY_SEARCH_MAPS_REGEX =
+    Regex("""(?i)^(search\s+maps?\s+for|map\s+(?:search|route)|directions?\s+to|navigate\s+to|route\s+to)\s+""")
+
 internal object MapSearchActionParser {
     private val englishPattern =
         Regex("""\b(search\s+maps?\s+for|map\s+(?:search|route)\s+(?:to|for)|directions?\s+to|navigate\s+to|route\s+to)\b""", RegexOption.IGNORE_CASE)
@@ -30,15 +42,25 @@ internal object MapSearchActionParser {
 
     private fun cleanedSearchQuery(input: String): String {
         val cleaned = cleanedObject(input)
-            .replace(Regex("""^(?:打开|启动|进入)?\s*(?:高德地图|高德|地图|maps?)\s*(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?\s*""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""^(地图)?\s*(搜索|搜|查)(一下|一查)?\s*地图?\s*[:：]?\s*"""), "")
-            .replace(Regex("""^查(一下)?\s*(去|到)?\s*"""), "")
-            .replace(Regex("""^导航(到|去)?\s*"""), "")
-            .replace(Regex("""(?i)^(search\s+maps?\s+for|map\s+(?:search|route)|directions?\s+to|navigate\s+to|route\s+to)\s+"""), "")
+            .replace(CLEANED_SEARCH_QUERY_MAPS_REGEX, "")
+            .replace(CLEANED_SEARCH_QUERY_ZH1_REGEX, "")
+            .replace(CLEANED_SEARCH_QUERY_ZH2_REGEX, "")
+            .replace(CLEANED_SEARCH_QUERY_ZH3_REGEX, "")
+            .replace(CLEANED_SEARCH_QUERY_SEARCH_MAPS_REGEX, "")
             .trim()
         return cleaned.ifBlank { cleanedObject(input) }
     }
 }
+
+private val EMAIL_DRAFT_NEGATION_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(send|write|compose|draft)\s+(an?\s+)?(?:email|mail)\b""")
+
+private val CLEANED_EMAIL_BODY_ZH1_REGEX = Regex("""^(写|起草|发)(一?封)?邮件\s*[:：]?\s*""")
+
+private val CLEANED_EMAIL_BODY_ZH2_REGEX = Regex("""^邮件草稿\s*[:：]?\s*""")
+
+private val CLEANED_EMAIL_BODY_DRAFT_WRITE_REGEX =
+    Regex("""(?i)^(draft|write|compose|send)\s+(an?\s+)?(?:email|mail)\s*[:：]?\s*""")
 
 internal object EmailDraftActionParser {
     private val englishPattern =
@@ -47,7 +69,7 @@ internal object EmailDraftActionParser {
     fun matches(input: String): Boolean {
         val normalized = input.lowercase()
         if (input.startsWithActionNegation() || input.looksLikeDiscussion()) return false
-        if (normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(send|write|compose|draft)\s+(an?\s+)?(?:email|mail)\b""")) ||
+        if (normalized.contains(EMAIL_DRAFT_NEGATION_REGEX) ||
             "不要发邮件" in input || "不要写邮件" in input
         ) {
             return false
@@ -70,13 +92,18 @@ internal object EmailDraftActionParser {
 
     private fun cleanedEmailBody(input: String): String {
         val cleaned = cleanedObject(input)
-            .replace(Regex("""^(写|起草|发)(一?封)?邮件\s*[:：]?\s*"""), "")
-            .replace(Regex("""^邮件草稿\s*[:：]?\s*"""), "")
-            .replace(Regex("""(?i)^(draft|write|compose|send)\s+(an?\s+)?(?:email|mail)\s*[:：]?\s*"""), "")
+            .replace(CLEANED_EMAIL_BODY_ZH1_REGEX, "")
+            .replace(CLEANED_EMAIL_BODY_ZH2_REGEX, "")
+            .replace(CLEANED_EMAIL_BODY_DRAFT_WRITE_REGEX, "")
             .trim()
         return cleaned.ifBlank { cleanedObject(input) }
     }
 }
+
+private val CLEANED_CALENDAR_TITLE_ZH1_REGEX = Regex("""^(新建|创建|添加|安排|加|建)(一?个)?日程\s*[:：]?\s*""")
+
+private val CLEANED_CALENDAR_TITLE_ADD_CREATE_REGEX =
+    Regex("""(?i)^(add|create|schedule)\s+(an?\s+)?(?:calendar\s+)?event\s*[:：]?\s*""")
 
 internal object CalendarDraftActionParser {
     private val englishPattern =
@@ -119,12 +146,15 @@ internal object CalendarDraftActionParser {
 
     private fun cleanedCalendarTitle(input: String): String {
         val cleaned = cleanedObject(input)
-            .replace(Regex("""^(新建|创建|添加|安排|加|建)(一?个)?日程\s*[:：]?\s*"""), "")
-            .replace(Regex("""(?i)^(add|create|schedule)\s+(an?\s+)?(?:calendar\s+)?event\s*[:：]?\s*"""), "")
+            .replace(CLEANED_CALENDAR_TITLE_ZH1_REGEX, "")
+            .replace(CLEANED_CALENDAR_TITLE_ADD_CREATE_REGEX, "")
             .trim()
         return cleaned.ifBlank { cleanedObject(input) }
     }
 }
+
+private val DISCUSSION_REGEX =
+    Regex("""\b(how\s+do\s+i|what\s+does|what\s+is|explain|meaning|parser|tests?|listener|handler|schema|stream)\b""")
 
 internal fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
@@ -143,23 +173,33 @@ internal fun String.looksLikeDiscussion(): Boolean {
     )
         .any { it in this } ||
         listOf("错误原因", "日志", "算法", "数据结构", "功能测试", "路线图", "导航栏").any { it in this } ||
-        normalized.contains(Regex("""\b(how\s+do\s+i|what\s+does|what\s+is|explain|meaning|parser|tests?|listener|handler|schema|stream)\b"""))
+        normalized.contains(DISCUSSION_REGEX)
 }
+
+private val SEQUENTIAL_ACTION_ZH1_REGEX =
+    Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒|返回|后退).*""")
+
+private val SEQUENTIAL_ACTION_AND_THEN_REGEX =
+    Regex("""\b(?:and\s+then|then|after\s+that)\b.*\b(?:go\s+back|back|open|launch|search|share|send|create|read|summarize)\b""")
 
 internal fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
-    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒|返回|后退).*""")
-        .containsMatchIn(this) ||
+    return SEQUENTIAL_ACTION_ZH1_REGEX.containsMatchIn(this) ||
         normalized.contains(
-            Regex("""\b(?:and\s+then|then|after\s+that)\b.*\b(?:go\s+back|back|open|launch|search|share|send|create|read|summarize)\b"""),
+            SEQUENTIAL_ACTION_AND_THEN_REGEX,
         )
 }
 
+private val STARTS_WITH_ACTION_NEGATION_ZH1_REGEX =
+    Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:我\s*)?(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
+
+private val STARTS_WITH_ACTION_NEGATION_PLEASE_DO_REGEX =
+    Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b""")
+
 internal fun String.startsWithActionNegation(): Boolean {
     val normalized = lowercase()
-    return Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:我\s*)?(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
-        .containsMatchIn(this) ||
-        normalized.contains(Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b"""))
+    return STARTS_WITH_ACTION_NEGATION_ZH1_REGEX.containsMatchIn(this) ||
+        normalized.contains(STARTS_WITH_ACTION_NEGATION_PLEASE_DO_REGEX)
 }
 
 internal fun cleanedObject(input: String): String =

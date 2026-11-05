@@ -5,6 +5,42 @@ package com.bytedance.zgx.solin.action
  * notifications, current-screen OCR and current-screen text.
  */
 
+private val MATCHES_ZH1_REGEX = Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(图片|照片|截图|截屏|视频|音频)""")
+
+private val MATCHES_ZH2_REGEX = Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|下载)""")
+
+private val MATCHES_RECENT_LATEST_REGEX =
+    Regex("""\b(recent|latest)\b.*\b(files?|documents?)\b""", RegexOption.IGNORE_CASE)
+
+private val WHITESPACE_RUN_REGEX = Regex("\\s+")
+
+private val PARAMETERS_ZH1_REGEX = Regex("最近(\\d{1,2})条?(?:个|份)?")
+
+private val PARAMETERS_RECENT_LATEST_REGEX = Regex(
+    "(?:recent|latest)\\s+(\\d{1,2})\\s+" +
+        "(?:files?|documents?|images?|screenshots?|screen\\s+captures?|videos?|audios?|photos?)",
+)
+
+private val RECENT_FILE_NON_ACTION_RECENT_LATEST_REGEX = Regex(
+    """\b(?:recent|latest|last|most\s+recent)\b.*\b(?:files?|documents?|images?|photos?|pictures?|screenshots?|screen\s+captures?|videos?|audios?)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+private val RECENT_FILE_NON_ACTION_FILES_API_REGEX =
+    Regex("""\bfiles?\s+(?:api|implementation|docs?|documentation|permissions?|list)\b""")
+
+private val RECENT_FILE_NON_ACTION_DO_NOT_REGEX = Regex("""\b(?:do\s+not|don't|dont|never)\b""")
+
+private val RECENT_FILE_NON_ACTION_HOW_DO_REGEX = Regex(
+    """\b(?:how\s+(?:do|can|to)|what\s+is|explain|implement|implementation|api|permissions?|docs?|documentation|code|feature)\b""",
+)
+
+private val RECENT_FILE_CONTENT_EXTRACTION_RECENT_LATEST_REGEX =
+    Regex("""\b(recent|latest)\b.*\b(images?|photos?|pictures?|screenshots?|screen\s+captures?)\b""")
+
+private val RECENT_FILE_CONTENT_EXTRACTION_DESCRIBE_ANALY_REGEX =
+    Regex("""\b(describe|analy[sz]e|what\s+is\s+in|what's\s+in)\b.*\b(images?|photos?|pictures?)\b""")
+
 internal object RecentFilesActionParser {
     private val englishMediaPattern =
         Regex(
@@ -24,8 +60,7 @@ internal object RecentFilesActionParser {
             "最近视频",
             "最近音频",
         ).any { it in input } ||
-            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(图片|照片|截图|截屏|视频|音频)""")
-                .containsMatchIn(input)
+            MATCHES_ZH1_REGEX.containsMatchIn(input)
         val hasEnglishMediaTrigger = englishMediaPattern.containsMatchIn(normalized)
         if (hasChineseMediaTrigger || hasEnglishMediaTrigger) return true
 
@@ -38,10 +73,8 @@ internal object RecentFilesActionParser {
             "文件列表",
             "最近文件列表",
         ).any { it in input } ||
-            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|下载)""")
-                .containsMatchIn(input) ||
-            Regex("""\b(recent|latest)\b.*\b(files?|documents?)\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(normalized)
+            MATCHES_ZH2_REGEX.containsMatchIn(input) ||
+            MATCHES_RECENT_LATEST_REGEX.containsMatchIn(normalized)
     }
 
     fun draft(input: String): ActionDraft {
@@ -58,13 +91,9 @@ internal object RecentFilesActionParser {
 
     private fun parameters(input: String): Map<String, String> {
         val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        val countMatch = Regex("最近(\\d{1,2})条?(?:个|份)?").find(cleaned)
-            ?: Regex(
-                "(?:recent|latest)\\s+(\\d{1,2})\\s+" +
-                    "(?:files?|documents?|images?|screenshots?|screen\\s+captures?|videos?|audios?|photos?)",
-            )
-                .find(normalized)
+        val cleaned = input.replace(WHITESPACE_RUN_REGEX, "")
+        val countMatch = PARAMETERS_ZH1_REGEX.find(cleaned)
+            ?: PARAMETERS_RECENT_LATEST_REGEX.find(normalized)
 
         val maxCount = countMatch?.groupValues
             ?.getOrNull(1)
@@ -136,10 +165,7 @@ internal object RecentFilesActionParser {
             "视频",
             "音频",
         ).any { it in this }) ||
-            Regex(
-                """\b(?:recent|latest|last|most\s+recent)\b.*\b(?:files?|documents?|images?|photos?|pictures?|screenshots?|screen\s+captures?|videos?|audios?)\b""",
-                RegexOption.IGNORE_CASE,
-            ).containsMatchIn(normalized)
+            RECENT_FILE_NON_ACTION_RECENT_LATEST_REGEX.containsMatchIn(normalized)
         val mentionsFileQuery = listOf(
             "查询文件",
             "文件列表",
@@ -148,11 +174,11 @@ internal object RecentFilesActionParser {
             "文件接口",
             "文件权限",
         ).any { it in this } ||
-            normalized.contains(Regex("""\bfiles?\s+(?:api|implementation|docs?|documentation|permissions?|list)\b"""))
+            normalized.contains(RECENT_FILE_NON_ACTION_FILES_API_REGEX)
         if (!mentionsRecentFiles && !mentionsFileQuery) return false
 
         val hasNegativeIntent = listOf("不要", "别", "请勿", "不需要", "不想", "不用", "不必").any { it in this } ||
-            normalized.contains(Regex("""\b(?:do\s+not|don't|dont|never)\b"""))
+            normalized.contains(RECENT_FILE_NON_ACTION_DO_NOT_REGEX)
         val hasDiscussionIntent = listOf(
             "权限",
             "怎么",
@@ -167,9 +193,7 @@ internal object RecentFilesActionParser {
             "什么意思",
         ).any { it in this } ||
             normalized.contains(
-                Regex(
-                    """\b(?:how\s+(?:do|can|to)|what\s+is|explain|implement|implementation|api|permissions?|docs?|documentation|code|feature)\b""",
-                ),
+                RECENT_FILE_NON_ACTION_HOW_DO_REGEX,
             )
         return hasNegativeIntent || hasDiscussionIntent
     }
@@ -177,8 +201,7 @@ internal object RecentFilesActionParser {
     private fun String.looksLikeRecentFileContentExtraction(): Boolean {
         val normalized = lowercase()
         val mentionsRecentMedia = ("最近" in this && listOf("图片", "照片", "截图", "截屏", "相册").any { it in this }) ||
-            Regex("""\b(recent|latest)\b.*\b(images?|photos?|pictures?|screenshots?|screen\s+captures?)\b""")
-                .containsMatchIn(normalized)
+            RECENT_FILE_CONTENT_EXTRACTION_RECENT_LATEST_REGEX.containsMatchIn(normalized)
         val asksForTextExtraction = listOf(
             "识别",
             "提取",
@@ -198,10 +221,29 @@ internal object RecentFilesActionParser {
             "图片里有什么",
             "照片里有什么",
         ).any { marker -> marker in this } ||
-            normalized.contains(Regex("""\b(describe|analy[sz]e|what\s+is\s+in|what's\s+in)\b.*\b(images?|photos?|pictures?)\b"""))
+            normalized.contains(RECENT_FILE_CONTENT_EXTRACTION_DESCRIBE_ANALY_REGEX)
         return mentionsRecentMedia && (asksForTextExtraction || asksForVisualUnderstanding)
     }
 }
+
+private val MENTIONS_RECENT_SCREENSHOT_FOR_OCR_REGEX = Regex("""最近1(?:张|个)?(?:截图|截屏)""")
+
+private val REQUESTED_SCREENSHOT_COUNT_REGEX = Regex("""最近(\d{1,2})(?:张|个)?(?:截图|截屏)""")
+
+private val RECENT_SCREENSHOT_OCR_NON_ACTION_ZH1_REGEX =
+    Regex("""最近[二两三四五六七八九十百千万多几]+(?:张|个)?(?:截图|截屏)""")
+
+private val RECENT_SCREENSHOT_OCR_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|recognize|scan)\b.*\b(?:screenshot|screen\s+capture)\b""")
+
+private val RECENT_SCREENSHOT_OCR_NON_ACTION_SCREENSHOT_SCREEN_REGEX =
+    Regex("""\b(?:screenshot|screen\s+capture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")
+
+private val RECENT_SCREENSHOT_OCR_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:screenshot|screen\s+capture)\s+ocr\b""")
+
+private val RECENT_SCREENSHOT_OCR_NON_ACTION_ALL_MULTIPLE_REGEX =
+    Regex("""\b(?:all|multiple|many)\s+(?:screenshots?|screen\s+captures?)\b""")
 
 internal object RecentScreenshotOcrActionParser {
     private val englishSingularScreenshotPattern =
@@ -228,9 +270,9 @@ internal object RecentScreenshotOcrActionParser {
 
     private fun String.mentionsRecentScreenshotForOcr(): Boolean {
         val normalized = lowercase()
-        val cleaned = replace(Regex("\\s+"), "")
+        val cleaned = replace(WHITESPACE_RUN_REGEX, "")
         return ("最近" in this && ("截图" in this || "截屏" in this)) ||
-            Regex("""最近1(?:张|个)?(?:截图|截屏)""").containsMatchIn(cleaned) ||
+            MENTIONS_RECENT_SCREENSHOT_FOR_OCR_REGEX.containsMatchIn(cleaned) ||
             englishSingularScreenshotPattern.containsMatchIn(normalized) ||
             englishCountPattern.containsMatchIn(normalized)
     }
@@ -240,8 +282,8 @@ internal object RecentScreenshotOcrActionParser {
 
     private fun requestedScreenshotCount(input: String): Int? {
         val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        return Regex("""最近(\d{1,2})(?:张|个)?(?:截图|截屏)""").find(cleaned)
+        val cleaned = input.replace(WHITESPACE_RUN_REGEX, "")
+        return REQUESTED_SCREENSHOT_COUNT_REGEX.find(cleaned)
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
@@ -280,13 +322,34 @@ internal object RecentScreenshotOcrActionParser {
             "当前屏幕",
             "当前界面",
         ).any { it in this } ||
-            Regex("""最近[二两三四五六七八九十百千万多几]+(?:张|个)?(?:截图|截屏)""").containsMatchIn(this) ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|recognize|scan)\b.*\b(?:screenshot|screen\s+capture)\b""")) ||
-            normalized.contains(Regex("""\b(?:screenshot|screen\s+capture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:screenshot|screen\s+capture)\s+ocr\b""")) ||
-            normalized.contains(Regex("""\b(?:all|multiple|many)\s+(?:screenshots?|screen\s+captures?)\b"""))
+            RECENT_SCREENSHOT_OCR_NON_ACTION_ZH1_REGEX.containsMatchIn(this) ||
+            normalized.contains(RECENT_SCREENSHOT_OCR_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(RECENT_SCREENSHOT_OCR_NON_ACTION_SCREENSHOT_SCREEN_REGEX) ||
+            normalized.contains(RECENT_SCREENSHOT_OCR_NON_ACTION_WHAT_IS_REGEX) ||
+            normalized.contains(RECENT_SCREENSHOT_OCR_NON_ACTION_ALL_MULTIPLE_REGEX)
     }
 }
+
+private val MENTIONS_RECENT_IMAGE_FOR_OCR_REGEX = Regex("""最近[一二两三123]?(?:张|个)?(?:图片|照片)""")
+
+private val REQUESTED_IMAGE_COUNT_ZH1_REGEX = Regex("""最近(\d{1,2})(?:张|个)?(?:图片|照片)""")
+
+private val REQUESTED_IMAGE_COUNT_ZH2_REGEX = Regex("""最近([一二两三四五六七八九十百千万多几]+)(?:张|个)?(?:图片|照片)""")
+
+private val RECENT_IMAGE_OCR_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|recognize|scan)\b.*\b(?:images?|photos?|pictures?)\b""")
+
+private val RECENT_IMAGE_OCR_NON_ACTION_IMAGE_PHOTO_REGEX =
+    Regex("""\b(?:image|photo|picture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")
+
+private val RECENT_IMAGE_OCR_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:image|photo|picture)\s+ocr\b""")
+
+private val RECENT_IMAGE_OCR_NON_ACTION_ALL_MULTIPLE_REGEX =
+    Regex("""\b(?:all|multiple|many)\s+(?:images?|photos?|pictures?)\b""")
+
+private val RECENT_IMAGE_OCR_NON_ACTION_DESCRIBE_ANALY_REGEX =
+    Regex("""\b(?:describe|analy[sz]e|what\s+is\s+in|what's\s+in)\b.*\b(?:images?|photos?|pictures?)\b""")
 
 internal object RecentImageOcrActionParser {
     private val englishRecentImagePattern =
@@ -314,9 +377,9 @@ internal object RecentImageOcrActionParser {
 
     private fun String.mentionsRecentImageForOcr(): Boolean {
         val normalized = lowercase()
-        val cleaned = replace(Regex("\\s+"), "")
+        val cleaned = replace(WHITESPACE_RUN_REGEX, "")
         return ("最近" in this && listOf("图片", "照片", "相册").any { it in this }) ||
-            Regex("""最近[一二两三123]?(?:张|个)?(?:图片|照片)""").containsMatchIn(cleaned) ||
+            MENTIONS_RECENT_IMAGE_FOR_OCR_REGEX.containsMatchIn(cleaned) ||
             englishRecentImagePattern.containsMatchIn(normalized)
     }
 
@@ -325,13 +388,13 @@ internal object RecentImageOcrActionParser {
 
     private fun requestedImageCount(input: String): Int? {
         val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        Regex("""最近(\d{1,2})(?:张|个)?(?:图片|照片)""").find(cleaned)
+        val cleaned = input.replace(WHITESPACE_RUN_REGEX, "")
+        REQUESTED_IMAGE_COUNT_ZH1_REGEX.find(cleaned)
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
             ?.let { return it }
-        Regex("""最近([一二两三四五六七八九十百千万多几]+)(?:张|个)?(?:图片|照片)""").find(cleaned)
+        REQUESTED_IMAGE_COUNT_ZH2_REGEX.find(cleaned)
             ?.groupValues
             ?.getOrNull(1)
             ?.let { return chineseImageCount(it) }
@@ -379,13 +442,33 @@ internal object RecentImageOcrActionParser {
             "看图",
             "图片内容",
         ).any { it in this } ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|recognize|scan)\b.*\b(?:images?|photos?|pictures?)\b""")) ||
-            normalized.contains(Regex("""\b(?:image|photo|picture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:image|photo|picture)\s+ocr\b""")) ||
-            normalized.contains(Regex("""\b(?:all|multiple|many)\s+(?:images?|photos?|pictures?)\b""")) ||
-            normalized.contains(Regex("""\b(?:describe|analy[sz]e|what\s+is\s+in|what's\s+in)\b.*\b(?:images?|photos?|pictures?)\b"""))
+            normalized.contains(RECENT_IMAGE_OCR_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(RECENT_IMAGE_OCR_NON_ACTION_IMAGE_PHOTO_REGEX) ||
+            normalized.contains(RECENT_IMAGE_OCR_NON_ACTION_WHAT_IS_REGEX) ||
+            normalized.contains(RECENT_IMAGE_OCR_NON_ACTION_ALL_MULTIPLE_REGEX) ||
+            normalized.contains(RECENT_IMAGE_OCR_NON_ACTION_DESCRIBE_ANALY_REGEX)
     }
 }
+
+private val MATCHES_APP_REGEX =
+    Regex("""(?:当前应用|当前\s*app|本应用)?\s*最近\s*\d{1,2}\s*条?\s*(?:消息|通知|讯息)""")
+
+private val PARAMETERS_ZH2_REGEX = Regex("""最近(\d{1,2})条?(?:消息|通知|讯息)?""")
+
+private val PARAMETERS_RECENT_LATEST_2_REGEX =
+    Regex("""(?:recent|latest|last)\s+(\d{1,2})\s+(?:current\s+app|this\s+app|app)?\s*notifications?""")
+
+private val PARAMETERS_CURRENT_APP_REGEX =
+    Regex("""(?:current\s+app|this\s+app|solin)\s+(?:recent|latest|last)\s+(\d{1,2})\s+notifications?""")
+
+private val NOTIFICATION_NON_ACTION_ALL_GLOBAL_REGEX =
+    Regex("""\b(all|global|system|other\s+apps?)\s+notifications?\b""")
+
+private val NOTIFICATION_NON_ACTION_NOTIFICATIONS_PERMISSION_REGEX =
+    Regex("""\b(notifications?\s+(permission|permissions|channel|system|architecture|api|implementation|docs?|documentation|listener|bar|drawer)|push\s+notifications?)\b""")
+
+private val NOTIFICATION_NON_ACTION_HOW_DO_REGEX =
+    Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bnotifications?\b""")
 
 internal object RecentNotificationsActionParser {
     private val englishPattern =
@@ -409,8 +492,7 @@ internal object RecentNotificationsActionParser {
             "本应用最近通知",
             "本应用通知",
         ).any { it in input } ||
-            Regex("""(?:当前应用|当前\s*app|本应用)?\s*最近\s*\d{1,2}\s*条?\s*(?:消息|通知|讯息)""")
-                .containsMatchIn(input) ||
+            MATCHES_APP_REGEX.containsMatchIn(input) ||
             ((input.contains("Solin") || input.contains("Solin", ignoreCase = true)) && "通知" in input && ("最近" in input || "摘要" in input))
         return hasChineseTrigger || englishPattern.containsMatchIn(normalized)
     }
@@ -427,13 +509,11 @@ internal object RecentNotificationsActionParser {
     }
 
     private fun parameters(input: String): Map<String, String> {
-        val cleaned = input.replace(Regex("\\s+"), "")
+        val cleaned = input.replace(WHITESPACE_RUN_REGEX, "")
         val normalized = input.lowercase()
-        val match = Regex("""最近(\d{1,2})条?(?:消息|通知|讯息)?""").find(cleaned)
-            ?: Regex("""(?:recent|latest|last)\s+(\d{1,2})\s+(?:current\s+app|this\s+app|app)?\s*notifications?""")
-                .find(normalized)
-            ?: Regex("""(?:current\s+app|this\s+app|solin)\s+(?:recent|latest|last)\s+(\d{1,2})\s+notifications?""")
-                .find(normalized)
+        val match = PARAMETERS_ZH2_REGEX.find(cleaned)
+            ?: PARAMETERS_RECENT_LATEST_2_REGEX.find(normalized)
+            ?: PARAMETERS_CURRENT_APP_REGEX.find(normalized)
         val maxCount = match?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }?.toString()
         return if (maxCount == null) emptyMap() else mapOf("maxCount" to maxCount)
     }
@@ -471,11 +551,25 @@ internal object RecentNotificationsActionParser {
             "如何实现",
             "怎么设计",
         ).any { it in this } ||
-            normalized.contains(Regex("""\b(all|global|system|other\s+apps?)\s+notifications?\b""")) ||
-            normalized.contains(Regex("""\b(notifications?\s+(permission|permissions|channel|system|architecture|api|implementation|docs?|documentation|listener|bar|drawer)|push\s+notifications?)\b""")) ||
-            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bnotifications?\b"""))
+            normalized.contains(NOTIFICATION_NON_ACTION_ALL_GLOBAL_REGEX) ||
+            normalized.contains(NOTIFICATION_NON_ACTION_NOTIFICATIONS_PERMISSION_REGEX) ||
+            normalized.contains(NOTIFICATION_NON_ACTION_HOW_DO_REGEX)
     }
 }
+
+private val HAS_CURRENT_SCREEN_REFERENCE_REGEX =
+    Regex("""\b(?:current|active|this)\s+(?:screen|window|display)\b""")
+
+private val HAS_SCREENSHOT_OR_OCR_CAPTURE_MARKER_REGEX =
+    Regex("""\b(?:screenshot|screen\s+capture)\b""", RegexOption.IGNORE_CASE)
+
+private val CURRENT_SCREENSHOT_OCR_NON_ACTION_HOW_DO_REGEX = Regex(
+    """\b(?:how\s+(?:do|can|to)|what\s+is|explain|implement|implementation|api|permissions?|docs?|documentation|code|architecture|design)\b.*\b(?:current|active|this)\s+(?:screen|window|display|screenshot|screen\s+capture|ocr)\b""",
+)
+
+private val CURRENT_SCREENSHOT_OCR_NON_ACTION_CURRENT_ACTIVE_REGEX = Regex(
+    """\b(?:current|active|this)\s+(?:screen|window|display)\b.*\b(?:ocr|screenshot|screen\s+capture)\b.*\b(?:api|implementation|permissions?|docs?|documentation|code|architecture|design)\b""",
+)
 
 internal object CurrentScreenshotOcrActionParser {
     private val englishPattern =
@@ -498,14 +592,12 @@ internal object CurrentScreenshotOcrActionParser {
             "当前界面",
             "现在屏幕",
         ).any { marker -> marker in this } ||
-            Regex("""\b(?:current|active|this)\s+(?:screen|window|display)\b""")
-                .containsMatchIn(normalized)
+            HAS_CURRENT_SCREEN_REFERENCE_REGEX.containsMatchIn(normalized)
 
     private fun String.hasScreenshotOrOcrCaptureMarker(normalized: String): Boolean =
         listOf("截图", "截屏", "拍屏").any { marker -> marker in this } ||
             "ocr" in normalized ||
-            Regex("""\b(?:screenshot|screen\s+capture)\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(normalized)
+            HAS_SCREENSHOT_OR_OCR_CAPTURE_MARKER_REGEX.containsMatchIn(normalized)
 
     private fun String.asksForCurrentScreenshotOcrText(normalized: String): Boolean =
         listOf(
@@ -554,17 +646,36 @@ internal object CurrentScreenshotOcrActionParser {
                 "截图ocr API",
             ).any { marker -> marker in this } ||
             normalized.contains(
-                Regex(
-                    """\b(?:how\s+(?:do|can|to)|what\s+is|explain|implement|implementation|api|permissions?|docs?|documentation|code|architecture|design)\b.*\b(?:current|active|this)\s+(?:screen|window|display|screenshot|screen\s+capture|ocr)\b""",
-                ),
+                CURRENT_SCREENSHOT_OCR_NON_ACTION_HOW_DO_REGEX,
             ) ||
             normalized.contains(
-                Regex(
-                    """\b(?:current|active|this)\s+(?:screen|window|display)\b.*\b(?:ocr|screenshot|screen\s+capture)\b.*\b(?:api|implementation|permissions?|docs?|documentation|code|architecture|design)\b""",
-                ),
+                CURRENT_SCREENSHOT_OCR_NON_ACTION_CURRENT_ACTIVE_REGEX,
             )
     }
 }
+
+private val MAX_CHARS_REGEX = Regex("""最多(\d{1,5})字""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_DO_NOT_REGEX =
+    Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|summarize)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_CURRENT_ACTIVE_REGEX =
+    Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr|api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_CURRENT_ACTIVE_2_REGEX =
+    Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+text\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_SCREENSHOTS_SCREEN_REGEX =
+    Regex("""\b(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_WHAT_IS_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_WHAT_IS_2_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:screen|visible|accessibility|accessible)\s+text\b""")
+
+private val CURRENT_SCREEN_TEXT_NON_ACTION_HOW_DO_REGEX =
+    Regex("""\b(?:how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b""")
 
 internal object CurrentScreenTextActionParser {
     private val chineseScreenTextPattern =
@@ -607,8 +718,8 @@ internal object CurrentScreenTextActionParser {
 
     private fun maxChars(input: String): Int? {
         val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        return Regex("""最多(\d{1,5})字""").find(cleaned)
+        val cleaned = input.replace(WHITESPACE_RUN_REGEX, "")
+        return MAX_CHARS_REGEX.find(cleaned)
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
@@ -657,15 +768,18 @@ internal object CurrentScreenTextActionParser {
             "无障碍权限",
             "无障碍文本权限",
         ).any { it in this } ||
-            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|summarize)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")) ||
-            normalized.contains(Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr|api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")) ||
-            normalized.contains(Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+text\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")) ||
-            normalized.contains(Regex("""\b(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b""")) ||
-            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:screen|visible|accessibility|accessible)\s+text\b""")) ||
-            normalized.contains(Regex("""\b(?:how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b"""))
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_DO_NOT_REGEX) ||
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_CURRENT_ACTIVE_REGEX) ||
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_CURRENT_ACTIVE_2_REGEX) ||
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_SCREENSHOTS_SCREEN_REGEX) ||
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_WHAT_IS_REGEX) ||
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_WHAT_IS_2_REGEX) ||
+            normalized.contains(CURRENT_SCREEN_TEXT_NON_ACTION_HOW_DO_REGEX)
     }
 }
+
+private val ASKS_FOR_OCR_TEXT_EXTRACTION_REGEX =
+    Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")
 
 /**
  * True when the request asks to extract text (OCR) from a [sourceNounPattern] source, e.g.
@@ -684,6 +798,6 @@ private fun String.asksForOcrTextExtraction(sourceNounPattern: String): Boolean 
         "文本",
         "ocr",
     ).any { marker -> marker in normalized } ||
-        normalized.contains(Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")) ||
+        normalized.contains(ASKS_FOR_OCR_TEXT_EXTRACTION_REGEX) ||
         normalized.contains(Regex("""\btext\b.*\b(?:from|in)\b.*\b""" + sourceNounPattern + """\b"""))
 }

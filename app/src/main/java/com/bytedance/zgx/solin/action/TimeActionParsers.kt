@@ -3,6 +3,26 @@ package com.bytedance.zgx.solin.action
 import java.time.ZoneId
 import kotlin.math.roundToLong
 
+private val HAS_ALARM_TRIGGER_SET_CREATE_REGEX =
+    Regex("""\b(?:set|create|add)\s+(?:an?\s+)?alarm\b""")
+
+private val HAS_ALARM_TRIGGER_ALARM_REGEX = Regex("""\balarm\b""")
+
+private val CLEANED_ALARM_LABEL_ZH1_REGEX = Regex("""每天\s*(?:一次)?""")
+
+private val CLEANED_ALARM_LABEL_PLEASE_CAN_REGEX =
+    Regex("""(?i)^\s*(please\s+)?(?:(can|could)\s+you\s+)?(?:set|create|add)\s+(?:an?\s+)?alarm\s*(?:for)?\s*""")
+
+private val CLEANED_ALARM_LABEL_ZH2_REGEX =
+    Regex("""^(请|帮我|麻烦你?|给我)?\s*(设置|设定|设(?=[一个的]|\s|$)|定|创建|加|添加)?\s*""")
+
+private val CLEANED_ALARM_LABEL_ALARM_REGEX =
+    Regex("""(一个|个)?\s*的?\s*(闹钟|alarm)\s*""", RegexOption.IGNORE_CASE)
+
+private val CLEANED_ALARM_LABEL_ZH3_REGEX = Regex("""^\s*叫醒我\s*""")
+
+private val CLEANED_ALARM_LABEL_FOR_AT_REGEX = Regex("""(?i)^\s*(for|at)\s+""")
+
 internal object SystemAlarmActionParser {
     fun draft(input: String): ActionDraft? {
         if (!input.hasAlarmTrigger() || input.looksLikeTimeActionDiscussion()) return null
@@ -35,25 +55,45 @@ internal object SystemAlarmActionParser {
         return !startsWithActionNegation() &&
             (
                 listOf("闹钟", "叫醒").any { it in this } ||
-                    normalized.contains(Regex("""\b(?:set|create|add)\s+(?:an?\s+)?alarm\b""")) ||
-                    normalized.contains(Regex("""\balarm\b"""))
+                    normalized.contains(HAS_ALARM_TRIGGER_SET_CREATE_REGEX) ||
+                    normalized.contains(HAS_ALARM_TRIGGER_ALARM_REGEX)
                 )
     }
 
     private fun cleanedAlarmLabel(input: String, timeRanges: List<IntRange>): String? =
         input.removeRanges(timeRanges)
-            .replace(Regex("""每天\s*(?:一次)?"""), "")
+            .replace(CLEANED_ALARM_LABEL_ZH1_REGEX, "")
             .replace(
-                Regex("""(?i)^\s*(please\s+)?(?:(can|could)\s+you\s+)?(?:set|create|add)\s+(?:an?\s+)?alarm\s*(?:for)?\s*"""),
+                CLEANED_ALARM_LABEL_PLEASE_CAN_REGEX,
                 "",
             )
-            .replace(Regex("""^(请|帮我|麻烦你?|给我)?\s*(设置|设定|设(?=[一个的]|\s|$)|定|创建|加|添加)?\s*"""), "")
-            .replace(Regex("""(一个|个)?\s*的?\s*(闹钟|alarm)\s*""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""^\s*叫醒我\s*"""), "")
-            .replace(Regex("""(?i)^\s*(for|at)\s+"""), "")
+            .replace(CLEANED_ALARM_LABEL_ZH2_REGEX, "")
+            .replace(CLEANED_ALARM_LABEL_ALARM_REGEX, "")
+            .replace(CLEANED_ALARM_LABEL_ZH3_REGEX, "")
+            .replace(CLEANED_ALARM_LABEL_FOR_AT_REGEX, "")
             .trimActionLabel()
             .takeIf { it.isNotBlank() }
 }
+
+private val HAS_TIMER_TRIGGER_SET_CREATE_REGEX =
+    Regex("""\b(?:set|create|start)\s+(?:a\s+)?timer\b""")
+
+private val HAS_TIMER_TRIGGER_TIMER_REGEX = Regex("""\btimer\b""")
+
+private val CLEANED_TIMER_LABEL_SECONDS_SECS_REGEX = Regex(
+    """(?i)(?<![\d.])\d+(?:\.\d+)?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)""",
+)
+
+private val CLEANED_TIMER_LABEL_PLEASE_CAN_REGEX =
+    Regex("""(?i)^\s*(please\s+)?(?:(can|could)\s+you\s+)?(?:set|create|start)\s+(?:a\s+)?timer\s*(?:for)?\s*""")
+
+private val CLEANED_TIMER_LABEL_ZH1_REGEX =
+    Regex("""^(请|帮我|麻烦你?)?\s*(设置|设定|设(?=[一个的]|\s|$)|开始|开|做|创建)?\s*""")
+
+private val CLEANED_TIMER_LABEL_TIMER_REGEX =
+    Regex("""(一个|个)?\s*的?\s*(倒计时|计时器|timer)\s*""", RegexOption.IGNORE_CASE)
+
+private val CLEANED_TIMER_LABEL_FOR_REGEX = Regex("""(?i)^\s*for\s+""")
 
 internal object SystemTimerActionParser {
     fun draft(input: String): ActionDraft? {
@@ -77,29 +117,41 @@ internal object SystemTimerActionParser {
         return !startsWithActionNegation() &&
             (
                 listOf("倒计时", "计时器").any { it in this } ||
-                    normalized.contains(Regex("""\b(?:set|create|start)\s+(?:a\s+)?timer\b""")) ||
-                    normalized.contains(Regex("""\btimer\b"""))
+                    normalized.contains(HAS_TIMER_TRIGGER_SET_CREATE_REGEX) ||
+                    normalized.contains(HAS_TIMER_TRIGGER_TIMER_REGEX)
                 )
     }
 
     private fun cleanedTimerLabel(input: String): String? =
         input.removeRanges(ChineseTimeExpressions.durations(input).map { it.range })
             .replace(
-                Regex(
-                    """(?i)(?<![\d.])\d+(?:\.\d+)?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)""",
-                ),
+                CLEANED_TIMER_LABEL_SECONDS_SECS_REGEX,
                 "",
             )
             .replace(
-                Regex("""(?i)^\s*(please\s+)?(?:(can|could)\s+you\s+)?(?:set|create|start)\s+(?:a\s+)?timer\s*(?:for)?\s*"""),
+                CLEANED_TIMER_LABEL_PLEASE_CAN_REGEX,
                 "",
             )
-            .replace(Regex("""^(请|帮我|麻烦你?)?\s*(设置|设定|设(?=[一个的]|\s|$)|开始|开|做|创建)?\s*"""), "")
-            .replace(Regex("""(一个|个)?\s*的?\s*(倒计时|计时器|timer)\s*""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""(?i)^\s*for\s+"""), "")
+            .replace(CLEANED_TIMER_LABEL_ZH1_REGEX, "")
+            .replace(CLEANED_TIMER_LABEL_TIMER_REGEX, "")
+            .replace(CLEANED_TIMER_LABEL_FOR_REGEX, "")
             .trimActionLabel()
             .takeIf { it.isNotBlank() }
 }
+
+private val HAS_ABSOLUTE_REMINDER_TRIGGER_REGEX = Regex("""\bremind me\b""")
+
+private val CLEANED_REMINDER_TITLE_ZH1_REGEX = Regex("""^(请\s*)?(帮我\s*)?提醒我\s*""")
+
+private val CLEANED_REMINDER_TITLE_PLEASE_CAN_REGEX =
+    Regex("""(?i)^(please\s+)?(?:(can|could)\s+you\s+)?remind me\s+""")
+
+private val CLEANED_REMINDER_TITLE_ZH2_REGEX =
+    Regex("""^(设置|设定|创建|加|添加)?\s*(一个|条)?\s*(备忘录?|备忘)\s*""")
+
+private val CLEANED_REMINDER_TITLE_ZH3_REGEX = Regex("""^一下\s*""")
+
+private val CLEANED_REMINDER_TITLE_TO_ABOUT_REGEX = Regex("""(?i)^\s*(to|about)\s+""")
 
 internal object AbsoluteReminderActionParser {
     fun draft(input: String, nowMillis: Long, zoneId: ZoneId): ActionDraft? {
@@ -126,16 +178,16 @@ internal object AbsoluteReminderActionParser {
             (
                 "提醒我" in this ||
                     listOf("备忘", "备忘录").any { it in this } ||
-                    lowercase().contains(Regex("""\bremind me\b"""))
+                    lowercase().contains(HAS_ABSOLUTE_REMINDER_TRIGGER_REGEX)
                 )
 
     private fun cleanedReminderTitle(input: String, timeRanges: List<IntRange>): String =
         input.removeRanges(timeRanges)
-            .replace(Regex("""^(请\s*)?(帮我\s*)?提醒我\s*"""), "")
-            .replace(Regex("""(?i)^(please\s+)?(?:(can|could)\s+you\s+)?remind me\s+"""), "")
-            .replace(Regex("""^(设置|设定|创建|加|添加)?\s*(一个|条)?\s*(备忘录?|备忘)\s*"""), "")
-            .replace(Regex("""^一下\s*"""), "")
-            .replace(Regex("""(?i)^\s*(to|about)\s+"""), "")
+            .replace(CLEANED_REMINDER_TITLE_ZH1_REGEX, "")
+            .replace(CLEANED_REMINDER_TITLE_PLEASE_CAN_REGEX, "")
+            .replace(CLEANED_REMINDER_TITLE_ZH2_REGEX, "")
+            .replace(CLEANED_REMINDER_TITLE_ZH3_REGEX, "")
+            .replace(CLEANED_REMINDER_TITLE_TO_ABOUT_REGEX, "")
             .trimActionLabel()
             .ifBlank { "Solin提醒" }
 }
@@ -173,11 +225,16 @@ internal fun String.removeRanges(ranges: List<IntRange>): String =
     ranges.sortedByDescending { it.first }
         .fold(this) { text, range -> text.removeRange(range.first, range.last + 1) }
 
+private val HAS_DAILY_RECURRENCE_REGEX = Regex("""\b(?:daily|every\s+day|each\s+day)\b""")
+
 private fun String.hasDailyRecurrence(): Boolean {
     val normalized = lowercase()
     return listOf("每天", "每日", "天天", "每天一次").any { it in this } ||
-        normalized.contains(Regex("""\b(?:daily|every\s+day|each\s+day)\b"""))
+        normalized.contains(HAS_DAILY_RECURRENCE_REGEX)
 }
+
+private val TIME_ACTION_DISCUSSION_REGEX =
+    Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|to)|implement|design|api|docs?|tests?)\b""")
 
 private fun String.looksLikeTimeActionDiscussion(): Boolean {
     val normalized = lowercase()
@@ -199,11 +256,13 @@ private fun String.looksLikeTimeActionDiscussion(): Boolean {
             "测试",
             "原理",
         ).any { it in this } ||
-        normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|to)|implement|design|api|docs?|tests?)\b"""))
+        normalized.contains(TIME_ACTION_DISCUSSION_REGEX)
 }
 
+private val TRIM_ACTION_LABEL_REGEX = Regex("""\s{2,}""")
+
 private fun String.trimActionLabel(): String =
-    replace(Regex("""\s{2,}"""), " ")
+    replace(TRIM_ACTION_LABEL_REGEX, " ")
         .trim { it <= ' ' || it == '，' || it == ',' || it == ':' || it == '：' || it == '。' || it == '.' }
         // "设置明天7点的闹钟" leaves a dangling 的 once the time and trigger words are cut out.
         .removePrefix("的")

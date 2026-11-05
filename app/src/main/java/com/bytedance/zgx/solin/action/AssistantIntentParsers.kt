@@ -165,6 +165,8 @@ internal object SmsDraftActionParser {
         )
 }
 
+private val WHITESPACE_RUN_REGEX = Regex("""\s+""")
+
 internal object MediaControlActionParser {
     private val commandPatterns: List<Pair<String, Regex>> = listOf(
         "next" to Regex("""^(?:播放|放|切到|切换到)?(?:下一首|下一曲|下首歌?)(?:歌|歌曲|音乐)?$|^(?:切歌|换一首|换首歌|换一首歌)$|^(?:next\s+(?:song|track)|skip\s+(?:this\s+)?(?:song|track))$"""),
@@ -182,7 +184,7 @@ internal object MediaControlActionParser {
         val core = trimmed
             .replace(leadingFillerRegex, "")
             .replace(trailingFillerRegex, "")
-            .replace(Regex("""\s+"""), " ")
+            .replace(WHITESPACE_RUN_REGEX, " ")
             .trim()
             .lowercase()
         if (core.isEmpty()) return null
@@ -345,7 +347,7 @@ internal object CalculatorActionParser {
             strongOperatorRegex.containsMatchIn(text)
         }
         if (!hasOperator) return null
-        return text.replace(Regex("""\s+"""), "")
+        return text.replace(WHITESPACE_RUN_REGEX, "")
     }
 }
 
