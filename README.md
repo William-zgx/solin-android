@@ -149,8 +149,9 @@ builds. Not ready for broad app-store or production distribution.
 
 ## Quick Start
 
-Requirements: JDK 17+, Android SDK 36 (target SDK 36, min API 28), and a physical
-arm64-v8a Android device for realistic LiteRT-LM validation.
+Requirements: JDK 17+ to build (JDK 21 to run the full unit test suite, as CI
+does), Android SDK 36 (target SDK 36, min API 28), and a physical arm64-v8a
+Android device for realistic LiteRT-LM validation.
 
 ```bash
 git clone https://github.com/William-zgx/solin-android.git
@@ -243,6 +244,7 @@ state.
 - Device/manual acceptance: `docs/phone_acceptance.md`
 - Release readiness: `docs/release_readiness.md`
 - Documentation index: `docs/index.md`
+- Short architecture map: `Guidebook.md`; coding-agent protocol: `AGENTS.md`
 
 ## Contributing
 

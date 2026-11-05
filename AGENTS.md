@@ -10,8 +10,15 @@ Machine-readable entry for coding agents. Humans should start with `README.md` /
 - **Harness mode:** **Mainline single-repo** (code + docs + scripts in one tree).
   Not a multi-package monorepo product with distributed harness submodules.
 - **Status:** Experimental / personal evaluation. Not production store-ready.
-- **Primary module:** `:app` (single app module; package boundaries are
-  convention + architecture tests, not separate Gradle modules yet)
+- **Gradle modules:** one app module, `:app`, which holds all product code.
+  Package boundaries inside `:app` are convention + architecture tests, not
+  separate Gradle modules. The other modules carry no product logic:
+  `:releaseSmoke` is a release smoke-test module that targets `:app`, and
+  `:modelpackE2b`, `:modelpackE2bExtra`, `:modelpackE4b`, `:modelpackE4bExtra`
+  are model-pack asset modules for the internal `bundledModels` variant
+  (`docs/bundled_model_package.md`).
+- **Build JDK:** JDK 17+ runs Gradle; the full unit suite needs JDK 21 because
+  the `localagents-rag` dependency ships Java 21 class files. CI uses JDK 21.
 
 ## Must-read before code changes
 
@@ -27,6 +34,7 @@ Then read only what the task touches:
 - `docs/optimization_plan_weaknesses.md` for parallel-work history and ownership
 - `docs/privacy_notice.md` for privacy-boundary changes
 - The relevant file under `docs/plans/` or the active feature specification
+  (`docs/plans/archive/` holds completed or dropped plans; history only)
 
 Do not load every architecture or plan document for an unrelated local change.
 
@@ -34,27 +42,52 @@ Also useful: `Guidebook.md` (short architecture index at repo root).
 
 ## Code roots
 
-Primary production packages under:
+Production packages under `app/src/main/java/com/bytedance/zgx/solin/`:
 
 ```text
-app/src/main/java/com/bytedance/zgx/solin/
-  orchestration/   # agent loop, routing, observation
-  tool/            # ToolSpec, registry, executor, schemas
-  skill/           # built-in skills, planning
-  device/          # device context snapshots
-  memory/          # local memory index / semantic runtime
-  data/            # Room, settings, model/session repos
-  ui/              # Compose UI (SolinScreen + components)
-  runtime/         # LiteRT-LM + remote chat adapters
-  safety/          # risk, confirmation, privacy decisions
+action/          phone action parsing, planning, Android execution boundary
+audit/           redacted tool audit and remote-send audit
+background/      reminders, alarms, periodic checks
+capability/      capability matrix model
+common/          shared JSON readers and hashing helpers
+data/            Room database, settings, model/session repositories
+device/          device context, accessibility observation and screen control
+download/        model download and verification
+eval/            AI behavior eval models
+evidence/        encrypted evidence blob store
+logging/         SolinLog structured logging
+mcp/             Model Context Protocol server access
+memory/          local memory index and semantic recall
+module/          SolinModule registration and freeze
+multimodal/      share intents, attachments, OCR, screenshots
+orchestration/   agent loop, routing, observation replanning, confirmation bypass
+plan/            multi-step plan store and plan tools
+presentation/    controllers and read models behind SolinViewModel
+rcperf/          RC performance benchmark (pure JVM)
+resource/        system resource sampling and pressure state
+runtime/         LiteRT-LM local runtime and remote chat adapters
+safety/          SafetyPolicy: risk, confirmation, privacy decisions
+skill/           built-in skills; skill/external/ holds external skill packages
+storage/         local KV, document, and vector store contracts
+tool/            ToolSpec, registry, schemas, executors, public web evidence
+ui/              Compose UI (SolinScreen, components/, theme/)
 ```
 
-Related packages you may touch when in scope: `action/`, `audit/`,
-`background/`, `download/`, `multimodal/`, `presentation/`, `resource/`,
-`storage/`, `app/` (composition root).
+The root package holds only the app entry and composition root
+(`MainActivity`, `SolinApplication`, `SolinAppContainer`, `SolinViewModel`),
+cross-package shared models (`ChatModels`, `ModelCatalog`, `RemoteModels`,
+`LocalModelTokenLimits`, `AdaptiveInferenceRollout`, `SolinConstants`), and
+Activity-side coordinators (`ConfirmationPermissionCoordinator`,
+`VoiceRecognitionCoordinator`, `DebugIntentHandler`,
+`AgentRuntimePermissionPolicy`). New feature code goes into an owner package,
+not the root.
 
-Tests: `app/src/test/`, `app/src/androidTest/`.  
-Scripts: `scripts/`. Docs: `docs/`.
+Repository layout: `app/` (product code and tests), `releaseSmoke/`,
+`modelpack*/` (Gradle modules above), `gradle/` (version catalog and
+bundled-model config), `scripts/` (doctor, verification, device and release
+scripts; script tests in `scripts/tests/`), `docs/`, `licenses/`.
+
+Tests: `app/src/test/`, `app/src/androidTest/`.
 
 ## Non-negotiables (do not weaken)
 

@@ -15,7 +15,7 @@ Agent 协议（必读）: [`AGENTS.md`](AGENTS.md)
 - 工具 / Skill 在用户确认后执行手机侧动作（提醒、分享、导航、屏幕文本、OCR 等）
 - 默认 **LocalOnly**；远程与高风险动作 fail-closed + 确认 + 审计
 
-仓库形态：**mainline 单仓**（源码 + 文档 + 脚本同树），主产品代码在 `:app`，不是多包 monorepo 产品 harness。
+仓库形态：**mainline 单仓**（源码 + 文档 + 脚本同树），不是多包 monorepo 产品 harness。产品代码全部在 `:app`；另有 `:releaseSmoke`（release 冒烟测试模块）和 `:modelpackE2b` / `:modelpackE2bExtra` / `:modelpackE4b` / `:modelpackE4bExtra`（内部 `bundledModels` 变体的模型资源模块），均不含产品逻辑。
 
 ---
 
@@ -26,13 +26,14 @@ Agent 协议（必读）: [`AGENTS.md`](AGENTS.md)
 | 构建 / 验证 / 产品契约 | `README.md` / `README.zh-CN.md` |
 | 文档角色与流程图 | `docs/index.md` |
 | Agent / 工具模块归属 | `docs/agent_core_modules.md` |
+| 架构目标、两道闸门、威胁模型 | `docs/architecture_depth.md` |
 | 结构债与 Wave 并行规则 | `docs/optimization_plan_weaknesses.md` |
 | 隐私边界 | `docs/privacy_notice.md` |
 | 模型来源与校验 | `docs/model_manifest.md` |
 | 真机验收 | `docs/phone_acceptance.md` |
-| ViewModel / Screen / UiState 拆分计划 | `docs/plans/` |
+| 进行中的计划 | `docs/plans/`（已完成或放弃的计划在 `docs/plans/archive/`） |
 
-Coding agent 最少读：`README` → `docs/index.md` → `docs/agent_core_modules.md` → `docs/optimization_plan_weaknesses.md`（见 `AGENTS.md`）。
+Coding agent 必读 `README` 与 `docs/index.md`，其余按任务读（见 `AGENTS.md`）。
 
 ---
 
@@ -42,17 +43,17 @@ Coding agent 最少读：`README` → `docs/index.md` → `docs/agent_core_modul
 
 ```text
 orchestration/  聊天·记忆·工具·动作路由与 Agent loop
-tool/           ToolSpec、注册表、校验、执行
-skill/          内置 Skill 与规划
+tool/           ToolSpec、注册表、校验、执行、公开网页证据
+skill/          内置 Skill 与规划；skill/external/ 为外部 Skill 包
 safety/         风险、确认、隐私决策
 runtime/        本地 LiteRT / 远程运行时
 memory/         本地记忆索引与语义运行时
-device/         设备上下文快照
-data/           模型、会话、设置持久化
+device/         设备上下文、无障碍观察与屏幕控制
+data/           Room 数据库、模型、会话、设置持久化
 storage/        本地 KV / 文档 / 向量存储契约
 ui/             Compose 界面
 resource/       系统资源采样与稳定压力状态
-presentation/   ViewModel facade 与命名控制器
+presentation/   SolinViewModel 背后的控制器与只读模型
 action/         手机动作规划与 Android 执行边界
 audit/          脱敏工具审计
 evidence/       证据 blob 加密存储
@@ -68,6 +69,8 @@ eval/           AI 行为评估数据模型
 logging/        SolinLog 结构化日志门面
 common/         跨包共用的 JSON 读取与哈希小工具
 ```
+
+根包本身只放：应用入口与组装根（`MainActivity`、`SolinApplication`、`SolinAppContainer`、`SolinViewModel`），跨包共享模型（`ChatModels`、`ModelCatalog`、`RemoteModels`、`LocalModelTokenLimits`、`AdaptiveInferenceRollout`、`SolinConstants`），以及 Activity 侧协调器（`ConfirmationPermissionCoordinator`、`VoiceRecognitionCoordinator`、`DebugIntentHandler`、`AgentRuntimePermissionPolicy`）。新功能代码放进所属的包，不放根包。
 
 请求主路径（摘要）：
 
@@ -99,9 +102,9 @@ Wave 1–6 已完成（见 `docs/optimization_plan_weaknesses.md` §20–§22）
 
 | 文件 | 原始行数 | 现行（`wc -l`） | 协作面 |
 | --- | ---: | ---: | --- |
-| `SolinViewModel.kt` | ~6,800 | 848 | `presentation/*` 29 个文件 |
-| `SolinScreen.kt` | ~6,300 | 446 | `ui/components/*` 21 个叶子组件 |
-| `AgentLoopRuntime.kt` | ~5,400 | 1,924 | `orchestration/ToolPlanCoordinator` 等 5+ 协作类 |
+| `SolinViewModel.kt` | ~6,800 | 852 | `presentation/*` 30 个文件 |
+| `SolinScreen.kt` | ~6,300 | 497 | `ui/components/*` 20 个叶子组件 |
+| `AgentLoopRuntime.kt` | ~5,400 | 1,903 | `orchestration/ToolPlanCoordinator` 等 5+ 协作类 |
 
 **原则：** 先逻辑边界与架构测试，再物理 Gradle module；增量可合并，禁止 Big Bang。  
 **并行改代码时：** 遵守 `optimization_plan_weaknesses.md` §5 文件所有权表（与 `AGENTS.md` 一致）。

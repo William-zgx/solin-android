@@ -123,8 +123,8 @@ foreground 提示和 MediaProjection consent sheet 都是系统介导流程，�
 
 ## 快速开始
 
-要求：JDK 17+、Android SDK 36（target SDK 36，min API 28）、用于真实 LiteRT-LM 验证的
-arm64-v8a Android 真机。
+要求：构建需要 JDK 17+（跑完整单元测试需要 JDK 21，与 CI 一致）、Android SDK 36
+（target SDK 36，min API 28）、用于真实 LiteRT-LM 验证的 arm64-v8a Android 真机。
 
 ```bash
 git clone https://github.com/William-zgx/solin-android.git
@@ -211,6 +211,7 @@ model-driven 应用搜索 eval 属于 debug/device 检查，需显式设置
 - 设备/手工验收：`docs/phone_acceptance.md`
 - 发布就绪状态：`docs/release_readiness.md`
 - 文档索引：`docs/index.md`
+- 架构速览：`Guidebook.md`；coding agent 协议：`AGENTS.md`
 
 ## 贡献
 

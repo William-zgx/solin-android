@@ -51,14 +51,15 @@ flowchart TD
 
 | Document | Role | Keep it focused on |
 | --- | --- | --- |
-| `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, how to build, where to go next |
-| `../AGENTS.md` | Coding-agent harness protocol | Must-read docs, code roots, non-negotiables, deepen-not-scatter rule, validation, Wave ownership |
-| `../Guidebook.md` | Short architecture index | Human/agent map into `docs/` and code packages |
+| `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, build requirements, where to go next |
+| `../AGENTS.md` | Coding-agent harness protocol | Must-read docs, Gradle modules, code roots, non-negotiables, deepen-not-scatter rule, parallel ownership, review and validation cadence |
+| `../Guidebook.md` | Short architecture index | Human/agent map into `docs/` and code packages, root-package rule |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
 | `architecture_depth.md` | Architecture goals | Deep-module direction, egress and action gates, threat model, depth measures |
 | `optimization_plan_weaknesses.md` | Structural debt & Wave plan | Known weaknesses, thin-facade target, multi-agent file ownership, Wave metrics |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_driven_app_control_multi_agent_plan.md` | Model-driven app control plan | Multi-agent development split, runtime observe-act contract, acceptance |
+| [`plans/data-layer-suspend-migration.md`](plans/data-layer-suspend-migration.md) | Data-layer suspend migration plan | Interfaces and call sites to move from `runBlocking` to `suspend`; not started |
 | [`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md) | Mika phone capability integration | Source provenance, implemented contracts, bounded composite tools, session route reuse, and experimental background-display limits; not device or release approval |
 | `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
 | `model_capability_profiles.json` | Model capability contract | Local/remote runtime capability, modality, privacy, and release-gate profile facts |
@@ -71,14 +72,23 @@ flowchart TD
 | `release_readiness.md` | Current release status | What is complete, what blocks release, next owner actions |
 | `release_checklist.md` | RC execution checklist | Item-by-item release candidate evidence requirements |
 | `release_blocker_dashboard.md` | Generated blocker view | Compact status generated from roadmap/release readiness inputs |
+| `roadmap_gap_matrix.json` | Roadmap evidence ledger | Roadmap item completion evidence; input to `scripts/generate_release_blocker_dashboard.sh` |
+| `release_record.json` | Release owner record | Final artifact, checksum, signing, channel, and blocker decisions for `scripts/verify_release_record.sh` |
+| `release_operations_record.json` | Release operations record | CI, crash/ANR monitoring, archive, signing, and rollback for `scripts/verify_release_operations_record.sh` |
+| `release_validation_record.json` | Release validation record | Bound emulator, device, manual, matrix, and screenshot evidence for `scripts/verify_release_validation_record.sh` |
+| `perf_baseline_template.properties` | Perf baseline template | `PerfBaseline/v1` field template for RC performance evidence |
 | `validation_report.md` | Append-only evidence log | Dated commands, results, artifacts, and known gaps |
 | `ai_behavior_eval_plan.md` | AI behavior evidence plan | Fixture taxonomy, actual-trace contract, and release-gate behavior-eval rules |
 | `store_policy_record.json` | Store policy record | App-store listing claims, privacy labels, and policy review evidence |
+| `store_policy_review_evidence/` | Store policy review evidence | Pending review evidence files bound by `store_policy_record.json` |
+| `privacy_review.json` | Privacy review record | Release/security/legal approval bound to the privacy notice and Capability Matrix SHA values, for `scripts/verify_privacy_review.sh` |
+| `privacy_review_evidence/` | Privacy review evidence | Pending release, security, and legal review evidence files |
 | `model_license_review.json` / `model_license_metadata.json` | Model license records | License review status and metadata for recommended model downloads |
+| `assets/` | Documentation images | Brand lockup, icon previews, and README artwork |
 | `solin_share_draft.md` | Outreach draft | Tech-talk / blog post draft introducing Solin's on-device model capabilities; not a source of product facts |
-| `docs/plans/*.md` | Future refactor plans | Detailed multi-step migration plans for data layer, ViewModel, UI state, and screen composables |
+| `docs/plans/archive/*.md` | Archived plans | Completed or dropped plans (ViewModel split, SolinScreen split, UiState split); history only, not current facts |
 | [`specs/20260718-adaptive-edge-inference/status.md`](specs/20260718-adaptive-edge-inference/status.md) | Adaptive edge inference current fact | Merged phase-one behavior, build-type rollout matrix, unfinished verification, and pending evidence |
-| `docs/specs/*/{brainstorm,research,spec,plan,tasks}.md` | Feature design and delivery records | Decisions, historical research, target contracts, plans, and task tracking; not current product facts by themselves |
+| `docs/specs/*/{brainstorm,research,spec,plan,review,tasks}.md` | Feature design and delivery records | Decisions, historical research, target contracts, plans, and task tracking; not current product facts by themselves |
 
 JSON files in `docs/` are machine-readable records or capability matrices. They
 are inputs to verifier scripts and should stay structured rather than become
@@ -99,16 +109,16 @@ or published.
 
 ## Architecture Improvements
 
-Recent structural improvements (structured logging, centralized constants,
-memory controller extraction, evidence encryption, network security config,
-concurrency safety, dependency inversion, and ViewModel deduplication) are
+Structural improvements (structured logging, centralized constants, memory
+controller extraction, evidence encryption, and network security config) are
 documented as dedicated sections in
 [`agent_core_modules.md`](agent_core_modules.md). See the
 `presentation/` controller split status in that file's "Presentation
 Controllers" section.
 
 Active refactor plans live in [`optimization_plan_weaknesses.md`](optimization_plan_weaknesses.md)
-and [`docs/plans/`](plans/).
+and [`docs/plans/`](plans/). Completed or dropped plans move to
+[`docs/plans/archive/`](plans/archive/).
 
 ## Editing Rules
 
@@ -137,8 +147,8 @@ and [`docs/plans/`](plans/).
 - Device acceptance flow: `phone_acceptance.md`.
 - Release evidence flow: `release_checklist.md`.
 - AI behavior evidence flow: `ai_behavior_eval_plan.md`.
-- Architecture refactor plans: docs/plans/
-- Proposed feature specifications: docs/specs/
+- Architecture refactor plans: `plans/` (archived plans in `plans/archive/`).
+- Proposed feature specifications: `specs/`.
 - Adaptive edge inference current status: `specs/20260718-adaptive-edge-inference/status.md`.
 - Structural debt waves & ownership: `optimization_plan_weaknesses.md`.
 - Coding-agent entry: `../AGENTS.md`, short map: `../Guidebook.md`.
