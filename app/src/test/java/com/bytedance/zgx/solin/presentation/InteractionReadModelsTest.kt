@@ -1,4 +1,4 @@
-package com.bytedance.zgx.solin
+package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryRecallMode
@@ -9,6 +9,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.bytedance.zgx.solin.presentation.memoryEvidenceSummariesFor
+import com.bytedance.zgx.solin.presentation.runTimelineSummariesFor
 
 class InteractionReadModelsTest {
     @Test

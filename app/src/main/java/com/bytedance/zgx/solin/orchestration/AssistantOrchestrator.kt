@@ -3,7 +3,7 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
-import com.bytedance.zgx.solin.PublicWebEvidencePack
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.audit.NoOpToolAuditSink

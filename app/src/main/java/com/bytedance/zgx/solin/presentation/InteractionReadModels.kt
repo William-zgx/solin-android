@@ -1,4 +1,4 @@
-package com.bytedance.zgx.solin
+package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryRecallMode

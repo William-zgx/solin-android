@@ -5,9 +5,8 @@ import com.bytedance.zgx.solin.AuditEventSummary
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.PublicWebEvidencePack
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
-import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
 import com.bytedance.zgx.solin.label

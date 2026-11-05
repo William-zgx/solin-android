@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.tool
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
-import com.bytedance.zgx.solin.publicWebEvidencePackFromToolResultData
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient

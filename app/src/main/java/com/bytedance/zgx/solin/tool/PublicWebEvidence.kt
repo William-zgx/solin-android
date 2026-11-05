@@ -1,9 +1,7 @@
-package com.bytedance.zgx.solin
+package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.common.firstNonBlank
 import com.bytedance.zgx.solin.common.jsonObjects
-import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI

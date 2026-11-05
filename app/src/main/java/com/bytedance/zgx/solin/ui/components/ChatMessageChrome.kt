@@ -28,9 +28,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.bytedance.zgx.solin.MemoryEvidenceUiSummary
-import com.bytedance.zgx.solin.PublicWebEvidencePack
-import com.bytedance.zgx.solin.RunTimelineItemUiSummary
+import com.bytedance.zgx.solin.presentation.MemoryEvidenceUiSummary
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
+import com.bytedance.zgx.solin.presentation.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.solin.ui.theme.LocalSolinColors

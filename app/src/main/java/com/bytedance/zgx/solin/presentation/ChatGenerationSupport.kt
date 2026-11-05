@@ -17,7 +17,6 @@ import com.bytedance.zgx.solin.LocalImageAttachment
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelHealth
 import com.bytedance.zgx.solin.ModelHealthState
-import com.bytedance.zgx.solin.RunTimelineItemUiSummary
 import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.label
 import com.bytedance.zgx.solin.logging.solinD

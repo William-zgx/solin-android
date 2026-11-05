@@ -3,7 +3,7 @@
 > 2026-10-31 起，架构方向改为“更少、更深的模块”，以 `architecture_depth.md` 为准。本文记录 Wave 1–6 的历史与所有权规则；其中“瘦 facade / 继续拆分”的目标不再适用。
 
 > 状态：Wave 1–6 已完成（见 §20–§22 战役总结）
-> 关联：`docs/plans/viewmodel-split.md`、`solin-screen-split.md`、`uistate-split.md`、`data-layer-suspend-migration.md`
+> 关联：`docs/plans/archive/viewmodel-split.md`、`solin-screen-split.md`、`uistate-split.md`、`data-layer-suspend-migration.md`
 > 目标：把「安全 harness 很强、热点文件不可演进」的债务，变成可并行交付的结构改进。
 > 架构原则与愿景见 §2；已落地的结构化改进（日志/常量/加密/并发等）见 `agent_core_modules.md` 对应章节。
 
@@ -91,7 +91,7 @@ tool/                            # 后续：contract / registry / executor 再�
 
 ### Wave 2 — 控制器化 ViewModel（1–2 周）
 
-按 `docs/plans/viewmodel-split.md`：
+按 `docs/plans/archive/viewmodel-split.md`：
 
 1. `ModelLoadController`（下载/导入/backend/远程配置）
 2. `SessionController` + `ChatController`（会话与发送）
@@ -375,7 +375,7 @@ Wave 3 新增协作面：
 
 1. **`ChatController`**：`sendMessageInternal` + remote disclosure send + shared input + **`continueAfterToolObservation`**（VM 最大剩余）  
 2. **AgentLoop 拆分**：`ToolPlanCoordinator` / turn runner（Loop 现为三大热点之最）  
-3. **UiState 拆分**：高频 voice/download 子状态（`docs/plans/uistate-split.md`）  
+3. **UiState 拆分**：高频 voice/download 子状态（`docs/plans/archive/uistate-split.md`）  
 4. 可选：`SettingsController`（voice / generation params / reduce confirmations）  
 
 ---

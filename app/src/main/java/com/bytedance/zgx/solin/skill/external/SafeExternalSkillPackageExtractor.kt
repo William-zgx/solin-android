@@ -1,4 +1,4 @@
-package com.bytedance.zgx.solin.skill.`package`
+package com.bytedance.zgx.solin.skill.external
 
 import java.io.BufferedInputStream
 import java.nio.file.Files

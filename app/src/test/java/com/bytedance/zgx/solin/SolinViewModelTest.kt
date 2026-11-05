@@ -146,6 +146,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.bytedance.zgx.solin.tool.PublicWebEvidenceItem
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 
 private const val TEST_IMAGE_DATA_URL = "data:image/png;base64,AA=="
 private const val TEST_LOCAL_MODEL_PATH = "/tmp/model.litertlm"
