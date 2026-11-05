@@ -232,13 +232,13 @@ internal class ConfirmationBypassPolicy(
 
     /**
      * Whether an earlier step of [runId] requested a tool that reads private device data.
-     * `calculate` marks its output private but reads nothing from the device.
+     * [ToolCapability.LocalCompute] tools mark their output private but read nothing from the device.
      */
     private fun runReadPrivateData(runId: String, before: String): Boolean =
         traceQueries.toolRequestsFor(runId)
             .takeWhile { request -> request.id != before }
             .any { request ->
-                request.toolName != MobileActionFunctions.CALCULATE &&
+                toolRegistry.specFor(request.toolName)?.capability != ToolCapability.LocalCompute &&
                     toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty()
             }
 

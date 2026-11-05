@@ -935,8 +935,11 @@ Responsibilities:
 
 Boundaries:
 
-- The key comes from `RemoteModelConfig.apiKey` (encrypted settings). There is
-  no OAuth or token refresh path.
+- The key comes from `RemoteModelConfig.apiKey` (encrypted settings).
+
+Current status:
+
+- API key only. There is no OAuth or token refresh path.
 
 Tests:
 

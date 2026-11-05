@@ -252,7 +252,7 @@ class MemoryRepository(
     override fun rebuild(messages: List<ChatMessage>): Unit = synchronized(lock) {
         entries.clear()
         visibleRecords().forEach { record ->
-            indexRecord(
+            putEntry(
                 id = record.id,
                 text = record.text,
                 type = record.type,
@@ -274,11 +274,16 @@ class MemoryRepository(
                 return@forEach
             }
             if (message.privacy == MessagePrivacy.LocalOnly) return@forEach
-            index(
+            putEntry(
                 id = message.id.toString(),
                 text = "用户：${message.text}",
+                type = MemoryRecordType.Conversation,
+                persist = false,
+                source = MemoryRecordSource.ConversationHistory,
+                privacy = MessagePrivacy.LocalOnly,
             )
         }
+        refreshSemanticIndexStats()
     }
 
     override fun index(id: String, text: String): Unit = synchronized(lock) {
@@ -431,6 +436,22 @@ class MemoryRepository(
         expiresAtMillis: Long? = null,
         conflictKey: String? = null,
     ) {
+        putEntry(id, text, type, persist, source, sensitivity, privacy, expiresAtMillis, conflictKey)
+        refreshSemanticIndexStats()
+    }
+
+    /** [indexRecord] without the stats refresh, so a bulk [rebuild] refreshes once at the end. */
+    private fun putEntry(
+        id: String,
+        text: String,
+        type: MemoryRecordType,
+        persist: Boolean,
+        source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+        sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+        privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+        expiresAtMillis: Long? = null,
+        conflictKey: String? = null,
+    ) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
         if (expiresAtMillis != null && expiresAtMillis <= clockMillis()) return
@@ -458,7 +479,6 @@ class MemoryRepository(
         )
         entries[id] = entry
         if (persist && type != MemoryRecordType.Conversation) recordStore.upsert(entry.toPersistedRecord())
-        refreshSemanticIndexStats()
     }
 
     /**

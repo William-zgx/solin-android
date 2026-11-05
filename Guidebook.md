@@ -52,7 +52,7 @@ data/           模型、会话、设置持久化
 storage/        本地 KV / 文档 / 向量存储契约
 ui/             Compose 界面
 resource/       系统资源采样与稳定压力状态
-presentation/   ViewModel facade / 19 个文件（8 个命名控制器，已落地）
+presentation/   ViewModel facade 与命名控制器
 action/         手机动作规划与 Android 执行边界
 audit/          脱敏工具审计
 evidence/       证据 blob 加密存储
@@ -66,6 +66,7 @@ plan/           多步计划持久化与工具桥接
 rcperf/         RC 性能基准（纯 JVM 可测）
 eval/           AI 行为评估数据模型
 logging/        SolinLog 结构化日志门面
+common/         跨包共用的 JSON 读取与哈希小工具
 ```
 
 请求主路径（摘要）：
