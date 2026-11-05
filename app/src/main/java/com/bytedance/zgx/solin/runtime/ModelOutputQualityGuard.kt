@@ -71,7 +71,28 @@ class ModelOutputQualityGuard(
         maxOutputChars: Int = defaultMaxOutputChars,
     ): GenerationQualityDecision {
         if (latestChunk.isEmpty()) return GenerationQualityDecision.Continue
-        val candidate = accumulatedText + latestChunk
+        return evaluateStreamedText(
+            candidate = accumulatedText + latestChunk,
+            runtimeKind = runtimeKind,
+            modelId = modelId,
+            backend = backend,
+            parameters = parameters,
+            maxOutputChars = maxOutputChars,
+        )
+    }
+
+    /**
+     * Same checks as [evaluate] on a streamed text that already ends with the latest non-empty
+     * chunk. Callers that keep the reply in a builder pass one string instead of prefix + chunk.
+     */
+    fun evaluateStreamedText(
+        candidate: String,
+        runtimeKind: GenerationRuntimeKind,
+        modelId: String?,
+        backend: BackendChoice?,
+        parameters: GenerationParameters,
+        maxOutputChars: Int = defaultMaxOutputChars,
+    ): GenerationQualityDecision {
         findRepeatedCharacterSpan(candidate)?.let { span ->
             return stopFor(
                 issue = GenerationQualityIssue.RepetitionLoop,
@@ -227,11 +248,10 @@ class ModelOutputQualityGuard(
             for (length in phraseLengthRange) {
                 val repeatedEnd = start + length * repeatedPhraseThreshold
                 if (repeatedEnd > text.length) continue
-                val phrase = text.substring(start, start + length)
-                if (phrase.isBlank() || phrase.all { it.isPunctuationLike() }) continue
+                if (isBlankOrPunctuationOnly(text, start, start + length)) continue
                 var count = 1
                 var cursor = start + length
-                while (cursor + length <= text.length && text.regionMatches(cursor, phrase, 0, length)) {
+                while (cursor + length <= text.length && text.regionMatches(cursor, text, start, length)) {
                     count += 1
                     cursor += length
                     if (count >= repeatedPhraseThreshold) {
@@ -245,13 +265,16 @@ class ModelOutputQualityGuard(
 
     private fun findMalformedSpan(text: String): IntRange? {
         if (text.length < MALFORMED_MIN_LENGTH) return null
-        val malformedIndex = text.indexOfFirst { char ->
-            char == '\uFFFD' || (char.isISOControl() && char !in ALLOWED_CONTROL_CHARS)
+        var malformedIndex = -1
+        var malformedCount = 0
+        for (index in text.indices) {
+            val char = text[index]
+            if (char == '\uFFFD' || (char.isISOControl() && char !in ALLOWED_CONTROL_CHARS)) {
+                if (malformedIndex < 0) malformedIndex = index
+                malformedCount += 1
+            }
         }
         if (malformedIndex < 0) return null
-        val malformedCount = text.count { char ->
-            char == '\uFFFD' || (char.isISOControl() && char !in ALLOWED_CONTROL_CHARS)
-        }
         val density = malformedCount.toDouble() / text.length.toDouble()
         return if (malformedCount >= MALFORMED_ABSOLUTE_THRESHOLD || density >= MALFORMED_DENSITY_THRESHOLD) {
             malformedIndex until text.length
@@ -265,6 +288,19 @@ class ModelOutputQualityGuard(
     ): String =
         "模型输出出现重复，已自动停止。可以重新生成，或降低随机性后重试" +
             "（温度 $QUALITY_RECOVERY_TEMPERATURE / Top P $QUALITY_RECOVERY_TOP_P / Top K $QUALITY_RECOVERY_TOP_K）。"
+
+    /** Matches `phrase.isBlank() || phrase.all { it.isPunctuationLike() }` without allocating the phrase. */
+    private fun isBlankOrPunctuationOnly(text: String, start: Int, end: Int): Boolean {
+        var blank = true
+        var punctuationOnly = true
+        for (index in start until end) {
+            val char = text[index]
+            if (!char.isWhitespace()) blank = false
+            if (!char.isPunctuationLike()) punctuationOnly = false
+            if (!blank && !punctuationOnly) return false
+        }
+        return true
+    }
 
     private fun Char.isPunctuationLike(): Boolean =
         !isLetterOrDigit() && !isWhitespace()

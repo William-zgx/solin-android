@@ -338,17 +338,23 @@ internal class ChatGenerationSupport(
         parameters: GenerationParameters,
         streamingUpdates: StreamingAssistantUpdateCoalescer,
     ): GenerationQualityDecision {
-        val decision = outputQualityGuard.evaluate(
-            accumulatedText = partial.toString(),
-            latestChunk = chunk,
+        if (chunk.isEmpty()) {
+            streamingUpdates.update(partial.toString())
+            return GenerationQualityDecision.Continue
+        }
+        // One string per chunk: the guard and the UI update share it. On a stop decision the
+        // builder is reset to the safe prefix below, so appending first is harmless.
+        partial.append(chunk)
+        val text = partial.toString()
+        val decision = outputQualityGuard.evaluateStreamedText(
+            candidate = text,
             runtimeKind = runtimeKind,
             modelId = modelId,
             backend = backend,
             parameters = parameters,
         )
         if (decision is GenerationQualityDecision.Continue) {
-            partial.append(chunk)
-            streamingUpdates.update(partial.toString())
+            streamingUpdates.update(text)
         } else {
             applyOutputQualityDecisionToAssistant(
                 partial = partial,
