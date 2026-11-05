@@ -255,6 +255,16 @@ internal class ModelToolRequestCoordinator(
                     safetyDecision = safetyDecision,
                 )
             }
+            // Same critical check as the single-request path (e.g. a search after a private read
+            // in this run). A parallel batch has no confirmation step, so the whole batch fails.
+            confirmationBypassPolicy.criticalConfirmationDecision(runId, request)?.let { critical ->
+                return toolObservationCoordinator.rejectModelToolBatch(
+                    runId = runId,
+                    result = request.rejected("${critical.reason} A parallel tool batch requires confirmation per step.")
+                        .withAttemptedToolNames(requests),
+                    safetyDecision = critical,
+                )
+            }
             plans += AgentPlan.UseTool(
                 request = request,
                 draft = initialToolPlanner.draftForRemoteToolRequest(request).withSafetyDecision(safetyDecision),

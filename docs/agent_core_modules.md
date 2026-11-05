@@ -166,7 +166,8 @@ Current status:
   an external outcome, fail, or cancel.
 - Remote models may request multiple tool calls in one turn only for eligible
   public evidence batches. Mixed public/private/action batches are rejected as
-  a whole before any tool starts.
+  a whole before any tool starts, and so is a batch in which any step is
+  critical (for example a search after a private read in the same run).
 - Remote send disclosure policy is explicit: `OnRemoteModeSwitch`,
   `EveryMessage`, `OncePerSession`, or `OnlyWhenSensitive`. Suspected
   sensitive content is always forced through confirmation with mask-and-send,

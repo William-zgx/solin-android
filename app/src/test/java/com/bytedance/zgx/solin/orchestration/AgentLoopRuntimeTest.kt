@@ -900,6 +900,52 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun remoteModelWebSearchBatchAfterAPrivateReadIsRejectedBeforeAnyNetworkAccess() {
+        val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = traceStore,
+        )
+        val result = runtime.runOnce(
+            input = "读剪贴板再搜索",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val read = ToolRequest(id = "call-read", toolName = MobileActionFunctions.READ_CLIPBOARD)
+        traceStore.appendStep(
+            result.run.id,
+            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap())),
+        )
+        val requests = listOf("北京天气", "上海天气").mapIndexed { index, query ->
+            ToolRequest(
+                id = "call-search-$index",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to query),
+                reason = "remote tool call",
+            )
+        }
+        runtime.recordRemoteToolsExposed(
+            runId = result.run.id,
+            scope = RemoteToolScope.PublicEvidenceOnly,
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+        )
+
+        val observed = runtime.observeModelToolRequests(result.run.id, requests)
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        val decision = observed.decision as AgentObservationDecision.Fail
+        assertTrue(decision.reason, decision.reason.contains("requires confirmation"))
+        assertTrue(observed.steps.none { step -> step is AgentStep.ToolRequested && step.request.id != read.id })
+        assertTrue(observed.steps.none { step -> step is AgentStep.ToolObserved })
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.SafetyChecked &&
+                step.decision.outcome == SafetyOutcome.RequireConfirmation
+        })
+    }
+
+    @Test
     fun remoteModelMixedToolBatchIsRejectedAsWholeBeforeAnyToolRequest() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),

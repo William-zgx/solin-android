@@ -171,6 +171,15 @@ internal class ConfirmationBypassPolicy(
         return isAutoApproved(runId, child)
     }
 
+    /** A RequireConfirmation decision when [request] is critical in [runId], otherwise null. */
+    fun criticalConfirmationDecision(runId: String, request: ToolRequest): SafetyDecision? =
+        criticalApprovalReason(runId, request)?.let { reason ->
+            SafetyDecision(
+                outcome = SafetyOutcome.RequireConfirmation,
+                reason = reason.confirmationReason(request.toolName),
+            )
+        }
+
     fun criticalApprovalReason(runId: String, request: ToolRequest): CriticalApprovalReason? {
         val spec = toolRegistry.specFor(request.toolName) ?: return CriticalApprovalReason.UnknownTool
         val networkArgument = networkReachingArgument[request.toolName]
@@ -263,21 +272,18 @@ internal class ConfirmationBypassPolicy(
     ): AgentPlan.UseTool = plan.withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
 
     private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
-        val criticalReason = criticalApprovalReason(runId, request)
+        val criticalDecision = criticalConfirmationDecision(runId, request)
         // SafetyPolicy allows ConfirmationPolicy.NotRequired tools (web_search, …) even when the
         // model flags them or they follow a private read, so any critical reason raises an Allow
         // plan here, in either mode.
-        if (safetyDecision.outcome == SafetyOutcome.Allow && criticalReason != null) {
+        if (safetyDecision.outcome == SafetyOutcome.Allow && criticalDecision != null) {
             return copy(
                 draft = draft.copy(requiresConfirmation = true),
-                safetyDecision = SafetyDecision(
-                    outcome = SafetyOutcome.RequireConfirmation,
-                    reason = criticalReason.confirmationReason(request.toolName),
-                ),
+                safetyDecision = criticalDecision,
             )
         }
         if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
-        if (!isCriticalOnlyConfirmationEnabled(runId) || criticalReason != null) return this
+        if (!isCriticalOnlyConfirmationEnabled(runId) || criticalDecision != null) return this
         val bypassDecision = SafetyDecision(
             outcome = SafetyOutcome.Allow,
             reason = "Only critical actions are confirmed; ${request.toolName} is not critical.",
