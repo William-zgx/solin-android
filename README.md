@@ -1,286 +1,236 @@
-# Solin Android
+# 栖知 Solin
+
+**A privacy-first Android assistant for local chat, memory, and guarded phone actions.**
 
 [![Android Verification](https://github.com/William-zgx/solin-android/actions/workflows/android.yml/badge.svg)](https://github.com/William-zgx/solin-android/actions/workflows/android.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Android-3DDC84.svg)](https://developer.android.com)
-[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#current-status)
+[![Platform](https://img.shields.io/badge/Android-API%2028%2B-315c48)](#quick-start)
+[![License](https://img.shields.io/badge/License-MIT%20%2B%20third--party-315c48)](#license)
+[![Status](https://img.shields.io/badge/Status-experimental-d9e7da)](#current-status)
+
+English · [简体中文](README.zh-CN.md)
+
+[Quick start](#quick-start) · [Phone control](#phone-control-scope) · [Privacy](#product-contract) · [Documentation](#documentation) · [Contributing](#contributing)
 
 <p align="center">
-  English | <a href="README.zh-CN.md">简体中文</a>
+  <img src="docs/assets/solin-readme-concept.svg" width="1200" alt="Solin concept illustration: local intelligence and deliberate action on Android" />
 </p>
 
-<p align="center">
-  <img src="docs/assets/solin_brand_lockup.png" alt="Solin brand lockup" width="280">
-</p>
+*Concept illustration, not an app screenshot.*
 
-Solin Android (app name `栖知 Solin`) is an experimental, privacy-first Android
-assistant. Local LiteRT-LM Text+Vision chat, an optional OpenAI-compatible remote
-endpoint, and confirmed phone-side tools (reminders, sharing, app navigation,
-screen text, OCR, contacts, calendar, low-risk app search).
-
-## Table Of Contents
-
-- [Product Contract](#product-contract)
-- [Implementation Highlights](#implementation-highlights)
-- [First Screen And Trust Flow](#first-screen-and-trust-flow)
-- [Phone Control Scope](#phone-control-scope)
-- [Current Status](#current-status)
-- [Quick Start](#quick-start)
-- [Configuration And Secrets](#configuration-and-secrets)
-- [Recommended Models](#recommended-models)
-- [Validation](#validation)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [Security](#security)
-- [License](#license)
-
-## Product Contract
-
-- **Local by default**: chat history, memory, private tool results, screen
-  text, OCR, local images, and attachment excerpts stay on device as `LocalOnly`
-  unless the user chooses a remote path.
-- **Remote is optional**: remote chat works only after an endpoint is configured
-  and remote mode selected. Images, suspected sensitive text, and configured
-  remote sends require preview or confirmation.
-- **Only critical actions are confirmed**: device actions are validated locally
-  and stay behind permission, disclosure, audit, and fail-closed boundaries.
-  Reversible steps (opening apps, drafts, reminders, taps and scrolls) run
-  directly; external sends, sensitive steps, and outgoing queries or links that
-  carry sensitive text or follow a private read are confirmed, and pay / send / delete / publish / order / authorize buttons are
-  always tapped by the user. A Trust-Center switch restores per-step confirmation.
-- **Users stay in control**: keys can be cleared, conversations and memories
-  deleted, and privacy-sensitive behavior is documented before release.
-
-```mermaid
-flowchart LR
-    User["User request"] --> Router["Skill-first router"]
-    Router --> Local["Local LiteRT-LM"]
-    Router --> Remote["Optional remote endpoint"]
-    Router --> Tools["Confirmed local tools"]
-    Tools --> Registry["ToolRegistry validation"]
-    Registry --> Safety["SafetyPolicy"]
-    Safety --> Confirm["User confirmation"]
-    Confirm --> Android["Android permissions / intents / Accessibility"]
-    Local --> Answer["Assistant answer"]
-    Remote --> Answer
-    Android --> Audit["Redacted trace and audit"]
-    Audit --> Answer
-```
+Solin runs LiteRT-LM chat on your phone, keeps memory local, and combines tools
+with an observe–act loop. An OpenAI-compatible remote endpoint is optional.
+Permission, privacy, and live action checks determine what can run; critical
+controls stay in your hands.
 
 ## Implementation Highlights
 
-- LiteRT-LM local chat with GPU/CPU fallback and explicit model loading.
-- Local memory indexing; semantic recall is available only after a runtime probe.
-- Bounded local image input for verified local chat models; unsupported models
-  fail closed instead of silently OCRing or uploading.
-- OpenAI-compatible remote chat with local filtering of `LocalOnly` context.
-- Registry-driven tools, built-in Skills, local safety policy, redacted trace,
-  and audit records.
-- Model-driven app search bootstraps from a verified local Chat/action-planning
-  model and falls back to the static Skill path when local planning is unavailable.
-- **Remote-vision GUI automation (opt-in)**: with the Trust-Center toggle on,
-  Remote mode, and a vision-capable model, Solin captures the screen via
-  `AccessibilityService.takeScreenshot` (no MediaProjection, no new foreground
-  service), sends it to the remote vision model, and applies the returned tap
-  coordinate as a local `ui_tap` that still passes every device-control preflight.
-  The visible control text (never password fields) goes with the screenshot, and
-  one reply can plan several steps such as tap, type, and submit.
-  Screen egress is gated by the opt-in (plus a first confirmation in
-  per-step mode) and a per-send audit; capture or send failures
-  fail closed and stop the loop.
-- **Cloud/edge router (opt-in)**: in Auto mode, when both the on-device and the
-  configured remote model are eligible, the request text alone can be sent to
-  the Codiv OpenJev decision model to choose where to answer. Shadow mode only
-  measures; Active mode follows verdicts at confidence ≥ 0.9. The user supplies
-  the Codiv key in the Trust Center.
-- The chat surface only shows a safe result summary; structured tool fields stay
-  available through the trace/audit surfaces, not a typed chat card.
+| Capability | What is available |
+| --- | --- |
+| Local chat and images | Verified E2B/E4B Text+Vision models, GPU/CPU fallback, bounded image input |
+| Local memory | Lightweight local index; semantic recall after the embedding runtime probe passes |
+| Phone tools | Reminders, drafts, navigation, screen text, OCR, contacts, calendar, and low-risk app search |
+| Reliable phone operations | Input readback, bounded stability checks, collection, target lookup, and NumberPicker adjustment |
+| Route reuse | Verified short search routes reused within the same session and request; every step is authorized again |
+| Optional remote inference | OpenAI-compatible chat, explicit remote-vision automation, and optional cloud routing |
+| Background-display experiment | Debug-only, explicitly provisioned independent display; compatible Android 14+ required for independent app focus |
 
-## First Screen And Trust Flow
-
-Solin opens into the assistant surface. On first run, the user chooses remote
-setup, recommended local model download, trusted model import, or model
-management. Local setup, remote sends, attachments, voice, memory, and tool
-execution remain visible user choices.
-
-Scripted regression and manual acceptance must be recorded separately. Voice
-input, the Android system document picker, foreground prompts, and the
-MediaProjection consent sheet are system-mediated flows and need real device
-acceptance.
-
-## Phone Control Scope
-
-Phone control is limited to low-risk navigation and search: observe, tap, type,
-submit search, scroll, swipe, long-press, system keys (home/recents/enter/delete),
-back, and wait. System keys are a fixed whitelist, never an arbitrary keycode.
-The agent never taps a pay, send, delete, publish, order, transfer, or authorize
-control: a tap on one (by name or by coordinate) stops before execution and the
-user taps it. Typing and scrolling work on any screen; submit, Enter, swipe, and
-long-press stop when such a control is on screen. With per-step confirmation
-turned back on, low-risk app control returns to the user at a 5-step checkpoint.
-
-After an app launch with a follow-up intent, Solin can continue inside the
-opened app, gated by a locally-installed
-mobile-action model and an expected-package foreground guard. It fails closed to
-open-then-stop if the model is absent or the target app is not foreground, and
-the continuation stays LocalOnly.
-
-The optional remote-vision path replaces the local action model for the in-app
-continuation: a vision-capable remote model sees the screen capture and control text and returns
-a tap, back, scroll, type, submit, wait, or stop decision, or a short plan of them,
-executed as local `ui_*` actions or `finish` under the same preflight rules. Off by default; requires the Trust-Center
-"Remote-vision GUI automation" toggle, Remote inference mode, and a model that
-supports image input. See `docs/privacy_notice.md` for the egress consent and
-audit model.
-
-## Current Status
-
-Suitable for local development, personal evaluation, and controlled tester
-builds. Not ready for broad app-store or production distribution.
-
-- The repository contains source code, tests, scripts, documentation, and small
-  project assets.
-- The repository does not contain model weights, API keys, keystores, signing
-  passwords, user data, or generated release artifacts.
-- Recommended model downloads are third-party artifacts; their upstream licenses,
-  access rules, and redistribution terms must be reviewed separately.
-- Bundled-model packages are internal lab artifacts until model license,
-  redistribution, attribution, and notice approvals are complete.
+Solin is **experimental**, intended for local development and personal evaluation.
+It is not ready for broad app-store distribution. [Current limitations](#current-status)
+and [release readiness](docs/release_readiness.md) distinguish implemented behavior
+from verified device support and release approval.
 
 ## Quick Start
 
-Requirements: JDK 17+, Android SDK 36 (target SDK 36, min API 28), and a physical
-arm64-v8a Android device for realistic LiteRT-LM validation.
+Use **JDK 21** to match CI. Install Android SDK platform 36, build-tools 36.0.0,
+and platform-tools. Compile/target SDK is 36, minimum Android API is 28, and the
+current native build targets arm64-v8a. Java/Kotlin output targets Java 17;
+`doctor.sh` checks a minimum JDK of 17.
 
 ```bash
 git clone https://github.com/William-zgx/solin-android.git
 cd solin-android
 export ANDROID_HOME=/path/to/android-sdk
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
+scripts/doctor.sh
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-After launch, choose one start path: configure an OpenAI-compatible remote
-endpoint, download the recommended local E2B model, or import a trusted
-`.litertlm` model.
+Use a compatible physical Android device for realistic LiteRT-LM validation.
+Emulator tool tests do not establish model quality or performance.
 
-## Configuration And Secrets
+### First Screen And Trust Flow
 
-Solin works without committed secrets. Configure remote endpoints in the app or
-use environment variables for local validation.
+Choose one setup path in the app:
 
-| Variable | Used by | Notes |
-| --- | --- | --- |
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Gradle and scripts | Android SDK location. |
-| `ANDROID_SERIAL` | Device scripts | Select one authorized phone or emulator. |
-| `SOLIN_HF_TOKEN` | Bundled-model build | Download credential for gated Hugging Face artifacts; not license approval. |
-| `SOLIN_LIVE_REMOTE_BASE_URL` | Remote debug helper | Redacted in reports. |
-| `SOLIN_LIVE_REMOTE_MODEL` | Remote debug helper | Redacted in reports. |
-| `SOLIN_LIVE_REMOTE_API_KEY` | Remote debug helper | Must never be committed or recorded. |
-| `RELEASE_KEYSTORE` and related signing variables | Signing scripts | Use only from a private signing environment. |
+1. **Local:** download the recommended E2B model, or import a trusted, compatible
+   `.litertlm` file. Unsupported model capabilities fail closed.
+2. **Remote:** configure an OpenAI-compatible endpoint and model, then select
+   Remote mode. Auto can choose an eligible configured endpoint too.
+3. **Model Manager:** inspect installed models, verification, runtime status, and
+   optional memory/action models.
 
-Run a local secret scan before committing sensitive changes:
+Downloads wait for Wi-Fi by default. A paused download offers **continue with
+mobile data**, showing the remaining size when known. Downloading alone leaves
+remote configuration editable; model loading or an active run can still block
+conflicting changes.
 
-```bash
-scripts/privacy_scan.sh --report build/verification/privacy-scan.properties README.md README.zh-CN.md docs app/src/main scripts
-```
+## Product Contract
 
-If a token or signing secret lands in Git history, treat it as compromised,
-revoke it first, then clean the history and rotate dependent credentials.
+- **Local by default.** Chat history, memory, private tool results, screen text,
+  OCR, and local attachments stay on device unless the user chooses an authorized
+  remote path. Unknown privacy metadata fails closed as `LocalOnly`.
+- **Critical-only confirmation by default.** Permitted reversible actions can
+  run directly. External sends, unknown tools, model-flagged sensitive steps,
+  sensitive network queries, or queries after a private read require confirmation.
+  After a private read, typing words the user did not supply also asks. Sensitive
+  or newly composed text handed to another app is checked too; a draft made only
+  from the user's words can be auto-approved when it is non-sensitive and triggers
+  no other critical rule.
+- **Critical controls stay with the user.** The agent does not tap pay, send,
+  delete, publish, order, transfer, or authorize controls. A Trust-Center option
+  restores per-step confirmation for ordinary actions.
+- **Remote vision requires approval.** The opt-in, Remote mode, a vision-capable
+  model, and the run's first user-confirmed in-app step are required before screen
+  egress, in both confirmation modes. Each send is audited without raw prompts.
+- **User control persists.** Keys, conversations, and memory can be cleared.
+  A lost permission, unsupported model, or invalid result cannot silently enable
+  another data path.
+
+The [privacy notice](docs/privacy_notice.md) owns the complete data and consent
+rules. The optional cloud router is a separate opt-in: eligible request text may
+be sent to the configured decision model in Shadow or Active mode; it is not a
+purely local policy. See [Auto status](docs/specs/20260718-adaptive-edge-inference/status.md).
+
+## Phone Control Scope
+
+The local path supports observation, tap, type, search submit, scroll, swipe,
+long-press, back, wait, and a fixed system-key whitelist. Live screen and privacy
+guards still apply. Input readback and bounded tree-stability checks make
+uncertain results explicit instead of blindly repeating writes.
+
+| Tool | Boundary |
+| --- | --- |
+| `ui_collect` | Bounded page reads; partial evidence does not prove the whole list is complete |
+| `ui_find` | Exact target lookup with ambiguity checks; finding does not click |
+| `ui_set_wheel` | Recognized NumberPicker only; the final value must be read back |
+
+Each composite child is authorized again. Local observation planning prefers
+verified E2B/E4B Chat models; the experimental action model is a fallback.
+Continuation is constrained by the expected package and current evidence, with
+conservative fallback when planning is unavailable. Verified route reuse carries
+neither old consent nor old coordinates.
+
+**Remote vision** can use Accessibility screenshots and visible control text to
+plan local actions under the same guards. It is off by default and subject to
+the approval rules above. Ordinary screen-text evidence remains `LocalOnly`.
+
+**Background display** is a separate debug experiment, requiring already-authorized
+ADB provisioning and explicit user selection. The helper requires Android 12+;
+independent-focus app launch requires Android 14+ and compatible platform support.
+Lost or expired sessions refuse operations instead of switching to the main
+screen. This scope disables remote vision and main-screen MediaProjection OCR.
+
+Contracts, limits, attribution, and setup:
+[phone capabilities](docs/plans/mika-phone-capabilities.md) ·
+[device acceptance](docs/phone_acceptance.md).
 
 ## Recommended Models
 
-Recommended model metadata is pinned in `docs/model_manifest.md`. Downloads are
-registered only after size and SHA-256 verification.
+Files are registered after size and SHA-256 verification. A file's presence is
+not proof that its runtime or all capabilities work on a particular device.
 
-| Capability | Artifact | Approximate size | Purpose |
-| --- | --- | ---: | --- |
-| Basic chat E2B | `.litertlm` chat model | 2.59 GB | Default local Text+Vision chat path |
-| Local memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB | Semantic memory index after runtime probe |
-| Device action | `.litertlm` action model | 284 MB | Bounded action planning with rule fallback |
-| High-quality chat E4B | `.litertlm` chat model | 3.66 GB | Higher quality local Text+Vision chat option |
+| Purpose | Artifact | Download size, approximately |
+| --- | --- | ---: |
+| Default local chat | E2B `.litertlm`, Text+Vision | 2.59 GB |
+| Optional local chat | E4B `.litertlm`, Text+Vision | 3.66 GB |
+| Semantic memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB |
+| Experimental action fallback | mobile-action-270m `.litertlm` | 284 MB |
 
-Model files are not committed to Git. Ordinary public release artifacts do not
-bundle model files. The internal `bundledModels` package is the documented
-exception for quick experience and lab validation; see
-`docs/bundled_model_package.md`.
+Sizes above use decimal units. Exact bytes, pinned sources, hashes, and manual
+license-review status are in [the model manifest](docs/model_manifest.md).
+Model weights are not committed. Ordinary public artifacts do not bundle them;
+the [internal bundledModels package](docs/bundled_model_package.md) has separate
+build, install, and redistribution requirements.
+
+## Configuration And Secrets
+
+Configure remote endpoints and credentials in the app. Development scripts may
+use environment variables; never commit their values.
+
+| Variable | Purpose |
+| --- | --- |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK location |
+| `ANDROID_SERIAL` | Select one authorized device or emulator |
+| `SOLIN_HF_TOKEN` | Gated bundled-model downloads; access is not license approval |
+| `SOLIN_LIVE_REMOTE_BASE_URL`, `SOLIN_LIVE_REMOTE_MODEL`, `SOLIN_LIVE_REMOTE_API_KEY` | Remote debug evaluation; keep secrets out of reports |
+| `RELEASE_KEYSTORE` and related signing variables | Private signing environment only |
 
 ## Validation
 
 ```bash
-# Local verification
-scripts/doctor.sh
+# Full local gate: script regression, JVM, lint, builds, and artifact checks
 scripts/verify_local.sh
 
-# Device or emulator verification
-scripts/doctor.sh --device
+# Device checks; read the acceptance guide before testing on a personal device
 ANDROID_SERIAL=<device-or-emulator> scripts/install_and_test_device.sh
 
-# Full emulator regression (stricter artifact gate)
-AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
+# Full emulator regression
+AVD_NAME=<your-avd-name> scripts/regression_emulator.sh
 ```
 
-Record emulator regression as passed only when `regression-emulator.properties`
-contains `status=passed`.
+A complete emulator pass requires `regression-emulator.properties` with
+`status=passed`. A green CI job reporting an infrastructure skip, such as
+unavailable HVF, is not executed device coverage. Model-driven app-search checks
+also require the intended model and verified query/package/app guards.
 
-Model-driven app-search evals are debug/device checks. Enable them with
-`RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`; mock and real app modes validate results
-through `verifySearchQuery`, `expectedPackageName`, and `expectedAppName`, and
-require `searchVerificationStatus=verified`.
+See [recorded validation](docs/validation_report.md#2026-11-04--main-ci-convergence)
+for commit-specific results. Voice input, system pickers, MediaProjection consent,
+physical-device behavior, and release approval need separate evidence.
 
-Use `docs/phone_acceptance.md` for flows that need real device behavior or must
-preserve downloaded models, remote configuration, sessions, or manual acceptance
-state.
+## Current Status
+
+- **Implemented does not mean universally supported.** WebView behavior, real
+  wheel widgets, OEM focus/lifecycle behavior, and complete model tasks need
+  further acceptance. Background-display negative-path device tests remain pending.
+- **No benchmark claim.** A valid paired phone-task comparison is still pending;
+  passing unit tests does not establish a task-success or performance gain.
+- **No public release approval.** Model licenses, redistribution, privacy/legal
+  review, signing, and physical-device evidence remain separate gates.
+- **Source-only repository.** No model weights, credentials, keystores, user data,
+  or generated release artifacts belong in Git.
 
 ## Documentation
 
-- Simplified Chinese README: `README.zh-CN.md`
-- Architecture and module ownership: `docs/agent_core_modules.md`
-- Privacy boundary: `docs/privacy_notice.md`
-- Model provenance: `docs/model_manifest.md`
-- Bundled-model lab package: `docs/bundled_model_package.md`
-- Device/manual acceptance: `docs/phone_acceptance.md`
-- Release readiness: `docs/release_readiness.md`
-- Documentation index: `docs/index.md`
+| Need | Start here |
+| --- | --- |
+| Architecture and code map | [Guidebook](Guidebook.md) → [core modules](docs/agent_core_modules.md) |
+| Data and consent rules | [Privacy notice](docs/privacy_notice.md) |
+| Setup and device testing | [Phone acceptance](docs/phone_acceptance.md) |
+| Model provenance and packaging | [Manifest](docs/model_manifest.md) · [bundled models](docs/bundled_model_package.md) |
+| Release status and evidence | [Readiness](docs/release_readiness.md) · [validation report](docs/validation_report.md) |
+| All owner documents | [Documentation index](docs/index.md) |
 
 ## Contributing
 
-Contributions are welcome. Useful changes include a focused problem statement,
-scoped code or documentation updates, tests or validation notes, and safe logs
-or screenshots for device-specific issues.
-
-Before opening a pull request, run `scripts/verify_local.sh`. For device-flow
-changes, also follow `docs/phone_acceptance.md`. New tools, Skills, model paths,
-and phone-control behavior need schema validation, privacy classification,
-confirmation policy, audit coverage, and tests.
-
-Good first areas: documentation corrections, tests around tool schemas and
-safety policy, replay fixtures for low-risk app search and screen-observation
-regressions, and UI accessibility fixes that preserve existing `testTag` values.
+Read [AGENTS.md](AGENTS.md) and the relevant owner document. Keep changes focused,
+add tests at the affected boundary, and run the applicable validation tier.
+Documentation-only changes need relevant link, formatting, and document checks;
+code changes should pass the full local gate before a pull request. Good starting
+points include tool-schema tests, low-risk phone fixtures, accessibility fixes,
+and documentation corrections.
 
 ## Security
 
-Do not open public issues that include secrets, private endpoints, personal
-data, sensitive screenshots, unpublished signing details, or
-redistribution-restricted model files.
-
-Preferred disclosure flow:
-
-1. Reproduce the issue without exposing private payloads.
-2. Capture the smallest safe logs, stack traces, or validation reports.
-3. Contact the repository owner privately before publishing details.
-4. Include affected commit, Android version, device or emulator type, and the
-   affected area.
-
-Security-sensitive fixes should keep the default fail-closed behavior and add a
-regression test where practical.
+Keep private endpoints, credentials, personal data, sensitive screenshots, and
+restricted model files out of public issues. Report a reproducible problem to the
+repository owner privately, with the affected commit, device/API, and minimal
+safe logs. Run `scripts/privacy_scan.sh` for privacy-sensitive changes. If a
+secret enters Git history, revoke it before cleaning history and rotating it.
 
 ## License
 
-Solin Android app code is distributed under the MIT License, except where
-third-party source notices specify otherwise. Phone-operation portions adapted
-from Mika retain Apache-2.0 licensing; see [NOTICE](NOTICE) and
-[the included license](licenses/Apache-2.0.txt). Recommended model
-downloads are third-party artifacts governed by their upstream licenses; see
-`docs/model_manifest.md` and `docs/model_license_review.json`.
+Solin's own code uses the [MIT License](LICENSE). Portions adapted from Mika
+retain [Apache-2.0](licenses/Apache-2.0.txt); see [NOTICE](NOTICE) and source
+notices. Recommended models are third-party artifacts with their own terms and
+[review requirements](docs/model_license_review.json).

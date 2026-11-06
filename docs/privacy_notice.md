@@ -16,7 +16,7 @@ remote or Android system boundary below is crossed.
 flowchart TD
     User["User input"] --> Store["Local Android app storage"]
     Store --> Local["Local model and local tools"]
-    User --> RemoteGate{"Remote mode selected\nand send allowed?"}
+    User --> RemoteGate{"Remote run selected\nand send allowed?"}
     RemoteGate -->|RemoteEligible| Endpoint["User-configured\nOpenAI-compatible endpoint"]
     RemoteGate -->|LocalOnly| Closed["Fail closed"]
     PrivateTool["Private/device evidence\nclipboard, contacts, OCR, screen"] --> LocalOnly["LocalOnly\nrequiresLocalModel=true"]
@@ -62,17 +62,21 @@ local app storage into Android cloud backup or app-data sync.
 On-device evidence blobs are encrypted at rest using AES/GCM/NoPadding
 (authenticated encryption). The encryption key is stored in AndroidKeyStore
 under the alias `solin_evidence_aes_gcm_v1`. Each blob has a random 12-byte
-GCM nonce prepended to the ciphertext, followed by the 16-byte GCM
-authentication tag. Legacy plaintext and AES/CBC/PKCS5Padding blobs (key
-alias `solin_evidence_key`) remain readable and are automatically migrated to
-the GCM format on next write. Evidence meta files record
-`encrypted=true/false` status.
+GCM nonce inside a versioned envelope, followed by ciphertext and its 16-byte
+authentication tag. Legacy plaintext and AES/CBC/PKCS5Padding blobs (key alias
+`solin_evidence_key`) are read only after validation against the content address,
+and migrate to GCM on a successful read. Production fails closed when keys are
+unavailable or evidence cannot be authenticated; it does not fall back to writing
+plaintext. Evidence metadata records the envelope and encrypted state; the
+no-context plaintext store is for JVM tests.
 
 ## Remote Model Mode
 
 Remote model mode sends requests only after the user-configured
-OpenAI-compatible chat endpoint exists and the active backend is switched to
-remote. Solin accepts a service root, `/v1` base URL, or full chat endpoint and
+OpenAI-compatible chat endpoint exists and the run is bound to Remote: either the
+user selected Remote, or explicitly selected Auto and the on-device placement
+policy chose an eligible remote candidate. The current debug and release-like
+builds expose Auto as opt-in; availability in a build is not release approval. Solin accepts a service root, `/v1` base URL, or full chat endpoint and
 normalizes it to the matching OpenAI-compatible `/v1/chat/completions` request
 path when needed. "OpenAI-compatible" means the request and response shape; it
 does not imply OpenAI operates the endpoint.
@@ -143,13 +147,15 @@ local confirmation when their risk policy requires it. Private local evidence
 tools that read clipboard, contacts, calendar, files, notifications, screen
 text, OCR, or other device context are not exposed to remote planning. A public
 read-only evidence tool such as `web_search` may run without confirmation for
-public queries; queries that appear to contain personal data or secrets require
-confirmation before network access. Text handed to another app — a system share
+public queries; queries that appear to contain personal data or secrets, or
+network steps following a private read in the same run, require confirmation
+before network access. Text handed to another app — a system share
 (`share_text`), an email / SMS / calendar / contact draft — is also treated as
 egress: in the default critical-only mode it is confirmed when the text looks
 personal or secret, or when it was composed after a read of private device data
-and is not the user's own wording. A draft built only from the user's words
-stays auto-approved.
+and is not the user's own wording. A draft built only from the user's words can
+be auto-approved if non-sensitive and free of other critical reasons. Sensitive
+user-supplied text still requires confirmation.
 
 Multiple tool calls in one remote model turn may run concurrently only when
 every requested tool is public/read-only, requires no confirmation, has no
@@ -159,8 +165,10 @@ permission. Mixed batches are rejected as a whole before any tool runs. A
 public evidence result can return to the remote model only when it explicitly
 declares `privacy=RemoteEligible` and `requiresLocalModel=false`.
 
-Device context and phone-control tools are gated behind Agent planning, schema
-validation, safety policy, and user confirmation. Current local evidence
+Device context and phone-control tools pass Agent planning, schema validation,
+safety policy and the current confirmation policy. Default critical-only mode
+may run reversible steps without a prompt; a per-step mode is also available.
+Critical reasons and system permission/consent flows are not waived. Current local evidence
 includes bounded reads for clipboard text, calendar busy/free windows, contact
 name/phone search, foreground-app estimates, notification summaries, recent
 file metadata, screenshot/image OCR excerpts, current-screen Accessibility
@@ -170,11 +178,11 @@ scroll, swipe, long-press, whitelisted system-key presses
 private results are `LocalOnly` and
 `requiresLocalModel=true`.
 
-Android runtime permissions and special-access flows are requested only after
-the user confirms the associated tool request. Permission denial is a
-structured tool failure, not an automatic retry. Usage Access is used only for
-confirmed foreground-app estimates. Accessibility is used for confirmed
-current-screen reads, low-risk phone-control gestures, and — when the opt-in
+Android runtime permissions and special-access flows remain explicit user
+choices and are not silently granted by tool auto-approval. Permission denial is
+a structured tool failure, not an automatic retry. Usage Access supports bounded
+foreground-app estimates. Accessibility supports current-screen reads, low-risk
+phone-control gestures, and — when the opt-in
 Remote-vision GUI automation control is enabled — direct screen capture via the
 already-connected Accessibility service (`AccessibilityService.takeScreenshot`),
 whose pixels are transmitted to the remote vision model (see "Remote-Vision GUI
@@ -255,8 +263,9 @@ gated by defense-in-depth:
   them succeeds. A stop, or a repeated action on a screen that did not change, ends
   the run. Every tap runs locally through the same device-control
   preflights (dangerous-action and foreground-package checks) and confirmation
-  policy as any other phone-control action; payment/send/delete/publish/purchase
-  /transfer/authorization controls still stop or require confirmation.
+  policy as any other phone-control action. The agent stops before activating
+  payment/send/delete/publish/order/transfer/authorization controls; the user must
+  tap them. Confirming a step does not authorize the agent to tap those controls.
 - **Egress audit:** each send records a redacted remote-send audit
   event (decision, model name, image count, summary) — never the pixels or the
   prompt — so the user can review every screenshot that left the device in the
@@ -412,9 +421,11 @@ image count, remote history message count, and a redacted summary (capped at
 200 characters) — never message content, token counts, privacy level, or
 error codes.
 
-Every outbound path writes one of these entries: remote chat, remote vision,
-the cloud/edge decision router, MCP extension tools, and each `web_search`
-request. A `web_search` entry records the tool name, the provider host, and the
+Remote chat, remote vision, the cloud/edge decision router, MCP extension tools
+and each `web_search` request write these entries. This is not a complete network
+traffic log: model downloads and Android external intents have separate handling,
+and maps/deep-link intents do not currently produce an equivalent remote-send
+entry. A `web_search` entry records the tool name, the provider host, and the
 query length only — never the query text or the request URL (which carries it).
 
 Agent trace and pending confirmation recovery are narrower than a full
@@ -430,10 +441,11 @@ local app storage according to Android platform behavior. When local memory is
 disabled, explicit remember/fact commands do not create new long-term memory
 records; forget and clear controls can still remove existing records.
 
-This codebase does not contain a first-party analytics upload path beyond
-user-configured remote model calls, recommended/custom model downloads,
-Android external intents initiated by confirmed actions, and confirmed calls to
-user-approved MCP server apps when the opt-in MCP capability is enabled. Recheck release builds
+This codebase does not contain a first-party analytics upload path. Disclosed
+outbound boundaries include configured remote chat/vision, the optional decision
+router, public web search, model downloads, policy-authorized Android external
+intents and confirmed calls to user-approved MCP server apps. Those services may
+apply their own logging and retention policies. Recheck the exact release build
 and any added SDKs before publishing this statement externally.
 The device resource entry displays only locally sampled aggregate app PSS,
 heap, available RAM, CPU, and thermal pressure state. It does not include

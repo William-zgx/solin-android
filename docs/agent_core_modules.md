@@ -3,7 +3,13 @@
 This is the current architecture reference for Solin's end-side Agent.
 Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
-`docs/validation_report.md`.
+[validation_report.md](validation_report.md).
+
+Checked on 2026-11-04 against main `cb7e4918`. The tree has 334 production
+Kotlin files and 52 registered capability-matrix tool entries. These are measured
+inventory values, not goals to grow toward. `:app` is the product module;
+`releaseSmoke` is a verification helper. Runtime/package boundaries remain
+conventions enforced by architecture tests.
 
 ```mermaid
 flowchart LR
@@ -11,7 +17,7 @@ flowchart LR
     Preflight --> Planner["Planner or local rule"]
     Planner --> Registry["ToolRegistry validation"]
     Registry --> Policy["SafetyPolicy"]
-    Policy --> Confirm["AwaitingUserConfirmation"]
+    Policy --> Confirm["Confirmation policy: prompt or authorized continuation"]
     Confirm --> Permission["Runtime permission or special access"]
     Permission --> Execute["Execute tool or model step"]
     Execute --> Validate["Validate ToolResult"]
@@ -43,7 +49,10 @@ Responsibilities:
 Boundaries:
 
 - Tools do not decide conversation flow.
-- Tools do not bypass confirmation for medium or higher risk work.
+- Tool specs retain their risk and confirmation metadata. The default
+  `ConfirmationBypassPolicy` may auto-approve reversible steps, while critical
+  reasons still require confirmation; individual tools cannot grant themselves
+  permission. See [Safety and audit](#safety-and-audit).
 - Private output tools must be `LocalOnly` and `requiresLocalModel=true`.
 
 Current status:
@@ -77,7 +86,8 @@ Current status:
 - `web_search` uses typed evidence requests. `searchMode=general` stays on
   public search; `searchMode=weather_current` is the only weather endpoint.
 - Phone-control tools return `LocalOnly` observations and structured
-  `UiActionResult` values. `UiTargetResolver` ranks Accessibility nodes for
+  `UiActionExecutionResult` / `UiActionReadResult` values from
+  `device/ScreenControlModels.kt`. `UiTargetResolver` ranks Accessibility nodes for
   search/edit/submit/filter/result/scroll targets; app profiles improve
   ranking, not safety policy. Profiles also carry `uiNotes`: at most five
   short UI facts per app (search entry, tab names, Settings toggles switch on
@@ -189,19 +199,20 @@ Current status:
 - External Activity launches move to `AwaitingExternalOutcome` when Solin
   can prove only that the external UI opened, unless critical-only mode ran
   the launch without a prompt (then the run completes as opened). When an
-  `open_app_by_name` carries a non-blank `followUpIntent` and a local
-  mobile-action planning model is installed, Solin instead runs a bounded
-  LocalOnly in-app continuation (observe current screen → local replan → a
-  low-risk UI action), threading the
-  expected foreground package so it fails closed to `AwaitingExternalOutcome`
-  if the model is absent or the target app is not foreground. It never sends
-  remote or reads screenshot pixels. Otherwise follow-up planning waits for
-  the user to record whether the target-side outcome completed.
+  `open_app_by_name` carries a non-blank `followUpIntent` and an eligible local
+  action planner or explicitly enabled remote GUI driver is available,
+  `ToolPlanCoordinator` can schedule a bounded in-app observation/continuation.
+  The expected package follows the launch result; a mismatched target refuses
+  downstream actions. The local path uses LocalOnly evidence and no pixels;
+  remote vision follows its separate consent contract below. Without a legal
+  driver, opening the app does not claim that its follow-up task was completed.
 - **Remote-vision in-app continuation (opt-in):** when the Trust-Center
   "Remote-vision GUI automation" toggle is on, inference mode is Remote, and
   the configured remote model supports vision input, the in-app continuation
   uses `RemoteVisionObservationReplanner` + `AndroidRemoteVisionDecider`
-  instead of the local action model. It captures the screen via
+  instead of the local action model. A confirmed first in-app step is required
+  before sending any run screenshot in both confirmation modes; the toggle alone
+  is insufficient. Background display scopes reject this path. It captures the screen via
   `AccessibilityService.takeScreenshot` (transient JPEG, never persisted; a
   blank capture stops the send), sends it with the visible control list and the
   model's own prior action kinds, and applies the returned tap, back, scroll,
@@ -242,7 +253,10 @@ Current status:
   check runs after every compaction and puts back, at its original position,
   any user message or user-text prompt line that went missing. A summary or
   omission line is `LocalOnly` when any message it covers is.
-- **Concurrency safety**: All 8 internal `mutableMapOf` fields in `AgentLoopRuntime` are now `ConcurrentHashMap` for safe multi-coroutine access.
+- Per-run lifecycle state is grouped in `RunScopedState`; the runtime's remaining
+  concurrently accessed maps use concurrent collections. Atomic state transitions,
+  cancellation and cleanup still need their own contracts—a concurrent map alone
+  does not make a multi-step lifecycle operation atomic.
 
 Tests:
 
@@ -278,7 +292,15 @@ Current status:
   fallback and explicit model loading.
 - `RemoteChatRuntime` streams from an OpenAI-compatible endpoint using
   OkHttp, with `CredentialResolver` for auth and `RemoteModelEndpoints` for
-  base URL resolution.
+  base URL resolution. `RemoteRetryPolicy` retries eligible transient failures,
+  never cancellations. `stop()` advances a generation marker and cancels active
+  calls; `runWithRetry` checks that marker both before call creation and after
+  registration, so stopping during `newCall` cannot leave an uncancelled request.
+  `RemoteChatRuntimeTest.stopDuringCallCreationCancelsBeforeExecution` pins this
+  race without relying on timing.
+- `SharedLocalEngine` lets the local observation planner use the already-loaded
+  chat engine for a one-shot request when the exact model path matches and no
+  chat generation is in flight. It does not grant a remote fallback.
 - `AdaptiveGenerationPolicy` decides backend, token limits, and image caps
   from `AdaptiveGenerationPolicyInput` (preferred backend, context window,
   last-gen stats, quality issues, image count).
@@ -548,7 +570,9 @@ Current status:
   the first in-app step (`DeviceControl` / `ExternalNavigation`) of a
   remote-vision run (confirming it approves that run's screenshots). An `Allow`
   plan with any of these reasons is raised to `RequireConfirmation` in either
-  mode. A draft built only from the user's own words stays auto-approved.
+  mode. A draft built only from the user's own words can be auto-approved when
+  non-sensitive and free of other critical reasons; user wording does not override
+  the sensitive-content check.
   Rejections are never relaxed. Auto-run external launches complete as
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
@@ -771,13 +795,14 @@ Boundaries:
 
 - `AndroidSolinLog` wraps every `android.util.Log` call in `runCatching` so unit tests never crash from unmocked Log.
 - Top-level `solinD/solinI/solinW/solinE` functions are the preferred entry point; avoid raw `android.util.Log` in production code.
-- Tests may swap the implementation via `setSolinLog()` to capture or silence output.
+- Tests may replace `SolinLogHolder.current` to capture or silence output.
 
 Current status:
 
-- `SolinViewModel` emits structured logs for model load, message send, and tool execution.
-- `RemoteModelRepository` uses `solinW(TAG_REMOTE, ...)` for migration warnings.
-- Log facade is used across Agent loop, tool execution, and model runtime layers.
+- Presentation controllers emit model-load, message-send and tool-execution logs;
+  `SolinViewModel` is the wiring facade rather than the logging owner.
+- Repository, Agent loop, tool execution and runtime layers use the same facade.
+  Redaction requirements apply regardless of which layer emits the event.
 
 Tests:
 
@@ -821,7 +846,9 @@ Responsibilities:
 Boundaries:
 
 - Returns `MemoryControllerResult` / `MemoryCommandResult` data classes; does not directly mutate UI state.
-- Runs on an injected `ioDispatcher`.
+- Public methods remain synchronous; callers dispatch blocking work. The injected
+  `ioDispatcher` is retained for the deferred data-layer suspend migration.
+  `presentation/MemoryUiController` applies results to UI state.
 
 Current status:
 
@@ -840,19 +867,25 @@ Code:
 
 Responsibilities:
 
-- Encrypt evidence blobs at rest using AES/CBC/PKCS5Padding with an AndroidKeyStore key (`solin_evidence_key`).
-- Prepend a 16-byte IV to each ciphertext blob.
-- Auto-migrate legacy plaintext blobs on read (decrypt failure → fall back to plaintext).
+- Encrypt evidence blobs with authenticated AES/GCM/NoPadding and the
+  AndroidKeyStore key `solin_evidence_aes_gcm_v1`.
+- Store a versioned envelope, random 12-byte nonce and authenticated ciphertext;
+  filenames retain the plaintext SHA-256 for content addressing.
+- Read verified legacy plaintext and legacy CBC blobs, then migrate them to GCM.
+  A failed authentication is not permission to interpret arbitrary ciphertext as plaintext.
 
 Boundaries:
 
-- Encryption is enabled only when a valid `Context` is provided; test constructors pass `null` to disable.
-- Meta files include an `encrypted=true/false` line.
+- Production fails closed if its key is unavailable or evidence cannot be
+  authenticated and matched to its content address.
+- The no-context plaintext constructor is for JVM tests; production uses a Context.
+- Metadata records the envelope and encrypted state.
 
 Current status:
 
-- Evidence encryption protects agent trace and audit blobs stored on device.
-- Legacy plaintext migration ensures backward compatibility for existing installations.
+- Evidence encryption protects local trace/audit blobs; it does not change what
+  those surfaces are allowed to retain or send.
+- Legacy migration retains readable historical blobs without weakening validation.
 
 Tests:
 
@@ -929,22 +962,26 @@ Code:
 
 Responsibilities:
 
-- Resolve API keys and OAuth bearer tokens for remote model and MCP calls.
+- Resolve credentials per remote model send; keep the interface ready for future
+  credential providers without claiming an OAuth provider is implemented.
 - Keep credential material out of chat history, traces, and audit logs.
 
 Boundaries:
 
-- `CredentialResolver` never persists raw tokens; it returns a short-lived
-  `Credential` sealed value.
-- Refresh is not automatic; callers invoke `refreshWith(refresher)` when
-  `isExpired` is true.
+- `CredentialResolver` never persists raw tokens; it returns a `Credential`
+  value per call. A static API key is not a short-lived OAuth credential.
+- `OAuth.isExpired` is metadata; no automatic refresh/provider flow is currently
+  implemented. Do not rely on a nonexistent `refreshWith` API.
 
 Current status:
 
 - `Credential` sealed class has `ApiKey` (static, never expires) and `OAuth`
   (bearer with optional refresh token and expiry) variants.
-- `ApiKeyCredentialResolver` reads from encrypted preferences.
-- `NoOpCredentialResolver` is the default when no remote endpoint is configured.
+- `ApiKeyCredentialResolver`, the runtime default, reads the key on the supplied
+  `RemoteModelConfig`; encrypted persistence belongs to the repository/secret store.
+  A blank key yields an empty credential.
+- `NoOpCredentialResolver` always yields an empty credential for callers that
+  explicitly select it, including tests.
 
 Tests:
 
@@ -972,13 +1009,15 @@ Boundaries:
   (`isWaitingForWifiDownload`) offers the user an explicit metered-data resume
   (`allowMeteredDownload()`); no download ever spends cellular data without
   that choice.
-- Hugging Face gated downloads require a user-provided `SOLIN_HF_TOKEN`; the
-  token is never committed or logged.
+- Gated downloads use the token entered in the app and stored by
+  `HuggingFaceAuthRepository`. `SOLIN_HF_TOKEN` is the separate build-time bundled
+  packaging credential; neither belongs in Git or logs.
 
 Current status:
 
-- `ModelDownloadService` wraps Android `DownloadManager` for large files and
-  falls back to a direct `HttpURLConnection` path for preflight checks.
+- `ModelDownloadService` uses Android `DownloadManager` for ordinary model URLs.
+  The direct `HttpURLConnection` path is limited to local debug hosts, with
+  negative download IDs and bounded progress state; it is not a generic fallback.
 - `HuggingFaceDownloadUrlResolver` normalizes HF repository URLs to direct
   download endpoints.
 - Downloads are tracked in a `ConcurrentHashMap` of active jobs with atomic
@@ -1074,12 +1113,18 @@ Boundaries:
 
 Current status:
 
-- 19 controllers cover chat, model load, tool execution, session, device
-  context, background tasks, shared input, voice input, model selection,
-  audit UI, generation streaming, generation quality, remote send, tool
-  continuation, and auto-inference authorization.
-- `SolinViewModel` is reduced from ~6,500 lines to ~1,500 lines; it now
-  delegates to controllers and assembles the composite UI state.
+- `SolinViewModel` wires chat, tool execution, model load, inference mode,
+  session, memory, audit, background-task and voice controllers, plus startup,
+  shared-input and authorization collaborators. `PresentationSessionHost` is the
+  shared session/persistence seam; there is no `SolinViewModelCoordinator` class.
+- The current ViewModel is 852 lines at `cb7e4918`. The extraction plans preserve
+  historical targets; further changes follow the architecture depth rule.
+- `ChatController` delegates preflight, route outcome, remote disclosure/audit,
+  shared input and tool continuation to focused collaborators. Per-run placement
+  preparation belongs to `PreparedChatRunCoordinator`.
+- `ModelLoadController` owns download state, including explicit mobile-data resume
+  when a download is paused for Wi-Fi. Completing a download must not clear an
+  unrelated run's busy state.
 - `GenerationStreamReducer` is a pure-Kotlin reducer for typed
   started/delta/completed/failed/cancelled generation events.
 
@@ -1114,18 +1159,19 @@ Boundaries:
 
 Current status:
 
-- `SolinScreen.kt` is the root composable; it is reduced from ~6,300 lines
-  to ~1,600 lines by delegating to 17 leaf components under
-  `ui/components/`.
-- Leaf components cover top bar, empty state, message bubble/chrome,
-  first-run setup, memory panel, model manager, remote mode/send
-  disclosure, session manager, trust boundary, action draft, background
-  task, and external outcome sheets.
+- `SolinScreen.kt` is the 497-line root composable at `cb7e4918`; it composes
+  the chat shell from components under `ui/components/`.
+- `ChatTopBar` opens the `SessionDrawer` in `SessionManagerSheet.kt`, which holds
+  conversations and app-wide model, memory, privacy and background-task entries.
+  The placement indicator opens model management.
+- `SolinSheetHost` coordinates the relevant disclosure, action-draft and external
+  outcome sheets. Components also own the composer, empty state, message
+  bubble/chrome, memory panel, model manager and trust surfaces.
 - `MessageMarkdown` renders assistant message content with safe link
   handling.
 - `ResourcePressureBadge` / `ResourcePressureOverlay` surface device
   resource pressure from the `resource/` module.
-- `theme/` holds the Compose color, typography, and shape definitions.
+- `ui/theme/Theme.kt` holds the Compose theme definitions.
 
 Tests:
 

@@ -1,13 +1,16 @@
 # Bundled Model Quick-Experience Package
 
-The `bundledModels` package is an internal quick-experience build for lab
-validation and trusted team testing. It produces an installable app that can
-work locally immediately after install. It is separate from the ordinary
-Play/public `release` path.
+The `bundledModels` variant packages the recommended model files for internal lab
+validation. First launch still has to copy and verify the assets; runtime loading
+and the embedding probe are separate checks. It is not the ordinary public
+`release` artifact or proof that every supported device can run the models.
 
-This file owns build, signing, and install rules for that package. Model
-provenance and license review stay in `docs/model_manifest.md`; runtime privacy
-behavior stays in `docs/privacy_notice.md`.
+This page owns packaging, signing, and installation. See the
+[model manifest](model_manifest.md) for provenance and license review, and the
+[privacy notice](privacy_notice.md) for runtime boundaries.
+
+[Build inputs](#build-inputs-and-tokens) · [Sign and install](#signing-and-install) ·
+[Check device state](#expected-device-state) · [Troubleshooting](#troubleshooting)
 
 ```mermaid
 flowchart TD
@@ -64,8 +67,9 @@ On first launch, `AssetBundledModelInstaller` reads
 `assets/solin-bundled-models/manifest.json`, copies bundled assets into the
 repository download-file location under the app's external files Downloads
 area, verifies size and SHA-256 against the catalog, registers the models as
-recommended verified models, and selects the default local E2B chat model when
-no previous active chat model exists.
+recommended verified models. It restores a previous active-model selection when
+one exists; otherwise it selects the default E2B recommendation. Selection does
+not itself prove that the model has loaded successfully.
 
 Already verified recommended models are skipped rather than overwritten. A
 failure for one recommended model does not stop the installer from attempting
@@ -101,11 +105,15 @@ export SOLIN_BUNDLED_MODELS_DIR=/path/to/verified/model/files
 ./gradlew checkBundledModelsPackageOutputs
 ```
 
-If that directory is absent, Gradle downloads the pinned Hugging Face artifacts
-into `app/build/bundled-model-cache`. Set `SOLIN_HF_TOKEN` only for this
-build invocation when gated model assets are needed. Do not place tokens in
-`gradle.properties`, source files, commit messages, screenshots, build reports,
-or release notes.
+Use JDK 21 and the SDK requirements from [Quick Start](../README.md#quick-start).
+For each asset, Gradle tries a matching size/SHA file in the supplied directory,
+then a verified file in `app/build/bundled-model-cache`, then the pinned download.
+A supplied directory with missing or invalid files does not force an offline
+build. Pre-verify every file when network access is not intended.
+
+Set `SOLIN_HF_TOKEN` only for this build invocation when gated downloads are
+needed. Do not place tokens in `gradle.properties`, source files, commit messages,
+screenshots, build reports, or release notes.
 
 `SOLIN_HF_TOKEN` is a download credential, not a license approval. It is
 also separate from the in-app Hugging Face read token saved in encrypted local
@@ -225,9 +233,12 @@ Model Manager should show the four recommended models as SHA-256 verified:
 - 可选实验低资源动作模型
 - 高质量对话 E4B
 
-For a fresh or local-selected state, the home screen should show
-`本机模型已就绪`; the current model card should show `基础对话 E2B` and a loaded
-backend such as `backend=GPU` or a CPU fallback if the GPU backend fails.
+For a fresh state, verify that E2B is selected and the installer has finished
+before checking model loading. A successful local load should show
+`本机模型已就绪` and the actual backend, GPU or CPU fallback. A preserved selection
+may name a different model; a preserved remote mode must not be mistaken for a
+failed bundled install. File verification, selection, and runtime readiness are
+three separate acceptance checks.
 
 The semantic memory status is separate from file verification. The memory asset
 can be present and SHA-256 verified while the UI still reports `已安装待探测`,
@@ -260,11 +271,12 @@ probe fails.
 - **Model Manager stays in remote mode:** overwrite install preserved previous
   DataStore state. Switch to local mode in Model Manager; the bundled E2B model
   can already be installed and selected.
-- **Not enough storage:** keep space for the installed split APKs and the
-  first-launch model copy. Expect roughly 5.8 GB / 5.4 GiB of signed split
-  APKs; exact sizes come from
-  `build/verification/bundled-models/package.properties`. Keep additional app
-  data storage for first-launch model import.
+- **Not enough storage:** the five uncompressed catalog files total
+  6,715,919,247 bytes (6.72 GB / 6.25 GiB). This is not the signed APK-set size.
+  Allow space for both installed splits and the reconstructed app-owned model
+  copies, plus temporary files; take exact package sizes from
+  `build/verification/bundled-models/package.properties`. A past package size
+  is not a storage budget for a new build.
 - **Token leakage concern:** run `rg -n 'hf_|sk-'` over changed source/docs.
   Build reports must record only variable names and artifact hashes, never the
   token value.

@@ -4,6 +4,11 @@ Use this checklist for every release candidate. Its job is to decide whether a b
 
 Every checked item needs an owner, date, artifact path, and SHA-256 in the release ticket or PR. Code gates verify records and evidence shape; they do not replace release-owner, legal, privacy, store, or production-signing approval.
 
+For the current commit and observed CI/device results, read
+[release readiness](release_readiness.md#current-evidence). This is a reusable
+checklist: an unchecked row is not made complete by a previous build's result,
+and a green workflow with a skipped emulator job is not device acceptance.
+
 ```mermaid
 flowchart TD
     Scope["1. Scope and version"] --> Artifact["2. Artifact, signing, scan"]
@@ -31,8 +36,9 @@ flowchart TD
 - [ ] Localized listing is final and matches resources: zh-CN `栖知 Solin` / `让 AI 住在手机里`; en-US `栖知 Solin` / `Quiet intelligence, close at hand.`.
 - [ ] `versionCode` is higher than every artifact ever uploaded to the same Play application; rejected uploads still count.
 - [ ] Target audience is explicit: internal testing, closed testing, open testing, staged production, or full production.
-- [ ] Known unsupported or constrained capabilities are called out: continuous screen capture, semantic screen understanding, full PDF layout parsing, legacy Office parsing, arbitrary media OCR, and local image semantic understanding unless a verified vision-capable local model is active. One-shot current-screen/recent-image OCR remains confirmation-gated and `LocalOnly`.
-- [ ] Agent/tool behavior changes are summarized, including remote OpenAI-style `tool_calls`, public evidence batch execution, all-or-nothing mixed-batch rejection, and the privacy boundary for `LocalOnly` tool results.
+- [ ] Unsupported or constrained capabilities are accurately scoped: full PDF layout parsing, legacy Office parsing, arbitrary media OCR, and local image semantics without a verified vision-capable model. Distinguish one-shot consented MediaProjection OCR from opt-in remote GUI screenshots; neither is unrestricted continuous screen access.
+- [ ] Agent/tool behavior changes are summarized, including default critical-only versus per-step confirmation, remote `tool_calls`, public evidence batches, mixed-batch rejection, and `LocalOnly` outputs.
+- [ ] Phone composites disclose bounded/partial collection, find-without-click, NumberPicker-only wheel support, per-child authorization, and session-only verified routes. An experimental background display is not advertised as a general production or all-OEM capability.
 
 ## Artifact, Signing, And Packaging
 
@@ -65,26 +71,24 @@ flowchart TD
 - [ ] Public listing, screenshot text, package names, and store assets contain only the current `栖知 Solin` / Solin identity and no superseded project names, package identifiers, or logo assets.
 - [ ] Privacy policy URL points to the approved external version of `docs/privacy_notice.md`.
 - [ ] Google Play Data safety answers match implemented behavior for local Room/DataStore storage, encrypted remote API keys, user-configured remote model calls, model downloads, Android permissions, external intents, and the absence of first-party analytics upload in this codebase.
-- [ ] Data safety covers local vision image input: verified local Text+Vision chat models can process user-selected image bytes on device; unsupported local/remote vision paths fail closed; remote image sends require per-send preview confirmation.
+- [ ] Data safety distinguishes local image processing, per-send attachment preview, and opt-in remote GUI automation. Remote GUI screenshots require the run's first user-confirmed action in both confirmation modes; opt-in alone is insufficient. The background-display scope cannot use remote vision or main-screen MediaProjection OCR.
+- [ ] Third-party source attribution ships with the artifact as required: retain Mika-derived Apache-2.0 notices and `NOTICE`, separately from model-license review.
 - [ ] Required Android permissions and special-access flows are explained in user-facing language, including microphone, calendar, contacts, media, notifications, foreground service, Usage Access, Accessibility, Accessibility gestures, and one-shot MediaProjection consent.
 - [ ] `docs/store_policy_record.json` is approved and `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes.
 - [ ] `docs/privacy_review.json` records release, security, and legal approvals for the current privacy notice and capability matrix; `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh` passes.
 - [ ] `docs/model_license_metadata.json` is freshly collected before review, and `docs/model_license_review.json` approves every recommended model with concrete license source, reviewer, review date, redistribution decision, attribution/notice requirements, evidence path, and SHA-256.
 - [ ] `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh` passes for the focused model-license check; the final public gate still requires perf evidence.
 - [ ] `scripts/privacy_scan.sh` passes. No API keys, bearer tokens, private endpoints, raw prompts, private device-context payloads, contacts, notifications, clipboard text, or sensitive screenshots are present in release docs, logs, screenshots, or notes.
-- [ ] Evidence blobs verified encrypted at rest (check meta file `encrypted=true`)
-- [ ] AndroidKeyStore key `solin_evidence_key` present on first launch after install
-- [ ] Network security config active: `network_security_config.xml` referenced in manifest
-- [ ] No cleartext traffic to non-loopback addresses (verify with NetworkSecurityPolicy)
-- [ ] SolinLog used instead of raw `android.util.Log` in all production code (grep check)
-- [ ] SolinConstants used instead of inline timeout/retry constants (grep check)
-- [ ] RemoteSendAuditEvent confirmed to NOT contain raw user prompt field
+- [ ] Evidence blobs use the authenticated AES-GCM envelope and AndroidKeyStore key `solin_evidence_aes_gcm_v1`, generated on first evidence use. Test tamper/read failure and verified legacy migration; metadata `encrypted=true` alone is insufficient proof.
+- [ ] Network security config is active in the manifest; non-loopback cleartext is rejected. The explicitly provisioned debug helper listens only on loopback and does not turn into an external network endpoint.
+- [ ] Logs and remote audit are reviewed for payload redaction; no raw prompt, credential, private result, or screenshot is persisted in remote-send audit. Logger usage or a grep count alone is not this evidence.
+- [ ] Timeout, retry, cancellation, and recovery checks cover changed execution boundaries, including stop during remote-call registration and background session loss without main-display fallback.
 
 ## Validation
 
-- [ ] `scripts/verify_local.sh` passes on a clean checkout.
-- [ ] Unit test suite: ~1911 tests pass, 0 failures.
-- [ ] Emulator regression passes on prepared arm64 AVDs, including API 28, 32, 33, 34, and 36, or the release record explains why emulator validation was unavailable.
+- [ ] `scripts/verify_local.sh` passes on a clean checkout with the CI toolchain (JDK 21 / SDK 36). It includes validation-script regression, JVM tests, Lint, debug/release APK and AAB builds, release-smoke build, and artifact checks; a debug-only build is insufficient.
+- [ ] Record the actual current-commit JVM test count and failures/errors/skips, rather than copying a historical count. Any unexpected skip or failure is investigated.
+- [ ] Complete emulator regression passes on prepared arm64 AVDs, including API 28, 32, 33, 34, and 36, with nested artifact-bound reports. Infrastructure skips remain missing evidence and are not inserted into passed matrix slots.
 - [ ] `scripts/check_emulator_api_matrix.sh` and, when needed, `scripts/prepare_emulator_api_matrix.sh` produce readiness evidence before API-matrix regression.
 - [ ] At least one physical `arm64-v8a` device passes `scripts/install_and_test_device.sh` against the final signed release APK. Emulator serials are rejected as physical-device evidence.
 - [ ] Physical device reports include `exit_code=0`, empty `failedTarget`/`reason`, UTC start/finish, sufficient `data_free_kb`, instrumentation output with final `OK`, `instrumentation_test_count`, `logcat_file`, and SHA-256 bindings.
@@ -102,6 +106,8 @@ flowchart TD
 - [ ] RC performance provenance is collected through `scripts/collect_rc_perf_from_device.sh`, not a hand-written perf file. The baseline records `collectionCommand=scripts/collect_rc_perf_from_device.sh`, `runner=rc_perf_release_broadcast`, `preserves_model_data=true`, 50k memory metrics, final signed RC artifact SHA-256, and no OOM/ANR.
 - [ ] Public-release AI behavior eval uses a deterministic `agent_loop_runtime` actual trace collected by `scripts/collect_ai_behavior_actual_trace.sh`, with runtime provenance, current fixture/capability/action-model hashes, no mismatches, and zero allowed-failure trace diff rows.
 - [ ] Debug device-control, mock app-search, and real-app search evidence is attached separately from release physical evidence. It must keep machine-readable failure semantics and case artifacts, but it never replaces fresh release physical validation.
+- [ ] Phone-capability claims are backed by current-APK tests for raw input readback, bounded collection/find/wheel results, and route validity. A valid paired task benchmark uses the same working model, device, and target-app versions; invalid model placement is failure/preparation evidence, not a success-rate comparison.
+- [ ] If distributing the debug background experiment to testers, record display identity, positive operations, negative critical-control fixtures, expiry/loss/lock behavior and cleanup separately. Positive emulator Settings navigation does not prove negative guards, all-OEM focus isolation, or a complete model task.
 - [ ] When model-driven app-search eval is included, mock and real app modes record `RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`, pass `verifySearchQuery`, `expectedPackageName`, and `expectedAppName` into the debug receiver, and require `searchVerificationStatus=verified` plus `modelPlannedStepCount >= 1`.
 - [ ] The real-app search physical benchmark includes the required 50 task evidence when the release target requires `REQUIRE_50_TASK_BENCHMARK=1`.
 - [ ] `docs/release_validation_record.json` is approved and `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh` passes.

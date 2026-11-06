@@ -10,8 +10,10 @@ Machine-readable entry for coding agents. Humans should start with `README.md` /
 - **Harness mode:** **Mainline single-repo** (code + docs + scripts in one tree).
   Not a multi-package monorepo product with distributed harness submodules.
 - **Status:** Experimental / personal evaluation. Not production store-ready.
-- **Primary module:** `:app` (single app module; package boundaries are
-  convention + architecture tests, not separate Gradle modules yet)
+- **Primary module:** `:app` (single app module; production package boundaries
+  are convention + architecture tests, not separate Gradle modules). Supporting
+  modules are `:releaseSmoke` and four `bundledModels` dynamic features:
+  `:modelpackE2b`, `:modelpackE2bExtra`, `:modelpackE4b`, `:modelpackE4bExtra`.
 
 ## Must-read before code changes
 
@@ -41,7 +43,7 @@ app/src/main/java/com/bytedance/zgx/solin/
   orchestration/   # agent loop, routing, observation
   tool/            # ToolSpec, registry, executor, schemas
   skill/           # built-in skills, planning
-  device/          # device context snapshots
+  device/          # context, accessibility control, critical-action guards, experimental display backend
   memory/          # local memory index / semantic runtime
   data/            # Room, settings, model/session repos
   ui/              # Compose UI (SolinScreen + components)
@@ -51,7 +53,8 @@ app/src/main/java/com/bytedance/zgx/solin/
 
 Related packages you may touch when in scope: `action/`, `audit/`,
 `background/`, `download/`, `multimodal/`, `presentation/`, `resource/`,
-`storage/`, `app/` (composition root).
+`storage/`. The composition root is `SolinAppContainer.kt` at the package root;
+there is no production `app/` package.
 
 Tests: `app/src/test/`, `app/src/androidTest/`.  
 Scripts: `scripts/`. Docs: `docs/`.

@@ -1,6 +1,12 @@
 # Model-Driven App Control Multi-Agent Plan
 
-This plan covers two layers that must stay separate:
+Checked on 2026-11-04 against main `cb7e4918`. The local observe-act loop,
+remote-vision opt-in path and bounded phone tools are implemented; device coverage
+and paired model-driven task baselines remain separate acceptance work. Current
+module ownership is in [Agent core modules](agent_core_modules.md), and the latest
+phone additions are in [the Mika record](plans/mika-phone-capabilities.md).
+
+This document covers two layers that must stay separate:
 
 - Development collaboration: how multiple engineering agents split design,
   implementation, verification, and review work.
@@ -23,22 +29,24 @@ The model does not get permission to perform arbitrary device actions. It can
 only choose from the existing app-control tool set: open app, observe, tap,
 type, submit search, scroll, swipe, long-press, press system key
 (home/recents/enter/delete), wait, and back. Swipe, long-press, and press
-system key are Medium-risk Required-confirmation actions that count toward the
-5-step checkpoint (unlike the low-risk tap/scroll continuation set); the system
-key is a closed whitelist, never an arbitrary keycode. The tool set still
+system key retain Medium-risk/Required tool metadata and count toward the
+app-control checkpoint. The current confirmation policy decides which reversible
+steps may auto-run and which critical reasons still prompt; the system key is a
+closed whitelist, never an arbitrary keycode. The tool set still
 excludes sending, payment, deletion, order placement, authorization, and public
 posting.
 
 ### Second entry point: post-launch in-app continuation
 
 Besides the model-driven search skill, the replan loop has a second entry
-point. After a confirmed `open_app_by_name` launch that carries a non-blank
-`followUpIntent`, and only when a local mobile-action model is installed, the
-run auto-observes and continues inside the just-opened app instead of parking
-at `AwaitingExternalOutcome` (see `planPostLaunchInAppContinuation` in
-`ToolPlanCoordinator`). Guards: LocalOnly observe, expected-foreground-package
-preflight (fail-closed), `dangerousUiActionPreflight`, and the 5-step
-checkpoint budget. The search-result stop condition (step 6 above) applies to
+point. After a policy-authorized `open_app_by_name` launch with a non-blank
+`followUpIntent`, `ToolPlanCoordinator.planPostLaunchInAppContinuation` can plan
+an observation when local mobile-action planning is available or remote GUI
+driving is explicitly enabled for the run. It otherwise retains open-then-stop /
+external-outcome behavior. Guards include LocalOnly observation, expected-package
+preflight, live dangerous-control refusal, run budgets and the applicable
+confirmation/checkpoint policy. Remote GUI driving additionally requires the
+per-run first confirmation before sending any screenshot, in both modes. The search-result stop condition (step 6 above) applies to
 search follow-ups; non-search follow-ups terminate on the normal loop /
 checkpoint budget rather than on search verification.
 
@@ -92,7 +100,7 @@ reporting, changes that alter safety policy, and release evidence updates.
 
 ## Runtime Contract
 
-Model-driven app control is allowed only when all conditions hold:
+For the local model-driven app-search path, these conditions hold:
 
 - A verified local Chat/action-planning model is installed. E2B/E4B Chat models
   are preferred for observation-to-action planning; the optional low-resource
@@ -106,6 +114,18 @@ Model-driven app control is allowed only when all conditions hold:
 The model receives redacted local observation evidence, not screenshot pixels.
 The executor still validates arguments and output schemas before the run can
 observe the result.
+
+The separate remote-vision path follows [its privacy contract](privacy_notice.md#remote-vision-gui-automation-opt-in):
+opt-in, eligible remote vision configuration, a confirmed first in-app step,
+redacted egress audit and local action guards. It never exposes private evidence
+read tools through the ordinary remote tool-planning schema. Background display
+scopes disable remote vision and main-screen OCR.
+
+`ui_collect`, `ui_find` and `ui_set_wheel` are scoped from explicit user intent and
+complete LocalOnly evidence, not always advertised as extra tools. Each primitive
+child receives fresh authorization and consumes the run budget. A
+`VerifiedPhoneRouteReplanner` may reuse an already verified same-session route,
+but only by proposing normal requests; it cannot reuse old consent or tap directly.
 
 ## Acceptance
 

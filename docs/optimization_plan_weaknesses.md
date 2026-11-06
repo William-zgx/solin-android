@@ -9,7 +9,25 @@
 
 ---
 
-## 1. 问题回放（只保留可行动条目）
+## 当前核对（2026-11-04，`cb7e4918`）
+
+本页各 Wave 的行数、方法清单和测试数保留为当时的历史结果，不代表当前重跑证据。
+当前 `SolinViewModel.kt` / `SolinScreen.kt` / `AgentLoopRuntime.kt` 分别为
+852 / 497 / 1952 行；生产 Kotlin 文件 334 个，文件数门禁也是 334。手机能力合入后新增
+输入核验、组合工具、路线复用和后台 helper/session 五个实质模块；这次有限增量由
+[架构目标](architecture_depth.md#bounded-additions-for-phone-capabilities) 记录，不能据此
+继续无限拆分。工具能力矩阵当前有 52 项。
+
+- ViewModel 和 Screen 提取已落地，当前归属见 [模块文档](agent_core_modules.md)。
+- 全量 UiState 多流拆分仍不执行；数据层全量 suspend 接口迁移仍未完成。
+- 多模块 Gradle 产品拆分未实施；`releaseSmoke` 是验收辅助模块，不是业务模块化完成。
+- 已合入的手机能力及其设备边界见 [Mika 记录](plans/mika-phone-capabilities.md)。
+- CI `cb7e4918` 成功是构建/脚本/单测证据；HVF 不支持导致远端模拟器回归跳过，不能
+  当作完整设备矩阵通过。当前有效模型的前后任务基准与物理设备验收仍待补。
+
+以下 §1–§22 是原 Wave 历史，旧“下一步”按当时语境阅读，不自动成为当前待办。
+
+## 1. 问题回放（历史问题清单）
 
 | ID | 缺点 | 症状 | 业务/工程代价 |
 | --- | --- | --- | --- |

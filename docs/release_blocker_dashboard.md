@@ -1,81 +1,61 @@
 # Release Blocker Dashboard
 
-Compact blocker view for the current RC. It summarizes roadmap/readiness
-evidence; it does not close device, performance, signing, store, legal,
-privacy, or release-owner blockers by itself.
+Generated from `docs/roadmap_gap_matrix.json` and `docs/release_readiness.md` only. This is a compact local evidence view; it does not resolve device, performance, signing, store, legal, privacy, or release-owner blockers.
 
-- Roadmap source date: `2026-06-29`
-- Dashboard refreshed: `2026-07-22`
-- Close rule: a blocker is closed only by linked evidence with owner/date/SHA-256, or by explicit release-owner risk acceptance recorded in the release record.
-- Final authority: `PUBLIC_RELEASE=1 ... scripts/verify_release_gate.sh`
+- Roadmap updated: `2026-06-29`
+- Policy: This ledger tracks roadmap completion evidence. Local verifier evidence never replaces physical device, emulator, production signing, performance, store, security, legal, or release-owner approval evidence.
 
-## Active Blockers
+## Recorded Roadmap Gaps
 
-| Area | Current state | Blocking reason | Required next evidence |
-| --- | --- | --- | --- |
-| Physical validation and arm64 API matrix | partial | Debug/connected evidence exists, but final signed RC physical validation and API matrix are still incomplete. | Run release validation on final signed RC artifact, prepare missing API 28/32/33/34 arm64 AVDs, refresh API 36 only if evidence is stale, and attach passed nested reports with SHA-256. |
-| Perf baseline on physical arm64 | partial | Standalone perf samples do not close the final production-signed RC perf gate. | Re-collect RC first launch, model load, first token, tokens/s, memory peak, ANR/OOM, GPU fallback, and 50k memory metrics against the final signed RC artifact; verify it with `scripts/verify_perf_baseline.sh`. |
-| Real-app search physical pass rate | partial | Debug real-app-search evidence exists, but it is not release validation or a 50 task benchmark. | Run the 50 task physical benchmark and final release validation on arm64 physical hardware; attach `RealAppSearchEvidenceVerification/v1` plus case artifacts and release record links. |
-| Real-app search replay coverage | partial | Replay fixtures exist but changing Taobao, Gaode, JD, and browser surfaces still need coverage. | Continue adding replay fixtures and compare them against the next physical real-app-search run. |
-| Agent behavior actual runtime trace | partial | Fresh public-strict `agent_loop_runtime` trace was not collected. | Run `scripts/collect_ai_behavior_actual_trace.sh` with strict flags and keep trace diff mismatch and allowed-failure counts at zero. |
-| Privacy, store, model license, and release approvals | partial | Human approvals and final public metadata are still required. | Fill real owners/reviewers, public privacy URL, store evidence, privacy/security/legal approvals, model license approvals, signing identity, artifact SHA-256, and approved evidence files. |
-| Production signing and public artifact | blocked | Production signing material and final public AAB evidence are not complete. | Run protected signing, record upload/app-signing certificate fingerprints, archive AAB/APK/mapping artifacts, and pass artifact scan. |
-| Release operations | partial | Monitoring, crash/ANR smoke, rollout watcher, and rollback evidence need final owner-approved records. | Complete `docs/release_operations_record.json`, crash/ANR smoke, monitoring evidence, rollback evidence, and `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
+The table preserves the dated roadmap ledger; it does not claim a new review of
+every historical phase. Current owner requirements are listed below and in
+[release readiness](release_readiness.md). Deferred entries remain in this table.
 
-## Recently Completed
+| Blocker | Status | Owner / phase | Blocking evidence | Next evidence |
+| --- | --- | --- | --- | --- |
+| Real-app search replay coverage | partial | Agent 2 / Phase 2 | physical real app search eval deferred | Continue adding replay fixtures for changing Taobao, Gaode, JD, and browser search surfaces; verify a fresh physical real-app-search pass rate later. |
+| Real-app search physical pass rate | deferred | Agent 2 / Phase 2 | no device test in this phase | Run fresh real-app-search eval on arm64 physical hardware and reach the target pass rate without expanding high-risk automation. |
+| Agent behavior actual runtime trace | partial | Agent 4 / Phase 3 | fresh agent loop runtime trace not collected in this phase | Collect a fresh agent_loop_runtime actual trace in public-strict mode and keep traceDiffAllowedFailureCount at zero with runtime provenance. |
+| Privacy / store / release approvals | partial | Agent 6 / Phase 4 | release owner evidence required, store policy owner evidence required, privacy security legal approval required, model license approval required | Use the preflight fields in verifier reports to fill real owners, reviewers, public policy URLs, approvals, signing identity, artifact SHA values, and approved evidence files. Ref... |
+| Physical validation and arm64 API matrix | deferred | Agent 3 / Phase 4 | no device test in this phase, arm64 api matrix environment required | Run arm64 physical validation, prepare API 28/32/33/34 arm64 AVDs, and collect accepted validation reports. Deferred-mode reports carry deferredReason=no-device-test-in-this-phase... |
+| Perf baseline on physical arm64 | deferred | Agent 5 / Phase 4 | no device test in this phase, physical arm64 performance required | Collect RC model load, first token, tokens/s, memory, ANR/OOM, and GPU fallback evidence on physical arm64 hardware. |
+| Real model runtime validation | partial | Agent 5 / Phase 5 | real model runtime validation deferred | Optionally run the targeted JVM slice and later collect real model loading/performance evidence on physical arm64 hardware. |
+| Public release approvals, signing, validation, perf baseline | blocked | Agent 0 / Phase 6 | human approval required, production signing required, physical validation required, perf baseline required | Complete production signing, approved release records, store/privacy/legal/model-license reviews, validation record, operations record, public AAB, mapping, and final public relea... |
 
-Resolved in commit `4ad758e`. All items below are DONE / GREEN.
+## Human Approval
 
-| Area | Item | Status |
-| --- | --- | --- |
-| Logging | Structured logging facade (SolinLog) | DONE |
-| Constants | Centralized constants (SolinConstants) | DONE |
-| Concurrency | AgentLoopRuntime concurrency safety (ConcurrentHashMap) | DONE |
-| Evidence | Evidence encryption at rest | DONE |
-| Network | Network security config (HTTPS-by-default) | DONE |
-| Architecture | ModelRepository dependency inversion | DONE |
-| Architecture | SolinViewModel code deduplication | DONE |
+- **Release approvals**: Final owner, reviewer, channel, changelog, release notes, artifact SHA, signing fingerprint, evidence links, and blocker decisions in `release_record.json`.
+- **Store approvals**: Real support contact, public privacy URL, Data safety answers, listing/screenshots, and approval in `store_policy_record.json`.
+- **Operations owner**: Crash/ANR monitoring, rollout thresholds, first-day watcher, rollback and CI evidence in `release_operations_record.json`.
+- **Validation owner**: Approved artifact-bound emulator, physical, API matrix, manual, release-flow, screenshot, and performance records in `release_validation_record.json`.
+- **Privacy approvals**: Review the current privacy notice and capability matrix, including opt-in remote vision and the debug background backend.
+- **Model/license approvals**: License source, attribution, notice, and redistribution decisions for every recommended model.
+- **Signing owner**: Production signing material outside Git, upload/app-signing fingerprints, final APK/AAB and mapping provenance.
+- **CI / emulator owner**: Runnable API 28/32/33/34/36 arm64 infrastructure and complete passed nested reports.
+- **AI behavior owner**: Fresh public-strict `agent_loop_runtime` trace for the current fixtures and hashes, with no mismatches or unresolved allowed failures.
+- **Phone capability owner**: Valid paired task benchmark, real NumberPicker readback, background critical-control negative fixture and complete model-task acceptance.
+- **Release / model owner**: Any external handoff of bundled-model tester APKs needs model redistribution approval and separate split-package/install provenance.
 
-## Future Work
+## Physical Hardware
 
-Items tracked under `docs/plans/`:
+- **Physical validation**: Final signed-RC instrumentation, retained-data upgrade, system UI/manual acceptance, and fresh real-app evidence on arm64 hardware.
+- **Perf baseline**: First launch, model load, first token, throughput, memory, ANR/OOM, GPU fallback, and 50k memory metrics on physical arm64 against the signed RC.
+- **Real-app search**: Run fresh real-app-search eval on arm64 physical hardware and reach the target pass rate without expanding high-risk automation.
 
-| Area | Item | Status |
-| --- | --- | --- |
-| Architecture | AgentLoopRuntime split into multi-component + typed event bus | PLANNED (no plan file yet; incremental extraction via `orchestration/` collaborators) |
-| Data layer | Data layer suspend migration (9 interfaces, 18 methods) | NOT STARTED — `docs/plans/data-layer-suspend-migration.md` |
-| ViewModel | ViewModel split into 19 files (8 named controllers) | COMPLETED — `docs/plans/viewmodel-split.md` |
-| UiState | UiState split into 10 sub-states | NOT DOING — `docs/plans/uistate-split.md` |
-| UI | SolinScreen composable split (~6,300 → ~1,600 lines, 17 leaf components) | COMPLETED — `docs/plans/solin-screen-split.md` |
+## Next Steps
 
-## Evidence That Does Not Close Release Blockers
+Run these preflight checks from the repository root. Pending owner approvals
+are expected to fail closed; a documentation refresh does not approve them.
 
-- Emulator regression does not replace physical `arm64-v8a` device evidence.
-- Debug device-control and real-app-search eval do not replace release validation.
-- Unsigned release APK perf samples do not close the final signed RC perf gate.
-- Manual observation without artifact path and SHA-256 is reviewer input only.
-- `bundledModels` internal experience package evidence does not approve Play/public release packaging.
-- Incremental install `Success` is not accepted for the large `bundledModels`
-  split package. Expect roughly 5.8 GB / 5.4 GiB of signed APKs; exact sizes
-  come from `build/verification/bundled-models/package.properties`. Use
-  `adb install-multiple --no-incremental -r`.
-- Risk acceptance must name the blocker, owner, date, decision, current release Git commit, release artifact SHA-256, evidence path, and evidence SHA-256.
+- `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`
+- `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`
+- `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`
+- `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`
+- `scripts/check_emulator_api_matrix.sh`
 
-## Next Commands
+For operations requiring device selection, signing or measured inputs, use the
+complete commands in the owner guides rather than copying incomplete templates:
 
-```bash
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
-scripts/check_emulator_api_matrix.sh
-scripts/prepare_emulator_api_matrix.sh
-scripts/regression_emulator_api_matrix.sh
-APP_APK_MODE=release APP_APK=<signed-release.apk> RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256=<apk-sha> RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
-ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
-RELEASE_ARTIFACT=<signed-rc-artifact> APP_VERSION=<version> ANDROID_SERIAL=<physical-device-serial> scripts/collect_rc_perf_from_device.sh
-scripts/collect_ai_behavior_actual_trace.sh
-PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production-upload-cert-sha256> PERF_BASELINE_FILE=<rc-perf-baseline.properties> AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> scripts/verify_release_gate.sh
-```
+- [Device acceptance](phone_acceptance.md): emulator preparation, installation and real-app evaluation.
+- [RC performance collection](phone_acceptance.md#rc-性能基线): `collect_rc_perf_from_device.sh` with a physical device and final RC artifact.
+- [Release checklist](release_checklist.md): signing, evidence records and the final public-release gate.

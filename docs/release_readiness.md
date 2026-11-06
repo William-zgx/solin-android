@@ -1,131 +1,119 @@
 # Release Readiness
 
-This page is the current release-status summary. It is not the release
-checklist and not the evidence log.
+This page summarizes current release readiness as of 2026-11-04, against main
+commit `cb7e4918`. It is not the release checklist or evidence log.
 
-- Use `docs/release_checklist.md` to execute a release candidate.
-- Use `docs/validation_report.md` for dated command output and artifacts.
-- Use JSON records in `docs/` for machine-readable release owner fields.
+- Use [the release checklist](release_checklist.md) to execute a release candidate.
+- Use [the current CI evidence](validation_report.md#2026-11-04--main-ci-convergence)
+  and the append-only validation report for dated commands, APK hashes, results,
+  and known evidence gaps.
+- Use the JSON records in `docs/` for machine-readable owner decisions and approvals.
+- [The blocker dashboard](release_blocker_dashboard.md) is generated from this page
+  and `roadmap_gap_matrix.json`; regenerate it with
+  `scripts/generate_release_blocker_dashboard.sh > docs/release_blocker_dashboard.md`.
 
 ## Status
 
-Solin is suitable for internal development, lab validation, and targeted
-tester builds. It is not ready for broad public distribution.
-The canonical release-gate flow is in `docs/release_checklist.md`; this page
-only summarizes current readiness and blockers.
+Solin is suitable for internal development, lab validation, and targeted tester
+builds. It is not ready for broad public distribution. Mainline CI success proves
+the checks that actually ran; it does not approve production signing, physical
+acceptance, model redistribution, or public release.
 
 ## Complete Foundations
 
-- MIT license is present.
-- Recommended model manifest pins repository, revision, bytes, and SHA-256.
-- Local model registration verifies recommended downloads before activation.
-- Chat sessions, messages, model registry, download records, memory records,
-  tool audit, and Agent trace state use local app storage.
-- Remote API keys use Android Keystore-backed encrypted preferences.
-- Remote transport requires HTTPS except local debug hosts.
-- Tool execution is registry-driven: `ToolSpec` owns schemas, risk,
-  permissions, continuation policy, private outputs, and low-risk tags.
-- Remote OpenAI-compatible `tool_calls` are revalidated locally. Public
-  read-only evidence may continue remotely; mixed private/action batches fail
-  closed before execution.
-- Public identity is unified as `栖知 Solin`; launcher/adaptive/round/
-  monochrome icons, docs preview images, and listing copy use the current Solin
-  mark and shared background color.
-- Privacy notice, release checklist, release records, store policy records,
-  validation records, operations records, privacy review records, and model
-  license review records exist and are wired into verifier scripts.
-- Internal `bundledModels` packaging is a first-class developer path:
-  `assembleBundledModelsPackage`, `bundleBundledModelsPackage`,
-  `checkBundledModelsPackageOutputs`, and
-  `scripts/package_bundled_models.sh`.
-- SolinLog structured logging facade (test-safe, no `android.util.Log` crash in unit tests).
-- SolinConstants centralized constants (Network/AgentLoop/Ui/Embedding).
-- AgentLoopRuntime concurrency safety: 8 maps converted to `ConcurrentHashMap`.
-- MemoryController extracted from SolinViewModel (385 lines).
-- Evidence encryption at rest: AES/CBC/PKCS5Padding with AndroidKeyStore.
-- Network security config: HTTPS-by-default, loopback cleartext only.
-- ModelRepository dependency inversion: now takes `SettingsStore` interface.
-- SolinViewModel code deduplication: `persistMessagesAndRebuildMemory` (11 sites), `clearedEvidence()` (5 sites).
-- Bug fix: `ToolResult.errorCode` → `ToolResult.error` in SolinViewModel.
+- The app's MIT license and Mika-derived Apache-2.0 source notices are present;
+  [NOTICE](../NOTICE) identifies the adapted phone-operation code. Model licenses
+  and redistribution permissions are reviewed separately.
+- Recommended model metadata pins upstream revisions, byte sizes, and SHA-256;
+  downloads are verified before registration. A verified file is not proof of a
+  successful device runtime probe.
+- Chat, memory, tool results, and screen evidence remain `LocalOnly` by default;
+  remote sends use explicit eligible paths and redacted audit records. API keys
+  use Android Keystore-backed encrypted preferences.
+- Registry-driven tool execution retains schemas, risk, permissions, continuation
+  policy, private-output metadata, and runtime authorization. Critical on-screen
+  controls remain user-operated in both confirmation modes.
+- Phone operations include input readback, bounded tree-stability waiting,
+  `ui_collect`, `ui_find`, `ui_set_wheel`, and session-only verified route reuse.
+  Composite children are authorized separately; route reuse carries no old consent.
+- Debug builds have an explicitly provisioned experimental background-display
+  path. Local loopback HMAC authentication, expiring sessions, and persistent
+  background-run markers prevent silent fallback to the main display. Background
+  remote vision and main-screen MediaProjection OCR are unavailable.
+- Remote calls recheck the stop generation after registration, covering a stop
+  during call creation; canceled generations do not retry that request.
+- Privacy, release, validation, operations, store-policy, and model-license
+  records and verifiers exist. Their presence does not turn pending reviews into
+  approvals.
+- Internal `bundledModels` packaging supports a base APK plus four modelpack
+  splits. Ordinary public APK/AAB artifacts do not bundle model files.
+
+Current implementation ownership and limitations live in
+[the core-module reference](agent_core_modules.md),
+[the phone capability record](plans/mika-phone-capabilities.md), and
+[the privacy notice](privacy_notice.md).
 
 ## Current Evidence
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
-| Local build gate | Historical local gates have passed `scripts/verify_local.sh`; see `docs/validation_report.md`. | Must be rerun for the current commit before an RC handoff. |
-| Brand/assets | Current source and docs use `栖知 Solin`, current Solin icon resources, and current docs preview images. | Store screenshots and final listing still need release-owner review and fresh screenshot evidence. |
-| Emulator regression | API 36 arm64 emulator/debug evidence exists in historical records. | Current validation record must not reuse stale reports that bind older package/brand state; API 28/32/33/34 arm64 matrix is still incomplete. |
-| Physical device | Historical debug/connected evidence exists with app data preserved. | It is partial readiness evidence, not final signed RC physical validation. |
-| Real-app search | Replay and debug evidence exist for supported shopping/map/browser surfaces. | Fresh physical real-app evidence and the required 50 task benchmark are still blockers. |
-| Bundled model package | Internal split package path exists and can install base plus four modelpack splits with same-signature `adb install-multiple --no-incremental -r`. | Internal quick-experience evidence only. It is not Play/public release evidence, and external handoff still requires approved model license and redistribution review. |
-| Store/privacy/license | Records and verifiers exist. | Real support contact, public privacy URL, reviewers, approvals, and model redistribution decisions remain pending. |
-| Perf | RC perf collector and verifier exist. | Final metrics must be measured on physical arm64 hardware against the final signed RC artifact with `runner=rc_perf_release_broadcast`. |
+| Mainline CI | [Android Verification 41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903) passed on `cb7e4918`: `verify` ran `scripts/verify_local.sh`, including script regression, JVM tests, Lint, builds, and artifact checks. | A push run does not execute the protected signing, release archive, or final public-release jobs. |
+| JVM and Lint | The matching local fix gate passed 2688 JVM tests with zero failures/errors/skips and Lint with zero errors. The registration-race regression failed on the previous implementation and passed after the fix. | This count is evidence for that commit, not a permanent minimum or device-behavior claim. |
+| AI behavior fixtures | CI fixture/boundary validation passed 40 cases across 7 categories and 6 MVP scenarios. | Fixture validation is not a fresh public-strict runtime trace or live-model task benchmark. |
+| Hosted emulator | The top-level regression report has `status=skipped`, `failedTarget=emulator-infra`, `reason=emulator-infra-hvf-unsupported`; its nested emulator report failed at `emulator-startup` / `process-exited`. | No hosted device regression passed in that run despite the job's green status. API matrix and model-provenance jobs were not run by this push. |
+| Local API 36 increment | Six tests actually executed with zero skips: input readback including Chinese/whitespace/newlines, stable wait, partial collection, find without click, denied scrolling, and background-default refusal. | Debug evidence covers the tested APKs in `validation_report.md`; it is not full emulator regression or final signed-RC physical validation. |
+| Background display | API 36 debug checks verified create, Settings launch, observe, guarded Apps tap with page change, capture, about 38 seconds idle, selection surviving return to chat, and explicit stop cleanup. | Background critical-control negative fixtures, physical/OEM focus, lock/expiry behavior, and full model-driven tasks remain pending. |
+| Phone task benchmark | Preparation/failure evidence is preserved. | No valid same-model paired baseline was obtained; no task-success or performance improvement is established. |
+| Physical device and perf | Collectors and verifiers exist; historical device evidence remains in the log. | Current signed-RC physical instrumentation, real-app 50-task evidence, performance, and complete API 28/32/33/34/36 evidence are still required. |
+| Bundled model package | Build/install tooling exists for same-signature split APKs with `adb install-multiple --no-incremental -r`. | Internal lab evidence does not authorize external redistribution or Play release. |
+| Store/privacy/license/operations | Machine records remain pending. | Support contact, public policy URL, owners, approvals, production signing, and final artifact-bound records are not supplied by CI. |
 
-## Recent Test Results
+## Remaining release blockers by ownership
 
-- ~1911 unit tests passing, 0 failures.
-- `scripts/verify_local.sh` passes (exit code 0).
-- Emulator tests: 7 previously-failing tests now passing.
+The four-column table below is also input to the dashboard generator. Approval
+states describe missing evidence, not automatic permission to ship.
 
-## Release Blockers
+| Status | Owner | Item | Gate / evidence |
+| --- | --- | --- | --- |
+| Owner evidence required | Release owner | Final owner, reviewer, channel, changelog, release notes, artifact SHA, signing fingerprint, evidence links, and blocker decisions in `release_record.json`. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; final public release binds the current commit and artifact. |
+| Manual approval required | Store / policy owner | Real support contact, public privacy URL, Data safety answers, listing/screenshots, and approval in `store_policy_record.json`. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`. |
+| Owner evidence required | Operations owner | Crash/ANR monitoring, rollout thresholds, first-day watcher, rollback and CI evidence in `release_operations_record.json`. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
+| Owner evidence required | Validation owner | Approved artifact-bound emulator, physical, API matrix, manual, release-flow, screenshot, and performance records in `release_validation_record.json`. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; skips cannot fill passed evidence slots. |
+| Manual/legal approval required | Release, security, legal | Review the current privacy notice and capability matrix, including opt-in remote vision and the debug background backend. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`; candidate hash refresh is not approval. |
+| Manual/legal approval required | Model/license reviewer | License source, attribution, notice, and redistribution decisions for every recommended model. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
+| Owner evidence required | Signing owner | Production signing material outside Git, upload/app-signing fingerprints, final APK/AAB and mapping provenance. | Protected signing and `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production-upload-cert-sha256> scripts/verify_release_gate.sh`. |
+| Physical hardware required | Device validation owner | Final signed-RC instrumentation, retained-data upgrade, system UI/manual acceptance, and fresh real-app evidence on arm64 hardware. | `APP_APK_MODE=release APP_APK=<signed-release.apk> RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256=<apk-sha> RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh`. |
+| Owner evidence required | CI / emulator owner | Runnable API 28/32/33/34/36 arm64 infrastructure and complete passed nested reports. | `scripts/check_emulator_api_matrix.sh`, `scripts/prepare_emulator_api_matrix.sh`, then `scripts/regression_emulator_api_matrix.sh`. |
+| Physical hardware required | Performance owner | First launch, model load, first token, throughput, memory, ANR/OOM, GPU fallback, and 50k memory metrics on physical arm64 against the signed RC. | `RELEASE_ARTIFACT=<signed-rc> APP_VERSION=<version> scripts/collect_rc_perf_from_device.sh`, then `scripts/verify_perf_baseline.sh`. |
+| Owner evidence required | AI behavior owner | Fresh public-strict `agent_loop_runtime` trace for the current fixtures and hashes, with no mismatches or unresolved allowed failures. | `PUBLIC_RELEASE_CONTEXT=1 scripts/collect_ai_behavior_actual_trace.sh`. |
+| Owner evidence required | Phone capability owner | Valid paired task benchmark, real NumberPicker readback, background critical-control negative fixture and complete model-task acceptance. | Follow `phone_acceptance.md`; retain failed and skipped cases separately from successful positive-path checks. |
+| Manual/legal approval required | Release / model owner | Any external handoff of bundled-model tester APKs needs model redistribution approval and separate split-package/install provenance. | Model-license gate, `scripts/package_bundled_models.sh`, and device evidence for all five APKs and verified models. |
 
-| Owner | Blocker | Evidence needed |
-| --- | --- | --- |
-| Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, verification reports, and blocker decisions. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; public release also needs `PUBLIC_RELEASE=1` and a bound final gate report. |
-| Store / policy owner | Fill and approve `docs/store_policy_record.json` with real support contact, public privacy-policy URL, reviewer, review date, Data safety answers, and evidence. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`. |
-| Operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, rollout thresholds, first-24-hour watcher, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
-| Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical instrumentation, API matrix, manual acceptance, release-flow, screenshots, and perf sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`. |
-| Release, security, legal | Approve the current privacy notice and capability matrix. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. |
-| Model/license reviewer | Verify license, attribution, notice, and redistribution rights for all recommended models. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
-| Signing owner | Configure production signing outside source control. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`. |
-| Device validation owner | Rerun on target arm64 hardware against the final signed release APK without resetting app data after tests. | Passing `APP_APK_MODE=release APP_APK=<signed-release.apk> RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256=<apk-sha> RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh` report with instrumentation/logcat SHA bindings. |
-| CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator images and AVDs. | `scripts/check_emulator_api_matrix.sh`, then `scripts/prepare_emulator_api_matrix.sh`, then matrix regression evidence. |
-| Performance owner | Collect RC load, first-token, throughput, memory, ANR/OOM, GPU fallback, and 50k memory metrics on physical arm64 hardware. | `RELEASE_ARTIFACT=<signed-rc> APP_VERSION=<version> scripts/collect_rc_perf_from_device.sh` report and `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`. |
-| AI behavior owner | Collect a fresh public-strict `agent_loop_runtime` actual trace for the current fixture set. | `scripts/collect_ai_behavior_actual_trace.sh` and strict `scripts/verify_ai_behavior_eval.sh` report with zero mismatches and zero unresolved allowed failures. |
-| Release / model owner | If sharing the large bundled-model tester package, bind split APKs, signing certificate, model hashes, model license approval, and install smoke separately from Play artifacts. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`, then `scripts/package_bundled_models.sh` report plus device smoke showing base plus four modelpack splits and verified models. |
+## Architecture And Follow-up Work
 
-## Future Work
-
-Detailed implementation plans live in `docs/plans/`. Of the five tracked
-plans, two are completed (ViewModel split, SolinScreen split), one is
-explicitly not doing (UiState split), one is not started (data layer suspend
-migration), and one has no plan file yet (AgentLoopRuntime split). These are
-tracked as future work items beyond the current release gate.
+Architecture debt and implementation status are owned by
+[architecture_depth.md](architecture_depth.md),
+[optimization_plan_weaknesses.md](optimization_plan_weaknesses.md), and the
+individual [plans](plans/). Those plans are not release approvals. In particular,
+the phone capability implementation does not close its outstanding device or
+paired-benchmark acceptance requirements.
 
 ## Next Commands
 
+Use JDK 21 and SDK 36 to match CI. Prepare authorized devices and the required
+records before running commands that install, sign, or collect evidence. The
+canonical command sequence is in [the checklist](release_checklist.md#release-gate)
+and [phone acceptance](phone_acceptance.md).
+
 ```bash
 scripts/verify_local.sh
+scripts/verify_ai_behavior_eval.sh --require-boundary-map
 scripts/check_emulator_api_matrix.sh
 scripts/prepare_emulator_api_matrix.sh
 scripts/regression_emulator_api_matrix.sh
-scripts/sign_release_artifacts.sh
-APP_APK_MODE=release \
-APP_APK=<signed-release.apk> \
-RELEASE_ARTIFACT_TYPE=apk \
-RELEASE_ARTIFACT_SHA256=<signed-release-apk-sha256> \
-RESET_APP_DATA_AFTER_TESTS=0 \
-ANDROID_SERIAL=<physical-device-serial> \
-scripts/install_and_test_device.sh
-ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
-RELEASE_ARTIFACT=<signed-rc-artifact> \
-APP_VERSION=<versionName-versionCode> \
-ANDROID_SERIAL=<physical-device-serial> \
-scripts/collect_rc_perf_from_device.sh
-scripts/collect_ai_behavior_actual_trace.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
-PUBLIC_RELEASE=1 \
-EXPECTED_SIGNING_CERT_SHA256=<production upload cert> \
-PERF_BASELINE_FILE=<rc perf baseline> \
-AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> \
-scripts/verify_release_gate.sh
+PUBLIC_RELEASE_CONTEXT=1 scripts/collect_ai_behavior_actual_trace.sh
 ```
 
 Run the final public release gate only after production signing, owner records,
-approvals, validation, screenshots, model-license evidence, operations evidence,
-and physical perf baseline are complete.
+approvals, device validation, screenshots, model-license evidence, operations
+evidence, and the physical performance baseline are complete.
