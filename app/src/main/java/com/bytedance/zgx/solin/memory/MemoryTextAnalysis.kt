@@ -1,11 +1,12 @@
 package com.bytedance.zgx.solin.memory
 
 import com.bytedance.zgx.solin.common.sha256Hex
+import java.text.Normalizer
 import java.util.Locale
 
 /*
- * Memory text analysis: tokenization, search aliases, stop words and stable hashing. Split out of
- * MemoryRepository.kt; behaviour unchanged.
+ * Memory text analysis: tokenization, search aliases, stop words, stable hashing and the grounding
+ * rule for local-model memory output.
  */
 
 internal fun deterministicMemoryRecordId(prefix: String, key: String): String =
@@ -177,10 +178,10 @@ private fun addCjkRunTokens(run: String, tokens: MutableList<MemoryToken>) {
 }
 
 private fun Char.isCjk(): Boolean =
-    this in '\u4E00'..'\u9FFF' ||
-        this in '\u3400'..'\u4DBF' ||
-        this in '\u3040'..'\u30FF' ||
-        this in '\uAC00'..'\uD7AF'
+    this in '一'..'鿿' ||
+        this in '㐀'..'䶿' ||
+        this in '぀'..'ヿ' ||
+        this in '가'..'힯'
 
 internal const val STRONG_TOKEN_WEIGHT = 1f
 internal const val WEAK_TOKEN_WEIGHT = 0.5f
@@ -570,3 +571,76 @@ internal val TASK_STATE_TERMINAL_QUERY_TERMS = setOf(
     "送达",
     "已送达",
 )
+
+/*
+ * Grounding: whether local-model text is supported by the text it was derived from. The production
+ * guards (fact suggestions, compaction summaries) and the lab's hallucination metric use these
+ * functions, so both apply one rule.
+ */
+
+/** Whether [fact] (edge punctuation trimmed) occurs verbatim in [source] under the [GroundingText] fold. */
+internal fun isGroundedIn(source: String, fact: String): Boolean = GroundingText(source).find(fact) != null
+
+/**
+ * Digit runs of [text] (NFKC, so full-width digits count) that are not digit runs of [source]:
+ * invented times, prices, phone numbers or codes. Empty when every number in [text] is grounded.
+ */
+internal fun ungroundedNumbers(text: String, source: String): List<String> {
+    val known = digitRuns(source).toSet()
+    return digitRuns(text).filterNot { it in known }.distinct()
+}
+
+private fun digitRuns(text: String): List<String> =
+    DIGIT_RUN_REGEX.findAll(Normalizer.normalize(text, Normalizer.Form.NFKC)).map { it.value }.toList()
+
+/** The [GroundingText] fold of the whole string, for containment checks between grounded texts. */
+internal fun String.groundingFold(): String = GroundingText(this).folded
+
+/**
+ * [text] folded for grounding (NFKC, lower case, whitespace removed, apostrophes unified) with a map
+ * from every folded character back to its source range in [text].
+ */
+internal class GroundingText(private val text: String) {
+    val folded: String
+    private val starts: IntArray
+    private val ends: IntArray
+
+    init {
+        val out = StringBuilder(text.length)
+        val startList = ArrayList<Int>(text.length)
+        val endList = ArrayList<Int>(text.length)
+        var index = 0
+        while (index < text.length) {
+            val next = index + Character.charCount(text.codePointAt(index))
+            foldPiece(text.substring(index, next)).forEach { char ->
+                out.append(char)
+                startList += index
+                endList += next
+            }
+            index = next
+        }
+        folded = out.toString()
+        starts = startList.toIntArray()
+        ends = endList.toIntArray()
+    }
+
+    /** Source range of the first verbatim occurrence of [fact] (edge punctuation trimmed), or null. */
+    fun find(fact: String): IntRange? {
+        val key = GroundingText(fact.trim().trim(*GROUNDING_EDGE_PUNCTUATION)).folded
+        if (key.isEmpty()) return null
+        val at = folded.indexOf(key)
+        if (at < 0) return null
+        return starts[at] until ends[at + key.length - 1]
+    }
+
+    private fun foldPiece(piece: String): String =
+        Normalizer.normalize(piece, Normalizer.Form.NFKC)
+            .lowercase(Locale.ROOT)
+            .replace('’', '\'')
+            .replace('‘', '\'')
+            .filterNot { it.isWhitespace() }
+}
+
+private val DIGIT_RUN_REGEX = Regex("""\d+""")
+private val GROUNDING_EDGE_PUNCTUATION =
+    charArrayOf('。', '！', '!', '？', '?', '；', ';', '，', ',', '.', '"', '“', '”', '「', '」', '『', '』')
