@@ -1,11 +1,13 @@
 package com.bytedance.zgx.solin.memory
 
+import com.bytedance.zgx.solin.action.ChineseNumerals
 import com.bytedance.zgx.solin.common.sha256Hex
+import java.text.Normalizer
 import java.util.Locale
 
 /*
- * Memory text analysis: tokenization, search aliases, stop words and stable hashing. Split out of
- * MemoryRepository.kt; behaviour unchanged.
+ * Memory text analysis: tokenization, search aliases, stop words, stable hashing and the grounding
+ * rule for local-model memory output.
  */
 
 internal fun deterministicMemoryRecordId(prefix: String, key: String): String =
@@ -570,3 +572,90 @@ internal val TASK_STATE_TERMINAL_QUERY_TERMS = setOf(
     "送达",
     "已送达",
 )
+
+/*
+ * Grounding: whether local-model text is supported by the text it was derived from. The production
+ * guards (fact suggestions, compaction summaries) and the lab's hallucination metric use these
+ * functions, so both apply one rule.
+ */
+
+/** Whether [fact] (edge punctuation trimmed) occurs verbatim in [source] under the [GroundingText] fold. */
+internal fun isGroundedIn(source: String, fact: String): Boolean = GroundingText(source).find(fact) != null
+
+/**
+ * Numbers of [text] that do not occur as whole numbers in [source]: invented times, prices, dates,
+ * phone numbers or codes. Empty when every number in [text] is grounded.
+ *
+ * A number is one whole token of [numberTokens], so `386.25` is not grounded by `386.40`, and `13:00`
+ * is not grounded by `13:30` and `14:00`. Chinese integer numerals count as digits on both sides, so
+ * `下午五点` is the number 5 and `下午3点` is not grounded by `下午五点`.
+ */
+internal fun ungroundedNumbers(text: String, source: String): List<String> {
+    val known = numberTokens(source).toSet()
+    return numberTokens(text).filterNot { it in known }.distinct()
+}
+
+/**
+ * Whole numbers of [text]: NFKC (full-width digits), then Chinese numerals read as digits. A converted
+ * numeral is padded with spaces so that `六18:30` yields `6` and `18:30`, not the single token `618:30`.
+ */
+private fun numberTokens(text: String): List<String> {
+    val folded = Normalizer.normalize(text, Normalizer.Form.NFKC)
+    val digits = CHINESE_NUMERAL_RUN_REGEX.replace(folded) { run ->
+        ChineseNumerals.parseInt(run.value)?.let { " $it " } ?: run.value
+    }
+    return NUMBER_TOKEN_REGEX.findAll(digits).map { it.value }.toList()
+}
+
+/** The [GroundingText] fold of the whole string, for containment checks between grounded texts. */
+internal fun String.groundingFold(): String = GroundingText(this).folded
+
+/**
+ * [text] folded for grounding (NFKC, lower case, whitespace removed, apostrophes unified) with a map
+ * from every folded character back to its source range in [text].
+ */
+internal class GroundingText(private val text: String) {
+    val folded: String
+    private val starts: IntArray
+    private val ends: IntArray
+
+    init {
+        val out = StringBuilder(text.length)
+        val startList = ArrayList<Int>(text.length)
+        val endList = ArrayList<Int>(text.length)
+        var index = 0
+        while (index < text.length) {
+            val next = index + Character.charCount(text.codePointAt(index))
+            foldPiece(text.substring(index, next)).forEach { char ->
+                out.append(char)
+                startList += index
+                endList += next
+            }
+            index = next
+        }
+        folded = out.toString()
+        starts = startList.toIntArray()
+        ends = endList.toIntArray()
+    }
+
+    /** Source range of the first verbatim occurrence of [fact] (edge punctuation trimmed), or null. */
+    fun find(fact: String): IntRange? {
+        val key = GroundingText(fact.trim().trim(*GROUNDING_EDGE_PUNCTUATION)).folded
+        if (key.isEmpty()) return null
+        val at = folded.indexOf(key)
+        if (at < 0) return null
+        return starts[at] until ends[at + key.length - 1]
+    }
+
+    private fun foldPiece(piece: String): String =
+        Normalizer.normalize(piece, Normalizer.Form.NFKC)
+            .lowercase(Locale.ROOT)
+            .replace('’', '\'')
+            .replace('‘', '\'')
+            .filterNot { it.isWhitespace() }
+}
+
+private val NUMBER_TOKEN_REGEX = Regex("""\d+(?:[.:：/-]\d+)*""")
+private val CHINESE_NUMERAL_RUN_REGEX = Regex("[${ChineseNumerals.NUMERAL_CLASS}]+")
+private val GROUNDING_EDGE_PUNCTUATION =
+    charArrayOf('。', '！', '!', '？', '?', '；', ';', '，', ',', '.', '"', '“', '”', '「', '」', '『', '』')

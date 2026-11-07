@@ -1,0 +1,92 @@
+{
+  "cases": 106,
+  "negatives": 46,
+  "rawFacts": 75,
+  "fallbacks": {},
+  "rawModel": {
+    "gold": 62,
+    "predictedCorrect": 58,
+    "precision": 0.773,
+    "recall": 0.935,
+    "goldFound": 58,
+    "predicted": 75
+  },
+  "falsePositiveCases": [],
+  "guardedModel": {
+    "gold": 62,
+    "predictedCorrect": 55,
+    "precision": 1,
+    "recall": 0.887,
+    "goldFound": 55,
+    "predicted": 55
+  },
+  "merged": {
+    "gold": 62,
+    "predictedCorrect": 55,
+    "precision": 1,
+    "recall": 0.903,
+    "goldFound": 56,
+    "predicted": 55
+  },
+  "modelCalls": 104,
+  "mergedModelGroup": {
+    "gold": 39,
+    "predictedCorrect": 32,
+    "precision": 1,
+    "recall": 0.846,
+    "goldFound": 33,
+    "predicted": 32
+  },
+  "mergedRegexGroup": {
+    "gold": 23,
+    "predictedCorrect": 23,
+    "precision": 1,
+    "recall": 1,
+    "goldFound": 23,
+    "predicted": 23
+  },
+  "kindAccuracy": 0.964,
+  "suite": "facts",
+  "mergedNegativeFalsePositiveRate": 0,
+  "hallucinationRate": 0.04,
+  "parseFailureRate": 0,
+  "model": {
+    "ollamaVersion": "0.40.3",
+    "think": false,
+    "digest": "dfaf2605162e689c8cac330dc4a190c4c50ad30aa47814a8fe9b79fa5127e97e",
+    "options": {
+      "top_p": 0.1,
+      "seed": 7,
+      "top_k": 1,
+      "temperature": 0,
+      "num_predict": 512,
+      "num_ctx": 8192
+    },
+    "hostNote": "desktop Ollama proxy; not LiteRT-LM int4 on a phone, not device evidence",
+    "model": "qwen3.5:2b",
+    "details": {
+      "format": "safetensors",
+      "parameter_size": "",
+      "parent_model": "",
+      "family": "",
+      "families": null,
+      "runner": "mlx",
+      "quantization_level": "mxfp8"
+    }
+  },
+  "regexNegativeFalsePositiveRate": 0,
+  "latencyMs": {
+    "max": 1475,
+    "p50": 700,
+    "p95": 1109,
+    "n": 104
+  },
+  "regexOnly": {
+    "gold": 62,
+    "predictedCorrect": 24,
+    "precision": 1,
+    "recall": 0.403,
+    "goldFound": 25,
+    "predicted": 24
+  }
+}

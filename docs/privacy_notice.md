@@ -441,6 +441,13 @@ local app storage according to Android platform behavior. When local memory is
 disabled, explicit remember/fact commands do not create new long-term memory
 records; forget and clear controls can still remove existing records.
 
+Two optional memory helpers use the on-device model and are off by default:
+suggesting facts from a message, and summarizing older chat history for the
+local model. Both run only on the device and never call a remote model. A
+summary is LocalOnly when any message it covers is LocalOnly. When every covered
+message is RemoteEligible, the summary is RemoteEligible, so a remote request may
+carry an on-device summary of RemoteEligible history in place of those messages.
+
 This codebase does not contain a first-party analytics upload path. Disclosed
 outbound boundaries include configured remote chat/vision, the optional decision
 router, public web search, model downloads, policy-authorized Android external

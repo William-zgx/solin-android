@@ -1,0 +1,106 @@
+{"id": "fx-001", "message": "我对芒果过敏，推荐点夏天的水果吧", "gold": [{"kind": "Allergy", "fact": "我对芒果过敏"}], "tags": ["zh", "regex", "mixed"]}
+{"id": "fx-002", "message": "我儿子对鸡蛋过敏。", "gold": [{"kind": "Allergy", "fact": "我儿子对鸡蛋过敏"}], "tags": ["zh", "regex"]}
+{"id": "fx-003", "message": "我家在杭州市西湖区文三路", "gold": [{"kind": "HomeLocation", "fact": "我家在杭州市西湖区文三路"}], "tags": ["zh", "regex"]}
+{"id": "fx-004", "message": "我住在成都高新区", "gold": [{"kind": "HomeLocation", "fact": "我住在成都高新区"}], "tags": ["zh", "regex"]}
+{"id": "fx-005", "message": "我在星河科技上班", "gold": [{"kind": "WorkLocation", "fact": "我在星河科技上班"}], "tags": ["zh", "regex"]}
+{"id": "fx-006", "message": "我老公叫陈明", "gold": [{"kind": "RelationName", "fact": "我老公叫陈明"}], "tags": ["zh", "regex"]}
+{"id": "fx-007", "message": "我妈妈的手机号是139-0000-1234", "gold": [{"kind": "ContactPhone", "fact": "我妈妈的手机号是139-0000-1234"}], "tags": ["zh", "regex"]}
+{"id": "fx-008", "message": "我不吃香菜", "gold": [{"kind": "Diet", "fact": "我不吃香菜"}], "tags": ["zh", "regex"]}
+{"id": "fx-009", "message": "我的生日是11月3日", "gold": [{"kind": "Birthday", "fact": "我的生日是11月3日"}], "tags": ["zh", "regex"]}
+{"id": "fx-010", "message": "I'm allergic to peanuts.", "gold": [{"kind": "Allergy", "fact": "I'm allergic to peanuts"}], "tags": ["en", "regex"]}
+{"id": "fx-011", "message": "I live in Seattle", "gold": [{"kind": "HomeLocation", "fact": "I live in Seattle"}], "tags": ["en", "regex"]}
+{"id": "fx-012", "message": "my husband's name is David", "gold": [{"kind": "RelationName", "fact": "my husband's name is David"}], "tags": ["en", "regex"]}
+{"id": "fx-013", "message": "I am vegan", "gold": [{"kind": "Diet", "fact": "I am vegan"}], "tags": ["en", "regex"]}
+{"id": "fx-014", "message": "我爸爸叫王建国", "gold": [{"kind": "RelationName", "fact": "我爸爸叫王建国"}], "tags": ["zh", "regex"]}
+{"id": "fx-015", "message": "我公司在深圳南山科技园", "gold": [{"kind": "WorkLocation", "fact": "我公司在深圳南山科技园"}], "tags": ["zh", "regex"]}
+{"id": "fx-016", "message": "My son's name is Leo", "gold": [{"kind": "RelationName", "fact": "My son's name is Leo"}], "tags": ["en", "regex"]}
+{"id": "fx-017", "message": "I work at Northwind Labs in Redmond", "gold": [{"kind": "WorkLocation", "fact": "I work at Northwind Labs in Redmond"}], "tags": ["en", "regex"]}
+{"id": "fx-018", "message": "I’m allergic to latex", "gold": [{"kind": "Allergy", "fact": "I’m allergic to latex"}], "tags": ["en", "model", "apostrophe"]}
+{"id": "fx-019", "message": "我的手机号是１３９００００５６７８", "gold": [{"kind": "ContactPhone", "fact": "我的手机号是１３９００００５６７８"}], "tags": ["zh", "model", "full-width"]}
+{"id": "fx-020", "message": "我喜欢喝不加糖的美式咖啡", "gold": [{"kind": "Preference", "fact": "我喜欢喝不加糖的美式咖啡"}], "tags": ["zh", "model"]}
+{"id": "fx-021", "message": "我讨厌坐红眼航班", "gold": [{"kind": "Preference", "fact": "我讨厌坐红眼航班"}], "tags": ["zh", "model"]}
+{"id": "fx-022", "message": "我每天晚上十一点前睡觉", "gold": [{"kind": "Routine", "fact": "我每天晚上十一点前睡觉"}], "tags": ["zh", "model"]}
+{"id": "fx-023", "message": "我每周六上午去游泳", "gold": [{"kind": "Routine", "fact": "我每周六上午去游泳"}], "tags": ["zh", "model"]}
+{"id": "fx-024", "message": "我是一名产品经理", "gold": [{"kind": "Occupation", "fact": "我是一名产品经理"}], "tags": ["zh", "model"]}
+{"id": "fx-025", "message": "我是牙科护士", "gold": [{"kind": "Occupation", "fact": "我是牙科护士"}], "tags": ["zh", "model"]}
+{"id": "fx-026", "message": "我海鲜过敏", "gold": [{"kind": "Allergy", "fact": "我海鲜过敏"}], "tags": ["zh", "model"]}
+{"id": "fx-027", "message": "我吃素已经五年了", "gold": [{"kind": "Diet", "fact": "我吃素已经五年了"}], "tags": ["zh", "model"]}
+{"id": "fx-028", "message": "我住南京鼓楼区", "gold": [{"kind": "HomeLocation", "fact": "我住南京鼓楼区"}], "tags": ["zh", "model"]}
+{"id": "fx-029", "message": "我在市一医院当护士", "gold": [{"kind": "Occupation", "fact": "我在市一医院当护士"}], "tags": ["zh", "model"]}
+{"id": "fx-030", "message": "I work as a nurse at St. Mary's", "gold": [{"kind": "Occupation", "fact": "I work as a nurse at St. Mary's"}], "tags": ["en", "model"]}
+{"id": "fx-031", "message": "I usually go running at 6am", "gold": [{"kind": "Routine", "fact": "I usually go running at 6am"}], "tags": ["en", "model"]}
+{"id": "fx-032", "message": "I prefer window seats on flights", "gold": [{"kind": "Preference", "fact": "I prefer window seats on flights"}], "tags": ["en", "model"]}
+{"id": "fx-033", "message": "I'm a high school math teacher", "gold": [{"kind": "Occupation", "fact": "I'm a high school math teacher"}], "tags": ["en", "model"]}
+{"id": "fx-034", "message": "my daughter Lily was born on May 2", "gold": [{"kind": "Birthday", "fact": "my daughter Lily was born on May 2"}], "tags": ["en", "model"]}
+{"id": "fx-035", "message": "我女儿的生日在8月15号", "gold": [{"kind": "Birthday", "fact": "我女儿的生日在8月15号"}], "tags": ["zh", "model"]}
+{"id": "fx-036", "message": "我太太的名字叫林雪", "gold": [{"kind": "RelationName", "fact": "我太太的名字叫林雪"}], "tags": ["zh", "model"]}
+{"id": "fx-037", "message": "我平时不喝酒", "gold": [{"kind": "Diet", "fact": "我平时不喝酒"}], "tags": ["zh", "model"]}
+{"id": "fx-038", "message": "我习惯用微信支付", "gold": [{"kind": "Preference", "fact": "我习惯用微信支付"}], "tags": ["zh", "model"]}
+{"id": "fx-039", "message": "我上班在望京SOHO", "gold": [{"kind": "WorkLocation", "fact": "我上班在望京SOHO"}], "tags": ["zh", "model"]}
+{"id": "fx-040", "message": "I don't eat pork", "gold": [{"kind": "Diet", "fact": "I don't eat pork"}], "tags": ["en", "model"]}
+{"id": "fx-041", "message": "I always take the subway to work", "gold": [{"kind": "Routine", "fact": "I always take the subway to work"}], "tags": ["en", "model"]}
+{"id": "fx-042", "message": "my mom's birthday is June 9", "gold": [{"kind": "Birthday", "fact": "my mom's birthday is June 9"}], "tags": ["en", "model"]}
+{"id": "fx-043", "message": "我周末一般在家带孩子", "gold": [{"kind": "Routine", "fact": "我周末一般在家带孩子"}], "tags": ["zh", "model"]}
+{"id": "fx-044", "message": "我是素食主义者", "gold": [{"kind": "Diet", "fact": "我是素食主义者"}], "tags": ["zh", "model"]}
+{"id": "fx-050", "message": "顺便说下，我对青霉素过敏，帮我看看这个感冒药能不能吃", "gold": [{"kind": "Allergy", "fact": "我对青霉素过敏"}], "tags": ["zh", "regex", "mixed"]}
+{"id": "fx-051", "message": "我是程序员，帮我写个周报模板", "gold": [{"kind": "Occupation", "fact": "我是程序员"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-052", "message": "我每天早上七点出门，帮我设个六点半的闹钟", "gold": [{"kind": "Routine", "fact": "我每天早上七点出门"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-053", "message": "我喜欢安静的餐厅，附近有推荐吗？", "gold": [{"kind": "Preference", "fact": "我喜欢安静的餐厅"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-054", "message": "我住在苏州工业园区，今天想去上海玩", "gold": [{"kind": "HomeLocation", "fact": "我住在苏州工业园区"}], "tags": ["zh", "regex", "mixed"]}
+{"id": "fx-055", "message": "I live in Boston and I'm allergic to cats", "gold": [{"kind": "HomeLocation", "fact": "I live in Boston"}, {"kind": "Allergy", "fact": "I'm allergic to cats"}], "tags": ["en", "model", "mixed", "multi"]}
+{"id": "fx-056", "message": "我老婆叫刘洋，她对猫毛过敏", "gold": [{"kind": "RelationName", "fact": "我老婆叫刘洋"}], "tags": ["zh", "regex", "mixed"]}
+{"id": "fx-057", "message": "帮我订一张明天去北京的机票，我一般坐靠窗的位置", "gold": [{"kind": "Preference", "fact": "我一般坐靠窗的位置"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-058", "message": "我在上海交通大学读研究生，帮我查下图书馆开放时间", "gold": [{"kind": "Occupation", "fact": "我在上海交通大学读研究生"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-059", "message": "我平时开车上班，帮我看看现在的路况", "gold": [{"kind": "Routine", "fact": "我平时开车上班"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-060", "message": "对了，我女儿叫朵朵，今年上幼儿园", "gold": [{"kind": "RelationName", "fact": "我女儿叫朵朵"}], "tags": ["zh", "regex", "mixed"]}
+{"id": "fx-061", "message": "My wife is allergic to shellfish, so please skip seafood places", "gold": [{"kind": "Allergy", "fact": "My wife is allergic to shellfish"}], "tags": ["en", "regex", "mixed"]}
+{"id": "fx-062", "message": "I'm a software engineer, can you suggest a good keyboard?", "gold": [{"kind": "Occupation", "fact": "I'm a software engineer"}], "tags": ["en", "model", "mixed"]}
+{"id": "fx-063", "message": "我每天中午都在公司食堂吃饭，帮我算算这个月饭钱", "gold": [{"kind": "Routine", "fact": "我每天中午都在公司食堂吃饭"}], "tags": ["zh", "model", "mixed"]}
+{"id": "fx-064", "message": "我对酒精过敏，所以聚会别给我倒酒", "gold": [{"kind": "Allergy", "fact": "我对酒精过敏"}], "tags": ["zh", "regex", "mixed"]}
+{"id": "fx-065", "message": "我是一名小学老师，我每周三下午有教研会", "gold": [{"kind": "Occupation", "fact": "我是一名小学老师"}, {"kind": "Routine", "fact": "我每周三下午有教研会"}], "tags": ["zh", "model", "mixed", "multi"]}
+{"id": "fx-100", "message": "我对什么过敏来着？", "gold": [], "tags": ["zh", "negative", "question"]}
+{"id": "fx-101", "message": "如果我住在北京，通勤要多久", "gold": [], "tags": ["zh", "negative", "hypothetical"]}
+{"id": "fx-102", "message": "我可能对海鲜过敏", "gold": [], "tags": ["zh", "negative", "hedge"]}
+{"id": "fx-103", "message": "我对花粉不过敏", "gold": [], "tags": ["zh", "negative", "negated"]}
+{"id": "fx-104", "message": "我今天不想吃辣的", "gold": [], "tags": ["zh", "negative", "temporary"]}
+{"id": "fx-105", "message": "我朋友住在广州", "gold": [], "tags": ["zh", "negative", "third-party"]}
+{"id": "fx-106", "message": "我同事是一名律师", "gold": [], "tags": ["zh", "negative", "third-party"]}
+{"id": "fx-107", "message": "我以前住在武汉", "gold": [], "tags": ["zh", "negative", "past"]}
+{"id": "fx-108", "message": "我小时候很喜欢吃糖", "gold": [], "tags": ["zh", "negative", "past"]}
+{"id": "fx-109", "message": "我现在在机场", "gold": [], "tags": ["zh", "negative", "temporary"]}
+{"id": "fx-110", "message": "帮我把“我住在上海”翻译成英文", "gold": [], "tags": ["zh", "negative", "quote"]}
+{"id": "fx-111", "message": "他说：我是医生", "gold": [], "tags": ["zh", "negative", "quote"]}
+{"id": "fx-112", "message": "记住我喜欢喝茶", "gold": [], "tags": ["zh", "negative", "explicit-command"]}
+{"id": "fx-113", "message": "忘记我住在哪里", "gold": [], "tags": ["zh", "negative", "explicit-command"]}
+{"id": "fx-114", "message": "明天早上八点提醒我开会", "gold": [], "tags": ["zh", "negative", "request"]}
+{"id": "fx-115", "message": "附近有什么好吃的川菜馆", "gold": [], "tags": ["zh", "negative", "question"]}
+{"id": "fx-116", "message": "我最近在减肥", "gold": [], "tags": ["zh", "negative", "temporary"]}
+{"id": "fx-117", "message": "My friend is allergic to dogs", "gold": [], "tags": ["en", "negative", "third-party"]}
+{"id": "fx-118", "message": "If I lived in London I'd take the tube", "gold": [], "tags": ["en", "negative", "hypothetical"]}
+{"id": "fx-119", "message": "I'm not sure where I left my keys", "gold": [], "tags": ["en", "negative", "hedge"]}
+{"id": "fx-120", "message": "I'm flying to Tokyo tomorrow", "gold": [], "tags": ["en", "negative", "temporary"]}
+{"id": "fx-121", "message": "Can you tell me what time it is in Paris?", "gold": [], "tags": ["en", "negative", "question"]}
+{"id": "fx-122", "message": "我觉得这部电影还不错", "gold": [], "tags": ["zh", "negative", "opinion"]}
+{"id": "fx-123", "message": "我这周在出差", "gold": [], "tags": ["zh", "negative", "temporary"]}
+{"id": "fx-124", "message": "你是谁", "gold": [], "tags": ["zh", "negative", "question"]}
+{"id": "fx-125", "message": "给我老婆打电话", "gold": [], "tags": ["zh", "negative", "request"]}
+{"id": "fx-126", "message": "我上周去了一趟杭州", "gold": [], "tags": ["zh", "negative", "past"]}
+{"id": "fx-127", "message": "我要一杯拿铁", "gold": [], "tags": ["zh", "negative", "request"]}
+{"id": "fx-128", "message": "我刚才说错了", "gold": [], "tags": ["zh", "negative", "temporary"]}
+{"id": "fx-129", "message": "我们公司的同事都喜欢打羽毛球", "gold": [], "tags": ["zh", "negative", "third-party", "adversarial"]}
+{"id": "fx-130", "message": "假如我是老板，我会给大家放假", "gold": [], "tags": ["zh", "negative", "hypothetical"]}
+{"id": "fx-131", "message": "my boss lives in Shenzhen", "gold": [], "tags": ["en", "negative", "third-party"]}
+{"id": "fx-132", "message": "我想学游泳", "gold": [], "tags": ["zh", "negative", "wish"]}
+{"id": "fx-133", "message": "我打算下个月搬到深圳", "gold": [], "tags": ["zh", "negative", "plan"]}
+{"id": "fx-134", "message": "这个月我每天都加班", "gold": [], "tags": ["zh", "negative", "temporary", "adversarial"]}
+{"id": "fx-135", "message": "帮我给13800005678打个电话", "gold": [], "tags": ["zh", "negative", "request"]}
+{"id": "fx-136", "message": "我的快递单号是SF1234567890", "gold": [], "tags": ["zh", "negative", "one-time", "adversarial"]}
+{"id": "fx-137", "message": "我的验证码是482913", "gold": [], "tags": ["zh", "negative", "one-time", "adversarial"]}
+{"id": "fx-138", "message": "I need a taxi to the airport", "gold": [], "tags": ["en", "negative", "request"]}
+{"id": "fx-139", "message": "What's the weather like in Beijing this weekend?", "gold": [], "tags": ["en", "negative", "question"]}
+{"id": "fx-140", "message": "我昨天吃了海鲜，有点过敏", "gold": [], "tags": ["zh", "negative", "past"]}
+{"id": "fx-141", "message": "帮我搜一下“我是歌手”第几季最好看", "gold": [], "tags": ["zh", "negative", "quote"]}
+{"id": "fx-142", "message": "我老板说他对花生过敏", "gold": [], "tags": ["zh", "negative", "third-party"]}
+{"id": "fx-143", "message": "我暂时住在朋友家", "gold": [], "tags": ["zh", "negative", "temporary"]}
+{"id": "fx-144", "message": "Please translate \"I live in Paris\" into Chinese", "gold": [], "tags": ["en", "negative", "quote"]}
+{"id": "fx-145", "message": "我女朋友可能喜欢这条项链", "gold": [], "tags": ["zh", "negative", "hedge"]}

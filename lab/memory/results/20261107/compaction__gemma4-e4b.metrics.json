@@ -1,0 +1,46 @@
+{
+  "cases": 12,
+  "emptyOutputRate": 0,
+  "fallbacks": {"OverLength": 2},
+  "modelCalls": 12,
+  "tokensAfterOverBeforeHeuristic": 0.523,
+  "mustKeep": 66,
+  "suite": "compaction",
+  "hallucinationRate": 0,
+  "retentionHeuristic": 0.682,
+  "retentionFinal": 0.97,
+  "model": {
+    "ollamaVersion": "0.40.3",
+    "think": false,
+    "digest": "eb2177adf7646d15faead94fdad6d3e170dc8015653418a3b7d5d52a6380be5b",
+    "options": {
+      "top_p": 0.1,
+      "seed": 7,
+      "top_k": 1,
+      "temperature": 0,
+      "num_predict": 512,
+      "num_ctx": 8192
+    },
+    "hostNote": "desktop Ollama proxy; not LiteRT-LM int4 on a phone, not device evidence",
+    "model": "gemma4:e4b",
+    "details": {
+      "format": "safetensors",
+      "parameter_size": "",
+      "parent_model": "",
+      "family": "",
+      "families": null,
+      "runner": "mlx",
+      "quantization_level": ""
+    }
+  },
+  "retentionWhenModelUsed": 1,
+  "tokensAfterOverBeforeFinal": 0.431,
+  "modelSummaryUsedRate": 0.833,
+  "retentionRawSummary": 0.985,
+  "latencyMs": {
+    "max": 2832,
+    "p50": 2408,
+    "p95": 2832,
+    "n": 12
+  }
+}
