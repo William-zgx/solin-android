@@ -1,3 +1,12 @@
 2026-11-07T17:12:14.848523837Z suite B mode=R cases=151 correct=127
 2026-11-07T17:12:42.700929150Z suite B model=functiongemma:270m mode=M-full cases=151 correct=51
 2026-11-07T17:13:10.906819270Z suite B model=functiongemma:270m mode=M-full-fix cases=151 correct=51
+2026-11-07T17:36:14.463604453Z suite E model=gemma4:e2b mode=json-prompt cases=151 correct=134 gatedCorrect=134
+2026-11-07T17:41:39.743559885Z suite C model=gemma4:e2b mode=N-full cases=151 correct=104
+2026-11-07T17:44:37.904365954Z suite C model=functiongemma:270m mode=N-full cases=151 correct=51
+2026-11-07T17:49:45.863797584Z ollama chat failed for functiongemma:270m: IOException:http_500:{"error":"prediction aborted, token repeat limit reached"}
+2026-11-07T17:50:34.655626721Z suite C model=functiongemma:270m mode=N-topk cases=151 correct=62
+2026-11-07T17:58:04.100564730Z suite C model=gemma4:e4b mode=N-full cases=151 correct=99
+2026-11-07T18:02:47.186095816Z suite E model=gemma4:e4b mode=json-prompt cases=151 correct=133 gatedCorrect=132
+2026-11-07T18:16:43.463292072Z suite B mode=R cases=151 correct=127
+2026-11-07T18:58:22.441785700Z suite B mode=R cases=151 correct=127

@@ -1,6 +1,6 @@
 {
   "ollamaVersion": "0.40.13",
-  "gitHead": "c2ebe390f2f4f356c0a43d4e9ce5d5586f274334",
+  "gitHead": "92d726b87a070494f036ee4d77351b3f4a661e79",
   "samplingOptions": {
     "top_p": 0.1,
     "seed": 7,
@@ -9,31 +9,85 @@
     "num_predict": 384,
     "num_ctx": 8192
   },
-  "models": {"functiongemma:270m": {
-    "digest": "7c19b650567acfb1bee50d12bb286370e8a54d8877f6a0ecfd01f8c8fdc223bb",
-    "details": {
-      "embedding_length": 640,
-      "format": "gguf",
-      "context_length": 32768,
-      "parameter_size": "268.10M",
-      "parent_model": "",
-      "family": "gemma3",
-      "families": ["gemma3"],
-      "runner": "ggml",
-      "quantization_level": "Q8_0"
+  "models": {
+    "functiongemma:270m": {
+      "digest": "7c19b650567acfb1bee50d12bb286370e8a54d8877f6a0ecfd01f8c8fdc223bb",
+      "details": {
+        "embedding_length": 640,
+        "format": "gguf",
+        "context_length": 32768,
+        "parameter_size": "268.10M",
+        "parent_model": "",
+        "family": "gemma3",
+        "families": [
+          "gemma3"
+        ],
+        "runner": "ggml",
+        "quantization_level": "Q8_0"
+      },
+      "sizeBytes": 300807157
     },
-    "sizeBytes": 300807157
-  }},
+    "gemma4:e4b": {
+      "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+      "details": {
+        "embedding_length": 2560,
+        "format": "gguf",
+        "context_length": 131072,
+        "parameter_size": "7.5B",
+        "parent_model": "gemma4-validation-20260929:e4b-imatrix-attention-q6-q8-draft2",
+        "family": "gemma4",
+        "families": [
+          "gemma4"
+        ],
+        "runner": "llamacpp",
+        "quantization_level": "Q4_K_M"
+      },
+      "sizeBytes": 6583656505
+    },
+    "gemma4:e2b": {
+      "digest": "b37049369adfe3d2b653af0ab301a062ca5cbe96ace6aa0d3f2559ee9b563fc2",
+      "details": {
+        "embedding_length": 1536,
+        "format": "gguf",
+        "context_length": 131072,
+        "parameter_size": "4.6B",
+        "parent_model": "gemma4-validation-20260929:e2b-imatrix-attention-q6-q8-draft2",
+        "family": "gemma4",
+        "families": [
+          "gemma4"
+        ],
+        "runner": "llamacpp",
+        "quantization_level": "Q4_K_M"
+      },
+      "sizeBytes": 4587156505
+    }
+  },
   "runDate": "20261108",
-  "suites": {"initial-planning": {
-    "topK": 8,
-    "cases": 151,
-    "registryTools": 52,
-    "fixedClock": "2026-06-14T02:00:00Z",
-    "datasetCases": 173,
-    "rmInstalledProfile": "mobile-action-270m",
-    "skillModeR": "StaticSkill",
-    "skillModeRM": "ModelDrivenBootstrap"
-  }},
-  "hostNote": "Apple M3 Pro 36 GB, Ollama MLX runner; desktop numbers are not device evidence"
+  "suites": {
+    "initial-planning": {
+      "topK": 8,
+      "cases": 151,
+      "registryTools": 52,
+      "fixedClock": "2026-06-14T02:00:00Z",
+      "datasetCases": 173,
+      "rmInstalledProfile": "mobile-action-270m",
+      "skillModeR": "StaticSkill",
+      "skillModeRM": "ModelDrivenBootstrap"
+    },
+    "native-tools": {
+      "topK": 8,
+      "freeSystem": "你是手机助手。如果用户请求需要在手机上执行动作，就调用一个最合适的工具；如果不需要（闲聊、提问、解释、翻译，或用户明确说不要做某事），直接用一句话回答，不调用工具。",
+      "cases": 151,
+      "registryTools": 52,
+      "strictSystem": "你是手机动作规划器。为用户请求调用一个最合适的工具，不解释。",
+      "numCtxFull": 32768,
+      "numCtxTopK": 8192
+    },
+    "action-gate": {
+      "cases": 151,
+      "system": "You decide whether a phone assistant must perform a phone action for the user's request. action = true: the user asks the assistant to do something on the phone now, such as opening an app, setting an alarm, timer or reminder, drafting a message, email, contact or calendar event, calling, searching the web or a map, or changing a setting. action = false: chat, a question the assistant can answer in text, an explanation, a translation, or a request that tells the assistant not to do something.\n\nThe user message is a JSON object whose \"request\" field is the request. Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}.",
+      "minConfidence": 0.9
+    }
+  },
+  "hostNote": "devbox CPU / Ollama 0.40.13 (llamacpp/ggml, Q4_K_M / Q8_0), 32 cores, no GPU; not device evidence"
 }

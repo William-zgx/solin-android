@@ -30,3 +30,7 @@ sentencepiece*.model
 
 # Local agent tooling state and worktrees.
 .claude/
+
+# Lab bench leftovers: Python bytecode from lab/scripts, and local scratch outputs.
+__pycache__/
+*.pyc
