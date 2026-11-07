@@ -1042,13 +1042,17 @@ def composite_gate(records, models, out):
 # ---- Main ----------------------------------------------------------------------------------------
 
 
-def host_for(model):
-    """The host that produced [model]'s numbers, from the model name the bench uses.
+def host_for(model, manifest=None):
+    """The host that produced [model]'s numbers.
 
-    A folder can hold two hosts (Ollama and the LiteRT shim in one day). The shared manifest keeps
-    only the last host, so a model is labelled by its own prefix here instead of inheriting it:
-    `litert/*` ids come from `lab/scripts/litert_shim.py`, everything else from Ollama.
+    One folder can hold two hosts (Ollama and the LiteRT shim on the same day). Prefer the host the
+    run recorded on the model itself; fall back to the name prefix, because `litert/*` ids come from
+    `lab/scripts/litert_shim.py` and everything else from Ollama. This never inherits the folder's
+    single `hostNote`, which only names the last host that wrote there.
     """
+    recorded = ((manifest or {}).get("models") or {}).get(model, {}).get("host")
+    if recorded:
+        return recorded
     return "LiteRT-LM 0.12.0 (.litertlm)" if model.startswith("litert/") else "Ollama"
 
 
@@ -1058,7 +1062,7 @@ def run_facts(folder, manifest, out):
     models = manifest.get("models") or {}
     hosts = OrderedDict()
     for name in models:
-        hosts.setdefault(host_for(name), None)
+        hosts.setdefault(host_for(name, manifest), None)
     rows = [
         ["models in this folder, by host", ", ".join(hosts) or "?"],
         ["git HEAD at the last model run", manifest.get("gitHead", "?")],
@@ -1071,7 +1075,7 @@ def run_facts(folder, manifest, out):
         for name, info in models.items():
             details = info.get("details") or {}
             size = info.get("sizeBytes")
-            rows.append([name, host_for(name), (info.get("digest") or "?")[:12],
+            rows.append([name, host_for(name, manifest), (info.get("digest") or "?")[:12],
                          details.get("parameter_size") or "?",
                          details.get("quantization_level") or "?", details.get("format") or "?",
                          details.get("runner") or "-", f"{size / 1e9:.2f} GB" if size else "?"])

@@ -148,6 +148,8 @@ object LabManifest {
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
         manifest.put("gitHead", gitHead())
         // The host is part of the result: a devbox CPU run and a Mac MLX run must never share a column.
+        // It is recorded per model as well, because one folder can hold an Ollama run and a LiteRT
+        // run on the same day and the top-level note only names the last host that wrote here.
         manifest.put("hostNote", LabEnv.hostNote)
         manifest.put("samplingOptions", OllamaClient.Options().toJson())
         val modelsJson = manifest.optJSONObject("models") ?: JSONObject()
@@ -161,6 +163,7 @@ object LabManifest {
                 JSONObject()
                     .put("digest", tag?.optString("digest"))
                     .put("sizeBytes", tag?.optLong("size"))
+                    .put("host", LabEnv.hostNote)
                     .put("details", tag?.optJSONObject("details")),
             )
         }

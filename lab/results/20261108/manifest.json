@@ -1,6 +1,6 @@
 {
   "ollamaVersion": "litert-lm-0.12.0",
-  "gitHead": "978713b7fceb7be90e7f192d183eeafffb04d263",
+  "gitHead": "002e0f685ebae167bf58468462d4feb44d421c05",
   "samplingOptions": {
     "top_p": 0.1,
     "seed": 7,
@@ -19,11 +19,14 @@
         "parameter_size": "268.10M",
         "parent_model": "",
         "family": "gemma3",
-        "families": ["gemma3"],
+        "families": [
+          "gemma3"
+        ],
         "runner": "ggml",
         "quantization_level": "Q8_0"
       },
-      "sizeBytes": 300807157
+      "sizeBytes": 300807157,
+      "host": "devbox CPU / Ollama 0.40.13 (llamacpp/ggml, Q8_0), 32 cores, no GPU; not device evidence"
     },
     "gemma4:e4b": {
       "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
@@ -34,15 +37,19 @@
         "parameter_size": "7.5B",
         "parent_model": "gemma4-validation-20260929:e4b-imatrix-attention-q6-q8-draft2",
         "family": "gemma4",
-        "families": ["gemma4"],
+        "families": [
+          "gemma4"
+        ],
         "runner": "llamacpp",
         "quantization_level": "Q4_K_M"
       },
-      "sizeBytes": 6583656505
+      "sizeBytes": 6583656505,
+      "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence"
     },
     "litert/gemma-4-e2b": {
       "digest": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
-      "sizeBytes": 2588147712
+      "sizeBytes": 2588147712,
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"
     },
     "gemma4:e2b": {
       "digest": "b37049369adfe3d2b653af0ab301a062ca5cbe96ace6aa0d3f2559ee9b563fc2",
@@ -53,11 +60,14 @@
         "parameter_size": "4.6B",
         "parent_model": "gemma4-validation-20260929:e2b-imatrix-attention-q6-q8-draft2",
         "family": "gemma4",
-        "families": ["gemma4"],
+        "families": [
+          "gemma4"
+        ],
         "runner": "llamacpp",
         "quantization_level": "Q4_K_M"
       },
-      "sizeBytes": 4587156505
+      "sizeBytes": 4587156505,
+      "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence"
     }
   },
   "runDate": "20261108",
