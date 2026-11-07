@@ -178,10 +178,10 @@ private fun addCjkRunTokens(run: String, tokens: MutableList<MemoryToken>) {
 }
 
 private fun Char.isCjk(): Boolean =
-    this in '一'..'鿿' ||
-        this in '㐀'..'䶿' ||
-        this in '぀'..'ヿ' ||
-        this in '가'..'힯'
+    this in '\u4E00'..'\u9FFF' ||
+        this in '\u3400'..'\u4DBF' ||
+        this in '\u3040'..'\u30FF' ||
+        this in '\uAC00'..'\uD7AF'
 
 internal const val STRONG_TOKEN_WEIGHT = 1f
 internal const val WEAK_TOKEN_WEIGHT = 0.5f
