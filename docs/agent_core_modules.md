@@ -709,10 +709,23 @@ Current status:
   indexing, or query embedding fails.
 - UI state distinguishes installed memory assets from active semantic recall,
   so a downloaded model is not presented as usable until probe/index succeeds.
+- Two local-model memory tasks sit behind the `LocalMemoryModel` seam, and both
+  are off by default. `LocalModelMemoryFactExtractor`
+  (`LocalModelMemoryExtractionConfig.enabled`) adds fact suggestions to the
+  regex ones. A fact is suggested only when it is copied from the user's message
+  and passes the per-fact guards, and it is still saved only after the user
+  confirms. `CompactionConfig.modelSummaryEnabled` lets `DefaultContextCompactor`
+  ask for the summary of the older messages. The summary never sees user
+  messages and is rejected when it adds a number. Any failure (no engine,
+  timeout, error, unparseable or ungrounded output) falls back to the heuristic
+  result. `lab/memory/` holds the synthetic datasets and the opt-in desktop
+  bench.
 
 Tests:
 
 - `MemoryRepositoryTest`
+- `LocalModelMemoryFactExtractorTest`
+- `ModelCompactionSummaryTest`
 - `SolinViewModelTest`
 - `MainActivityLongTermMemoryUiTest`
 
