@@ -35,10 +35,79 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 完整本地门禁 | 最近完整本地门禁条目是历史证据；新提交仍需按需重新运行 `scripts/verify_local.sh`。 | 见 2026-06-22 / 2026-06-23 本地 gate 条目 |
+| 当前 main / CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
+| 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-04 — Documentation refresh
+
+本轮覆盖项：基于 main `cb7e4918` 重写中英文 README 和 Guidebook，新增原创概念主视觉，
+整理文档索引、架构/隐私事实、模型说明、验收与发布指南。四份旧重构方案压缩为当前状态、
+决策和剩余合同，原全文通过固定 `cb7e4918` 提交链接保留；既有验证日志不删除或改写为成功。
+更新待审商店权限清单、文案与候选文件哈希，审批人、日期及 pending 决策不变。
+
+README 仅参考以下公开项目的组织方式，文案与图片为本项目重写：
+[scrcpy](https://github.com/Genymobile/scrcpy/blob/master/README.md)、
+[Ollama](https://github.com/ollama/ollama/blob/main/README.md)、
+[OpenHands](https://github.com/OpenHands/OpenHands/blob/main/README.md)。
+`docs/assets/solin-readme-concept.svg` 为概念插画，不是 App 截图或设备验收证据；
+已在 Chrome 渲染并目视检查，本机预览为 `/tmp/solin-readme-preview/concept-browser.png`。
+
+验证命令与结果：
+
+- `scripts/privacy_scan.sh`：README、Guidebook、AGENTS、docs 和文档生成脚本通过扫描。
+- `scripts/verify_model_capability_profiles.sh`、`scripts/verify_capability_matrix.sh`：通过。
+- `scripts/verify_ai_behavior_eval.sh --require-boundary-map`：40 cases / 7 categories / 6 MVP scenarios 通过。
+- `python3 -I scripts/run_phone_task_benchmark.py --dry-run`：59/59 任务 schema 有效；未运行设备任务。
+- `bash -n scripts/generate_release_blocker_dashboard.sh`，重生成后与检入文档 `cmp`：通过。
+  生成器只调整文档输出，移除重复 deferred 摘录及缺参数的旧命令，链接完整 owner 指南。
+- 本机链接检查覆盖 32 份 Markdown，文件目标和标题锚点无未解析项；SVG XML 有效，无脚本或外部资源。
+  `git diff --check` 通过；5 个模型文件的固定 bytes/hash 与 `gradle/bundled-models.json` 一致，未重新下载模型。
+- `scripts/verify_privacy_review.sh`、`scripts/verify_store_policy_record.sh` 仍按预期拒绝：
+  `failedTarget=privacy-review-record` / `store-policy-record`，原因是未审批、缺少真实审核人/日期、
+  candidate evidence 尚未批准，以及商店支持邮箱/公开隐私 URL 未填写。没有哈希、权限清单或披露文字失配。
+  不把这两个预期拒绝记录成发布门禁通过。
+
+文档检查的本机报告为 `/tmp/solin-docs-*.properties`；它们不是发布批准附件。
+本次未运行 Gradle、模拟器或物理设备测试，前文的代码/设备/CI 证据仍绑定各自提交和 APK。
+
+## 2026-11-04 — Main CI convergence
+
+本轮覆盖项：Mika 手机能力在 `3bc66f4c` 合入 main 后的 CI 修复与最终验证。
+记录日期采用 UTC+08:00；GitHub 原始成功运行始于 `2026-11-03T19:01:07Z`，
+结束于 `2026-11-03T19:13:49Z`，对应本地 2026-11-04。
+
+验证命令：`scripts/verify_local.sh`、
+`./gradlew :app:testDebugUnitTest :app:lintDebug`、
+`scripts/verify_ai_behavior_eval.sh --require-boundary-map`，以及
+`gh run view 41699276903` 查询结果和日志。
+
+| 提交 / CI | 结果与处理 |
+| --- | --- |
+| `3bc66f4c` / [41691510930](https://github.com/William-zgx/solin-android/actions/runs/41691510930) | `verify` 在脚本回归失败：`toolCapabilityCount=49` 已过期，实际 52。本地完整验证继续发现 7 处 NewApi Lint 错误。 |
+| `3f8a63d6` / [41696168066](https://github.com/William-zgx/solin-android/actions/runs/41696168066) | 修正数量及显式 API 守卫后，远端 2687 项测试中并发取消用例超时。定位到 `stop()` 与 Call 创建/登记的竞态。 |
+| `cb7e4918` / [41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903) | 登记后复查停止代次，取消遗漏 Call；确定性回归在旧实现失败、修复后通过。远端工作流及 `verify` 成功。 |
+
+结果：最终本地全量 JVM **2688 passed / 0 failed / 0 errors / 0 skipped**，
+Lint 零错误。此前完整脚本回归、debug/release APK、androidTest APK、AAB、
+releaseSmoke 和产物扫描已通过；远端成功提交重新执行完整 `verify_local.sh`。
+AI 行为边界检查为 40 cases / 7 categories / 6 MVP scenarios。
+本机补充日志在 `/tmp/solin-mika-validation/`，包括 `ci-fix-verify-local.log`
+（保留首次 Lint 失败）、`ci-fix-gradle.log`、`ci-fix-artifact-gate.log`、
+`ci-stop-race-red.log`（预期失败）与 `ci-stop-race-gate.log`。
+本机临时目录不是可移植发布附件；远端 run URL 是这一轮 CI 的可追溯入口。
+
+证据限制：`emulator-regression` job 结论虽为 success，内部报告实际为 skipped，
+`failedTarget=emulator-infra` / `reason=emulator-infra-hvf-unsupported`。
+已核对 run 的 `android-emulator-regression-evidence` artifact：上层
+`regression-emulator.properties` 为上述 skipped；下层 `emulator-verification.properties`
+为 `status=failed` / `failedTarget=emulator-startup` / `reason=emulator-startup-process-exited`。
+`emulator-api-matrix`、`model-provenance`、`protected-signing`、
+`release-artifact-archive`、`final-release-gate` 均未执行。CI 绿色不代表物理设备、
+完整模拟器矩阵、模型 provenance 或发布签名通过，也未补齐下文记录的有效模型配对基准。
+此前集成分支的未提交状态仅描述当时的测试现场；该实现现已合入 main。
 
 ## 2026-11-04 — Mika phone capability integration
 

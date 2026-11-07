@@ -108,27 +108,12 @@ physical_rows = [
     row for row in readiness_rows
     if "Physical hardware required" in row["status"]
 ]
-deferred_items = [
-    item for item in active_items
-    if item.get("status") == "deferred"
-    or any("deferred" in blocker or "no-device" in blocker for blocker in item.get("blockedBy", []))
-]
-
 next_commands = [
     "VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh",
     "VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh",
     "VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh",
     "VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh",
     "scripts/check_emulator_api_matrix.sh",
-    "scripts/prepare_emulator_api_matrix.sh",
-    "ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh",
-    "ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh",
-    "ANDROID_SERIAL=<physical-device-serial> scripts/collect_perf_baseline.sh",
-    (
-        "PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> "
-        "PERF_BASELINE_FILE=<rc perf baseline> "
-        "AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> scripts/verify_release_gate.sh"
-    ),
 ]
 
 print("# Release Blocker Dashboard")
@@ -145,6 +130,10 @@ print(f"- Policy: {compact(roadmap.get('policy', ''), 240)}")
 print()
 
 print("## Active Blockers")
+print()
+print("The table preserves the dated roadmap ledger; it does not claim a new review of")
+print("every historical phase. Current owner requirements are listed below and in")
+print("[release readiness](release_readiness.md). Deferred entries remain in this table.")
 print()
 print("| Blocker | Status | Owner / phase | Blocking evidence | Next evidence |")
 print("| --- | --- | --- | --- | --- |")
@@ -167,14 +156,6 @@ for item in active_items:
         )
         + " |"
     )
-print()
-
-print("## Deferred")
-print()
-for item in deferred_items:
-    label = LABELS.get(item["id"], item["id"])
-    blockers = ", ".join(readable_slug(blocker) for blocker in item.get("blockedBy", []))
-    print(f"- **{clean_cell(label)}**: `{item['status']}`; {clean_cell(blockers)}.")
 print()
 
 print("## Human Approval")
@@ -206,6 +187,16 @@ print()
 
 print("## Next Commands")
 print()
+print("Run these preflight checks from the repository root. Pending owner approvals")
+print("are expected to fail closed; a documentation refresh does not approve them.")
+print()
 for command in next_commands:
     print(f"- `{command}`")
+print()
+print("For operations requiring device selection, signing or measured inputs, use the")
+print("complete commands in the owner guides rather than copying incomplete templates:")
+print()
+print("- [Device acceptance](phone_acceptance.md): emulator preparation, installation and real-app evaluation.")
+print("- [RC performance collection](phone_acceptance.md#rc-性能基线): `collect_rc_perf_from_device.sh` with a physical device and final RC artifact.")
+print("- [Release checklist](release_checklist.md): signing, evidence records and the final public-release gate.")
 PY

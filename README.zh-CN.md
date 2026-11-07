@@ -1,247 +1,202 @@
-# Solin Android
+# 栖知 Solin
+
+**隐私优先的 Android 助手：本地对话、本地记忆，以及受控的手机操作。**
 
 [![Android Verification](https://github.com/William-zgx/solin-android/actions/workflows/android.yml/badge.svg)](https://github.com/William-zgx/solin-android/actions/workflows/android.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Android-3DDC84.svg)](https://developer.android.com)
-[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#当前状态)
+[![Platform](https://img.shields.io/badge/Android-API%2028%2B-315c48)](#快速开始)
+[![License](https://img.shields.io/badge/License-MIT%20%2B%20third--party-315c48)](#许可证)
+[![Status](https://img.shields.io/badge/Status-experimental-d9e7da)](#当前状态)
+
+[English](README.md) · 简体中文
+
+[快速开始](#快速开始) · [手机控制](#手机控制范围) · [隐私契约](#产品契约) · [文档](#文档) · [参与贡献](#贡献)
 
 <p align="center">
-  <a href="README.md">English</a> | 简体中文
+  <img src="docs/assets/solin-readme-concept.svg" width="1200" alt="栖知 Solin 概念插画：在 Android 手机上进行本地推理和受控操作" />
 </p>
 
-<p align="center">
-  <img src="docs/assets/solin_brand_lockup.png" alt="Solin brand lockup" width="280">
-</p>
+*概念插画，非应用截图。*
 
-Solin Android（应用名 `栖知 Solin`）是一个实验性的隐私优先 Android 助手。
-支持本地 LiteRT-LM Text+Vision 聊天、可选 OpenAI 兼容远程端点，以及在用户确认后
-执行手机侧工具（提醒、分享、应用导航、屏幕文本、OCR、联系人、日历、低风险应用搜索）。
-
-## 目录
-
-- [产品契约](#产品契约)
-- [实现要点](#实现要点)
-- [首次打开与信任流程](#首次打开与信任流程)
-- [手机控制范围](#手机控制范围)
-- [当前状态](#当前状态)
-- [快速开始](#快速开始)
-- [配置与密钥](#配置与密钥)
-- [推荐模型](#推荐模型)
-- [验证](#验证)
-- [文档](#文档)
-- [贡献](#贡献)
-- [安全](#安全)
-- [许可证](#许可证)
-
-## 产品契约
-
-- **默认本地优先**：聊天历史、记忆、私有工具结果、屏幕文本、OCR、本地图片和
-  附件摘要默认保留在设备上，以 `LocalOnly` 处理，除非用户主动选择远程路径。
-- **远程能力可选**：远程聊天仅在配置端点并选择远程模式后启用。图片、疑似敏感
-  文本以及已配置的 `remote sends` 需要预览或确认。
-- **只确认关键操作**：设备动作在本地经过权限、披露、审计和 fail-closed 边界。
-  打开应用、填写草稿、设置提醒、点击滚动等可撤销操作直接执行；外发、敏感步骤，以及
-  含敏感信息或读过隐私数据之后的联网查询/链接需要确认；支付、发送、删除、发布、下单、授权等按钮始终由
-  用户亲手点击。信任中心可切回"每步确认"。
-- **用户保持控制**：用户可以清除密钥、删除会话和记忆；涉及隐私的行为必须在发布前
-  文档化。
-
-```mermaid
-flowchart LR
-    User["用户请求"] --> Router["技能优先路由"]
-    Router --> Local["本地 LiteRT-LM"]
-    Router --> Remote["可选远程端点"]
-    Router --> Tools["已确认的本地工具"]
-    Tools --> Registry["ToolRegistry validation"]
-    Registry --> Safety["SafetyPolicy"]
-    Safety --> Confirm["用户确认"]
-    Confirm --> Android["Android 权限 / intents / Accessibility"]
-    Local --> Answer["助手回答"]
-    Remote --> Answer
-    Android --> Audit["脱敏 trace 与 audit"]
-    Audit --> Answer
-```
+Solin 在手机上运行 LiteRT-LM 对话，将记忆保留在本机，并通过观察—行动循环使用工具。
+OpenAI 兼容远程端点为可选能力。权限、隐私和实时动作检查共同决定哪些操作可以执行，
+关键控件始终由用户亲手操作。
 
 ## 实现要点
 
-- LiteRT-LM 本地聊天，支持 GPU/CPU 回退和显式模型加载。
-- 本地记忆索引；语义召回仅在运行时探测通过后可用。
-- 本地图片输入只对已验证的本地聊天模型开放；不支持的模型 fail closed，而非
-  静默 OCR 或上传图片。
-- OpenAI 兼容远程聊天，并在本地过滤 `LocalOnly` 上下文。
-- 基于注册表的工具、内置 Skills、本地安全策略、脱敏 trace 和 audit 记录。
-- model-driven 应用搜索用已校验的本地 Chat/动作规划模型 bootstrap；本地规划不可用时
-  回退到静态 Skill 路径。
-- **远程视觉 GUI 自动化（可选）**：信任中心开关开启、远程模式、且模型支持视觉时，
-  Solin 通过 `AccessibilityService.takeScreenshot` 截取当前屏幕（无需 MediaProjection、
-  无需新增前台服务），连同屏幕控件文字（不含密码框）发送给远程视觉模型，一次回复可规划
-  点击、输入、提交等多步，并作为本地动作执行——仍需通过全部设备控制预检。屏幕内容外发由该开关（每步确认模式下另需首次确认）
-  和每次外发审计把关；截图或发送失败时 fail-closed 并停止循环。
-- **云端路由（可选）**：自动模式下，本机和已配置的远程模型都可用时，可只把本条请求
-  文字发给 Codiv OpenJev 决策模型，判断由本机还是云端回答。“只观察”只计数，“启用”
-  采用置信度 ≥ 0.9 的判断。Codiv API Key 由用户在信任中心填写。
-- 聊天界面只展示安全结果摘要；结构化工具字段通过 trace/audit surface 查看，而非
-  直接插入 `typed chat card`。
+| 能力 | 当前实现 |
+| --- | --- |
+| 本地对话与图片 | 已校验 E2B/E4B Text+Vision 模型、GPU/CPU 回退、有界图片输入 |
+| 本地记忆 | 轻量本地索引；Embedding 运行时探测通过后启用语义召回 |
+| 手机工具 | 提醒、草稿、导航、屏幕文本、OCR、联系人、日历和低风险应用搜索 |
+| 手机操作可靠性 | 输入读回、有界稳定检查、采集、查找与 NumberPicker 调节 |
+| 路线复用 | 同会话、同请求的已验证短搜索路线；每步重新授权 |
+| 可选远程推理 | OpenAI 兼容聊天、显式远程视觉自动化及可选云路由 |
+| 后台显示实验 | 仅 debug、显式授权的独立显示；独立焦点应用启动要求兼容的 Android 14+ |
 
-## 首次打开与信任流程
-
-Solin 启动后直接进入助手界面。首次使用时，用户可选择远程配置、推荐本地模型下载、
-受信任模型导入或模型管理。本地设置、远程发送、附件、语音、记忆和工具执行都保持为
-可见的用户选择。
-
-脚本回归和手工验收必须分开记录。Voice 输入、Android system document picker、
-foreground 提示和 MediaProjection consent sheet 都是系统介导流程，需要真实设备验收。
-
-## 手机控制范围
-
-手机控制仅限低风险导航和搜索：observe、tap、type、submit search、scroll、swipe
-（滑动）、long-press（长按）、系统按键（home/recents/enter/delete）、back 和 wait。
-系统按键是固定白名单，绝非任意键码。Agent 从不点击支付、发送、删除、发布、下单、
-转账或授权类按钮：按名称或坐标点到这类按钮时会在执行前停下，由用户亲手点击。输入
-和滚动在任何页面都可用；提交、回车、滑动、长按在页面上有这类按钮时会停下。切回
-"每步确认"后，低风险应用控制每 5 个 UI 动作回到用户确认一次。
-
-当应用启动携带后续意图（follow-up intent）时，Solin 可在已打开的应用中继续操作，
-前提是已安装本地移动操作模型，并受 expectedPackageName
-前台守卫约束。若模型缺失或目标应用不在前台，则 fail-closed 回退为"仅打开不继续"，
-且该延续保持 LocalOnly。
-
-可选的远程视觉路径用支持视觉的远程模型替代本地动作模型完成应用内延续：远程模型看到
-屏幕截图和控件文字后返回点击/返回/滚动/输入/提交/等待/停止（或其中几步的短计划），
-作为本地 `ui_*` 动作或 `finish` 在相同的预检规则下执行。此路径默认关闭，需要信任中心"远程视觉 GUI 自动化"开关、远程推理模式以及
-支持图片输入的模型。外发同意与审计模型见 `docs/privacy_notice.md`。
-
-## 当前状态
-
-适合本地开发、个人评估和受控测试构建。尚未准备好用于大规模应用商店发布或生产分发。
-
-- 仓库包含源码、测试、脚本、文档和少量项目资源。
-- 仓库不包含模型权重、API key、keystore、签名密码、用户数据或生成的发布产物。
-- 推荐模型下载是第三方产物，必须分别检查其上游许可证、访问规则和再分发条款。
-- bundled-model 包是内部实验室产物，直到模型许可证、再分发、署名和 notice 审批
-  完成前都不应作为公共发布路径。
+Solin 处于**实验阶段**，适合本地开发与个人评估，尚未准备好大规模应用商店分发。
+[当前限制](#当前状态)与[发布就绪状态](docs/release_readiness.md)区分已实现功能、
+设备支持证据和发布批准。
 
 ## 快速开始
 
-要求：构建需要 JDK 17+（跑完整单元测试需要 JDK 21，与 CI 一致）、Android SDK 36
-（target SDK 36，min API 28）、用于真实 LiteRT-LM 验证的 arm64-v8a Android 真机。
+使用 **JDK 21** 与 CI 对齐，安装 Android SDK platform 36、build-tools 36.0.0 和
+platform-tools。compile/target SDK 为 36，最低 Android API 为 28，当前原生构建面向
+arm64-v8a。Java/Kotlin 输出目标为 Java 17；`doctor.sh` 检查的最低 JDK 为 17。
 
 ```bash
 git clone https://github.com/William-zgx/solin-android.git
 cd solin-android
 export ANDROID_HOME=/path/to/android-sdk
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
+scripts/doctor.sh
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-启动后选择一种开始方式：配置 OpenAI 兼容远程端点、下载推荐的本地 E2B 模型，或导入受信任
-且兼容的 `.litertlm` 模型。
+真实 LiteRT-LM 验证应使用兼容 Android 真机；模拟器工具测试不代表模型质量或性能通过。
 
-## 配置与密钥
+### 首次打开与信任流程
 
-Solin 不依赖提交到仓库的密钥。远程端点可在应用内配置，也可以用环境变量进行本地验证。
+在应用内选择一种开始方式：
 
-| 变量 | 用途 | 说明 |
-| --- | --- | --- |
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Gradle 和脚本 | Android SDK 位置。 |
-| `ANDROID_SERIAL` | 设备脚本 | 选择一台已授权手机或模拟器。 |
-| `SOLIN_HF_TOKEN` | bundled-model 构建 | 用于下载 gated Hugging Face 产物的凭据；不代表许可证审批。 |
-| `SOLIN_LIVE_REMOTE_BASE_URL` | 远程调试辅助 | 报告中会脱敏。 |
-| `SOLIN_LIVE_REMOTE_MODEL` | 远程调试辅助 | 报告中会脱敏。 |
-| `SOLIN_LIVE_REMOTE_API_KEY` | 远程调试辅助 | 不能提交或写入记录。 |
-| `RELEASE_KEYSTORE` 和相关签名变量 | 签名脚本 | 只应来自私有签名环境。 |
+1. **本地使用**：下载推荐 E2B 模型，或导入受信任且兼容的 `.litertlm` 文件。不支持的模型
+   能力会明确拒绝。
+2. **远程使用**：配置 OpenAI 兼容端点与模型，选择远程模式。自动模式也可选择满足条件的
+   已配置端点。
+3. **模型管理**：查看安装、校验和运行时状态，管理可选记忆/动作模型。
 
-提交敏感变更前，请先运行本地密钥扫描：
+下载默认等待 Wi-Fi。暂停时可显式选择**用移动数据继续**，已知时会显示剩余大小。
+单独下载期间仍可编辑远程配置；模型加载或运行中的任务可能阻止冲突操作。
 
-```bash
-scripts/privacy_scan.sh --report build/verification/privacy-scan.properties README.md README.zh-CN.md docs app/src/main scripts
-```
+## 产品契约
 
-如果 token 或签名密钥进入 Git 历史，应先视为已泄露并撤销，然后清理历史并轮换相关凭据。
+- **默认留在本机。** 聊天历史、记忆、私有工具结果、屏幕文本、OCR 和本地附件默认不上云，
+  除非用户选择获准的远程路径。未知隐私元数据按 `LocalOnly` 拒绝外发。
+- **默认只确认关键操作。** 获准的可撤销步骤可以直接执行。外发、未知工具、模型标注敏感
+  步骤，以及含敏感信息或读过隐私数据后的联网查询需要确认。读过隐私数据后，输入用户
+  未提供的文字也要确认；向其他 App 传递敏感文字或此后新编写的文字同样受检查。仅由
+  用户原话构成、非敏感且未触发其他关键规则的草稿可自动批准。
+- **关键控件由用户操作。** Agent 不点击支付、发送、删除、发布、下单、转账或授权控件。
+  信任中心可将普通动作切回“每步确认”。
+- **远程视觉先批准。** 截图外发要求显式开关、远程模式、支持图片的模型，以及本次运行
+  首个应用内步骤的用户确认，两种确认模式都适用。每次外发均有审计，不记录原始 prompt。
+- **用户持续掌握控制。** 可以清除密钥、会话与记忆。权限丢失、模型不支持或结果无效，
+  都不能静默启用另一条数据路径。
+
+完整数据与同意规则由[隐私说明](docs/privacy_notice.md)维护。可选云路由是独立开关：
+在 Shadow 或 Active 模式下，满足条件的请求文字可能发给配置的决策模型，并非纯本地
+策略。见[自动推理状态](docs/specs/20260718-adaptive-edge-inference/status.md)。
+
+## 手机控制范围
+
+本地路径支持观察、点击、输入、搜索提交、滚动、滑动、长按、返回、等待和固定白名单
+系统按键，仍须满足实时页面和隐私守卫。输入读回与有界控件树稳定检查会明确标记
+不确定结果，不盲目重放写操作。
+
+| 工具 | 边界 |
+| --- | --- |
+| `ui_collect` | 有界多页读取；片段结果不证明整个列表已读完 |
+| `ui_find` | 精确查找并检查歧义；找到目标不自动点击 |
+| `ui_set_wheel` | 仅支持可识别 NumberPicker；必须读回最终目标值 |
+
+每个组合子步骤都重新授权。本地观察规划优先使用已校验 E2B/E4B Chat 模型，实验动作
+模型作为回退。后续操作受目标包名及新鲜证据约束；规划不可用时保守回退。验证路线
+复用不携带旧授权或旧坐标。
+
+**远程视觉**可以使用无障碍截图与可见控件文字规划本地动作，动作仍经过相同守卫。
+该能力默认关闭，并遵守上文批准规则；普通屏幕文本证据保持 `LocalOnly`。
+
+**后台显示**是单独的 debug 实验，需要已授权 ADB 显式配置与用户选择。helper 要求
+Android 12+；启动独立焦点的后台应用要求 Android 14+ 及平台支持。会话丢失或过期时
+拒绝操作，不切回主屏；该作用域禁用远程视觉和主屏 MediaProjection OCR。
+
+合同、限制、来源与操作方式：[手机能力](docs/plans/mika-phone-capabilities.md) ·
+[设备验收](docs/phone_acceptance.md)。
 
 ## 推荐模型
 
-推荐模型元数据固定在 `docs/model_manifest.md`。下载内容只有在大小和 SHA-256 校验通过后
-才会登记。
+文件通过大小和 SHA-256 校验后登记；存在文件不代表运行时及全部能力在当前设备上可用。
 
-| 能力 | 产物 | 约略大小 | 用途 |
-| --- | --- | ---: | --- |
-| 基础聊天 E2B | `.litertlm` 聊天模型 | 2.59 GB | 默认本地 Text+Vision 聊天路径 |
-| 本地记忆 | EmbeddingGemma `.tflite` + tokenizer | 184 MB | 运行时探测通过后的语义记忆索引 |
-| 设备动作 | `.litertlm` 动作模型 | 284 MB | 带规则回退的受限动作规划 |
-| 高质量聊天 E4B | `.litertlm` 聊天模型 | 3.66 GB | 更高质量的本地 Text+Vision 聊天选项 |
+| 用途 | 产物 | 下载大小，约 |
+| --- | --- | ---: |
+| 默认本地聊天 | E2B `.litertlm`，Text+Vision | 2.59 GB |
+| 可选本地聊天 | E4B `.litertlm`，Text+Vision | 3.66 GB |
+| 语义记忆 | EmbeddingGemma `.tflite` + tokenizer | 184 MB |
+| 实验动作回退 | mobile-action-270m `.litertlm` | 284 MB |
 
-模型文件不会提交到 Git。普通公共发布产物不打包模型文件。内部 `bundledModels` 包是快速
-体验和实验室验证的文档化例外，详见 `docs/bundled_model_package.md`。
+以上为十进制单位。精确字节数、固定来源、哈希及人工许可审核状态见[模型清单](docs/model_manifest.md)。
+权重不进 Git，普通公共产物不打包模型；[内部 bundledModels 包](docs/bundled_model_package.md)
+有独立的构建、安装与再分发要求。
+
+## 配置与密钥
+
+在应用内配置远程端点和凭据。开发脚本可以使用环境变量，其值不能提交到仓库。
+
+| 变量 | 用途 |
+| --- | --- |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK 位置 |
+| `ANDROID_SERIAL` | 选择一台已授权手机或模拟器 |
+| `SOLIN_HF_TOKEN` | gated bundled-model 下载；访问权限不等于许可证批准 |
+| `SOLIN_LIVE_REMOTE_BASE_URL`、`SOLIN_LIVE_REMOTE_MODEL`、`SOLIN_LIVE_REMOTE_API_KEY` | 远程调试评估；秘密不得写入报告 |
+| `RELEASE_KEYSTORE` 和相关签名变量 | 仅私有签名环境使用 |
 
 ## 验证
 
 ```bash
-# 本地验证
-scripts/doctor.sh
+# 完整本地门禁：脚本回归、JVM、Lint、构建及产物检查
 scripts/verify_local.sh
 
-# 设备或模拟器验证
-scripts/doctor.sh --device
+# 设备检查；在个人设备上运行前先阅读验收指南
 ANDROID_SERIAL=<device-or-emulator> scripts/install_and_test_device.sh
 
-# 完整模拟器回归（更严格的产物门禁）
-AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
+# 完整模拟器回归
+AVD_NAME=<your-avd-name> scripts/regression_emulator.sh
 ```
 
-只有当 `regression-emulator.properties` 包含 `status=passed` 时，才能把模拟器回归记录为
-通过。
+完整模拟器通过必须有 `regression-emulator.properties` 的 `status=passed`。
+CI 任务因基础设施不支持（如 HVF 不可用）而跳过，即使显示绿色也不代表实际设备覆盖。
+模型驱动的应用搜索还要求指定模型和经过验证的 query/package/app 守卫。
 
-model-driven 应用搜索 eval 属于 debug/device 检查，需显式设置
-`RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`。mock 和 real app 模式都通过 `verifySearchQuery`、
-`expectedPackageName`、`expectedAppName` 校验结果，并要求
-`searchVerificationStatus=verified`。
+按提交记录的结果见[验证报告](docs/validation_report.md#2026-11-04--main-ci-convergence)。
+语音输入、系统选择器、MediaProjection 同意、物理设备行为和发布批准需要各自证据。
 
-需要真实设备行为，或需要保留已下载模型、远程配置、会话和手工验收状态的流程，请参考
-`docs/phone_acceptance.md`。
+## 当前状态
+
+- **实现不等于通用支持。** WebView、真实滚轮、OEM 焦点/生命周期和完整模型任务仍需
+  补充验收；后台显示的负向设备测试仍待完成。
+- **没有基准提升结论。** 有效的前后配对手机任务比较尚未完成；单元测试通过不证明
+  任务成功率或性能提升。
+- **没有公共发布批准。** 模型许可、再分发、隐私/法务审核、签名和物理设备证据仍是
+  独立门禁。
+- **仓库仅保存源码与配套资料。** 模型权重、凭据、keystore、用户数据和生成的发布
+  产物不进 Git。
 
 ## 文档
 
-- English README: `README.md`
-- 架构与模块归属：`docs/agent_core_modules.md`
-- 隐私边界：`docs/privacy_notice.md`
-- 模型来源：`docs/model_manifest.md`
-- bundled-model 实验室包：`docs/bundled_model_package.md`
-- 设备/手工验收：`docs/phone_acceptance.md`
-- 发布就绪状态：`docs/release_readiness.md`
-- 文档索引：`docs/index.md`
-- 架构速览：`Guidebook.md`；coding agent 协议：`AGENTS.md`
+| 需要了解 | 从这里开始 |
+| --- | --- |
+| 架构与代码地图 | [Guidebook](Guidebook.md) → [核心模块](docs/agent_core_modules.md) |
+| 数据和同意规则 | [隐私说明](docs/privacy_notice.md) |
+| 使用与设备验收 | [手机验收](docs/phone_acceptance.md) |
+| 模型来源和分包 | [清单](docs/model_manifest.md) · [bundled models](docs/bundled_model_package.md) |
+| 发布状态和证据 | [就绪状态](docs/release_readiness.md) · [验证报告](docs/validation_report.md) |
+| 全部事实归属文档 | [文档索引](docs/index.md) |
 
 ## 贡献
 
-欢迎贡献。一个有用的变更通常应包含清晰的问题陈述、聚焦的代码或文档修改、测试或验证说明，
-以及用于设备相关问题的安全日志或截图。
-
-发起 pull request 前请运行 `scripts/verify_local.sh`。如果变更涉及设备流程，也请遵循
-`docs/phone_acceptance.md`。新增工具、Skills、模型路径和手机控制行为需要 schema 校验、
-隐私分级、确认策略、审计覆盖和测试。
-
-适合入门的贡献方向：保持 owner docs 聚焦的文档修正、围绕工具 schema 和安全策略的测试、
-低风险应用搜索和屏幕观察回归的 replay fixture、保持现有 `testTag` 的 UI 可访问性修复。
+先读 [AGENTS.md](AGENTS.md) 与相关 owner 文档。保持变更聚焦，在受影响边界补测试，
+按变更选择验证层级。纯文档变更运行相关链接、格式和记录检查；代码变更发起 PR 前应
+通过完整本地门禁。工具 schema 测试、低风险手机夹具、可访问性和文档修正都适合作为
+起点。
 
 ## 安全
 
-请不要在公开 issue 中包含密钥、私有端点、个人数据、敏感截图、未发布的签名细节或受再分发
-限制的模型文件。
-
-建议披露流程：
-
-1. 在不暴露私有 payload 的前提下复现问题。
-2. 捕获最小化的安全日志、堆栈或验证报告。
-3. 在公开细节前，先私下联系仓库所有者。
-4. 附上受影响 commit、Android 版本、设备或模拟器类型以及受影响区域。
-
-安全敏感修复应保持默认 fail-closed 行为，并在可行时加入回归测试。
+私有端点、凭据、个人数据、敏感截图和受限模型文件不要放入公开 issue。安全问题应
+私下联系仓库所有者，提供受影响提交、设备/API 与最小安全日志。隐私相关改动运行
+`scripts/privacy_scan.sh`。秘密进入 Git 历史后应先撤销，再清理历史并轮换凭据。
 
 ## 许可证
 
-Solin Android 应用代码基于 MIT License 发布，第三方源码另有声明的部分除外。从 Mika
-适配的手机操作代码保留 Apache-2.0 许可，详见 [NOTICE](NOTICE) 和
-[随附许可证](licenses/Apache-2.0.txt)。推荐模型下载是第三方产物，受其上游许可证
-约束；请参考 `docs/model_manifest.md` 和 `docs/model_license_review.json`。
+Solin 自有代码使用 [MIT](LICENSE)。从 Mika 适配的部分保留
+[Apache-2.0](licenses/Apache-2.0.txt)，见 [NOTICE](NOTICE) 与源码声明。推荐模型为第三方
+产物，遵循各自条款和[审核要求](docs/model_license_review.json)。

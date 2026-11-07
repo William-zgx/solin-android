@@ -1,6 +1,16 @@
 # 真机验收指南
 
-本页只回答一件事：怎样在真机或模拟器上证明当前构建能安装、启动，并通过关键用户路径。发布放行由 `docs/release_checklist.md`、最终 release gate 和 release owner sign-off 判定；`docs/release_blocker_dashboard.md` 只汇总风险。
+本页说明如何在已授权的真机或模拟器上验证安装、启动与关键用户路径。
+发布放行由 [发布清单](release_checklist.md)、最终 release gate 和 release owner sign-off
+判定；[阻断仪表盘](release_blocker_dashboard.md)只汇总缺少的证据。
+
+按目标选择入口：
+
+- [自动回归](#自动回归)：本地门禁、安装和 instrumentation。
+- [手机操作增量验收](#mika-手机操作增量验收)：输入核验、组合工具、路线和后台显示。
+- [覆盖安装与人工安装](#覆盖安装与人工安装)：保留已有模型和用户配置。
+- [模拟器与远程 debug 检查](#模拟器与远程-debug-检查)、[App 控制](#debug-app-控制验收)与[任务基准](#手机任务基准)。
+- [手工验收](#手工验收场景)与 [RC 性能基线](#rc-性能基线)：系统入口和物理设备证据。
 
 ## 证据口径
 
@@ -10,6 +20,8 @@
 - debug device-control 和 real-app search eval 只证明 App 控制链路 readiness，不是正式 release validation。
 - 覆盖安装必须使用 `adb install -r` 或脚本中明确的覆盖安装路径，并记录数据是否保留。
 - `bundledModels` 是内部体验包口径，不是 Play/public release 口径；模型 license、redistribution approval、正式签名和 store/privacy review 仍要单独完成。
+- 最新主分支与 CI/设备证据摘要见 [发布状态](release_readiness.md#current-evidence)，具体 APK 和命令见 [验证报告](validation_report.md)。不得把后续源码提交自动视为已经在设备上复测。
+- `OK (N tests)` 还需逐项核对 instrumentation 状态：assumption skip 不算实际通过，安装或 instrumentation 导致无障碍服务解绑时必须先恢复已授权服务，再记录执行结果。
 
 ```mermaid
 flowchart TD
@@ -56,7 +68,9 @@ export ANDROID_SERIAL=<phone-ip>:<debug-port>
 
 ## 自动回归
 
-本地验证不要求设备，也不要求 `adb` 在 `PATH`：
+本地验证不要求设备，也不要求 `adb` 在 `PATH`。使用 JDK 21 与 Android SDK 36 对齐 CI；
+完整命令覆盖脚本回归、JVM、Lint、debug/release APK、AAB、release-smoke 及产物检查，
+不能用 `assembleDebug` 或单元测试单独替代：
 
 ```bash
 scripts/doctor.sh
@@ -103,14 +117,27 @@ scripts/install_and_test_device.sh
 独立设备验收项；存在 JVM 测试或上游演示，不代表这些项目已经通过。只用人工准备的测试
 内容和可逆测试页面，未执行项记录 `pending`。
 
+已有 API 36 增量测试与后台 Settings 正向链路证据，不代表下表全部通过。尤其是 WebView、
+真实 NumberPicker 吸附、后台危险控件负向 fixture、物理设备焦点/锁屏和完整模型任务，
+必须按目标构建分别补证。前台危险控件测试不能替代后台路径的同类验收。
+
+```bash
+INSTRUMENTATION_CLASS=com.bytedance.zgx.solin.MikaPhoneCapabilitiesDeviceTest,com.bytedance.zgx.solin.device.background.BackgroundPhoneSessionDeviceTest \
+ANDROID_SERIAL=<authorized-device-serial> \
+scripts/install_and_test_device.sh
+```
+
+这组定向用例测试实际控件/provider 和工具边界，不需要推理服务，也不证明聊天模型能规划
+整个任务。先确认无障碍服务已获授权且实际绑定，保留失败和跳过数。
+
 | 能力 | 必须观察的结果 | 失败或停止证据 |
 | --- | --- | --- |
 | 输入读回 | 中文、多行、连续空白、已有同文内容及 WebView 输入实际生效；区分匹配、不匹配、未知 | 节点失效或不可读不能报匹配，不清空同文后重写，不在超时后重放输入 |
 | 稳定等待 | 延迟跳转、动态列表、持续动画下等待有界且可取消 | 当前检测是控件树稳定，不得写成像素稳定或任务已完成；缺失观察为未知 |
-| `ui_collect` | 跨页重叠合并，保留两条独立同文内容；返回部分结果与停止原因 | 切包、无新增、页数/写次数/时间上限、拒绝与取消均停止；不得上传采集内容 |
+| `ui_collect` | 相邻页首尾重叠合并，保留两条独立同文内容；返回部分结果与停止原因 | `Succeeded` 不等于整个列表读完；固定页眉/页脚可能保留重复片段。切包、无新增、预算耗尽、拒绝与取消均停止；不得上传采集内容 |
 | `ui_find` | 每次滚动后重新查找，返回当前页候选 | 找到不自动点击，歧义不选任意一个；每个写子动作仍经授权与前台检查 |
-| `ui_set_wheel` | 可输入和不可输入滚轮均以实际读回验证目标；观察吸附后的值 | 范围外、不动、越过、未知读回与取消不能误报成功；不得越过危险控件守卫 |
-| 路线复用 | 同会话相同目标在真实成功验证后逐步复用；新请求仍有正常执行检查 | 改需求、切包、重复目标、失败副作用或敏感页面使回放退出；清理历史后不再命中 |
+| `ui_set_wheel` | 仅针对可识别 NumberPicker；可输入及只可滚动的控件均以实际读回验证目标，观察吸附后的值 | 不泛化到任意自绘滚轮。范围外、不动、越过、未知读回与取消不能误报成功；不得越过危险控件守卫 |
+| 路线复用 | 同会话、完整原话相同、输入读回及终态搜索已验证后，逐步复用短路线；每步仍过正常执行检查 | 改需求、切包、重复目标、失败副作用或敏感页面使回放退出；清理历史/释放运行时/进程退出后不再保留路线 |
 | 后台屏幕 | 显式启用后应用落在目标显示；用户主屏和输入焦点未被抢占 | 锁屏、授权到期、helper 退出、显示失效及用户介入均不能执行残留动作 |
 
 组合工具每次最多五个写子动作、30 秒总上限；采集和查找最多五页。应分别覆盖默认
@@ -187,7 +214,13 @@ ALLOW_DEBUG_KEYSTORE=1 scripts/sign_release_artifacts.sh
 
 远程模型模式下，`记住：...` 只写入本地记忆，不应发送到远程模型。相关验收记录必须说明本地记忆、Accessibility 文本、OCR 摘录和截图派生内容的隐私等级；OCR 摘录属于 `LocalOnly`，只能用于本机一次性确认或本地处理路径。
 
-本地视觉验收需要单独覆盖：已校验且声明 vision 的本地聊天模型可在设备内处理用户主动选择的图片字节；不支持本地 vision 时不得读取图片字节、不得隐式 OCR、不得发送远程。远程 vision 仍必须经过逐次预览确认。
+本地视觉验收需要单独覆盖：已校验且声明 vision 的本地聊天模型可在设备内处理用户主动选择的图片字节；不支持本地 vision 时不得读取图片字节、不得隐式 OCR、不得发送远程。远程附件图片仍须逐次预览确认。
+
+远程 GUI 自动化采用另一套明确授权：用户打开对应开关、选择 Remote 模式和支持图像的模型后，
+该运行的首个应用内步骤仍须用户确认，默认 critical-only 与逐步确认两种模式都不能仅凭开关发送截图。
+通过确认后才允许该运行的后续截图，逐次外发保留脱敏审计；这不是逐张 MediaProjection 弹窗。
+后台显示作用域禁用此路径和主屏 MediaProjection OCR。验收应分别覆盖未确认零外发、拒绝确认、
+捕获失败和后台证据隔离，不以附件预览测试替代 GUI 截图授权测试。
 
 ## 内置模型体验包
 
@@ -219,6 +252,10 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 ```
 
 完整模拟器回归只以 `regression-emulator.properties` 中的 `status=passed` 为准。
+CI 的 push/定时路径允许报告基础设施跳过；例如 `emulator-infra-hvf-unsupported` 只说明
+托管主机无法运行目标模拟器，即使 workflow job 为绿色也不计作设备回归通过。人工
+`workflow_dispatch` 不使用这项宽免。API matrix 是独立任务，不能由 API 36 单机或一次
+push 的结果推断已覆盖 API 28/32/33/34。
 
 在 x86 Linux 工作站做 UI 实效检查时，先准备 x86_64 AVD，再跑截图链路：
 
@@ -333,13 +370,14 @@ python3 -I scripts/run_phone_task_benchmark.py --compare <old>/results.jsonl <ne
 - 回答在运行结算后才写进聊天记录，所以脚本在等待 `--settle` 秒后再读一次摘要。
 - `results.jsonl` 不写回答文本或屏幕文字，只写通过/失败、失败码、事实的匹配/缺失计数、工具名、确认的工具名等；`summary.json` 另有分区/分类成功率、`gaveUp` 次数、severity-1 次数和标记清单。
 - `--compare` 按（任务, 第几次）配对两份结果，打印每个任务的通过变化和精确 McNemar p 值（对不一致对做二项检验，纯 Python）。
-- 基准结果是能力度量，不能替代下面的手工验收；比较前后结果时要固定设备、App 版本和模型配置。
+- 基准结果是能力度量，不能替代下面的手工验收；比较前后结果时要固定设备、App 版本和模型配置，并按架构要求至少重复三次。先确认模型可以实际推理和正常放置；占位 loopback 地址、无效模型或未恢复的待确认运行产生的是准备/失败证据，不能用于声称成功率提升。
+- `--compare` 的配对结果不能代替后台屏幕、组合工具及安全停止专项验收；分别记录分母、跳过原因、失败类型与相应 APK SHA。
 
 ## 手工验收场景
 
 手工验收只记录用户可见行为和必要系统弹窗，不能用脚本通过、直接调用 ViewModel/reader、mock intent 或 UI 文案存在替代。
 
-## 必须手工验收的系统入口
+### 必须手工验收的系统入口
 
 - 语音输入必须在设备上点麦克风入口，观察 Android 系统语音识别、收音/转写条、取消/完成状态和最终文本进入输入框。
 - 系统文档选择器必须从输入区附件按钮打开，观察本地摘录、metadata-only、远程预览确认和取消路径。
@@ -355,15 +393,16 @@ python3 -I scripts/run_phone_task_benchmark.py --compare <old>/results.jsonl <ne
 | 导入模型 | `.litertlm` 可导入并加载；非 `.litertlm`、无效 URL、空间不足、断网都有可理解失败提示。 |
 | 远程模型 | HTTPS 配置、API key 非明文保存、流式响应、取消恢复、错误不泄露响应体或 Authorization；敏感内容逐次确认，取消不得请求远程。 |
 | 记忆 | `记住/忘记/清空` 只走本地控制路径；远程模式不得自动携带长期记忆文本或 embedding。语义记忆必须证明不是关键词召回。 |
-| 动作与 Skill | 中高风险和外发文本动作先确认；取消不执行；低风险公开 `web_search` 可无确认；混入私密或副作用工具的批次全批拒绝。 |
-| 手势动作 | `ui_swipe`／`ui_long_press`／`ui_press_key` 先确认后执行，取消不执行，每次执行后重新观察（脱敏本地摘要）；坐标必须为 0-1000 归一化整数，越界拒绝；`press_key` 仅限 home/recents/enter/delete，其他键拒绝；屏幕读取失败/无障碍不可用时坐标手势与按键 fail-closed 不执行。 |
-| 应用内继续 | `打开<应用>并<后续意图>` → 确认启动 → 仅在装有本地动作模型时见到有界应用内继续（observe→replan→低风险动作），错误前台应用时 fail-closed，每步重新观察，到 5-step checkpoint 停止；确认纯 `打开<应用>` 仍是"仅打开不继续"。 |
+| 动作与 Skill | 分别测试默认 critical-only 与逐步确认。默认可逆步骤可直接执行，外发/敏感/私密读取后派生网络或文本步骤仍需确认；仅来自用户原话、非敏感且未触发其他关键规则的草稿可自动批准。取消不执行，混入私密或副作用工具的公开证据批次全批拒绝。 |
+| 手势动作 | 低风险手势按当前确认模式执行，每步重新观察；关键 pay/send/delete/publish/order/transfer/authorize 控件始终停给用户操作，不能因确认过而代点。坐标为 0-1000 归一化整数；`press_key` 仅限 home/recents/enter/delete，其他键拒绝。无有效屏幕证据时 fail-closed；后台不支持全局 back/home/recents。 |
+| 应用内继续 | `打开<应用>并<后续意图>` 在有效本地 Chat/action-planning 模型或显式授权的远程 GUI 路径下有界继续，错误包名时 fail-closed，每步重新观察。逐步确认模式核对 5-step checkpoint，默认 critical-only 不能套用相同提示次数；纯打开请求仍只打开不继续。 |
 | 系统入口 | 语音输入、系统文档选择器、MediaProjection 当前屏幕 OCR 必须在设备上点真实系统入口。 |
 | 多模态 | 文本/RTF/PDF/Office 只做有界本地摘录；图片仅在已验证本地视觉或逐次确认远程视觉时读取；覆盖 8 MB 单图、最多 5 张、unsupported local/remote vision fail-closed、图片不进入文本 prompt/history/audit；音频/视频/未知二进制 metadata-only。 |
-| 后台任务 | 提醒确认后才创建；Android 13+ 通知权限拒绝不误报成功；任务完成/失败/取消后的列表状态正确。 |
+| 后台任务 | 提醒按当前确认模式和风险规则创建；逐步确认时取消不创建，默认模式的可逆提醒不得误报为需要逐项确认。Android 13+ 通知权限拒绝不误报成功，完成/失败/取消后的列表状态正确。 |
 | 资源入口 | compact 宽度从 `更多` 菜单进入；普通状态不显示大号百分比圆环；详情优先展示 App 内存、可用 RAM、App CPU、温度，高级 heap 指标靠后。 |
 
-远程模型模式下，`记住：...` 只写入本地记忆控制路径，不把长期记忆文本或 embedding 自动发送给远程模型。OCR 摘录按 LocalOnly 处理；远程视觉发送与 OCR 工具分离，必须经过逐次确认。
+表中隐私判断以[隐私边界人工核对](#隐私边界人工核对)为准；附件图片、GUI 截图与
+MediaProjection OCR 分别验收，不合并成一种“远程视觉确认”。
 
 ## RC 性能基线
 

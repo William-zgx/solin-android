@@ -1,10 +1,15 @@
 # Model Manifest
 
-This file owns the provenance contract for Solin recommended model
-artifacts. It is the source used by model license review and release gates for
-model ID, repository, pinned upstream revision, byte size, and SHA-256 digest.
-Runtime privacy behavior belongs in `docs/privacy_notice.md`; internal
-model-included packaging belongs in `docs/bundled_model_package.md`.
+This file owns the provenance contract for recommended model artifacts: model ID,
+repository, pinned revision, exact bytes, SHA-256, and review requirements. The
+build and catalog consume [`gradle/bundled-models.json`](../gradle/bundled-models.json);
+the table below must stay consistent with that machine-readable source.
+
+[Runtime privacy](privacy_notice.md) · [Capability profiles](model_capability_profiles.json) ·
+[Bundled-model packaging](bundled_model_package.md) · [Release review](model_license_review.json)
+
+Download access, verified bytes, working inference, and redistribution approval
+are separate states. None implies the next.
 
 ## Boundary Rules
 
@@ -70,10 +75,17 @@ Recommended profiles map to different runtime paths:
   available. The runtime falls back to conservative rule planning when the
   selected planning model is missing, fails to load, or produces no valid draft.
 
+E2B is the default recommended Chat selection. Recommended Chat profiles use an
+8192-token runtime context budget; custom-model capability claims do not inherit
+that model's verified identity or vision/action eligibility. A catalog capability
+is not a device compatibility result: runtime loading and device acceptance are
+still required.
+
 For memory embedding, the companion tokenizer is part of the verification
 closure. Semantic memory becomes eligible only when the primary `.tflite`, the
 `sentencepiece.model` companion, catalog size/SHA checks, and runtime probe all
-succeed.
+succeed. File verification alone may still leave the UI at installed/not probed,
+runtime unavailable, probe failed, or lightweight-index fallback.
 
 ## Recommended Model Artifacts
 
@@ -94,6 +106,19 @@ Companion asset for `memory-embedding-gemma-300m`:
 same upstream revision
 `870cbe05ef460385363c6b574c851ae5d8989ce3`, and same gated authorization and
 manual review boundary.
+
+The memory model and tokenizer total **183,815,055 bytes** (about 184 MB / 175 MiB).
+All five files total **6,715,919,247 bytes** (6.72 GB / 6.25 GiB) before APK
+packaging. UI binary-unit size labels may differ from decimal download sizes in
+README; the exact byte fields above are authoritative.
+
+## Download And Setup
+
+Recommended downloads are Wi-Fi-only by default. A Wi-Fi-paused task can be
+explicitly re-enqueued with metered data allowed using the in-app action; the
+choice is not implied by entering a remote endpoint. Downloading alone leaves
+remote configuration editable, while active model/run work still blocks
+conflicting changes. Failed or incomplete files do not become verified models.
 
 ## Custom Models
 

@@ -3,12 +3,12 @@
   "policy": "Public release builds require VERIFY_STORE_POLICY=1 and an approved store policy record.",
   "status": "pending_policy_review",
   "privacyNoticePath": "docs/privacy_notice.md",
-  "privacyNoticeSha256": "d7dcccb3585b7cd6eb817075d1aa8ca42bfec1cf45853167ca2178aa94e9c998",
+  "privacyNoticeSha256": "7ccf5481b238fe68c2793e69ea7761b60d93bd2e5610b5939d27f56dc0300293",
   "appListing": {
     "appName": "栖知 Solin",
     "subtitle": "Quiet intelligence, close at hand.",
     "shortDescription": "Quiet intelligence, close at hand.",
-    "fullDescription": "Solin is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, verified local vision-capable chat models can process user-provided images on device, and user-configured remote multimodal models are used only after configuration and switching. Ordinary remote text follows the selected reminder policy; images and suspected sensitive content require per-send confirmation. Device actions are conservative by default: low-risk app search can continue under the user's setting, while sending, deleting, paying, ordering, publishing, sensitive input, and permission changes still require confirmation. Chats, explicit memories, model files, and tool audit records stay in local app storage by default.",
+    "fullDescription": "Solin is an experimental, privacy-first phone-side AI assistant for Android. Downloaded or imported models run locally; verified local vision models can process user-provided images on device. User-configured remote multimodal models require an explicit remote path. Ordinary remote chat text follows the selected reminder policy; image attachments and suspected sensitive chat content require per-send confirmation. Optional remote-vision phone control separately requires opt-in and a first in-app confirmation before screen egress. Reversible phone actions can run under critical-only confirmation; sensitive external sends and private-derived outgoing content require confirmation. The agent never taps pay, send, delete, publish, order, transfer, or authorize controls: the user taps them. Chats, explicit memories, models and audit records stay local by default. Device compatibility and release reviews remain incomplete.",
     "category": "Productivity",
     "contactEmail": "",
     "privacyPolicyUrl": ""
@@ -18,13 +18,13 @@
       "appName": "栖知 Solin",
       "subtitle": "让 AI 住在手机里",
       "shortDescription": "让 AI 住在手机里",
-      "fullDescription": "Solin是一款隐私优先的手机端 AI 助手：可使用下载或导入的本地模型，也可在用户配置并切换后使用远程多模态模型。普通远程文本按提醒策略处理，图片和疑似敏感内容需要逐次确认。设备动作默认保守：低风险 App 搜索可按设置连续执行，发送、删除、支付、下单、发布、敏感输入和权限变更仍必须确认。聊天、显式记忆、模型文件和工具审计记录默认保存在本地应用存储中。"
+      "fullDescription": "栖知 Solin 是实验性的隐私优先 Android 助手：下载或导入的模型在本地运行，已验证的本地视觉模型可处理用户提供的图片。用户配置远程模型并明确选择远程路径后才使用远程推理。普通远程聊天文本遵循提醒策略；图片附件和疑似敏感聊天内容逐次确认。可选远程视觉手机操作另需主动启用，并在首次应用内步骤确认后才外发屏幕内容。默认只确认关键步骤，可逆操作可连续执行，敏感外发和私有读取衍生的外发内容仍需确认。支付、发送、删除、发布、下单、转账和授权控件始终由用户亲自点击。聊天、显式记忆、模型和审计记录默认保存在设备上；设备兼容性与发布审查尚未完成。"
     },
     "en-US": {
       "appName": "栖知 Solin",
       "subtitle": "Quiet intelligence, close at hand.",
       "shortDescription": "Quiet intelligence, close at hand.",
-      "fullDescription": "Solin is a privacy-first phone-side AI assistant for Android: local when you want it, remote only when you configure and choose it, and careful about device actions that need confirmation."
+      "fullDescription": "Solin is an experimental, privacy-first Android assistant with local chat, optional remote models, local memory and bounded phone tools. Reversible steps can run under critical-only confirmation; sensitive external actions require confirmation, and critical controls remain user-tapped. Remote screen use requires its own opt-in and first in-app confirmation. Device compatibility and release reviews remain incomplete."
     }
   },
   "dataSafety": {
@@ -36,7 +36,7 @@
     "externalRecipients": [
       "User-configured remote model endpoints",
       "Recommended and custom model download hosts",
-      "Android system or destination apps opened by confirmed external intents"
+      "Android system or destination apps opened by external intents permitted under the configured confirmation policy"
     ],
     "noFirstPartyAnalyticsUpload": true,
     "localStorageDisclosed": true,
@@ -57,7 +57,7 @@
   "permissions": [
     {
       "name": "android.permission.INTERNET",
-      "purpose": "Connects for user-configured remote model calls and optional model downloads."
+      "purpose": "Connects for explicitly eligible remote model/vision calls, optional decision routing, user-requested web search and model downloads; debug background control uses authenticated local loopback transport."
     },
     {
       "name": "android.permission.RECORD_AUDIO",
@@ -65,23 +65,23 @@
     },
     {
       "name": "android.permission.READ_CALENDAR",
-      "purpose": "Reads busy/free calendar windows only after user-confirmed tool requests."
+      "purpose": "Reads busy/free calendar windows for user-requested tools after Android permission and the configured action policy; critical-only mode can auto-approve eligible read-only steps."
     },
     {
       "name": "android.permission.READ_CONTACTS",
-      "purpose": "Looks up contact names or phone matches only after user-confirmed tool requests."
+      "purpose": "Looks up contact names or phone matches for user-requested tools after Android permission and the configured action policy; results remain local evidence."
     },
     {
       "name": "android.permission.READ_EXTERNAL_STORAGE",
-      "purpose": "Supports legacy Android 12 and below media or file metadata reads after confirmation."
+      "purpose": "Supports media or file metadata reads on Android 12L/API 32 and below under Android permission and the configured action policy."
     },
     {
       "name": "android.permission.READ_MEDIA_IMAGES",
-      "purpose": "Reads selected recent images or screenshots for metadata and OCR flows after confirmation."
+      "purpose": "Reads recent image metadata or user-selected images under Android grants and tool policy; local OCR and remote image sends have separate consent boundaries."
     },
     {
       "name": "android.permission.READ_MEDIA_VIDEO",
-      "purpose": "Supports user-provided video attachments and recent media metadata checks after confirmation."
+      "purpose": "Supports user-provided video attachments and recent media metadata checks under Android grants and tool policy; video bytes are not automatically uploaded or transcribed."
     },
     {
       "name": "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
@@ -97,15 +97,19 @@
     },
     {
       "name": "com.android.alarm.permission.SET_ALARM",
-      "purpose": "Lets confirmed alarm and timer actions open Android's system alarm flow when requested by the user."
+      "purpose": "Opens Android's system alarm or timer flow for user-requested actions permitted under the configured confirmation policy."
     },
     {
       "name": "android.permission.FOREGROUND_SERVICE",
-      "purpose": "Runs a short-lived foreground device-control session while executing user-confirmed Accessibility actions."
+      "purpose": "Runs a short-lived foreground device-control session for user-requested Accessibility actions permitted by the configured confirmation policy."
     },
     {
       "name": "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
-      "purpose": "Declares the special-use foreground service type for user-confirmed device-control sessions."
+      "purpose": "Declares the special-use foreground service type for user-requested device-control sessions under the configured confirmation policy."
+    },
+    {
+      "name": "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+      "purpose": "Runs one-shot current-screen OCR capture only after the Android MediaProjection foreground consent flow."
     },
     {
       "name": "android.permission.RECEIVE_BOOT_COMPLETED",
@@ -113,17 +117,17 @@
     },
     {
       "name": "android.permission.PACKAGE_USAGE_STATS",
-      "purpose": "Estimates the foreground app for confirmed device-context tools when Usage Access is granted."
+      "purpose": "Estimates the foreground app for user-requested device-context tools when Usage Access is granted, subject to the configured action policy."
     }
   ],
   "specialAccessDisclosures": [
     {
       "name": "UsageAccess",
-      "purpose": "Used only after confirmation to estimate the current foreground app."
+      "purpose": "Estimates the current foreground app after the user grants Usage Access; each request still follows the configured action policy."
     },
     {
       "name": "AccessibilityService",
-      "purpose": "Used after confirmation for current-screen text reads and during user-initiated low-risk phone-control sessions for tap, type, search, scroll, back, and wait gestures."
+      "purpose": "Enabled explicitly in Android settings for local screen reads and user-initiated bounded phone actions under the configured confirmation policy. Critical controls remain user-tapped. Optional remote-vision control uses Accessibility screenshots only after opt-in and the first in-app confirmation; experimental debug background displays are not a store-ready capability."
     },
     {
       "name": "MediaProjection",
@@ -134,6 +138,6 @@
     "reviewer": "",
     "reviewDate": "",
     "evidencePath": "docs/store_policy_review_evidence/pending.properties",
-    "evidenceSha256": "adefadd6b9725105f2a68c1f663b9a81cb122c3caad42562dfaa102642c8cc66"
+    "evidenceSha256": "3e6435e78eef79647a413db000dba5f32b7e397e7609964f747e3b6aae6ee22a"
   }
 }

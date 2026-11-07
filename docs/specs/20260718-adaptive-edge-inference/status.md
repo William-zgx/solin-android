@@ -1,30 +1,28 @@
 # 自适应端云推理阶段一：当前事实
 
-日期：2026-07-19
+当前核对：2026-11-04，主分支 `cb7e4918`。最初阶段一集成基线为 `1ff31a8`。
 
-事实基线：集成分支提交 `1ff31a8`
+状态：阶段一代码已集成，尚无正式发布批准。
 
-状态：阶段一代码已集成，尚未发布
+执行开关：`app/build.gradle.kts` 的 `defaultConfig` 为 `opt_in`，debug 显式同值，
+release-like 变体继承该默认值。旧版“release-like Off”的描述已经过期。
 
-执行开关：debug 为 `opt_in`；release-like 变体为 `off`
-
-本文只记录上述基线已经合并的事实。目标合同见 [spec.md](spec.md)，实施拆分见
-[plan.md](plan.md) 和 [tasks.md](tasks.md)。S1–S9 的代码与本地可执行门禁已经集成；
-设备 instrumentation、JDK 21 完整 Gradle 门禁、真实 runtime trace 和人工发布证据仍未
-完成。不能据此宣称真机已验收、release-like Auto 已开放或阶段一已经发布。
+本文记录当前代码事实；目标合同及旧阶段设计见 [spec.md](spec.md)、[plan.md](plan.md)
+和 [tasks.md](tasks.md)，不能用历史 rollout 目标覆盖当前构建配置。S1–S9 已集成，
+JDK 21 本地构建门禁和当前远端 CI 已有通过证据；真实 Auto 路由设备验收、runtime
+actual trace 和人工发布批准仍不能由这些结果推断。
 
 ## 当前怎么使用
 
 - **Local**：当前可选，强制使用已准备好的本地 LiteRT-LM 聊天模型；不自动改用远端。
 - **Remote**：当前可选，强制使用用户已经配置的 OpenAI-compatible 远端；仍受现有
   隐私分类和远程发送披露约束，`LocalOnly` 内容不会因此获准出端，也不自动回退本地。
-- **Auto**：debug 构建以 `opt_in` 暴露三态入口，仅供用户显式开启后的受控测试；
-  远端仍须已配置、已授权并完成披露。release-like 变体保持 `Off`，不提供 Auto；
-  启动时读到 Auto 会降级并保存为 Local。
+- **Auto**：当前 debug 和 release-like 构建都以 `opt_in` 暴露三态入口；用户显式
+  选择后，远端仍须已配置、已授权并完成披露。`Off` 阶段的降级逻辑仍由代码和测试
+  保留，但不是当前 release-like 默认配置。
 
-因此，debug 可以显式选择 Auto 进行开发验证；release-like 变体的实际使用方式仍是
-手动选择 Local，或先配置远端后手动选择 Remote。debug opt-in 不等于真机验收、
-release 启用或已发布能力。
+构建中可选择 Auto，不等于已取得真机验收或发布批准。手动 Local/Remote 路径仍可使用；
+远端可选性不会改变 `LocalOnly` 边界。
 
 ## Preference 与实际位置
 
@@ -34,7 +32,7 @@ release 启用或已发布能力。
 | Preference | 已合并语义 | 当前开放状态 |
 | --- | --- | --- |
 | `Local` | 只允许 Local；本地不可用、能力不匹配或资源硬阻断时明确失败 | 可用 |
-| `Auto` | 手机在合法候选中决定 `RunPlacement.Local` 或 `RunPlacement.Remote` | debug 显式 opt-in；release-like Off |
+| `Auto` | 手机在合法候选中决定 `RunPlacement.Local` 或 `RunPlacement.Remote` | debug 与 release-like 均为显式 opt-in；发布验收未完成 |
 | `Remote` | 只允许已配置远端；隐私或远端条件不满足时明确失败 | 可用 |
 
 未知、空白或未来版本的 preference 编码回落到 Local，升级迁移本身不会发起模型请求。
@@ -114,24 +112,26 @@ dispatch、首个远程事件前审计、失败/取消丢弃暂存审计等竞�
 | S4 | rollout、Auto 授权、revision 校验和 app-scoped 资源/连接 wiring 已合并 | 已完成 |
 | S5 | prepared run 与首次完整执行链已集成 | 已完成；stop-before-dispatch 与 deferred audit 回归通过 |
 | S6 | 续写、retry、stop/cancel 和受限恢复读取 binding | 已完成；continuation audit 的 commit/discard 双审通过 |
-| S7 | 三态配置和 actual placement/reason UI 已集成 | debug opt-in；release-like Off；设备 instrumentation pending |
+| S7 | 三态配置和 actual placement/reason UI 已集成 | debug/release-like opt-in；Auto 专项设备 instrumentation pending |
 | S8 | Audit/eval 从 invocation 读取实际位置并完成三方 fail-closed 对账 | 已完成 |
 | S9 | capability/privacy/release 验证脚本强化与事实文档 | 代码已完成；本地可执行门禁通过，发布证据 pending |
 
-当前本地证据：
+当前证据与历史证据分开记录：
 
-- `compileDebugKotlin`、`compileDebugAndroidTestKotlin` 通过；最终聚焦 JVM 回归 275 项通过。
-- `privacy_scan`、model capability profiles、严格 capability matrix、validation scripts 和
-  40-case fixture behavior eval 通过；严格 capability 额外确认 release-like rollout 为 Off，
-  serving source 未由 preference 推断实际 target。
-- 当前机器只有 JDK 17。完整 `verify_local.sh` / 全量 `testDebugUnitTest` 需要 JDK 21，
-  因 `localagents-rag:0.3.0` 含 classfile 65 依赖，不能把 JDK 17 的工具链失败写成代码通过。
+- 初始阶段一的 275 项聚焦 JVM 结果属于 `1ff31a8` 历史基线。
+- `cb7e4918` 的全量 2688 项 JVM 和 Lint 已通过；远端
+  [Android Verification](https://github.com/William-zgx/solin-android/actions/runs/41699276903)
+  也完成完整验证及 40-case behavior boundary 检查。这不是 Auto 专项设备验收。
+- 当前 capability verifier 按源码校验 release-like 的 `opt_in`，并检查 serving source
+  不从 preference 猜测实际 target。此前 JDK 17 环境限制已由 JDK 21 验证补上。
+- 远端模拟器任务因 `emulator-infra-hvf-unsupported` 跳过，不可把工作流绿色状态
+  当作 connected、Room 迁移或 Auto 设备验收通过。详细命令与证据见
+  [验证报告](../../validation_report.md)。
 
 以下证据仍为 pending：
 
 - `connectedDebugAndroidTest` 的 Room 17→18 迁移，以及 S7 Auto/actual placement 设备
   instrumentation。
-- JDK 21 环境下的 `verify_local.sh` 与全量 Gradle 回归。
 - 真机上的 Auto 资源/复杂度路由、披露、续写、重试、停止/取消和 UI 解释。
 - 30 天内的 `agent_loop_runtime` actual trace、placement reconciliation、release-like 构建
   门禁、性能基线、签名证书、隐私/安全/法务人工批准和正式发布记录。

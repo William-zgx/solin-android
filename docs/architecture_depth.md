@@ -101,7 +101,7 @@ stay only as a growth guard.
 The Mika phone-capability batch introduces real new behavior rather than
 pass-through wrappers: input/read stability verification, bounded composite
 operations, verified session routes, and the experimental background helper/session
-pair. The proposed production owners are `UiExecutionVerification`,
+pair, merged in `3bc66f4c`. The production owners are `UiExecutionVerification`,
 `PhoneCompositeOperations`, `VerifiedPhoneRoutes`, `BackgroundPhoneHelper`, and
 `BackgroundPhoneSession`. Their contracts and limits are in
 [`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md).
@@ -136,9 +136,10 @@ requirements above still apply; JVM success alone does not establish those facts
 - Independent review of gate changes; a human security reviewer for payment
   and privacy rules before any release.
 
-## Current gate map (2026-10-31)
+## Current gate map (checked 2026-11-04)
 
-Where the rules live today, before consolidation. Paths are under
+The entries below distinguish existing checkpoints from the single-gate target;
+this is not a claim that consolidation is complete. Paths are under
 `app/src/main/java/com/bytedance/zgx/solin/`.
 
 **Action rule ("never activate a critical control") is decided in four layers,
@@ -190,15 +191,13 @@ partial implementations of the sensitive-text check:**
 | `DecisionModelPlacementPolicy.mayLeaveDevice` | router text |
 | Chat send preflight | first remote chat turn and the remote tool-result continuation |
 
-Which arguments carry egress text is declared on the tool's `ToolSpec`
-(`egressTextArguments`, checked against the input schema when the registry is
-built), not in per-tool maps inside the policies.
-
-Not covered: remote vision intent and screen text. Remote-send audit entries exist for remote
-chat, remote vision, the router, MCP and — since gap 5 (closed 2026-10-31) —
-each `web_search` request (`OkHttpWebSearchProvider` records the tool name,
-provider host and query length, never the query). Intents (`search_maps`,
-`open_deep_link`) still write none.
+Remote vision and text handed to other apps are covered by the separate run-consent
+and text-provenance checks described below; they are not unguarded sinks. These
+checks have not yet been consolidated into one egress module. Remote-send audit
+entries exist for remote chat, remote vision, the router, MCP and — since gap 5
+(closed 2026-10-31) — each `web_search` request (`OkHttpWebSearchProvider` records
+the tool name, provider host and query length, never the query). Intents
+(`search_maps`, `open_deep_link`) still have no equivalent remote-send audit entry.
 
 **Remote tool-result continuation (gap 3, closed 2026-10-31).** The continuation
 prompt runs the same `ChatSendPreflight.preparedRemoteSend` as the first turn
@@ -212,7 +211,8 @@ confirms any `ToolPermission.SendsTextToExternalApp` step
 `create_contact_draft`) whose free-text argument looks sensitive or, after a
 private read in the same run, is not the user's own wording
 (`CriticalApprovalReason.TextHandedToExternalApp`). A draft built only from the
-user's words stays auto-approved.
+user's words can be auto-approved only when non-sensitive and free of other
+critical reasons; the user's wording does not bypass sensitive-content checks.
 
 **Remote-vision screenshot egress (gap 1, closed 2026-10-31).** A screenshot
 leaves only after a `UserConfirmed` step exists in the run, in both
@@ -233,8 +233,9 @@ token-subset match against the user's input.
 
 1. Egress gate: one `EgressGate.decide(sink, payload, provenance)` called by
    every sink in the table above; the four sensitive-text checks and the
-   network-argument taint move into it. Extends coverage to the uncovered
-   sinks (stricter only).
+   network-argument taint move into it. Preserve the existing remote-vision run
+   consent and external-app text checks, and close remaining audit/provenance
+   gaps without widening what may leave.
 2. Action gate: the live guard becomes the only allow/refuse decision; the
    executor preflight and replan guard keep early refusal only, with the
    shared rule called from one place. IME actions go through the gate.
@@ -246,11 +247,11 @@ token-subset match against the user's input.
 | Item | State |
 | --- | --- |
 | Goals, threat model, measures | This document |
-| Benchmark baseline | Pending: no device attached (2026-10-31) |
+| Benchmark baseline | Pending: API 36 direct tool/background acceptance exists, but the diagnostic model configuration did not produce a valid paired task baseline; see `validation_report.md` |
 | Gate map (current checkpoints) | Recorded above |
 | Action entry (one injection entry, guarded) | Enforced by `architecture/ActionEntryArchitectureTest` (2026-11-01) |
 | Main Kotlin file count | Done for this pass: 324, ratcheted in `architecture/PackageBoundaryArchitectureTest` (2026-11-05) |
-| Action gate consolidation | Not started |
+| Action gate consolidation | Input injection entry is guarded; executor/replan early refusals remain, so full decision consolidation is incomplete |
 | Egress gate consolidation | Started: egress arguments and in-app launch declared on `ToolSpec` (2026-11-05); one `EgressGate` not started |
 | Provenance labels | Not started |
 | Mutation testing | Not started |

@@ -1,154 +1,115 @@
-# Documentation Index
+# Documentation
 
-This directory separates product intent, architecture, validation, and release
-evidence. Use this page to choose the right document before adding new text.
+Start with the [English README](../README.md) or [中文 README](../README.zh-CN.md).
+Use the [Guidebook](../Guidebook.md) for a short code map and [AGENTS.md](../AGENTS.md)
+for the coding-agent protocol.
 
-```mermaid
-flowchart TD
-    Need["What do you need?"] --> Run["Run or build the app"]
-    Need --> Explain["Understand product or privacy behavior"]
-    Need --> Architecture["Change Agent/tool/runtime code"]
-    Need --> ScreenOps["Validate screen or phone operation"]
-    Need --> Models["Work with model assets"]
-    Need --> Device["Validate on phone or emulator"]
-    Need --> Release["Prepare a release"]
-    Need --> Brand["Check brand, listing, or policy facts"]
-    Need --> Evidence["Record verification evidence"]
-    Need --> Plans["Plan a future refactor"]
-    Need --> Specs["Specify future product behavior"]
-    Need --> Adaptive["Check adaptive edge inference status"]
-    Need --> AgentStart["Coding agent onboarding"]
+## Find the right guide
 
-    Plans --> PlansDir["plans/"]
-    Plans --> Depth["architecture_depth.md"]
-    Plans --> Weaknesses["optimization_plan_weaknesses.md"]
-    Specs --> SpecsDir["specs/"]
-    Adaptive --> AdaptiveStatus["specs/20260718-adaptive-edge-inference/status.md"]
-    AgentStart --> AgentsMd["../AGENTS.md"]
-    AgentStart --> Guidebook["../Guidebook.md"]
-    AgentStart --> Weaknesses
-    Run --> Readme["README.md"]
-    Explain --> Privacy["privacy_notice.md"]
-    Architecture --> Core["agent_core_modules.md"]
-    Architecture --> Routing["intent_routing_skill_arbitration.md"]
-    Architecture --> Depth
-    Architecture --> Weaknesses
-    ScreenOps --> Core
-    ScreenOps --> Phone["phone_acceptance.md"]
-    Models --> Manifest["model_manifest.md"]
-    Models --> Profiles["model_capability_profiles.json"]
-    Models --> Bundled["bundled_model_package.md"]
-    Device --> Phone
-    Release --> Readiness["release_readiness.md"]
-    Release --> Checklist["release_checklist.md"]
-    Brand --> Readme
-    Brand --> Capabilities["capability_matrix.json"]
-    Brand --> Store["store_policy_record.json"]
-    Evidence --> Validation["validation_report.md"]
-```
+| I want to… | Start here |
+| --- | --- |
+| Build and run Solin | [README](../README.md#quick-start) |
+| Understand local data and remote sends | [Privacy notice](privacy_notice.md) |
+| Change the agent, tools or runtime | [Core modules](agent_core_modules.md) |
+| Change module boundaries or safety gates | [Architecture goals](architecture_depth.md) |
+| Test phone operations | [Device acceptance](phone_acceptance.md) |
+| Understand the Mika-derived capabilities | [Phone capability record](plans/mika-phone-capabilities.md) |
+| Choose or package model assets | [Model manifest](model_manifest.md) · [Bundled packages](bundled_model_package.md) |
+| Assess release readiness | [Readiness](release_readiness.md) · [Checklist](release_checklist.md) |
+| Find results that actually ran | [Validation report](validation_report.md) |
 
-## Document Roles
+## Current baseline
 
-| Document | Role | Keep it focused on |
-| --- | --- | --- |
-| `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, build requirements, where to go next |
-| `../AGENTS.md` | Coding-agent harness protocol | Must-read docs, Gradle modules, code roots, non-negotiables, deepen-not-scatter rule, parallel ownership, review and validation cadence |
-| `../Guidebook.md` | Short architecture index | Human/agent map into `docs/` and code packages, root-package rule |
-| `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
-| `architecture_depth.md` | Architecture goals | Deep-module direction, egress and action gates, threat model, depth measures |
-| `optimization_plan_weaknesses.md` | Structural debt & Wave plan | Known weaknesses, thin-facade target, multi-agent file ownership, Wave metrics |
-| `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
-| `model_driven_app_control_multi_agent_plan.md` | Model-driven app control plan | Multi-agent development split, runtime observe-act contract, acceptance |
-| [`plans/data-layer-suspend-migration.md`](plans/data-layer-suspend-migration.md) | Data-layer suspend migration plan | Interfaces and call sites to move from `runBlocking` to `suspend`; not started |
-| [`plans/mika-phone-capabilities.md`](plans/mika-phone-capabilities.md) | Mika phone capability integration | Source provenance, implemented contracts, bounded composite tools, session route reuse, and experimental background-display limits; not device or release approval |
-| `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
-| `model_capability_profiles.json` | Model capability contract | Local/remote runtime capability, modality, privacy, and release-gate profile facts |
-| `bundled_model_package.md` | Internal model-included package | Split package build/sign/install contract and caveats |
-| `capability_matrix.json` | Product capability facts | User-facing capability positioning, privacy level, confirmation policy, and required tests |
-| `phone_acceptance.md` | Device acceptance | Commands and checks that require a phone or emulator |
-| `decision_routing_eval.json` | Cloud/edge router eval | Labeled local/remote chat requests for `scripts/run_decision_routing_eval.py` |
-| `phone_task_benchmark.json` | Phone task benchmark | Fixed end-to-end phone tasks (tune/holdout partitions; answer, grounding, marker and safe-stop checks) for `scripts/run_phone_task_benchmark.py`; rules in the `phone_acceptance.md` benchmark section |
-| `privacy_notice.md` | Privacy boundary | Local storage, remote sends, tools, attachments, retention |
-| `release_readiness.md` | Current release status | What is complete, what blocks release, next owner actions |
-| `release_checklist.md` | RC execution checklist | Item-by-item release candidate evidence requirements |
-| `release_blocker_dashboard.md` | Generated blocker view | Compact status generated from roadmap/release readiness inputs |
-| `roadmap_gap_matrix.json` | Roadmap evidence ledger | Roadmap item completion evidence; input to `scripts/generate_release_blocker_dashboard.sh` |
-| `release_record.json` | Release owner record | Final artifact, checksum, signing, channel, and blocker decisions for `scripts/verify_release_record.sh` |
-| `release_operations_record.json` | Release operations record | CI, crash/ANR monitoring, archive, signing, and rollback for `scripts/verify_release_operations_record.sh` |
-| `release_validation_record.json` | Release validation record | Bound emulator, device, manual, matrix, and screenshot evidence for `scripts/verify_release_validation_record.sh` |
-| `perf_baseline_template.properties` | Perf baseline template | `PerfBaseline/v1` field template for RC performance evidence |
-| `validation_report.md` | Append-only evidence log | Dated commands, results, artifacts, and known gaps |
-| `ai_behavior_eval_plan.md` | AI behavior evidence plan | Fixture taxonomy, actual-trace contract, and release-gate behavior-eval rules |
-| `store_policy_record.json` | Store policy record | App-store listing claims, privacy labels, and policy review evidence |
-| `store_policy_review_evidence/` | Store policy review evidence | Pending review evidence files bound by `store_policy_record.json` |
-| `privacy_review.json` | Privacy review record | Release/security/legal approval bound to the privacy notice and Capability Matrix SHA values, for `scripts/verify_privacy_review.sh` |
-| `privacy_review_evidence/` | Privacy review evidence | Pending release, security, and legal review evidence files |
-| `model_license_review.json` / `model_license_metadata.json` | Model license records | License review status and metadata for recommended model downloads |
-| `assets/` | Documentation images | Brand lockup, icon previews, and README artwork |
-| `solin_share_draft.md` | Outreach draft | Tech-talk / blog post draft introducing Solin's on-device model capabilities; not a source of product facts |
-| `docs/plans/archive/*.md` | Archived plans | Completed or dropped plans (ViewModel split, SolinScreen split, UiState split); history only, not current facts |
-| [`specs/20260718-adaptive-edge-inference/status.md`](specs/20260718-adaptive-edge-inference/status.md) | Adaptive edge inference current fact | Merged phase-one behavior, build-type rollout matrix, unfinished verification, and pending evidence |
-| `docs/specs/*/{brainstorm,research,spec,plan,review,tasks}.md` | Feature design and delivery records | Decisions, historical research, target contracts, plans, and task tracking; not current product facts by themselves |
+This refresh describes main through `cb7e4918` (2026-11-04, UTC+08:00): the Mika
+phone capability integration and its CI, API-compatibility and cancellation fixes
+are merged. [Main CI convergence](validation_report.md#2026-11-04--main-ci-convergence)
+records the successful workflow and the hosted emulator infrastructure skip.
+The earlier Mika entry retains the APK hashes actually tested before commit.
 
-JSON files in `docs/` are machine-readable records or capability matrices. They
-are inputs to verifier scripts and should stay structured rather than become
-narrative documentation.
+Keep **implementation**, **validation**, and **release approval** distinct.
+A green CI job does not turn a skipped device check into a pass, validate every
+OEM, or approve publication. Historical evidence retains its original date;
+pending approval records remain pending until their owners complete the review.
 
-Model-driven app search facts are split intentionally: runtime ownership and
-bootstrap rules live in `agent_core_modules.md` and
-`model_driven_app_control_multi_agent_plan.md`; mock/real device command usage
-and the `verifySearchQuery` / `expectedPackageName` / `expectedAppName` result
-guards live in `phone_acceptance.md`; dated command evidence belongs in
-`validation_report.md`.
+## Product, models and privacy
 
-Adaptive edge inference facts are owned by
-[`status.md`](specs/20260718-adaptive-edge-inference/status.md). It separates
-merged behavior from build-type rollout, pending device evidence, and release
-approval. Do not treat the target `spec.md` as proof that Auto is release-enabled
-or published.
+| Document | Owns |
+| --- | --- |
+| [Privacy notice](privacy_notice.md) | Local storage, remote sends, permissions, retention and deletion |
+| [Capability matrix](capability_matrix.json) | Product/tool capabilities, privacy classes, confirmation policy and required tests |
+| [Model manifest](model_manifest.md) | Pinned revisions, sizes, hashes, access and license-review limits |
+| [Model capability profiles](model_capability_profiles.json) | Local/remote modality and runtime capability contract |
+| [Bundled model package](bundled_model_package.md) | Internal split-package build, signing and installation |
+| [Sharing draft](solin_share_draft.md) | Outreach copy; not an independent source of capability claims |
+| [Artwork](assets/) | README illustrations and brand previews; conceptual art is not device evidence |
 
-## Architecture Improvements
+## Architecture and implementation
 
-Structural improvements (structured logging, centralized constants, memory
-controller extraction, evidence encryption, and network security config) are
-documented as dedicated sections in
-[`agent_core_modules.md`](agent_core_modules.md). See the
-`presentation/` controller split status in that file's "Presentation
-Controllers" section.
+| Document | Owns |
+| --- | --- |
+| [Core modules](agent_core_modules.md) | Current responsibilities, interfaces and regression coverage |
+| [Architecture depth](architecture_depth.md) | Deep-module goals, threat model, gates and structural measures |
+| [Intent routing](intent_routing_skill_arbitration.md) | Skill-first arbitration and routing evidence |
+| [Model-driven app control](model_driven_app_control_multi_agent_plan.md) | Observe–act contract, coordination history and acceptance limits |
+| [Mika phone capabilities](plans/mika-phone-capabilities.md) | Provenance, bounded tools, route reuse and experimental background display |
+| [Adaptive inference status](specs/20260718-adaptive-edge-inference/status.md) | Implemented behavior, build-type rollout and pending evidence |
 
-Active refactor plans live in [`optimization_plan_weaknesses.md`](optimization_plan_weaknesses.md)
-and [`docs/plans/`](plans/). Completed or dropped plans move to
-[`docs/plans/archive/`](plans/archive/).
+Read [architecture_depth.md](architecture_depth.md) before structural changes.
+The [Wave record](optimization_plan_weaknesses.md) and older [plans](plans/) contain
+historical targets as well as proposals; each status section determines what is
+still outstanding. Completed or dropped plans live in
+[plans/archive/](plans/archive/) and are history only. The adaptive inference `brainstorm`, `research`, `spec`,
+`plan`, `tasks`, and `review` files preserve design history. Its linked **status**
+page owns current facts.
 
-## Editing Rules
+## Validation and release
 
-- Put a fact in one owner document, then link to it elsewhere.
-- Keep README short. If a section needs release evidence, it belongs in
-  `release_checklist.md` or `release_readiness.md`.
-- Keep `validation_report.md` factual and dated. It is not a roadmap, product
-  pitch, or replacement for release-owner approval.
-- Never include real API keys, Hugging Face tokens, bearer tokens, keystore
-  material, private hostnames, or user data.
-- Prefer a small Mermaid diagram for flows with three or more steps.
-- When product wording, app name, icon, local/remote model capability, or
-  privacy behavior changes, update the owner record first, then check
-  `../README.md`, `privacy_notice.md`, `capability_matrix.json`,
-  `model_capability_profiles.json`, `release_checklist.md`, and
-  `store_policy_record.json` for matching language.
-- When launcher or documentation artwork changes, update adaptive/round/
-  monochrome launcher resources, docs preview assets, release screenshot
-  expectations, and store-policy listing references in the same change.
+| Document | Owns |
+| --- | --- |
+| [Device acceptance](phone_acceptance.md) | Emulator/physical-device commands, manual flows and evidence rules |
+| [Validation report](validation_report.md) | Append-only commands, results, artifacts and known gaps |
+| [AI behavior evaluation](ai_behavior_eval_plan.md) | Fixture taxonomy, boundary mapping and actual-trace requirements |
+| [Phone benchmark](phone_task_benchmark.json) | Fixed phone tasks; execution rules live in device acceptance |
+| [Decision-routing evaluation](decision_routing_eval.json) | Labeled cloud/edge routing requests |
+| [Release readiness](release_readiness.md) | Current blockers and next owner actions |
+| [Release checklist](release_checklist.md) | RC sequence and evidence requirements |
+| [Blocker dashboard](release_blocker_dashboard.md) | Generated view of readiness and the [roadmap ledger](roadmap_gap_matrix.json) |
+| [Performance template](perf_baseline_template.properties) | Fields for measured RC performance, not a result itself |
 
-## High-Value Diagrams
+Regenerate the dashboard with `scripts/generate_release_blocker_dashboard.sh`.
+Its generation date is not a new acceptance date. Phone-search runtime facts
+belong in core modules, device commands in acceptance, and dated results in the
+validation report; link between them instead of repeating the full contract.
 
-- Trust boundary: README.
-- Agent/tool lifecycle: `agent_core_modules.md`.
-- Bundled model split install: `bundled_model_package.md`.
-- Device acceptance flow: `phone_acceptance.md`.
-- Release evidence flow: `release_checklist.md`.
-- AI behavior evidence flow: `ai_behavior_eval_plan.md`.
-- Architecture refactor plans: `plans/` (archived plans in `plans/archive/`).
-- Proposed feature specifications: `specs/`.
-- Adaptive edge inference current status: `specs/20260718-adaptive-edge-inference/status.md`.
-- Structural debt waves & ownership: `optimization_plan_weaknesses.md`.
-- Coding-agent entry: `../AGENTS.md`, short map: `../Guidebook.md`.
+### Machine-readable review records
+
+| Record | Verifier |
+| --- | --- |
+| [Release artifacts](release_record.json) | `scripts/verify_release_record.sh` |
+| [Release operations](release_operations_record.json) | `scripts/verify_release_operations_record.sh` |
+| [Release validation](release_validation_record.json) | `scripts/verify_release_validation_record.sh` |
+| [Privacy review](privacy_review.json) and [evidence](privacy_review_evidence/) | `scripts/verify_privacy_review.sh` |
+| [Store policy](store_policy_record.json) and [evidence](store_policy_review_evidence/) | `scripts/verify_store_policy_record.sh` |
+| [Model license review](model_license_review.json) and [metadata](model_license_metadata.json) | `scripts/verify_model_license_review.sh` |
+
+JSON and `.properties` records are verifier inputs. Updating candidate hashes
+keeps them aligned with the reviewed files; it does **not** supply approval,
+reviewer identity, release artifacts, or physical-device evidence.
+
+## Editing rules
+
+1. Put a fact in its owner document, then link to it. Keep README focused on
+   purpose, setup, capability boundaries and the next useful guide.
+2. Keep historical results factual and dated. Do not rewrite a past failure as a
+   success, or treat a proposed feature as delivered behavior.
+3. When capability or privacy facts move, check the README translations, privacy
+   notice, capability/profile JSON, release checklist and store-policy draft for
+   consistency. Preserve pending approval decisions while refreshing hashes.
+4. Do not include secrets, private endpoints, user data, sensitive screenshots,
+   signing material or restricted model files.
+5. Keep links relative, headings descriptive and tables compact. Use an image
+   only when it adds information; give it useful alt text and distinguish
+   illustrations from real application screenshots.
+6. For documentation-only work, run relevant link, formatting, JSON and verifier
+   checks. Build/device evidence remains a separate validation tier; do not
+   imply it ran because the documentation checks passed.
