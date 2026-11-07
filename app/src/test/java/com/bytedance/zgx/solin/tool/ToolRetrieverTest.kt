@@ -108,6 +108,18 @@ class ToolRetrieverTest {
     }
 
     @Test
+    fun wwwPrefixTriggerFiresBeforeAnyDomainLetter() {
+        assertTrue(retrievedNames("用浏览器打开 www.baidu.com").contains(MobileActionFunctions.OPEN_DEEP_LINK))
+        assertTrue(retrievedNames("打开 www.example.org 看看").contains(MobileActionFunctions.OPEN_DEEP_LINK))
+    }
+
+    @Test
+    fun asciiPhraseStillRequiresAWordBoundaryAfterItsLastLetter() {
+        // "link" must not fire inside "linkedin"; the trailing lookahead applies to word-ending phrases.
+        assertFalse(retrievedNames("linkedin").contains(MobileActionFunctions.OPEN_DEEP_LINK))
+    }
+
+    @Test
     fun firstStepScopeExcludesGesturesOrchestrationAndQuestions() {
         val names = firstStepTools.map { spec -> spec.name }.toSet()
 
