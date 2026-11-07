@@ -138,6 +138,12 @@ class LocalModelMemoryFactExtractorTest {
             Triple("我住在杭州", "Hometown", "我住在杭州"),
             Triple("我不是医生", "Occupation", "我不是医生"),
             Triple("周末喜欢爬山", "Preference", "周末喜欢爬山"),
+            Triple("我的好朋友对芒果过敏", "Allergy", "我的好朋友对芒果过敏"),
+            Triple("我们老板对猫过敏", "Allergy", "我们老板对猫过敏"),
+            Triple("my best friend is allergic to cats", "Allergy", "my best friend is allergic to cats"),
+            Triple("我们公司的同事都喜欢打羽毛球", "Preference", "我们公司的同事都喜欢打羽毛球"),
+            Triple("我是糖尿病患者", "Occupation", "我是糖尿病患者"),
+            Triple("我做的事情很多", "Occupation", "我做的事情很多"),
         ).forEach { (message, kind, fact) ->
             val model = FakeModel { _, _ -> facts(kind to fact) }
 
@@ -151,6 +157,21 @@ class LocalModelMemoryFactExtractorTest {
     }
 
     @Test
+    fun occupationNeedsAnOccupationShape() = runTest {
+        listOf("我是个程序员", "我做销售工作", "我在银行上班", "我是一名小学老师", "我在市一医院当护士", "我在上海交通大学读研究生").forEach { fact ->
+            val model = FakeModel { _, _ -> facts("Occupation" to fact) }
+            val extraction = LocalModelMemoryFactExtractor(model, enabled).extract(fact)
+            assertEquals("kept for '$fact'", listOf(fact), extraction.suggestions.map { it.fact })
+        }
+        listOf("我是糖尿病患者", "我做的事情很多", "我是老板的朋友").forEach { fact ->
+            val model = FakeModel { _, _ -> facts("Occupation" to fact) }
+            val extraction = LocalModelMemoryFactExtractor(model, enabled).extract(fact)
+            assertTrue("dropped for '$fact'", extraction.modelSuggestions.isEmpty())
+            assertEquals(1, extraction.droppedFacts)
+        }
+    }
+
+    @Test
     fun everyBrokenAnswerFallsBackToTheRegexResult() = runTest {
         val message = "我对花生过敏，我是一名小学老师"
         val regex = MemoryFactSuggestionDetector.detect(message)
@@ -160,6 +181,7 @@ class LocalModelMemoryFactExtractorTest {
             FakeModel { _, _ -> throw CancellationException("engine stopped") } to LocalMemoryModelFallback.EngineFailed,
             FakeModel { _, _ -> "   " } to LocalMemoryModelFallback.EmptyOutput,
             FakeModel { _, _ -> "<think>先想一想</think>\n```json\n```" } to LocalMemoryModelFallback.EmptyOutput,
+            FakeModel { _, _ -> "<think>先想一想 {\"facts\":[]}" } to LocalMemoryModelFallback.Unparseable,
             FakeModel { _, _ -> "我是一名小学老师" } to LocalMemoryModelFallback.Unparseable,
             FakeModel { _, _ -> """{"facts":"我是一名小学老师"}""" } to LocalMemoryModelFallback.Unparseable,
             FakeModel { _, _ -> """{"result":[]}""" } to LocalMemoryModelFallback.Unparseable,
@@ -261,13 +283,31 @@ class LocalModelMemoryFactExtractorTest {
     }
 
     @Test
-    fun ungroundedNumbersAreTheDigitRunsMissingFromTheSource() {
+    fun ungroundedNumbersAreWholeNumbersOfTheSource() {
         val source = "已锁定G102，08:00发车，订单号K2048，二等座553元"
 
         assertTrue(ungroundedNumbers("• G102 08:00发车，订单K2048，553元", source).isEmpty())
         assertTrue(ungroundedNumbers("• 订单Ｋ２０４８", source).isEmpty())
-        assertEquals(listOf("09", "2049"), ungroundedNumbers("• 09:00发车，订单K2049", source))
+        assertEquals(listOf("09:00", "2049"), ungroundedNumbers("• 09:00发车，订单K2049", source))
         assertTrue(ungroundedNumbers("• 已锁定车票", source).isEmpty())
+    }
+
+    @Test
+    fun aNumberIsNotGroundedByANearbyNumberOfTheSource() {
+        assertEquals(listOf("386.25"), ungroundedNumbers("• 386.25元", "386.40元，11月25日"))
+        assertEquals(listOf("13:00"), ungroundedNumbers("• 13:00", "13:30 和 14:00"))
+        assertTrue(ungroundedNumbers("• 13:30 和 14:00", "13:30 和 14:00").isEmpty())
+    }
+
+    @Test
+    fun chineseNumeralsAreCheckedAsDigits() {
+        assertEquals(listOf("5"), ungroundedNumbers("• 下午五点", "下午3点"))
+        assertTrue(ungroundedNumbers("• 下午三点", "下午3点").isEmpty())
+        assertTrue(ungroundedNumbers("• 下午3点", "下午3点").isEmpty())
+        assertTrue(ungroundedNumbers("• 下午五点", "下午五点").isEmpty())
+        assertEquals(listOf("105"), ungroundedNumbers("• 一百零五", "一百零六"))
+        assertTrue(ungroundedNumbers("• 18:30", "六18:30").isEmpty())
+        assertEquals(listOf("618:30"), ungroundedNumbers("• 618:30", "六18:30"))
     }
 
     private class FakeModel(private val answer: suspend (String, String) -> String?) : LocalMemoryModel {

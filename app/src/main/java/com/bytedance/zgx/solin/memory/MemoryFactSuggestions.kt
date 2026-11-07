@@ -162,10 +162,18 @@ object MemoryFactSuggestionDetector {
  * One-shot on-device text generation for memory tasks: fact suggestions
  * ([LocalModelMemoryFactExtractor]) and compaction summaries (`orchestration.DefaultContextCompactor`).
  *
- * An implementation must run the loaded on-device engine and nothing else. Prompts carry chat and
- * memory text that stays LocalOnly, so it never reaches a remote model, a log line or an audit event.
+ * Contract, which every implementation must meet:
+ * - It runs fully on the device: the loaded on-device engine and nothing else. No HTTP client, remote
+ *   chat runtime or other network path may be reached from it. Prompts carry chat and memory text that
+ *   stays LocalOnly, so it never reaches a remote model, a log line or an audit event.
+ * - Each call uses a fresh conversation with an empty history. Nothing from an earlier call, and
+ *   nothing from the chat session, is visible to it.
+ * - It is cancellable: a cancelled call stops the engine work and returns, so the callers' timeouts
+ *   and the caller's own cancellation take effect.
+ *
  * Return null when the engine is not loaded, is busy with another call, or fails; callers then keep
- * their heuristic result. Honour coroutine cancellation so the callers' timeouts can stop a slow call.
+ * their heuristic result. Only the adapters in the architecture allowlist may implement this interface
+ * (see `LocalMemoryModelWiringArchitectureTest`); the production wiring is a later integration step.
  */
 fun interface LocalMemoryModel {
     suspend fun generate(systemInstruction: String, prompt: String): String?
@@ -216,7 +224,8 @@ internal sealed interface LocalMemoryModelAnswer {
 
 /**
  * Calls the model once within [timeoutMillis]. A null answer, an exception, a timeout or blank output
- * becomes [LocalMemoryModelAnswer.Failed]; cancellation of the caller still propagates.
+ * becomes [LocalMemoryModelAnswer.Failed]; an unclosed `<think>` block is unparseable, not text.
+ * Cancellation of the caller still propagates.
  */
 internal suspend fun LocalMemoryModel.answerWithin(
     timeoutMillis: Long,
@@ -234,6 +243,10 @@ internal suspend fun LocalMemoryModel.answerWithin(
         return LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.EngineFailed)
     }
     val raw = reply.text ?: return LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.EngineUnavailable)
+    // A <think> that is never closed means the answer was cut inside the reasoning: nothing in it is an answer.
+    if (raw.replace(THINKING_REGEX, "").contains(THINK_OPEN)) {
+        return LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.Unparseable)
+    }
     val body = modelOutputBody(raw)
     return if (body.isEmpty()) {
         LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.EmptyOutput)
@@ -440,9 +453,28 @@ private fun MemoryFactSuggestionKind.anchoredIn(fact: String): Boolean {
     if (this in NEGATION_SENSITIVE_KINDS && NEGATION_REGEX.containsMatchIn(lower)) return false
     return when (this) {
         MemoryFactSuggestionKind.ContactPhone -> PHONE_ANCHOR_REGEX.containsMatchIn(lower)
+        MemoryFactSuggestionKind.Occupation ->
+            if (lower.startsWith("我")) CHINESE_OCCUPATION_REGEXES.any { regex -> regex.containsMatchIn(lower) }
+            else KIND_ANCHORS.getValue(this).any { anchor -> anchor in lower }
         else -> KIND_ANCHORS[this].orEmpty().any { anchor -> anchor in lower }
     }
 }
+
+/** Occupation nouns that end a job phrase ("我是程序员", "我在医院当护士", "我在大学读研究生"). */
+private const val OCCUPATION_NOUNS =
+    "老师|医生|护士|工程师|程序员|律师|会计|会计师|司机|厨师|学生|研究生|教授|记者|经理|码农|警察|军人|农民|作家|演员|画家|研究员|科学家|护工"
+
+/**
+ * The shapes a Chinese occupation fact must have: 我是一名/一位/一个/个…, 我做…工作, 我在…上班, or
+ * 我是/我在/我当 followed by an occupation noun. Anything else ("我是糖尿病患者") is not a job, so the
+ * fact is dropped.
+ */
+private val CHINESE_OCCUPATION_REGEXES = listOf(
+    Regex("""^我是(?:一名|一位|一个|个)(?!人)\S{1,12}$"""),
+    Regex("""^我做\S{1,12}工作$"""),
+    Regex("""^我在(?!家)\S{2,20}上班$"""),
+    Regex("""^我(?:是|在|当)\S{0,20}(?:$OCCUPATION_NOUNS)$"""),
+)
 
 /** Lower case, NFKC and unified apostrophes, whitespace collapsed; used by the shape guards. */
 private fun String.groundingLower(): String =
@@ -455,12 +487,18 @@ private fun String.groundingLower(): String =
 
 private const val MIN_FACT_LENGTH = 3
 private const val MAX_FACT_LENGTH = 80
+private const val THINK_OPEN = "<think>"
 private val THINKING_REGEX = Regex("""<think>.*?</think>""", RegexOption.DOT_MATCHES_ALL)
 private val OPENING_QUOTES = setOf('"', '“', '\'', '‘', '「', '『')
 private val FIRST_PERSON_REGEX = Regex("""^(?:我|my\s|i\s|i'm\s|i've\s)""")
+/**
+ * A clause whose subject is a third party: 我/我们/我的 (with at most six characters before the noun, so
+ * 我们公司的同事, 我的好朋友 and 我们老板 match) or `my` + at most six characters. `我是…` is a
+ * self-description ("我是一名小学老师", "我是老板"), so it is not a third-party subject.
+ */
 private val THIRD_PARTY_REGEX = Regex(
-    """^(?:我(?:的)?(?:朋友|同事|同学|室友|舍友|邻居|老板|领导|上司|客户|网友|老师|同桌)|""" +
-        """my\s+(?:friend|colleague|coworker|co-worker|roommate|flatmate|neighbou?r|boss|manager|client|teacher|classmate)s?\b)""",
+    """^(?:(?!我是)我[们的]?.{0,6}?(?:朋友|同事|同学|室友|舍友|邻居|老板|领导|上司|客户|网友|老师|同桌)|""" +
+        """my\s+.{0,6}?(?:friend|colleague|coworker|co-worker|roommate|flatmate|neighbou?r|boss|manager|client|teacher|classmate)s?\b)""",
 )
 private val MODEL_PAST_TERMS =
     listOf("小时候", "以前", "之前", "曾经", "去年", "上周", "上个月", "used to", "last year", "last week", "last month", "when i was")
@@ -497,8 +535,8 @@ private val KIND_ANCHORS: Map<MemoryFactSuggestionKind, List<String>> = mapOf(
     MemoryFactSuggestionKind.Birthday to listOf("生日", "出生", "birthday", "born"),
     MemoryFactSuggestionKind.Preference to HABIT_ANCHORS,
     MemoryFactSuggestionKind.Routine to HABIT_ANCHORS,
+    // Chinese occupation facts are matched by CHINESE_OCCUPATION_REGEXES instead of these anchors.
     MemoryFactSuggestionKind.Occupation to listOf(
-        "我是", "当", "职业", "从事", "工作是", "读研", "读博", "读大学", "上学", "学生",
         "i'm a", "i am a", "i'm an", "i am an", "work as", "my job", "for a living", "student",
     ),
 )

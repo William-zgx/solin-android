@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.memory
 
+import com.bytedance.zgx.solin.action.ChineseNumerals
 import com.bytedance.zgx.solin.common.sha256Hex
 import java.text.Normalizer
 import java.util.Locale
@@ -582,16 +583,29 @@ internal val TASK_STATE_TERMINAL_QUERY_TERMS = setOf(
 internal fun isGroundedIn(source: String, fact: String): Boolean = GroundingText(source).find(fact) != null
 
 /**
- * Digit runs of [text] (NFKC, so full-width digits count) that are not digit runs of [source]:
- * invented times, prices, phone numbers or codes. Empty when every number in [text] is grounded.
+ * Numbers of [text] that do not occur as whole numbers in [source]: invented times, prices, dates,
+ * phone numbers or codes. Empty when every number in [text] is grounded.
+ *
+ * A number is one whole token of [numberTokens], so `386.25` is not grounded by `386.40`, and `13:00`
+ * is not grounded by `13:30` and `14:00`. Chinese integer numerals count as digits on both sides, so
+ * `下午五点` is the number 5 and `下午3点` is not grounded by `下午五点`.
  */
 internal fun ungroundedNumbers(text: String, source: String): List<String> {
-    val known = digitRuns(source).toSet()
-    return digitRuns(text).filterNot { it in known }.distinct()
+    val known = numberTokens(source).toSet()
+    return numberTokens(text).filterNot { it in known }.distinct()
 }
 
-private fun digitRuns(text: String): List<String> =
-    DIGIT_RUN_REGEX.findAll(Normalizer.normalize(text, Normalizer.Form.NFKC)).map { it.value }.toList()
+/**
+ * Whole numbers of [text]: NFKC (full-width digits), then Chinese numerals read as digits. A converted
+ * numeral is padded with spaces so that `六18:30` yields `6` and `18:30`, not the single token `618:30`.
+ */
+private fun numberTokens(text: String): List<String> {
+    val folded = Normalizer.normalize(text, Normalizer.Form.NFKC)
+    val digits = CHINESE_NUMERAL_RUN_REGEX.replace(folded) { run ->
+        ChineseNumerals.parseInt(run.value)?.let { " $it " } ?: run.value
+    }
+    return NUMBER_TOKEN_REGEX.findAll(digits).map { it.value }.toList()
+}
 
 /** The [GroundingText] fold of the whole string, for containment checks between grounded texts. */
 internal fun String.groundingFold(): String = GroundingText(this).folded
@@ -641,6 +655,7 @@ internal class GroundingText(private val text: String) {
             .filterNot { it.isWhitespace() }
 }
 
-private val DIGIT_RUN_REGEX = Regex("""\d+""")
+private val NUMBER_TOKEN_REGEX = Regex("""\d+(?:[.:：/-]\d+)*""")
+private val CHINESE_NUMERAL_RUN_REGEX = Regex("[${ChineseNumerals.NUMERAL_CLASS}]+")
 private val GROUNDING_EDGE_PUNCTUATION =
     charArrayOf('。', '！', '!', '？', '?', '；', ';', '，', ',', '.', '"', '“', '”', '「', '」', '『', '』')
