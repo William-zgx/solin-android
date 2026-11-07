@@ -710,22 +710,65 @@ Current status:
 - UI state distinguishes installed memory assets from active semantic recall,
   so a downloaded model is not presented as usable until probe/index succeeds.
 - Two local-model memory tasks sit behind the `LocalMemoryModel` seam, and both
-  are off by default. `LocalModelMemoryFactExtractor`
+  are off by default and not wired. The seam's contract: the implementation runs
+  fully on the device, each call uses a fresh empty-history conversation, and the
+  call is cancellable. `LocalModelMemoryFactExtractor`
   (`LocalModelMemoryExtractionConfig.enabled`) adds fact suggestions to the
   regex ones. A fact is suggested only when it is copied from the user's message
-  and passes the per-fact guards, and it is still saved only after the user
-  confirms. `CompactionConfig.modelSummaryEnabled` lets `DefaultContextCompactor`
-  ask for the summary of the older messages. The summary never sees user
-  messages and is rejected when it adds a number. Any failure (no engine,
-  timeout, error, unparseable or ungrounded output) falls back to the heuristic
-  result. `lab/memory/` holds the synthetic datasets and the opt-in desktop
-  bench.
+  and passes the per-fact guards: first person, not a third party (a bounded
+  gap, so 我的好朋友 and 我们公司的同事 are third parties), not a question,
+  hypothetical, negation, past or one-time statement, and an occupation needs
+  an occupation shape (我是一名/一位/个…, 我做…工作, 我在…上班, or an occupation
+  noun). The fact is still saved only after the user confirms.
+  `CompactionConfig.modelSummaryEnabled` lets `DefaultContextCompactor` ask for
+  one summary of the older assistant, tool and screen messages; user messages
+  never reach the model. Threat T1 (prompt injection through tool results and
+  screens) is handled by requiring each summary line to start with a source
+  label that was sent, and by the instruction never to state what the user asked
+  or wants; a line without a label is a parse failure. Numbers must be whole
+  tokens of the sources: `386.25` is not grounded by `386.40`, `13:00` is not
+  grounded by `13:30`, and `下午五点` is 5. An unclosed `<think>` is unparseable.
+  Any failure (no engine, timeout, error, unparseable, ungrounded or oversized
+  output) falls back to the heuristic result. The label rule costs summaries the
+  model writes without labels; the saved 20261107 outputs show that cost
+  (`lab/memory/results/20261107/SUMMARY.md`). Those outputs were scored under the
+  earlier set-based number rule, so their hallucination figures are replayed
+  under the current rule there. `lab/memory/` holds the synthetic datasets and
+  the opt-in desktop bench (`SOLIN_LAB_MEMORY=1`).
+
+Wiring prerequisites (each must hold before either flag is wired on):
+
+1. Bind the model only through an allowlisted adapter. In
+   `LocalMemoryModelWiringArchitectureTest` the allowlist is empty: a
+   `LocalMemoryModel` implementation, a `DefaultContextCompactor` with a summary
+   model, or a `LocalModelMemoryFactExtractor` construction is allowed only in
+   `SolinAppContainer.kt` and tests. The on-device adapter (`LocalEngine` to
+   `LocalMemoryModel`, `runInterruptible` plus cancel, fresh empty-history
+   conversation) joins the allowlist with the change that adds it. The adapter
+   must not import `RemoteChatRuntime`, OkHttp or anything in the remote runtime.
+2. Do not run the model summary inside the blocking LiteRT path. `LiteRtRuntime`
+   calls `ContextCompactor.compact` inside `runBlocking` (`runtime/LiteRtRuntime.kt`,
+   around line 443), and `recreateConversationForSend` reaches it under
+   `runtimeLock` (`presentation/ChatGenerationSupport.kt`). Stop cannot cancel
+   that call. The model summary must run in the suspend layer before the
+   conversation is recreated and outside `runtimeLock`; the blocking path then
+   receives the finished summary.
+3. Let Stop reach the summary call. `AgentLoopRuntime.compactHistory`
+   (`orchestration/AgentLoopRuntime.kt`, around line 1637) wraps the compactor in
+   `runCatching`, which swallows `CancellationException`. It must rethrow
+   cancellation before a model summary can honour Stop. This slice documents the
+   requirement and does not edit `AgentLoopRuntime.kt`.
+4. The privacy notice states the wiring facts (`docs/privacy_notice.md`): both
+   tasks run only on the device, and a remote request may carry an on-device
+   summary of RemoteEligible history.
 
 Tests:
 
 - `MemoryRepositoryTest`
 - `LocalModelMemoryFactExtractorTest`
 - `ModelCompactionSummaryTest`
+- `LocalMemoryModelWiringArchitectureTest`
+- `MemoryLabDatasetTest` (always on; the Ollama bench is opt-in)
 - `SolinViewModelTest`
 - `MainActivityLongTermMemoryUiTest`
 
