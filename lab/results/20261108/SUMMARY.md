@@ -426,8 +426,8 @@ None of this is phone evidence. Accuracy is the portable signal; latency is host
    text format and with native tools over the full registry (0/100 tool requests, 51/151 overall, all of
    them "correct" only because refusing a no-tool request is correct). With a top-8 shortlist it emits
    some calls (19/100 tool-correct, 2/51 false positives), mostly in Gemma's own `tool_call:` form rather
-   than the app's `call:`. The production fine-tune is measured in the D4 follow-up commit (Suite F,
-   LiteRT-LM on `mobile-actions_q8_ekv1024.litertlm`); nothing in this Ollama section measures it.
+   than the app's `call:`. The production fine-tune is measured in Suite F below (LiteRT-LM on
+   `mobile-actions_q8_ekv1024.litertlm`); nothing in this Ollama section measures it.
 5. **Native tools do not fix intent.** E4B `N-full` is 95/100 tool requests with pinned arguments but
    45/51 false positives on no-tool requests; E2B is 89/100 and 34/51. Choosing a tool is easier than
    deciding not to.
@@ -458,12 +458,11 @@ model is the only thing that can pick `open_app_by_name` for it.
 
 ### What is still pending
 
-- **Suite F (LiteRT-LM on the production `.litertlm` files) is not in this commit.** It is a
-  follow-up commit in this folder; its tables and its own conclusions land there. Nothing in the
-  Ollama numbers above is evidence about the shipped weights.
-- Suite A (observation step) was not run on the devbox for any model.
-- FunctionGemma 270M `N-topk` is run; the other three native modes (`N-full`, and the Ollama
-  `N-topk-free`) are not. `native-tools__functiongemma-270m__N-full.jsonl` exists: the base model
-  answered in prose on all 151 cases, 0 tool calls.
+- **Suite F (LiteRT-LM on the production `.litertlm` files) is in the section above**, with its own
+  host label. The Ollama numbers elsewhere in this file are not evidence about the shipped weights.
+- Suite A (observation step) was not run on the devbox for any model; Suite A on the production files
+  is not run either.
+- FunctionGemma 270M Ollama `N-topk` is run; `N-full` exists too (the base model answered in prose on
+  all 151 cases, 0 tool calls). The Ollama `N-topk-free` mode is not run.
 - `lab/results/20261107/SUMMARY.md` now carries the two offline composites for the Mac models.
 
