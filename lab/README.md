@@ -15,8 +15,8 @@ Nothing here ships in the APK. The harness lives in the JVM unit-test source set
 | `lab/datasets/observation_step.jsonl` | Suite A cases: user goal, screen, prior steps, gold next step |
 | `lab/datasets/initial_planning.jsonl` | Suites B and C cases: user request, gold first tool and arguments |
 | `lab/scripts/build_datasets.py` | Generates both datasets from the label tables in the script |
-| `lab/scripts/summarize.py` | Turns `lab/results/<date>/*.jsonl` into `summary.md` |
-| `lab/results/<YYYYMMDD>/` | One JSONL per (suite, model, mode), `manifest.json`, `run.log`, `summary.md` |
+| `lab/scripts/summarize.py` | Turns `lab/results/<date>/*.jsonl` into `SUMMARY.md` and `failure_examples.md` |
+| `lab/results/<YYYYMMDD>/` | One JSONL per (suite, model, mode), `manifest.json`, `run.log`, `SUMMARY.md`, `failure_examples.md` |
 
 Suite D reads `docs/decision_routing_eval.json` directly.
 
@@ -75,10 +75,17 @@ Per case it records:
 | `M-full` | Model only, prompt advertises the whole built-in registry (what the 270M FunctionGemma sees today) |
 | `M-topk` | Model only, prompt advertises the top 8 tools from `LabToolRetriever` (lexical, deterministic) |
 | `R+M` | Production order with a model installed: skills, then rule intent gate, then model, then rule fallback |
+| `M-full-fix`, `M-topk-fix` | Lab-only ablation: `M-full` / `M-topk` with the prompt's `call:function {"arg":"value"}` placeholder replaced by `call:函数名 {"参数名":"值"}` |
+
+The `-fix` modes (and Suite A's `replanner-fix`) exist because small models copy the placeholder
+`function` as the tool name. They change only that text (`PlaceholderAblation`); they are not what
+the app sends.
 
 Metrics: tool-name accuracy, argument accuracy (all gold keys, and per key), false-positive tool rate
 on no-tool cases, parse/format validity (a known tool in the `call:` format) and schema validity
-(`ToolRegistry.validate`), latency, prompt tokens. `M-topk` also reports retriever recall@8.
+(`ToolRegistry.validate`), latency, prompt tokens. `M-topk` also reports retriever recall@8;
+`LabDatasetValidationTest` (no model) records recall@k for k in 4, 8, 12, 16 with the misses and
+the mean `actionPrompt` size at each k.
 
 ### Suite C: native tools (`native-tools`)
 

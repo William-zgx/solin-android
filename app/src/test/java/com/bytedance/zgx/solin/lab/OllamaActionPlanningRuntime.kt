@@ -21,6 +21,23 @@ import java.io.IOException
 const val ACTION_PLANNER_SYSTEM_INSTRUCTION = "你是手机动作规划器。只能输出 call:function {\"arg\":\"value\"}，不解释。"
 
 /**
+ * Lab-only prompt ablation (the `*-fix` modes), not production behavior. The production prompt and
+ * system instruction show the output shape as `call:function {"arg":"value"}`, and small models copy
+ * `function` as the tool name. This variant names the slot in words; tool lines and parser are unchanged.
+ */
+object PlaceholderAblation {
+    private const val PRODUCTION_SHAPE = "call:function {\"arg\":\"value\"}"
+    private const val SHAPE = "call:函数名 {\"参数名\":\"值\"}"
+
+    val systemInstruction: String = ACTION_PLANNER_SYSTEM_INSTRUCTION.replace(PRODUCTION_SHAPE, SHAPE)
+
+    fun rewrite(prompt: String): String {
+        require(PRODUCTION_SHAPE in prompt) { "actionPrompt no longer shows $PRODUCTION_SHAPE; update the ablation" }
+        return prompt.replace(PRODUCTION_SHAPE, "$SHAPE（函数名换成下面列表里的一个函数）")
+    }
+}
+
+/**
  * Lab twin of `HybridActionPlanningRuntime` + its private `ModelBackedActionPlanner`: same prompt
  * (`actionPrompt`), same system instruction, greedy sampling, same parser, and the same fallback to
  * the rule planner. The only difference is the backend (Ollama instead of LiteRT-LM), plus capture of
@@ -35,6 +52,7 @@ class OllamaActionPlanningRuntime(
     private val rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
     private val options: OllamaClient.Options = OllamaClient.Options(),
     private val responseCache: MutableMap<String, OllamaClient.ChatResult>? = null,
+    private val placeholderAblation: Boolean = false,
 ) : ActionPlanningRuntime {
     data class Call(
         val prompt: String,
@@ -106,13 +124,14 @@ class OllamaActionPlanningRuntime(
 
     private fun modelAttempt(input: String, toolSpecs: List<ToolSpec>?): ModelAttempt {
         val specs = toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()
-        val prompt = actionPrompt(input, specs)
-        val cacheKey = "$model\u0000$prompt"
+        val prompt = actionPrompt(input, specs).let { if (placeholderAblation) PlaceholderAblation.rewrite(it) else it }
+        val system = if (placeholderAblation) PlaceholderAblation.systemInstruction else ACTION_PLANNER_SYSTEM_INSTRUCTION
+        val cacheKey = "$model\u0000$system\u0000$prompt"
         val cachedResult = responseCache?.get(cacheKey)
         val result = cachedResult ?: client.chat(
             model = model,
             messages = listOf(
-                OllamaClient.Message("system", ACTION_PLANNER_SYSTEM_INSTRUCTION),
+                OllamaClient.Message("system", system),
                 OllamaClient.Message("user", prompt),
             ),
             options = options,

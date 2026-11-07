@@ -58,6 +58,11 @@ class InitialPlanningSuiteTest {
                 runModelOnly(model, "M-topk", cases, runtime) { case -> retriever.topK(case.input, TOP_K) }
             }
             if (LabEnv.modeSelected("R+M")) runRulesPlusModel(model, cases, runtime)
+            val ablation = OllamaActionPlanningRuntime(client, model, toolRegistry = registry, placeholderAblation = true)
+            if (LabEnv.modeSelected("M-full-fix")) runModelOnly(model, "M-full-fix", cases, ablation) { registry.specs() }
+            if (LabEnv.modeSelected("M-topk-fix")) {
+                runModelOnly(model, "M-topk-fix", cases, ablation) { case -> retriever.topK(case.input, TOP_K) }
+            }
         }
     }
 
