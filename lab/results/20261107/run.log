@@ -1,0 +1,54 @@
+2026-11-07T07:47:51.642319Z suite B mode=R cases=151 correct=127
+2026-11-07T07:48:48.707349Z suite B model=qwen3.5:2b mode=M-full cases=151 correct=63
+2026-11-07T07:49:59.142057Z suite B model=qwen3.5:2b mode=M-topk cases=151 correct=47
+2026-11-07T07:49:59.248789Z suite B model=qwen3.5:2b mode=R+M cases=151 correct=127
+2026-11-07T07:49:59.273077Z static: registry=52 recall@8=79/100
+2026-11-07T07:52:50.723251Z suite C model=qwen3.5:2b mode=N-full cases=151 correct=110
+2026-11-07T08:21:01.294779Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-07T08:21:53.724764Z suite B mode=R cases=151 correct=127
+2026-11-07T08:22:41.754678Z suite B model=gemma4:e2b mode=M-full cases=151 correct=73
+2026-11-07T08:23:48.666509Z suite B model=gemma4:e2b mode=M-topk cases=151 correct=53
+2026-11-07T08:23:48.741767Z suite B model=gemma4:e2b mode=R+M cases=151 correct=127
+2026-11-07T08:24:33.428245Z suite C model=gemma4:e2b mode=N-full cases=151 correct=96
+2026-11-07T08:26:59.412457Z suite C model=gemma4:e2b mode=N-topk cases=151 correct=93
+2026-11-07T08:29:40.539659Z suite C model=gemma4:e2b mode=N-topk-free cases=151 correct=116
+2026-11-07T08:30:24.371309Z suite A model=gemma4:e2b cases=46 rawCorrect=13 finalCorrect=17
+2026-11-07T08:30:24.385781Z suite D rules cases=26 correct=15
+2026-11-07T08:30:29.165529Z suite D model=gemma4:e2b mode=json-prompt cases=26 correct=25
+2026-11-07T08:30:33.588263Z suite D model=gemma4:e2b mode=json-schema cases=26 correct=24
+2026-11-07T08:31:24.182461Z suite B mode=R cases=151 correct=127
+2026-11-07T08:32:37.746458Z suite B model=gemma4:e4b mode=M-full cases=151 correct=61
+2026-11-07T08:34:43.521492Z suite B model=gemma4:e4b mode=M-topk cases=151 correct=58
+2026-11-07T08:34:43.590225Z suite B model=gemma4:e4b mode=R+M cases=151 correct=127
+2026-11-07T08:35:36.692014Z suite B model=gemma4:e4b mode=M-full-fix cases=151 correct=89
+2026-11-07T08:37:37.773208Z suite B model=gemma4:e4b mode=M-topk-fix cases=151 correct=83
+2026-11-07T08:39:02.091698Z suite C model=gemma4:e4b mode=N-full cases=151 correct=112
+2026-11-07T08:44:11.113824Z suite C model=gemma4:e4b mode=N-topk cases=151 correct=91
+2026-11-07T08:49:47.188531Z suite C model=gemma4:e4b mode=N-topk-free cases=151 correct=108
+2026-11-07T08:51:14.045793Z suite A model=gemma4:e4b mode=replanner cases=46 rawCorrect=17 finalCorrect=25
+2026-11-07T08:52:45.512118Z suite A model=gemma4:e4b mode=replanner-fix cases=46 rawCorrect=18 finalCorrect=23
+2026-11-07T08:52:45.540965Z suite D rules cases=26 correct=15
+2026-11-07T08:52:52.198600Z suite D model=gemma4:e4b mode=json-prompt cases=26 correct=25
+2026-11-07T08:52:58.420436Z suite D model=gemma4:e4b mode=json-schema cases=26 correct=25
+2026-11-07T08:53:03.775209Z suite B mode=R cases=151 correct=127
+2026-11-07T08:53:48.593733Z suite B model=gemma4:e2b mode=M-full-fix cases=151 correct=69
+2026-11-07T08:54:53.658697Z suite B model=gemma4:e2b mode=M-topk-fix cases=151 correct=67
+2026-11-07T08:55:36.552663Z suite A model=gemma4:e2b mode=replanner-fix cases=46 rawCorrect=14 finalCorrect=20
+2026-11-07T08:55:40.010986Z suite B mode=R cases=151 correct=127
+2026-11-07T08:56:45.801480Z suite B model=qwen3.5:2b mode=M-full-fix cases=151 correct=51
+2026-11-07T08:58:16.493112Z suite B model=qwen3.5:2b mode=M-topk-fix cases=151 correct=50
+2026-11-07T09:02:22.497462Z suite C model=qwen3.5:2b mode=N-topk cases=151 correct=79
+2026-11-07T09:06:33.550909Z suite C model=qwen3.5:2b mode=N-topk-free cases=151 correct=119
+2026-11-07T09:07:25.508719Z suite A model=qwen3.5:2b mode=replanner cases=46 rawCorrect=6 finalCorrect=13
+2026-11-07T09:08:16.402987Z suite A model=qwen3.5:2b mode=replanner-fix cases=46 rawCorrect=6 finalCorrect=13
+2026-11-07T09:08:16.418672Z suite D rules cases=26 correct=15
+2026-11-07T09:08:26.699270Z suite D model=qwen3.5:2b mode=json-prompt cases=26 correct=15
+2026-11-07T09:08:36.549647Z suite D model=qwen3.5:2b mode=json-schema cases=26 correct=15
+2026-11-07T09:14:18.845204Z suite B mode=R cases=151 correct=127
+2026-11-07T09:16:09.206680Z suite B model=qwen3.5:4b mode=M-full cases=151 correct=51
+2026-11-07T09:18:41.816237Z suite B model=qwen3.5:4b mode=M-topk cases=151 correct=51
+2026-11-07T09:18:41.877330Z suite B model=qwen3.5:4b mode=R+M cases=151 correct=127
+2026-11-07T09:20:18.929999Z suite B model=qwen3.5:4b mode=M-full-fix cases=151 correct=86
+2026-11-07T09:22:47.654121Z suite B model=qwen3.5:4b mode=M-topk-fix cases=151 correct=75
+2026-11-07T09:27:41.743337Z suite C model=qwen3.5:4b mode=N-full cases=151 correct=117
+2026-11-07T09:35:16.650696Z suite C model=qwen3.5:4b mode=N-topk cases=151 correct=84

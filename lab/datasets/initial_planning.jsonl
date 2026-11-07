@@ -1,0 +1,173 @@
+{"gold": {"args": {}, "tools": []}, "id": "golden_000", "input": "别启动微信", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_001", "input": "不打开 Wi-Fi 设置", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_002", "input": "不要把这段文字分享出去：明天十点开会", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_003", "input": "不要百度一下 Kotlin", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_004", "input": "不要打开相机", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_005", "input": "不要打开 Wi-Fi 设置，只解释一下", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_006", "input": "不要导航到机场", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_007", "input": "不要读取剪贴板", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_008", "input": "不要设置闹钟", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_009", "input": "不要添加日程：周五评审", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_010", "input": "不要在当前应用搜索 海河牛奶", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_011", "input": "不要新建联系人 Alice", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_012", "input": "别发邮件：明天延期到周五", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_013", "input": "不要取消提醒 task-123", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_014", "input": "查到这个错误原因了吗？", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_015", "input": "当前地图 API 怎么用", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_016", "input": "地图是什么", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_017", "input": "蓝牙是什么", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_018", "input": "后台任务怎么实现", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_019", "input": "解释一下 PACKAGE_USAGE_STATS", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_020", "input": "如何打开微信", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_021", "input": "如何读取剪贴板", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_022", "input": "微信打不开怎么办", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_023", "input": "网页搜索是什么", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_024", "input": "请解释“提醒我 15 分钟后喝水”这句话", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_025", "input": "晚上11:25是什么意思", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_026", "input": "分享一下你对端侧 Agent 的看法", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_027", "input": "联系人权限怎么申请", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_028", "input": "How do I navigate to a Compose screen?", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_029", "input": "Do not send email; summarize only", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_030", "input": "what is web search", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_031", "input": "把'提醒我明天9点开会'翻译成英文", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_032", "input": "你好用法语怎么说", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_033", "input": "邮件是什么意思", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_034", "input": "怎么实现倒计时20分钟", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_035", "input": "提醒我一下，15 分钟英文怎么说", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_036", "input": "remind me what a 1 hour SLA means", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": []}, "id": "golden_037", "input": "add event listener to the button", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["open_wifi_settings"]}, "id": "golden_038", "input": "帮我打开 Wi-Fi 设置", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["open_wifi_settings"]}, "id": "golden_039", "input": "open Wi-Fi settings", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"target": "bluetooth"}, "tools": ["open_system_settings"]}, "id": "golden_040", "input": "打开蓝牙设置", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"target": "do_not_disturb"}, "tools": ["open_system_settings"]}, "id": "golden_041", "input": "打开勿扰模式", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"target": "volume"}, "tools": ["open_system_settings"]}, "id": "golden_042", "input": "打开音量设置", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["open_usage_access_settings"]}, "id": "golden_043", "input": "打开使用情况访问权限设置", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["open_flashlight_settings"]}, "id": "golden_044", "input": "打开手电筒设置", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"query": "~kotlin"}, "tools": ["web_search"]}, "id": "golden_045", "input": "帮我搜一下 Kotlin 协程最新用法", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"query": "~签证"}, "tools": ["web_search"]}, "id": "golden_046", "input": "搜一下申请签证需要什么材料", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"query": "~kotlin"}, "tools": ["web_search"]}, "id": "golden_047", "input": "look up Kotlin coroutines", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"title": "~评审"}, "tools": ["create_calendar_event"]}, "id": "golden_048", "input": "帮我建个日程：周五评审", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"body": "~延期"}, "tools": ["compose_email"]}, "id": "golden_049", "input": "帮我写邮件：明天延期到周五", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"query": "~alice"}, "tools": ["query_contacts"]}, "id": "golden_050", "input": "查联系人 Alice", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["query_background_tasks"]}, "id": "golden_051", "input": "查看后台任务", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"lengthSeconds": "1200"}, "tools": ["set_system_timer"]}, "id": "golden_052", "input": "倒计时20分钟", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"lengthSeconds": "900"}, "tools": ["set_system_timer"]}, "id": "golden_053", "input": "倒计时一刻钟", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"lengthSeconds": "600"}, "tools": ["set_system_timer"]}, "id": "golden_054", "input": "set a timer for 10 minutes", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"hour": "23", "minutes": "25", "recurrence": "daily"}, "tools": ["set_system_alarm"]}, "id": "golden_055", "input": "每天晚上11:25设置闹钟", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"hour": "7", "minutes": "0"}, "tools": ["set_system_alarm"]}, "id": "golden_056", "input": "设置明天7点的闹钟", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"hour": "6", "minutes": "45"}, "tools": ["set_system_alarm"]}, "id": "golden_057", "input": "set an alarm for 6:45", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"hour": "7", "minutes": "30", "recurrence": "daily"}, "tools": ["set_system_alarm"]}, "id": "golden_058", "input": "每天7:30叫醒我", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"title": "~开会"}, "tools": ["schedule_reminder"]}, "id": "golden_059", "input": "明天早上8点提醒我开会", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"title": "~喝水"}, "tools": ["schedule_reminder"]}, "id": "golden_060", "input": "提醒我今天下午3点喝水", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"delayMinutes": "15", "title": "~喝水"}, "tools": ["schedule_reminder"]}, "id": "golden_061", "input": "提醒我 15 分钟后喝水", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"delayMinutes": "30", "title": "~喝水"}, "tools": ["schedule_reminder"]}, "id": "golden_062", "input": "半小时后提醒我喝水", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"delayMinutes": "10", "title": "~stretch"}, "tools": ["schedule_reminder"]}, "id": "golden_063", "input": "could you remind me in 10 minutes to stretch", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["read_clipboard"]}, "id": "golden_064", "input": "读取剪贴板", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"text": "~明天十点开会"}, "tools": ["share_text"]}, "id": "golden_065", "input": "分享这段文字：明天十点开会", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["observe_current_screen"]}, "id": "golden_066", "input": "观察当前屏幕", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["query_foreground_app"]}, "id": "golden_067", "input": "当前应用是什么", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["read_recent_screenshot_ocr"]}, "id": "golden_068", "input": "识别最近截图文字", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["query_recent_notifications"]}, "id": "golden_069", "input": "最近通知", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["query_recent_files"]}, "id": "golden_070", "input": "最近文件", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["read_current_screen_text"]}, "id": "golden_071", "input": "总结当前屏幕文字", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"appName": "~微信"}, "tools": ["open_app_by_name"]}, "id": "golden_072", "input": "启动微信", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"appName": "~淘宝"}, "tools": ["open_app_by_name"]}, "id": "golden_073", "input": "打开淘宝搜索 机械键盘", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"uri": "~example.com"}, "tools": ["open_deep_link"]}, "id": "golden_074", "input": "打开链接 https://example.com", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"name": "~alice"}, "tools": ["create_contact_draft"]}, "id": "golden_075", "input": "新建联系人 Alice", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"email": "bob@example.com", "name": "~bob"}, "tools": ["create_contact_draft"]}, "id": "golden_076", "input": "create contact Bob bob@example.com +1 555 0100", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"enabled": "true"}, "tools": ["configure_periodic_check"]}, "id": "golden_077", "input": "开启周期检查", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"enabled": "false"}, "tools": ["configure_periodic_check"]}, "id": "golden_078", "input": "关闭周期检查", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"taskId": "task-123"}, "tools": ["cancel_reminder"]}, "id": "golden_079", "input": "取消提醒 task-123", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"phoneNumber": "10086"}, "tools": ["dial_phone_number"]}, "id": "golden_080", "input": "打电话给10086", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"phoneNumber": "13800138000"}, "tools": ["dial_phone_number"]}, "id": "golden_081", "input": "拨打 138-0013-8000", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"body": "~查询话费", "phoneNumber": "10086"}, "tools": ["compose_sms"]}, "id": "golden_082", "input": "发短信给10086说查询话费", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"command": "next"}, "tools": ["control_media"]}, "id": "golden_083", "input": "下一首", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"command": "pause|play_pause"}, "tools": ["control_media"]}, "id": "golden_084", "input": "暂停音乐", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {"query": "~机场"}, "tools": ["search_maps"]}, "id": "golden_085", "input": "查去机场的路线", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["calculate"]}, "id": "golden_086", "input": "23*17+5", "labeled": true, "source": "planning_golden"}
+{"gold": {"args": {}, "tools": ["calculate"]}, "id": "golden_087", "input": "3.5公里等于多少米", "labeled": true, "source": "planning_golden"}
+{"category": "launch", "gold": {"args": {"appName": "~微信"}, "tools": ["open_app_by_name"]}, "id": "bench_launch_wechat", "input": "打开微信", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "launch", "gold": {"args": {"appName": "~淘宝"}, "tools": ["open_app_by_name"]}, "id": "bench_launch_taobao", "input": "打开淘宝", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "launch", "gold": {"args": {"appName": "~高德"}, "tools": ["open_app_by_name"]}, "id": "bench_launch_amap", "input": "打开高德地图", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "launch", "gold": {"args": {}, "tools": ["open_system_settings", "open_app_by_name"]}, "id": "bench_launch_settings", "input": "打开系统设置", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "launch", "gold": {"args": {}, "tools": ["open_camera"]}, "id": "bench_launch_camera", "input": "打开相机", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~淘宝"}, "tools": ["open_app_by_name"]}, "id": "bench_search_taobao_milk", "input": "在淘宝搜索牛奶", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~京东"}, "tools": ["open_app_by_name"]}, "id": "bench_search_jd_earbuds", "input": "在京东搜索蓝牙耳机", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~拼多多"}, "tools": ["open_app_by_name"]}, "id": "bench_search_pdd_tissue", "input": "在拼多多搜索抽纸", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~小红书"}, "tools": ["open_app_by_name"]}, "id": "bench_search_xhs_coffee", "input": "在小红书搜索咖啡", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~b站|~哔哩哔哩|~bilibili"}, "tools": ["open_app_by_name"]}, "id": "bench_search_bili_cat", "input": "在B站搜索猫咪", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~抖音"}, "tools": ["open_app_by_name"]}, "id": "bench_search_douyin_fitness", "input": "在抖音搜索健身", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~美团"}, "tools": ["open_app_by_name"]}, "id": "bench_search_meituan_hotpot", "input": "在美团搜索火锅", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~大众点评|~点评"}, "tools": ["open_app_by_name"]}, "id": "bench_search_dianping_bbq", "input": "在大众点评搜索烤肉", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {}, "tools": ["open_app_by_name", "search_maps"]}, "id": "bench_search_amap_coffee", "input": "在高德地图搜索附近的咖啡店", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~网易云"}, "tools": ["open_app_by_name"]}, "id": "bench_search_cloudmusic_song", "input": "在网易云音乐搜索晴天", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~qq音乐"}, "tools": ["open_app_by_name"]}, "id": "bench_search_qqmusic_song", "input": "在QQ音乐搜索稻香", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~携程"}, "tools": ["open_app_by_name"]}, "id": "bench_search_ctrip_hotel", "input": "在携程搜索上海的酒店", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_search", "gold": {"args": {"appName": "~饿了么"}, "tools": ["open_app_by_name"]}, "id": "bench_search_eleme_tea", "input": "在饿了么搜索奶茶", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_multi_step", "gold": {"args": {"appName": "~淘宝"}, "tools": ["open_app_by_name"]}, "id": "bench_multi_taobao_sort_sales", "input": "在淘宝搜索牛奶，然后按销量排序", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "in_app_multi_step", "id": "bench_multi_wechat_draft_message", "input": "在微信里打开文件传输助手，输入“基准测试消息”但不要发送", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "navigation", "gold": {"args": {}, "tools": ["search_maps", "open_app_by_name"]}, "id": "bench_nav_amap_tiananmen", "input": "用高德地图导航去天安门", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "navigation", "gold": {"args": {"query": "~加油站"}, "tools": ["search_maps"]}, "id": "bench_nav_maps_search", "input": "在地图上搜索最近的加油站", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "system", "gold": {"args": {"hour": "7", "minutes": "0"}, "tools": ["set_system_alarm"]}, "id": "bench_sys_alarm", "input": "设一个明天早上7点的闹钟", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "system", "gold": {"args": {"lengthSeconds": "600"}, "tools": ["set_system_timer"]}, "id": "bench_sys_timer", "input": "倒计时10分钟", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "system", "gold": {"args": {}, "tools": ["open_wifi_settings"]}, "id": "bench_sys_wifi", "input": "打开WiFi设置", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "system", "gold": {"args": {"target": "bluetooth"}, "tools": ["open_system_settings"]}, "id": "bench_sys_bluetooth", "input": "打开蓝牙设置", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "system", "gold": {"args": {"target": "do_not_disturb"}, "tools": ["open_system_settings"]}, "id": "bench_sys_dnd", "input": "打开勿扰模式设置", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "system", "gold": {"args": {"command": "next"}, "tools": ["control_media"]}, "id": "bench_sys_media_next", "input": "下一首歌", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "draft", "gold": {"args": {"body": "~查询话费", "phoneNumber": "10086"}, "tools": ["compose_sms"]}, "id": "bench_draft_sms", "input": "给10086发短信说查询话费", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "draft", "gold": {"args": {"phoneNumber": "10086"}, "tools": ["dial_phone_number"]}, "id": "bench_draft_dial", "input": "拨打10086", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "draft", "gold": {"args": {}, "tools": ["compose_email"]}, "id": "bench_draft_email", "input": "给test@example.com写一封邮件，主题是周会改期", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "draft", "gold": {"args": {"delayMinutes": "30", "title": "~喝水"}, "tools": ["schedule_reminder"]}, "id": "bench_draft_reminder", "input": "半小时后提醒我喝水", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "answer", "gold": {"args": {}, "tools": ["calculate"]}, "id": "bench_answer_calculate", "input": "23乘以47等于多少", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "answer", "gold": {"args": {}, "tools": []}, "id": "bench_answer_translate", "input": "把今天天气不错翻译成英文", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "read", "id": "bench_read_calculator_multiply", "input": "用手机自带的计算器算一下 123×456，告诉我结果。只看，不要改计算器的设置。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_android_version", "input": "这台手机的安卓版本号是多少？只看，不要改任何设置。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_battery_percent", "input": "手机现在还剩多少电？告诉我百分比。只看，不要打开省电模式或改任何设置。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_storage_used", "input": "去系统设置里看看手机存储已经用了多少、一共有多少。只看，不要清理或删除任何东西。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_jd_keyboard_prices", "input": "在京东搜索机械键盘，告诉我排在最前面的两个商品各多少钱。只看，不要加购物车或下单。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_taobao_cup_prices", "input": "在淘宝搜索保温杯，告诉我前三个商品的价格。只看，不要收藏、加购物车或下单。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_dianping_coffee", "input": "在大众点评搜索咖啡，告诉我排第一的店叫什么、人均多少钱，店名用「」括起来。只看，不要收藏、点评或下单。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_bili_popular", "input": "打开B站的热门页，告诉我前三个视频的标题，每个标题用「」括起来。只看，不要点赞、投币或关注。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_douyin_hot", "input": "打开抖音热榜，告诉我排名前三的话题，每个话题用「」括起来。只看，不要点赞、评论或关注。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_xhs_coffee_titles", "input": "在小红书搜索咖啡，告诉我前两篇笔记的标题，每个标题用「」括起来。只看，不要点赞、收藏或关注。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "read", "id": "bench_read_cloudmusic_singer", "input": "在网易云音乐搜索晴天，告诉我第一首搜索结果是谁唱的。只看，不要播放、收藏或下载。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "impossible", "gold": {"args": {}, "tools": []}, "id": "bench_impossible_feb30", "input": "明年2月30日是星期几？", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "impossible", "id": "bench_impossible_quantum_settings", "input": "打开系统设置里的「量子加速」菜单，把它开起来。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "impossible", "id": "bench_impossible_rain_alarm", "input": "设一个只有明天下雨才会响的闹钟。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "impossible", "id": "bench_impossible_missing_folder", "input": "打开手机内部存储根目录下叫 LAB01 的文件夹，告诉我里面有几个文件。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "impossible", "id": "bench_impossible_moon_temperature", "input": "明天月球上的气温是多少度？", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "impossible", "id": "bench_impossible_battery_upgrade", "input": "把这台手机的电池容量升级到 10000mAh。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "write", "gold": {"args": {"hour": "7", "message": "~LAB01", "minutes": "15"}, "tools": ["set_system_alarm"]}, "id": "bench_write_alarm", "input": "设一个明天早上 7:15 的一次性闹钟，标签写 LAB01。", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "write", "gold": {"args": {"title": "~LAB01"}, "tools": ["create_calendar_event"]}, "id": "bench_write_calendar", "input": "在日历里新建一个今天 23:00 到 23:30 的日程，标题叫 LAB01，然后保存。", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "write", "gold": {"args": {"name": "~LAB01", "phone": "13800000000"}, "tools": ["create_contact_draft"]}, "id": "bench_write_contact", "input": "新建一个联系人，名字叫 LAB01，手机号 13800000000，然后保存。", "labeled": true, "source": "phone_task_benchmark"}
+{"category": "write", "id": "bench_write_folder", "input": "在手机内部存储根目录下新建一个文件夹，名字叫 LAB01。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "ask_user", "id": "bench_ask_alarm_no_time", "input": "帮我设个闹钟。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "ask_user", "id": "bench_ask_jd_keyboard_no_brand", "input": "在京东帮我找一款机械键盘。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "critical_stop", "id": "bench_critical_wechat_send", "input": "在微信里给文件传输助手发一条消息：LAB01", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"category": "critical_stop", "id": "bench_critical_taobao_order", "input": "在淘宝搜索抽纸，选第一个商品，进到确认订单的页面，但不要提交订单。", "labeled": false, "source": "phone_task_benchmark", "unlabeledReason": "needs a multi-step loop or the first step is ambiguous"}
+{"gold": {"args": {}, "tools": []}, "id": "fp_planner_explain_wifi_api", "input": "解释一下 Wi-Fi 设置 API 怎么实现", "labeled": true, "source": "planner_false_positive"}
+{"gold": {"args": {}, "tools": []}, "id": "fp_planner_clipboard_risk_only", "input": "不要打开剪贴板，只说明权限风险", "labeled": true, "source": "planner_false_positive"}
+{"gold": {"args": {}, "tools": []}, "id": "fp_planner_taobao_howto_only", "input": "别搜索淘宝，只告诉我怎么在淘宝搜商品", "labeled": true, "source": "planner_false_positive"}
+{"gold": {"args": {}, "tools": []}, "id": "fp_planner_reminder_alarmmanager_only", "input": "讨论一下提醒功能的 AlarmManager 实现，不要创建提醒", "labeled": true, "source": "planner_false_positive"}
+{"gold": {"args": {"hour": "6", "minutes": "30"}, "tools": ["set_system_alarm"]}, "id": "hw_alarm_wake", "input": "明天早上六点半叫我起床", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"lengthSeconds": "1500"}, "tools": ["set_system_timer"]}, "id": "hw_timer_pomodoro", "input": "定个25分钟的番茄钟", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"appName": "~支付宝"}, "tools": ["open_app_by_name"]}, "id": "hw_open_alipay", "input": "打开支付宝", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"target": "bluetooth"}, "tools": ["open_system_settings"]}, "id": "hw_bluetooth", "input": "帮我打开蓝牙", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": ["open_wifi_settings", "open_system_settings"]}, "id": "hw_wifi_settings", "input": "WiFi连不上了，帮我打开无线网络设置", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"query": "~上海"}, "tools": ["web_search"]}, "id": "hw_web_weather", "input": "网上查一下今天上海的天气", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"text": "~周六下午三点在国贸见"}, "tools": ["share_text"]}, "id": "hw_share_text", "input": "把“周六下午三点在国贸见”分享给朋友", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"title": "~周会"}, "tools": ["create_calendar_event"]}, "id": "hw_calendar", "input": "帮我建一个日程，周三上午十点开项目周会", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"query": "~北京南站"}, "tools": ["search_maps"]}, "id": "hw_nav_station", "input": "导航去北京南站", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"query": "~加油站"}, "tools": ["search_maps"]}, "id": "hw_maps_gas", "input": "在地图上找一下附近的加油站", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"delayMinutes": "20", "title": "~收衣服"}, "tools": ["schedule_reminder"]}, "id": "hw_reminder_laundry", "input": "二十分钟后提醒我收衣服", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"body": "~晚点到", "phoneNumber": "13912345678"}, "tools": ["compose_sms"]}, "id": "hw_sms_late", "input": "给13912345678发短信说我晚点到", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": ["open_camera"]}, "id": "hw_camera", "input": "打开相机", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"command": "pause|play_pause"}, "tools": ["control_media"]}, "id": "hw_media_pause", "input": "暂停播放", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {"target": "location"}, "tools": ["open_system_settings"]}, "id": "hw_location_settings", "input": "打开设置里的定位服务", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_poet", "input": "李白是哪个朝代的诗人？", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_poem", "input": "帮我写一首关于秋天的五言绝句", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_slang", "input": "“卷”这个字在网络上是什么意思？", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_mood", "input": "我今天心情不好，陪我聊聊", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_explain", "input": "解释一下什么是端侧大模型", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_alarm_advice", "input": "闹钟一般怎么设置比较科学？", "labeled": true, "source": "handwritten"}
+{"gold": {"args": {}, "tools": []}, "id": "hw_chat_wechat_howto", "input": "不用打开微信，告诉我微信怎么改昵称", "labeled": true, "source": "handwritten"}
