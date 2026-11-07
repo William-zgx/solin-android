@@ -167,6 +167,14 @@ interface ContextCompactor {
  * timeout, exception or oversized input, the result is the heuristic one, message for message. The
  * summary message takes the same privacy rule as the heuristic one. The drop fallback never asks the
  * model.
+ *
+ * Threat T1, prompt injection: tool results, screens and assistant text can contain instructions, and
+ * a model summary can repeat them as if the user had written them. Mitigations, all on the model path
+ * only: every summary line must start with a source label that was sent ("assistant:", "tool result:",
+ * "tool failure:", "screen:"), a line without one is a parse failure and the heuristic summary is kept;
+ * the instruction forbids stating what the user asked or wants; every number must occur in the sources;
+ * and no user message is ever in the prompt. The label rule costs summaries that the model writes
+ * without the labels (see the acceptance numbers in `lab/memory/results/20261107/SUMMARY.md`).
  */
 class DefaultContextCompactor(
     private val config: CompactionConfig = CompactionConfig(),
@@ -270,13 +278,28 @@ class DefaultContextCompactor(
         }
     }
 
-    /** [summary] when every number in it occurs in [sources] and it is within the summary cap. */
-    private fun checkedModelSummary(summary: String, sources: List<ChatMessage>): LocalMemoryModelAnswer = when {
-        ungroundedNumbers(summary, sources.joinToString("\n") { it.text }).isNotEmpty() ->
-            LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.Ungrounded)
-        summary.length > config.maxSummaryLengthChars ->
-            LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.OverLength)
-        else -> LocalMemoryModelAnswer.Text(summary)
+    /**
+     * [summary] when every non-blank line starts with a source label that was sent (threat T1: a line
+     * without one is a parse failure), every number in it occurs as a whole number in [sources] and it
+     * is within the summary cap.
+     */
+    private fun checkedModelSummary(summary: String, sources: List<ChatMessage>): LocalMemoryModelAnswer {
+        val labels = sources.filter { it.text.isNotBlank() }.mapTo(HashSet()) { it.summarySourceLabel() }
+        return when {
+            summary.lineSequence().any { line -> line.isNotBlank() && !line.startsWithSourceLabel(labels) } ->
+                LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.Unparseable)
+            ungroundedNumbers(summary, sources.joinToString("\n") { it.text }).isNotEmpty() ->
+                LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.Ungrounded)
+            summary.length > config.maxSummaryLengthChars ->
+                LocalMemoryModelAnswer.Failed(LocalMemoryModelFallback.OverLength)
+            else -> LocalMemoryModelAnswer.Text(summary)
+        }
+    }
+
+    /** A summary line is attributed to one source: an optional bullet, then a label that was sent and a colon. */
+    private fun String.startsWithSourceLabel(labels: Set<String>): Boolean {
+        val line = trimStart().removePrefix("• ")
+        return labels.any { label -> line.startsWith("$label: ") }
     }
 
     private fun ChatMessage.summarySourceLabel(): String = when (kind) {
@@ -495,9 +518,10 @@ class DefaultContextCompactor(
 
 private val COMPACTION_SUMMARY_INSTRUCTION = """
     You shorten the older part of a chat between a user and a phone assistant, so the assistant can continue with less context.
-    You get the assistant's replies, tool results and screen texts from that part, one per line. Summarize them in at most 8 short lines, each starting with "• ", in the language of the messages.
+    You get the assistant's replies, tool results, tool failures and screen texts from that part, one per line, each starting with its label (assistant, tool result, tool failure or screen).
+    Answer with at most 8 short lines, in the language of the messages. Each line starts with the label of the message it comes from and a colon, for example "assistant: ..." or "tool result: ...".
     Keep every detail that may be needed later: names, places, dates, times, numbers, codes, prices, addresses, results and unfinished tasks. Copy every number and code exactly as written.
-    Never add anything that is not in the messages. Plain text only: no title, no greeting, no explanation.
+    Never state what the user asked or wants: summarize only what the messages say. Never add anything that is not in the messages. Plain text only: no title, no greeting, no explanation.
 """.trimIndent()
 
 private val omissionLinePattern = Regex("""^\[较早的用户消息已省略：(\d+) 条，共 (\d+) 字]$""")

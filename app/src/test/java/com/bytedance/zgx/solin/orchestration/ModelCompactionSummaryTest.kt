@@ -78,7 +78,7 @@ class ModelCompactionSummaryTest {
 
     @Test
     fun groundedModelSummaryReplacesTheHeuristicSummaryInTheSameSplit() = runTest {
-        val summary = "• 已锁定G102，08:00发车，订单号K2048\n• 已发送确认短信"
+        val summary = "• assistant: 已锁定G102，08:00发车，订单号K2048\n• assistant: 已发送确认短信"
         val model = FakeModel { _, _ -> summary }
 
         val result = DefaultContextCompactor(modelOn, model).compact(history, budget, estimator)
@@ -99,7 +99,7 @@ class ModelCompactionSummaryTest {
 
     @Test
     fun modelSummaryIsLocalOnlyWhenAnySummarizedMessageIs() = runTest {
-        val model = FakeModel { _, _ -> "• 已锁定G102" }
+        val model = FakeModel { _, _ -> "• assistant: 已锁定G102" }
 
         val summary = DefaultContextCompactor(modelOn, model).compact(history, budget, estimator).messages.first()
 
@@ -108,7 +108,7 @@ class ModelCompactionSummaryTest {
 
     @Test
     fun theModelSeesOnlyTheSummarizedMessagesNeverUserText() = runTest {
-        val model = FakeModel { _, _ -> "• 已锁定G102" }
+        val model = FakeModel { _, _ -> "• assistant: 已锁定G102" }
 
         DefaultContextCompactor(modelOn, model).compact(history, budget, estimator)
 
@@ -122,18 +122,93 @@ class ModelCompactionSummaryTest {
     }
 
     @Test
+    fun theInstructionForbidsStatingWhatTheUserWants() = runTest {
+        val model = FakeModel { _, _ -> "• assistant: 已锁定G102" }
+
+        DefaultContextCompactor(modelOn, model).compact(history, budget, estimator)
+
+        val instruction = model.requests.single().first
+        assertTrue(instruction, "Never state what the user asked or wants" in instruction)
+        assertTrue(instruction, "assistant: " in instruction)
+    }
+
+    @Test
+    fun theLoopMakesExactlyOneModelCallAtTheSplitThatFits() = runTest {
+        // Four large assistant replies sit just before the last eight messages. With the default
+        // six-turn tail (12 messages) they are kept verbatim and the candidate is over the threshold,
+        // so the loop shrinks the tail to four turns (8 messages); only then is the model asked, once.
+        val big = (1..3).map { n -> assistant("说明$n" + "内容".repeat(1_000)) }
+        val failure = ChatMessage(role = MessageRole.Assistant, text = "tool_failure: 超时 ERR-17", kind = MessageKind.ToolFailure)
+        val screen = ChatMessage(role = MessageRole.Assistant, text = "screen: 当前页面 确认订单", kind = MessageKind.ScreenObservation)
+        val tail = (1..8).map { n -> if (n % 2 == 1) user("第$n 句") else assistant("回复$n") }
+        val longHistory = listOf(user("帮我订票"), assistant("好的")) + big + failure + screen + tail
+        val sixTurns = modelOn.copy(preserveRecentTurns = 6)
+        val model = FakeModel { _, _ -> "assistant: 说明1 的内容已记录" }
+
+        val result = DefaultContextCompactor(sixTurns, model).compact(longHistory, tokenBudget = 1_000, estimatedTokens = estimator)
+
+        assertEquals("one model call", 1, model.calls)
+        assertEquals(MemoryTaskPath.Model, result.summaryPath)
+        assertEquals("the last eight messages stay verbatim", tail, result.messages.takeLast(8))
+        assertTrue("the twelve-message tail did not fit", result.messages.none { it === big.last() })
+        val prompt = model.requests.single().second
+        assertTrue("the summarized reply is in the prompt", prompt.lines().any { it.startsWith("assistant: 说明1") })
+        assertTrue("the older reply is in the prompt", prompt.lines().any { it.startsWith("assistant: 好的") })
+        tail.forEach { message -> assertFalse("tail text in prompt: ${message.text}", message.text in prompt) }
+    }
+
+    @Test
+    fun aToolFailureAndTheLatestScreenStayVerbatimAndOutOfThePrompt() = runTest {
+        val failure = ChatMessage(role = MessageRole.Assistant, text = "tool_failure: 超时 ERR-17", kind = MessageKind.ToolFailure)
+        val screen = ChatMessage(role = MessageRole.Assistant, text = "screen: 当前页面 确认订单", kind = MessageKind.ScreenObservation)
+        val olderScreen = ChatMessage(role = MessageRole.Assistant, text = "screen: 旧页面 首页", kind = MessageKind.ScreenObservation)
+        val longHistory = listOf(
+            user("帮我订票"),
+            assistant("说明" + "内容".repeat(1_000)),
+            olderScreen,
+            failure,
+            screen,
+            user("第二句"),
+            assistant("回复二"),
+            user("第三句"),
+            assistant("回复三"),
+            user("第四句"),
+            assistant("回复四"),
+            user("第五句"),
+            assistant("回复五"),
+        )
+        val model = FakeModel { _, _ -> "assistant: 说明已记录" }
+
+        // Two-turn tail: the middle holds the big reply, the failure, both screens and the older turns.
+        val result = DefaultContextCompactor(modelOn, model).compact(longHistory, tokenBudget = 500, estimatedTokens = estimator)
+
+        assertEquals(MemoryTaskPath.Model, result.summaryPath)
+        assertTrue("failure kept as the same message", result.messages.any { it === failure })
+        assertTrue("latest screen kept as the same message", result.messages.any { it === screen })
+        assertFalse("older screen is summarized", result.messages.any { it === olderScreen })
+        val prompt = model.requests.single().second
+        assertFalse("failure text in prompt", "超时 ERR-17" in prompt)
+        assertFalse("latest screen text in prompt", "确认订单" in prompt)
+        assertTrue("older screen is in the prompt", prompt.lines().any { it.startsWith("screen: ") && "旧页面" in it })
+    }
+
+    @Test
     fun everyFailureKeepsTheHeuristicResult() = runTest {
         val heuristic = heuristic()
         listOf(
             FakeModel { _, _ -> null } to LocalMemoryModelFallback.EngineUnavailable,
             FakeModel { _, _ -> throw IllegalStateException("engine crashed") } to LocalMemoryModelFallback.EngineFailed,
             FakeModel { _, _ -> "  " } to LocalMemoryModelFallback.EmptyOutput,
-            FakeModel { _, _ -> "• 已锁定G102，订单号K9999" } to LocalMemoryModelFallback.Ungrounded,
-            FakeModel { _, _ -> "好".repeat(modelOn.maxSummaryLengthChars + 1) } to LocalMemoryModelFallback.OverLength,
-            FakeModel { _, _ -> "好".repeat(1_500) } to LocalMemoryModelFallback.OverLength,
+            FakeModel { _, _ -> "• assistant: 已锁定G102，订单号K9999" } to LocalMemoryModelFallback.Ungrounded,
+            FakeModel { _, _ -> "assistant: " + "好".repeat(modelOn.maxSummaryLengthChars + 1) } to LocalMemoryModelFallback.OverLength,
+            FakeModel { _, _ -> "assistant: " + "好".repeat(1_500) } to LocalMemoryModelFallback.OverLength,
+            FakeModel { _, _ -> "已锁定G102" } to LocalMemoryModelFallback.Unparseable,
+            FakeModel { _, _ -> "• 已锁定G102" } to LocalMemoryModelFallback.Unparseable,
+            FakeModel { _, _ -> "• user: 帮我查明天去上海的高铁" } to LocalMemoryModelFallback.Unparseable,
+            FakeModel { _, _ -> "<think>先想一想\nassistant: 已锁定G102" } to LocalMemoryModelFallback.Unparseable,
             FakeModel { _, _ ->
                 delay(60_000)
-                "• 已锁定G102"
+                "• assistant: 已锁定G102"
             } to LocalMemoryModelFallback.Timeout,
         ).forEachIndexed { index, (model, reason) ->
             val result = DefaultContextCompactor(modelOn, model).compact(history, budget, estimator)
