@@ -115,6 +115,14 @@ Modes: `json-prompt` (format requested in the prompt only) and `json-schema` (Ol
 output). The rule baseline is `RequestComplexityAggregator` fed exactly as `chatPlacementInputs`
 feeds it. Metrics: accuracy, coverage and accuracy at confidence >= 0.9 (the app's gate).
 
+Read the accuracy as "can this model answer the routing question", not as end-to-end app behavior.
+The question text (`DECISION_MODEL_PLACEMENT_INSTRUCTIONS` / `_CRITERIA`) is the one production sends,
+but the transport is not: the lab uses a flat `{"choice", "confidence"}` response under a system
+prompt, while the app's only router (`runtime/CodivDecisionModelRouter.kt`) posts to a remote
+`/systemone` endpoint and parses a nested `{"answers": {"placement": {..., "probabilities": {...}}}}`.
+There is no local-model decision parser in the app. A fenced ```` ```json ```` answer, which the LiteRT
+files emit, is stripped by the lab tests only; production's `parseDecisionResponse` would reject it.
+
 ### Suite E: the local model as an action gate (`action-gate`)
 
 A lab-only experiment the app does not have today. One short call per Suite B request asks only
@@ -132,7 +140,9 @@ and the same over the 74 rule-gap cases. Explicit negations are labelled no-acti
   the 74 requests where `R` returned no tool (51 no-tool + 23 tool). Reported for every B and C mode,
   with the count of cases fixed and broken against `R` alone.
 - **R, then the gate, then `N-full`.** `R` keeps its plans; where `R` returned no tool the gate
-  decides, and only an open gate lets `N-full` answer. A closed gate yields no tool.
+  decides, and only an open gate lets `N-full` answer. A closed gate yields no tool. A model that only
+  has `N-topk` (the LiteRT files cannot run `N-full`) is scored with `N-topk`, and the row names the
+  mode it used; the two are never mixed in one row.
 
 ## Labeling rules
 

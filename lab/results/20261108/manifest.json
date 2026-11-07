@@ -68,6 +68,11 @@
       },
       "sizeBytes": 4587156505,
       "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence"
+    },
+    "litert/gemma-4-e4b": {
+      "digest": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+      "sizeBytes": 3659530240,
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm); E4B ran concurrently with E2B, ~2 cores each on a 32-core host"
     }
   },
   "runDate": "20261108",

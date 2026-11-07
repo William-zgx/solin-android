@@ -973,7 +973,9 @@ def composite_r_then_model(records, models, out):
                 if not rs:
                     continue
                 by_id = {r["caseId"]: r for r in rs}
-                filled = [by_id[c] for c in gap if c in by_id]
+                # Sorted, not set order: this list is written into SUMMARY.md, and iterating the set
+                # would change which example cases appear between identical runs.
+                filled = [by_id[c] for c in sorted(gap) if c in by_id]
                 if not filled:
                     continue
                 fixed = [r for r in filled if r["correct"] and not base[r["caseId"]]["correct"]]
@@ -998,7 +1000,13 @@ def composite_r_then_model(records, models, out):
 
 
 def composite_gate(records, models, out):
-    """R, then the action gate, then N-full only when the gate opens on a case R left alone."""
+    """R, then the action gate, then a native mode only when the gate opens on a case R left alone.
+
+    `N-full` is the production-shaped native mode. The LiteRT files cannot run it (the full registry
+    overflows the 1024-token context), so a model that only has `N-topk` is scored with that mode and
+    the row says which one it used; the two are never mixed inside a row or presented as the same
+    number.
+    """
     gap = rule_gap(records)
     if gap is None:
         return
@@ -1006,8 +1014,14 @@ def composite_gate(records, models, out):
     rows = []
     for model in models:
         gate_rows = {r["caseId"]: r for r in records.get((SUITE_E, model, "json-prompt"), [])}
-        native = {r["caseId"]: r for r in records.get((SUITE_C, model, "N-full"), [])}
-        if not gate_rows or not native:
+        if not gate_rows:
+            continue
+        native_mode = "N-full"
+        native = {r["caseId"]: r for r in records.get((SUITE_C, model, native_mode), [])}
+        if not native:
+            native_mode = "N-topk"
+            native = {r["caseId"]: r for r in records.get((SUITE_C, model, native_mode), [])}
+        if not native:
             continue
         fixed = broken = opened = 0
         total = 0
@@ -1027,15 +1041,17 @@ def composite_gate(records, models, out):
                 fixed += 1
             elif not answer and rule["correct"]:
                 broken += 1
-        rows.append([model, f"{total}/{len(base)}", opened, fixed, broken,
+        rows.append([model, native_mode, f"{total}/{len(base)}", opened, fixed, broken,
                      frac(sum(1 for c in gap if c in gate_rows), len(gap))])
     if not rows:
         return
-    out.append("Offline composite: `R`, then the action gate, then `C N-full` only where the gate "
-               "opens on a request `R` left alone (gate open = `action = true` and confidence >= 0.9). "
-               "A closed gate returns no tool, so it fails closed. Fixed/broken are against `R` alone:\n")
-    out.append(table(["model", "R+gate+N-full correct", "N-full answers used", "fixed", "broken",
-                      "gate coverage of the gap"], rows))
+    out.append("Offline composite: `R`, then the action gate, then the native mode in its column only "
+               "where the gate opens on a request `R` left alone (gate open = `action = true` and "
+               "confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are "
+               "against `R` alone. `N-topk` rows are not comparable to `N-full` rows: they differ in "
+               "which tools the model was shown, not only in model quality.\n")
+    out.append(table(["model", "native mode", "R+gate+native correct", "native answers used", "fixed",
+                      "broken", "gate coverage of the gap"], rows))
     out.append("")
 
 
