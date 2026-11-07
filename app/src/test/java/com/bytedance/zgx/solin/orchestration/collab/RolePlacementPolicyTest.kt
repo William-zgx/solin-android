@@ -104,6 +104,28 @@ class RolePlacementPolicyTest {
     }
 
     @Test
+    fun deviceBoundDecisionsAreMadeUnderAutoButReportTheUsersPreference() {
+        listOf(CollaborationRole.Perceiver, CollaborationRole.Executor, CollaborationRole.Verifier).forEach { role ->
+            listOf(localCandidate(), localCandidate(available = false)).forEach { local ->
+                val auto = RolePlacementPolicy.decide(roleInput(role, preference = InferenceMode.Auto, local = local))
+                InferenceMode.entries.forEach { preference ->
+                    val decision = RolePlacementPolicy.decide(roleInput(role, preference = preference, local = local))
+                    assertEquals("$role/$preference", preference, decision.decision.preference)
+                    assertEquals(auto.placement, decision.placement)
+                    assertEquals(auto.decision.primaryReason, decision.decision.primaryReason)
+                    assertEquals(auto.decision.diagnostics, decision.decision.diagnostics)
+                }
+            }
+        }
+        CollaborationRole.entries.forEach { role ->
+            InferenceMode.entries.forEach { preference ->
+                val undeclared = RolePlacementPolicy.decide(roleInput(role, inputs = null, preference = preference))
+                assertEquals("$role/$preference", preference, undeclared.decision.preference)
+            }
+        }
+    }
+
+    @Test
     fun undeclaredInputsBlockEveryRoleUnderEveryPreference() {
         CollaborationRole.entries.forEach { role ->
             listOf<List<PromptPrivacySegment>?>(null, emptyList()).forEach { inputs ->

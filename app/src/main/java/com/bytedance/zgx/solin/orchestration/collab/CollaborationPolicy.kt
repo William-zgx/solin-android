@@ -70,11 +70,18 @@ data class RolePlacementInput(
     val complexity: RequestComplexity,
 )
 
-data class RolePlacementDecision(
+/**
+ * Only [RolePlacementPolicy] constructs one, so [RunProgressGate] and [EscalationPolicy] can trust
+ * it. The constructor is internal so tests can forge inconsistent decisions; a source scan in the
+ * collab tests fails if any other production file calls it.
+ */
+@ConsistentCopyVisibility
+data class RolePlacementDecision internal constructor(
     val role: CollaborationRole,
     val constraint: RoleConstraint,
     /** Effective privacy of the role's prompt after [constraint] is applied. */
     val privacy: PromptPrivacyPlan,
+    /** Its [PlacementDecision.preference] is the user's, even for a device-bound role decided under Auto. */
     val decision: PlacementDecision,
 ) {
     val placement: RunPlacement?
@@ -107,7 +114,8 @@ object RolePlacementPolicy {
             ModelPlacementInput(
                 // The preference picks the serving target of model-serving roles. Device-bound roles
                 // stay on the phone under every preference, like today's helper models, and an
-                // unavailable local model blocks them instead of falling back to Remote.
+                // unavailable local model blocks them instead of falling back to Remote. The returned
+                // decision still reports the user's preference, so audit never shows a false Auto.
                 preference = if (input.role.deviceBound) InferenceMode.Auto else input.preference,
                 privacy = privacy.aggregatePrivacy,
                 requiresLocalModel = privacy.requiresLocalModel,
@@ -121,12 +129,15 @@ object RolePlacementPolicy {
         val decision = if (constraint == RoleConstraint.UndeclaredInputs) {
             PlacementDecision.Blocked(
                 policyVersion = evaluated.policyVersion,
-                preference = evaluated.preference,
+                preference = input.preference,
                 primaryReason = PlacementReasonCode.PLACEMENT_DECISION_MISSING,
                 diagnostics = evaluated.diagnostics,
             )
         } else {
-            evaluated
+            when (evaluated) {
+                is PlacementDecision.Chosen -> evaluated.copy(preference = input.preference)
+                is PlacementDecision.Blocked -> evaluated.copy(preference = input.preference)
+            }
         }
         return RolePlacementDecision(input.role, constraint, privacy, decision)
     }
@@ -148,6 +159,8 @@ enum class EscalationSignal {
 }
 
 enum class EscalationForbiddenReason {
+    /** Only the Answerer escalates, and only as a retry of its own failed call. */
+    RoleCannotEscalate,
     PreferenceNotAuto,
     FailedCallNotLocal,
     EscalationAlreadyUsed,
@@ -162,7 +175,7 @@ enum class EscalationApprovalReason {
 }
 
 /**
- * Three-tier consent for retrying a failed local role call on the remote model. Pre-approval
+ * Three-tier consent for retrying a failed local Answerer call on the remote model. Pre-approval
  * approves the mechanism, never specific content: it can only turn
  * `RequireApproval(NotPreapproved)` into [Preapproved].
  */
@@ -176,9 +189,10 @@ sealed interface EscalationDecision {
 }
 
 data class EscalationInput(
-    /** The failed role call, described with the exact payload the escalation would send. */
+    /** The failed call as [RolePlacementPolicy] placed it, including the privacy of what it read. */
+    val failed: RolePlacementDecision,
+    /** The retry, described with the exact payload the escalation would send. */
     val retry: RolePlacementInput,
-    val failedPlacement: RunPlacement,
     val signals: Set<EscalationSignal>,
     /** Empty until the lab has measured a signal's precision for this model pair. */
     val calibratedSignals: Set<EscalationSignal>,
@@ -192,11 +206,24 @@ object EscalationPolicy {
     const val MAX_ESCALATIONS_PER_RUN = 1
 
     fun decide(input: EscalationInput): EscalationDecision {
-        if (input.retry.preference != InferenceMode.Auto) {
+        val failed = input.failed
+        if (failed.role != CollaborationRole.Answerer || input.retry.role != CollaborationRole.Answerer) {
+            return forbidden(EscalationForbiddenReason.RoleCannotEscalate)
+        }
+        if (input.retry.preference != InferenceMode.Auto || failed.decision.preference != InferenceMode.Auto) {
             return forbidden(EscalationForbiddenReason.PreferenceNotAuto)
         }
-        if (input.failedPlacement != RunPlacement.Local) {
+        if (failed.placement != RunPlacement.Local) {
             return forbidden(EscalationForbiddenReason.FailedCallNotLocal)
+        }
+        // A call that read LocalOnly content failed because of that content; retrying it remotely sends
+        // a request chosen by it, even when the retry payload is trimmed to RemoteEligible (T4).
+        if (
+            failed.privacy.aggregatePrivacy != MessagePrivacy.RemoteEligible ||
+            failed.privacy.requiresLocalModel ||
+            failed.decision.diagnostics.remoteState == CandidateState.PrivacyBlocked
+        ) {
+            return forbidden(EscalationForbiddenReason.InputsMustStayLocal)
         }
         if (input.escalationsSoFar !in 0 until MAX_ESCALATIONS_PER_RUN) {
             return forbidden(EscalationForbiddenReason.EscalationAlreadyUsed)

@@ -77,7 +77,7 @@ class MilestonePlanParserTest {
 
     @Test
     fun hiddenOrPaddedQueryTextIsRejectedEvenWhenTheRequestContainsIt() {
-        listOf("牛奶​", "牛奶‮", " 牛奶", "牛奶\n", "\t牛奶", "牛".repeat(MilestonePlanParser.MAX_QUERY_CHARS + 1))
+        listOf("牛奶\u200B", "牛奶\u202E", " 牛奶", "牛奶\n", "\t牛奶", "牛".repeat(MilestonePlanParser.MAX_QUERY_CHARS + 1))
             .forEach { query ->
                 val request = "在淘宝搜索$query"
                 assertRejected(
@@ -175,8 +175,11 @@ class MilestonePlanParserTest {
                 """{"intent":"read_results","app":"$TAOBAO"}""",
             ),
         )
-        val duplicateKey = plan("""{"intent":"open_app","app":"$TAOBAO","app":"com.eg.android.AlipayGphone"}""")
-        assertTrue(MilestonePlanParser.parse(duplicateKey, REQUEST) is MilestoneParseResult.Rejected)
+        assertRejected(
+            MilestoneRejection.DuplicateKey,
+            null,
+            plan("""{"intent":"open_app","app":"$TAOBAO","app":"com.eg.android.AlipayGphone"}"""),
+        )
     }
 
     @Test

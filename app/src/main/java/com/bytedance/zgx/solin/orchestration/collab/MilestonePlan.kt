@@ -1,6 +1,8 @@
 package com.bytedance.zgx.solin.orchestration.collab
 
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.common.keysSet
 import com.bytedance.zgx.solin.device.AppInteractionProfiles
 import com.bytedance.zgx.solin.device.ScreenObservation
 import com.bytedance.zgx.solin.device.UiActionFailureKind
@@ -9,7 +11,6 @@ import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 import org.json.JSONObject
-import org.json.JSONTokener
 
 /**
  * What one milestone asks the device to reach. The set is closed and has no intent that pays,
@@ -50,14 +51,22 @@ data class Milestone(
     val tool: String? = null,
 )
 
-/** A plan accepted by [MilestonePlanParser]. Executors act only on plans that came from the parser. */
-data class MilestonePlan(val milestones: List<Milestone>)
+/**
+ * A plan accepted by [MilestonePlanParser]. Only the parser constructs one, so executors and
+ * [RunProgressGate] only see checked plans. The constructor is internal so tests can build edge
+ * cases; a source scan in the collab tests fails if any other production file calls it.
+ */
+@ConsistentCopyVisibility
+data class MilestonePlan internal constructor(val milestones: List<Milestone>)
 
 /**
- * The public words a planner may use. It is static app data, never read from the phone: the
- * installed-app list and the foreground app are device-derived and stay local.
+ * The public words a planner may use. Production uses only [DEFAULT], which is static app data,
+ * never read from the phone: the installed-app list and the foreground app are device-derived and
+ * stay local. The constructor is internal so tests can narrow the vocabulary; a source scan in the
+ * collab tests fails if any other production file calls it.
  */
-data class MilestoneVocabulary(val apps: Set<String>, val tools: Set<String>) {
+@ConsistentCopyVisibility
+data class MilestoneVocabulary internal constructor(val apps: Set<String>, val tools: Set<String>) {
     companion object {
         /** Tools that read nothing private and hand no text to another app. */
         val DEFAULT_TOOLS: Set<String> = setOf(
@@ -81,7 +90,11 @@ data class MilestoneVocabulary(val apps: Set<String>, val tools: Set<String>) {
 enum class MilestoneRejection {
     TooLarge,
     NotJsonObject,
+
+    /** Not strict RFC 8259 JSON, or nested deeper than [StrictJsonScan.MAX_DEPTH]. */
+    MalformedJson,
     TrailingContent,
+    DuplicateKey,
     UnsupportedVersion,
     UnexpectedKey,
     MissingKey,
@@ -110,9 +123,12 @@ sealed interface MilestoneParseResult {
  *   {"intent":"search_in_app","app":"com.taobao.taobao","query":"牛奶"}]}
  * ```
  *
- * Each milestone carries exactly the keys its intent needs. Apps and tools come from the vocabulary
- * and a query is copied literally from the user's request, so no text the planner invented reaches
- * the device. Anything else rejects the whole plan: no partial acceptance, no repair.
+ * [StrictJsonScan] first checks the text against strict JSON grammar without org.json, so comments,
+ * `=` or `;` separators, unquoted strings, non-decimal numbers, trailing content and duplicate keys
+ * are refused whichever org.json the classpath carries. Each milestone must then carry exactly the
+ * keys its intent needs. Apps and tools come from the vocabulary and a query is copied literally
+ * from the user's request, so no text the planner invented reaches the device. Any violation
+ * rejects the whole plan with one enum reason: no partial acceptance, no repair.
  */
 object MilestonePlanParser {
     const val SCHEMA_VERSION = 1
@@ -123,7 +139,6 @@ object MilestonePlanParser {
     private const val KEY_VERSION = "version"
     private const val KEY_MILESTONES = "milestones"
     private const val KEY_INTENT = "intent"
-    private const val END_OF_INPUT = '\u0000'
     private val PLAN_KEYS = setOf(KEY_VERSION, KEY_MILESTONES)
 
     fun parse(
@@ -138,12 +153,8 @@ object MilestonePlanParser {
 
     private fun readPlan(raw: String, userRequest: String, vocabulary: MilestoneVocabulary): MilestonePlan {
         if (raw.length > MAX_RAW_CHARS) reject(MilestoneRejection.TooLarge)
-        val tokener = JSONTokener(raw)
-        val root = runCatching { tokener.nextValue() }.getOrNull() as? JSONObject
-            ?: reject(MilestoneRejection.NotJsonObject)
-        if (runCatching { tokener.nextClean() }.getOrNull() != END_OF_INPUT) {
-            reject(MilestoneRejection.TrailingContent)
-        }
+        StrictJsonScan.firstViolation(raw)?.let { reason -> reject(reason) }
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: reject(MilestoneRejection.MalformedJson)
         root.requireExactKeys(PLAN_KEYS, index = null)
         val version = root.get(KEY_VERSION)
         if (version !is Int || version != SCHEMA_VERSION) reject(MilestoneRejection.UnsupportedVersion)
@@ -189,7 +200,7 @@ object MilestonePlanParser {
     }
 
     private fun JSONObject.requireExactKeys(expected: Set<String>, index: Int?) {
-        val actual = keys().asSequence().toSet()
+        val actual = keysSet()
         if (actual.any { key -> key !in expected }) reject(MilestoneRejection.UnexpectedKey, index)
         if (expected.any { key -> key !in actual }) reject(MilestoneRejection.MissingKey, index)
     }
@@ -205,6 +216,177 @@ object MilestonePlanParser {
 
     private class PlanRejection(val reason: MilestoneRejection, val index: Int?) :
         RuntimeException(null, null, false, false)
+}
+
+/**
+ * Checks that text is exactly one strict RFC 8259 JSON object, without org.json. Android's built-in
+ * org.json is lenient: it skips `#`, `//` and block comments, accepts `=`, `=>` and `;` separators,
+ * unquoted and single-quoted strings, and hex or octal numbers, and keeps the last value of a
+ * duplicate key. The org.json artifact on the JVM test classpath is stricter, so JVM tests alone
+ * cannot show what the phone accepts.
+ */
+internal object StrictJsonScan {
+    /** A plan needs 3 levels (plan, milestone list, milestone). */
+    const val MAX_DEPTH = 8
+
+    /** Null when [text] is one strict JSON object with unique keys at every depth. */
+    fun firstViolation(text: String): MilestoneRejection? {
+        val cursor = Cursor(text)
+        cursor.skipWhitespace()
+        if (cursor.current() != '{') return MilestoneRejection.NotJsonObject
+        return try {
+            cursor.readValue(depth = 0)
+            cursor.skipWhitespace()
+            if (cursor.atEnd()) null else MilestoneRejection.TrailingContent
+        } catch (violation: Violation) {
+            violation.reason
+        }
+    }
+
+    private class Cursor(private val text: String) {
+        private var index = 0
+
+        fun atEnd(): Boolean = index >= text.length
+
+        /** NUL past the end; a NUL inside the text fails wherever it appears, so the two never mix. */
+        fun current(): Char = if (atEnd()) '\u0000' else text[index]
+
+        fun skipWhitespace() {
+            while (current() == ' ' || current() == '\t' || current() == '\n' || current() == '\r') index++
+        }
+
+        fun readValue(depth: Int) {
+            when (val char = current()) {
+                '{' -> readObject(depth + 1)
+                '[' -> readArray(depth + 1)
+                '"' -> readString()
+                't' -> readLiteral("true")
+                'f' -> readLiteral("false")
+                'n' -> readLiteral("null")
+                else -> if (char == '-' || char in '0'..'9') readNumber() else malformed()
+            }
+        }
+
+        private fun readObject(depth: Int) {
+            if (depth > MAX_DEPTH) malformed()
+            index++
+            skipWhitespace()
+            if (current() == '}') {
+                index++
+                return
+            }
+            val keys = HashSet<String>()
+            while (true) {
+                skipWhitespace()
+                if (current() != '"') malformed()
+                if (!keys.add(readString())) throw Violation(MilestoneRejection.DuplicateKey)
+                skipWhitespace()
+                expect(':')
+                skipWhitespace()
+                readValue(depth)
+                skipWhitespace()
+                if (current() == ',') {
+                    index++
+                } else {
+                    expect('}')
+                    return
+                }
+            }
+        }
+
+        private fun readArray(depth: Int) {
+            if (depth > MAX_DEPTH) malformed()
+            index++
+            skipWhitespace()
+            if (current() == ']') {
+                index++
+                return
+            }
+            while (true) {
+                skipWhitespace()
+                readValue(depth)
+                skipWhitespace()
+                if (current() == ',') {
+                    index++
+                } else {
+                    expect(']')
+                    return
+                }
+            }
+        }
+
+        /** Returns the decoded text, so `"app"` and `"\u0061pp"` are the same key. */
+        private fun readString(): String {
+            index++
+            val decoded = StringBuilder()
+            while (true) {
+                if (atEnd()) malformed()
+                val char = text[index++]
+                when {
+                    char == '"' -> return decoded.toString()
+                    char == '\\' -> decoded.append(readEscape())
+                    char < ' ' -> malformed()
+                    else -> decoded.append(char)
+                }
+            }
+        }
+
+        private fun readEscape(): Char {
+            if (atEnd()) malformed()
+            return when (val char = text[index++]) {
+                '"', '\\', '/' -> char
+                'b' -> '\b'
+                'f' -> '\u000C'
+                'n' -> '\n'
+                'r' -> '\r'
+                't' -> '\t'
+                'u' -> readHexChar()
+                else -> malformed()
+            }
+        }
+
+        private fun readHexChar(): Char {
+            val digits = text.substring(index, minOf(index + 4, text.length))
+            val isHex = digits.all { digit -> digit in '0'..'9' || digit in 'a'..'f' || digit in 'A'..'F' }
+            if (digits.length != 4 || !isHex) malformed()
+            index += 4
+            return digits.toInt(16).toChar()
+        }
+
+        private fun readLiteral(word: String) {
+            if (!text.startsWith(word, index)) malformed()
+            index += word.length
+        }
+
+        /** `-?(0|[1-9][0-9]*)(.[0-9]+)?([eE][+-]?[0-9]+)?`: no hex, octal, `+1`, `.5`, `1.` or NaN. */
+        private fun readNumber() {
+            if (current() == '-') index++
+            if (current() == '0') index++ else readDigits()
+            if (current() == '.') {
+                index++
+                readDigits()
+            }
+            if (current() == 'e' || current() == 'E') {
+                index++
+                if (current() == '+' || current() == '-') index++
+                readDigits()
+            }
+        }
+
+        private fun readDigits() {
+            if (current() !in '0'..'9') malformed()
+            while (current() in '0'..'9') index++
+        }
+
+        private fun expect(char: Char) {
+            if (current() != char) malformed()
+            index++
+        }
+
+        private fun malformed(): Nothing = throw Violation(MilestoneRejection.MalformedJson)
+    }
+
+    private class Violation(val reason: MilestoneRejection) : RuntimeException(null, null, false, false)
 }
 
 /**
@@ -245,12 +427,14 @@ data class DeviceStepRecord(
     val lastResult: ToolResult?,
     val observation: ScreenObservation?,
     val stepsUsed: Int,
-    /** Progress reports already released to the cloud planner in this run. */
-    val replansSoFar: Int,
 )
 
-/** The only device-derived data that may leave. Enums and bounded counts: no field can hold text. */
-data class RunProgress(
+/**
+ * The only device-derived data that may leave. Enums and bounded counts: no field can hold text.
+ * Only [RunProgressGate] constructs one; a source scan in the collab tests enforces it.
+ */
+@ConsistentCopyVisibility
+data class RunProgress internal constructor(
     val statuses: List<MilestoneStatus>,
     val lastStatus: ToolStatus?,
     val lastFailure: UiActionFailureKind?,
@@ -261,6 +445,10 @@ data class RunProgress(
 enum class ProgressWithheldReason {
     FlagOff,
     PlannerNotRemote,
+
+    /** The decision says Remote Planner, but its prompt was not RemoteEligible without a local-model need. */
+    PlannerPrivacyNotRemoteEligible,
+    PlanSizeOutOfRange,
     StatusCountMismatch,
     StepsOutOfRange,
     ReplanBudgetExhausted,
@@ -269,26 +457,29 @@ enum class ProgressWithheldReason {
 sealed interface ProgressExport {
     data class Withheld(val reason: ProgressWithheldReason) : ProgressExport
 
-    data class Released(val progress: RunProgress) : ProgressExport
+    /** Only [RunProgressGate] constructs one; a source scan in the collab tests enforces it. */
+    @ConsistentCopyVisibility
+    data class Released internal constructor(val progress: RunProgress) : ProgressExport
 }
 
 /**
- * Derives [RunProgress] from a LocalOnly [DeviceStepRecord]. It reads only the tool status, the
- * `failureKind` code (mapped through [UiActionFailureKind]) and the observation's package name
- * (compared with the plan); summaries, data values, errors and screen elements are never read.
+ * Derives [RunProgress] from a LocalOnly [DeviceStepRecord]. Create one per agent run: the gate owns
+ * the run's report counter, so a caller cannot reset or understate it. Every report released into a
+ * [CloudPlannerRequest] counts, whether or not that request is then sent.
+ *
+ * On the device it reads the tool status, the `failureKind` code and the observation's package name.
+ * Only enums leave: the code through the pinned [RELEASABLE_FAILURE_CODES], the package name as a
+ * [ForegroundRelation]. Summaries, other data values, errors and screen elements are never read.
  */
-object RunProgressGate {
-    const val MAX_STEPS = 32
+class RunProgressGate(private val flag: DerivedProgressEgress = DerivedProgressEgress.DEFAULT) {
+    private var released = 0
 
-    /** Bounds how many progress reports, and so how many derived bits, one run can send. */
-    const val MAX_REPLANS = 3
+    /** Progress reports this run has released so far, at most [MAX_REPLANS]. */
+    val reportsReleased: Int
+        @Synchronized get() = released
 
-    fun export(
-        flag: DerivedProgressEgress,
-        planner: RolePlacementDecision,
-        plan: MilestonePlan,
-        record: DeviceStepRecord,
-    ): ProgressExport {
+    @Synchronized
+    internal fun export(planner: RolePlacementDecision, plan: MilestonePlan, record: DeviceStepRecord): ProgressExport {
         if (flag != DerivedProgressEgress.ClosedVocabulary) return withheld(ProgressWithheldReason.FlagOff)
         if (
             planner.role != CollaborationRole.Planner ||
@@ -297,13 +488,18 @@ object RunProgressGate {
         ) {
             return withheld(ProgressWithheldReason.PlannerNotRemote)
         }
+        if (planner.privacy.aggregatePrivacy != MessagePrivacy.RemoteEligible || planner.privacy.requiresLocalModel) {
+            return withheld(ProgressWithheldReason.PlannerPrivacyNotRemoteEligible)
+        }
+        if (plan.milestones.size !in 1..MilestonePlanParser.MAX_MILESTONES) {
+            return withheld(ProgressWithheldReason.PlanSizeOutOfRange)
+        }
         if (record.statuses.size != plan.milestones.size) {
             return withheld(ProgressWithheldReason.StatusCountMismatch)
         }
         if (record.stepsUsed !in 0..MAX_STEPS) return withheld(ProgressWithheldReason.StepsOutOfRange)
-        if (record.replansSoFar !in 0 until MAX_REPLANS) {
-            return withheld(ProgressWithheldReason.ReplanBudgetExhausted)
-        }
+        if (released >= MAX_REPLANS) return withheld(ProgressWithheldReason.ReplanBudgetExhausted)
+        released += 1
         return ProgressExport.Released(
             RunProgress(
                 statuses = record.statuses.toList(),
@@ -318,8 +514,7 @@ object RunProgressGate {
     private fun ToolResult.failureKind(): UiActionFailureKind? {
         if (status == ToolStatus.Succeeded) return null
         val code = data["failureKind"] ?: return null
-        return UiActionFailureKind.entries.firstOrNull { kind -> kind.schemaValue == code }
-            ?: UiActionFailureKind.Unknown
+        return RELEASABLE_FAILURE_CODES[code] ?: UiActionFailureKind.Unknown
     }
 
     private fun ScreenObservation?.foregroundRelation(plan: MilestonePlan): ForegroundRelation {
@@ -329,27 +524,69 @@ object RunProgressGate {
     }
 
     private fun withheld(reason: ProgressWithheldReason): ProgressExport = ProgressExport.Withheld(reason)
+
+    companion object {
+        const val MAX_STEPS = 32
+
+        /** Bounds how many progress reports, and so how many derived bits, one run can send. */
+        const val MAX_REPLANS = 3
+
+        /**
+         * The failure codes a report may carry, pinned by hand. A [UiActionFailureKind] entry added
+         * later leaves as `unknown` until someone reviews it and lists it here.
+         */
+        internal val RELEASABLE_FAILURE_CODES: Map<String, UiActionFailureKind> = mapOf(
+            "node_not_found" to UiActionFailureKind.NodeNotFound,
+            "page_changed" to UiActionFailureKind.PageChanged,
+            "permission_missing" to UiActionFailureKind.PermissionMissing,
+            "keyboard_obscured" to UiActionFailureKind.KeyboardObscured,
+            "timeout" to UiActionFailureKind.Timeout,
+            "app_not_foreground" to UiActionFailureKind.AppNotForeground,
+            "search_entry_not_found" to UiActionFailureKind.SearchEntryNotFound,
+            "editable_not_found" to UiActionFailureKind.EditableNotFound,
+            "submit_not_found" to UiActionFailureKind.SubmitNotFound,
+            "result_not_verified" to UiActionFailureKind.ResultNotVerified,
+            "dangerous_action" to UiActionFailureKind.DangerousAction,
+            "unknown" to UiActionFailureKind.Unknown,
+        )
+    }
 }
 
 /**
- * The exact text sent to a remote planner. [userRequest] must be the RemoteEligible request the
- * Planner role was placed on; the rest is public vocabulary plus, only when released, [RunProgress].
- * Without a [ProgressExport.Released] the output does not depend on the device at all.
+ * The exact text sent to a remote planner. [MilestoneVocabulary.DEFAULT] is always the vocabulary,
+ * and device data enters only as the one [RunProgress] a [RunProgressGate] releases, so a caller
+ * cannot add anything else.
  */
 object CloudPlannerRequest {
+    /**
+     * The first request of a run. [userRequest] must be the RemoteEligible request the Planner role
+     * was placed on. The output does not depend on the device at all.
+     */
+    fun render(userRequest: String): String = compose(userRequest, progress = null)
+
+    /**
+     * A replan request. [gate] decides whether this step's progress is added; when it withholds,
+     * the text is byte-identical to `render(userRequest)`.
+     */
     fun render(
         userRequest: String,
-        vocabulary: MilestoneVocabulary = MilestoneVocabulary.DEFAULT,
-        progress: ProgressExport? = null,
-    ): String = buildString {
+        gate: RunProgressGate,
+        planner: RolePlacementDecision,
+        plan: MilestonePlan,
+        record: DeviceStepRecord,
+    ): String {
+        val released = gate.export(planner, plan, record) as? ProgressExport.Released
+        return compose(userRequest, released?.progress)
+    }
+
+    private fun compose(userRequest: String, progress: RunProgress?): String = buildString {
+        val vocabulary = MilestoneVocabulary.DEFAULT
         append("{\"version\":").append(MilestonePlanParser.SCHEMA_VERSION)
         append(",\"request\":").append(JSONObject.quote(userRequest))
         append(",\"intents\":").appendStrings(MilestoneIntent.entries.map { intent -> intent.wireName })
         append(",\"apps\":").appendStrings(vocabulary.apps.sorted())
         append(",\"tools\":").appendStrings(vocabulary.tools.sorted())
-        (progress as? ProgressExport.Released)?.let { released ->
-            append(",\"progress\":").appendProgress(released.progress)
-        }
+        progress?.let { released -> append(",\"progress\":").appendProgress(released) }
         append('}')
     }
 

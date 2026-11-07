@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.orchestration.collab
 
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.architecture.ProductionSourceScanner
 import com.bytedance.zgx.solin.device.ObservationClickability
 import com.bytedance.zgx.solin.device.ObservationElement
 import com.bytedance.zgx.solin.device.ScreenBounds
@@ -25,37 +26,43 @@ class RunProgressGateTest {
     @Test
     fun flagDefaultsOffAndOffWithholdsEveryRecord() {
         assertEquals(DerivedProgressEgress.Off, DerivedProgressEgress.DEFAULT)
-        adversarialRecords().forEach { record ->
-            plannerDecisions().forEach { planner ->
-                assertEquals(
-                    ProgressExport.Withheld(ProgressWithheldReason.FlagOff),
-                    RunProgressGate.export(DerivedProgressEgress.DEFAULT, planner, PLAN, record),
-                )
+        listOf(RunProgressGate(), RunProgressGate(DerivedProgressEgress.DEFAULT)).forEach { gate ->
+            adversarialRecords().forEach { record ->
+                plannerDecisions().forEach { planner ->
+                    assertEquals(
+                        ProgressExport.Withheld(ProgressWithheldReason.FlagOff),
+                        gate.export(planner, PLAN, record),
+                    )
+                }
             }
+            assertEquals(0, gate.reportsReleased)
         }
     }
 
     @Test
     fun flagOffRequestIsByteIdenticalToTheRequestWithoutDeviceData() {
         val withoutDevice = CloudPlannerRequest.render(REQUEST)
+        val gate = RunProgressGate(DerivedProgressEgress.Off)
         adversarialRecords().forEach { record ->
             plannerDecisions().forEach { planner ->
-                val export = RunProgressGate.export(DerivedProgressEgress.Off, planner, PLAN, record)
-                assertEquals(withoutDevice, CloudPlannerRequest.render(REQUEST, progress = export))
+                assertEquals(withoutDevice, CloudPlannerRequest.render(REQUEST, gate, planner, PLAN, record))
             }
         }
+        val vocabulary = MilestoneVocabulary.DEFAULT
         assertEquals(
-            setOf("version", "request", "intents", "apps", "tools"),
-            JSONObject(withoutDevice).keys().asSequence().toSet(),
+            "{\"version\":1,\"request\":\"在淘宝搜索牛奶\"," +
+                "\"intents\":[\"open_app\",\"search_in_app\",\"refine_results\",\"read_results\"," +
+                "\"enter_draft_text\",\"navigate\",\"use_tool\"]," +
+                "\"apps\":${quotedSorted(vocabulary.apps)},\"tools\":${quotedSorted(vocabulary.tools)}}",
+            withoutDevice,
         )
     }
 
     @Test
     fun releasedProgressCarriesNoTextFromToolResultsOrTheScreen() {
         adversarialRecords().forEach { record ->
-            val export = RunProgressGate.export(DerivedProgressEgress.ClosedVocabulary, remotePlanner(), PLAN, record)
-            assertTrue("$record: $export", export is ProgressExport.Released)
-            val rendered = CloudPlannerRequest.render(REQUEST, progress = export)
+            val rendered = CloudPlannerRequest.render(REQUEST, openGate(), remotePlanner(), PLAN, record)
+            assertTrue("$record: $rendered", ",\"progress\":" in rendered)
             SECRETS.forEach { secret -> assertFalse("leaked '$secret'", secret in rendered) }
         }
     }
@@ -75,6 +82,22 @@ class RunProgressGateTest {
         assertEquals(UiActionFailureKind.NodeNotFound, released(record(lastResult = failed("node_not_found"))).lastFailure)
         val succeeded = ToolResult("r", ToolStatus.Succeeded, "ok", mapOf("failureKind" to "13800138000"))
         assertEquals(null, released(record(lastResult = succeeded)).lastFailure)
+    }
+
+    @Test
+    fun failureCodeAllowlistIsPinnedToTheReviewedCodes() {
+        val pinned = RunProgressGate.RELEASABLE_FAILURE_CODES
+        assertEquals(12, pinned.size)
+        pinned.forEach { (code, kind) ->
+            assertEquals(code, kind.schemaValue)
+            assertEquals(kind, released(record(lastResult = failed(code))).lastFailure)
+        }
+        val unreviewed = UiActionFailureKind.entries.filterNot { kind -> kind in pinned.values }
+        assertEquals(
+            "review whether these may leave the device, then list them in RELEASABLE_FAILURE_CODES",
+            emptyList<UiActionFailureKind>(),
+            unreviewed,
+        )
     }
 
     @Test
@@ -114,42 +137,81 @@ class RunProgressGateTest {
             assertEquals(
                 "$planner",
                 ProgressExport.Withheld(ProgressWithheldReason.PlannerNotRemote),
-                RunProgressGate.export(DerivedProgressEgress.ClosedVocabulary, planner, PLAN, record()),
+                openGate().export(planner, PLAN, record()),
             )
         }
         assertEquals(RunPlacement.Remote, RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer)).placement)
+
+        val remote = remotePlanner()
+        listOf(
+            remote.copy(privacy = remote.privacy.copy(aggregatePrivacy = MessagePrivacy.LocalOnly)),
+            remote.copy(privacy = remote.privacy.copy(requiresLocalModel = true)),
+        ).forEach { inconsistent ->
+            assertEquals(RunPlacement.Remote, inconsistent.placement)
+            assertEquals(
+                ProgressExport.Withheld(ProgressWithheldReason.PlannerPrivacyNotRemoteEligible),
+                openGate().export(inconsistent, PLAN, record()),
+            )
+        }
     }
 
     @Test
-    fun malformedRecordsAndExhaustedBudgetsAreWithheld() {
-        val cases = mapOf(
-            record(statuses = emptyList()) to ProgressWithheldReason.StatusCountMismatch,
-            record(statuses = PLAN.milestones.map { MilestoneStatus.Pending } + MilestoneStatus.Pending) to
+    fun malformedRecordsAndPlansAreWithheldWithoutSpendingBudget() {
+        val oversized = MilestonePlan(List(MilestonePlanParser.MAX_MILESTONES + 1) { Milestone(MilestoneIntent.OpenApp, TAOBAO) })
+        val empty = MilestonePlan(emptyList())
+        val cases = listOf(
+            Triple(PLAN, record(statuses = emptyList()), ProgressWithheldReason.StatusCountMismatch),
+            Triple(
+                PLAN,
+                record(statuses = PLAN.milestones.map { MilestoneStatus.Pending } + MilestoneStatus.Pending),
                 ProgressWithheldReason.StatusCountMismatch,
-            record(stepsUsed = -1) to ProgressWithheldReason.StepsOutOfRange,
-            record(stepsUsed = RunProgressGate.MAX_STEPS + 1) to ProgressWithheldReason.StepsOutOfRange,
-            record(replansSoFar = -1) to ProgressWithheldReason.ReplanBudgetExhausted,
-            record(replansSoFar = RunProgressGate.MAX_REPLANS) to ProgressWithheldReason.ReplanBudgetExhausted,
+            ),
+            Triple(PLAN, record(stepsUsed = -1), ProgressWithheldReason.StepsOutOfRange),
+            Triple(PLAN, record(stepsUsed = RunProgressGate.MAX_STEPS + 1), ProgressWithheldReason.StepsOutOfRange),
+            Triple(empty, record(statuses = emptyList()), ProgressWithheldReason.PlanSizeOutOfRange),
+            Triple(
+                oversized,
+                record(statuses = oversized.milestones.map { MilestoneStatus.Pending }),
+                ProgressWithheldReason.PlanSizeOutOfRange,
+            ),
         )
-        cases.forEach { (record, reason) ->
-            assertEquals(
-                ProgressExport.Withheld(reason),
-                RunProgressGate.export(DerivedProgressEgress.ClosedVocabulary, remotePlanner(), PLAN, record),
-            )
+        val gate = openGate()
+        cases.forEach { (plan, record, reason) ->
+            assertEquals("$record", ProgressExport.Withheld(reason), gate.export(remotePlanner(), plan, record))
         }
-        assertTrue(released(record(replansSoFar = RunProgressGate.MAX_REPLANS - 1)).stepsUsed >= 0)
+        assertEquals(0, gate.reportsReleased)
+        assertEquals(0, released(record(stepsUsed = 0)).stepsUsed)
+        assertEquals(RunProgressGate.MAX_STEPS, released(record(stepsUsed = RunProgressGate.MAX_STEPS)).stepsUsed)
+    }
+
+    @Test
+    fun theGateOwnsTheRunsReportBudget() {
+        val gate = openGate()
+        val withoutDevice = CloudPlannerRequest.render(REQUEST)
+        repeat(RunProgressGate.MAX_REPLANS) { report ->
+            val rendered = CloudPlannerRequest.render(REQUEST, gate, remotePlanner(), PLAN, record())
+            assertTrue(rendered, rendered.startsWith(withoutDevice.removeSuffix("}") + ",\"progress\":{"))
+            assertEquals(report + 1, gate.reportsReleased)
+        }
+        repeat(2) {
+            assertEquals(
+                ProgressExport.Withheld(ProgressWithheldReason.ReplanBudgetExhausted),
+                gate.export(remotePlanner(), PLAN, record()),
+            )
+            assertEquals(withoutDevice, CloudPlannerRequest.render(REQUEST, gate, remotePlanner(), PLAN, record()))
+        }
+        assertEquals(RunProgressGate.MAX_REPLANS, gate.reportsReleased)
+        assertTrue(openGate().export(remotePlanner(), PLAN, record()) is ProgressExport.Released)
     }
 
     @Test
     fun releasedProgressRendersOnlyClosedKeysAndValues() {
         val rendered = CloudPlannerRequest.render(
             REQUEST,
-            progress = RunProgressGate.export(
-                DerivedProgressEgress.ClosedVocabulary,
-                remotePlanner(),
-                PLAN,
-                record(lastResult = failed("page_changed"), observation = observation(TAOBAO), stepsUsed = 5),
-            ),
+            openGate(),
+            remotePlanner(),
+            PLAN,
+            record(lastResult = failed("page_changed"), observation = observation(TAOBAO), stepsUsed = 5),
         )
         val progress = JSONObject(rendered).getJSONObject("progress")
         assertEquals(setOf("milestones", "lastStatus", "lastFailure", "foreground", "stepsUsed"), progress.keyNames())
@@ -160,7 +222,7 @@ class RunProgressGateTest {
         assertEquals(5, progress.getInt("stepsUsed"))
         assertEquals(
             """{"milestones":["reached","active"],"lastStatus":null,"lastFailure":null,"foreground":"unknown","stepsUsed":0}""",
-            CloudPlannerRequest.render(REQUEST, progress = ProgressExport.Released(released(record(stepsUsed = 0))))
+            CloudPlannerRequest.render(REQUEST, openGate(), remotePlanner(), PLAN, record(stepsUsed = 0))
                 .substringAfter(",\"progress\":").removeSuffix("}"),
         )
     }
@@ -184,10 +246,36 @@ class RunProgressGateTest {
         }
     }
 
+    @Test
+    fun gatedTypesAreConstructedOnlyByTheirOwners() {
+        val owners = mapOf(
+            "orchestration/collab/MilestonePlan.kt" to Regex(
+                """\b(MilestonePlan|MilestoneVocabulary|RunProgress)\s*\(|ProgressExport\.Released\s*\(|import\s+[\w.]*\.ProgressExport\.""",
+            ),
+            "orchestration/collab/CollaborationPolicy.kt" to Regex("""\bRolePlacementDecision\s*\("""),
+        )
+        val root = ProductionSourceScanner.solinPackageRoot()
+        val files = ProductionSourceScanner.kotlinFilesUnder("")
+        assertTrue(files.size > 100)
+        val violations = files.flatMap { file ->
+            val path = file.relativeTo(root).invariantSeparatorsPath
+            val patterns = owners.filterKeys { owner -> owner != path }.values
+            file.readLines().withIndex()
+                .filter { (_, line) -> patterns.any { pattern -> pattern.containsMatchIn(line) } }
+                .map { (index, line) -> "$path:${index + 1}: ${line.trim()}" }
+        }
+        assertEquals(emptyList<String>(), violations)
+    }
+
     private fun JSONObject.keyNames(): Set<String> = keys().asSequence().toSet()
 
+    private fun quotedSorted(values: Set<String>): String =
+        values.sorted().joinToString(separator = ",", prefix = "[", postfix = "]") { value -> JSONObject.quote(value) }
+
+    private fun openGate(): RunProgressGate = RunProgressGate(DerivedProgressEgress.ClosedVocabulary)
+
     private fun released(record: DeviceStepRecord): RunProgress {
-        val export = RunProgressGate.export(DerivedProgressEgress.ClosedVocabulary, remotePlanner(), PLAN, record)
+        val export = openGate().export(remotePlanner(), PLAN, record)
         return (export as? ProgressExport.Released)?.progress ?: throw AssertionError("expected Released: $export")
     }
 
@@ -225,8 +313,7 @@ class RunProgressGateTest {
         lastResult: ToolResult? = null,
         observation: ScreenObservation? = null,
         stepsUsed: Int = 2,
-        replansSoFar: Int = 0,
-    ): DeviceStepRecord = DeviceStepRecord(statuses, lastResult, observation, stepsUsed, replansSoFar)
+    ): DeviceStepRecord = DeviceStepRecord(statuses, lastResult, observation, stepsUsed)
 
     private fun failed(failureKind: String): ToolResult = ToolResult(
         requestId = "r",
@@ -277,12 +364,13 @@ class RunProgressGateTest {
     private companion object {
         const val TAOBAO = "com.taobao.taobao"
         const val REQUEST = "在淘宝搜索牛奶"
-        val PLAN: MilestonePlan = MilestonePlan(
-            listOf(
-                Milestone(MilestoneIntent.OpenApp, app = TAOBAO),
-                Milestone(MilestoneIntent.SearchInApp, app = TAOBAO, query = "牛奶"),
-            ),
-        )
+
+        /** Built by the parser, as every plan the gate sees in production is. */
+        val PLAN: MilestonePlan = MilestonePlanParser.parse(
+            """{"version":1,"milestones":[{"intent":"open_app","app":"$TAOBAO"},""" +
+                """{"intent":"search_in_app","app":"$TAOBAO","query":"牛奶"}]}""",
+            REQUEST,
+        ).let { result -> (result as MilestoneParseResult.Accepted).plan }
         val SECRETS = listOf(
             "张三 13800138000",
             "6222020200112233445",

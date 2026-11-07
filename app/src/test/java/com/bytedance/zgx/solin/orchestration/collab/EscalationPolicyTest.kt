@@ -7,6 +7,7 @@ import com.bytedance.zgx.solin.orchestration.PromptSegmentSource
 import com.bytedance.zgx.solin.orchestration.RequestComplexity
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,25 +62,35 @@ class EscalationPolicyTest {
     }
 
     @Test
-    fun deviceBoundRolesAndPlannersCarryingObservationsAreNeverEscalated() {
-        listOf(CollaborationRole.Perceiver, CollaborationRole.Executor, CollaborationRole.Verifier).forEach { role ->
-            assertEquals(
-                EscalationDecision.Forbidden(EscalationForbiddenReason.InputsMustStayLocal),
-                EscalationPolicy.decide(escalation(retry = roleInput(role), preapproved = true)),
+    fun aFailedCallThatReadLocalOnlyContentIsNotEscalatedWithATrimmedPayload() {
+        val failedOnPrivateContent = listOf(
+            listOf(segment(), segment(PromptSegmentSource.History, MessagePrivacy.LocalOnly, true)),
+            listOf(segment(), segment(PromptSegmentSource.ScreenOcr, privacy = null)),
+            listOf(segment(requiresLocalModel = true)),
+        ).map { inputs -> RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer, inputs)) }
+        val clean = defaultFailure()
+        val inconsistent = listOf(
+            clean.copy(privacy = clean.privacy.copy(aggregatePrivacy = MessagePrivacy.LocalOnly)),
+            clean.copy(privacy = clean.privacy.copy(requiresLocalModel = true)),
+            clean.copy(decision = failedOnPrivateContent.first().decision),
+        )
+        (failedOnPrivateContent + inconsistent).forEach { failed ->
+            assertEquals("$failed", RunPlacement.Local, failed.placement)
+            assertForbidden(EscalationForbiddenReason.InputsMustStayLocal, escalation(failed = failed))
+        }
+    }
+
+    @Test
+    fun onlyTheAnswererMayEscalate() {
+        CollaborationRole.entries.filterNot { role -> role == CollaborationRole.Answerer }.forEach { role ->
+            val localFailure = RolePlacementPolicy.decide(roleInput(role, complexity = RequestComplexity.Simple))
+            assertForbidden(EscalationForbiddenReason.RoleCannotEscalate, escalation(retry = roleInput(role)))
+            assertForbidden(EscalationForbiddenReason.RoleCannotEscalate, escalation(failed = localFailure))
+            assertForbidden(
+                EscalationForbiddenReason.RoleCannotEscalate,
+                escalation(failed = localFailure, retry = roleInput(role)),
             )
         }
-        val plannerWithScreen = roleInput(
-            CollaborationRole.Planner,
-            inputs = listOf(segment(), segment(PromptSegmentSource.DeviceContext)),
-        )
-        assertEquals(
-            EscalationDecision.Forbidden(EscalationForbiddenReason.InputsMustStayLocal),
-            EscalationPolicy.decide(escalation(retry = plannerWithScreen, preapproved = true)),
-        )
-        assertEquals(
-            EscalationDecision.Preapproved,
-            EscalationPolicy.decide(escalation(retry = roleInput(CollaborationRole.Planner), preapproved = true)),
-        )
     }
 
     @Test
@@ -89,11 +100,24 @@ class EscalationPolicyTest {
                 EscalationForbiddenReason.PreferenceNotAuto,
                 escalation(retry = roleInput(CollaborationRole.Answerer, preference = preference)),
             )
+            val failedUnderPreference = RolePlacementPolicy.decide(
+                roleInput(CollaborationRole.Answerer, preference = preference, complexity = RequestComplexity.Simple),
+            )
+            assertForbidden(EscalationForbiddenReason.PreferenceNotAuto, escalation(failed = failedUnderPreference))
         }
-        assertForbidden(
-            EscalationForbiddenReason.FailedCallNotLocal,
-            escalation(failedPlacement = RunPlacement.Remote),
+        val remoteFailure = RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer))
+        assertEquals(RunPlacement.Remote, remoteFailure.placement)
+        val blockedFailure = RolePlacementPolicy.decide(
+            roleInput(
+                CollaborationRole.Answerer,
+                local = localCandidate(available = false),
+                remote = remoteCandidate(configured = false),
+            ),
         )
+        assertNull(blockedFailure.placement)
+        listOf(remoteFailure, blockedFailure).forEach { failed ->
+            assertForbidden(EscalationForbiddenReason.FailedCallNotLocal, escalation(failed = failed))
+        }
         listOf(-1, 1, 2).forEach { count ->
             assertForbidden(EscalationForbiddenReason.EscalationAlreadyUsed, escalation(escalationsSoFar = count))
         }
@@ -142,12 +166,24 @@ class EscalationPolicyTest {
     @Test
     fun aSimpleRequestThatAutoWouldKeepLocalCanStillEscalateAfterALocalFailure() {
         val retry = roleInput(CollaborationRole.Answerer, complexity = RequestComplexity.Simple)
-        assertEquals(RunPlacement.Local, RolePlacementPolicy.decide(retry).placement)
-        assertEquals(EscalationDecision.Preapproved, EscalationPolicy.decide(escalation(retry = retry, preapproved = true)))
+        val failed = RolePlacementPolicy.decide(retry)
+        assertEquals(RunPlacement.Local, failed.placement)
+        assertEquals(
+            EscalationDecision.Preapproved,
+            EscalationPolicy.decide(escalation(failed = failed, retry = retry, preapproved = true)),
+        )
     }
 
     @Test
     fun preapprovalOnlyEverLiftsTheNotPreapprovedTier() {
+        val failures = listOf(
+            defaultFailure(),
+            RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer)),
+            RolePlacementPolicy.decide(
+                roleInput(CollaborationRole.Answerer, inputs = listOf(segment(privacy = MessagePrivacy.LocalOnly))),
+            ),
+            RolePlacementPolicy.decide(roleInput(CollaborationRole.Planner, complexity = RequestComplexity.Simple)),
+        )
         val retries = listOf(
             roleInput(CollaborationRole.Answerer),
             roleInput(CollaborationRole.Answerer, preference = InferenceMode.Local),
@@ -157,14 +193,14 @@ class EscalationPolicyTest {
             roleInput(CollaborationRole.Executor),
         )
         var lifted = 0
-        retries.forEach { retry ->
-            RunPlacement.entries.forEach { failedPlacement ->
+        failures.forEach { failed ->
+            retries.forEach { retry ->
                 listOf(0, 1).forEach { count ->
                     listOf(emptySet(), setOf(EscalationSignal.QualityGuardTripped)).forEach { signals ->
                         listOf(false, true).forEach { sensitive ->
                             val base = escalation(
+                                failed = failed,
                                 retry = retry,
-                                failedPlacement = failedPlacement,
                                 escalationsSoFar = count,
                                 signals = signals,
                                 payloadSensitive = sensitive,
@@ -188,23 +224,28 @@ class EscalationPolicyTest {
     private fun assertForbidden(reason: EscalationForbiddenReason, input: EscalationInput) {
         listOf(false, true).forEach { preapproved ->
             assertEquals(
+                "$input",
                 EscalationDecision.Forbidden(reason),
                 EscalationPolicy.decide(input.copy(preapproved = preapproved)),
             )
         }
     }
 
+    /** A Local Answerer call on a RemoteEligible request: the only failure escalation can start from. */
+    private fun defaultFailure(): RolePlacementDecision =
+        RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer, complexity = RequestComplexity.Simple))
+
     private fun escalation(
+        failed: RolePlacementDecision = defaultFailure(),
         retry: RolePlacementInput = roleInput(CollaborationRole.Answerer),
-        failedPlacement: RunPlacement = RunPlacement.Local,
         signals: Set<EscalationSignal> = setOf(EscalationSignal.QualityGuardTripped),
         calibratedSignals: Set<EscalationSignal> = setOf(EscalationSignal.QualityGuardTripped),
         escalationsSoFar: Int = 0,
         payloadSensitive: Boolean = false,
         preapproved: Boolean = false,
     ): EscalationInput = EscalationInput(
+        failed = failed,
         retry = retry,
-        failedPlacement = failedPlacement,
         signals = signals,
         calibratedSignals = calibratedSignals,
         escalationsSoFar = escalationsSoFar,
