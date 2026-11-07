@@ -17,6 +17,7 @@ import com.bytedance.zgx.solin.ReasoningEffort
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -126,6 +127,13 @@ class PreferenceSettingsStore internal constructor(
 
     override fun saveActiveInstalledModelId(modelId: String?) {
         write(Keys.ACTIVE_INSTALLED_MODEL_ID, modelId.orEmpty())
+    }
+
+    override fun localPlanningStrategy(): LocalPlanningStrategy =
+        LocalPlanningStrategy.parse(read(Keys.LOCAL_PLANNING_STRATEGY, "")) ?: LocalPlanningStrategy.RuleFirst
+
+    override fun setLocalPlanningStrategy(strategy: LocalPlanningStrategy) {
+        write(Keys.LOCAL_PLANNING_STRATEGY, strategy.name)
     }
 
     override fun loadRemoteConfig(apiKey: String): RemoteModelConfig {
@@ -242,6 +250,7 @@ class PreferenceSettingsStore internal constructor(
         val ACTIVE_SESSION_ID = stringPreferencesKey("active_session_id")
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
         val ACTIVE_INSTALLED_MODEL_ID = stringPreferencesKey("active_installed_model_id")
+        val LOCAL_PLANNING_STRATEGY = stringPreferencesKey("local_planning_strategy")
     }
 }
 

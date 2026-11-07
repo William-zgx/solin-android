@@ -465,8 +465,17 @@ class ChatController internal constructor(
         }
         val includePrivateLocalContext = preparedExecution?.includePrivateLocalContext
             ?: (stateBeforeSend.inferenceMode == InferenceMode.Local)
-        val agentRunOptions = preparedExecution?.agentRunOptions
-            ?: initialAgentRunOptions(stateBeforeSend, useRemoteModel, remoteConfig)
+        // Lazy: the planning-strategy and model-path reads hit settings and Room, so they must
+        // first run inside the generation block on ioDispatcher.
+        val agentRunOptions by lazy {
+            preparedExecution?.agentRunOptions ?: initialAgentRunOptions(
+                stateBeforeSend,
+                useRemoteModel,
+                remoteConfig,
+                modelRepository::localPlanningStrategy,
+                modelRepository::verifiedObservationActionModelPath,
+            )
+        }
         if (preparedExecution != null && useRemoteModel) {
             val remoteDecision = ChatSendPreflight.preparedRemoteSend(
                 messagePrivacy = effectiveMessagePrivacy,

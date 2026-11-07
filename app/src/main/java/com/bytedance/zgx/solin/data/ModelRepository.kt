@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.data
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import com.bytedance.zgx.solin.BuildConfig
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_BYTES
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.HIGH_QUALITY_CHAT_MODEL_ID
@@ -14,6 +15,7 @@ import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RECOMMENDED_MODELS
 import com.bytedance.zgx.solin.RecommendedModel
 import com.bytedance.zgx.solin.isLocalDebugHost
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import com.bytedance.zgx.solin.storage.openableMetadata
 import java.io.File
 import java.io.IOException
@@ -439,6 +441,9 @@ class ModelRepository(
             capability = ModelCapability.MemoryEmbedding,
         )
     }
+
+    override fun localPlanningStrategy(): LocalPlanningStrategy =
+        if (BuildConfig.DEBUG) settingsStore.localPlanningStrategy() else LocalPlanningStrategy.RuleFirst
 
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false

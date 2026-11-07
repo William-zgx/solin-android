@@ -10,6 +10,7 @@ import com.bytedance.zgx.solin.PendingRemoteSendMarker
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import java.io.File
 
 interface SessionStore {
@@ -55,6 +56,9 @@ interface ModelRepositoryFacade {
     fun verifiedMemoryEmbeddingModelPath(): String?
     fun verifyLegacyRecommendedModels(): Boolean
     fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String
+
+    /** Who proposes a local run's first tool; always [LocalPlanningStrategy.RuleFirst] outside debug builds. */
+    fun localPlanningStrategy(): LocalPlanningStrategy = LocalPlanningStrategy.RuleFirst
 }
 
 interface GenerationParametersStore {
@@ -115,6 +119,10 @@ interface SettingsStore {
     fun saveSelectedModelId(modelId: String)
     fun activeInstalledModelId(): String?
     fun saveActiveInstalledModelId(modelId: String?)
+
+    /** Developer setting `local_planning_strategy`; anything but an exact strategy name reads as RuleFirst. */
+    fun localPlanningStrategy(): LocalPlanningStrategy = LocalPlanningStrategy.RuleFirst
+    fun setLocalPlanningStrategy(strategy: LocalPlanningStrategy) = Unit
 }
 
 interface SecretStore {

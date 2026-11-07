@@ -80,6 +80,7 @@ import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import com.bytedance.zgx.solin.orchestration.ModelOutputQualityTrace
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeInvocation
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
@@ -5705,6 +5706,45 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun localPlanningStrategyFromTheModelRepositoryShapesOnlyLocalRouteOptions() = runTest(dispatcher) {
+        val chat = installedModelSummary(
+            id = "chat-model",
+            displayName = "当前对话",
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val defaultRouter = FakeAssistantRouter()
+        val strategyRouter = FakeAssistantRouter()
+        listOf(
+            defaultRouter to FakeModelRepository(activeInstalledModelId = chat.id, initialInstalledModels = listOf(chat)),
+            strategyRouter to FakeModelRepository(
+                activeInstalledModelId = chat.id,
+                initialInstalledModels = listOf(chat),
+                localPlanningStrategy = LocalPlanningStrategy.ModelFirstWithRuleFastPath,
+                observationActionModelPath = chat.path,
+            ),
+        ).forEach { (router, repository) ->
+            val viewModel = createViewModel(assistantRouter = router, modelRepository = repository)
+            viewModel.restoreStartupState()
+            advanceUntilIdle()
+
+            viewModel.sendMessage("打开微信")
+            advanceUntilIdle()
+        }
+
+        val defaultOptions = requireNotNull(defaultRouter.lastRouteOptions)
+        assertEquals(
+            AgentRunOptions(reduceDeviceActionConfirmations = defaultOptions.reduceDeviceActionConfirmations),
+            defaultOptions,
+        )
+        val strategyOptions = requireNotNull(strategyRouter.lastRouteOptions)
+        assertEquals(InitialPlanningMode.LocalModelFirst, strategyOptions.initialPlanningMode)
+        assertEquals(LocalPlanningStrategy.ModelFirstWithRuleFastPath, strategyOptions.localPlanningStrategy)
+        assertEquals(chat.path, strategyOptions.localPlanningModelPath)
+    }
+
+    @Test
     fun remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime() = runTest(dispatcher) {
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
@@ -10609,6 +10649,8 @@ class SolinViewModelTest {
         private var pendingDownloadSource: ModelDownloadSource? = null,
         private val deleteResult: Boolean = true,
         private val activeModelVerificationResult: Boolean = true,
+        private val localPlanningStrategy: LocalPlanningStrategy = LocalPlanningStrategy.RuleFirst,
+        private val observationActionModelPath: String? = null,
     ) : ModelRepositoryFacade {
         val registeredModels = mutableListOf<InstalledModelSummary>()
         val deletedModelIds = mutableListOf<String>()
@@ -10704,7 +10746,9 @@ class SolinViewModelTest {
 
         override fun verifiedActionModelPath(): String? = null
 
-        override fun verifiedObservationActionModelPath(): String? = null
+        override fun verifiedObservationActionModelPath(): String? = observationActionModelPath
+
+        override fun localPlanningStrategy(): LocalPlanningStrategy = localPlanningStrategy
 
         override fun verifiedMemoryEmbeddingModelPath(): String? = memoryEmbeddingModelPath
 
