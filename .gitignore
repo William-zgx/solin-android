@@ -34,3 +34,7 @@ sentencepiece*.model
 # Memory bench output (lab/memory). Only the committed 20261107 run is tracked; other runs are local.
 lab/memory/results/*
 !lab/memory/results/20261107/
+
+# Lab bench leftovers: Python bytecode from lab/scripts, and local scratch outputs.
+__pycache__/
+*.pyc

@@ -58,6 +58,15 @@ object LabEnv {
         get() = System.getenv("SOLIN_LAB_DATE")?.takeIf { it.matches(Regex("\\d{8}")) }
             ?: LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
 
+    /**
+     * Who produced the numbers. Override with `SOLIN_LAB_HOST_NOTE`; the default is the Mac bench
+     * host, so a devbox run must set it (`devbox CPU, Ollama 0.40.13, no GPU`) rather than inherit a
+     * Mac label. The runner is read from `/api/tags` details, so this only names the machine.
+     */
+    val hostNote: String
+        get() = System.getenv("SOLIN_LAB_HOST_NOTE")?.takeIf { it.isNotBlank() }
+            ?: "Apple M3 Pro 36 GB, Ollama MLX runner; desktop numbers are not device evidence"
+
     val repoRoot: File by lazy {
         generateSequence(File(System.getProperty("user.dir") ?: ".").absoluteFile) { it.parentFile }
             .firstOrNull { File(it, "settings.gradle.kts").isFile && File(it, "app").isDirectory }
@@ -138,7 +147,8 @@ object LabManifest {
         manifest.put("runDate", LabEnv.runDate)
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
         manifest.put("gitHead", gitHead())
-        manifest.put("hostNote", "Apple M3 Pro 36 GB, Ollama MLX runner; desktop numbers are not device evidence")
+        // The host is part of the result: a devbox CPU run and a Mac MLX run must never share a column.
+        manifest.put("hostNote", LabEnv.hostNote)
         manifest.put("samplingOptions", OllamaClient.Options().toJson())
         val modelsJson = manifest.optJSONObject("models") ?: JSONObject()
         val tags = runCatching { client.tags() }.getOrNull()

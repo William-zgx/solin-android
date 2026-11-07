@@ -391,6 +391,49 @@ Classes: wrong tool = a valid call to a registry tool that is not gold; bad/miss
 
 App outcome applies the app's gate: a valid verdict with confidence >= 0.9 decides, anything else keeps the rule placement (`RequestComplexityAggregator` fed as `chatPlacementInputs` feeds it).
 
+## Suite E: local model as an action gate
+
+No Suite E results.
+
+## Offline composites
+
+Offline composite: `R` keeps every plan it makes, and the model answers only the frames where `R` returned no tool (51 no-tool + 23 tool requests = the 74 rule-gap cases). Fixed = the model gets right a gap case `R` missed; broken = the model loses a gap case `R` got right. No model was called for this table:
+
+| suite | model | mode | R+model correct | fixed | broken | fixed cases |
+| --- | --- | --- | --- | --- | --- | --- |
+| B | qwen3.5:2b | M-full | 122/151 | 4 | 9 | hw_share_text, hw_maps_gas, bench_draft_email, bench_nav_maps_search |
+| B | qwen3.5:2b | M-full-fix | 127/151 | 0 | 0 |  |
+| B | qwen3.5:2b | M-topk | 122/151 | 0 | 5 |  |
+| B | qwen3.5:2b | M-topk-fix | 126/151 | 0 | 1 |  |
+| B | qwen3.5:2b | R+M | 127/151 | 0 | 0 |  |
+| B | gemma4:e4b | M-full | 97/151 | 9 | 39 | bench_write_calendar, bench_write_contact, hw_calendar, bench_search_qqmusic_song, bench_search_cloudmusic_song ... |
+| B | gemma4:e4b | M-full-fix | 95/151 | 11 | 43 | bench_write_calendar, bench_write_contact, hw_calendar, bench_search_qqmusic_song, hw_share_text ... |
+| B | gemma4:e4b | M-topk | 115/151 | 5 | 17 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas |
+| B | gemma4:e4b | M-topk-fix | 90/151 | 8 | 45 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| B | gemma4:e4b | R+M | 127/151 | 0 | 0 |  |
+| B | qwen3.5:4b | M-full | 127/151 | 0 | 0 |  |
+| B | qwen3.5:4b | M-full-fix | 92/151 | 12 | 47 | bench_write_calendar, bench_search_eleme_tea, bench_write_contact, hw_calendar, bench_search_qqmusic_song ... |
+| B | qwen3.5:4b | M-topk | 127/151 | 0 | 0 |  |
+| B | qwen3.5:4b | M-topk-fix | 83/151 | 7 | 51 | bench_write_calendar, bench_write_contact, hw_share_text, hw_maps_gas, bench_draft_email ... |
+| B | qwen3.5:4b | R+M | 127/151 | 0 | 0 |  |
+| B | gemma4:e2b | M-full | 128/151 | 5 | 4 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, bench_draft_email |
+| B | gemma4:e2b | M-full-fix | 84/151 | 8 | 51 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| B | gemma4:e2b | M-topk | 127/151 | 0 | 0 |  |
+| B | gemma4:e2b | M-topk-fix | 84/151 | 8 | 51 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| B | gemma4:e2b | R+M | 127/151 | 0 | 0 |  |
+| C | qwen3.5:2b | N-full | 118/151 | 12 | 21 | bench_write_calendar, bench_search_eleme_tea, bench_write_contact, hw_calendar, hw_share_text ... |
+| C | qwen3.5:2b | N-topk | 88/151 | 7 | 46 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| C | qwen3.5:2b | N-topk-free | 128/151 | 7 | 6 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| C | gemma4:e4b | N-full | 115/151 | 22 | 34 | bench_write_calendar, bench_search_meituan_hotpot, bench_search_eleme_tea, bench_write_contact, hw_calendar ... |
+| C | gemma4:e4b | N-topk | 102/151 | 8 | 33 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| C | gemma4:e4b | N-topk-free | 129/151 | 6 | 4 | bench_write_calendar, bench_write_contact, hw_maps_gas, bench_draft_email, hw_timer_pomodoro ... |
+| C | qwen3.5:4b | N-full | 120/151 | 17 | 24 | bench_write_calendar, bench_search_eleme_tea, bench_write_contact, hw_calendar, bench_search_qqmusic_song ... |
+| C | qwen3.5:4b | N-topk | 91/151 | 7 | 43 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| C | qwen3.5:4b | N-topk-free | 125/151 | 0 | 2 |  |
+| C | gemma4:e2b | N-full | 101/151 | 12 | 38 | bench_write_calendar, bench_write_contact, hw_calendar, bench_search_qqmusic_song, bench_search_taobao_milk ... |
+| C | gemma4:e2b | N-topk | 101/151 | 7 | 33 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+| C | gemma4:e2b | N-topk-free | 127/151 | 7 | 7 | bench_write_calendar, bench_write_contact, hw_calendar, hw_share_text, hw_maps_gas ... |
+
 ## Latency and prompt size
 
 | suite | model | mode | model calls | p50 ms | p95 ms | prompt tok p50 | prompt tok p95 | mean cached prompt tok | mean output tok |

@@ -36,8 +36,15 @@ python3 -I lab/scripts/summarize.py lab/results/$(date +%Y%m%d)
 
 `--rerun` matters. The opt-in variable is not a Gradle task input, so without it Gradle can report
 the task up to date or serve a previous (skipped) result from the build cache. Other knobs:
-`SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name) and `SOLIN_LAB_MODES`
-(comma-separated model modes to run, for example `N-topk,json-schema`; rule baselines always run).
+`SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name, 8 digits),
+`SOLIN_LAB_HOST_NOTE` (names the machine that produced the numbers; the default is the Mac bench
+host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-topk,json-schema`;
+rule baselines always run).
+
+**Label the host.** Every devbox run must set `SOLIN_LAB_HOST_NOTE` (for example
+`devbox CPU, Ollama 0.40.13, no GPU`) so its numbers land in a different table from the Mac MLX
+run. A devbox CPU number is not comparable to a Mac MLX number and the two must never share a
+column.
 
 Run one model per Gradle invocation so the model is unloaded between models. A model whose Ollama
 `/api/show` capabilities lack `tools` is recorded under `unsupported` in `manifest.json` and skipped
@@ -107,6 +114,25 @@ The 26 labeled cases of `docs/decision_routing_eval.json`. The local model acts 
 Modes: `json-prompt` (format requested in the prompt only) and `json-schema` (Ollama structured
 output). The rule baseline is `RequestComplexityAggregator` fed exactly as `chatPlacementInputs`
 feeds it. Metrics: accuracy, coverage and accuracy at confidence >= 0.9 (the app's gate).
+
+### Suite E: the local model as an action gate (`action-gate`)
+
+A lab-only experiment the app does not have today. One short call per Suite B request asks only
+whether the request needs a phone action at all, as JSON `{"action": true|false, "confidence": 0..1}`
+(same acceptance shape as Suite D). The gate opens on `action = true` with confidence >= the app's
+routing gate (`DECISION_MODEL_MIN_CONFIDENCE`, 0.9); false, low confidence or invalid JSON keeps it
+closed, so a broken gate fails closed to no tool. Metrics: precision and recall of the gate decision,
+and the same over the 74 rule-gap cases. Explicit negations are labelled no-action.
+
+### Offline composites
+
+`summarize.py` also prints composites computed from the saved JSONL with no model calls:
+
+- **R, then the model on the rule gap.** `R` keeps every plan it makes; the model mode answers only
+  the 74 requests where `R` returned no tool (51 no-tool + 23 tool). Reported for every B and C mode,
+  with the count of cases fixed and broken against `R` alone.
+- **R, then the gate, then `N-full`.** `R` keeps its plans; where `R` returned no tool the gate
+  decides, and only an open gate lets `N-full` answer. A closed gate yields no tool.
 
 ## Labeling rules
 
