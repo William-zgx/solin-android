@@ -20,12 +20,14 @@ SUITE_A = "observation-step"
 SUITE_B = "initial-planning"
 SUITE_C = "native-tools"
 SUITE_D = "routing"
-SUITE_LETTER = {SUITE_A: "A", SUITE_B: "B", SUITE_C: "C", SUITE_D: "D"}
+SUITE_E = "action-gate"
+SUITE_LETTER = {SUITE_A: "A", SUITE_B: "B", SUITE_C: "C", SUITE_D: "D", SUITE_E: "E"}
 MODE_ORDER = {
     SUITE_A: ["replanner", "replanner-fix"],
     SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "R+M"],
     SUITE_C: ["N-full", "N-topk", "N-topk-free"],
     SUITE_D: ["complexity", "json-prompt", "json-schema"],
+    SUITE_E: ["json-prompt"],
 }
 RULE_MODELS = ("rules",)
 EXAMPLES_PER_GROUP = 3
@@ -749,7 +751,7 @@ def suite_d(records, models, out):
 
 def latency(records, models, out):
     rows = []
-    for suite in (SUITE_A, SUITE_B, SUITE_C, SUITE_D):
+    for suite in (SUITE_A, SUITE_B, SUITE_C, SUITE_D, SUITE_E):
         for key in keys_for(suite, records, models):
             if key[1] in RULE_MODELS:
                 continue
@@ -861,6 +863,153 @@ def failure_examples(records, models, out):
         out.append("")
 
 
+# ---- Suite E -------------------------------------------------------------------------------------
+
+
+def suite_e(records, models, out):
+    keys = keys_for(SUITE_E, records, models)
+    if not keys:
+        out.append("No Suite E results.\n")
+        return
+    rules = {r["caseId"]: r for r in records.get((SUITE_B, "rules", "R"), [])}
+    gap = {case_id for case_id, r in rules.items() if r["rawKind"] != "use_tool"} if rules else set()
+    rows = []
+    for key in keys:
+        rs = records[key]
+        n = len(rs)
+        valid = [r for r in rs if r.get("valid")]
+        opened = [r for r in rs if r.get("gateOpen")]
+        acted = [r for r in rs if r["expectsAction"]]
+        idle = [r for r in rs if not r["expectsAction"]]
+        # Gate-open is a positive prediction; recall = share of action cases where it opened.
+        true_pos = sum(1 for r in acted if r.get("gateOpen"))
+        false_pos = sum(1 for r in idle if r.get("gateOpen"))
+        precision = f"{true_pos}/{true_pos + false_pos}" if (true_pos + false_pos) else "n/a"
+        gap_rs = [r for r in rs if r["caseId"] in gap] if gap else []
+        gap_acted = [r for r in gap_rs if r["expectsAction"]]
+        rows.append([
+            key[1],
+            n,
+            frac(len(valid), n),
+            frac(sum(1 for r in rs if r.get("gatedCorrect")), n),
+            f"{precision} ({pct(true_pos, true_pos + false_pos)})",
+            frac(true_pos, len(acted)),
+            frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle)),
+            frac(sum(1 for r in gap_rs if r.get("gatedCorrect")), len(gap_rs)) if gap_rs else "-",
+            frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)) if gap_acted else "-",
+        ])
+    out.append(table(
+        ["model", "n", "valid JSON", "gate decision correct", "gate precision (true/false open)",
+         "recall on action cases", "no-action cases kept closed", "correct on the 74 rule-gap cases",
+         "gate opens on tool cases in the gap"],
+        rows,
+    ))
+    out.append("")
+    out.append("The gate opens on `action = true` with confidence >= the app's routing gate "
+               "(`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid "
+               "JSON) keeps it closed, so a broken gate fails closed to no tool. The 74 rule-gap "
+               "cases are the Suite B requests where the production rules return no tool (51 "
+               "no-tool, 23 tool). Explicit negations are labelled no-action. Lab-only experiment: "
+               "the app has no such gate today.\n")
+
+
+# ---- Offline composites --------------------------------------------------------------------------
+
+
+def rule_gap(records):
+    """Ids of the Suite B requests where the production rules return no tool (the 74 gap cases)."""
+    rules = records.get((SUITE_B, "rules", "R"))
+    if not rules:
+        return None
+    return {r["caseId"] for r in rules if r["rawKind"] != "use_tool"}
+
+
+def composite_r_then_model(records, models, out):
+    """R keeps its plans; a model mode fills only the cases where R returned no tool.
+
+    Pure post-processing of saved JSONL: no model is called here, so the numbers describe what an
+    R-plus-model hand-off would have scored on the same run.
+    """
+    gap = rule_gap(records)
+    if gap is None:
+        return
+    base = {r["caseId"]: r for r in records[(SUITE_B, "rules", "R")]}
+    rows = []
+    for suite in (SUITE_B, SUITE_C):
+        for model in models:
+            if model in RULE_MODELS:
+                continue
+            for mode in MODE_ORDER[suite]:
+                rs = records.get((suite, model, mode))
+                if not rs:
+                    continue
+                by_id = {r["caseId"]: r for r in rs}
+                filled = [by_id[c] for c in gap if c in by_id]
+                if not filled:
+                    continue
+                fixed = [r for r in filled if r["correct"] and not base[r["caseId"]]["correct"]]
+                broken = [r for r in filled if not r["correct"] and base[r["caseId"]]["correct"]]
+                total = sum(base[c]["correct"] for c in base) - sum(base[c]["correct"] for c in gap)
+                total += sum(r["correct"] for r in filled)
+                total += sum(base[c]["correct"] for c in gap if c not in by_id)
+                rows.append([
+                    SUITE_LETTER[suite], model, mode,
+                    f"{total}/{len(base)}",
+                    len(fixed), len(broken),
+                    ", ".join(r["caseId"] for r in fixed[:5]) + (" ..." if len(fixed) > 5 else ""),
+                ])
+    if not rows:
+        return
+    out.append("Offline composite: `R` keeps every plan it makes, and the model answers only the "
+               "frames where `R` returned no tool (51 no-tool + 23 tool requests = the 74 rule-gap "
+               "cases). Fixed = the model gets right a gap case `R` missed; broken = the model loses "
+               "a gap case `R` got right. No model was called for this table:\n")
+    out.append(table(["suite", "model", "mode", "R+model correct", "fixed", "broken", "fixed cases"], rows))
+    out.append("")
+
+
+def composite_gate(records, models, out):
+    """R, then the action gate, then N-full only when the gate opens on a case R left alone."""
+    gap = rule_gap(records)
+    if gap is None:
+        return
+    base = {r["caseId"]: r for r in records[(SUITE_B, "rules", "R")]}
+    rows = []
+    for model in models:
+        gate_rows = {r["caseId"]: r for r in records.get((SUITE_E, model, "json-prompt"), [])}
+        native = {r["caseId"]: r for r in records.get((SUITE_C, model, "N-full"), [])}
+        if not gate_rows or not native:
+            continue
+        fixed = broken = opened = 0
+        total = 0
+        for case_id, rule in base.items():
+            if rule["rawKind"] == "use_tool" or case_id not in gate_rows:
+                # R acted, or the gate never judged this case: keep R.
+                total += rule["correct"]
+                continue
+            gate = gate_rows[case_id]
+            if gate.get("gateOpen") and case_id in native:
+                opened += 1
+                answer = native[case_id]["correct"]
+            else:
+                answer = not rule["expectsTool"]  # closed gate = no tool, right only when none is wanted
+            total += answer
+            if answer and not rule["correct"]:
+                fixed += 1
+            elif not answer and rule["correct"]:
+                broken += 1
+        rows.append([model, f"{total}/{len(base)}", opened, fixed, broken,
+                     frac(sum(1 for c in gap if c in gate_rows), len(gap))])
+    if not rows:
+        return
+    out.append("Offline composite: `R`, then the action gate, then `C N-full` only where the gate "
+               "opens on a request `R` left alone (gate open = `action = true` and confidence >= 0.9). "
+               "A closed gate returns no tool, so it fails closed. Fixed/broken are against `R` alone:\n")
+    out.append(table(["model", "R+gate+N-full correct", "N-full answers used", "fixed", "broken",
+                      "gate coverage of the gap"], rows))
+    out.append("")
+
+
 # ---- Main ----------------------------------------------------------------------------------------
 
 
@@ -906,6 +1055,11 @@ def generated(folder, manifest, records, models):
     failure_taxonomy(records, models, out)
     out.append("## Suite D: cloud/edge routing\n")
     suite_d(records, models, out)
+    out.append("## Suite E: local model as an action gate\n")
+    suite_e(records, models, out)
+    out.append("## Offline composites\n")
+    composite_r_then_model(records, models, out)
+    composite_gate(records, models, out)
     out.append("## Latency and prompt size\n")
     latency(records, models, out)
     out.append("## Tool retriever recall\n")

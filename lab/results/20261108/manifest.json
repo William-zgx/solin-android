@@ -1,0 +1,39 @@
+{
+  "ollamaVersion": "0.40.13",
+  "gitHead": "c2ebe390f2f4f356c0a43d4e9ce5d5586f274334",
+  "samplingOptions": {
+    "top_p": 0.1,
+    "seed": 7,
+    "top_k": 1,
+    "temperature": 0,
+    "num_predict": 384,
+    "num_ctx": 8192
+  },
+  "models": {"functiongemma:270m": {
+    "digest": "7c19b650567acfb1bee50d12bb286370e8a54d8877f6a0ecfd01f8c8fdc223bb",
+    "details": {
+      "embedding_length": 640,
+      "format": "gguf",
+      "context_length": 32768,
+      "parameter_size": "268.10M",
+      "parent_model": "",
+      "family": "gemma3",
+      "families": ["gemma3"],
+      "runner": "ggml",
+      "quantization_level": "Q8_0"
+    },
+    "sizeBytes": 300807157
+  }},
+  "runDate": "20261108",
+  "suites": {"initial-planning": {
+    "topK": 8,
+    "cases": 151,
+    "registryTools": 52,
+    "fixedClock": "2026-06-14T02:00:00Z",
+    "datasetCases": 173,
+    "rmInstalledProfile": "mobile-action-270m",
+    "skillModeR": "StaticSkill",
+    "skillModeRM": "ModelDrivenBootstrap"
+  }},
+  "hostNote": "Apple M3 Pro 36 GB, Ollama MLX runner; desktop numbers are not device evidence"
+}
