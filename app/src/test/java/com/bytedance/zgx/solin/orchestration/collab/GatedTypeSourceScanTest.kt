@@ -34,6 +34,11 @@ class GatedTypeSourceScanTest {
             UI to "val decision = RolePlacementDecision.forTest(role, constraint, privacy, chosenRemote)",
             UI to "val progress = RunProgress.fromGate(statuses, null, null, foreground, 0)",
             UI to "val export = ProgressExport.Released.fromGate(progress)",
+            UI to "val progress = RunProgress.forTest(statuses, null, null, foreground, 0)",
+            UI to "val export = ProgressExport.Released.forTest(progress)",
+            UI to "val plan: MilestonePlan = parsed; val changed = plan.copy(milestones = emptyList())",
+            UI to "fun edit(plan: MilestonePlan) = plan.copy(milestones = emptyList())",
+            UI to "val vocabulary = MilestoneVocabulary.DEFAULT.copy(apps = installedPackages)",
             COLLAB_OTHER to "val decision = RolePlacementDecision.fromPolicy(role, constraint, privacy, chosen)",
             GatedTypeScan.POLICY_OWNER to "val plan = MilestonePlan.fromValidated(milestones)",
             GatedTypeScan.PLAN_OWNER to "val plan = MilestonePlan.forTest(milestones)",
@@ -67,6 +72,7 @@ class GatedTypeSourceScanTest {
             GatedTypeScan.PLAN_OWNER to "return MilestonePlan.fromValidated(milestones)",
             GatedTypeScan.PLAN_OWNER to "internal fun forTest(milestones: List<Milestone>) = MilestonePlan(milestones)",
             GatedTypeScan.PLAN_OWNER to "return ProgressExport.Released.fromGate(RunProgress.fromGate(statuses))",
+            UI to "val plan: MilestonePlan = parsed; val vocabulary = MilestoneVocabulary.DEFAULT",
             GatedTypeScan.POLICY_OWNER to "return RolePlacementDecision.fromPolicy(role, constraint, privacy, decision)",
             COLLAB_OTHER to "if (flag != DerivedProgressEgress.ClosedVocabulary) return",
         )
@@ -122,19 +128,37 @@ private object GatedTypeScan {
     )
 
     fun violations(path: String, source: String): List<String> {
-        val rules = rulesFor(path)
+        val stripped = SourceStripper.strip(source)
+        val rules = rulesFor(path) + copyRulesFor(path, stripped)
         val sourceLines = source.lines()
-        return SourceStripper.strip(source).lines().withIndex().flatMap { (index, line) ->
+        return stripped.lines().withIndex().flatMap { (index, line) ->
             rules.filter { (_, pattern) -> pattern.containsMatchIn(line) }
                 .map { (name, _) -> "$path:${index + 1}: $name: ${sourceLines[index].trim()}" }
         }
     }
 
+    /** The compiler makes copy private too; these planted-bypass checks keep that invariant visible to this scan. */
+    private fun copyRulesFor(path: String, stripped: String): List<Pair<String, Regex>> = buildList {
+        if (TYPE_OWNERS.getValue("MilestoneVocabulary") != path) {
+            add("copy of MilestoneVocabulary.DEFAULT" to Regex("""\bMilestoneVocabulary\s*\.\s*DEFAULT\s*\.\s*copy\s*\("""))
+        }
+        GATED_VALUE_DECLARATION.findAll(stripped).forEach { declaration ->
+            val (value, type) = declaration.destructured
+            if (TYPE_OWNERS.getValue(type.substringAfterLast('.')) != path) {
+                add("copy of gated $type value" to Regex("""\b${Regex.escape(value)}\s*\.\s*copy\s*\("""))
+            }
+        }
+    }
+
+    private val GATED_VALUE_DECLARATION = Regex(
+        """\b(\w+)\s*:\s*(MilestonePlan|MilestoneVocabulary|RunProgress|ProgressExport\.Released|RolePlacementDecision)\b""",
+    )
+
     private fun rulesFor(path: String): List<Pair<String, Regex>> = buildList {
         FACTORY_OWNERS.filterValues { owner -> owner != path }.keys.forEach { factory ->
             add("factory $factory" to Regex("""\b$factory\b"""))
         }
-        // An owner file may declare a forTest factory; no production code may call one.
+        // An owner file may declare a forTest factory; production calls stay banned, including there.
         add("test factory forTest" to Regex(if (path in OWNERS) """(?<!\bfun\s)\bforTest\b""" else """\bforTest\b"""))
         TYPE_OWNERS.filterValues { owner -> owner != path }.keys.forEach { type ->
             add("constructor call $type" to Regex("""\b$type\s*\("""))

@@ -463,6 +463,15 @@ data class RunProgress private constructor(
             foreground: ForegroundRelation,
             stepsUsed: Int,
         ): RunProgress = RunProgress(statuses, lastStatus, lastFailure, foreground, stepsUsed)
+
+        /** Test fixtures only, including progress the gate would withhold. Banned in production sources. */
+        internal fun forTest(
+            statuses: List<MilestoneStatus>,
+            lastStatus: ToolStatus?,
+            lastFailure: UiActionFailureKind?,
+            foreground: ForegroundRelation,
+            stepsUsed: Int,
+        ): RunProgress = RunProgress(statuses, lastStatus, lastFailure, foreground, stepsUsed)
     }
 }
 
@@ -487,6 +496,9 @@ sealed interface ProgressExport {
         companion object {
             /** Only [RunProgressGate.export] may call this, with the [RunProgress] it just derived. */
             internal fun fromGate(progress: RunProgress): Released = Released(progress)
+
+            /** Test fixtures only. Banned in production sources. */
+            internal fun forTest(progress: RunProgress): Released = Released(progress)
         }
     }
 }
