@@ -10,3 +10,6 @@
 2026-11-07T18:02:47.186095816Z suite E model=gemma4:e4b mode=json-prompt cases=151 correct=133 gatedCorrect=132
 2026-11-07T18:16:43.463292072Z suite B mode=R cases=151 correct=127
 2026-11-07T18:58:22.441785700Z suite B mode=R cases=151 correct=127
+2026-11-07T19:11:20.249881896Z suite B mode=R cases=151 correct=127
+2026-11-07T19:46:00.060198013Z suite B model=litert/gemma-4-e2b mode=M-topk cases=151 correct=51
+2026-11-07T19:46:00.198460332Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
