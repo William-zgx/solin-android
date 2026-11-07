@@ -352,6 +352,14 @@ call overflows, the model contributes nothing, and the rules decide. The token c
 model file and tokenizer, not the host, so this transfers to the phone; the exact on-device error is
 **pending device confirmation**.
 
+**(b) Native tools vs the text prompt.** Native tools are the only path that produces a *call* at all
+on the 270M, because the text prompt overflows. On E2B the native path parses but uses Gemma's own
+`tool_call:name{...}` prefix rather than the app's `call:name{...}`, which the app's parser rejects:
+the first cases of `N-topk` are all `tool_call:open_app_by_name{"appName":"微信"}` and similar, counted
+as unparseable, with false positives on explicit negations (the model calls a tool for 别启动微信).
+Full native rows are in the Suite B/C tables above; treat the cross-host comparison as a direction
+only, since the Ollama native runs used a different runner.
+
 With a retrieved top-k the text prompt runs. It is worse than unusable, and this is the single
 strongest finding of Suite F:
 
@@ -372,16 +380,11 @@ do not help (the model answers in prose either way), and the `-fix` text is not 
 **This is the case for native tool declarations, or for fixing the production prompt text before
 anything else is tried.**
 
-**(b) Native tools vs the text prompt.** On the 270M, native tools are the only path that produces a
-call at all, because the text prompt overflows. With `N-topk`, 39 cases answered and 18/100 tool
-requests were right with 16 exact; 6/51 no-tool cases still opened a call. Native declarations are
-therefore a real production option for this model; the text format is not usable at this context size.
-E2B and E4B native rows are in the Suite B/C tables above; the comparison there is confounded by
-different hosts, so only the 270M row is a same-file comparison.
-
-**(c) False positives on the 51 no-tool cases.** 270M `N-topk` 6/51. The text modes never execute
-anything (an unparseable call executes nothing), so they are not false positives; they are wrong tool
-answers. E2B (LiteRT) and E4B (LiteRT) rows are the `errored` and tool columns in the Suite C table.
+**(c) False positives on the 51 no-tool cases.** 270M `N-topk` 6/51; E2B `N-topk` and E4B rows are in
+the Suite C table. The E2B native false positives are explicit negations the model answered with a
+call, which is the same failure the Ollama E4B run shows at scale (45/51). The text modes never
+execute anything (an unparseable call executes nothing), so they are not false positives; they are
+wrong tool answers.
 
 **(d) 270M `M-full` prompt overflows.** 151 of 151. The prompt is 2632–2672 tokens against a
 1024-token limit, so there is no case where the production prompt fits.
