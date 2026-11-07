@@ -5,6 +5,8 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.orchestration.ModelCandidateSnapshot
 import com.bytedance.zgx.solin.orchestration.ModelRequirements
+import com.bytedance.zgx.solin.orchestration.PlacementDecision
+import com.bytedance.zgx.solin.orchestration.PromptPrivacyPlan
 import com.bytedance.zgx.solin.orchestration.PromptPrivacySegment
 import com.bytedance.zgx.solin.orchestration.PromptSegmentSource
 import com.bytedance.zgx.solin.orchestration.RequestComplexity
@@ -54,6 +56,12 @@ internal fun roleInput(
     ),
     complexity = complexity,
 )
+
+/** This decision with fields replaced, as [RolePlacementPolicy] would never return it. */
+internal fun RolePlacementDecision.forged(
+    privacy: PromptPrivacyPlan = this.privacy,
+    decision: PlacementDecision = this.decision,
+): RolePlacementDecision = RolePlacementDecision.forTest(role, constraint, privacy, decision)
 
 internal fun localCandidate(available: Boolean = true): ModelCandidateSnapshot = ModelCandidateSnapshot(
     available = available,

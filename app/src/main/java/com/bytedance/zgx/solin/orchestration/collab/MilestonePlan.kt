@@ -52,21 +52,29 @@ data class Milestone(
 )
 
 /**
- * A plan accepted by [MilestonePlanParser]. Only the parser constructs one, so executors and
- * [RunProgressGate] only see checked plans. The constructor is internal so tests can build edge
- * cases; a source scan in the collab tests fails if any other production file calls it.
+ * A plan accepted by [MilestonePlanParser], so executors and [RunProgressGate] only see checked
+ * plans. The constructor, and so `copy`, is private. The gated-type source scan in the collab tests
+ * fails if a production file other than this one names a factory below.
  */
 @ConsistentCopyVisibility
-data class MilestonePlan internal constructor(val milestones: List<Milestone>)
+data class MilestonePlan private constructor(val milestones: List<Milestone>) {
+    companion object {
+        /** Only [MilestonePlanParser] may call this, after every check on the plan has passed. */
+        internal fun fromValidated(milestones: List<Milestone>): MilestonePlan = MilestonePlan(milestones)
+
+        /** Test fixtures only, including plans the parser would refuse. Banned in production sources. */
+        internal fun forTest(milestones: List<Milestone>): MilestonePlan = MilestonePlan(milestones)
+    }
+}
 
 /**
  * The public words a planner may use. Production uses only [DEFAULT], which is static app data,
  * never read from the phone: the installed-app list and the foreground app are device-derived and
- * stay local. The constructor is internal so tests can narrow the vocabulary; a source scan in the
- * collab tests fails if any other production file calls it.
+ * stay local. The constructor, and so `copy`, is private, so production code cannot build another
+ * vocabulary.
  */
 @ConsistentCopyVisibility
-data class MilestoneVocabulary internal constructor(val apps: Set<String>, val tools: Set<String>) {
+data class MilestoneVocabulary private constructor(val apps: Set<String>, val tools: Set<String>) {
     companion object {
         /** Tools that read nothing private and hand no text to another app. */
         val DEFAULT_TOOLS: Set<String> = setOf(
@@ -83,6 +91,10 @@ data class MilestoneVocabulary internal constructor(val apps: Set<String>, val t
             apps = AppInteractionProfiles.profiles.flatMapTo(mutableSetOf()) { profile -> profile.packageNames },
             tools = DEFAULT_TOOLS,
         )
+
+        /** Test fixtures only, to narrow the vocabulary. Banned in production sources. */
+        internal fun forTest(apps: Set<String>, tools: Set<String>): MilestoneVocabulary =
+            MilestoneVocabulary(apps, tools)
     }
 }
 
@@ -161,7 +173,7 @@ object MilestonePlanParser {
         val items = root.get(KEY_MILESTONES) as? JSONArray ?: reject(MilestoneRejection.WrongType)
         if (items.length() == 0) reject(MilestoneRejection.EmptyPlan)
         if (items.length() > MAX_MILESTONES) reject(MilestoneRejection.TooManyMilestones)
-        return MilestonePlan(
+        return MilestonePlan.fromValidated(
             (0 until items.length()).map { index ->
                 val item = items.get(index) as? JSONObject ?: reject(MilestoneRejection.WrongType, index)
                 item.readMilestone(index, userRequest, vocabulary)
@@ -431,16 +443,28 @@ data class DeviceStepRecord(
 
 /**
  * The only device-derived data that may leave. Enums and bounded counts: no field can hold text.
- * Only [RunProgressGate] constructs one; a source scan in the collab tests enforces it.
+ * The constructor, and so `copy`, is private; the gated-type source scan in the collab tests fails
+ * if a production file other than this one names [fromGate].
  */
 @ConsistentCopyVisibility
-data class RunProgress internal constructor(
+data class RunProgress private constructor(
     val statuses: List<MilestoneStatus>,
     val lastStatus: ToolStatus?,
     val lastFailure: UiActionFailureKind?,
     val foreground: ForegroundRelation,
     val stepsUsed: Int,
-)
+) {
+    companion object {
+        /** Only [RunProgressGate.export] may call this, after every gate check has passed. */
+        internal fun fromGate(
+            statuses: List<MilestoneStatus>,
+            lastStatus: ToolStatus?,
+            lastFailure: UiActionFailureKind?,
+            foreground: ForegroundRelation,
+            stepsUsed: Int,
+        ): RunProgress = RunProgress(statuses, lastStatus, lastFailure, foreground, stepsUsed)
+    }
+}
 
 enum class ProgressWithheldReason {
     FlagOff,
@@ -457,9 +481,14 @@ enum class ProgressWithheldReason {
 sealed interface ProgressExport {
     data class Withheld(val reason: ProgressWithheldReason) : ProgressExport
 
-    /** Only [RunProgressGate] constructs one; a source scan in the collab tests enforces it. */
+    /** The constructor, and so `copy`, is private; only [RunProgressGate] releases progress. */
     @ConsistentCopyVisibility
-    data class Released internal constructor(val progress: RunProgress) : ProgressExport
+    data class Released private constructor(val progress: RunProgress) : ProgressExport {
+        companion object {
+            /** Only [RunProgressGate.export] may call this, with the [RunProgress] it just derived. */
+            internal fun fromGate(progress: RunProgress): Released = Released(progress)
+        }
+    }
 }
 
 /**
@@ -500,8 +529,8 @@ class RunProgressGate(private val flag: DerivedProgressEgress = DerivedProgressE
         if (record.stepsUsed !in 0..MAX_STEPS) return withheld(ProgressWithheldReason.StepsOutOfRange)
         if (released >= MAX_REPLANS) return withheld(ProgressWithheldReason.ReplanBudgetExhausted)
         released += 1
-        return ProgressExport.Released(
-            RunProgress(
+        return ProgressExport.Released.fromGate(
+            RunProgress.fromGate(
                 statuses = record.statuses.toList(),
                 lastStatus = record.lastResult?.status,
                 lastFailure = record.lastResult?.failureKind(),
@@ -532,23 +561,24 @@ class RunProgressGate(private val flag: DerivedProgressEgress = DerivedProgressE
         const val MAX_REPLANS = 3
 
         /**
-         * The failure codes a report may carry, pinned by hand. A [UiActionFailureKind] entry added
-         * later leaves as `unknown` until someone reviews it and lists it here.
+         * The failure kinds a report may carry, keyed by their schema code and listed by hand. A
+         * [UiActionFailureKind] entry added later leaves as `unknown` until someone reviews it and
+         * lists it here.
          */
-        internal val RELEASABLE_FAILURE_CODES: Map<String, UiActionFailureKind> = mapOf(
-            "node_not_found" to UiActionFailureKind.NodeNotFound,
-            "page_changed" to UiActionFailureKind.PageChanged,
-            "permission_missing" to UiActionFailureKind.PermissionMissing,
-            "keyboard_obscured" to UiActionFailureKind.KeyboardObscured,
-            "timeout" to UiActionFailureKind.Timeout,
-            "app_not_foreground" to UiActionFailureKind.AppNotForeground,
-            "search_entry_not_found" to UiActionFailureKind.SearchEntryNotFound,
-            "editable_not_found" to UiActionFailureKind.EditableNotFound,
-            "submit_not_found" to UiActionFailureKind.SubmitNotFound,
-            "result_not_verified" to UiActionFailureKind.ResultNotVerified,
-            "dangerous_action" to UiActionFailureKind.DangerousAction,
-            "unknown" to UiActionFailureKind.Unknown,
-        )
+        internal val RELEASABLE_FAILURE_CODES: Map<String, UiActionFailureKind> = listOf(
+            UiActionFailureKind.NodeNotFound,
+            UiActionFailureKind.PageChanged,
+            UiActionFailureKind.PermissionMissing,
+            UiActionFailureKind.KeyboardObscured,
+            UiActionFailureKind.Timeout,
+            UiActionFailureKind.AppNotForeground,
+            UiActionFailureKind.SearchEntryNotFound,
+            UiActionFailureKind.EditableNotFound,
+            UiActionFailureKind.SubmitNotFound,
+            UiActionFailureKind.ResultNotVerified,
+            UiActionFailureKind.DangerousAction,
+            UiActionFailureKind.Unknown,
+        ).associateBy { kind -> kind.schemaValue }
     }
 }
 
@@ -559,14 +589,21 @@ class RunProgressGate(private val flag: DerivedProgressEgress = DerivedProgressE
  */
 object CloudPlannerRequest {
     /**
+     * [text] is what is sent. [progressReleased] is true only when [text] carries progress a
+     * [RunProgressGate] released; it is the receipt's `derivedProgressReleased`.
+     */
+    data class Rendered(val text: String, val progressReleased: Boolean)
+
+    /**
      * The first request of a run. [userRequest] must be the RemoteEligible request the Planner role
      * was placed on. The output does not depend on the device at all.
      */
-    fun render(userRequest: String): String = compose(userRequest, progress = null)
+    fun render(userRequest: String): Rendered =
+        Rendered(compose(userRequest, progress = null), progressReleased = false)
 
     /**
      * A replan request. [gate] decides whether this step's progress is added; when it withholds,
-     * the text is byte-identical to `render(userRequest)`.
+     * the result equals `render(userRequest)`, text byte for byte.
      */
     fun render(
         userRequest: String,
@@ -574,9 +611,9 @@ object CloudPlannerRequest {
         planner: RolePlacementDecision,
         plan: MilestonePlan,
         record: DeviceStepRecord,
-    ): String {
+    ): Rendered {
         val released = gate.export(planner, plan, record) as? ProgressExport.Released
-        return compose(userRequest, released?.progress)
+        return Rendered(compose(userRequest, released?.progress), progressReleased = released != null)
     }
 
     private fun compose(userRequest: String, progress: RunProgress?): String = buildString {

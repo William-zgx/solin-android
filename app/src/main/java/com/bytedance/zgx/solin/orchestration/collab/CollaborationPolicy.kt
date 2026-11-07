@@ -71,12 +71,12 @@ data class RolePlacementInput(
 )
 
 /**
- * Only [RolePlacementPolicy] constructs one, so [RunProgressGate] and [EscalationPolicy] can trust
- * it. The constructor is internal so tests can forge inconsistent decisions; a source scan in the
- * collab tests fails if any other production file calls it.
+ * Only [RolePlacementPolicy] makes one, so [RunProgressGate] and [EscalationPolicy] can trust it.
+ * The constructor, and so `copy`, is private; the gated-type source scan in the collab tests fails if
+ * a production file other than this one names a factory below.
  */
 @ConsistentCopyVisibility
-data class RolePlacementDecision internal constructor(
+data class RolePlacementDecision private constructor(
     val role: CollaborationRole,
     val constraint: RoleConstraint,
     /** Effective privacy of the role's prompt after [constraint] is applied. */
@@ -86,6 +86,24 @@ data class RolePlacementDecision internal constructor(
 ) {
     val placement: RunPlacement?
         get() = (decision as? PlacementDecision.Chosen)?.placement
+
+    companion object {
+        /** Only [RolePlacementPolicy.decide] may call this. */
+        internal fun fromPolicy(
+            role: CollaborationRole,
+            constraint: RoleConstraint,
+            privacy: PromptPrivacyPlan,
+            decision: PlacementDecision,
+        ): RolePlacementDecision = RolePlacementDecision(role, constraint, privacy, decision)
+
+        /** Test fixtures only, to forge decisions the policy never returns. Banned in production sources. */
+        internal fun forTest(
+            role: CollaborationRole,
+            constraint: RoleConstraint,
+            privacy: PromptPrivacyPlan,
+            decision: PlacementDecision,
+        ): RolePlacementDecision = RolePlacementDecision(role, constraint, privacy, decision)
+    }
 }
 
 /**
@@ -139,7 +157,7 @@ object RolePlacementPolicy {
                 is PlacementDecision.Blocked -> evaluated.copy(preference = input.preference)
             }
         }
-        return RolePlacementDecision(input.role, constraint, privacy, decision)
+        return RolePlacementDecision.fromPolicy(input.role, constraint, privacy, decision)
     }
 }
 

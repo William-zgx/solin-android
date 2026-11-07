@@ -1,7 +1,6 @@
 package com.bytedance.zgx.solin.orchestration.collab
 
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.architecture.ProductionSourceScanner
 import com.bytedance.zgx.solin.device.ObservationClickability
 import com.bytedance.zgx.solin.device.ObservationElement
 import com.bytedance.zgx.solin.device.ScreenBounds
@@ -42,6 +41,7 @@ class RunProgressGateTest {
     @Test
     fun flagOffRequestIsByteIdenticalToTheRequestWithoutDeviceData() {
         val withoutDevice = CloudPlannerRequest.render(REQUEST)
+        assertFalse(withoutDevice.progressReleased)
         val gate = RunProgressGate(DerivedProgressEgress.Off)
         adversarialRecords().forEach { record ->
             plannerDecisions().forEach { planner ->
@@ -54,7 +54,7 @@ class RunProgressGateTest {
                 "\"intents\":[\"open_app\",\"search_in_app\",\"refine_results\",\"read_results\"," +
                 "\"enter_draft_text\",\"navigate\",\"use_tool\"]," +
                 "\"apps\":${quotedSorted(vocabulary.apps)},\"tools\":${quotedSorted(vocabulary.tools)}}",
-            withoutDevice,
+            withoutDevice.text,
         )
     }
 
@@ -62,8 +62,9 @@ class RunProgressGateTest {
     fun releasedProgressCarriesNoTextFromToolResultsOrTheScreen() {
         adversarialRecords().forEach { record ->
             val rendered = CloudPlannerRequest.render(REQUEST, openGate(), remotePlanner(), PLAN, record)
-            assertTrue("$record: $rendered", ",\"progress\":" in rendered)
-            SECRETS.forEach { secret -> assertFalse("leaked '$secret'", secret in rendered) }
+            assertTrue("$record: $rendered", rendered.progressReleased)
+            assertTrue("$record: $rendered", ",\"progress\":" in rendered.text)
+            SECRETS.forEach { secret -> assertFalse("leaked '$secret'", secret in rendered.text) }
         }
     }
 
@@ -139,13 +140,17 @@ class RunProgressGateTest {
                 ProgressExport.Withheld(ProgressWithheldReason.PlannerNotRemote),
                 openGate().export(planner, PLAN, record()),
             )
+            assertEquals(
+                CloudPlannerRequest.render(REQUEST),
+                CloudPlannerRequest.render(REQUEST, openGate(), planner, PLAN, record()),
+            )
         }
         assertEquals(RunPlacement.Remote, RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer)).placement)
 
         val remote = remotePlanner()
         listOf(
-            remote.copy(privacy = remote.privacy.copy(aggregatePrivacy = MessagePrivacy.LocalOnly)),
-            remote.copy(privacy = remote.privacy.copy(requiresLocalModel = true)),
+            remote.forged(privacy = remote.privacy.copy(aggregatePrivacy = MessagePrivacy.LocalOnly)),
+            remote.forged(privacy = remote.privacy.copy(requiresLocalModel = true)),
         ).forEach { inconsistent ->
             assertEquals(RunPlacement.Remote, inconsistent.placement)
             assertEquals(
@@ -157,8 +162,10 @@ class RunProgressGateTest {
 
     @Test
     fun malformedRecordsAndPlansAreWithheldWithoutSpendingBudget() {
-        val oversized = MilestonePlan(List(MilestonePlanParser.MAX_MILESTONES + 1) { Milestone(MilestoneIntent.OpenApp, TAOBAO) })
-        val empty = MilestonePlan(emptyList())
+        val oversized = MilestonePlan.forTest(
+            List(MilestonePlanParser.MAX_MILESTONES + 1) { Milestone(MilestoneIntent.OpenApp, TAOBAO) },
+        )
+        val empty = MilestonePlan.forTest(emptyList())
         val cases = listOf(
             Triple(PLAN, record(statuses = emptyList()), ProgressWithheldReason.StatusCountMismatch),
             Triple(
@@ -190,7 +197,8 @@ class RunProgressGateTest {
         val withoutDevice = CloudPlannerRequest.render(REQUEST)
         repeat(RunProgressGate.MAX_REPLANS) { report ->
             val rendered = CloudPlannerRequest.render(REQUEST, gate, remotePlanner(), PLAN, record())
-            assertTrue(rendered, rendered.startsWith(withoutDevice.removeSuffix("}") + ",\"progress\":{"))
+            assertTrue(rendered.text, rendered.progressReleased)
+            assertTrue(rendered.text, rendered.text.startsWith(withoutDevice.text.removeSuffix("}") + ",\"progress\":{"))
             assertEquals(report + 1, gate.reportsReleased)
         }
         repeat(2) {
@@ -213,7 +221,8 @@ class RunProgressGateTest {
             PLAN,
             record(lastResult = failed("page_changed"), observation = observation(TAOBAO), stepsUsed = 5),
         )
-        val progress = JSONObject(rendered).getJSONObject("progress")
+        assertTrue(rendered.progressReleased)
+        val progress = JSONObject(rendered.text).getJSONObject("progress")
         assertEquals(setOf("milestones", "lastStatus", "lastFailure", "foreground", "stepsUsed"), progress.keyNames())
         assertEquals("""["reached","active"]""", progress.getJSONArray("milestones").toString())
         assertEquals("failed", progress.getString("lastStatus"))
@@ -223,7 +232,7 @@ class RunProgressGateTest {
         assertEquals(
             """{"milestones":["reached","active"],"lastStatus":null,"lastFailure":null,"foreground":"unknown","stepsUsed":0}""",
             CloudPlannerRequest.render(REQUEST, openGate(), remotePlanner(), PLAN, record(stepsUsed = 0))
-                .substringAfter(",\"progress\":").removeSuffix("}"),
+                .text.substringAfter(",\"progress\":").removeSuffix("}"),
         )
     }
 
@@ -244,27 +253,6 @@ class RunProgressGateTest {
                 assertEquals(MilestoneStatus::class.java, element)
             }
         }
-    }
-
-    @Test
-    fun gatedTypesAreConstructedOnlyByTheirOwners() {
-        val owners = mapOf(
-            "orchestration/collab/MilestonePlan.kt" to Regex(
-                """\b(MilestonePlan|MilestoneVocabulary|RunProgress)\s*\(|ProgressExport\.Released\s*\(|import\s+[\w.]*\.ProgressExport\.""",
-            ),
-            "orchestration/collab/CollaborationPolicy.kt" to Regex("""\bRolePlacementDecision\s*\("""),
-        )
-        val root = ProductionSourceScanner.solinPackageRoot()
-        val files = ProductionSourceScanner.kotlinFilesUnder("")
-        assertTrue(files.size > 100)
-        val violations = files.flatMap { file ->
-            val path = file.relativeTo(root).invariantSeparatorsPath
-            val patterns = owners.filterKeys { owner -> owner != path }.values
-            file.readLines().withIndex()
-                .filter { (_, line) -> patterns.any { pattern -> pattern.containsMatchIn(line) } }
-                .map { (index, line) -> "$path:${index + 1}: ${line.trim()}" }
-        }
-        assertEquals(emptyList<String>(), violations)
     }
 
     private fun JSONObject.keyNames(): Set<String> = keys().asSequence().toSet()

@@ -70,9 +70,9 @@ class EscalationPolicyTest {
         ).map { inputs -> RolePlacementPolicy.decide(roleInput(CollaborationRole.Answerer, inputs)) }
         val clean = defaultFailure()
         val inconsistent = listOf(
-            clean.copy(privacy = clean.privacy.copy(aggregatePrivacy = MessagePrivacy.LocalOnly)),
-            clean.copy(privacy = clean.privacy.copy(requiresLocalModel = true)),
-            clean.copy(decision = failedOnPrivateContent.first().decision),
+            clean.forged(privacy = clean.privacy.copy(aggregatePrivacy = MessagePrivacy.LocalOnly)),
+            clean.forged(privacy = clean.privacy.copy(requiresLocalModel = true)),
+            clean.forged(decision = failedOnPrivateContent.first().decision),
         )
         (failedOnPrivateContent + inconsistent).forEach { failed ->
             assertEquals("$failed", RunPlacement.Local, failed.placement)

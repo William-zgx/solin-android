@@ -287,7 +287,11 @@ The gate releases progress only when all of these hold, checked in this order:
 
 With the flag Off, the replan render is **byte-identical** to `render(request)`
 for every adversarial record, and `render(request)` itself is pinned byte for
-byte (test `flagOffRequestIsByteIdenticalToTheRequestWithoutDeviceData`).
+byte (test `flagOffRequestIsByteIdenticalToTheRequestWithoutDeviceData`). The
+pin holds **per platform**: the JVM unit test pins the org.json output of the JVM,
+and Android's `JSONObject.quote` escapes `/`, so the device bytes can differ from
+the JVM bytes for text containing `/`. The flag-Off equality is claimed for each
+platform separately, not across them.
 
 ### 6.3 Covert-channel bound
 

@@ -19,7 +19,7 @@ class MilestonePlanParserTest {
         )
         assertEquals(
             MilestoneParseResult.Accepted(
-                MilestonePlan(
+                MilestonePlan.forTest(
                     listOf(
                         Milestone(MilestoneIntent.OpenApp, app = TAOBAO),
                         Milestone(MilestoneIntent.SearchInApp, app = TAOBAO, query = "牛奶"),
@@ -36,7 +36,7 @@ class MilestonePlanParserTest {
     fun acceptsAToolMilestoneFromThePublicAllowlist() {
         assertEquals(
             MilestoneParseResult.Accepted(
-                MilestonePlan(listOf(Milestone(MilestoneIntent.UseTool, tool = "set_system_alarm"))),
+                MilestonePlan.forTest(listOf(Milestone(MilestoneIntent.UseTool, tool = "set_system_alarm"))),
             ),
             MilestonePlanParser.parse(plan("""{"intent":"use_tool","tool":"set_system_alarm"}"""), "设一个明天早上7点的闹钟"),
         )
@@ -130,7 +130,7 @@ class MilestonePlanParserTest {
             MilestoneRejection.AppNotAllowed,
             0,
             plan("""{"intent":"open_app","app":"$TAOBAO"}"""),
-            vocabulary = MilestoneVocabulary(apps = setOf(JD), tools = emptySet()),
+            vocabulary = MilestoneVocabulary.forTest(apps = setOf(JD), tools = emptySet()),
         )
     }
 
