@@ -172,7 +172,7 @@ Evidence first:
 | Decision router | `orchestration/DecisionModelRouter.kt:92`, `runtime/CodivDecisionModelRouter.kt` | Shadow/Active cloud router with a sensitivity check and remote-send audit | Conflicts with the wording of FR-1.7 |
 | Remote vision | `orchestration/RemoteVisionObservationReplanner.kt:161`, `AndroidRemoteVisionDecider.kt` | Cloud sees screenshots; manual Remote mode plus opt-in plus a confirmed first step | Calls the remote runtime directly, bypassing binding and dispatcher; a separately consented exception |
 | Local replanner | `orchestration/AgentObservationReplanner.kt:211` (`ModelObservationReplanner`) | Local action model proposes the next step from the observation | Device-bound already; becomes the Executor's local recovery |
-| Initial planner | `orchestration/InitialToolPlanner.kt:32` | Rule-first and local-skill-first planning | No milestone input; owned by the local-agent slice |
+| Initial planner | `orchestration/InitialToolPlanner.kt:69` | Rule-first and local-skill-first planning | No milestone input; owned by the local-agent slice |
 | Quality guard | `runtime/ModelOutputQualityGuard.kt:58` | Detects repetition, empty or malformed output | The source of `EscalationSignal.QualityGuardTripped` |
 | Escalation classifier | commit `4b9c1eb2` (branch `feat/escalation-approval`, not on main) | Forbidden / RequireApproval / Preapproved; pre-approval approves the mechanism, never content | Its three liveness defects are unfixed: the arm point cannot observe cancellation, cannot see session identity, and is not authoritative against stop |
 

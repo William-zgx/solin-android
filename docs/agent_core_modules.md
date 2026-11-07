@@ -767,7 +767,7 @@ Wiring prerequisites (each must hold before either flag is wired on):
    `SolinAppContainer.kt` and tests.
 2. Do not run the model summary inside the blocking LiteRT path. `LiteRtRuntime`
    calls `ContextCompactor.compact` inside `runBlocking` (`runtime/LiteRtRuntime.kt`,
-   around line 443), and `recreateConversationForSend` reaches it under
+   around line 568, in `compactHistoryIfRequested`), and `recreateConversationForSend` reaches it under
    `runtimeLock` (`presentation/ChatGenerationSupport.kt`). Stop cannot cancel
    that call. The model summary must run in the suspend layer before the
    conversation is recreated and outside `runtimeLock`; the blocking path then
