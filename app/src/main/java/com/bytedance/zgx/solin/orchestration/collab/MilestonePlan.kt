@@ -2,6 +2,11 @@ package com.bytedance.zgx.solin.orchestration.collab
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.device.AppInteractionProfiles
+import com.bytedance.zgx.solin.device.ScreenObservation
+import com.bytedance.zgx.solin.device.UiActionFailureKind
+import com.bytedance.zgx.solin.orchestration.RunPlacement
+import com.bytedance.zgx.solin.tool.ToolResult
+import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -200,4 +205,173 @@ object MilestonePlanParser {
 
     private class PlanRejection(val reason: MilestoneRejection, val index: Int?) :
         RuntimeException(null, null, false, false)
+}
+
+/**
+ * Experimental switch for the derived-progress relaxation (spec.md § Derived progress egress).
+ * [Off] in every build: nothing derived from the device reaches the cloud planner.
+ */
+enum class DerivedProgressEgress {
+    Off,
+
+    /** Only the enumerated [RunProgress] fields may reach a planner the run already placed Remote. */
+    ClosedVocabulary,
+    ;
+
+    companion object {
+        val DEFAULT: DerivedProgressEgress = Off
+    }
+}
+
+/** How far one milestone got. Set by deterministic device verification, never by model free text. */
+enum class MilestoneStatus(val wireName: String) {
+    Pending("pending"),
+    Active("active"),
+    Reached("reached"),
+    Failed("failed"),
+}
+
+/** The foreground app relative to the plan. The package name itself never leaves. */
+enum class ForegroundRelation(val wireName: String) {
+    PlannedApp("planned_app"),
+    OtherApp("other_app"),
+    Unknown("unknown"),
+}
+
+/** What the device knows after a step. Every field is LocalOnly. */
+data class DeviceStepRecord(
+    /** One status per plan milestone, in plan order. */
+    val statuses: List<MilestoneStatus>,
+    val lastResult: ToolResult?,
+    val observation: ScreenObservation?,
+    val stepsUsed: Int,
+    /** Progress reports already released to the cloud planner in this run. */
+    val replansSoFar: Int,
+)
+
+/** The only device-derived data that may leave. Enums and bounded counts: no field can hold text. */
+data class RunProgress(
+    val statuses: List<MilestoneStatus>,
+    val lastStatus: ToolStatus?,
+    val lastFailure: UiActionFailureKind?,
+    val foreground: ForegroundRelation,
+    val stepsUsed: Int,
+)
+
+enum class ProgressWithheldReason {
+    FlagOff,
+    PlannerNotRemote,
+    StatusCountMismatch,
+    StepsOutOfRange,
+    ReplanBudgetExhausted,
+}
+
+sealed interface ProgressExport {
+    data class Withheld(val reason: ProgressWithheldReason) : ProgressExport
+
+    data class Released(val progress: RunProgress) : ProgressExport
+}
+
+/**
+ * Derives [RunProgress] from a LocalOnly [DeviceStepRecord]. It reads only the tool status, the
+ * `failureKind` code (mapped through [UiActionFailureKind]) and the observation's package name
+ * (compared with the plan); summaries, data values, errors and screen elements are never read.
+ */
+object RunProgressGate {
+    const val MAX_STEPS = 32
+
+    /** Bounds how many progress reports, and so how many derived bits, one run can send. */
+    const val MAX_REPLANS = 3
+
+    fun export(
+        flag: DerivedProgressEgress,
+        planner: RolePlacementDecision,
+        plan: MilestonePlan,
+        record: DeviceStepRecord,
+    ): ProgressExport {
+        if (flag != DerivedProgressEgress.ClosedVocabulary) return withheld(ProgressWithheldReason.FlagOff)
+        if (
+            planner.role != CollaborationRole.Planner ||
+            planner.constraint != RoleConstraint.None ||
+            planner.placement != RunPlacement.Remote
+        ) {
+            return withheld(ProgressWithheldReason.PlannerNotRemote)
+        }
+        if (record.statuses.size != plan.milestones.size) {
+            return withheld(ProgressWithheldReason.StatusCountMismatch)
+        }
+        if (record.stepsUsed !in 0..MAX_STEPS) return withheld(ProgressWithheldReason.StepsOutOfRange)
+        if (record.replansSoFar !in 0 until MAX_REPLANS) {
+            return withheld(ProgressWithheldReason.ReplanBudgetExhausted)
+        }
+        return ProgressExport.Released(
+            RunProgress(
+                statuses = record.statuses.toList(),
+                lastStatus = record.lastResult?.status,
+                lastFailure = record.lastResult?.failureKind(),
+                foreground = record.observation.foregroundRelation(plan),
+                stepsUsed = record.stepsUsed,
+            ),
+        )
+    }
+
+    private fun ToolResult.failureKind(): UiActionFailureKind? {
+        if (status == ToolStatus.Succeeded) return null
+        val code = data["failureKind"] ?: return null
+        return UiActionFailureKind.entries.firstOrNull { kind -> kind.schemaValue == code }
+            ?: UiActionFailureKind.Unknown
+    }
+
+    private fun ScreenObservation?.foregroundRelation(plan: MilestonePlan): ForegroundRelation {
+        val packageName = this?.packageName?.takeIf { name -> name.isNotBlank() } ?: return ForegroundRelation.Unknown
+        val plannedApps = plan.milestones.mapNotNullTo(mutableSetOf()) { milestone -> milestone.app }
+        return if (packageName in plannedApps) ForegroundRelation.PlannedApp else ForegroundRelation.OtherApp
+    }
+
+    private fun withheld(reason: ProgressWithheldReason): ProgressExport = ProgressExport.Withheld(reason)
+}
+
+/**
+ * The exact text sent to a remote planner. [userRequest] must be the RemoteEligible request the
+ * Planner role was placed on; the rest is public vocabulary plus, only when released, [RunProgress].
+ * Without a [ProgressExport.Released] the output does not depend on the device at all.
+ */
+object CloudPlannerRequest {
+    fun render(
+        userRequest: String,
+        vocabulary: MilestoneVocabulary = MilestoneVocabulary.DEFAULT,
+        progress: ProgressExport? = null,
+    ): String = buildString {
+        append("{\"version\":").append(MilestonePlanParser.SCHEMA_VERSION)
+        append(",\"request\":").append(JSONObject.quote(userRequest))
+        append(",\"intents\":").appendStrings(MilestoneIntent.entries.map { intent -> intent.wireName })
+        append(",\"apps\":").appendStrings(vocabulary.apps.sorted())
+        append(",\"tools\":").appendStrings(vocabulary.tools.sorted())
+        (progress as? ProgressExport.Released)?.let { released ->
+            append(",\"progress\":").appendProgress(released.progress)
+        }
+        append('}')
+    }
+
+    private fun StringBuilder.appendProgress(progress: RunProgress) {
+        append("{\"milestones\":").appendStrings(progress.statuses.map { status -> status.wireName })
+        append(",\"lastStatus\":").appendNullable(progress.lastStatus?.wireName())
+        append(",\"lastFailure\":").appendNullable(progress.lastFailure?.schemaValue)
+        append(",\"foreground\":").append(JSONObject.quote(progress.foreground.wireName))
+        append(",\"stepsUsed\":").append(progress.stepsUsed)
+        append('}')
+    }
+
+    private fun StringBuilder.appendStrings(values: List<String>): StringBuilder =
+        append(values.joinToString(separator = ",", prefix = "[", postfix = "]") { value -> JSONObject.quote(value) })
+
+    private fun StringBuilder.appendNullable(value: String?): StringBuilder =
+        append(value?.let(JSONObject::quote) ?: "null")
+
+    private fun ToolStatus.wireName(): String = when (this) {
+        ToolStatus.Succeeded -> "succeeded"
+        ToolStatus.Failed -> "failed"
+        ToolStatus.Rejected -> "rejected"
+        ToolStatus.Cancelled -> "cancelled"
+    }
 }
