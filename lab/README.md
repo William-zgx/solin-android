@@ -36,7 +36,12 @@ python3 -I lab/scripts/summarize.py lab/results/$(date +%Y%m%d)
 
 `--rerun` matters. The opt-in variable is not a Gradle task input, so without it Gradle can report
 the task up to date or serve a previous (skipped) result from the build cache. Other knobs:
-`SOLIN_LAB_OLLAMA_URL` and `SOLIN_LAB_DATE` (overrides the results folder name).
+`SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name) and `SOLIN_LAB_MODES`
+(comma-separated model modes to run, for example `N-topk,json-schema`; rule baselines always run).
+
+Run one model per Gradle invocation so the model is unloaded between models. A model whose Ollama
+`/api/show` capabilities lack `tools` is recorded under `unsupported` in `manifest.json` and skipped
+in Suite C. `think: false` is only sent to models that declare `thinking`.
 
 To regenerate the datasets after changing a label table: `python3 -I lab/scripts/build_datasets.py`.
 
