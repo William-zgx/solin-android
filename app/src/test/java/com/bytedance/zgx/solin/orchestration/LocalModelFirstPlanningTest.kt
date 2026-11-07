@@ -19,8 +19,14 @@ import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillManifest
 import com.bytedance.zgx.solin.skill.SkillPlan
+import com.bytedance.zgx.solin.skill.SkillRequest
 import com.bytedance.zgx.solin.skill.SkillRuntime
+import com.bytedance.zgx.solin.skill.SkillStep
+import com.bytedance.zgx.solin.tool.ConfirmationPolicy
+import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
+import com.bytedance.zgx.solin.tool.ToolPermission
+import com.bytedance.zgx.solin.tool.ToolProvider
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
@@ -134,30 +140,67 @@ class LocalModelFirstPlanningTest {
     @Test
     fun everyFailedModelProposalYieldsTheRuleFirstPlan() {
         val failingModels = listOf(
-            "blank output" to ScriptedPlanningRuntime(modelOutput = ""),
-            "prose" to ScriptedPlanningRuntime(modelOutput = "好的，我来帮你设置闹钟"),
-            "missing required argument" to ScriptedPlanningRuntime(modelOutput = """call:set_system_alarm{"hour":7}"""),
-            "argument out of range" to
-                ScriptedPlanningRuntime(modelOutput = """call:set_system_alarm{"hour":31,"minutes":0}"""),
-            "registered tool that was not offered" to
-                ScriptedPlanningRuntime(modelOutput = """call:dial_phone_number{"phoneNumber":"10086"}"""),
-            "unregistered tool" to ScriptedPlanningRuntime(modelOutput = "call:launch_rockets{}"),
-            "two calls" to ScriptedPlanningRuntime(
-                modelOutput = """call:set_system_alarm{"hour":7,"minutes":30} call:set_system_alarm{"hour":8,"minutes":0}""",
+            Triple("blank output", ScriptedPlanningRuntime(modelOutput = ""), "local_model_blank_output"),
+            Triple("prose", ScriptedPlanningRuntime(modelOutput = "好的，我来帮你设置闹钟"), "local_model_no_call_output"),
+            Triple(
+                "missing required argument",
+                ScriptedPlanningRuntime(modelOutput = """call:set_system_alarm{"hour":7}"""),
+                "local_model_tool_rejected",
             ),
-            "model error" to ScriptedPlanningRuntime(modelError = IllegalStateException("engine failed")),
+            Triple(
+                "argument out of range",
+                ScriptedPlanningRuntime(modelOutput = """call:set_system_alarm{"hour":31,"minutes":0}"""),
+                "local_model_tool_rejected",
+            ),
+            Triple(
+                "registered tool that was not offered",
+                ScriptedPlanningRuntime(modelOutput = """call:dial_phone_number{"phoneNumber":"10086"}"""),
+                "local_model_tool_not_retrieved",
+            ),
+            Triple(
+                "unregistered tool",
+                ScriptedPlanningRuntime(modelOutput = "call:launch_rockets{}"),
+                "local_model_unknown_tool",
+            ),
+            Triple(
+                "two calls on separate lines",
+                ScriptedPlanningRuntime(
+                    modelOutput = "call:set_system_alarm{\"hour\":7,\"minutes\":30}\n" +
+                        "call:set_system_alarm{\"hour\":8,\"minutes\":0}",
+                ),
+                "local_model_multiple_calls",
+            ),
+            Triple(
+                "two calls on one line",
+                ScriptedPlanningRuntime(
+                    modelOutput = """call:set_system_alarm{"hour":7,"minutes":30} call:set_system_alarm{"hour":8,"minutes":0}""",
+                ),
+                "local_model_invalid_arguments",
+            ),
+            Triple(
+                "model error",
+                ScriptedPlanningRuntime(modelError = IllegalStateException("engine failed")),
+                "local_model_planning_error",
+            ),
         )
 
-        failingModels.forEach { (case, runtime) ->
+        failingModels.forEach { (case, runtime, slug) ->
             val planner = planner(runtime)
             listOf(LocalPlanningStrategy.ModelFirstWithRuleFastPath, LocalPlanningStrategy.ModelFirst).forEach { strategy ->
                 listOf(RULE_HIT_REQUEST, ALARM_REQUEST, OPEN_APP_REQUEST).forEach { input ->
+                    val actualRunId = runId(input)
                     assertEquals(
                         "$case / $strategy / $input",
                         planner.planToolIfSupported(input, ACTION_MODEL_PROFILES, actionModelPath = null).shape(),
-                        planner.planLocalModelFirst(runId(input), input, ACTION_MODEL_PROFILES, null, localModelFirst(strategy))
+                        planner.planLocalModelFirst(actualRunId, input, ACTION_MODEL_PROFILES, null, localModelFirst(strategy))
                             .shape(),
                     )
+                    if (strategy == LocalPlanningStrategy.ModelFirst && input == ALARM_REQUEST) {
+                        assertTrue(
+                            "$case / $input must record $slug in ${localModelDecision(actualRunId).rejectionReasons}",
+                            slug in localModelDecision(actualRunId).rejectionReasons,
+                        )
+                    }
                 }
             }
             assertTrue(case, runtime.modelCallCount > 0)
@@ -382,10 +425,111 @@ class LocalModelFirstPlanningTest {
         assertEquals(0, runtime.modelCallCount)
     }
 
-    private fun planner(runtime: ActionPlanningRuntime): InitialToolPlanner =
+    @Test
+    fun safetyPolicyRejectionEqualsRuleFirstAndRecordsItsSlug() {
+        val unsafeAlarm = ToolRegistry().specFor(MobileActionFunctions.SET_SYSTEM_ALARM)!!.copy(
+            permissions = setOf(ToolPermission.ReadsDeviceContext),
+            confirmationPolicy = ConfirmationPolicy.Optional,
+        )
+        val registry = ToolRegistry(ToolProvider { listOf(unsafeAlarm) })
+        val runtime = ScriptedPlanningRuntime(modelOutput = ALARM_CALL, toolRegistry = registry)
+
+        assertFailureMatchesRuleFirst(
+            planner(runtime, toolRegistry = registry),
+            ALARM_REQUEST,
+            "local_model_tool_rejected",
+        )
+    }
+
+    @Test
+    fun sequentialLocalTailGuardEqualsRuleFirstAndRecordsItsSlug() {
+        val input = "读取剪贴板然后$OPEN_APP_REQUEST"
+        val runtime = ScriptedPlanningRuntime(modelOutput = "call:read_clipboard{}")
+
+        assertFailureMatchesRuleFirst(planner(runtime), input, "local_model_tool_needs_local_tail")
+    }
+
+    @Test
+    fun multiStepSkillOnASegmentEqualsRuleFirstAndRecordsItsSlug() {
+        val input = "${ALARM_REQUEST}然后$OPEN_APP_REQUEST"
+        val runtime = ScriptedPlanningRuntime(modelOutput = ALARM_CALL)
+        val multiStep = twoStepAlarmSkillPlan()
+        val skills = object : SkillRuntime {
+            override fun manifests(): List<SkillManifest> = emptyList()
+            override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan = multiStep
+        }
+
+        assertFailureMatchesRuleFirst(
+            planner(runtime, skillRuntime = skills),
+            input,
+            "local_model_tool_needs_local_tail",
+        )
+    }
+
+    private fun assertFailureMatchesRuleFirst(
+        planner: InitialToolPlanner,
+        input: String,
+        expectedSlug: String,
+    ) {
+        val expected = planner.planToolIfSupported(input, ACTION_MODEL_PROFILES, actionModelPath = null)
+        val actualRunId = runId(input)
+
+        val actual = planner.planLocalModelFirst(
+            actualRunId,
+            input,
+            ACTION_MODEL_PROFILES,
+            null,
+            localModelFirst(LocalPlanningStrategy.ModelFirst),
+        )
+
+        assertEquals("$input must equal RuleFirst", expected.shape(), actual.shape())
+        assertTrue(
+            "$input must record $expectedSlug",
+            expectedSlug in localModelDecision(actualRunId).rejectionReasons,
+        )
+    }
+
+    private fun twoStepAlarmSkillPlan(): SkillPlan {
+        val manifest = SkillManifest(
+            id = "test_multi_step_alarm",
+            version = 1,
+            title = "两步测试",
+            description = "两步测试",
+            triggerExamples = emptyList(),
+            requiredTools = listOf(MobileActionFunctions.SET_SYSTEM_ALARM, MobileActionFunctions.OPEN_APP_BY_NAME),
+            inputSchemaJson = """{"type":"object"}""",
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+        )
+        val alarm = ToolRequest(
+            id = "skill-alarm",
+            toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+            arguments = mapOf("hour" to "7", "minutes" to "30"),
+        )
+        val open = ToolRequest(
+            id = "skill-open",
+            toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+            arguments = mapOf("appName" to "小红书"),
+        )
+        return SkillPlan(
+            request = SkillRequest("skill-request", manifest.id, emptyMap(), "两步测试"),
+            manifest = manifest,
+            steps = listOf(alarm, open).map { request ->
+                SkillStep.ToolStep(
+                    request = request,
+                    draft = ActionDraft(request.toolName, request.toolName, request.toolName, request.arguments),
+                )
+            },
+        )
+    }
+
+    private fun planner(
+        runtime: ActionPlanningRuntime,
+        toolRegistry: ToolRegistry = ToolRegistry(),
+        skillRuntime: SkillRuntime = NoSkillRuntime,
+    ): InitialToolPlanner =
         InitialToolPlanner(
-            toolRegistry = ToolRegistry(),
-            skillRuntime = NoSkillRuntime,
+            toolRegistry = toolRegistry,
+            skillRuntime = skillRuntime,
             safetyPolicy = SafetyPolicy(),
             actionPlanningRuntime = runtime,
             traceStore = traceStore,
@@ -444,8 +588,9 @@ class LocalModelFirstPlanningTest {
         /** An exception that escapes the runtime, which the planner must still fail closed on. */
         private val modelThrows: Throwable? = null,
         private val ruleDrafts: Map<String, ActionDraft> = mapOf(RULE_HIT_REQUEST to RULE_HIT_DRAFT),
+        toolRegistry: ToolRegistry = ToolRegistry(),
     ) : ActionPlanningRuntime {
-        private val parser = MobileActionPlanner()
+        private val parser = MobileActionPlanner(toolRegistry = toolRegistry)
         val modelInputs = mutableListOf<String>()
         val offeredToolSpecs = mutableListOf<List<ToolSpec>>()
         val modelCallCount: Int get() = modelInputs.size
@@ -470,7 +615,7 @@ class LocalModelFirstPlanningTest {
                 )
             }
             val output = modelOutput.orEmpty()
-            parser.parseModelOutput(output)?.let { draft ->
+            (parser.parseModelToolOutput(output) as? ModelToolOutputParseResult.Parsed)?.draft?.let { draft ->
                 return ActionPlanningResult(
                     plan = ActionPlan(ActionPlanKind.Draft, draft),
                     usedModel = true,

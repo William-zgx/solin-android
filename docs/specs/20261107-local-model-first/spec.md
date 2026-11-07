@@ -21,7 +21,11 @@ setting holds a strategy other than RuleFirst:
 | `ModelFirstWithRuleFastPath` | Rules first; the model is asked only when the rules plan nothing. The recommended non-default strategy. |
 | `ModelFirst` | The model is asked first on every turn, and its choice (including "no tool") stands; the rules run only when its proposal fails. Ablation only, to measure the model on every request. |
 
-A model proposal goes through these steps (`InitialToolPlanner.planLocalModelFirst`):
+A model proposal goes through these steps (`InitialToolPlanner.planLocalModelFirst`). Both strategies
+may ask the model even when RuleFirst's positive intent-classifier precondition did not fire (the fast
+path reaches it only after the rules planned nothing). That dropped precondition is why the default
+critical-only mode is not enough: every accepted model proposal asks through the new confirmation
+reason below, while a rule proposal keeps its previous behavior.
 
 0. A request that starts with a negation (`startsWithActionNegation()`, for example 别启动微信 or 不要分享…)
    returns the RuleFirst result before any model call, under both strategies. A model that matched the verb
@@ -161,13 +165,14 @@ That is why the fast path (R+M) is the non-default strategy, and ModelFirst is a
 
 - Gemma 4 E2B/E4B accuracy on device with the `call:` format, for both strategies.
 - Per-turn latency. The fast path adds a model call only on rule misses; ModelFirst adds one every turn.
-- Memory and engine swaps. The initial `HybridActionPlanningRuntime` holds one engine. Alternating the
-  `mobile-action-270m` rule-path model with the Gemma planner reloads it, and Gemma may be loaded twice
-  (chat runtime and planner). This needs device measurement and a runtime-slice decision.
-- Native tool calling waits on the runtime slice. The planner already passes a plain `ToolSpec` list, so
-  it does not depend on the prompt format.
+- Memory and engine swaps. Chat and both planners now try the one loaded `LocalEngine` first. A
+  different planning model uses the shared dedicated CPU fallback; a busy or failed chat engine
+  fails closed to rules rather than mapping the same model twice. Device memory, latency and model
+  alternation still need measurement.
+- Native tool calling remains a device spike, not a completed migration. The runtime can return
+  declared-only native calls, but this planner still uses the `call:` text format and passes a plain
+  `ToolSpec` list.
 - Recall on a held-out request set.
-- Links from `docs/index.md` and `agent_core_modules.md`, for the integrator.
 
 ## 8. Code map
 

@@ -111,6 +111,18 @@ class ActionPlannerEngineRoutingTest {
     }
 
     @Test
+    fun multipleCallsOnOneLineFailClosedBeforeDraftAcceptance() {
+        shared.next = generated("$MODEL_CALL $MODEL_CALL", LocalEngineSource.SharedChatEngine)
+
+        val result = planner(shared).plan("请求", MODEL)
+
+        assertFalse(result.usedModel)
+        assertTrue(result.modelAttempted)
+        assertEquals("Model tool call arguments must be a JSON object with primitive values", result.modelFailureReason)
+        assertEquals(ActionPlanKind.NoAction, result.plan.kind)
+    }
+
+    @Test
     fun closingThePlannerReleasesItsFallbackEngine() {
         val runtime = planner(sharedEngine = null)
         runtime.plan("请求", MODEL)

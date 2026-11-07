@@ -158,7 +158,7 @@ private class ModelBackedActionPlanner(
         )
         return when (val result = generate(request)) {
             is LocalOneShotResult.Generated -> {
-                val draft = parser.parseModelOutput(result.text)
+                val draft = (parser.parseModelToolOutput(result.text) as? ModelToolOutputParseResult.Parsed)?.draft
                 ModelBackedPlanningAttempt(
                     plan = draft?.let { ActionPlan(ActionPlanKind.Draft, it) },
                     output = result.text,
