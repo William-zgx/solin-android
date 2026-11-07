@@ -1,6 +1,6 @@
 # Cloud-edge collaboration: research
 
-Date: 2026-11-07 · Code base: `main@7d5fe1ef` · Status: design history (the owner of
+Date: 2026-11-07 · Code base: `20361499` (merge base of the simplification branch) · Status: design history (the owner of
 current facts is [spec.md](spec.md); the privacy decision is in
 [privacy-derivation-options.md](privacy-derivation-options.md))
 
@@ -165,15 +165,15 @@ Evidence first:
 | --- | --- | --- | --- |
 | Run-level placement | `orchestration/ModelPlacementPolicy.kt:121-198` | 23 reason codes, LocalOnly and unknown privacy eliminate Remote, structural complexity | Decides once per run, for the chat answer only |
 | Exclusive binding | `orchestration/RunPlacementBinding.kt:19-80`, `data/SolinDatabaseEntities.kt:158-185` (primary key `runId`) | Atomic, immutable binding per run; Room v18 | One placement per run; a role split needs a key of (run, role, step) |
-| Dispatcher CAS | `orchestration/RunPlacementBindingStore.kt:259-308` (`claimForDispatchLocked`), `data/SolinDatabaseDaos.kt:376-481` | Rejects a receipt whose destination differs from the binding | Keyed by `runId` only |
-| Trace reconciliation | `eval/AgentBehaviorEvalModels.kt:255-306`, `RunPlacementBindingStore.kt:448` | Exactly one `PlacementSelected`, then sequential receipt/invocation pairs | Rejects any multi-role run |
+| Dispatcher CAS | `orchestration/RunPlacementBindingStore.kt:260-309` (`claimForDispatchLocked`), `data/SolinDatabaseDaos.kt:382-487` | Rejects a receipt whose destination differs from the binding | Keyed by `runId` only |
+| Trace reconciliation | `eval/AgentBehaviorEvalModels.kt:255-306`, `RunPlacementBindingStore.kt:449` | Exactly one `PlacementSelected`, then sequential receipt/invocation pairs | Rejects any multi-role run |
 | Continuation gate | `orchestration/RunPlacementContinuationResolver.kt:15-41` | A Remote run that gains LocalOnly content stops with `PLACEMENT_LOCAL_CONTINUATION_REQUIRED` (FR-1.10) | Correct today; the role model keeps it by never giving the Planner observations |
 | Privacy plan | `orchestration/PromptPrivacyPlan.kt:32-127` | Strictest segment wins; null means LocalOnly; an empty plan fails closed; LocalOnly stays sticky | No declassification path, by design |
 | Decision router | `orchestration/DecisionModelRouter.kt:92`, `runtime/CodivDecisionModelRouter.kt` | Shadow/Active cloud router with a sensitivity check and remote-send audit | Conflicts with the wording of FR-1.7 |
 | Remote vision | `orchestration/RemoteVisionObservationReplanner.kt:161`, `AndroidRemoteVisionDecider.kt` | Cloud sees screenshots; manual Remote mode plus opt-in plus a confirmed first step | Calls the remote runtime directly, bypassing binding and dispatcher; a separately consented exception |
-| Local replanner | `orchestration/AgentObservationReplanner.kt:214` (`ModelObservationReplanner`) | Local action model proposes the next step from the observation | Device-bound already; becomes the Executor's local recovery |
+| Local replanner | `orchestration/AgentObservationReplanner.kt:211` (`ModelObservationReplanner`) | Local action model proposes the next step from the observation | Device-bound already; becomes the Executor's local recovery |
 | Initial planner | `orchestration/InitialToolPlanner.kt:32` | Rule-first and local-skill-first planning | No milestone input; owned by the local-agent slice |
-| Quality guard | `runtime/ModelOutputQualityGuard.kt:58` | Detects repetition, empty or malformed output | The source of `EscalationSignal.QualityGuardTripped` |
+| Quality guard | `runtime/ModelOutputQualityGuard.kt:57` | Detects repetition, empty or malformed output | The source of `EscalationSignal.QualityGuardTripped` |
 | Escalation classifier | commit `4b9c1eb2` (branch `feat/escalation-approval`, not on main) | Forbidden / RequireApproval / Preapproved; pre-approval approves the mechanism, never content | Its three liveness defects are unfixed: the arm point cannot observe cancellation, cannot see session identity, and is not authoritative against stop |
 
 ## Evidence checklist before each phase

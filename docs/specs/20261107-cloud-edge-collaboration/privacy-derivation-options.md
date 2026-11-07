@@ -1,7 +1,7 @@
 # Decision memo: may device-derived content reach the cloud planner?
 
-Date: 2026-11-07 · Base: `main@7d5fe1ef` · Status: **awaiting the owner's direct
-decision**
+Date: 2026-11-07 · Base: `20361499` (merge base of the simplification branch) ·
+Status: **D1 approved (relayed); D2 awaiting the owner's direct confirmation**
 
 - Design: [spec.md](spec.md) §6 (derived progress egress) and §12 (decisions).
 - Research: [research.md](research.md).
@@ -14,12 +14,14 @@ decision**
 | Question | May anything derived from LocalOnly data (screen, OCR, accessibility text, tool results) reach a remote Planner? |
 | Recommendation | Option A as the default; option B as the only opt-in, behind a flag that is Off in every build |
 | Relayed approval | The integrator relayed that the owner replied "allowed to proceed per your recommendations". It is recorded here as direction for this batch. **It is not the owner's direct confirmation for enabling or wiring the flag** |
-| Implemented | Option B as pure code: `RunProgressGate` and `CloudPlannerRequest` in `orchestration/collab/MilestonePlan.kt`, with adversarial tests. `DerivedProgressEgress.DEFAULT` is `Off`. No runtime path calls it, and no setting or build type can turn it on |
+| Status | D1 (which option): approved as recommended, relayed. D2 (when the flag may be wired and enabled): pending the owner's direct confirmation |
+| Implemented | Option B as pure code in `orchestration/collab/MilestonePlan.kt`: a per-run `RunProgressGate` that owns the report counter, and `CloudPlannerRequest`, whose `render` calls the gate itself. Adversarial tests cover both. `DerivedProgressEgress.DEFAULT` is `Off`. No runtime path calls it, and no setting or build type can turn it on |
 | Not implemented | Options C and D; any setting, wiring, disclosure line or audit event for B |
 | Before the flag is wired or enabled | The owner confirms directly, and the Phase 6 evidence in [spec.md](spec.md) §10 exists |
 
-Until the owner decides, the product contract is unchanged: content derived from
-LocalOnly stays LocalOnly (`PromptPrivacyPlan.kt:32-127`).
+Until the owner confirms D2 directly and the flag is wired and enabled, the product
+contract is unchanged: content derived from LocalOnly stays LocalOnly
+(`PromptPrivacyPlan.kt:32-127`).
 
 ## Context
 
@@ -67,34 +69,42 @@ nothing else (spec §6.1):
 | --- | --- |
 | `milestones` | `pending` / `active` / `reached` / `failed`, one per plan milestone (at most 8) |
 | `lastStatus` | `succeeded` / `failed` / `rejected` / `cancelled` / `null` |
-| `lastFailure` | One of the 12 `UiActionFailureKind` schema values, or `null`. Any other code becomes `unknown` |
+| `lastFailure` | One of 12 codes pinned in `RunProgressGate.RELEASABLE_FAILURE_CODES`, or `null`. Any other code, and any failure kind added to the app later, becomes `unknown` |
 | `foreground` | `planned_app` / `other_app` / `unknown`. Never the package name |
 | `stepsUsed` | 0..32 |
 
-At most 3 reports per run, only to a Planner the run already placed Remote on the
-RemoteEligible request alone.
+At most 3 reports per run, counted by the run's own `RunProgressGate`, and only to
+a Planner the run already placed Remote on the RemoteEligible request alone. The
+plan must have 1 to 8 milestones.
 
 - **Threats addressed:**
-  - T4 and T6: no text, screen element, package name or tool-result value is
-    read, so none can leave. `RunProgress` has no `String` field (reflection
-    test).
+  - T4 and T6: on the device the gate reads the tool status, the `failureKind`
+    code and the foreground package name, but only their enum results leave: a
+    status, a pinned failure code or `unknown`, and `planned_app` / `other_app` /
+    `unknown`. No text, screen element, package name or other tool-result value
+    leaves. `RunProgress` has no `String` field (reflection test), and only the
+    gate can construct it.
   - T1: nothing the screen says reaches the planner as text, so screen content
     cannot inject instructions into the plan.
   - T7: audit summaries use enum names only.
-  - T9: the gate refuses unless the Planner placement was already Remote with no
-    role constraint.
+  - T9: the gate refuses unless the Planner placement was already Remote, with no
+    role constraint and a RemoteEligible prompt that needs no local model.
 - **Residual risk:**
-  - A covert channel (new threat T10). At most about 28.6 bits per report and 86
-    bits per run (spec §6.3). An app on the screen can only influence them
-    indirectly, by changing what Solin's own executors observe.
+  - A covert channel (new threat T10). At most about 28.6 bits of content per
+    report and 86 bits per run (spec §6.3). The existence and timing of a report
+    leak too: a report means a milestone failed, and when. The failure-code list
+    is pinned, so the bound cannot widen when the app adds a failure kind. An app
+    on the screen can only influence these bits indirectly, by changing what
+    Solin's own executors observe.
   - Coarse inference about the session. For example, `other_app` says the user
     left the planned app; `permission_missing` says a permission is not granted;
     `dangerous_action` says the run reached a critical control.
 - **Non-negotiables touched:**
   - 1: an explicit, bounded exception to "derived from LocalOnly stays
     LocalOnly", only when the user turns the flag on and chooses a remote Planner.
-  - 2: kept. An unknown failure code becomes `unknown`; a malformed record or an
-    exhausted budget is withheld; the flag defaults to Off.
+  - 2: kept. An unknown failure code becomes `unknown`; a malformed record, a
+    plan outside 1 to 8 milestones or an exhausted budget is withheld; the flag
+    defaults to Off.
   - 4: kept. Audit records the release count and enum names only.
 - **Audit:** one `RemoteSendAuditEvent` per release with an enum-only summary; a
   `derivedProgressReleased` flag on the run receipt; trace reconciliation bounds
@@ -177,14 +187,19 @@ them for this run.
 
 ## Decisions requested of the owner
 
-| # | Decision | Recommended answer |
-| --- | --- | --- |
-| D1 | Which option governs device-derived content for the cloud planner | A by default; B as the only opt-in |
-| D2 | When the B flag may be wired and enabled | Not before Phase 6 evidence; then debug builds first; never on by default |
-| D2a | Whether the relayed approval covers enabling the flag | No. It covers this batch's unwired, Off-by-default implementation only |
+| # | Decision | Recommended answer | Status |
+| --- | --- | --- | --- |
+| D1 | Which option governs device-derived content for the cloud planner | A by default; B as the only opt-in | Approved, relayed by the integrator |
+| D2 | When the B flag may be wired and enabled | Not before Phase 6 evidence; then debug builds first; never on by default | Pending the owner's direct confirmation |
+| D2a | Whether the relayed approval covers enabling the flag | No. It covers this batch's unwired, Off-by-default implementation only | Follows from D2 |
 
 Exactly what this batch relaxes: in code, only with `DerivedProgressEgress` set to
-`ClosedVocabulary`, the five enumerated fields above may reach a remote Planner,
-as an exception to "derived from LocalOnly stays LocalOnly". The default is `Off`,
-nothing is wired, and no setting or build can change it, so the runtime contract
-is unchanged.
+`ClosedVocabulary`, and only through the run's own `RunProgressGate`, which
+`CloudPlannerRequest.render` calls itself, the five enumerated fields above may
+reach a remote Planner: `milestones` (one status per milestone, 1 to 8),
+`lastStatus`, `lastFailure` (12 pinned codes or `null`), `foreground` and
+`stepsUsed` (0 to 32). That is at most 3 reports per run, and only when the
+Planner was placed Remote on the RemoteEligible request alone. It is an exception
+to "derived from LocalOnly stays LocalOnly". The default is `Off`, nothing is
+wired, and no setting or build can change it, so the runtime contract is
+unchanged.
