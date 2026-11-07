@@ -4,7 +4,6 @@ import com.bytedance.zgx.solin.memory.LocalMemoryModelFallback
 import com.bytedance.zgx.solin.memory.MemoryTaskPath
 import com.bytedance.zgx.solin.memory.modelOutputBody
 import com.bytedance.zgx.solin.orchestration.DefaultContextCompactor
-import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,7 +28,7 @@ class MemoryCompactionBenchTest {
     }
 
     private fun runModel(modelName: String, cases: List<CompactionCase>) = runBlocking {
-        val model = OllamaMemoryModel(modelName)
+        val model = benchModelFor("compaction", modelName, textField = "rawSummary")
         model.warmUp()
         val heuristic = DefaultContextCompactor(CompactionBench.config)
         val withModel = DefaultContextCompactor(
@@ -53,6 +52,7 @@ class MemoryCompactionBenchTest {
             val budget = CompactionBench.budgetFor(case.messages)
             val base = heuristic.compact(case.messages, budget, CompactionBench.estimator)
             val callsBefore = model.calls.size
+            model.beginCase(case.id)
             val result = withModel.compact(case.messages, budget, CompactionBench.estimator)
             val call = model.calls.drop(callsBefore).singleOrNull()
             val rawSummary = call?.text?.let(::modelOutputBody).orEmpty()
@@ -114,8 +114,8 @@ class MemoryCompactionBenchTest {
             .put("tokensAfterOverBeforeFinal", Math.round(ratioFinal.average() * 1000) / 1000.0)
             .put("latencyMs", latencyJson(latencies))
         val base = "compaction__${modelName.fileSafe()}"
-        writeJsonl(File(MemoryLab.resultsDir, "$base.jsonl"), records)
-        File(MemoryLab.resultsDir, "$base.metrics.json").writeText(metrics.toString(2) + "\n", Charsets.UTF_8)
+        writeJsonl(outputFile("$base.jsonl"), records)
+        outputFile("$base.metrics.json").writeText(metrics.toString(2) + "\n", Charsets.UTF_8)
         println("memory-lab compaction $modelName: ${metrics.toString(2)}")
     }
 }

@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.memory.LocalModelMemoryExtractionConfig
 import com.bytedance.zgx.solin.memory.LocalModelMemoryFactExtractor
 import com.bytedance.zgx.solin.memory.MemoryFactSuggestionKind
 import com.bytedance.zgx.solin.memory.MemoryTaskPath
+import com.bytedance.zgx.solin.memory.groundingFold
 import com.bytedance.zgx.solin.memory.isGroundedIn
 import com.bytedance.zgx.solin.orchestration.DefaultContextCompactor
 import kotlinx.coroutines.test.runTest
@@ -84,7 +85,15 @@ class MemoryLabDatasetTest {
     @Test
     fun `an oracle summary passes the production checks and keeps every must-keep string`() = runTest {
         compactionCases.forEach { case ->
-            val oracle = LocalMemoryModel { _, _ -> case.mustKeep.joinToString("\n") { "• $it" } }
+            // A perfect summarizer echoes only what it was shown: the must-keep strings in the prompt, each
+            // on a line with a source label that was sent (threat T1). Must-keep strings in the verbatim tail
+            // stay in the result by themselves.
+            val oracle = LocalMemoryModel { _, prompt ->
+                val label = prompt.lines().drop(1).first().substringBefore(": ")
+                val folded = prompt.groundingFold()
+                val shown = case.mustKeep.filter { it.groundingFold() in folded }
+                if (shown.isEmpty()) "$label: 更早的对话已压缩" else shown.joinToString("\n") { "$label: $it" }
+            }
             val compactor = DefaultContextCompactor(CompactionBench.config.copy(modelSummaryEnabled = true), oracle)
             val result = compactor.compact(case.messages, CompactionBench.budgetFor(case.messages), CompactionBench.estimator)
             assertEquals("${case.id}: fallback ${result.summaryFallback}", MemoryTaskPath.Model, result.summaryPath)

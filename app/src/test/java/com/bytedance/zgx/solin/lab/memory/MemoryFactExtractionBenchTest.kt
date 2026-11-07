@@ -7,7 +7,6 @@ import com.bytedance.zgx.solin.memory.MemoryFactSuggestionDetector
 import com.bytedance.zgx.solin.memory.isGroundedIn
 import com.bytedance.zgx.solin.memory.modelOutputBody
 import com.bytedance.zgx.solin.memory.parseMemoryFactModelOutput
-import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,7 +15,8 @@ import org.junit.Test
 /**
  * Fact-suggestion bench (opt-in, see [MemoryLab]). Per model it runs the production
  * [LocalModelMemoryFactExtractor] over `fact_extraction.jsonl` and writes `facts__<model>.jsonl`
- * (per case) and `facts__<model>.metrics.json`.
+ * (per case) and `facts__<model>.metrics.json`. With `SOLIN_LAB_MEMORY_REPLAY` it replays the saved
+ * answers instead of calling Ollama.
  *
  * Metrics: precision/recall of the regex detector alone, of the raw model facts (parsed, before any
  * guard), of the guarded model facts and of the merged suggestions the user would see; hallucination
@@ -33,7 +33,7 @@ class MemoryFactExtractionBenchTest {
     }
 
     private fun runModel(modelName: String, cases: List<FactCase>) = runBlocking {
-        val model = OllamaMemoryModel(modelName)
+        val model = benchModelFor("facts", modelName, textField = "rawOutput")
         model.warmUp()
         val extractor = LocalModelMemoryFactExtractor(
             model,
@@ -56,6 +56,7 @@ class MemoryFactExtractionBenchTest {
         var kindCorrect = 0
         val records = cases.map { case ->
             val callsBefore = model.calls.size
+            model.beginCase(case.id)
             val extraction = extractor.extract(case.message)
             val call = model.calls.drop(callsBefore).singleOrNull()
             val golds = case.gold.map { it.fact }
@@ -137,8 +138,8 @@ class MemoryFactExtractionBenchTest {
             .put("kindAccuracy", ratio(kindCorrect, kindMatched))
             .put("latencyMs", latencyJson(latencies))
         val base = "facts__${modelName.fileSafe()}"
-        writeJsonl(File(MemoryLab.resultsDir, "$base.jsonl"), records)
-        File(MemoryLab.resultsDir, "$base.metrics.json").writeText(metrics.toString(2) + "\n", Charsets.UTF_8)
+        writeJsonl(outputFile("$base.jsonl"), records)
+        outputFile("$base.metrics.json").writeText(metrics.toString(2) + "\n", Charsets.UTF_8)
         println("memory-lab facts $modelName: ${metrics.toString(2)}")
     }
 }

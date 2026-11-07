@@ -25,15 +25,22 @@ import org.junit.Assume
  * (`LocalModelMemoryFactExtractor`, `DefaultContextCompactor` with a model summary) against small
  * models served by a local Ollama, through [OllamaMemoryModel] as the `LocalMemoryModel` seam.
  *
- * Skipped unless `SOLIN_LAB_MEMORY=1` (environment; Gradle forwards the client environment to the
- * test JVM) or `-Dsolin.lab.memory=true`. The variable is not a task input, so pass `--rerun`.
+ * Only the environment variable `SOLIN_LAB_MEMORY=1` turns the bench on. Gradle forwards the client
+ * environment to the test JVM, but a `-D` property is not forwarded, so `-Dsolin.lab.memory` does nothing.
+ * The variable is not a task input, so pass `--rerun`.
+ *
  * Knobs: `SOLIN_LAB_MEMORY_MODELS` (comma list, default `gemma4:e2b`), `SOLIN_LAB_MEMORY_LIMIT`
- * (first N cases), `SOLIN_LAB_MEMORY_DATE` (results folder), `SOLIN_LAB_OLLAMA_URL`.
- * Datasets: `lab/memory/datasets/` (synthetic). Results: `lab/memory/results/<date>/`.
+ * (first N cases), `SOLIN_LAB_MEMORY_DATE` (yyyyMMdd output folder), `SOLIN_LAB_OLLAMA_URL`, and
+ * `SOLIN_LAB_MEMORY_REPLAY` (yyyyMMdd): replay the answers saved in `lab/memory/results/<that date>`
+ * through the current production rules instead of calling Ollama; this is the offline rescore.
+ *
+ * Output: a full live run writes `lab/memory/results/<date>/`; a limited or replayed run writes under
+ * `build/memory-lab/`, so a smoke test can never land in the committed results. Datasets are synthetic
+ * and live in `lab/memory/datasets/`.
  */
 internal object MemoryLab {
     val enabled: Boolean
-        get() = System.getenv("SOLIN_LAB_MEMORY") == "1" || System.getProperty("solin.lab.memory") == "true"
+        get() = System.getenv("SOLIN_LAB_MEMORY") == "1"
 
     val models: List<String>
         get() = (System.getenv("SOLIN_LAB_MEMORY_MODELS") ?: "gemma4:e2b")
@@ -47,9 +54,20 @@ internal object MemoryLab {
     val caseLimit: Int?
         get() = System.getenv("SOLIN_LAB_MEMORY_LIMIT")?.toIntOrNull()?.takeIf { it > 0 }
 
+    /** The saved run to replay offline, or null for a live run. */
+    val replayDate: String?
+        get() = System.getenv("SOLIN_LAB_MEMORY_REPLAY")?.takeIf { it.isNotBlank() }?.let(::validDate)
+
     private val runDate: String
-        get() = System.getenv("SOLIN_LAB_MEMORY_DATE")?.takeIf { it.matches(Regex("""\d{8}""")) }
+        get() = System.getenv("SOLIN_LAB_MEMORY_DATE")?.takeIf { it.isNotBlank() }?.let(::validDate)
             ?: LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+
+    /** yyyyMMdd and a real calendar date, so a typo cannot name a results folder. */
+    private fun validDate(text: String): String {
+        require(text.matches(Regex("""\d{8}"""))) { "date must be yyyyMMdd, got '$text'" }
+        LocalDate.parse(text, DateTimeFormatter.BASIC_ISO_DATE)
+        return text
+    }
 
     private val repoRoot: File by lazy {
         generateSequence(File(System.getProperty("user.dir") ?: ".").absoluteFile) { it.parentFile }
@@ -58,7 +76,19 @@ internal object MemoryLab {
     }
 
     val datasetsDir: File get() = File(repoRoot, "lab/memory/datasets")
-    val resultsDir: File get() = File(repoRoot, "lab/memory/results/$runDate").apply { mkdirs() }
+
+    /**
+     * Where this run writes. Only a full live run writes the committed `lab/memory/results/<date>`; a
+     * limited or replayed run writes under `build/memory-lab/`. Getting this path creates nothing.
+     */
+    val outputDir: File
+        get() = if (caseLimit == null && replayDate == null) {
+            File(repoRoot, "lab/memory/results/$runDate")
+        } else {
+            File(repoRoot, "build/memory-lab/$runDate" + (replayDate?.let { "-replay-$it" } ?: ""))
+        }
+
+    fun savedResultsDir(date: String): File = File(repoRoot, "lab/memory/results/$date")
 
     /** Per-call budget in the bench: generous, so desktop latency is measured instead of cut off. */
     const val CALL_TIMEOUT_MILLIS = 300_000L
@@ -67,6 +97,10 @@ internal object MemoryLab {
 internal fun requireMemoryLabOptIn() {
     Assume.assumeTrue("Memory bench is opt-in: set SOLIN_LAB_MEMORY=1", MemoryLab.enabled)
 }
+
+/** A file in [MemoryLab.outputDir]; the folder is created here, when a result is actually written. */
+internal fun outputFile(name: String): File =
+    File(MemoryLab.outputDir, name).also { it.parentFile.mkdirs() }
 
 internal fun <T> List<T>.limitedForLab(): List<T> = MemoryLab.caseLimit?.let(::take) ?: this
 
@@ -81,6 +115,20 @@ internal data class OllamaCall(
     val error: String?,
 )
 
+/** A `LocalMemoryModel` the bench can drive: live (Ollama) or replayed from saved answers. */
+internal interface BenchModel : LocalMemoryModel {
+    /** Every call made through this model, in order. */
+    val calls: List<OllamaCall>
+
+    /** Called before each case so a replay can pick that case's saved answer. */
+    fun beginCase(caseId: String) {}
+
+    /** Loads the model so the first measured call does not pay the load time. */
+    fun warmUp() {}
+
+    fun describe(): JSONObject
+}
+
 /**
  * The bench's on-device stand-in: a blocking, non-streaming Ollama `/api/chat` client behind the
  * production `LocalMemoryModel` seam. Greedy sampling with a fixed seed and no thinking, like the
@@ -89,18 +137,17 @@ internal data class OllamaCall(
 internal class OllamaMemoryModel(
     private val model: String,
     private val baseUrl: String = MemoryLab.ollamaUrl,
-) : LocalMemoryModel {
-    val calls = mutableListOf<OllamaCall>()
+) : BenchModel {
+    override val calls = mutableListOf<OllamaCall>()
 
     override suspend fun generate(systemInstruction: String, prompt: String): String? =
         withContext(Dispatchers.IO) { chat(systemInstruction, prompt).also { calls += it }.text }
 
-    /** Loads the model so the first measured call does not pay the load time. */
-    fun warmUp() {
+    override fun warmUp() {
         chat("Answer with one word.", "Say OK.")
     }
 
-    fun describe(): JSONObject {
+    override fun describe(): JSONObject {
         val tag = runCatching {
             val models = JSONObject(get("/api/tags")).getJSONArray("models")
             (0 until models.length()).map { models.getJSONObject(it) }.firstOrNull { it.optString("name") == model }
@@ -184,6 +231,64 @@ internal class OllamaMemoryModel(
                 .put("num_predict", 512)
     }
 }
+
+/**
+ * Replays the answers saved in a results folder. Each case gets the answer it got when it was run, so
+ * the production code runs unchanged and its metrics follow the current rules. A call the saved run did
+ * not make is an error: the replay would then not be the same run.
+ */
+internal class ReplayMemoryModel(
+    private val model: String,
+    private val savedDate: String,
+    private val saved: Map<String, OllamaCall>,
+) : BenchModel {
+    override val calls = mutableListOf<OllamaCall>()
+    private var caseId: String? = null
+
+    override fun beginCase(caseId: String) {
+        this.caseId = caseId
+    }
+
+    override suspend fun generate(systemInstruction: String, prompt: String): String? {
+        val id = checkNotNull(caseId) { "beginCase must name the case before a replayed call" }
+        val call = checkNotNull(saved[id]) { "no saved answer for case $id of $model in $savedDate; the replay is not the saved run" }
+        calls += call
+        return call.text
+    }
+
+    override fun describe(): JSONObject =
+        JSONObject()
+            .put("model", model)
+            .put("digest", JSONObject.NULL)
+            .put("replayOf", savedDate)
+            .put("hostNote", "offline replay of saved desktop Ollama answers under the current rules; not device evidence")
+}
+
+/**
+ * The model the bench uses for [suite] (`facts` or `compaction`): live Ollama, or a replay of the saved
+ * answers in [textField] (`rawOutput` or `rawSummary`) when `SOLIN_LAB_MEMORY_REPLAY` is set.
+ */
+internal fun benchModelFor(suite: String, model: String, textField: String): BenchModel {
+    val date = MemoryLab.replayDate ?: return OllamaMemoryModel(model)
+    val file = File(MemoryLab.savedResultsDir(date), "${suite}__${model.fileSafe()}.jsonl")
+    return ReplayMemoryModel(model, date, savedCalls(file, textField))
+}
+
+/** The calls a saved run made, keyed by case id; cases that made no call are not in the map. */
+internal fun savedCalls(file: File, textField: String): Map<String, OllamaCall> =
+    file.readLines(Charsets.UTF_8).filter { it.isNotBlank() }.map(::JSONObject)
+        .filterNot { it.isNull("wallMs") }
+        .associate { record ->
+            val error = if (record.isNull("error")) null else record.getString("error")
+            val text = if (error == null && !record.isNull(textField)) record.getString(textField) else null
+            record.getString("id") to OllamaCall(
+                text = text,
+                wallMillis = record.getLong("wallMs"),
+                promptTokens = record.optInt("promptTokens"),
+                evalTokens = record.optInt("evalTokens"),
+                error = error,
+            )
+        }
 
 internal data class GoldFact(val kind: String, val fact: String)
 
