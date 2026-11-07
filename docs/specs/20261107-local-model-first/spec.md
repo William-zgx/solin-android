@@ -23,6 +23,9 @@ setting holds a strategy other than RuleFirst:
 
 A model proposal goes through these steps (`InitialToolPlanner.planLocalModelFirst`):
 
+0. A request that starts with a negation (`startsWithActionNegation()`, for example 别启动微信 or 不要分享…)
+   returns the RuleFirst result before any model call, under both strategies. A model that matched the verb
+   must not act on a negated request.
 1. Only the first segment of a sequential request ("X然后Y") is planned, matching the rule planner.
 2. Candidates are registry tools that pass `isFirstStepPlanningCandidate()`: no in-app gestures, device
    control, orchestration or extension tools, and no Planning, UxInteraction or McpTool tags.
@@ -35,12 +38,24 @@ A model proposal goes through these steps (`InitialToolPlanner.planLocalModelFir
 6. A proposal is accepted only if the model itself drafted it (`usedModel` and a Draft plan), the tool is in
    the shortlist, and the sequential-tail guards pass. It is then built by the same `buildInitialToolPlan`
    as a rule draft: registry validation, then `SafetyPolicy.evaluate`, then `UseTool`. `AgentLoopRuntime`
-   hands it to `requestToolConfirmation`, so confirmation and `ConfirmationBypassPolicy` apply exactly as
-   for rule plans. The plan carries `plannedByModel = true` and routes as `IntentRoutingPath.ModelToolCall`.
+   hands it to `requestToolConfirmation`. A rule plan runs without a prompt in the default critical-only
+   mode unless a critical reason applies. A model proposal always asks: `ConfirmationBypassPolicy` returns
+   `CriticalApprovalReason.LocalModelProposedStep` (user text 这一步由端侧模型提出，请确认) in both confirmation
+   modes, and a critical reason from another rule keeps its own name. The proposal's provenance is read from
+   the run trace (`AgentTraceQueries.localPlanningModelProposed`), so a request cannot claim it. Rule plans get
+   exactly the reasons they had before. The plan carries `plannedByModel = true` and routes as
+   `IntentRoutingPath.ModelToolCall`.
 
-Each attempt appends one `IntentRouted` (ModelToolCall) trace step. Its reasons are short tags: the outcome,
-`strategy=`, `retrieved_count=`, the output shape `call:name{argument keys}`, and `retrieved=<tool>`.
-Argument values are never recorded, and every tag fits the 80-character persisted limit.
+   Threat this defends (T-LM, see `docs/architecture_depth.md`): the models called a tool on 34 of 51
+   no-tool requests in the desktop lab. Under critical-only mode, an unprompted model-chosen step such as
+   `open_app_by_name` for 别启动微信, or a model-written `web_search` query, would run without the user.
+
+Each attempt appends one `IntentRouted` (ModelToolCall) trace step, and that step is the run's only routing
+decision for the proposal (`ToolObservationCoordinator` adds none for it). Its reasons are short tags: the
+outcome, `strategy=`, `retrieved_count=`, the output shape, and `retrieved=<tool>`. An accepted proposal records
+the argument keys of the call as `call:name{keys}`, at most six keys; a failure records only `text(length)` of the
+output, never its content. Argument values are never recorded. The trace store cuts persisted reasons at 80
+characters, and the provenance check matches the cut form too, so a long tag does not lose its provenance.
 
 ## 2. Fail-closed behavior
 
@@ -54,7 +69,8 @@ nothing, so the result is "no tool". Under ModelFirst the rule planner runs afte
 | No installed profile with MobileActionPlanning | RuleFirst; model not called |
 | Fast path and the rules planned a tool | That rule plan; model not called |
 | Retriever returns no tool | RuleFirst; model not called |
-| Model throws | RuleFirst |
+| Model throws, or the runtime reports an exception as its failure reason | RuleFirst; trace tag `local_model_planning_error` |
+| Request starts with a negation (「别…」「不要…」) | RuleFirst; model not called |
 | Blank output, prose, unparseable output, or more than one call | RuleFirst |
 | Unregistered tool | RuleFirst |
 | Registered tool that was not in the shortlist | RuleFirst |
@@ -75,18 +91,25 @@ nothing, so the result is "no tool". Under ModelFirst the rule planner runs afte
   verified planning model, otherwise the default or high-quality Gemma model, then `mobile-action-270m`.
 - `ChatController` builds the options lazily, so the settings and Room reads first run inside the
   generation block on the IO dispatcher.
-- There is no UI or other debug entry point yet. See section 7.
+- No UI. The debug-build entry point is an adb broadcast to `DebugRemoteConfigReceiver`, the same receiver
+  as the remote-config setup. It validates the extra with `LocalPlanningStrategy.parse` and ignores an unknown
+  value (result `RESULT_CANCELED`, nothing written):
+
+  `adb shell run-as com.bytedance.zgx.solin am broadcast --user 0 -n com.bytedance.zgx.solin/.debug.DebugRemoteConfigReceiver --es localPlanningStrategy ModelFirstWithRuleFastPath`
+
+  Release builds ignore the setting regardless (section 3).
 
 ## 4. Auto placement
 
 Initial planning runs before Auto placement, with local run options: the first pass of an Auto send is
 never remote. A chat route then goes through `prepareInitialChatRun`, whose placement inputs
 (`chatPlacementInputs`) never read `AgentRunOptions` (`requiresTools` and `requiresToolLoop` stay false).
-So the planning mode cannot route a turn remote. The tests `ChatPlacementInputsTest.autoPlacesALocalModelFirstTurnLikeARuleFirstTurn`
+So the planning mode cannot route a turn remote. The tests `ChatPlacementInputsTest.localModelFirstLeavesAutoPlacementOfRuleClassifiedTurnsUnchanged`
 and `SolinViewModelTest.localPlanningStrategyFromTheModelRepositoryShapesOnlyLocalRouteOptions` cover this.
 
-Under ModelFirst, if the model chooses `answer` where the rules would have planned a tool, the turn becomes
-a chat turn and is placed like any other chat turn.
+Under ModelFirst, if the model chooses `answer` where the rules would have planned a tool, the turn becomes a
+chat turn. Auto may place that chat turn remote through the normal privacy checks, the same as any chat turn.
+It is not forced local.
 
 ## 5. ToolRetriever
 
@@ -141,7 +164,6 @@ That is why the fast path (R+M) is the non-default strategy, and ModelFirst is a
 - Memory and engine swaps. The initial `HybridActionPlanningRuntime` holds one engine. Alternating the
   `mobile-action-270m` rule-path model with the Gemma planner reloads it, and Gemma may be loaded twice
   (chat runtime and planner). This needs device measurement and a runtime-slice decision.
-- A debug entry point to set `local_planning_strategy` (debug menu or adb intent); none exists yet.
 - Native tool calling waits on the runtime slice. The planner already passes a plain `ToolSpec` list, so
   it does not depend on the prompt format.
 - Recall on a held-out request set.

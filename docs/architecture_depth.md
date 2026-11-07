@@ -78,6 +78,7 @@ messages sent in the user's name.
 | T7 | Remote audit leaks prompts | Audit entry stores raw user text | Redacted, summary-only remote audit (AGENTS.md non-negotiable 4) |
 | T8 | Secrets leak | API key in Git or logs | Encrypted secret store, privacy scan, no keys in code |
 | T9 | Model mis-flags or mis-routes | Router sends personal text to the cloud | Router only sees text that passed the sensitivity check and only chooses between already-legal placements |
+| T10 | On-device planning model acts without the user | Small model calls `open_app_by_name` for 别启动微信, or writes a `web_search` query; 34 of 51 no-tool requests in the desktop lab | Negated requests never reach the model; a model-proposed step always asks (`CriticalApprovalReason.LocalModelProposedStep`), whatever the confirmation mode; provenance from the run trace |
 
 Out of scope: a compromised OS, root, or a malicious accessibility service.
 
