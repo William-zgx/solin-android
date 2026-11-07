@@ -3,15 +3,18 @@ package com.bytedance.zgx.solin.data
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
 import com.bytedance.zgx.solin.ReasoningEffort
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -87,6 +90,27 @@ class PreferenceSettingsStoreTest {
         assertEquals(BackendChoice.CPU, store.loadBackend())
         assertEquals("session-1", store.activeSessionId())
         assertEquals(3, store.migrationVersion())
+    }
+
+    @Test
+    fun localPlanningStrategyDefaultsToRuleFirstAndRoundTrips() {
+        val dataStore = CountingPreferencesDataStore()
+        val store = PreferenceSettingsStore(dataStore)
+
+        assertEquals(LocalPlanningStrategy.RuleFirst, store.localPlanningStrategy())
+        LocalPlanningStrategy.entries.forEach { strategy ->
+            store.setLocalPlanningStrategy(strategy)
+            assertEquals(strategy, store.localPlanningStrategy())
+        }
+
+        listOf("", "ModelOnly", "modelfirst", "ModelFirst ").forEach { raw ->
+            runBlocking {
+                dataStore.updateData { prefs ->
+                    prefs.toMutablePreferences().apply { set(stringPreferencesKey("local_planning_strategy"), raw) }
+                }
+            }
+            assertEquals(raw, LocalPlanningStrategy.RuleFirst, store.localPlanningStrategy())
+        }
     }
 
     private class CountingPreferencesDataStore : DataStore<Preferences> {

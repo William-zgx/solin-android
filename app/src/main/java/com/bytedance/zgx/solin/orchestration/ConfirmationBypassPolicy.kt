@@ -59,6 +59,14 @@ enum class CriticalApprovalReason {
      * could otherwise move private data into another app's draft without a prompt.
      */
     TextHandedToExternalApp,
+
+    /**
+     * The on-device planning model proposed this step ([InitialPlanningMode.LocalModelFirst]), so no
+     * rule vouched for the turn being an action: a small model also calls tools on requests the rules
+     * treat as chat, and its proposal always asks, in either confirmation mode. Provenance comes from
+     * the run trace ([AgentTraceQueries.localPlanningModelProposed]), never from the request itself.
+     */
+    LocalModelProposedStep,
 }
 
 /**
@@ -83,6 +91,7 @@ private fun CriticalApprovalReason.confirmationReason(toolName: String): String 
         "This is the first step of a remote-vision run; confirming it also approves sending this run's screenshots."
     CriticalApprovalReason.TextHandedToExternalApp ->
         "This step hands text to another app, and the text is sensitive or was composed after a read of private data."
+    CriticalApprovalReason.LocalModelProposedStep -> "这一步由端侧模型提出，请确认"
 }
 
 /** [text] split for [ConfirmationBypassPolicy]'s typed-text check, after NFKC and lowercasing. */
@@ -172,6 +181,7 @@ internal class ConfirmationBypassPolicy(
             isRemoteVisionFirstSend(runId, request, spec) -> CriticalApprovalReason.RemoteVisionFirstSend
             handsSensitiveOrTaintedTextToExternalApp(runId, request, spec) ->
                 CriticalApprovalReason.TextHandedToExternalApp
+            traceQueries.localPlanningModelProposed(runId, request.id) -> CriticalApprovalReason.LocalModelProposedStep
             else -> null
         }
     }

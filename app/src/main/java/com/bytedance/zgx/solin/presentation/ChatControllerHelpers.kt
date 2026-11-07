@@ -30,6 +30,7 @@ import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.BindAndReserveResult
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import com.bytedance.zgx.solin.orchestration.ModelCandidateSnapshot
 import com.bytedance.zgx.solin.orchestration.ModelRequirements
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeAdapters
@@ -254,9 +255,11 @@ internal fun initialAgentRunOptions(
     state: ChatUiState,
     useRemoteModel: Boolean,
     remoteConfig: RemoteModelConfig,
-): AgentRunOptions =
+    localPlanningStrategy: () -> LocalPlanningStrategy = { LocalPlanningStrategy.RuleFirst },
+    localPlanningModelPath: () -> String? = { null },
+): AgentRunOptions {
     if (useRemoteModel) {
-        AgentRunOptions(
+        return AgentRunOptions(
             initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
             remoteToolScope = RemoteToolScope.ModelPlanning,
             reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations,
@@ -266,9 +269,18 @@ internal fun initialAgentRunOptions(
             remoteGuiDrivingEnabled = state.remoteGuiAutomationEnabled &&
                 remoteConfig.supportsVisionInput,
         )
-    } else {
-        AgentRunOptions(reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations)
     }
+    val strategy = localPlanningStrategy()
+    if (strategy == LocalPlanningStrategy.RuleFirst) {
+        return AgentRunOptions(reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations)
+    }
+    return AgentRunOptions(
+        initialPlanningMode = InitialPlanningMode.LocalModelFirst,
+        reduceDeviceActionConfirmations = state.reduceDeviceActionConfirmations,
+        localPlanningStrategy = strategy,
+        localPlanningModelPath = localPlanningModelPath(),
+    )
+}
 
 internal data class ChatPlacementInputs(
     val requirements: ModelRequirements,

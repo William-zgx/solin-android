@@ -740,7 +740,10 @@ internal class ToolObservationCoordinator(
         runId: String,
         plan: AgentPlan.UseTool,
     ) {
-        traceStore.run(runId)?.let { run ->
+        // InitialToolPlanner already recorded the one routing decision of a local planning model's proposal.
+        val routedByLocalPlanner = plan.routingPath() == IntentRoutingPath.ModelToolCall &&
+            traceQueries.localPlanningModelProposed(runId, plan.request.id)
+        traceStore.run(runId)?.takeUnless { routedByLocalPlanner }?.let { run ->
             traceStore.appendStep(runId, AgentStep.IntentRouted(plan.toIntentRoutingDecision(run.input)))
         }
         traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))

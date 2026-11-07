@@ -264,7 +264,8 @@ class PackageBoundaryArchitectureTest {
         // Two cloud-edge collaboration cores in orchestration/collab (docs/specs/20261107-cloud-edge-collaboration):
         // CollaborationPolicy.kt (role placement, escalation) and MilestonePlan.kt (plan parser with its
         // strict JSON scan, RunProgressGate, CloudPlannerRequest).
-        const val MAX_PRODUCTION_KOTLIN_FILES = 326
+        // Plus tool/ToolRetriever.kt: first-step tool retrieval for local model planning.
+        const val MAX_PRODUCTION_KOTLIN_FILES = 327
     }
 
     private data class GodObjectLimit(

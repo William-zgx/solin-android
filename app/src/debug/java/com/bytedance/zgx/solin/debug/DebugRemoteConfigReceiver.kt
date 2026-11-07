@@ -10,10 +10,20 @@ import com.bytedance.zgx.solin.data.FirstRunSetupRepository
 import com.bytedance.zgx.solin.data.SolinDatabase
 import com.bytedance.zgx.solin.data.PreferenceSettingsStore
 import com.bytedance.zgx.solin.data.RemoteModelRepository
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 
 class DebugRemoteConfigReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val appContext = context.applicationContext
+        // A strategy broadcast only sets who proposes a local run's first tool (debug builds read it;
+        // release builds always use RuleFirst). An unknown value is ignored and nothing is written.
+        if (intent.hasExtra(EXTRA_LOCAL_PLANNING_STRATEGY)) {
+            val strategy = LocalPlanningStrategy.parse(intent.getStringExtra(EXTRA_LOCAL_PLANNING_STRATEGY))
+            strategy?.let(PreferenceSettingsStore(appContext)::setLocalPlanningStrategy)
+            resultCode = if (strategy != null) Activity.RESULT_OK else Activity.RESULT_CANCELED
+            resultData = strategy?.let { "local planning strategy saved: ${it.name}" } ?: "invalid local planning strategy ignored"
+            return
+        }
         val repository = RemoteModelRepository(appContext)
         if (intent.getBooleanExtra(EXTRA_CLEAR_REMOTE_CONFIG, false)) {
             repository.saveConfig(RemoteModelConfig()).getOrThrow()
@@ -54,5 +64,6 @@ class DebugRemoteConfigReceiver : BroadcastReceiver() {
         const val EXTRA_API_KEY = "apiKey"
         const val EXTRA_CLEAR_STATE = "clearState"
         const val EXTRA_CLEAR_REMOTE_CONFIG = "clearRemoteConfig"
+        const val EXTRA_LOCAL_PLANNING_STRATEGY = "localPlanningStrategy"
     }
 }

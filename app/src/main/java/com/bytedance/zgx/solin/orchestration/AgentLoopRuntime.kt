@@ -567,11 +567,12 @@ class AgentLoopRuntime(
                 remoteGuiDrivingEnabled = options.remoteGuiDrivingEnabled,
             )
             InitialPlanningMode.ModelFirstRemoteTools -> initialToolPlanner.planLocalOnlySkillBeforeRemote(input)
+            InitialPlanningMode.LocalModelFirst -> initialToolPlanner.planLocalModelFirst(
+                createdRun.id, input, installedCapabilityProfiles, actionModelPath, options,
+            )
         }
         when (initialToolPlan) {
-            is AgentPlan.UseTool -> {
-                return toolObservationCoordinator.requestToolConfirmation(createdRun, initialToolPlan)
-            }
+            is AgentPlan.UseTool -> return toolObservationCoordinator.requestToolConfirmation(createdRun, initialToolPlan)
 
             is AgentPlan.RejectedTool -> {
                 return failInitialPlanValidation(createdRun.id, initialToolPlan, failedStepMessage = null)
@@ -581,7 +582,6 @@ class AgentLoopRuntime(
                 return toolObservationCoordinator.failMissingModelPlan(createdRun, initialToolPlan)
             }
 
-            null -> Unit
             else -> Unit
         }
 
