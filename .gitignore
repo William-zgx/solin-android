@@ -30,3 +30,7 @@ sentencepiece*.model
 
 # Local agent tooling state and worktrees.
 .claude/
+
+# Memory bench output (lab/memory). Only the committed 20261107 run is tracked; other runs are local.
+lab/memory/results/*
+!lab/memory/results/20261107/
