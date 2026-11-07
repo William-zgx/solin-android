@@ -1,8 +1,10 @@
 package com.bytedance.zgx.solin.runtime
 
 import com.bytedance.zgx.solin.BackendChoice
+import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.LocalModelTokenLimits
+import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelBackendKind
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
@@ -79,9 +81,14 @@ class LocalModelContextWindowTest {
 
         runtime.load("/tmp/model.litertlm", BackendChoice.CPU, emptyList(), GenerationParameters())
         runtime.recreateConversation(emptyList(), GenerationParameters())
-        runtime.recreateConversationForSend(emptyList(), "hi", GenerationParameters(), maxInputTokens = 3_000)
+        runtime.recreateConversationForSend(
+            listOf(ChatMessage(MessageRole.User, "earlier")),
+            "hi",
+            GenerationParameters(),
+            maxInputTokens = 3_000,
+        )
 
-        assertEquals(16 * 1024, factory.capabilities.single().contextWindowTokens)
+        assertEquals(16 * 1024, factory.capabilities.single()?.contextWindowTokens)
         assertEquals(listOf(14 * 1024, 14 * 1024, 3_000), factory.specs.map { it.maxInputTokens })
     }
 
@@ -98,13 +105,13 @@ class LocalModelContextWindowTest {
 
     private class RecordingEngineFactory : LiteRtEngineFactory {
         val specs = mutableListOf<LiteRtConversationSpec>()
-        val capabilities = mutableListOf<LocalModelRuntimeCapabilities>()
+        val capabilities = mutableListOf<LocalModelRuntimeCapabilities?>()
 
         override fun create(
             modelPath: String,
             backend: BackendChoice,
             cacheDir: File,
-            capabilities: LocalModelRuntimeCapabilities,
+            capabilities: LocalModelRuntimeCapabilities?,
         ): LiteRtEngineHandle {
             this.capabilities += capabilities
             return object : LiteRtEngineHandle {

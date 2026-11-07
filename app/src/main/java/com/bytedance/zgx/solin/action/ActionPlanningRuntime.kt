@@ -1,18 +1,15 @@
 package com.bytedance.zgx.solin.action
 
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Content
-import com.google.ai.edge.litertlm.Contents
-import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.SamplerConfig
+import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
+import com.bytedance.zgx.solin.runtime.LocalCallMetrics
+import com.bytedance.zgx.solin.runtime.LocalEngine
+import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
+import com.bytedance.zgx.solin.runtime.LocalOneShotResult
+import com.bytedance.zgx.solin.runtime.LocalOneShotUnavailableReason
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.io.File
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
 interface ActionPlanningRuntime {
@@ -52,6 +49,8 @@ data class ActionPlanningResult(
     val modelAttempted: Boolean = usedModel,
     val modelOutputPreview: String? = null,
     val modelFailureReason: String? = null,
+    /** Text-free timing of the model call, when one ran; for the local device bench only. */
+    val modelMetrics: LocalCallMetrics? = null,
 )
 
 sealed class ModelToolOutputParseResult {
@@ -63,12 +62,26 @@ sealed class ModelToolOutputParseResult {
     ) : ModelToolOutputParseResult()
 }
 
+/**
+ * Model planning runs on [sharedEngine] (the process's loaded chat engine) first. Only when that
+ * engine does not hold the requested model does the planner use [fallbackEngine]; a busy or
+ * failing shared engine falls back to the rule planner instead, so a phone never maps the same
+ * multi-GB model twice. Planners in one process should share a single [fallbackEngine].
+ */
 class HybridActionPlanningRuntime(
-    cacheDir: File,
+    fallbackEngine: DedicatedLiteRtEngine,
     toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     private val rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
+    sharedEngine: LocalEngine? = null,
 ) : ActionPlanningRuntime, AutoCloseable {
-    private val modelPlanner = ModelBackedActionPlanner(cacheDir, rulePlanner, toolRegistry)
+    constructor(
+        cacheDir: File,
+        toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
+        rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
+        sharedEngine: LocalEngine? = null,
+    ) : this(DedicatedLiteRtEngine(cacheDir), toolRegistry, rulePlanner, sharedEngine)
+
+    private val modelPlanner = ModelBackedActionPlanner(sharedEngine, fallbackEngine, rulePlanner, toolRegistry)
 
     override fun classifyIntent(input: String): IntentCandidate =
         rulePlanner.classifyIntent(input)
@@ -98,6 +111,7 @@ class HybridActionPlanningRuntime(
                     fallbackReason = null,
                     modelAttempted = true,
                     modelOutputPreview = modelAttempt.output.previewForDiagnostics(),
+                    modelMetrics = modelAttempt.metrics,
                 )
             }
             val modelFailureReason = modelAttempt?.failureReason
@@ -110,6 +124,7 @@ class HybridActionPlanningRuntime(
                 modelAttempted = true,
                 modelOutputPreview = modelAttempt?.output?.previewForDiagnostics(),
                 modelFailureReason = modelFailureReason,
+                modelMetrics = modelAttempt?.metrics,
             )
         }
 
@@ -130,75 +145,73 @@ class HybridActionPlanningRuntime(
 }
 
 private class ModelBackedActionPlanner(
-    private val cacheDir: File,
+    private val sharedEngine: LocalEngine?,
+    private val ownEngine: DedicatedLiteRtEngine,
     private val parser: MobileActionPlanner,
     private val toolRegistry: ToolRegistry,
 ) : AutoCloseable {
-    private var loadedPath: String? = null
-    private var engine: Engine? = null
-
     fun plan(input: String, modelPath: String, toolSpecs: List<ToolSpec>?): ModelBackedPlanningAttempt {
-        val activeEngine = engineFor(modelPath)
-        val conversation = activeEngine.createConversation(actionConversationConfig())
-        return try {
-            val output = StringBuilder()
-            runBlocking {
-                conversation.sendMessageAsync(actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs())).collect { message ->
-                    output.append(message.textContent())
-                }
+        val request = LocalOneShotRequest(
+            modelPath = modelPath,
+            systemInstruction = ACTION_PLANNER_SYSTEM_INSTRUCTION,
+            prompt = actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()),
+        )
+        return when (val result = generate(request)) {
+            is LocalOneShotResult.Generated -> {
+                val draft = parser.parseModelOutput(result.text)
+                ModelBackedPlanningAttempt(
+                    plan = draft?.let { ActionPlan(ActionPlanKind.Draft, it) },
+                    output = result.text,
+                    failureReason = if (draft == null) parser.modelOutputFailureReason(result.text) else null,
+                    metrics = result.metrics,
+                )
             }
-            val rawOutput = output.toString()
-            val draft = parser.parseModelOutput(rawOutput)
-            ModelBackedPlanningAttempt(
-                plan = draft?.let { ActionPlan(ActionPlanKind.Draft, it) },
-                output = rawOutput,
-                failureReason = if (draft == null) parser.modelOutputFailureReason(rawOutput) else null,
+
+            is LocalOneShotResult.Unavailable -> ModelBackedPlanningAttempt(
+                plan = null,
+                output = "",
+                failureReason = result.diagnosticReason(),
+                metrics = null,
             )
-        } finally {
-            conversation.close()
         }
     }
 
-    private fun engineFor(modelPath: String): Engine {
-        if (loadedPath == modelPath && engine != null) return engine!!
-        close()
-        val created = Engine(
-            EngineConfig(
-                modelPath = modelPath,
-                backend = Backend.CPU(),
-                cacheDir = cacheDir.absolutePath,
-            ),
-        )
-        created.initialize()
-        loadedPath = modelPath
-        engine = created
-        return created
+    private fun generate(request: LocalOneShotRequest): LocalOneShotResult {
+        val shared = sharedEngine?.generateOneShot(request)
+        return when {
+            shared is LocalOneShotResult.Generated -> shared.also { ownEngine.releaseIfHolding(request.modelPath) }
+            shared == null || shared.mayUseOwnEngine() -> ownEngine.generateOneShot(request)
+            else -> shared
+        }
     }
 
     override fun close() {
-        engine?.close()
-        engine = null
-        loadedPath = null
+        ownEngine.close()
     }
 }
+
+/**
+ * Only a shared engine that does not hold this model may hand off to the planner's own engine;
+ * Busy and Failed mean the model is already mapped, so loading a second copy is never the answer.
+ */
+private fun LocalOneShotResult.mayUseOwnEngine(): Boolean =
+    this is LocalOneShotResult.Unavailable &&
+        (reason == LocalOneShotUnavailableReason.ModelNotLoaded || reason == LocalOneShotUnavailableReason.Unsupported)
+
+private fun LocalOneShotResult.Unavailable.diagnosticReason(): String =
+    listOfNotNull("local_engine_${reason.name.lowercase()}", detail?.takeIf { it.isNotBlank() })
+        .joinToString(separator = ":")
+        .take(240)
 
 private data class ModelBackedPlanningAttempt(
     val plan: ActionPlan?,
     val output: String,
     val failureReason: String?,
+    val metrics: LocalCallMetrics?,
 )
 
-private fun actionConversationConfig(): ConversationConfig =
-    ConversationConfig(
-        systemInstruction = Contents.of(
-            "你是手机动作规划器。只能输出 call:function {\"arg\":\"value\"}，不解释。",
-        ),
-        samplerConfig = SamplerConfig(
-            topK = 1,
-            topP = 0.1,
-            temperature = 0.0,
-        ),
-    )
+private const val ACTION_PLANNER_SYSTEM_INSTRUCTION =
+    "你是手机动作规划器。只能输出 call:function {\"arg\":\"value\"}，不解释。"
 
 private fun MobileActionPlanner.modelOutputFailureReason(output: String): String =
     when (val parseResult = parseModelToolOutput(output)) {
@@ -316,8 +329,3 @@ private fun JSONObject.optNumberAsString(name: String): String? =
             else -> value.toString().takeIf { it.isNotBlank() }
         }
     }
-
-private fun com.google.ai.edge.litertlm.Message.textContent(): String =
-    contents.contents
-        .filterIsInstance<Content.Text>()
-        .joinToString(separator = "") { it.text }
