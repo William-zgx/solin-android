@@ -20,7 +20,12 @@ import org.junit.Test
 class LocalMemoryModelWiringArchitectureTest {
     @Test
     fun localMemoryModelIsImplementedOnlyByAllowlistedAdapters() {
-        val violations = productionSources().flatMap { (path, text) ->
+        val sources = productionSources()
+        assertTrue(
+            "the on-device adapter is present and scanned",
+            sources.map { it.first }.containsAll(LOCAL_MODEL_ADAPTER_ALLOWLIST),
+        )
+        val violations = sources.flatMap { (path, text) ->
             wiringViolations(path, text, LOCAL_MODEL_ADAPTER_ALLOWLIST)
         }
         assertEquals("LocalMemoryModel implementations outside the allowlist", emptyList<String>(), violations)
@@ -49,7 +54,10 @@ class LocalMemoryModelWiringArchitectureTest {
             "class Fake : LocalMemoryModel { override suspend fun generate(s: String, p: String): String? = null }" to "implemented",
             "val m = LocalMemoryModel { _, _ -> \"x\" }" to "implemented",
             "val o = object : LocalMemoryModel { override suspend fun generate(s: String, p: String): String? = null }" to "implemented",
+            "object Http : Base(), LocalMemoryModel by delegate" to "implemented",
             "class Http(private val c: Int) : Base(), LocalMemoryModel by delegate" to "implemented",
+            "import com.bytedance.zgx.solin.memory.LocalMemoryModel as Local\nclass Http : Local { }" to "implemented",
+            "typealias Local = com.bytedance.zgx.solin.memory.LocalMemoryModel\nclass Http : Local { }" to "implemented",
             "val c = DefaultContextCompactor(CompactionConfig(), model)" to "constructed",
             "val c = DefaultContextCompactor(config = cfg, summaryModel = m)" to "constructed",
             "val e = LocalModelMemoryFactExtractor(model, config)" to "constructed",
@@ -65,6 +73,9 @@ class LocalMemoryModelWiringArchitectureTest {
             "import okhttp3.OkHttpClient\nclass A : LocalMemoryModel { }",
             "import com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime\nval x = 1",
             "import com.bytedance.zgx.solin.runtime.RemoteChatRuntime\nval x = 1",
+            "val client = okhttp3.OkHttpClient()",
+            "val runtime = OkHttpRemoteChatRuntime()",
+            "val runtime = com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime()",
         ).forEach { text ->
             val found = wiringViolations(allowlisted, text, setOf(allowlisted))
             assertTrue("allowlisted remote import must be flagged: $text", found.any { "remote runtime" in it })
@@ -98,8 +109,10 @@ class LocalMemoryModelWiringArchitectureTest {
     }
 
     private companion object {
-        /** Files allowed to implement [com.bytedance.zgx.solin.memory.LocalMemoryModel]; relative to `app/src`. Empty until the on-device adapter lands. */
-        val LOCAL_MODEL_ADAPTER_ALLOWLIST: Set<String> = emptySet()
+        /** The only production on-device adapter; relative to `app/src`. */
+        val LOCAL_MODEL_ADAPTER_ALLOWLIST: Set<String> = setOf(
+            "main/java/com/bytedance/zgx/solin/runtime/LocalEngine.kt",
+        )
     }
 }
 
@@ -112,6 +125,10 @@ internal fun wiringViolations(path: String, source: String, allowlist: Set<Strin
         found += "$path:${lineOf(stripped, index)} $rule"
     }
 
+    LOCAL_MEMORY_MODEL_ALIAS.findAll(stripped).forEach {
+        report(it.range.first, "LocalMemoryModel implemented through an import alias or typealias")
+    }
+
     if (path !in allowlist) {
         IMPLEMENTATION_PATTERNS.forEach { pattern ->
             pattern.findAll(stripped).forEach { report(it.range.first, "LocalMemoryModel implemented outside the allowlist") }
@@ -122,6 +139,9 @@ internal fun wiringViolations(path: String, source: String, allowlist: Set<Strin
             if (name.startsWith("okhttp3.") || name == "okhttp3" || REMOTE_RUNTIME_IMPORT.matches(name)) {
                 report(match.range.first, "allowlisted adapter imports a remote runtime: $name")
             }
+        }
+        REMOTE_RUNTIME_REFERENCE.findAll(stripped).forEach { match ->
+            report(match.range.first, "allowlisted adapter references a remote runtime: ${match.value}")
         }
     }
 
@@ -148,11 +168,18 @@ private val IMPLEMENTATION_PATTERNS = listOf(
     Regex("""\bobject\s*:\s*LocalMemoryModel\b"""),
     // The `fun interface` declaration is not an implementation; a SAM lambda or `LocalMemoryModel {` is.
     Regex("""(?<!interface )\bLocalMemoryModel\s*\{"""),
-    Regex("""\bclass\s+\w+(?:<[^>{]*>)?\s*(?:\([^{)]*\))?\s*:\s*(?:[\w.<>]+(?:\([^)]*\))?\s*,\s*)*LocalMemoryModel\b"""),
+    Regex("""\b(?:class|object)\s+\w+(?:<[^>{]*>)?\s*(?:\([^{)]*\))?\s*:\s*(?:[\w.<>]+(?:\([^)]*\))?\s*,\s*)*LocalMemoryModel\b"""),
     Regex("""\bnew\s+LocalMemoryModel\s*\("""),
 )
 
 private val DEFAULT_CONTEXT_COMPACTOR_CALL = Regex("""(?<!class )\bDefaultContextCompactor\s*\(""")
+private val LOCAL_MEMORY_MODEL_ALIAS = Regex(
+    """(?m)^\s*(?:import\s+[\w.]*LocalMemoryModel\s+as\b|typealias\s+\w+\s*=\s*[\w.]*LocalMemoryModel\b)""",
+)
+private val REMOTE_RUNTIME_REFERENCE = Regex(
+    """\b(?:okhttp3\s*\.|(?:[\w.]*\.)?(?:OkHttpRemote\w*|RemoteChatRuntime)\b)""",
+)
+
 private val LOCAL_MODEL_EXTRACTOR_CALL = Regex("""(?<!class )\bLocalModelMemoryFactExtractor\s*\(""")
 private val SUMMARY_MODEL_ARGUMENT = Regex("""\bsummaryModel\b""")
 

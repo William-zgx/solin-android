@@ -9,9 +9,13 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -435,6 +439,61 @@ class LocalOneShotEngineTest {
     fun callMetricsCannotCarryPromptOrOutputText() {
         val textFields = LocalCallMetrics::class.java.declaredFields.filter { it.type == String::class.java }
         assertTrue("metrics must stay text-free: $textFields", textFields.isEmpty())
+    }
+
+    @Test
+    fun interruptedOneShotDecodeClosesAndRestoresChat() {
+        val hanging = FakeReply(listOf(LiteRtChunk("partial")), hangUntilCancelled = true)
+        factory.reply = { spec -> if (spec.isOneShot()) hanging else FakeReply("chat") }
+        val runtime = runtime().loaded()
+        val result = AtomicReference<LocalOneShotResult>()
+        val oneShotThread = thread { result.set(runtime.generateOneShot(request())) }
+        runBlocking { hanging.started.await() }
+
+        oneShotThread.interrupt()
+        oneShotThread.join(JOIN_TIMEOUT_MS)
+
+        assertFalse("interrupted one-shot is still running", oneShotThread.isAlive)
+        assertUnavailable(LocalOneShotUnavailableReason.Cancelled, result.get())
+        val oneShot = factory.allConversations.single { it.spec.isOneShot() }
+        assertEquals(1, oneShot.closeCount)
+        assertEquals("chat", runtime.chat("after interrupt"))
+    }
+
+    @Test
+    fun memoryAdapterUsesFreshEmptyConversations() = runBlocking {
+        factory.reply = { spec -> if (spec.isOneShot()) FakeReply("summary") else FakeReply("chat") }
+        val model = LocalEngineMemoryModel(
+            runtime().loaded(history = listOf(ChatMessage(MessageRole.User, "private chat history"))),
+            MODEL,
+        )
+
+        assertEquals("summary", model.generate(PLANNER_INSTRUCTION, "first memory call"))
+        assertEquals("summary", model.generate(PLANNER_INSTRUCTION, "second memory call"))
+
+        val oneShots = factory.allConversations.filter { it.spec.isOneShot() }
+        assertEquals(2, oneShots.size)
+        assertTrue(oneShots.all { it.spec.history.isEmpty() && it.closeCount == 1 })
+        assertNotSame(oneShots[0], oneShots[1])
+        assertEquals(listOf("first memory call", "second memory call"), oneShots.map { it.sentPrompts.single() })
+    }
+
+    @Test
+    fun memoryAdapterCancellationStopsNativeDecode() = runBlocking {
+        val hanging = FakeReply(listOf(LiteRtChunk("partial")), hangUntilCancelled = true)
+        factory.reply = { spec -> if (spec.isOneShot()) hanging else FakeReply("chat") }
+        val model = LocalEngineMemoryModel(runtime().loaded(), MODEL)
+        val call = launch { model.generate(PLANNER_INSTRUCTION, "wait for cancellation") }
+        hanging.started.await()
+
+        withTimeout(JOIN_TIMEOUT_MS) { call.cancelAndJoin() }
+
+        val oneShot = factory.allConversations.single { it.spec.isOneShot() }
+        assertTrue("native decode was not cancelled", oneShot.cancelCount >= 1)
+        withTimeout(JOIN_TIMEOUT_MS) {
+            while (oneShot.closeCount == 0) delay(10)
+        }
+        assertEquals(1, oneShot.closeCount)
     }
 
     @Test

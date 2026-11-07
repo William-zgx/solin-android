@@ -1,7 +1,13 @@
 package com.bytedance.zgx.solin.runtime
 
+import com.bytedance.zgx.solin.memory.LocalMemoryModel
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 
 /**
  * Backend-neutral on-device inference engine. LiteRT-LM is the only production backend:
@@ -29,6 +35,49 @@ interface LocalEngine {
     fun engineCapabilities(): LocalEngineCapabilities
 
     fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult
+}
+
+/**
+ * The only production [LocalMemoryModel] adapter. [modelPath] names the verified on-device model;
+ * a mismatch, an unloaded or busy engine, and every other unavailable result return null so the
+ * memory caller keeps its heuristic result. No remote runtime is reachable from this class.
+ *
+ * The blocking one-shot runs inside [runInterruptible]. A child cancellation bridge calls
+ * [LocalOneShotCancellation.cancel] as soon as the caller is cancelled or times out, ending native
+ * decode instead of merely interrupting its thread. [LocalEngine] supplies a fresh empty-history
+ * conversation per call, so neither chat nor an earlier memory call can leak into this one.
+ */
+class LocalEngineMemoryModel(
+    private val engine: LocalEngine,
+    private val modelPath: String,
+) : LocalMemoryModel {
+    override suspend fun generate(systemInstruction: String, prompt: String): String? = coroutineScope {
+        val cancellation = LocalOneShotCancellation()
+        val cancellationBridge = launch {
+            try {
+                awaitCancellation()
+            } finally {
+                cancellation.cancel()
+            }
+        }
+        try {
+            runInterruptible(Dispatchers.IO) {
+                val request = LocalOneShotRequest(
+                    modelPath = modelPath,
+                    systemInstruction = systemInstruction,
+                    prompt = prompt,
+                    cancellation = cancellation,
+                )
+                when (val result = engine.generateOneShot(request)) {
+                    is LocalOneShotResult.Generated -> result.text
+                    is LocalOneShotResult.Unavailable -> null
+                }
+            }
+        } finally {
+            cancellationBridge.cancel()
+            cancellation.cancel()
+        }
+    }
 }
 
 enum class LocalAccelerator {

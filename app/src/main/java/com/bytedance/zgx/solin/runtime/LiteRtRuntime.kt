@@ -685,14 +685,30 @@ class RealLiteRtRuntime internal constructor(
         } finally {
             lock.unlock()
         }
-        val output = lease.conversation.collectOneShot(request, waits.oneShotTimeoutMs)
-        val reclaimed = lock.withLock {
-            runCatching { lease.conversation.close() }
-            oneShot = null
-            engineReleased.signalAll()
-            oneShotReclaimed.also { oneShotReclaimed = false }
+        var cleanedUp = false
+        try {
+            val output = lease.conversation.collectOneShot(request, waits.oneShotTimeoutMs)
+            val reclaimed = lock.withLock {
+                runCatching { lease.conversation.close() }
+                oneShot = null
+                engineReleased.signalAll()
+                oneShotReclaimed.also { oneShotReclaimed = false }
+            }
+            cleanedUp = true
+            return output.toResult(LocalEngineSource.SharedChatEngine, lease.accelerator, loadMs = null, startedAtNanos, reclaimed)
+        } finally {
+            // runInterruptible can make runBlocking throw InterruptedException even after the native
+            // cancellation listener fired. Never abandon the live conversation or block chat recovery.
+            if (!cleanedUp) {
+                runCatching { lease.conversation.cancelProcess() }
+                lock.withLock {
+                    runCatching { lease.conversation.close() }
+                    oneShot = null
+                    engineReleased.signalAll()
+                    oneShotReclaimed = false
+                }
+            }
         }
-        return output.toResult(LocalEngineSource.SharedChatEngine, lease.accelerator, loadMs = null, startedAtNanos, reclaimed)
     }
 
     private class OneShotLease(val conversation: LiteRtConversationHandle, val accelerator: LocalAccelerator)

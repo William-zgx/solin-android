@@ -173,7 +173,8 @@ object MemoryFactSuggestionDetector {
  *
  * Return null when the engine is not loaded, is busy with another call, or fails; callers then keep
  * their heuristic result. Only the adapters in the architecture allowlist may implement this interface
- * (see `LocalMemoryModelWiringArchitectureTest`); the production wiring is a later integration step.
+ * (see `LocalMemoryModelWiringArchitectureTest`). `LocalEngineMemoryModel` is that adapter; it is
+ * present but not wired into either default-off feature.
  */
 fun interface LocalMemoryModel {
     suspend fun generate(systemInstruction: String, prompt: String): String?

@@ -755,14 +755,16 @@ Current status:
 
 Wiring prerequisites (each must hold before either flag is wired on):
 
-1. Bind the model only through an allowlisted adapter. In
-   `LocalMemoryModelWiringArchitectureTest` the allowlist is empty: a
-   `LocalMemoryModel` implementation, a `DefaultContextCompactor` with a summary
-   model, or a `LocalModelMemoryFactExtractor` construction is allowed only in
-   `SolinAppContainer.kt` and tests. The on-device adapter (`LocalEngine` to
-   `LocalMemoryModel`, `runInterruptible` plus cancel, fresh empty-history
-   conversation) joins the allowlist with the change that adds it. The adapter
-   must not import `RemoteChatRuntime`, OkHttp or anything in the remote runtime.
+1. Bind the model only through an allowlisted adapter.
+   `LocalMemoryModelWiringArchitectureTest` allowlists only
+   `runtime/LocalEngine.kt`, where `LocalEngineMemoryModel` adapts `LocalEngine`
+   with `runInterruptible` plus native cancellation and a fresh empty-history
+   conversation. It must not import `RemoteChatRuntime`, OkHttp or anything in
+   the remote runtime. The adapter is not constructed by `SolinAppContainer`:
+   both feature flags remain off and unwired. A
+   `DefaultContextCompactor` with a summary model, or a
+   `LocalModelMemoryFactExtractor` construction, is allowed only in
+   `SolinAppContainer.kt` and tests.
 2. Do not run the model summary inside the blocking LiteRT path. `LiteRtRuntime`
    calls `ContextCompactor.compact` inside `runBlocking` (`runtime/LiteRtRuntime.kt`,
    around line 443), and `recreateConversationForSend` reaches it under
