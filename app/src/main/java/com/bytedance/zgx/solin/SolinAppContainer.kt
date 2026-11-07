@@ -87,6 +87,7 @@ import com.bytedance.zgx.solin.orchestration.attachTo
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
+import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
 import com.bytedance.zgx.solin.runtime.DisabledLiteRtRuntime
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.RealLiteRtRuntime
@@ -199,6 +200,7 @@ class SolinAppContainer(
     private val huggingFaceAuthRepository: HuggingFaceAuthRepository
     private val firstRunSetupRepository: FirstRunSetupRepository
     private val downloadService: ModelDownloadService
+    private val actionPlannerFallbackEngine = DedicatedLiteRtEngine(appContext.cacheDir)
     private val localRuntime: LiteRtRuntime
     private val remoteRuntime: OkHttpRemoteChatRuntime
     private val memoryRepository: MemoryRepository
@@ -279,6 +281,7 @@ class SolinAppContainer(
             RealLiteRtRuntime(
                 cacheDir = appContext.cacheDir,
                 contextCompactor = DefaultContextCompactor(),
+                fallbackEngine = actionPlannerFallbackEngine,
             )
         }
         remoteRuntime = OkHttpRemoteChatRuntime()
@@ -329,16 +332,18 @@ class SolinAppContainer(
         telemetrySink.attachTo(eventBus, containerScope)
         toolRegistry = ToolRegistry(moduleRegistry.toolProviders)
         actionPlanningRuntime = HybridActionPlanningRuntime(
-            cacheDir = appContext.cacheDir,
+            fallbackEngine = actionPlannerFallbackEngine,
             toolRegistry = toolRegistry,
+            sharedEngine = localRuntime,
         )
         val observationActionToolRegistry = ToolRegistry.fromSupportedActions(
             MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES +
                 com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES,
         )
         observationActionPlanningRuntime = HybridActionPlanningRuntime(
-            cacheDir = appContext.cacheDir,
+            fallbackEngine = actionPlannerFallbackEngine,
             toolRegistry = observationActionToolRegistry,
+            sharedEngine = localRuntime,
         )
         actionExecutor = ValidatingToolExecutor(
             delegate = RoutingToolExecutor(

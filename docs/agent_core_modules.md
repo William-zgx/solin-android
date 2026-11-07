@@ -325,9 +325,26 @@ Current status:
   registration, so stopping during `newCall` cannot leave an uncancelled request.
   `RemoteChatRuntimeTest.stopDuringCallCreationCancelsBeforeExecution` pins this
   race without relying on timing.
-- `SharedLocalEngine` lets the local observation planner use the already-loaded
-  chat engine for a one-shot request when the exact model path matches and no
-  chat generation is in flight. It does not grant a remote fallback.
+- `LocalEngine` (`runtime/LocalEngine.kt`) is the backend-neutral on-device
+  contract the planners see: `engineCapabilities()` and a blocking, greedy
+  `generateOneShot(LocalOneShotRequest)`. `RealLiteRtRuntime` implements it on
+  the one engine loaded for chat: it serves only the loaded model path
+  (`ModelNotLoaded` otherwise), never preempts a chat generation (`Busy` after
+  a bounded wait, or when chat takes the engine back), parks the chat
+  conversation during the one-shot and recreates it from its transcript on the
+  next chat use. Every one-shot runs on a fresh conversation with an empty
+  history, and can be cancelled from another thread through
+  `LocalOneShotRequest.cancellation` (`Cancelled`, also on thread interrupt). `DedicatedLiteRtEngine` is the CPU fallback for a model the
+  chat engine does not hold. `HybridActionPlanningRuntime` tries the shared
+  engine first, uses the dedicated engine only on `ModelNotLoaded` or
+  `Unsupported`, and otherwise falls back to the rule planner, so one model is
+  never mapped twice; both planners share one dedicated engine. Chat sends
+  keep the live conversation (and its KV cache) only when the system
+  instruction, sampling and budgeted history equal what it already holds.
+  Per-call `LocalCallMetrics` are numbers only (load, first token, total,
+  accelerator, native token counts when benchmark mode is on) and stay on the
+  device. No path grants a remote fallback. The LiteRT-LM 0.12.0 API survey is
+  [litert-lm-api-report.md](specs/20261107-local-engine/litert-lm-api-report.md).
 - `AdaptiveGenerationPolicy` decides backend, token limits, and image caps
   from `AdaptiveGenerationPolicyInput` (preferred backend, context window,
   last-gen stats, quality issues, image count).

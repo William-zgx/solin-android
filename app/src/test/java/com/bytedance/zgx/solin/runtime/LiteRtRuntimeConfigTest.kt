@@ -54,6 +54,20 @@ class LiteRtRuntimeConfigTest {
     }
 
     @Test
+    fun engineConfigWithoutCapabilitiesKeepsModelDefaults() {
+        val config = defaultEngineConfigSpec(
+            modelPath = "/tmp/model.litertlm",
+            backend = BackendChoice.CPU,
+            cacheDir = File("/tmp/cache"),
+            capabilities = null,
+        )
+
+        assertEquals(null, config.maxNumTokens)
+        assertEquals(null, config.visionBackend)
+        assertEquals(null, config.maxNumImages)
+    }
+
+    @Test
     fun localHistoryBudgetReservesOutputTokens() {
         val expectedBudget =
             LocalModelTokenLimits.MAX_TOTAL_TOKENS -

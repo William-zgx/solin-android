@@ -129,7 +129,7 @@ class RealLiteRtRuntimeLifecycleTest {
             modelPath: String,
             backend: BackendChoice,
             cacheDir: File,
-            capabilities: LocalModelRuntimeCapabilities,
+            capabilities: LocalModelRuntimeCapabilities?,
         ): LiteRtEngineHandle = FakeEngine(this).also(engines::add)
     }
 
