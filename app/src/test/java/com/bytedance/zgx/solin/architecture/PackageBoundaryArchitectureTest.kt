@@ -261,7 +261,9 @@ class PackageBoundaryArchitectureTest {
     private companion object {
         // Five capability-owning modules approved in docs/plans/mika-phone-capabilities.md:
         // input/stability verification, bounded composites, verified routes, background session/helper.
-        const val MAX_PRODUCTION_KOTLIN_FILES = 324
+        // Cloud-edge collaboration core (role placement + escalation); the wiring in
+        // docs/specs/20261107-cloud-edge-collaboration/spec.md deletes the continuation resolver.
+        const val MAX_PRODUCTION_KOTLIN_FILES = 325
     }
 
     private data class GodObjectLimit(
