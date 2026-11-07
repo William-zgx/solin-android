@@ -1,6 +1,9 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.action.ActionIntentConfidence
+import com.bytedance.zgx.solin.action.IntentRoutingDecision
+import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
@@ -407,6 +410,48 @@ class ConfirmationBypassPolicyTest {
             ),
         )
     }
+
+    /**
+     * A local planning model's proposal always asks, in both confirmation modes, and a sensitive
+     * reason keeps its own name. A rule proposal (no ModelToolCall routing in the trace) gets exactly
+     * the reason it got before this change, so no rule path is widened or narrowed.
+     */
+    @Test
+    fun aLocalModelProposalAlwaysAsksWhileARuleProposalKeepsItsOwnReason() {
+        listOf(true, false).forEach { reduceConfirmations ->
+            criticalOnly = reduceConfirmations
+            listOf(
+                ToolRequest(toolName = MobileActionFunctions.OPEN_APP_BY_NAME, arguments = mapOf("appName" to "微信")),
+                ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "明天天气")),
+                ToolRequest(toolName = MobileActionFunctions.SHARE_TEXT, arguments = mapOf("text" to "今天很好")),
+                ToolRequest(
+                    toolName = MobileActionFunctions.SHARE_TEXT,
+                    arguments = mapOf("text" to "我的身份证号是 110101199001011234"),
+                ),
+            ).forEach { request ->
+                val ruleRun = traceStore.createRun("rule ${request.toolName}").id
+                val modelRun = traceStore.createRun("model ${request.toolName}").id
+                traceStore.appendStep(modelRun, AgentStep.IntentRouted(modelProposal(request)))
+
+                val ruleReason = policy.criticalApprovalReason(ruleRun, request)
+                val modelReason = policy.criticalApprovalReason(modelRun, request)
+                assertEquals(request.toolName + " " + reduceConfirmations, ruleReason ?: CriticalApprovalReason.LocalModelProposedStep, modelReason)
+                assertEquals(ruleReason == null && reduceConfirmations, policy.isAutoApproved(ruleRun, request))
+                assertFalse(policy.isAutoApproved(modelRun, request))
+            }
+        }
+    }
+
+    private fun modelProposal(request: ToolRequest) = IntentRoutingDecision(
+        input = "local model proposal",
+        selectedPath = IntentRoutingPath.ModelToolCall,
+        selectedToolName = request.toolName,
+        priority = IntentRoutingPath.ModelToolCall.routingPriority(),
+        accepted = true,
+        confidence = ActionIntentConfidence.High,
+        rejectionReasons = listOf(localModelProposedRequestTag(request.id)),
+        requiresConfirmation = true,
+    )
 
     private fun lowRiskSkillPlan(): SkillPlan {
         val manifest = SkillManifest(

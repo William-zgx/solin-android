@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.action.IntentRoutingDecision
+import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.skill.SkillPlan
 import com.bytedance.zgx.solin.skill.SkillStep
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -70,6 +72,33 @@ internal class AgentTraceQueries(
                     .filterNot { request -> request.id in liveIds }
                     .toList()
             }
+
+    /**
+     * Whether [requestId] is the tool a local planning model proposed in [runId]: the accepted
+     * [IntentRoutingPath.ModelToolCall] decision [InitialToolPlanner] records before confirmation
+     * names it. Persisted reasons are redacted, so a restored run compares the redacted tag.
+     */
+    fun localPlanningModelProposed(runId: String, requestId: String): Boolean {
+        val tag = localModelProposedRequestTag(requestId)
+        if (traceStore.steps(runId).any { step -> (step as? AgentStep.IntentRouted)?.decision?.namesLocalModelProposal(tag) == true }) {
+            return true
+        }
+        val persistedTag = tag.shortTraceText(maxLength = PERSISTED_ROUTING_REASON_LENGTH)
+        return traceStore.stepSummaries(runId).any { step ->
+            step.type == "IntentRouted" && step.namesLocalModelProposal(persistedTag)
+        }
+    }
+
+    private fun IntentRoutingDecision.namesLocalModelProposal(tag: String): Boolean =
+        accepted && selectedPath == IntentRoutingPath.ModelToolCall && tag in rejectionReasons
+
+    private fun AgentTraceStepSummary.namesLocalModelProposal(tag: String): Boolean {
+        val json = jsonObjectOrNull() ?: return false
+        val reasons = json.optJSONArray("rejectionReasons") ?: return false
+        return json.optBoolean("accepted") &&
+            json.optString("selectedPath") == IntentRoutingPath.ModelToolCall.name &&
+            (0 until reasons.length()).any { index -> reasons.optString(index) == tag }
+    }
 
     fun plannedSequentialSegmentCount(runId: String): Int {
         val segmentKeys = linkedSetOf<String>()

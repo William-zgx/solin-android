@@ -1685,7 +1685,7 @@ private fun AgentStep.traceJson(type: String, runId: String): JSONObject {
             .put(
                 "rejectionReasons",
                 decision.rejectionReasons
-                    .map { reason -> reason.shortTraceText(maxLength = 80) }
+                    .map { reason -> reason.shortTraceText(maxLength = PERSISTED_ROUTING_REASON_LENGTH) }
                     .toJsonArray(),
             )
             .put("requiresConfirmation", decision.requiresConfirmation)
@@ -1928,5 +1928,8 @@ internal fun String.shortTraceText(maxLength: Int = 160): String {
     val redacted = ToolAuditSummaryRedactor.redact(compact)
     return if (redacted.length <= maxLength) redacted else redacted.take(maxLength - 3) + "..."
 }
+
+/** Each persisted intent-routing reason is redacted and cut to this many characters. */
+internal const val PERSISTED_ROUTING_REASON_LENGTH = 80
 
 private val TRACE_WHITESPACE_REGEX = Regex("\\s+")

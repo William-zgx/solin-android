@@ -137,7 +137,8 @@ class ChatPlacementInputsTest {
     }
 
     @Test
-    fun autoPlacesALocalModelFirstTurnLikeARuleFirstTurn() {
+    // Placement input only: `requiresTools` is the rule classifier's view of the turn, not the planner's choice.
+    fun localModelFirstLeavesAutoPlacementOfRuleClassifiedTurnsUnchanged() {
         val state = autoState()
         val options = initialAgentRunOptions(
             state,

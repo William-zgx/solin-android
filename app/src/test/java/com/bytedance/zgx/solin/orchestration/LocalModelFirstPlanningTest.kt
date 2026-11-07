@@ -289,16 +289,21 @@ class LocalModelFirstPlanningTest {
         val reasons = decision.rejectionReasons
         assertTrue(reasons.toString(), "local_model_tool_accepted" in reasons)
         assertTrue(reasons.toString(), "strategy=ModelFirstWithRuleFastPath" in reasons)
-        assertTrue(reasons.toString(), "output=call:set_system_alarm{hour,minutes,message}" in reasons)
+        // Argument keys are sorted, and only keys are traced.
+        assertTrue(reasons.toString(), "output=call:set_system_alarm{hour,message,minutes}" in reasons)
         assertTrue(reasons.toString(), "retrieved=${MobileActionFunctions.SET_SYSTEM_ALARM}" in reasons)
-        assertTrue(reasons.toString(), reasons.none { reason -> "降压药" in reason || "30" in reason })
+        assertTrue(reasons.toString(), reasons.none { reason -> "降压药" in reason || reason.endsWith("=30") || reason == "30" })
         assertTrue(reasons.all { reason -> reason.length <= 80 })
     }
 
     @Test
     fun agentLoopRuntimeParksAModelPlannedToolForConfirmation() {
         val runtime = ScriptedPlanningRuntime(modelOutput = ALARM_CALL)
-        val loop = AgentLoopRuntime(memoryIndex = MemoryRepository(), actionPlanningRuntime = runtime)
+        val loop = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = runtime,
+            traceStore = traceStore,
+        )
 
         val result = loop.runOnce(
             input = ALARM_REQUEST,
@@ -314,6 +319,52 @@ class LocalModelFirstPlanningTest {
         assertTrue(plan.plannedByModel)
         assertTrue(plan.requiresUserConfirmation())
         assertEquals(1, runtime.modelCallCount)
+        // The planner records the one routing decision for the proposal; the observation path adds none.
+        val routed = traceStore.steps(result.run.id)
+            .filterIsInstance<AgentStep.IntentRouted>()
+            .filter { step -> step.decision.selectedPath == IntentRoutingPath.ModelToolCall }
+        assertEquals(1, routed.size)
+        assertTrue(routed.single().decision.accepted)
+    }
+
+    /**
+     * A request that starts with a negation never reaches the planning model, under either
+     * strategy, and the plan is the RuleFirst plan. Pins the guard before the model call.
+     */
+    @Test
+    fun aNegatedRequestNeverReachesThePlanningModel() {
+        listOf("别启动微信", "不要分享我的号码给别人").forEach { request ->
+            listOf(LocalPlanningStrategy.ModelFirstWithRuleFastPath, LocalPlanningStrategy.ModelFirst).forEach { strategy ->
+                val runtime = ScriptedPlanningRuntime(modelOutput = """call:open_app_by_name{"appName":"微信"}""")
+                val planner = planner(runtime)
+                assertEquals(
+                    "$request / $strategy",
+                    planner.planToolIfSupported(request, ACTION_MODEL_PROFILES, actionModelPath = null).shape(),
+                    planner.planLocalModelFirst(runId(request), request, ACTION_MODEL_PROFILES, null, localModelFirst(strategy))
+                        .shape(),
+                )
+                assertEquals("$request / $strategy", 0, runtime.modelCallCount)
+            }
+        }
+    }
+
+    /** Every failure names its stable trace slug, not only the RuleFirst plan it falls back to. */
+    @Test
+    fun failureReasonsAreStableTraceSlugs() {
+        val cases = listOf(
+            Triple(ALARM_REQUEST, ScriptedPlanningRuntime(modelOutput = ""), "local_model_blank_output"),
+            Triple(ALARM_REQUEST, ScriptedPlanningRuntime(modelOutput = "好的，我来帮你设置闹钟"), "local_model_no_call_output"),
+            Triple(ALARM_REQUEST, ScriptedPlanningRuntime(modelError = IllegalStateException("engine failed")), "local_model_planning_error"),
+            Triple(ALARM_REQUEST, ScriptedPlanningRuntime(modelThrows = IllegalStateException("engine failed")), "local_model_planning_error"),
+            Triple(QUESTION, ScriptedPlanningRuntime(modelOutput = ALARM_CALL), "local_model_no_tool_retrieved"),
+        )
+        cases.forEach { (input, runtime, slug) ->
+            val runId = runId(input)
+            planner(runtime).planLocalModelFirst(runId, input, ACTION_MODEL_PROFILES, null, localModelFirst(LocalPlanningStrategy.ModelFirst))
+            val decision = localModelDecision(runId)
+            assertTrue("$slug in ${decision.rejectionReasons}", slug in decision.rejectionReasons)
+            assertFalse(decision.accepted)
+        }
     }
 
     @Test
@@ -388,7 +439,10 @@ class LocalModelFirstPlanningTest {
      */
     private class ScriptedPlanningRuntime(
         private val modelOutput: String? = null,
+        /** Reported the way HybridActionPlanningRuntime reports an engine exception: as a failure reason. */
         private val modelError: Throwable? = null,
+        /** An exception that escapes the runtime, which the planner must still fail closed on. */
+        private val modelThrows: Throwable? = null,
         private val ruleDrafts: Map<String, ActionDraft> = mapOf(RULE_HIT_REQUEST to RULE_HIT_DRAFT),
     ) : ActionPlanningRuntime {
         private val parser = MobileActionPlanner()
@@ -404,7 +458,17 @@ class LocalModelFirstPlanningTest {
         override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult {
             modelInputs += input
             offeredToolSpecs += toolSpecs
-            modelError?.let { throw it }
+            modelThrows?.let { throw it }
+            modelError?.let { error ->
+                return ActionPlanningResult(
+                    plan = rulePlan(input),
+                    usedModel = false,
+                    fallbackReason = null,
+                    modelAttempted = true,
+                    modelOutputPreview = null,
+                    modelFailureReason = "${error.javaClass.simpleName}:${error.message}",
+                )
+            }
             val output = modelOutput.orEmpty()
             parser.parseModelOutput(output)?.let { draft ->
                 return ActionPlanningResult(
