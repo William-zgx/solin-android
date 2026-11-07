@@ -99,7 +99,7 @@ requirement, and comes from a source the role allows
 That equivalence test compares against the rules only. The live Answerer path is
 `decisionModelPlacementPolicy?.decide(input, routingText) ?: ModelPlacementPolicy.decide(input)`
 (`ChatController.kt:160`), and `DecisionModelPlacementPolicy`, the Codiv router
-wired at `SolinAppContainer.kt:476`, can override the rules. Phase 3a therefore
+wired at `SolinAppContainer.kt:481`, can override the rules. Phase 3a therefore
 depends on D5. If Codiv is retired, the existing test is enough. If it stays,
 equivalence must be re-proven against whichever router is live before
 `ChatController` switches to `RolePlacementPolicy`.
@@ -591,7 +591,7 @@ The two remaining settings live in `data/Stores.kt` and
 - `SolinViewModel.kt`: expose the two settings and the escalation-approval state.
 - `SolinScreen.kt`: the role line in the run header, two Trust Center toggles,
   and the escalation approval sheet.
-- `SolinAppContainer.kt:412` (composition root): insert the collab
+- `SolinAppContainer.kt:418` (composition root): insert the collab
   `MilestoneReplanner` into `CompositeAgentObservationReplanner` after
   `DeadLoopDetectionReplanner` and before `ModelObservationReplanner`. It returns
   null when the run has no milestone plan.
