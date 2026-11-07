@@ -53,6 +53,10 @@ pending approval records remain pending until their owners complete the review.
 | [Model-driven app control](model_driven_app_control_multi_agent_plan.md) | Observe–act contract, coordination history and acceptance limits |
 | [Mika phone capabilities](plans/mika-phone-capabilities.md) | Provenance, bounded tools, route reuse and experimental background display |
 | [Adaptive inference status](specs/20260718-adaptive-edge-inference/status.md) | Implemented behavior, build-type rollout and pending evidence |
+| [Local engine](specs/20261107-local-engine/litert-lm-api-report.md) | One shared on-device LiteRT-LM engine for chat and planning; 0.12.0 API report |
+| [Local model first planning](specs/20261107-local-model-first/spec.md) | Debug-only model-proposed first tool; fails closed to RuleFirst, every proposal asks |
+| [Cloud-edge collaboration](specs/20261107-cloud-edge-collaboration/spec.md) | Role placement, closed-vocabulary milestone plan and flag-gated progress egress; unwired, default Off |
+| [Capability bench 20261107](../lab/results/20261107/SUMMARY.md) | Desktop proxy results for small models; not device evidence |
 
 Read [architecture_depth.md](architecture_depth.md) before structural changes.
 The [Wave record](optimization_plan_weaknesses.md) and older [plans](plans/) contain
