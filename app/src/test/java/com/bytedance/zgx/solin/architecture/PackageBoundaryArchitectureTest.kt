@@ -261,7 +261,10 @@ class PackageBoundaryArchitectureTest {
     private companion object {
         // Five capability-owning modules approved in docs/plans/mika-phone-capabilities.md:
         // input/stability verification, bounded composites, verified routes, background session/helper.
-        const val MAX_PRODUCTION_KOTLIN_FILES = 324
+        // Two cloud-edge collaboration cores in orchestration/collab (docs/specs/20261107-cloud-edge-collaboration):
+        // CollaborationPolicy.kt (role placement, escalation) and MilestonePlan.kt (plan parser with its
+        // strict JSON scan, RunProgressGate, CloudPlannerRequest).
+        const val MAX_PRODUCTION_KOTLIN_FILES = 326
     }
 
     private data class GodObjectLimit(
