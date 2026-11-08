@@ -58,6 +58,16 @@ internal object MemoryLab {
     val replayDate: String?
         get() = System.getenv("SOLIN_LAB_MEMORY_REPLAY")?.takeIf { it.isNotBlank() }?.let(::validDate)
 
+    /**
+     * Who produced the numbers, recorded on every metrics file and read back by
+     * `lab/memory/scripts/summarize_memory.py`. Override with `SOLIN_LAB_HOST_NOTE` exactly as the
+     * capability bench does, so a LiteRT run on the production `.litertlm` files cannot inherit the
+     * Ollama label. The default names the Ollama bench this harness was written for.
+     */
+    val hostNote: String
+        get() = System.getenv("SOLIN_LAB_HOST_NOTE")?.takeIf { it.isNotBlank() }
+            ?: "desktop Ollama proxy; not LiteRT-LM int4 on a phone, not device evidence"
+
     private val runDate: String
         get() = System.getenv("SOLIN_LAB_MEMORY_DATE")?.takeIf { it.isNotBlank() }?.let(::validDate)
             ?: LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
@@ -159,7 +169,7 @@ internal class OllamaMemoryModel(
             .put("ollamaVersion", runCatching { JSONObject(get("/api/version")).optString("version") }.getOrDefault("unknown"))
             .put("options", OPTIONS)
             .put("think", false)
-            .put("hostNote", "desktop Ollama proxy; not LiteRT-LM int4 on a phone, not device evidence")
+            .put("hostNote", MemoryLab.hostNote)
     }
 
     private fun chat(systemInstruction: String, prompt: String): OllamaCall {
