@@ -41,3 +41,5 @@
 2026-11-08T03:49:55.268847689Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
 2026-11-08T03:17:54.239418429Z suite B model=litert/gemma-4-e4b mode=M-topk-fix-lmf cases=151 correct=112 (parallel lane .claude/worktrees/lab-lmf-e4b, shim :11440)
 2026-11-08T03:47:55.825794357Z suite C model=litert/gemma-4-e4b mode=N-topk-lmf cases=151 correct=117 (parallel lane .claude/worktrees/lab-lmf-e4b, shim :11440)
+2026-11-08T05:09:43.813713987Z suite A model=litert/gemma-4-e2b mode=replanner cases=46 rawCorrect=10 finalCorrect=17
+2026-11-08T05:17:31.062281460Z suite A model=litert/gemma-4-e2b mode=replanner-fix cases=46 rawCorrect=8 finalCorrect=15

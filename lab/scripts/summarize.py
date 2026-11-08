@@ -569,6 +569,7 @@ def suite_a(records, models, out):
         parse_fail = [r for r in attempted if r["rawKind"] != "call"]
         rows.append([
             key[1],
+            key[2],
             n,
             run_cell(key, frac(sum(r["rawCorrect"] for r in rs), n)),
             run_cell(key, frac(sum(r["finalCorrect"] for r in rs), n)),
@@ -578,8 +579,8 @@ def suite_a(records, models, out):
             run_cell(key, f"{statistics.mean(r['modelCalls'] for r in rs):.2f}"),
         ])
     out.append(table(
-        ["model", "n", "raw draft correct", "final correct", "final, action gold", "final, stop gold",
-         "first call not a valid `call:`", "calls/step"],
+        ["model", "mode", "n", "raw draft correct", "final correct", "final, action gold",
+         "final, stop gold", "first call not a valid `call:`", "calls/step"],
         rows,
     ))
     out.append("")
@@ -598,13 +599,13 @@ def suite_a(records, models, out):
         by_cat = defaultdict(list)
         for r in records[key]:
             by_cat[r["category"]].append(r)
-        rows.append([labelled(key, key[1])] + [
+        rows.append([key[1], key[2]] + [
             run_cell(key, f"{sum(r['finalCorrect'] for r in by_cat[c])}/{len(by_cat[c])}")
             if by_cat[c] else "-"
             for c in categories
         ])
     out.append("Final correct by screen category:\n")
-    out.append(table(["model"] + categories, rows))
+    out.append(table(["model", "mode"] + categories, rows))
     out.append("")
 
     classes = ["stopped when an action was expected", "acted when the gold is stop", "wrong tool",
@@ -615,36 +616,38 @@ def suite_a(records, models, out):
         first_calls = [r["calls"][0] for r in records[key] if r["calls"]]
         unknown = sum(1 for c in first_calls if (c.get("parseFailure") or "").startswith("Unknown tool"))
         malformed = sum(1 for c in first_calls if c.get("parseFailure") and not c["parseFailure"].startswith("Unknown tool"))
-        rows.append([labelled(key, key[1]), run_cell(key, len(records[key]))]
+        rows.append([key[1], key[2], run_cell(key, len(records[key]))]
                     + [counter.get(c, 0) for c in classes] + [malformed, unknown])
     out.append("Failure taxonomy (final answer), plus first-call format failures:\n")
-    out.append(table(["model", "n"] + classes + ["first call unparseable", "first call hallucinated tool"], rows))
+    out.append(table(["model", "mode", "n"] + classes
+                     + ["first call unparseable", "first call hallucinated tool"], rows))
     out.append("")
 
     reasons = Counter()
-    per_model = {}
+    per_key = {}
     for key in keys:
         counter = Counter()
         for r in records[key]:
             for reason in r["guardReasons"]:
                 if reason != "accepted":
                     counter[reason] += 1
-        per_model[key[1]] = counter
+        per_key[key] = counter
         reasons.update(counter)
     if reasons:
         ordered = [reason for reason, _ in reasons.most_common()]
         out.append("Replanner rejection reasons, counted per model call (a step can have two):\n")
-        out.append(table(["model"] + ordered,
-                         [[labelled(key, key[1])] + [per_model[key[1]].get(r, 0) for r in ordered]
+        out.append(table(["model", "mode"] + ordered,
+                         [[key[1], key[2]] + [per_key[key].get(r, 0) for r in ordered]
                           for key in keys]))
         out.append("")
 
     rows = []
     for key in keys:
         sources = Counter(r["finalSource"] for r in records[key])
-        rows.append([labelled(key, key[1]), run_cell(key, ", ".join(f"{k} {v}" for k, v in sources.most_common()))])
+        rows.append([key[1], key[2],
+                     run_cell(key, ", ".join(f"{k} {v}" for k, v in sources.most_common()))])
     out.append("Where the final answer came from:\n")
-    out.append(table(["model", "final source"], rows))
+    out.append(table(["model", "mode", "final source"], rows))
     out.append("")
 
 
@@ -832,7 +835,7 @@ def failure_taxonomy(records, models, out):
         # `initial_failure` already classes an errored call as "error"; say how many lines that is
         # so a fully errored mode reads as an errored run, not as 151 discrete failures.
         n, e = RUN_ERRORS.get(key, (0, 0))
-        rows.append([SUITE_LETTER[key[0]], key[1], key[2], len(records[key])]
+        rows.append([SUITE_LETTER[key[0]], key[1], key[2], run_cell(key, sum(counter.values()))]
                     + [run_cell(key, counter.get(c, 0)) for c in FAILURE_ORDER]
                     + [run_cell(key, placeholder), run_cell(key, f"{e}/{n}" if e else "0")])
     out.append(table(["suite", "model", "mode", "wrong"] + FAILURE_ORDER

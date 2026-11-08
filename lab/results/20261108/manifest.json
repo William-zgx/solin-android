@@ -1,6 +1,6 @@
 {
   "ollamaVersion": "litert-lm-0.12.0",
-  "gitHead": "98cc6bf1ba62aad41f5dd56c9a4fdfdec5e00f64",
+  "gitHead": "655029cfce85ddd08200c7c8aa6291da56d0f85e",
   "samplingOptions": {
     "top_p": 0.1,
     "seed": 7,
@@ -347,6 +347,11 @@
       "cases": 151,
       "system": "You decide whether a phone assistant must perform a phone action for the user's request. action = true: the user asks the assistant to do something on the phone now, such as opening an app, setting an alarm, timer or reminder, drafting a message, email, contact or calendar event, calling, searching the web or a map, or changing a setting. action = false: chat, a question the assistant can answer in text, an explanation, a translation, or a request that tells the assistant not to do something.\n\nThe user message is a JSON object whose \"request\" field is the request. Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}.",
       "minConfidence": 0.9
+    },
+    "observation-step": {
+      "cases": 46,
+      "datasetCases": 46,
+      "maxModelReplans": 5
     }
   },
   "hostNote": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"
