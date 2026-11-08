@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.ModelCapability
@@ -10,6 +12,7 @@ import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.skill.SkillManifest
 import com.bytedance.zgx.solin.skill.SkillPlan
@@ -99,6 +102,34 @@ class ToolObservationDecisionConsistencyTest {
         // The UI used to be handed Complete for a run that was in fact still awaiting confirmation.
         assertEquals(lastTracedDecision(observed), observed.decision)
         assertNull(observed.retryRequest)
+    }
+
+    @Test
+    fun retiredInstalledOnlyActionModelKeepsOpenThenStopLikeEmptyState() {
+        val empty = observePostLaunchWithCapabilities(ChatUiState())
+        val retired = observePostLaunchWithCapabilities(
+            ChatUiState(
+                installedModels = listOf(
+                    InstalledModelSummary(
+                        id = "retired-action",
+                        displayName = "Retired action model",
+                        path = "/tmp/retired-action.litertlm",
+                        fileBytes = 1L,
+                        recommendedModelId = MOBILE_ACTION_MODEL_ID,
+                        verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(empty.run.state, retired.run.state)
+        assertEquals(empty.decision, retired.decision)
+        assertEquals(lastTracedDecision(empty), lastTracedDecision(retired))
+        assertTrue(
+            retired.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN
+            },
+        )
     }
 
     @Test
@@ -193,6 +224,24 @@ class ToolObservationDecisionConsistencyTest {
             .filterIsInstance<AgentStep.ObservationDecided>()
             .last()
             .decision
+
+    private fun observePostLaunchWithCapabilities(state: ChatUiState): AgentObservationResult {
+        val runtime = postLaunchRuntime(InMemoryAgentTraceStore(clockMillis = { 1_000L }))
+        val planned = runtime.runOnce(
+            input = OPEN_APP_INPUT,
+            installedCapabilities = state.installedCapabilities,
+            memoryEnabled = false,
+            installedCapabilityProfiles = state.installedCapabilityProfiles,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        return requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = launchedAppResult(planned.plan.request),
+            ),
+        )
+    }
 
     private fun postLaunchRuntime(traceStore: AgentTraceStore): AgentLoopRuntime =
         AgentLoopRuntime(

@@ -128,6 +128,25 @@ class ChatUiStateModelVerificationTest {
         assertTrue(state.installedCapabilities.isEmpty())
     }
 
+    @Test
+    fun retiredInstalledOnlyModelStaysVisibleWithoutContributingCapabilities() {
+        val retired = installedModel(
+            id = "retired-action",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val state = ChatUiState(installedModels = listOf(retired))
+
+        assertTrue(retired.isUsable)
+        assertEquals(ModelCapability.MobileAction, retired.capability)
+        assertEquals(ModelVerificationStatus.VerifiedRecommended, retired.verificationStatus)
+        assertEquals(listOf(retired), state.installedModels)
+        assertTrue(state.isModelInstalled(MOBILE_ACTION_MODEL_ID))
+        assertEquals(null, retired.capabilityProfile)
+        assertTrue(state.installedCapabilityProfiles.isEmpty())
+        assertTrue(state.installedCapabilities.isEmpty())
+    }
+
     private fun installedModel(
         id: String = "model",
         recommendedModelId: String?,
