@@ -119,7 +119,7 @@ Per case it records:
 | Mode | What runs |
 | --- | --- |
 | `R` | Production `InitialToolPlanner.planToolIfSupported` with no action model: skills, then `MobileActionPlanner` rules |
-| `M-full` | Model only, prompt advertises the whole built-in registry (what the 270M FunctionGemma sees today) |
+| `M-full` | Model only, prompt advertises the whole built-in registry (the retired pre-PF1 configuration seen by the 270M FunctionGemma) |
 | `M-topk` | Model only, prompt advertises the top 8 tools from `LabToolRetriever` (lexical, deterministic) |
 | `R+M` | Production order with a model installed: skills, then rule intent gate, then model, then rule fallback |
 | `M-full-fix`, `M-topk-fix` | Lab-only ablation: `M-full` / `M-topk` with the prompt's `call:function {"arg":"value"}` placeholder replaced by `call:函数名 {"参数名":"值"}` |
@@ -263,9 +263,10 @@ it in a separate commit that says why, and rerun.
   MLX runner (NVFP4 / MXFP8 weights). The app runs LiteRT-LM int4/int8 on a phone CPU or GPU.
   Accuracy is the portable signal. Latency is only useful to compare modes and models with each
   other.
-- The bench models are Qwen 3.5 (2B, 4B) and Gemma 4 (E2B, E4B). The app's shipped action model is
-  the 270M FunctionGemma, which is not in Ollama. These results bound what a stronger local model
-  could do with today's prompts. They do not measure FunctionGemma.
+- The bench models are Qwen 3.5 (2B, 4B) and Gemma 4 (E2B, E4B). The retired pre-PF1 app
+  configuration shipped the 270M FunctionGemma as its action model; it is no longer offered or
+  selected for planning and is not in Ollama. These results bound what a stronger local model could
+  do with the prompts used by this bench. They do not measure FunctionGemma.
 - Ollama applies each model's own chat template. LiteRT-LM applies the template baked into the
   `.litertlm` file. The prompt text, system instruction and parser are identical, but the template
   around them may differ.

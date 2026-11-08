@@ -27,6 +27,7 @@ class AgentRunOptionsTest {
 
         assertTrue(planning.localModelPlansTools())
         assertTrue(planning.copy(localPlanningStrategy = LocalPlanningStrategy.ModelFirst).localModelPlansTools())
+        assertTrue(planning.copy(localPlanningStrategy = LocalPlanningStrategy.RuleFirstGatedModel).localModelPlansTools())
         assertFalse(planning.copy(localPlanningModelPath = null).localModelPlansTools())
         assertFalse(planning.copy(localPlanningStrategy = LocalPlanningStrategy.RuleFirst).localModelPlansTools())
         assertFalse(planning.copy(initialPlanningMode = InitialPlanningMode.RuleFirst).localModelPlansTools())

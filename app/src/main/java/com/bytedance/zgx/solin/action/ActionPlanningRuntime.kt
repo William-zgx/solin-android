@@ -1,8 +1,10 @@
 package com.bytedance.zgx.solin.action
 
+import com.bytedance.zgx.solin.orchestration.collab.StrictJsonScan
 import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
 import com.bytedance.zgx.solin.runtime.LocalCallMetrics
 import com.bytedance.zgx.solin.runtime.LocalEngine
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
 import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.runtime.LocalOneShotUnavailableReason
@@ -39,7 +41,29 @@ interface ActionPlanningRuntime {
     fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
         plan(input, actionModelPath)
 
+    /** Initial-route variant whose model one-shot shares the run's cooperative Stop signal. */
+    fun plan(
+        input: String,
+        actionModelPath: String?,
+        toolSpecs: List<ToolSpec>,
+        cancellation: LocalOneShotCancellation,
+    ): ActionPlanningResult = plan(input, actionModelPath, toolSpecs)
+
     fun parseModelToolOutput(output: String): ModelToolOutputParseResult = ModelToolOutputParseResult.None
+
+    /**
+     * Local-only action-intent gate for the debug RuleFirstGatedModel strategy. This is not an
+     * authorization decision: it can only decline model planning, never approve a tool execution.
+     */
+    fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult =
+        ActionIntentGateResult(open = false, reason = "local_model_action_gate_unsupported")
+
+    /** Initial-route variant whose gate one-shot shares the run's cooperative Stop signal. */
+    fun gateActionIntent(
+        input: String,
+        actionModelPath: String?,
+        cancellation: LocalOneShotCancellation,
+    ): ActionIntentGateResult = gateActionIntent(input, actionModelPath)
 }
 
 data class ActionPlanningResult(
@@ -51,6 +75,12 @@ data class ActionPlanningResult(
     val modelFailureReason: String? = null,
     /** Text-free timing of the model call, when one ran; for the local device bench only. */
     val modelMetrics: LocalCallMetrics? = null,
+)
+
+/** A stable, text-free planner-gate verdict. [reason] is safe to include in a redacted run trace. */
+data class ActionIntentGateResult(
+    val open: Boolean,
+    val reason: String,
 )
 
 sealed class ModelToolOutputParseResult {
@@ -90,18 +120,28 @@ class HybridActionPlanningRuntime(
         classifyIntent(input).isAction
 
     override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-        planWithToolSpecs(input, actionModelPath, toolSpecs = null)
+        planWithToolSpecs(input, actionModelPath, toolSpecs = null, LocalOneShotCancellation())
 
     override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
-        planWithToolSpecs(input, actionModelPath, toolSpecs)
+        planWithToolSpecs(input, actionModelPath, toolSpecs, LocalOneShotCancellation())
+
+    override fun plan(
+        input: String,
+        actionModelPath: String?,
+        toolSpecs: List<ToolSpec>,
+        cancellation: LocalOneShotCancellation,
+    ): ActionPlanningResult = planWithToolSpecs(input, actionModelPath, toolSpecs, cancellation)
 
     private fun planWithToolSpecs(
         input: String,
         actionModelPath: String?,
         toolSpecs: List<ToolSpec>?,
+        cancellation: LocalOneShotCancellation,
     ): ActionPlanningResult {
         if (actionModelPath != null) {
-            val modelAttemptResult = runCatching { modelPlanner.plan(input, actionModelPath, toolSpecs) }
+            val modelAttemptResult = runCatching {
+                modelPlanner.plan(input, actionModelPath, toolSpecs, cancellation)
+            }
             val modelAttempt = modelAttemptResult.getOrNull()
             val modelPlan = modelAttempt?.plan
             if (modelPlan?.kind == ActionPlanKind.Draft && modelPlan.draft != null) {
@@ -139,6 +179,21 @@ class HybridActionPlanningRuntime(
     override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
         rulePlanner.parseModelToolOutput(output)
 
+    override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult =
+        gateActionIntent(input, actionModelPath, LocalOneShotCancellation())
+
+    override fun gateActionIntent(
+        input: String,
+        actionModelPath: String?,
+        cancellation: LocalOneShotCancellation,
+    ): ActionIntentGateResult {
+        if (actionModelPath == null) {
+            return ActionIntentGateResult(open = false, reason = "local_model_action_gate_no_model")
+        }
+        return runCatching { modelPlanner.gateActionIntent(input, actionModelPath, cancellation) }
+            .getOrElse { ActionIntentGateResult(open = false, reason = "local_model_action_gate_error") }
+    }
+
     override fun close() {
         modelPlanner.close()
     }
@@ -150,11 +205,17 @@ private class ModelBackedActionPlanner(
     private val parser: MobileActionPlanner,
     private val toolRegistry: ToolRegistry,
 ) : AutoCloseable {
-    fun plan(input: String, modelPath: String, toolSpecs: List<ToolSpec>?): ModelBackedPlanningAttempt {
+    fun plan(
+        input: String,
+        modelPath: String,
+        toolSpecs: List<ToolSpec>?,
+        cancellation: LocalOneShotCancellation = LocalOneShotCancellation(),
+    ): ModelBackedPlanningAttempt {
         val request = LocalOneShotRequest(
             modelPath = modelPath,
             systemInstruction = ACTION_PLANNER_SYSTEM_INSTRUCTION,
             prompt = actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()),
+            cancellation = cancellation,
         )
         return when (val result = generate(request)) {
             is LocalOneShotResult.Generated -> {
@@ -172,6 +233,27 @@ private class ModelBackedActionPlanner(
                 output = "",
                 failureReason = result.diagnosticReason(),
                 metrics = null,
+            )
+        }
+    }
+
+    fun gateActionIntent(
+        input: String,
+        modelPath: String,
+        cancellation: LocalOneShotCancellation = LocalOneShotCancellation(),
+    ): ActionIntentGateResult {
+        val request = LocalOneShotRequest(
+            modelPath = modelPath,
+            systemInstruction = ACTION_INTENT_GATE_SYSTEM_INSTRUCTION,
+            prompt = JSONObject().put("request", input).toString(),
+            maxOutputTokens = ACTION_INTENT_GATE_MAX_OUTPUT_TOKENS,
+            cancellation = cancellation,
+        )
+        return when (val result = generate(request)) {
+            is LocalOneShotResult.Generated -> parseActionIntentGateResult(result.text)
+            is LocalOneShotResult.Unavailable -> ActionIntentGateResult(
+                open = false,
+                reason = "local_model_action_gate_${result.reason.name.lowercase()}",
             )
         }
     }
@@ -211,7 +293,44 @@ private data class ModelBackedPlanningAttempt(
 )
 
 private const val ACTION_PLANNER_SYSTEM_INSTRUCTION =
-    "你是手机动作规划器。只能输出 call:function {\"arg\":\"value\"}，不解释。"
+    "你是手机动作规划器。只能输出 call:函数名 {\"参数名\":\"值\"}，不解释。"
+
+private const val ACTION_INTENT_GATE_MAX_OUTPUT_TOKENS = 64
+private const val ACTION_INTENT_GATE_MIN_CONFIDENCE = 0.9
+
+/** Suite E `json-prompt`, byte-for-byte; the user prompt is one JSON object with a `request` field. */
+private const val ACTION_INTENT_GATE_SYSTEM_INSTRUCTION =
+    "You decide whether a phone assistant must perform a phone action for the user's request. " +
+        "action = true: the user asks the assistant to do something on the phone now, such as opening an app, " +
+        "setting an alarm, timer or reminder, drafting a message, email, contact or calendar event, " +
+        "calling, searching the web or a map, or changing a setting. " +
+        "action = false: chat, a question the assistant can answer in text, an explanation, a translation, " +
+        "or a request that tells the assistant not to do something.\n\n" +
+        "The user message is a JSON object whose \"request\" field is the request. " +
+        "Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}."
+
+/** Strictly one object with exactly a Boolean action and a numeric confidence in 0..1. */
+private fun parseActionIntentGateResult(raw: String): ActionIntentGateResult {
+    if (StrictJsonScan.firstViolation(raw) != null) {
+        return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
+    }
+    val json = runCatching { JSONObject(raw) }.getOrNull()
+        ?: return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
+    if (json.length() != 2 || !json.has("action") || !json.has("confidence")) {
+        return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
+    }
+    val action = json.opt("action") as? Boolean
+        ?: return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
+    val confidence = (json.opt("confidence") as? Number)?.toDouble()
+        ?.takeIf { value -> value.isFinite() && value in 0.0..1.0 }
+        ?: return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
+    return when {
+        !action -> ActionIntentGateResult(open = false, reason = "local_model_action_gate_no_action")
+        confidence < ACTION_INTENT_GATE_MIN_CONFIDENCE ->
+            ActionIntentGateResult(open = false, reason = "local_model_action_gate_low_confidence")
+        else -> ActionIntentGateResult(open = true, reason = "local_model_action_gate_open")
+    }
+}
 
 private fun MobileActionPlanner.modelOutputFailureReason(output: String): String =
     when (val parseResult = parseModelToolOutput(output)) {
@@ -239,7 +358,7 @@ internal fun actionPrompt(
         spec.toActionPromptLine()
     }
     return """
-        将用户请求转换成一个手机动作调用。只能输出 call:function {"arg":"value"}，不解释。
+        将用户请求转换成一个手机动作调用。只能输出 call:函数名 {"参数名":"值"}（函数名换成下面列表里的一个函数），不解释。
         支持函数如下；参数必须符合对应 JSON schema：
         $toolLines
 

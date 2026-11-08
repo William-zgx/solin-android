@@ -63,7 +63,13 @@ class ModelCatalogTest {
             setOf(ModelCapability.Chat, ModelCapability.MemoryEmbedding),
             basicModels.map { it.capability }.toSet(),
         )
-        assertTrue(ModelCatalog.optionalModels().any { it.id == MOBILE_ACTION_MODEL_ID })
+        assertFalse(ModelCatalog.optionalModels().any { it.id == MOBILE_ACTION_MODEL_ID })
+        assertEquals(listOf("chat-e4b"), ModelCatalog.optionalModels().map { it.id })
+        assertEquals(
+            SetupTier.RetiredInstalledOnly,
+            ModelCatalog.recommendedModelById(MOBILE_ACTION_MODEL_ID).setupTier,
+        )
+        assertEquals(MOBILE_ACTION_MODEL_ID, ModelCatalog.recommendedModelOrNull(MOBILE_ACTION_MODEL_ID)?.id)
         assertEquals(setOf(DEFAULT_CHAT_MODEL_ID), ModelCatalog.defaultSetupModelIds())
         assertNull(ModelCatalog.recommendedModelOrNull("unknown-model-id"))
         assertTrue(ModelCatalog.isChatModel(DEFAULT_CHAT_MODEL_ID))

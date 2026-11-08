@@ -102,9 +102,10 @@ reporting, changes that alter safety policy, and release evidence updates.
 
 For the local model-driven app-search path, these conditions hold:
 
-- A verified local Chat/action-planning model is installed. E2B/E4B Chat models
-  are preferred for observation-to-action planning; the optional low-resource
-  mobile action model is a fallback.
+- A verified local Chat/action-planning model is installed. Only verified
+  E2B/E4B Chat models are eligible for observation-to-action planning. The 270M
+  mobile action model is retired from setup and all planning; an existing install
+  is visibility/deletion-only, labelled `已停用，可删除`, and is never a fallback.
 - The run is attached to a model-driven app-search skill.
 - The previous result includes local-only screen evidence or a validated UI
   action result.

@@ -183,7 +183,7 @@ class MainActivityComprehensiveTest {
         if (!setupVisible) return
         composeRule.onNodeWithTag("first_run_model_chat-e2b").performScrollTo().assertIsOn()
         composeRule.onNodeWithTag("first_run_model_$MEMORY_EMBEDDING_MODEL_ID").performScrollTo().assertIsOff()
-        composeRule.onNodeWithTag("first_run_model_mobile-action-270m").performScrollTo().assertIsOff()
+        composeRule.onNodeWithTag("first_run_model_mobile-action-270m").assertDoesNotExist()
         composeRule.onNodeWithText("稍后再说").performScrollTo().performClick()
         composeRule.waitForTagGone("first_run_setup_panel", timeoutMillis = 5_000)
     }

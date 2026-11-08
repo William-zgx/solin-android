@@ -48,6 +48,9 @@ sealed class AssistantRoute {
     data class MissingModel(
         val capability: ModelCapability,
     ) : AssistantRoute()
+
+    /** The initial route terminalized itself after cooperative Stop; there is no outcome to apply. */
+    data class Cancelled(val runId: String) : AssistantRoute()
 }
 
 interface AssistantRouter : AutoCloseable {

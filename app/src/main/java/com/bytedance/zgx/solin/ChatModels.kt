@@ -411,10 +411,12 @@ data class InstalledModelSummary(
                 verificationStatus == ModelVerificationStatus.VerifiedRecommended)
 
     val capabilityProfile: ModelCapabilityProfile?
-        get() = if (!isUsable) {
-            null
-        } else {
-            recommendedModelId
+        get() {
+            val setupTier = recommendedModelId?.let { modelId ->
+                ModelCatalog.recommendedModelOrNull(modelId)?.setupTier
+            }
+            if (!isUsable || setupTier == SetupTier.RetiredInstalledOnly) return null
+            return recommendedModelId
                 ?.let { modelId -> ModelCatalog.profileForModelIdOrNull(modelId) }
                 ?: ModelCatalog.customLocalChatProfile(displayName)
         }
@@ -518,10 +520,7 @@ data class ChatUiState(
             ?.capabilityProfile
 
     val installedCapabilities: Set<ModelCapability>
-        get() = installedModels
-            .filter { it.isUsable }
-            .map { it.capability }
-            .toSet()
+        get() = installedCapabilityProfiles.map { profile -> profile.capability }.toSet()
 
     val installedCapabilityProfiles: List<ModelCapabilityProfile>
         get() = installedModels.mapNotNull { it.capabilityProfile }

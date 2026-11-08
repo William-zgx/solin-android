@@ -43,6 +43,10 @@ class ActionPlannerEngineRoutingTest {
         assertEquals("the fallback copy is released once chat serves the model", 1, factory.engines.single().closeCount)
         val request = shared.requests.last()
         assertEquals(MODEL, request.modelPath)
+        assertEquals("你是手机动作规划器。只能输出 call:函数名 {\"参数名\":\"值\"}，不解释。", request.systemInstruction)
+        assertFalse(request.systemInstruction.contains("call:function"))
+        assertFalse(request.prompt.contains("call:function"))
+        assertFalse(request.prompt.contains("""{"arg":"value"}"""))
         assertTrue(request.prompt.contains("- $TOOL_NAME "))
     }
 
@@ -120,6 +124,91 @@ class ActionPlannerEngineRoutingTest {
         assertTrue(result.modelAttempted)
         assertEquals("Model tool call arguments must be a JSON object with primitive values", result.modelFailureReason)
         assertEquals(ActionPlanKind.NoAction, result.plan.kind)
+    }
+
+    @Test
+    fun actionIntentGateUsesTheLabJsonPromptAndOpensAtThreshold() {
+        shared.next = generated("""{"action":true,"confidence":0.9}""", LocalEngineSource.SharedChatEngine)
+
+        val result = planner(sharedEngine = shared).gateActionIntent("打开微信", MODEL)
+
+        assertTrue(result.open)
+        assertEquals("local_model_action_gate_open", result.reason)
+        val request = shared.requests.single()
+        assertEquals(MODEL, request.modelPath)
+        assertEquals("""{"request":"打开微信"}""", request.prompt)
+        assertEquals(64, request.maxOutputTokens)
+        assertFalse(request.cancellation.isCancelled)
+        assertEquals(
+            "You decide whether a phone assistant must perform a phone action for the user's request. " +
+                "action = true: the user asks the assistant to do something on the phone now, such as opening an app, " +
+                "setting an alarm, timer or reminder, drafting a message, email, contact or calendar event, " +
+                "calling, searching the web or a map, or changing a setting. " +
+                "action = false: chat, a question the assistant can answer in text, an explanation, a translation, " +
+                "or a request that tells the assistant not to do something.\n\n" +
+                "The user message is a JSON object whose \"request\" field is the request. " +
+                "Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}.",
+            request.systemInstruction,
+        )
+    }
+
+    @Test
+    fun actionIntentGateClosesForNoActionLowConfidenceAndInvalidJson() {
+        val cases = listOf(
+            """{"action":false,"confidence":1.0}""" to "local_model_action_gate_no_action",
+            """{"action":true,"confidence":0.89}""" to "local_model_action_gate_low_confidence",
+            """{"action":true}""" to "local_model_action_gate_invalid_output",
+            """{"action":"true","confidence":1.0}""" to "local_model_action_gate_invalid_output",
+            """{"action":true,"confidence":1.0,"extra":0}""" to "local_model_action_gate_invalid_output",
+            """{"action":true,"confidence":1.1}""" to "local_model_action_gate_invalid_output",
+            "```json\n{\"action\":true,\"confidence\":1.0}\n```" to "local_model_action_gate_invalid_output",
+            """{"action":true,"confidence":1.0} trailing""" to "local_model_action_gate_invalid_output",
+            "not json" to "local_model_action_gate_invalid_output",
+        )
+
+        cases.forEach { (output, expectedReason) ->
+            shared.next = generated(output, LocalEngineSource.SharedChatEngine)
+
+            val result = planner(sharedEngine = shared).gateActionIntent("请求", MODEL)
+
+            assertFalse(output, result.open)
+            assertEquals(output, expectedReason, result.reason)
+        }
+    }
+
+    @Test
+    fun actionIntentGateBusyAndUnavailableEngineFailClosedWithoutLoadingAnotherCopy() {
+        listOf(
+            LocalOneShotUnavailableReason.Busy to "local_model_action_gate_busy",
+            LocalOneShotUnavailableReason.Failed to "local_model_action_gate_failed",
+        ).forEach { (unavailableReason, expectedReason) ->
+            shared.next = LocalOneShotResult.Unavailable(unavailableReason, "private engine detail")
+
+            val result = planner(sharedEngine = shared).gateActionIntent("请求", MODEL)
+
+            assertFalse(result.open)
+            assertEquals(expectedReason, result.reason)
+            assertFalse(result.reason.contains("private engine detail"))
+        }
+        assertTrue(factory.engines.isEmpty())
+    }
+
+    @Test
+    fun actionIntentGateCancelledAndTimeoutFailClosed() {
+        listOf(
+            LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "interrupted") to
+                "local_model_action_gate_cancelled",
+            LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Failed, "one-shot timed out") to
+                "local_model_action_gate_failed",
+        ).forEach { (unavailable, expectedReason) ->
+            shared.next = unavailable
+
+            val result = planner(sharedEngine = shared).gateActionIntent("请求", MODEL)
+
+            assertFalse(result.open)
+            assertEquals(expectedReason, result.reason)
+        }
+        assertTrue(factory.engines.isEmpty())
     }
 
     @Test

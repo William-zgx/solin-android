@@ -53,6 +53,7 @@ import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
 import com.bytedance.zgx.solin.orchestration.toRunDataDestination
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
 import com.bytedance.zgx.solin.resource.StableResourceState
@@ -65,6 +66,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -127,6 +129,7 @@ class ChatController internal constructor(
 ) {
     private var generationJob: Job? = null
     private var activeGenerationRunId: String? = null
+    @Volatile private var activeInitialRouteCancellation: LocalOneShotCancellation? = null
     private val generationStreams = GenerationStreamCoordinator()
     private var nextVoiceInputDraftId = 0L
     private val midRunSteering = ChatMidRunSteering(router = assistantOrchestrator, uiState = uiState)
@@ -300,6 +303,7 @@ class ChatController internal constructor(
         runIds.forEach(deferredAudit::discard)
         activeGenerationRunId = null
         midRunSteering.clear()
+        activeInitialRouteCancellation?.cancel()
         generationJob?.cancel()
         return runIds
     }
@@ -467,14 +471,15 @@ class ChatController internal constructor(
             ?: (stateBeforeSend.inferenceMode == InferenceMode.Local)
         // Lazy: the planning-strategy and model-path reads hit settings and Room, so they must
         // first run inside the generation block on ioDispatcher.
+        val initialRouteCancellation = LocalOneShotCancellation()
         val agentRunOptions by lazy {
-            preparedExecution?.agentRunOptions ?: initialAgentRunOptions(
+            (preparedExecution?.agentRunOptions ?: initialAgentRunOptions(
                 stateBeforeSend,
                 useRemoteModel,
                 remoteConfig,
                 modelRepository::localPlanningStrategy,
                 modelRepository::verifiedObservationActionModelPath,
-            )
+            )).copy(initialRouteCancellation = initialRouteCancellation)
         }
         if (preparedExecution != null && useRemoteModel) {
             val remoteDecision = ChatSendPreflight.preparedRemoteSend(
@@ -592,6 +597,8 @@ class ChatController internal constructor(
                         options = agentRunOptions,
                         installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
                     )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
                 } catch (throwable: Throwable) {
                     solinE(TAG_MODEL, "initial chat route failed", throwable)
                     uiState.update {
@@ -599,6 +606,15 @@ class ChatController internal constructor(
                     }
                     return@generation
                 }
+                if (route is AssistantRoute.Cancelled || initialRouteCancellation.isCancelled) {
+                    // The route normally terminalizes itself at a fixed boundary. If Stop won while
+                    // a blocking call was outside one, repeat the same cleanup with the returned id.
+                    route.runIdOrNull()?.let { runId ->
+                        assistantOrchestrator.cancelRun(runId, USER_STOPPED_AGENT_RUN_REASON)
+                    }
+                    return@generation
+                }
+                currentCoroutineContext().ensureActive()
                 if (preparedExecution == null && route is AssistantRoute.Action && route.runId != null) {
                     if (
                         bindContinuationRun(
@@ -632,6 +648,8 @@ class ChatController internal constructor(
                     )
                 }
                 when (route) {
+                    is AssistantRoute.Cancelled -> return@generation
+
                     is AssistantRoute.Action -> {
                         routeOutcomes.handleAction(route, userMessage, stateBeforeSend)
                         return@generation
@@ -863,7 +881,7 @@ class ChatController internal constructor(
         preparedJob?.let { launched ->
             requireNotNull(preparedJobLaunched) { "Prepared Chat job owner is missing" }(launched)
         }
-        trackGenerationJob(job)
+        trackGenerationJob(job, initialRouteCancellation)
         if (preparedJob == null) job.start()
     }
 
@@ -1279,6 +1297,9 @@ class ChatController internal constructor(
             discardNotice?.let { notice -> uiState.update { it.copy(statusText = notice) } }
             return
         }
+        // Cooperative route cancellation must reach a blocked native one-shot before job.cancel();
+        // no thread is interrupted, including on the release RuleFirst route.
+        activeInitialRouteCancellation?.cancel()
         if (runId != null) {
             chatPlacementRuntime.stop(runId, AgentRunState.Cancelled)
             preparedChatRunCoordinator.cancel(runId)
@@ -1327,13 +1348,15 @@ class ChatController internal constructor(
         job.start()
     }
 
-    private fun trackGenerationJob(job: Job) {
+    private fun trackGenerationJob(job: Job, initialRouteCancellation: LocalOneShotCancellation? = null) {
         generationJob = job
+        activeInitialRouteCancellation = initialRouteCancellation
         uiState.update { it.copy(midRunSteeringAvailable = true) }
         job.invokeOnCompletion {
             if (generationJob == job) {
                 generationJob = null
                 activeGenerationRunId = null
+                activeInitialRouteCancellation = null
                 uiState.update { it.copy(midRunSteeringAvailable = false) }
                 dispatchHeldMidRunMessagesWhenIdle()
             }

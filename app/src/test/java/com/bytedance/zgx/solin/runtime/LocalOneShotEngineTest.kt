@@ -201,7 +201,28 @@ class LocalOneShotEngineTest {
 
         oneShotThread.join(JOIN_TIMEOUT_MS)
         assertUnavailable(LocalOneShotUnavailableReason.Cancelled, result.get())
-        assertEquals(1, factory.allConversations.single().closeCount)
+        val conversation = factory.allConversations.single()
+        assertTrue("dedicated native decode was not cancelled", conversation.cancelCount >= 1)
+        assertEquals(1, conversation.closeCount)
+    }
+
+    @Test
+    fun interruptedDedicatedOneShotCancelsNativeDecodeBeforeClose() {
+        val hang = FakeReply(listOf(LiteRtChunk("half")), hangUntilCancelled = true)
+        factory.reply = { hang }
+        val engine = DedicatedLiteRtEngine(File("/tmp/cache"), factory)
+        val result = AtomicReference<LocalOneShotResult>()
+        val oneShotThread = thread { result.set(engine.generateOneShot(request())) }
+        runBlocking { hang.started.await() }
+
+        oneShotThread.interrupt()
+        oneShotThread.join(JOIN_TIMEOUT_MS)
+
+        assertFalse("interrupted dedicated one-shot is still running", oneShotThread.isAlive)
+        assertUnavailable(LocalOneShotUnavailableReason.Cancelled, result.get())
+        val conversation = factory.allConversations.single()
+        assertTrue("abandoned dedicated decode was not cancelled", conversation.cancelCount >= 1)
+        assertEquals(1, conversation.closeCount)
     }
 
     @Test
@@ -456,6 +477,7 @@ class LocalOneShotEngineTest {
         assertFalse("interrupted one-shot is still running", oneShotThread.isAlive)
         assertUnavailable(LocalOneShotUnavailableReason.Cancelled, result.get())
         val oneShot = factory.allConversations.single { it.spec.isOneShot() }
+        assertTrue(oneShot.cancelCount >= 1)
         assertEquals(1, oneShot.closeCount)
         assertEquals("chat", runtime.chat("after interrupt"))
     }

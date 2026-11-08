@@ -531,14 +531,15 @@ class AgentLoopRuntime(
         options: AgentRunOptions = AgentRunOptions(),
         installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AgentLoopResult {
+        val runOptions = options.withInitialRouteCancellation()
         val createdRun = createRunOrEphemeral(input, sessionId)
         com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.captureForRun(createdRun.id)
         val startedAt = System.currentTimeMillis()
         runStartedAtMillis[createdRun.id] = startedAt
         runTurnIndex[createdRun.id] = 0
-        remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
-        lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = options.reduceDeviceActionConfirmations
-        remoteGuiDrivingEnabledByRunId[createdRun.id] = options.remoteGuiDrivingEnabled
+        remoteToolScopesByRunId[createdRun.id] = runOptions.remoteToolScope
+        lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = runOptions.reduceDeviceActionConfirmations
+        remoteGuiDrivingEnabledByRunId[createdRun.id] = runOptions.remoteGuiDrivingEnabled
         installedCapabilityProfilesByRunId[createdRun.id] = installedCapabilityProfiles.toList()
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
         eventBus.publish(
@@ -555,65 +556,91 @@ class AgentLoopRuntime(
                 occurredAtMillis = startedAt,
             ),
         )
-        val memoryHits = memoryRetrieval.retrieve(input, memoryEnabled).hits
-        traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(memoryHits, deviceContext))
-        traceStore.updateState(createdRun.id, AgentRunState.Planning)
+        try {
+            val memoryHits = memoryRetrieval.retrieve(input, memoryEnabled).hits
+            traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(memoryHits, deviceContext))
+            traceStore.updateState(createdRun.id, AgentRunState.Planning)
 
-        val initialToolPlan = when (options.initialPlanningMode) {
-            InitialPlanningMode.RuleFirst -> initialToolPlanner.planToolIfSupported(
-                input = input,
-                installedCapabilityProfiles = installedCapabilityProfiles,
-                actionModelPath = actionModelPath,
-                remoteGuiDrivingEnabled = options.remoteGuiDrivingEnabled,
-            )
-            InitialPlanningMode.ModelFirstRemoteTools -> initialToolPlanner.planLocalOnlySkillBeforeRemote(input)
-            InitialPlanningMode.LocalModelFirst -> initialToolPlanner.planLocalModelFirst(
-                createdRun.id, input, installedCapabilityProfiles, actionModelPath, options,
-            )
-        }
-        when (initialToolPlan) {
-            is AgentPlan.UseTool -> return toolObservationCoordinator.requestToolConfirmation(createdRun, initialToolPlan)
-
-            is AgentPlan.RejectedTool -> {
-                return failInitialPlanValidation(createdRun.id, initialToolPlan, failedStepMessage = null)
-            }
-
-            is AgentPlan.MissingModel -> {
-                return toolObservationCoordinator.failMissingModelPlan(createdRun, initialToolPlan)
-            }
-
-            else -> Unit
-        }
-
-        traceStore.appendStep(
-            createdRun.id,
-            AgentStep.IntentRouted(
-                IntentRoutingDecision(
+            val initialToolPlan = when (runOptions.initialPlanningMode) {
+                InitialPlanningMode.RuleFirst -> initialToolPlanner.planToolIfSupported(
                     input = input,
-                    selectedPath = IntentRoutingPath.NoAction,
-                    selectedToolName = null,
-                    selectedSkillId = null,
-                    priority = 0,
-                    accepted = false,
-                    confidence = ActionIntentConfidence.None,
-                    rejectionReasons = listOf("no_action_intent_detected"),
-                    requiresConfirmation = null,
+                    installedCapabilityProfiles = installedCapabilityProfiles,
+                    actionModelPath = actionModelPath,
+                    remoteGuiDrivingEnabled = runOptions.remoteGuiDrivingEnabled,
+                )
+                InitialPlanningMode.ModelFirstRemoteTools -> initialToolPlanner.planLocalOnlySkillBeforeRemote(input)
+                InitialPlanningMode.LocalModelFirst -> initialToolPlanner.planLocalModelFirst(
+                    createdRun.id, input, installedCapabilityProfiles, actionModelPath, runOptions,
+                )
+            }
+            runOptions.throwIfInitialRouteCancelled()
+            when (initialToolPlan) {
+                is AgentPlan.UseTool -> {
+                    val confirmation = toolObservationCoordinator.requestToolConfirmation(
+                        createdRun,
+                        initialToolPlan,
+                        runOptions.initialRouteCancellation,
+                    )
+                    runOptions.throwIfInitialRouteCancelled()
+                    return confirmation
+                }
+
+                is AgentPlan.RejectedTool -> {
+                    return failInitialPlanValidation(createdRun.id, initialToolPlan, failedStepMessage = null)
+                }
+
+                is AgentPlan.MissingModel -> {
+                    return toolObservationCoordinator.failMissingModelPlan(createdRun, initialToolPlan)
+                }
+
+                else -> Unit
+            }
+
+            runOptions.throwIfInitialRouteCancelled()
+            traceStore.appendStep(
+                createdRun.id,
+                AgentStep.IntentRouted(
+                    IntentRoutingDecision(
+                        input = input,
+                        selectedPath = IntentRoutingPath.NoAction,
+                        selectedToolName = null,
+                        selectedSkillId = null,
+                        priority = 0,
+                        accepted = false,
+                        confidence = ActionIntentConfidence.None,
+                        rejectionReasons = listOf("no_action_intent_detected"),
+                        requiresConfirmation = null,
+                    ),
                 ),
-            ),
-        )
-        val answerPlan = AgentPlan.Answer(
-            promptForModel = resolvedContextAssembler.assembleAnswerPrompt(input, memoryHits, deviceContext, createdRun),
-            memoryHits = memoryHits,
-            deviceContext = deviceContext,
-        )
-        traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(answerPlan))
-        val generatingRun = traceStore.updateState(createdRun.id, AgentRunState.GeneratingAnswer)
-        markStepStart(createdRun.id, "model_generation")
-        return AgentLoopResult(
-            run = generatingRun,
-            plan = answerPlan,
-            steps = traceStore.steps(createdRun.id),
-        )
+            )
+            runOptions.throwIfInitialRouteCancelled()
+            val answerPlan = AgentPlan.Answer(
+                promptForModel = resolvedContextAssembler.assembleAnswerPrompt(input, memoryHits, deviceContext, createdRun),
+                memoryHits = memoryHits,
+                deviceContext = deviceContext,
+            )
+            runOptions.throwIfInitialRouteCancelled()
+            traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(answerPlan))
+            runOptions.throwIfInitialRouteCancelled()
+            val generatingRun = traceStore.updateState(createdRun.id, AgentRunState.GeneratingAnswer)
+            runOptions.throwIfInitialRouteCancelled()
+            markStepStart(createdRun.id, "model_generation")
+            runOptions.throwIfInitialRouteCancelled()
+            return AgentLoopResult(
+                run = generatingRun,
+                plan = answerPlan,
+                steps = traceStore.steps(createdRun.id),
+            )
+        } catch (_: InitialRouteCancelledException) {
+            val cancellation = cancelRun(createdRun.id)
+            val cancelledRun = cancellation?.run ?: traceStore.run(createdRun.id) ?: createdRun
+            return AgentLoopResult(
+                run = cancelledRun,
+                // The cancelled run state makes this inert: routing never serves or persists it.
+                plan = AgentPlan.Answer(promptForModel = "", memoryHits = emptyList()),
+                steps = cancellation?.steps ?: traceStore.steps(createdRun.id),
+            )
+        }
     }
 
     fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String? = null): AgentLoopResult? {

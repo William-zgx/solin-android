@@ -117,8 +117,9 @@ Choose one setup path in the app:
    `.litertlm` file. Unsupported model capabilities fail closed.
 2. **Remote:** configure an OpenAI-compatible endpoint and model, then select
    Remote mode. Auto can choose an eligible configured endpoint too.
-3. **Model Manager:** inspect installed models, verification, runtime status, and
-   optional memory/action models.
+3. **Model Manager:** inspect installed models, verification, runtime status,
+   optional memory models, and retired action-model installs (visibility/deletion
+   only, labelled `已停用，可删除`).
 
 Downloads wait for Wi-Fi by default. A paused download offers **continue with
 mobile data**, showing the remaining size when known. Downloading alone leaves
@@ -140,8 +141,8 @@ confirmation turned back on, low-risk app control returns to the user at a
 | `ui_find` | Exact target lookup with ambiguity checks; finding does not click |
 | `ui_set_wheel` | Recognized NumberPicker only; the final value must be read back |
 
-Each composite child is authorized again. Local observation planning prefers
-verified E2B/E4B Chat models; the experimental action model is a fallback.
+Each composite child is authorized again. Local observation planning uses only
+verified E2B/E4B Chat models; the retired 270M action model is never selected.
 Continuation is constrained by the expected package and current evidence, with
 conservative fallback when planning is unavailable. Verified route reuse carries
 neither old consent nor old coordinates.
@@ -170,10 +171,12 @@ not proof that its runtime or all capabilities work on a particular device.
 | Default local chat | E2B `.litertlm`, Text+Vision | 2.59 GB |
 | Optional local chat | E4B `.litertlm`, Text+Vision | 3.66 GB |
 | Semantic memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB |
-| Experimental action fallback | mobile-action-270m `.litertlm` | 284 MB |
+| Retired action model (visibility/deletion only) | mobile-action-270m `.litertlm` | 284 MB |
 
-Sizes above use decimal units. Exact bytes, pinned sources, hashes, and manual
-license-review status are in [the model manifest](docs/model_manifest.md).
+The 270M is no longer offered for download or selected for planning; existing
+installs are retained only for visibility and deletion. Sizes above use decimal
+units. Exact bytes, pinned sources, hashes, and manual license-review status are
+in [the model manifest](docs/model_manifest.md).
 Model weights are not committed. Ordinary public artifacts do not bundle them;
 the [internal bundledModels package](docs/bundled_model_package.md) has separate
 build, install, and redistribution requirements.

@@ -5,13 +5,16 @@ import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
+import com.bytedance.zgx.solin.action.ActionIntentGateResult
 import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.IntentRoutingDecision
 import com.bytedance.zgx.solin.action.IntentRoutingPath
+import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.startsWithActionNegation
 import com.bytedance.zgx.solin.logging.solinW
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
@@ -30,6 +33,7 @@ import com.bytedance.zgx.solin.tool.ToolRetriever
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.isFirstStepPlanningCandidate
 import com.bytedance.zgx.solin.tool.rejected
+import java.util.Locale
 
 private const val TAG = "InitialToolPlanner"
 
@@ -73,16 +77,6 @@ internal class InitialToolPlanner(
     private val actionPlanningRuntime: ActionPlanningRuntime,
     private val traceStore: AgentTraceStore,
 ) {
-    /**
-     * [InitialPlanningMode.LocalModelFirst]: a verified on-device model may choose the first tool
-     * from a retrieved shortlist, and its choice passes the same registry and safety gates as a rule
-     * draft. It skips RuleFirst's intent-classifier precondition, so it only ever tightens: the
-     * proposed step always asks the user ([CriticalApprovalReason.LocalModelProposedStep]), and a
-     * request that starts with a negation ("别启动微信") never reaches the model. Every failure
-     * yields exactly the [InitialPlanningMode.RuleFirst] plan: no verified planning model, an empty
-     * shortlist, a model error, unparseable output, a tool outside the shortlist, invalid arguments,
-     * or a registry or safety rejection.
-     */
     fun planLocalModelFirst(
         runId: String,
         input: String,
@@ -90,33 +84,78 @@ internal class InitialToolPlanner(
         actionModelPath: String?,
         options: AgentRunOptions,
     ): AgentPlan? {
+        val runOptions = options.withInitialRouteCancellation()
+        val cancellation = requireNotNull(runOptions.initialRouteCancellation)
+        runOptions.throwIfInitialRouteCancelled()
         val planRuleFirst = {
-            planToolIfSupported(input, installedCapabilityProfiles, actionModelPath, options.remoteGuiDrivingEnabled)
+            planToolIfSupported(
+                input,
+                installedCapabilityProfiles,
+                actionModelPath,
+                runOptions.remoteGuiDrivingEnabled,
+            )
         }
-        val modelPath = options.localPlanningModelPath
-            ?.takeIf { options.localModelPlansTools() && hasMobileActionPlanningModel(installedCapabilityProfiles) }
+        val modelPath = runOptions.localPlanningModelPath
+            ?.takeIf { runOptions.localModelPlansTools() && hasMobileActionPlanningModel(installedCapabilityProfiles) }
             ?: return planRuleFirst()
-        // The rules decline a negated request; a model that matched its verb must not act on it.
-        if (input.startsWithActionNegation()) return planRuleFirst()
-        val strategy = options.localPlanningStrategy
-        if (strategy == LocalPlanningStrategy.ModelFirstWithRuleFastPath) {
+        val strategy = runOptions.localPlanningStrategy
+        var gateReason: String? = null
+        if (strategy == LocalPlanningStrategy.RuleFirstGatedModel) {
+            // Rules keep every plan they already understand. Only a rule-gap request reaches the gate.
             planRuleFirst()?.let { rulePlan -> return rulePlan }
+            if (input.startsWithActionNegation()) return null
+            val modelInput = input.initialSequentialActionInput() ?: input
+            runOptions.throwIfInitialRouteCancelled()
+            val gate = runCatching {
+                actionPlanningRuntime.gateActionIntent(modelInput, modelPath, cancellation)
+            }.getOrElse { throwable ->
+                solinW(TAG, "local action-intent gate failed: ${throwable.javaClass.simpleName}")
+                ActionIntentGateResult(
+                    open = false,
+                    reason = "local_model_action_gate_error",
+                )
+            }
+            runOptions.throwIfInitialRouteCancelled()
+            if (!gate.open) {
+                recordLocalModelProposal(
+                    runId,
+                    strategy,
+                    LocalModelProposal(LocalModelOutcome.NoTool, gate.reason, retrievedToolNames = null),
+                )
+                return null
+            }
+            gateReason = gate.reason
+        } else {
+            // The rules decline a negated request; a model that matched its verb must not act on it.
+            if (input.startsWithActionNegation()) return planRuleFirst()
+            if (strategy == LocalPlanningStrategy.ModelFirstWithRuleFastPath) {
+                planRuleFirst()?.let { rulePlan -> return rulePlan }
+            }
         }
-        val proposal = proposeLocalModelTool(input, modelPath)
-        recordLocalModelProposal(runId, strategy, proposal)
-        return when (proposal.outcome) {
-            LocalModelOutcome.Accepted -> proposal.plan
+        runOptions.throwIfInitialRouteCancelled()
+        val proposal = proposeLocalModelTool(
+            input = input,
+            modelPath = modelPath,
+            dropWebSearchWithoutExplicitVerb = strategy == LocalPlanningStrategy.RuleFirstGatedModel,
+            cancellation = cancellation,
+        )
+        runOptions.throwIfInitialRouteCancelled()
+        val tracedProposal = proposal.copy(gateReason = gateReason)
+        recordLocalModelProposal(runId, strategy, tracedProposal)
+        return when (tracedProposal.outcome) {
+            LocalModelOutcome.Accepted -> tracedProposal.plan
             LocalModelOutcome.NoTool -> null
-            // The fast path already ran the rules and they planned nothing.
+            // The fast path and gated strategy already ran the rules and they planned nothing.
             LocalModelOutcome.Failed -> if (strategy == LocalPlanningStrategy.ModelFirst) planRuleFirst() else null
         }
     }
 
-    /**
-     * One model call over the retrieved tools. A multi-step request is planned one segment at a
-     * time, the way the rule planner does, so the model only sees the first segment.
-     */
-    private fun proposeLocalModelTool(input: String, modelPath: String): LocalModelProposal {
+    private fun proposeLocalModelTool(
+        input: String,
+        modelPath: String,
+        dropWebSearchWithoutExplicitVerb: Boolean = false,
+        cancellation: LocalOneShotCancellation,
+    ): LocalModelProposal {
         val segment = input.initialSequentialActionInput()
         val modelInput = segment ?: input
         val retrieved = ToolRetriever.retrieve(
@@ -124,7 +163,11 @@ internal class InitialToolPlanner(
             candidates = toolRegistry.specs().filter { spec ->
                 spec.isFirstStepPlanningCandidate() && spec.name != LOCAL_MODEL_NO_TOOL_CHOICE
             },
-        )
+        ).filterNot { spec ->
+            dropWebSearchWithoutExplicitVerb &&
+                spec.name == MobileActionFunctions.WEB_SEARCH &&
+                !modelInput.hasExplicitSearchVerb()
+        }
         val retrievedNames = retrieved.map { spec -> spec.name }
         fun failed(reason: String, toolName: String? = null, output: String? = null) =
             LocalModelProposal(LocalModelOutcome.Failed, reason, retrievedNames, toolName, output)
@@ -133,7 +176,7 @@ internal class InitialToolPlanner(
         // HybridActionPlanningRuntime reports an engine error in its result, but its rule fallback
         // runs outside that catch, and the interface promises nothing, so a throw still fails closed.
         val result = runCatching {
-            actionPlanningRuntime.plan(modelInput, modelPath, retrieved + noToolChoiceSpec)
+            actionPlanningRuntime.plan(modelInput, modelPath, retrieved + noToolChoiceSpec, cancellation)
         }.getOrElse { throwable ->
             solinW(TAG, "local planning model failed: ${throwable.javaClass.simpleName}")
             return failed("local_model_planning_error")
@@ -198,10 +241,11 @@ internal class InitialToolPlanner(
             rejectionReasons = listOfNotNull(
                 proposal.reason,
                 "strategy=${strategy.name}",
-                "retrieved_count=${proposal.retrievedToolNames.size}",
+                proposal.gateReason,
+                proposal.retrievedToolNames?.let { names -> "retrieved_count=${names.size}" },
                 proposal.output?.let { shape -> "output=$shape" },
                 proposal.plan?.let { plan -> localModelProposedRequestTag(plan.request.id) },
-            ) + proposal.retrievedToolNames.map { name -> "retrieved=$name" },
+            ) + proposal.retrievedToolNames.orEmpty().map { name -> "retrieved=$name" },
             // An accepted proposal always asks: CriticalApprovalReason.LocalModelProposedStep.
             requiresConfirmation = if (accepted) true else null,
         )
@@ -437,10 +481,11 @@ private enum class LocalModelOutcome { Accepted, NoTool, Failed }
 private data class LocalModelProposal(
     val outcome: LocalModelOutcome,
     val reason: String,
-    val retrievedToolNames: List<String>,
+    val retrievedToolNames: List<String>?,
     val toolName: String? = null,
     val output: String? = null,
     val plan: AgentPlan.UseTool? = null,
+    val gateReason: String? = null,
 )
 
 private val modelCallHead = Regex("""call:([A-Za-z0-9_]+)""")
@@ -485,6 +530,16 @@ private fun ActionPlanningResult.localModelFailureReason(): String {
         else -> "local_model_unparsed_output"
     }
 }
+
+private fun String.hasExplicitSearchVerb(): Boolean {
+    val normalized = lowercase(Locale.ROOT)
+    return EXPLICIT_SEARCH_VERBS.any(normalized::contains)
+}
+
+/** RuleFirstGatedModel candidate filter only; it removes web_search and never adds a capability. */
+private val EXPLICIT_SEARCH_VERBS = listOf(
+    "搜索", "搜一下", "搜搜", "查一下", "查查", "百度", "谷歌", "google", "search", "look up",
+)
 
 /** Parser reasons for output it read but could not turn into a draft. */
 private val PARSER_REJECTIONS_OF_READ_OUTPUT = setOf("Invalid model tool call format", "model_tool_call_not_accepted")

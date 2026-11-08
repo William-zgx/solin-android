@@ -6,15 +6,26 @@ import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.ModelFeature
 import com.bytedance.zgx.solin.ModelInputModality
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.action.ActionIntentGateResult
 import com.bytedance.zgx.solin.action.ActionPlan
 import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
+import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.memory.MemoryRepository
+import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
+import com.bytedance.zgx.solin.runtime.FakeLiteRtFactory
+import com.bytedance.zgx.solin.runtime.LocalAccelerator
+import com.bytedance.zgx.solin.runtime.LocalCallMetrics
+import com.bytedance.zgx.solin.runtime.LocalEngine
+import com.bytedance.zgx.solin.runtime.LocalEngineCapabilities
+import com.bytedance.zgx.solin.runtime.LocalEngineSource
+import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
+import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillManifest
@@ -31,6 +42,7 @@ import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.isFirstStepPlanningCandidate
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -113,6 +125,188 @@ class LocalModelFirstPlanningTest {
     }
 
     @Test
+    fun ruleFirstGatedModelKeepsARulePlanWithoutCallingTheGateOrPlanner() {
+        val runtime = ScriptedPlanningRuntime(modelOutput = ALARM_CALL)
+        val planner = planner(runtime)
+
+        val plan = planner.planLocalModelFirst(
+            runId(RULE_HIT_REQUEST),
+            RULE_HIT_REQUEST,
+            ACTION_MODEL_PROFILES,
+            null,
+            localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+        )
+
+        assertEquals(
+            planner.planToolIfSupported(RULE_HIT_REQUEST, ACTION_MODEL_PROFILES, actionModelPath = null).shape(),
+            plan.shape(),
+        )
+        assertTrue(runtime.gateInputs.isEmpty())
+        assertEquals(0, runtime.modelCallCount)
+    }
+
+    @Test
+    fun ruleFirstGatedModelAcceptedProposalKeepsLocalModelProvenanceAndAlwaysAsks() {
+        val runtime = ScriptedPlanningRuntime(
+            modelOutput = """call:open_app_by_name{"appName":"小红书"}""",
+        )
+        val actualRunId = runId(OPEN_APP_REQUEST)
+
+        val plan = planner(runtime).planLocalModelFirst(
+            actualRunId,
+            OPEN_APP_REQUEST,
+            ACTION_MODEL_PROFILES,
+            null,
+            localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+        )
+
+        require(plan is AgentPlan.UseTool)
+        assertTrue(plan.plannedByModel)
+        assertEquals(listOf(OPEN_APP_REQUEST), runtime.gateInputs)
+        assertEquals(listOf(OPEN_APP_REQUEST), runtime.modelInputs)
+        val registry = ToolRegistry()
+        val policy = ConfirmationBypassPolicy(
+            toolRegistry = registry,
+            traceStore = traceStore,
+            traceQueries = AgentTraceQueries(traceStore),
+            isCriticalOnlyConfirmationEnabled = { true },
+        )
+        assertEquals(
+            CriticalApprovalReason.LocalModelProposedStep,
+            policy.criticalApprovalReason(actualRunId, plan.request),
+        )
+        assertFalse(policy.isAutoApproved(actualRunId, plan.request))
+        val decision = localModelDecision(actualRunId)
+        assertTrue(decision.rejectionReasons.contains("local_model_action_gate_open"))
+        assertTrue(decision.rejectionReasons.contains(localModelProposedRequestTag(plan.request.id)))
+    }
+
+    @Test
+    fun ruleFirstGatedModelClosedInvalidUnavailableAndBusyGatesMeanNoTool() {
+        listOf(
+            "local_model_action_gate_no_action",
+            "local_model_action_gate_invalid_output",
+            "local_model_action_gate_failed",
+            "local_model_action_gate_busy",
+        ).forEach { gateReason ->
+            val runtime = ScriptedPlanningRuntime(
+                modelOutput = ALARM_CALL,
+                gateResult = ActionIntentGateResult(open = false, reason = gateReason),
+            )
+            val actualRunId = runId(ALARM_REQUEST)
+
+            val plan = planner(runtime).planLocalModelFirst(
+                actualRunId,
+                ALARM_REQUEST,
+                ACTION_MODEL_PROFILES,
+                null,
+                localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+            )
+
+            assertNull(gateReason, plan)
+            assertEquals(listOf(ALARM_REQUEST), runtime.gateInputs)
+            assertEquals(0, runtime.modelCallCount)
+            val reasons = localModelDecision(actualRunId).rejectionReasons
+            assertTrue(reasons.toString(), gateReason in reasons)
+            assertTrue(reasons.toString(), reasons.none { reason -> ALARM_REQUEST in reason })
+        }
+    }
+
+    @Test
+    fun ruleFirstGatedModelRejectsNonJsonSyntaxWithoutCallingToolPlanner() {
+        val malformedOutputs = listOf(
+            """{action:true,confidence:0.9}""",
+            """{'action':true,'confidence':0.9}""",
+            """{"action":true,"confidence":0.9,}""",
+            """{"action":true;"confidence":0.9}""",
+            """{"action":true=>"confidence":0.9}""",
+            """{"action":false,"action":true,"confidence":0.9}""",
+            "﻿{\"action\":true,\"confidence\":0.9}",
+            "// comment\n{\"action\":true,\"confidence\":0.9}",
+        )
+        val engine = ScriptedGateEngine()
+        val gateRuntime = HybridActionPlanningRuntime(
+            fallbackEngine = DedicatedLiteRtEngine(
+                Files.createTempDirectory("strict-action-gate").toFile(),
+                FakeLiteRtFactory(),
+            ),
+            sharedEngine = engine,
+        )
+
+        try {
+            malformedOutputs.forEach { output ->
+                engine.output = output
+                val runtime = ScriptedPlanningRuntime(
+                    modelOutput = ALARM_CALL,
+                    gateDelegate = gateRuntime,
+                )
+                val actualRunId = runId(ALARM_REQUEST)
+
+                val plan = planner(runtime).planLocalModelFirst(
+                    actualRunId,
+                    ALARM_REQUEST,
+                    ACTION_MODEL_PROFILES,
+                    null,
+                    localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+                )
+
+                assertNull(output, plan)
+                assertEquals(output, listOf(ALARM_REQUEST), runtime.gateInputs)
+                assertEquals(output, 0, runtime.modelCallCount)
+                val reasons = localModelDecision(actualRunId).rejectionReasons
+                assertTrue(output, "local_model_action_gate_invalid_output" in reasons)
+            }
+        } finally {
+            gateRuntime.close()
+        }
+    }
+
+    @Test
+    fun ruleFirstGatedModelFiltersWebSearchUnlessTheRequestHasASearchVerb() {
+        val implicitSearch = "最新 AI 新闻"
+        val implicitRuntime = ScriptedPlanningRuntime(
+            modelOutput = """call:web_search{"query":"AI 新闻"}""",
+        )
+        val implicitRunId = runId(implicitSearch)
+
+        val implicitPlan = planner(implicitRuntime).planLocalModelFirst(
+            implicitRunId,
+            implicitSearch,
+            ACTION_MODEL_PROFILES,
+            null,
+            localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+        )
+
+        assertNull(implicitPlan)
+        assertEquals(1, implicitRuntime.gateInputs.size)
+        assertEquals(0, implicitRuntime.modelCallCount)
+        val implicitReasons = localModelDecision(implicitRunId).rejectionReasons
+        assertTrue("local_model_no_tool_retrieved" in implicitReasons)
+        assertTrue(implicitReasons.none { reason -> reason == "retrieved=web_search" })
+
+        val explicitSearch = "搜索最新 AI 新闻"
+        val explicitRuntime = ScriptedPlanningRuntime(
+            modelOutput = """call:web_search{"query":"AI 新闻"}""",
+        )
+
+        val explicitPlan = planner(explicitRuntime).planLocalModelFirst(
+            runId(explicitSearch),
+            explicitSearch,
+            ACTION_MODEL_PROFILES,
+            null,
+            localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+        )
+
+        require(explicitPlan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, explicitPlan.request.toolName)
+        assertEquals(1, explicitRuntime.gateInputs.size)
+        assertEquals(1, explicitRuntime.modelCallCount)
+        assertTrue(
+            explicitRuntime.offeredToolSpecs.single().any { spec -> spec.name == MobileActionFunctions.WEB_SEARCH },
+        )
+    }
+
+    @Test
     fun aModelToolPassesTheRegistryAndSafetyAndStillNeedsConfirmation() {
         LocalPlanningStrategy.entries.filter { it != LocalPlanningStrategy.RuleFirst }.forEach { strategy ->
             val runtime = ScriptedPlanningRuntime(modelOutput = ALARM_CALL)
@@ -186,7 +380,11 @@ class LocalModelFirstPlanningTest {
 
         failingModels.forEach { (case, runtime, slug) ->
             val planner = planner(runtime)
-            listOf(LocalPlanningStrategy.ModelFirstWithRuleFastPath, LocalPlanningStrategy.ModelFirst).forEach { strategy ->
+            listOf(
+                LocalPlanningStrategy.ModelFirstWithRuleFastPath,
+                LocalPlanningStrategy.RuleFirstGatedModel,
+                LocalPlanningStrategy.ModelFirst,
+            ).forEach { strategy ->
                 listOf(RULE_HIT_REQUEST, ALARM_REQUEST, OPEN_APP_REQUEST).forEach { input ->
                     val actualRunId = runId(input)
                     assertEquals(
@@ -228,6 +426,7 @@ class LocalModelFirstPlanningTest {
     fun theNoToolChoiceAnswersWithoutATool() {
         val modelFirstRuntime = ScriptedPlanningRuntime(modelOutput = "call:answer{}")
         val fastPathRuntime = ScriptedPlanningRuntime(modelOutput = "call:answer{}")
+        val gatedRuntime = ScriptedPlanningRuntime(modelOutput = "call:answer{}")
 
         assertNull(
             planner(modelFirstRuntime).planLocalModelFirst(
@@ -247,8 +446,19 @@ class LocalModelFirstPlanningTest {
                 localModelFirst(LocalPlanningStrategy.ModelFirstWithRuleFastPath),
             ),
         )
+        assertNull(
+            planner(gatedRuntime).planLocalModelFirst(
+                runId(ALARM_REQUEST),
+                ALARM_REQUEST,
+                ACTION_MODEL_PROFILES,
+                null,
+                localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+            ),
+        )
         assertEquals(1, modelFirstRuntime.modelCallCount)
         assertEquals(1, fastPathRuntime.modelCallCount)
+        assertEquals(1, gatedRuntime.modelCallCount)
+        assertEquals(1, gatedRuntime.gateInputs.size)
     }
 
     @Test
@@ -377,7 +587,11 @@ class LocalModelFirstPlanningTest {
     @Test
     fun aNegatedRequestNeverReachesThePlanningModel() {
         listOf("别启动微信", "不要分享我的号码给别人").forEach { request ->
-            listOf(LocalPlanningStrategy.ModelFirstWithRuleFastPath, LocalPlanningStrategy.ModelFirst).forEach { strategy ->
+            listOf(
+                LocalPlanningStrategy.ModelFirstWithRuleFastPath,
+                LocalPlanningStrategy.RuleFirstGatedModel,
+                LocalPlanningStrategy.ModelFirst,
+            ).forEach { strategy ->
                 val runtime = ScriptedPlanningRuntime(modelOutput = """call:open_app_by_name{"appName":"微信"}""")
                 val planner = planner(runtime)
                 assertEquals(
@@ -387,6 +601,7 @@ class LocalModelFirstPlanningTest {
                         .shape(),
                 )
                 assertEquals("$request / $strategy", 0, runtime.modelCallCount)
+                assertEquals("$request / $strategy", 0, runtime.gateInputs.size)
             }
         }
     }
@@ -588,14 +803,25 @@ class LocalModelFirstPlanningTest {
         /** An exception that escapes the runtime, which the planner must still fail closed on. */
         private val modelThrows: Throwable? = null,
         private val ruleDrafts: Map<String, ActionDraft> = mapOf(RULE_HIT_REQUEST to RULE_HIT_DRAFT),
+        private val gateResult: ActionIntentGateResult = ActionIntentGateResult(
+            open = true,
+            reason = "local_model_action_gate_open",
+        ),
+        private val gateDelegate: ActionPlanningRuntime? = null,
         toolRegistry: ToolRegistry = ToolRegistry(),
     ) : ActionPlanningRuntime {
         private val parser = MobileActionPlanner(toolRegistry = toolRegistry)
         val modelInputs = mutableListOf<String>()
         val offeredToolSpecs = mutableListOf<List<ToolSpec>>()
+        val gateInputs = mutableListOf<String>()
         val modelCallCount: Int get() = modelInputs.size
 
         override fun isLikelyAction(input: String): Boolean = input in ruleDrafts
+
+        override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult {
+            gateInputs += input
+            return gateDelegate?.gateActionIntent(input, actionModelPath) ?: gateResult
+        }
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
             ActionPlanningResult(plan = rulePlan(input), usedModel = false, fallbackReason = null)
@@ -644,6 +870,27 @@ class LocalModelFirstPlanningTest {
         private fun rulePlan(input: String): ActionPlan =
             ruleDrafts[input]?.let { draft -> ActionPlan(ActionPlanKind.Draft, draft) }
                 ?: ActionPlan(ActionPlanKind.NoAction)
+    }
+
+    private class ScriptedGateEngine : LocalEngine {
+        var output: String = ""
+
+        override fun engineCapabilities() =
+            LocalEngineCapabilities("fake", setOf(LocalAccelerator.CPU), 8_192)
+
+        override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult =
+            LocalOneShotResult.Generated(
+                text = output,
+                metrics = LocalCallMetrics(
+                    source = LocalEngineSource.SharedChatEngine,
+                    accelerator = LocalAccelerator.CPU,
+                    loadMs = null,
+                    firstTokenMs = 5,
+                    totalMs = 10,
+                    inputTokens = null,
+                    outputTokens = null,
+                ),
+            )
     }
 
     private companion object {

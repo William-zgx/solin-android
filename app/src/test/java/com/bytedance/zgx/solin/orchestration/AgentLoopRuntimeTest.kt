@@ -1,6 +1,8 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.ChatMessage
+import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
@@ -27,6 +29,7 @@ import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
 import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.data.AgentStepEntity
+import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.device.DEVICE_CONTROL_METADATA_POLICY
 import com.bytedance.zgx.solin.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
@@ -479,34 +482,53 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun localModelActionToolCallWithoutMobileActionProfileFailsClosed() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = false,
-            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}"""),
-        )
-        val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
-        )
-        val result = runtime.runOnce(
-            input = "准备分享一段文字",
-            installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+        val states = listOf(
+            "empty" to ChatUiState(),
+            "retired 270M only" to ChatUiState(
+                installedModels = listOf(
+                    InstalledModelSummary(
+                        id = "retired-action",
+                        displayName = "Retired action model",
+                        path = "/tmp/retired-action.litertlm",
+                        fileBytes = 1L,
+                        recommendedModelId = MOBILE_ACTION_MODEL_ID,
+                        verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                    ),
+                ),
+            ),
         )
 
-        val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"draft"}""")
+        states.forEach { (label, state) ->
+            val actionRuntime = RecordingActionRuntime(
+                likelyAction = false,
+                modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}"""),
+            )
+            val runtime = agentLoopRuntime(
+                actionPlanningRuntime = actionRuntime,
+            )
+            val result = runtime.runOnce(
+                input = "准备分享一段文字",
+                installedCapabilities = state.installedCapabilities,
+                memoryEnabled = false,
+                installedCapabilityProfiles = state.installedCapabilityProfiles,
+            )
 
-        requireNotNull(observed)
-        assertEquals(AgentRunState.Failed, observed.run.state)
-        require(observed.decision is AgentObservationDecision.Fail)
-        assertTrue(observed.decision.reason.contains("Missing model capability MobileAction"))
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ModelPlanned &&
-                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
-        })
-        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-            step.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
-        assertEquals(null, runtime.latestPendingConfirmation())
-        assertEquals(1, actionRuntime.parseModelToolOutputCallCount)
+            val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"draft"}""")
+
+            requireNotNull(observed)
+            assertEquals(label, AgentRunState.Failed, observed.run.state)
+            require(observed.decision is AgentObservationDecision.Fail)
+            assertTrue(label, observed.decision.reason.contains("Missing model capability MobileAction"))
+            assertTrue(label, observed.steps.any { step ->
+                step is AgentStep.ModelPlanned &&
+                    step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+            })
+            assertTrue(label, observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.toolName == MobileActionFunctions.SHARE_TEXT
+            })
+            assertEquals(label, null, runtime.latestPendingConfirmation())
+            assertEquals(label, 1, actionRuntime.parseModelToolOutputCallCount)
+        }
     }
 
     @Test

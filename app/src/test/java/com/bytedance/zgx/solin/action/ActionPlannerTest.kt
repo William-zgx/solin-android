@@ -231,6 +231,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun actionPromptUsesNamedSlotsInsteadOfAToolLookingPlaceholder() {
+        val prompt = actionPrompt("测试")
+
+        assertFalse(prompt.contains("call:function"))
+        assertFalse(prompt.contains("""{"arg":"value"}"""))
+        assertTrue(prompt.contains("""call:函数名 {"参数名":"值"}（函数名换成下面列表里的一个函数）"""))
+        val advertisedTools = ToolRegistry().specs().mapTo(mutableSetOf()) { spec -> spec.name }
+        val exampleCalls = Regex("""call:([A-Za-z0-9_]+)""").findAll(prompt).map { it.groupValues[1] }
+        assertTrue(exampleCalls.all { toolName -> toolName in advertisedTools })
+        assertTrue(planner.parseModelOutput("""call:web_search{"query":"Kotlin"}""") != null)
+    }
+
+    @Test
     fun actionPromptDerivesSupportedToolsFromRegistry() {
         val prompt = actionPrompt("测试")
 

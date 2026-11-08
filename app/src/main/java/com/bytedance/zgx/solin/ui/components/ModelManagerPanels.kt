@@ -173,7 +173,7 @@ internal fun ModelInventoryPanel(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionTitle(
                     text = "可选模型",
-                    subtitle = "用于高质量对话或低资源实验动作规划，不参与首装默认下载。",
+                    subtitle = "用于高质量对话，不参与首装默认下载。",
                 )
                 state.optionalModels.forEachIndexed { index, model ->
                     if (index > 0) SheetRowDivider()
@@ -431,7 +431,7 @@ internal fun RecommendedModelCard(
         model.capability == ModelCapability.MemoryEmbedding ->
             memoryModelStatusText(installed, state.semanticMemory.runtimeStatus)
 
-        installed && model.capability == ModelCapability.MobileAction -> "低资源实验已安装"
+        installed && model.capability == ModelCapability.MobileAction -> "已停用，可删除"
         installed -> "已安装"
         model.setupTier == SetupTier.BasicRecommended -> "基础包"
         model.setupTier == SetupTier.OptionalExperimental -> "实验可选"

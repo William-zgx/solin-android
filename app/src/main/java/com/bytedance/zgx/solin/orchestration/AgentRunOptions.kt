@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
+
 data class AgentRunOptions(
     val initialPlanningMode: InitialPlanningMode = InitialPlanningMode.RuleFirst,
     val remoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
@@ -19,12 +21,28 @@ data class AgentRunOptions(
      * fails closed: the run is planned exactly as [InitialPlanningMode.RuleFirst].
      */
     val localPlanningModelPath: String? = null,
+    /** One cooperative Stop signal shared by this initial route and its local one-shots. */
+    val initialRouteCancellation: LocalOneShotCancellation? = null,
 ) {
     /** Whether a verified on-device model may propose this run's first tool. */
     fun localModelPlansTools(): Boolean =
         initialPlanningMode == InitialPlanningMode.LocalModelFirst &&
             localPlanningStrategy != LocalPlanningStrategy.RuleFirst &&
             localPlanningModelPath != null
+}
+
+internal fun AgentRunOptions.withInitialRouteCancellation(): AgentRunOptions =
+    if (initialRouteCancellation != null) this else copy(
+        initialRouteCancellation = LocalOneShotCancellation(),
+    )
+
+internal fun AgentRunOptions.throwIfInitialRouteCancelled() =
+    initialRouteCancellation.throwIfInitialRouteCancelled()
+
+internal class InitialRouteCancelledException : RuntimeException("Initial route cancelled")
+
+internal fun LocalOneShotCancellation?.throwIfInitialRouteCancelled() {
+    if (this?.isCancelled == true) throw InitialRouteCancelledException()
 }
 
 enum class InitialPlanningMode {
@@ -50,6 +68,12 @@ enum class LocalPlanningStrategy {
 
     /** The rules plan first; the model is asked only when they plan nothing. */
     ModelFirstWithRuleFastPath,
+
+    /**
+     * Rules first, then a negation guard and a high-confidence local action-intent gate. Only an
+     * open gate reaches the ordinary retrieved-tool proposal path; every closed/error result is chat.
+     */
+    RuleFirstGatedModel,
 
     /**
      * The model is asked first on every turn and its choice, including "answer without a tool",

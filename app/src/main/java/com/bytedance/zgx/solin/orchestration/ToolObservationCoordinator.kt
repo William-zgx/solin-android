@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.audit.ToolAuditEventType
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.orchestration.ToolErrorCode as OrchestrationToolErrorCode
@@ -791,6 +792,7 @@ internal class ToolObservationCoordinator(
     fun requestToolConfirmation(
         run: AgentRun,
         plan: AgentPlan.UseTool,
+        cancellation: LocalOneShotCancellation? = null,
     ): AgentLoopResult {
         val effectivePlan = confirmationBypassPolicy.withConfirmationBypass(run.id, plan)
         if (runBudget.toolStepBudgetExceeded(run.id)) {
@@ -808,6 +810,9 @@ internal class ToolObservationCoordinator(
         if (effectivePlan.requiresUserConfirmation()) {
             traceStore.savePendingConfirmation(pendingConfirmationSupport.toPendingSnapshot(effectivePlan, waitingRun))
         }
+        // Stop may win just after the snapshot becomes restorable. The initial route catches this,
+        // runs the ordinary cancellation path, and clears the snapshot before returning.
+        cancellation.throwIfInitialRouteCancelled()
         return AgentLoopResult(
             run = waitingRun,
             plan = effectivePlan,

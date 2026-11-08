@@ -5,6 +5,8 @@ import android.app.DownloadManager
 import android.net.Uri
 import android.provider.Settings
 import com.bytedance.zgx.solin.action.ActionDraft
+import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
+import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.audit.ToolAuditLog
@@ -91,11 +93,20 @@ import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
+import com.bytedance.zgx.solin.presentation.ChatController
 import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.ChatServingCall
 import com.bytedance.zgx.solin.resource.StableResourceBand
 import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.resource.ThermalPressure
+import com.bytedance.zgx.solin.runtime.LocalAccelerator
+import com.bytedance.zgx.solin.runtime.LocalCallMetrics
+import com.bytedance.zgx.solin.runtime.LocalEngine
+import com.bytedance.zgx.solin.runtime.LocalEngineCapabilities
+import com.bytedance.zgx.solin.runtime.LocalEngineSource
+import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
+import com.bytedance.zgx.solin.runtime.LocalOneShotResult
+import com.bytedance.zgx.solin.runtime.LocalOneShotUnavailableReason
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
@@ -116,6 +127,7 @@ import com.bytedance.zgx.solin.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -127,10 +139,13 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -138,6 +153,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -1506,7 +1522,8 @@ class SolinViewModelTest {
 
         assertEquals(1, assistantRouter.routeCallCount)
         assertEquals(
-            listOf(DEFAULT_CHAT_MODEL_ID, MOBILE_ACTION_MODEL_ID),
+            "retired and unverified action installs contribute no route capability profile",
+            listOf(DEFAULT_CHAT_MODEL_ID),
             assistantRouter.lastRouteCapabilityProfiles.map { profile -> profile.id },
         )
         assertTrue(assistantRouter.lastRouteCapabilityProfiles.any { profile ->
@@ -5059,6 +5076,88 @@ class SolinViewModelTest {
     }
 
     @Test
+    fun stopGenerationDuringGatedInitialRouteCancelsEngineAndAppliesNoOutcome() = runBlocking {
+        val gateEngine = BlockingSharedGateEngine()
+        val traceStore = InMemoryAgentTraceStore()
+        val cacheDir = Files.createTempDirectory("stop-gated-initial-route").toFile()
+        val planningRuntime = HybridActionPlanningRuntime(
+            cacheDir = cacheDir,
+            sharedEngine = gateEngine,
+        )
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = planningRuntime,
+            traceStore = traceStore,
+        )
+        val localRuntime = FakeLiteRtRuntime()
+        val routeDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val chat = installedModelSummary(
+            id = "chat-model",
+            displayName = "当前对话",
+            path = TEST_LOCAL_MODEL_PATH,
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            assistantRouter = orchestrator,
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = chat.id,
+                initialInstalledModels = listOf(chat),
+                localPlanningStrategy = LocalPlanningStrategy.RuleFirstGatedModel,
+                observationActionModelPath = chat.path,
+            ),
+            ioDispatcher = routeDispatcher,
+        )
+        try {
+            viewModel.restoreStartupState()
+            withTimeout(5_000) { viewModel.awaitPersistenceInitialization() }
+            withTimeout(5_000) {
+                while (!viewModel.uiState.value.isReady) delay(10)
+            }
+            dispatcher.scheduler.advanceUntilIdle()
+            val messagesBeforeSend = viewModel.uiState.value.messages
+
+            viewModel.sendMessage("帮我设置闹钟")
+
+            assertTrue(
+                "the initial route never reached the action gate; " +
+                    "status=${viewModel.uiState.value.statusText}, busy=${viewModel.uiState.value.isBusy}, " +
+                    "runs=${orchestrator.recentTraceRuns(limit = 1).map { it.run.state }}",
+                gateEngine.started.await(5, TimeUnit.SECONDS),
+            )
+            val generationJob = requireNotNull(currentGenerationJob(viewModel))
+            viewModel.stopGeneration()
+
+            assertTrue("Stop did not cooperatively cancel the gate decode", gateEngine.cancelled.await(5, TimeUnit.SECONDS))
+            withTimeout(5_000) { generationJob.join() }
+
+            assertEquals("Stop must not use thread interruption", 1, gateEngine.interrupted.count)
+            assertEquals("a cancelled gate must not start the tool-proposal one-shot", 1, gateEngine.requests.size)
+            assertTrue(localRuntime.preparedForSendPrompts.isEmpty())
+            assertTrue(localRuntime.prompts.isEmpty())
+            assertEquals("Stop applied a route or chat outcome", messagesBeforeSend, viewModel.uiState.value.messages)
+            assertNull(viewModel.uiState.value.pendingConfirmation)
+            assertNull(viewModel.uiState.value.activeRunPlacement)
+            assertFalse(viewModel.uiState.value.isGenerating)
+            assertFalse(viewModel.uiState.value.isBusy)
+            assertTrue(viewModel.uiState.value.statusText.startsWith("已停止"))
+            val run = traceStore.recentRunSummaries(limit = 1).single().run
+            assertEquals(AgentRunState.Cancelled, run.state)
+            val steps = traceStore.steps(run.id)
+            assertTrue(steps.none { step ->
+                step is AgentStep.IntentRouted && step.decision.selectedPath == IntentRoutingPath.NoAction
+            })
+            assertTrue(steps.none { step -> step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer })
+        } finally {
+            gateEngine.release.countDown()
+            invokeOnCleared(viewModel)
+            routeDispatcher.close()
+            cacheDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun stopGenerationCancelsActiveAgentRunForRemoteChat() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true)
         val assistantRouter = FakeAssistantRouter(
@@ -5734,11 +5833,16 @@ class SolinViewModelTest {
         }
 
         val defaultOptions = requireNotNull(defaultRouter.lastRouteOptions)
+        assertNotNull(defaultOptions.initialRouteCancellation)
         assertEquals(
-            AgentRunOptions(reduceDeviceActionConfirmations = defaultOptions.reduceDeviceActionConfirmations),
+            AgentRunOptions(
+                reduceDeviceActionConfirmations = defaultOptions.reduceDeviceActionConfirmations,
+                initialRouteCancellation = defaultOptions.initialRouteCancellation,
+            ),
             defaultOptions,
         )
         val strategyOptions = requireNotNull(strategyRouter.lastRouteOptions)
+        assertNotNull(strategyOptions.initialRouteCancellation)
         assertEquals(InitialPlanningMode.LocalModelFirst, strategyOptions.initialPlanningMode)
         assertEquals(LocalPlanningStrategy.ModelFirstWithRuleFastPath, strategyOptions.localPlanningStrategy)
         assertEquals(chat.path, strategyOptions.localPlanningModelPath)
@@ -9457,6 +9561,15 @@ class SolinViewModelTest {
         }
     }
 
+    private fun currentGenerationJob(viewModel: SolinViewModel): Job? {
+        val controller = SolinViewModel::class.java.getDeclaredField("chatController").apply {
+            isAccessible = true
+        }.get(viewModel)
+        return ChatController::class.java.getDeclaredField("generationJob").apply {
+            isAccessible = true
+        }.get(controller) as Job?
+    }
+
     private fun installedModelSummary(
         id: String,
         displayName: String,
@@ -9968,6 +10081,57 @@ class SolinViewModelTest {
         }
     }
 
+    private class BlockingSharedGateEngine : LocalEngine {
+        val requests = Collections.synchronizedList(mutableListOf<LocalOneShotRequest>())
+        val started = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+
+        override fun engineCapabilities() =
+            LocalEngineCapabilities("fake", setOf(LocalAccelerator.CPU), 8_192)
+
+        override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult {
+            requests += request
+            started.countDown()
+            val stopListening = request.cancellation.onCancel {
+                cancelled.countDown()
+                release.countDown()
+            }
+            return try {
+                val completed = release.await(10, TimeUnit.SECONDS)
+                when {
+                    request.cancellation.isCancelled -> LocalOneShotResult.Unavailable(
+                        LocalOneShotUnavailableReason.Cancelled,
+                        "caller cancelled",
+                    )
+                    completed -> LocalOneShotResult.Generated(
+                        text = """{"action":true,"confidence":1.0}""",
+                        metrics = LocalCallMetrics(
+                            LocalEngineSource.SharedChatEngine,
+                            LocalAccelerator.CPU,
+                            null,
+                            5,
+                            10,
+                            null,
+                            null,
+                        ),
+                    )
+                    else -> LocalOneShotResult.Unavailable(
+                        LocalOneShotUnavailableReason.Failed,
+                        "test gate timed out",
+                    )
+                }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                interrupted.countDown()
+                LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "interrupted")
+            } finally {
+                stopListening()
+            }
+        }
+    }
+
     private class FakeAssistantRouter(
         private val routeResult: AssistantRoute? = null,
         private val routeFailure: Throwable? = null,
@@ -10347,6 +10511,8 @@ class SolinViewModelTest {
                 is AssistantRoute.Chat -> route.runId?.let { runId ->
                     knownRunStates[runId] = AgentRunState.GeneratingAnswer
                 }
+
+                is AssistantRoute.Cancelled -> knownRunStates[route.runId] = AgentRunState.Cancelled
 
                 is AssistantRoute.MissingModel,
                 is AssistantRoute.ToolRejected -> Unit

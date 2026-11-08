@@ -481,6 +481,7 @@ internal fun AssistantRoute.runIdOrNull(): String? =
     when (this) {
         is AssistantRoute.Chat -> runId
         is AssistantRoute.Action -> runId
+        is AssistantRoute.Cancelled -> runId
         is AssistantRoute.ToolRejected,
         is AssistantRoute.MissingModel -> null
     }
