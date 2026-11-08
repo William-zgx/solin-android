@@ -1,6 +1,6 @@
 {
   "ollamaVersion": "litert-lm-0.12.0",
-  "gitHead": "002e0f685ebae167bf58468462d4feb44d421c05",
+  "gitHead": "98cc6bf1ba62aad41f5dd56c9a4fdfdec5e00f64",
   "samplingOptions": {
     "top_p": 0.1,
     "seed": 7,
@@ -12,6 +12,7 @@
   "models": {
     "functiongemma:270m": {
       "digest": "7c19b650567acfb1bee50d12bb286370e8a54d8877f6a0ecfd01f8c8fdc223bb",
+      "host": "devbox CPU / Ollama 0.40.13 (llamacpp/ggml, Q8_0), 32 cores, no GPU; not device evidence",
       "details": {
         "embedding_length": 640,
         "format": "gguf",
@@ -25,11 +26,11 @@
         "runner": "ggml",
         "quantization_level": "Q8_0"
       },
-      "sizeBytes": 300807157,
-      "host": "devbox CPU / Ollama 0.40.13 (llamacpp/ggml, Q8_0), 32 cores, no GPU; not device evidence"
+      "sizeBytes": 300807157
     },
     "gemma4:e4b": {
       "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+      "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence",
       "details": {
         "embedding_length": 2560,
         "format": "gguf",
@@ -43,16 +44,21 @@
         "runner": "llamacpp",
         "quantization_level": "Q4_K_M"
       },
-      "sizeBytes": 6583656505,
-      "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence"
+      "sizeBytes": 6583656505
     },
     "litert/gemma-4-e2b": {
       "digest": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
-      "sizeBytes": 2588147712,
-      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)",
+      "sizeBytes": 2588147712
+    },
+    "litert/gemma-4-e4b": {
+      "digest": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm); lmf modes ran in the parallel worktree .claude/worktrees/lab-lmf-e4b against its own shim on 127.0.0.1:11440, concurrently with E2B",
+      "sizeBytes": 3659530240
     },
     "gemma4:e2b": {
       "digest": "b37049369adfe3d2b653af0ab301a062ca5cbe96ace6aa0d3f2559ee9b563fc2",
+      "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence",
       "details": {
         "embedding_length": 1536,
         "format": "gguf",
@@ -66,13 +72,7 @@
         "runner": "llamacpp",
         "quantization_level": "Q4_K_M"
       },
-      "sizeBytes": 4587156505,
-      "host": "devbox CPU / Ollama 0.40.13 (llamacpp, Q4_K_M), 32 cores, no GPU; not device evidence"
-    },
-    "litert/gemma-4-e4b": {
-      "digest": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
-      "sizeBytes": 3659530240,
-      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm); E4B ran concurrently with E2B, ~2 cores each on a 32-core host"
+      "sizeBytes": 4587156505
     }
   },
   "runDate": "20261108",

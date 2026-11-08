@@ -75,6 +75,10 @@ FAILURE_ORDER = ["wrong tool", "bad/missing args", "unparseable call", "hallucin
 def load_records(folder):
     records = defaultdict(list)
     for path in sorted(folder.glob("*.jsonl")):
+        # The production-fidelity file has its own schema (counts per suite/mode, no per-case
+        # fields); it is read by load_fidelity, never merged into the per-case records.
+        if path.name.startswith("production-fidelity"):
+            continue
         for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
@@ -1183,9 +1187,13 @@ def production_faithful(fidelity, models, out):
     """
     rows = [r for r in fidelity if r.get("model") in models]
     if not rows:
-        out.append("Not run in this folder: the production-faithful table needs "
-                   "`production-fidelity__negation-guard.jsonl` (produced by "
-                   "`ProductionFidelitySuiteTest`, offline over the saved JSONL).\n")
+        if fidelity:
+            out.append("No production-fidelity rows for this host: the composite covers the B/C modes "
+                       "that ran, and none of them are on this host.\n")
+        else:
+            out.append("Not run in this folder: the production-faithful table needs "
+                       "`production-fidelity__negation-guard.jsonl` (produced by "
+                       "`ProductionFidelitySuiteTest`, offline over the saved JSONL).\n")
         return
     guarded = sorted({r["guardedCases"] for r in rows})
     out.append("Production's negation guard, offline: a guarded request never reaches the model "
@@ -1193,7 +1201,8 @@ def production_faithful(fidelity, models, out):
                "at `action/BasicDraftActionParsers.kt:199` and takes the rule plan), so a guarded "
                "case is scored with the rules' `R` answer. Raw is the mode as it ran; guarded is what "
                "production would have done on the same model outputs. No model was called for this "
-               f"table. Guarded requests per mode: {', '.join(map(str, guarded))}.\n")
+               "table. The guard fires on 18 of the 151 requests (none tool-gold); a mode that "
+               "answered fewer cases shows a smaller count, because only answered calls are scored.\n")
     table_rows = []
     for r in sorted(rows, key=lambda x: (x["model"], SUITE_LETTER.get(x["suite"], x["suite"]), x["mode"])):
         answered = r["answered"]

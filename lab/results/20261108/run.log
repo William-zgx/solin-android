@@ -30,3 +30,14 @@
 2026-11-07T21:20:06.047539243Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
 2026-11-07T21:20:06.231595926Z suite D rules cases=26 correct=15
 2026-11-07T21:26:26.518490884Z suite D model=litert/gemma-4-e2b mode=json-prompt cases=26 correct=25
+2026-11-08T02:52:49.444449230Z suite B mode=R cases=151 correct=127
+2026-11-08T03:04:10.530065024Z suite B model=litert/gemma-4-e2b mode=M-topk-fix-lmf cases=151 correct=96
+2026-11-08T03:04:10.676423400Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-08T03:09:35.195557868Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-08T03:09:44.116408374Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-08T03:22:08.669731542Z suite C model=litert/gemma-4-e2b mode=N-topk-lmf cases=151 correct=104
+2026-11-08T03:22:08.753587484Z production-fidelity negation guard: guarded=18 toolGoldGuarded=0 rows=10 -> production-fidelity__negation-guard.jsonl
+2026-11-08T03:48:28.947668785Z production-fidelity negation guard: guarded=18 toolGoldGuarded=0 rows=12 -> production-fidelity__negation-guard.jsonl
+2026-11-08T03:49:55.268847689Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-08T03:17:54.239418429Z suite B model=litert/gemma-4-e4b mode=M-topk-fix-lmf cases=151 correct=112 (parallel lane .claude/worktrees/lab-lmf-e4b, shim :11440)
+2026-11-08T03:47:55.825794357Z suite C model=litert/gemma-4-e4b mode=N-topk-lmf cases=151 correct=117 (parallel lane .claude/worktrees/lab-lmf-e4b, shim :11440)
