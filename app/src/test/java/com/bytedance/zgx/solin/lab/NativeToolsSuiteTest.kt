@@ -49,6 +49,15 @@ class NativeToolsSuiteTest {
             if (LabEnv.modeSelected("N-topk")) {
                 run(client, model, "N-topk", cases, STRICT_SYSTEM, TOPK_OPTIONS) { case -> retriever.topK(case.input, TOP_K) }
             }
+            // Production-faithful LocalModelFirst native shape: the retrieved shortlist plus the
+            // `answer` no-tool choice (orchestration/InitialToolPlanner.kt:52-60,136). `answer` is
+            // offered as a declaration like any other, and choosing it scores as no tool.
+            if (LabEnv.modeSelected("N-topk-lmf")) {
+                run(
+                    client, model, "N-topk-lmf", cases, STRICT_SYSTEM, TOPK_OPTIONS,
+                    specsFor = { case -> retriever.topK(case.input, TOP_K) + NO_TOOL_CHOICE_SPEC },
+                )
+            }
             if (LabEnv.modeSelected("N-topk-free")) {
                 run(client, model, "N-topk-free", cases, FREE_SYSTEM, TOPK_OPTIONS) { case ->
                     retriever.topK(case.input, TOP_K)
@@ -76,7 +85,8 @@ class NativeToolsSuiteTest {
                     options = options,
                     tools = JSONArray(specs.map(::nativeTool)),
                 )
-                val (answer, kind) = answerFromNative(result)
+                val noToolChoice = mode.endsWith("-lmf")
+                val (answer, kind) = answerFromNative(result, noToolChoice)
                 val advertised = specs.map(ToolSpec::name)
                 val record = InitialPlanningCases.record(SUITE, model, mode, case, answer, kind, rawPreview(result), registry)
                     .put("toolCallCount", result.toolCalls.size)
@@ -108,10 +118,15 @@ class NativeToolsSuiteTest {
                     .put("parameters", JSONObject(spec.inputSchemaJson)),
             )
 
-    private fun answerFromNative(result: OllamaClient.ChatResult): Pair<LabAnswer, String> {
+    private fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
         if (result.error != null) return LabAnswer.INVALID to "error"
         val call = result.toolCalls.firstOrNull()
             ?: return LabAnswer.STOP to if (result.text.isBlank()) "blank" else "text"
+        // Production reads `answer` as a deliberate no-tool decision, not an unknown tool
+        // (InitialToolPlanner.kt:144). The choice is never a registry tool.
+        if (noToolChoice && call.name == LOCAL_MODEL_NO_TOOL_CHOICE) {
+            return LabAnswer.STOP to "no_tool_choice"
+        }
         if (!registry.isKnownTool(call.name)) return LabAnswer(call.name, invalid = true) to "unknown_tool"
         val arguments = call.arguments.toToolArgumentMapOrNull()
             ?: return LabAnswer(call.name, invalid = true) to "nested_arguments"

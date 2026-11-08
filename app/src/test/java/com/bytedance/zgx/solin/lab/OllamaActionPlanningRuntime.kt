@@ -9,10 +9,33 @@ import com.bytedance.zgx.solin.action.IntentCandidate
 import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.action.actionPrompt
+import com.bytedance.zgx.solin.tool.ConfirmationPolicy
+import com.bytedance.zgx.solin.tool.RiskLevel
+import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import java.io.IOException
+
+/**
+ * Production's prompt-only "do not call a tool" choice, copied verbatim from
+ * `orchestration/InitialToolPlanner.kt:43` (name) and `:52-60` (title, description, schema,
+ * capability, risk, confirmation). The constant there is `internal` to the main source set; the
+ * test source set of the same module can read `internal`, but that file lives on
+ * `edge-lab/integration`, not on the lab branch this worktree is based on, so the value is
+ * duplicated here. Keep the two identical: `LabNoToolChoiceSpecTest` pins the fields.
+ */
+const val LOCAL_MODEL_NO_TOOL_CHOICE = "answer"
+
+val NO_TOOL_CHOICE_SPEC: ToolSpec = ToolSpec(
+    name = LOCAL_MODEL_NO_TOOL_CHOICE,
+    title = "直接回答",
+    description = "请求不需要手机动作（提问、闲聊、解释、翻译）时选它，由助手直接用文字回答。",
+    inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+    capability = ToolCapability.Orchestration,
+    riskLevel = RiskLevel.LowReadOnly,
+    confirmationPolicy = ConfirmationPolicy.NotRequired,
+)
 
 /**
  * Must stay identical to the system instruction in `actionConversationConfig()`
@@ -53,6 +76,8 @@ class OllamaActionPlanningRuntime(
     private val options: OllamaClient.Options = OllamaClient.Options(),
     private val responseCache: MutableMap<String, OllamaClient.ChatResult>? = null,
     private val placeholderAblation: Boolean = false,
+    /** Append production's `answer` no-tool choice, the way `InitialToolPlanner` does (`:136`). */
+    private val noToolChoice: Boolean = false,
 ) : ActionPlanningRuntime {
     data class Call(
         val prompt: String,
@@ -123,7 +148,11 @@ class OllamaActionPlanningRuntime(
     private data class ModelAttempt(val plan: ActionPlan?, val output: String, val failureReason: String?)
 
     private fun modelAttempt(input: String, toolSpecs: List<ToolSpec>?): ModelAttempt {
-        val specs = toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()
+        val base = toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()
+        // Production offers the retrieved tools plus the `answer` choice and treats `answer` as a
+        // deliberate no-tool decision (InitialToolPlanner.kt:136,144). Same order: shortlist, then
+        // the choice at the end.
+        val specs = if (noToolChoice) base + NO_TOOL_CHOICE_SPEC else base
         val prompt = actionPrompt(input, specs).let { if (placeholderAblation) PlaceholderAblation.rewrite(it) else it }
         val system = if (placeholderAblation) PlaceholderAblation.systemInstruction else ACTION_PLANNER_SYSTEM_INSTRUCTION
         val cacheKey = "$model\u0000$system\u0000$prompt"
