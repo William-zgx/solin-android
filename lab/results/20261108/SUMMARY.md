@@ -713,6 +713,12 @@ production `LocalModelMemoryFactExtractor` and `DefaultContextCompactor` are dri
 `lab/memory/datasets/` (106 fact cases, 46 negative; 12 compaction histories). Every number is the
 bench's own metrics file — **the same scoring code the Mac 20261107 bench used**, not a
 re-implementation. Full tables: `lab/memory/results/20261108/SUMMARY.md`.
+`lab/memory/` on this branch holds **only** the 20261108 results and the standalone reader
+(`lab/memory/scripts/summarize_memory.py`, stdlib only). The bench tests that produced them
+(`lab/memory/.../MemoryFactExtractionBenchTest`, `MemoryCompactionBenchTest`) and the datasets already
+live on `edge-lab/integration`; they were not copied here, because their `LocalMemoryModel` seam and
+production guards exist only on that branch and this lane does not change production code. The reader
+consumes the metrics files and needs nothing else.
 
 **Compaction uses the current labelled prompt.** That is the point of running it again: the saved
 20261107 outputs predate the source-label rule (threat T1) and score **0/48 acceptable** under it. A
