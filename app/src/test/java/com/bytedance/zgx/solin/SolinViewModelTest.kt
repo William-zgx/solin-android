@@ -1506,7 +1506,8 @@ class SolinViewModelTest {
 
         assertEquals(1, assistantRouter.routeCallCount)
         assertEquals(
-            listOf(DEFAULT_CHAT_MODEL_ID, MOBILE_ACTION_MODEL_ID),
+            "retired and unverified action installs contribute no route capability profile",
+            listOf(DEFAULT_CHAT_MODEL_ID),
             assistantRouter.lastRouteCapabilityProfiles.map { profile -> profile.id },
         )
         assertTrue(assistantRouter.lastRouteCapabilityProfiles.any { profile ->
