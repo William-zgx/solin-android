@@ -1,0 +1,38 @@
+{
+  "cases": 12,
+  "emptyOutputRate": 0,
+  "fallbacks": {"OverLength": 7},
+  "modelCalls": 12,
+  "tokensAfterOverBeforeHeuristic": 0.523,
+  "mustKeep": 66,
+  "suite": "compaction",
+  "hallucinationRate": 0,
+  "retentionHeuristic": 0.682,
+  "retentionFinal": 0.788,
+  "model": {
+    "ollamaVersion": "litert-lm-0.12.0",
+    "think": false,
+    "digest": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "options": {
+      "top_p": 0.1,
+      "seed": 7,
+      "top_k": 1,
+      "temperature": 0,
+      "num_predict": 512,
+      "num_ctx": 8192
+    },
+    "hostNote": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)",
+    "model": "litert/gemma-4-e2b",
+    "details": null
+  },
+  "retentionWhenModelUsed": 1,
+  "tokensAfterOverBeforeFinal": 0.547,
+  "modelSummaryUsedRate": 0.417,
+  "retentionRawSummary": 1,
+  "latencyMs": {
+    "max": 26437,
+    "p50": 15546,
+    "p95": 26437,
+    "n": 12
+  }
+}
