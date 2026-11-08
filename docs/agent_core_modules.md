@@ -167,8 +167,10 @@ Boundaries:
 Current status:
 
 - The loop supports chat-only runs, direct Skill-first plans, local
-  `call:function{...}` parsing, OpenAI-compatible remote `tool_calls`, and
-  conservative rule replanning.
+  `call:<tool>{...}` parsing, OpenAI-compatible remote `tool_calls`, and
+  conservative rule replanning. The text prompt names its function/argument slots
+  in words (`call:函数名 {"参数名":"值"}`) and requires an advertised function; it
+  no longer shows the model a tool-looking `call:function` placeholder.
 - Explicit built-in Skills run before remote model planning. Clipboard,
   contacts, files, calendar details, notifications, screen text, OCR, settings,
   and direct search workflows stay local unless the user supplies uploadable
@@ -188,12 +190,20 @@ Current status:
   a fresh user action.
 - Private observations are synthesized locally and take precedence over generic
   replanning. Unknown privacy metadata fails closed as `LocalOnly`.
-- Low-risk phone-control replanning can use a verified local Chat or
-  action-planning model. Verified E2B/E4B Chat models are preferred for
-  observation-to-action planning; the `mobile-action-270m` model is only a
-  low-resource experimental fallback. If the selected model is missing, fails,
-  or produces no valid draft, the runtime falls back to conservative rule
-  planning.
+- Low-risk phone-control replanning can use a verified local Chat model.
+  Verified E2B/E4B Chat models are the only action-planning models selected for
+  default or observation planning. The `mobile-action-270m` entry is retired:
+  its 1024-token context cannot hold the default full-registry prompt, its fixed
+  top-k prompt scored 0/100, setup no longer offers it, and both verified action
+  paths exclude it. An already-installed copy stays visible and deletable. If
+  the selected Chat model is missing, fails, or produces no valid draft, the
+  runtime falls back to conservative rule planning.
+- Initial and observation action prompts share the placeholder fix measured by
+  the 20261108 lab ablation. This also makes model-proposed observation replans
+  possible through the existing registry, evidence, safety, and confirmation
+  gates; no confirmation rule changed. **Suite A evidence on production files
+  is pending (D-lab2).** Evidence and the debug-only gated rule-gap strategy are
+  owned by [the local-model-first spec](specs/20261107-local-model-first/spec.md).
 - App search has two modes: static Skill fallback, and model-driven bootstrap
   when a verified local Chat/action-planning model is available. The bootstrap
   only opens, waits, and observes; `ModelObservationReplanner` then plans one UI
@@ -286,6 +296,8 @@ Tests:
 
 - `AgentLoopRuntimeTest`
 - `AgentRunBudgetTest`
+- `LocalModelFirstPlanningTest`
+- `AgentRunOptionsTest`
 - `AssistantOrchestratorTest`
 - `ToolExecutionBoundaryTest`
 - `SolinViewModelTest`
@@ -380,6 +392,8 @@ Current status:
 Tests:
 
 - `FakeLiteRtRuntimeTest`
+- `ActionPlannerTest`
+- `ActionPlannerEngineRoutingTest`
 - `LiteRtRuntimeConfigTest`
 - `RemoteChatRuntimeTest`
 - `AdaptiveGenerationPolicyTest`
