@@ -618,8 +618,8 @@ model file and tokenizer, not the host, so this transfers to the phone; the exac
 
 **(b) Native tools vs the text prompt.** Native tools are the only path that runs at all on the 270M,
 because the text prompt overflows. On E2B and E4B the native path parses cleanly on the production
-file: 136/151 (E2B) and 133/151 (E4B) `N-topk` answers arrive as `call`, and the rest are 12–18 plain
-`text` answers plus 3 engine errors (E2B). The model's own `tool_call:name{...}` rendering is converted
+file: 136/151 (E2B, 3 errored) and 133/151 (E4B) `N-topk` answers arrive as `call`, and the rest are
+12–18 plain `text` answers plus 3 engine errors (E2B). The model's own `tool_call:name{...}` rendering is converted
 to a native `tool_calls` array by the shim, exactly as the app reads a native call, so nothing here
 depends on the app's `call:` text parser. Top-8 native accuracy: E2B 75/100 tool requests right,
 E4B 77/100. Full native rows are in the Suite B/C tables above; treat the cross-host comparison as a
@@ -661,7 +661,7 @@ executes a tool on requests that want none:
 | mode | false positives on 51 no-tool cases | overall (151) |
 | --- | --- | --- |
 | `R` (rules) | 0/51 | 127/151 |
-| E2B `N-topk` | 39/51 | 83/151 |
+| E2B `N-topk` | 39/51 | 83/151 (3 errored) |
 | E2B `M-topk-fix` | 49/51 | 72/151 |
 | E4B `N-topk` | 35/51 | 93/151 |
 | 270M `N-topk` | 6/51 | 61/151 (112 errored) |
@@ -901,7 +901,7 @@ model is the only thing that can pick `open_app_by_name` for it.
   host label. The Ollama numbers elsewhere in this file are not evidence about the shipped weights.
 - **Not run on the production files:** E2B and E4B `N-full`, E4B `M-topk-fix`, E4B Suite D, and Suite A
   for every model. `N-full` is the production-shaped native mode and the most important gap: on the
-  270M `N-full` it errors 151/151 on the 1024-token context, and on E2B (8192) it was not measured, so
+  270M `N-full` it is errored 151/151 on the 1024-token context, and on E2B (8192) it was not measured, so
   whether the full-registry prompt fits there is **unknown** — do not read the `N-topk` rows as a
   substitute. The 270M cannot run `N-full` at all (errored 151/151, context overflow), so its native
   evidence is `N-topk` only (112 of 151 errored).

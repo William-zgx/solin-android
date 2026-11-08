@@ -1473,19 +1473,32 @@ def generated(folder, manifest, records, models):
 
 
 def write_summary(folder, manifest, body):
+    """Write the generated block into SUMMARY.md, preserving the hand-written text around it.
+
+    Returns the target path; [summary_text] computes the full document without writing it, so
+    `--check` can regenerate in memory and compare against the committed file.
+    """
     target = folder / "SUMMARY.md"
+    target.write_text(summary_text(folder, manifest, body, target), encoding="utf-8")
+    return target
+
+
+def summary_text(folder, manifest, body, target):
+    """The whole SUMMARY.md for [body]: the committed document with its generated block replaced.
+
+    The leaf text outside the GENERATED markers is hand-written and survives a rerun, so
+    regeneration only swaps the block. Called by `--check` with the committed file as [target],
+    which is how drift inside the block is detected without touching the file.
+    """
     block = f"{GENERATED_START}\n\n{body}\n{GENERATED_END}"
     if target.is_file():
         text = target.read_text(encoding="utf-8")
         start, end = text.find(GENERATED_START), text.find(GENERATED_END)
         if start >= 0 and end > start:
-            text = text[:start] + block + text[end + len(GENERATED_END):]
-            target.write_text(text, encoding="utf-8")
-            return target
+            return text[:start] + block + text[end + len(GENERATED_END):]
     title = f"# Solin capability lab: run {manifest.get('runDate', folder.name)}\n\n"
     tail = "\n\n## What this means for the phone\n\n_Not written yet._\n"
-    target.write_text(title + block + tail, encoding="utf-8")
-    return target
+    return title + block + tail
 
 
 # ---- Decision L1 check ---------------------------------------------------------------------------
@@ -1494,6 +1507,15 @@ def write_summary(folder, manifest, body):
 # cites a run with errored cases must carry that run's error count. It reads SUMMARY.md (so it
 # covers the narrative outside the GENERATED markers, which this script never rewrites) and
 # resolves each run to the labels the file can use for it.
+#
+# Three guards, one invariant:
+#   1. exact annotation tokens. `3 errored` must appear with its own boundaries: the substring
+#      `3/151` inside `83/151` is not an annotation, and neither is another run's `1 errored`.
+#   2. every errored run a line cites. A row may draw on several runs (one per mode column), and
+#      each of them needs its own annotation; one annotation does not cover the others.
+#   3. drift. The generated block is regenerated from the JSONL in memory and compared with the
+#      committed text, so a hand edit to a generated cell (which no annotation rule could see,
+#      because the run labels live in the header) is caught.
 
 # Short model names the narrative uses for a model id. Kept explicit: guessing an alias from a
 # model id would silently stop checking that model if the id changed.
@@ -1502,6 +1524,13 @@ MODEL_ALIASES = {
     "litert/gemma-4-e4b": ("E4B",),
     "litert/mobile-actions-270m": ("270M",),
 }
+SUITE_BY_LETTER = {letter: suite for suite, letter in SUITE_LETTER.items()}
+# A header cell that names a run column: `B R`, `B M-topk-fix`, `C N-topk-lmf`, `D json-prompt`.
+MODE_COLUMN = re.compile(r"^([A-E]) ([A-Za-z][\w-]*)$")
+# A row cell that names a run the same way, in tables whose header is `suite / mode`.
+SUITE_MODE_CELL = re.compile(r"^([A-E]) `?([A-Za-z][\w-]*)`?$")
+# A markdown heading that names the suite a `model | mode | …` table below it belongs to.
+SUITE_HEADING = re.compile(r"^#{2,6} Suite ([A-E])\b")
 
 
 def model_labels(model):
@@ -1522,31 +1551,212 @@ def cites(line, model, mode):
     return any(label in line for label in model_labels(model))
 
 
+def annotation_patterns(n, e, population=None):
+    """The exact annotation forms one run's error count may take (Decision L1).
+
+    [population] is the size of the cell the annotation sits in. A generated table cell renders
+    `errored K/K` for a fully errored run over that cell's population, which in a per-family or
+    per-argument-key table is smaller than the run; it defaults to the run size, so prose and
+    hand-written rows must use the run's own `N`. A partly errored run renders `E errored`; the
+    hand-written narrative may write the same count as `E/N errored` or `E of N errored`.
+
+    A bare fraction is never accepted: `3/151` must not match inside `83/151`, which is why every
+    fraction form is anchored on both boundaries and always carries the word `errored`.
+    """
+    if e == n:
+        if population is None:
+            forms = [rf"(?<![\w/])errored {n}/{n}(?![\w/])"]
+        else:
+            # A table row's cells cover different sub-populations (families, arg keys), so any
+            # self-consistent `errored K/K` in the row is the run's own render.
+            forms = [r"(?<![\w/])errored (\d+)/\1(?![\w/])"]
+        return forms + [rf"(?<![\w/]){n}/{n} errored(?![\w/])",
+                        rf"(?<![\w/]){n} of {n} errored(?![\w/])"]
+    return [rf"(?<![\w/]){e} errored(?![\w/])", rf"(?<![\w/]){e}/{n} errored(?![\w/])",
+            rf"(?<![\w/]){e} of {n} errored(?![\w/])"]
+
+
+def annotation_forms(n, e):
+    """The human-readable annotation forms this run's error count may take (Decision L1)."""
+    if e == n:
+        return (f"errored N/N (N is the cell's population, the run has {n})",
+                f"{n}/{n} errored", f"{n} of {n} errored")
+    return (f"{e} errored", f"{e}/{n} errored", f"{e} of {n} errored")
+
+
+def has_annotation(line, n, e, population=None):
+    """True when [line] carries one of this run's exact annotation forms, with boundaries."""
+    return any(re.search(pattern, line)
+               for pattern in annotation_patterns(n, e, population))
+
+
+def cells_of(line):
+    """The cells of one markdown table row, or None when [line] is not a row."""
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return None
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def is_separator(cells):
+    """True for a markdown `| --- | :---: |` separator row."""
+    return bool(cells) and all(set(cell) <= set("-: ") and cell for cell in cells)
+
+
+def table_rows(lines):
+    """Yield `(index, header, cells)` for every markdown table data row in [lines] (0-based).
+
+    The header is the row immediately above the nearest `| --- |` separator among the contiguous
+    `|` lines before the row. Working from the separator, not from the top of the block, keeps a
+    table with no blank line before it from picking up the previous table's header.
+    """
+    for index, line in enumerate(lines):
+        cells = cells_of(line)
+        if cells is None or is_separator(cells):
+            continue
+        if index + 1 < len(lines) and is_separator(cells_of(lines[index + 1])):
+            continue  # this line is a table header
+        header = None
+        for above in range(index - 1, -1, -1):
+            previous = cells_of(lines[above])
+            if previous is None:
+                break
+            if is_separator(previous) and above > 0:
+                candidate = cells_of(lines[above - 1])
+                if candidate is not None:
+                    header = candidate
+                break
+        if header is None:
+            continue
+        yield index, header, cells
+
+
+def clean_cell(text):
+    """Strip decoration and a trailing annotation from a label cell."""
+    text = text.replace("`", "").replace("*", "").strip()
+    return re.sub(r"\s*\((?:errored \d+/\d+|\d+ errored)\)\s*$", "", text).strip()
+
+
+def heading_suite(lines, index):
+    """The suite letter of the nearest `### Suite X` heading above [index], or None."""
+    for line in reversed(lines[:index]):
+        match = SUITE_HEADING.match(line)
+        if match:
+            return SUITE_BY_LETTER[match.group(1)]
+    return None
+
+
+def row_runs(lines, index, header, cells):
+    """Every run a table row draws on, resolved from its column headers (Decision L1).
+
+    A column header may name a run directly (`B M-topk`), or the row may name it in a `suite` /
+    `mode` cell. A `model | mode` table with no suite column takes the suite of the heading above
+    it; when that is absent, every run matching the model and mode is used, because the row then
+    stands for all of them.
+    """
+    columns = {clean_cell(name): position for position, name in enumerate(header)}
+    model_position = columns.get("model")
+    if model_position is None or model_position >= len(cells):
+        return []
+    model = clean_cell(cells[model_position])
+    if not model:
+        return []
+    suite_letter = None
+    if "suite" in columns and columns["suite"] < len(cells):
+        suite_letter = clean_cell(cells[columns["suite"]])[:1]
+    runs = []
+
+    def resolve(mode, suite=None):
+        mode = clean_cell(mode)
+        if not mode:
+            return
+        if suite:
+            key = (suite, model, mode)
+            if key in RUN_ERRORS:
+                runs.append(key)
+            return
+        candidates = [key for key in RUN_ERRORS if key[1] == model and key[2] == mode]
+        runs.extend(candidates)
+
+    for name, position in columns.items():
+        if position >= len(cells):
+            continue
+        match = MODE_COLUMN.match(name)
+        if match:
+            resolve(match.group(2), SUITE_BY_LETTER[match.group(1)])
+        elif name == "suite / mode":
+            cell = SUITE_MODE_CELL.match(clean_cell(cells[position]))
+            if cell:
+                resolve(cell.group(2), SUITE_BY_LETTER[cell.group(1)])
+        elif name == "mode":
+            resolve(cells[position], SUITE_BY_LETTER.get(suite_letter)
+                    or heading_suite(lines, index))
+    return runs
+
+
+def drift_problems(summary, committed, regenerated):
+    """Report the first line where the committed file differs from a regeneration (FU-L1)."""
+    if committed == regenerated:
+        return []
+    for number, (want, got) in enumerate(zip(committed, regenerated), start=1):
+        if want != got:
+            return [f"{summary}:{number}: generated content drifted from the JSONL "
+                    f"(committed: {want.strip()[:120]!r}; regenerated: {got.strip()[:120]!r}). "
+                    f"Regenerate with `python3 -I lab/scripts/summarize.py {summary.parent}`, "
+                    f"never edit a generated cell."]
+    return [f"{summary}: generated block has {len(committed)} lines but regenerates to "
+            f"{len(regenerated)}; regenerate rather than editing the block."]
+
+
+def annotation_problems(summary, lines):
+    """Report every line that cites an errored run without that run's own error count."""
+    dirty = {key: (n, e) for key, (n, e) in RUN_ERRORS.items() if e}
+    table = {index: (header, cells) for index, header, cells in table_rows(lines)}
+    problems = []
+    for index, line in enumerate(lines):
+        cited = set()
+        in_table = index in table
+        if in_table:
+            header, cells = table[index]
+            cited.update(row_runs(lines, index, header, cells))
+        # Narrative (and any row whose columns do not name a run) cites a run by label.
+        for key in dirty:
+            if cites(line, key[1], key[2]):
+                cited.add(key)
+        for key in sorted(cited):
+            if key not in dirty:
+                continue
+            n, e = dirty[key]
+            # A generated table cell may carry a sub-population `errored K/K`; prose must use N.
+            population = n if in_table else None
+            if not has_annotation(line, n, e, population):
+                forms = " or ".join(f"`{form}`" for form in annotation_forms(n, e))
+                problems.append(
+                    f"{summary}:{index + 1}: cites {key[1]} {key[2]}, which has {e} errored of "
+                    f"{n}, without its own error count ({forms}): "
+                    f"{line.strip()[:160]}")
+    return problems
+
+
 def check_folder(folder):
-    """Return the lines that cite an errored run without its error count, plus a summary line."""
+    """Return the problems a regenerated folder's SUMMARY.md has, plus a summary tuple."""
     manifest_path = folder / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     records = load_records(folder)
     set_run_errors(records)
+    models = model_order(manifest, records)
     summary = folder / "SUMMARY.md"
     if not summary.is_file():
         return [f"{summary}: missing (run summarize.py first)"], (0, 0)
-    dirty = [(key, n, e) for key, (n, e) in RUN_ERRORS.items() if e]
-    lines = summary.read_text(encoding="utf-8").splitlines()
-    problems = []
-    for number, line in enumerate(lines, start=1):
-        for (suite, model, mode), n, e in dirty:
-            if not cites(line, model, mode):
-                continue
-            # The run's error count has to be in the same cell or sentence. `errored 151/151`
-            # (fully errored) and `(3 errored)` (partly) both satisfy this, and so does the bare
-            # count written as `112/151`, which a narrative line may use.
-            ok = "errored" in line or f"{e}/{n}" in line
-            if not ok:
-                problems.append(
-                    f"{summary}:{number}: cites {model} {mode}, which has {e} errored of {n}, "
-                    f"without its error count: {line.strip()[:160]}")
-    return problems, (len(dirty), len(lines))
+    committed = summary.read_text(encoding="utf-8").splitlines()
+    # Regenerate every generated section from the JSONL in memory; the hand-written text outside
+    # the markers is preserved by [summary_text], so any difference is inside the block.
+    regenerated = summary_text(folder, manifest, generated(folder, manifest, records, models),
+                               summary).splitlines()
+    dirty = sum(1 for _, e in RUN_ERRORS.values() if e)
+    problems = drift_problems(summary, committed, regenerated)
+    problems += annotation_problems(summary, committed)
+    return problems, (dirty, len(committed))
 
 
 def main(argv):
@@ -1561,10 +1771,14 @@ def main(argv):
         for problem in problems:
             print(problem)
         if problems:
-            print(f"FAIL: {len(problems)} line(s) cite an errored run without its error count "
-                  f"({runs} errored run(s), {lines} line(s) checked).")
+            drifted = sum(1 for problem in problems if "drifted" in problem)
+            missing = len(problems) - drifted
+            print(f"FAIL: {len(problems)} problem(s) in {lines} line(s) ({runs} errored run(s)): "
+                  f"{missing} line(s) cite an errored run without its own error count, "
+                  f"{drifted} markdown line(s) drifted from the JSONL.")
             return 1
-        print(f"ok: {runs} errored run(s) annotated on every citing line ({lines} line(s) checked).")
+        print(f"ok: {runs} errored run(s) annotated on every citing line, generated block matches "
+              f"the JSONL ({lines} line(s) checked).")
         return 0
     manifest_path = folder / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}

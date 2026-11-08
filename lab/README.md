@@ -62,7 +62,21 @@ python3 -I lab/scripts/test_summarize.py                           # regression 
 
 `--check` reads the regenerated `SUMMARY.md`, including the hand-written text outside the GENERATED
 markers, and fails on any line that cites an errored run (by model and mode) without its error
-count. It is the deterministic gate for this rule; fix the narrative rather than the check.
+count. It is the deterministic gate for this rule; fix the narrative rather than the check. Three
+guards:
+
+- **Exact annotation, never a bare fraction.** A line satisfies the rule only if it carries that
+  run's own token: `E errored` (or `E/N errored`) for a partly errored run, and `errored N/N` (or
+  `N/N errored`) for a fully errored run. A bare fraction is not an annotation — `83/151` does not
+  count as `3/151`, the bug that once let an unannotated row through.
+- **Every errored run on the line.** A generated row can draw on several runs (one per mode column)
+  and each of them is resolved from the column headers (or the `suite` / `mode` cell) and needs its
+  own annotation. A narrative line is resolved by model+mode label, in any rendering: with or without
+  backticks, the `litert/gemma-4-e2b` id, or the `E2B` / `E4B` / `270M` short form.
+- **Drift.** `--check` regenerates every generated section from the JSONL in memory and fails on the
+  first committed line that differs. A hand edit to a generated cell is therefore caught even when
+  the row still carries every annotation. Regenerate instead of editing between the GENERATED
+  markers.
 
 `python3 -I -m unittest <path>` does not work here: `-I` drops the cwd from `sys.path`, so unittest
 cannot import a path-qualified module. Run the test file as a script instead.
