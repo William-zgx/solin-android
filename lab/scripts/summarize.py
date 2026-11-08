@@ -28,7 +28,8 @@ MODE_ORDER = {
     SUITE_A: ["replanner", "replanner-fix"],
     # `*-lmf` modes mirror production LocalModelFirst: the retrieved top-k plus the `answer`
     # no-tool choice spec (orchestration/InitialToolPlanner.kt:43,52-60).
-    SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "M-topk-fix-lmf", "R+M"],
+    SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "M-topk-fix-lmf", "R+M",
+              "R-gated-e2e"],
     SUITE_C: ["N-full", "N-topk", "N-topk-free", "N-topk-lmf"],
     SUITE_D: ["complexity", "json-prompt", "json-schema"],
     SUITE_E: ["json-prompt"],
@@ -1190,6 +1191,10 @@ def composite_r_then_model(records, models, out):
             if model in RULE_MODELS:
                 continue
             for mode in MODE_ORDER[suite]:
+                # The end-to-end mode already includes rules, guard, gate and proposal; composing it
+                # with R a second time would not describe any production path.
+                if mode == "R-gated-e2e":
+                    continue
                 rs = records.get((suite, model, mode))
                 if not rs:
                     continue
@@ -1370,6 +1375,56 @@ def production_faithful(fidelity, models, out):
         out.append("No no-tool false positives in the rows above, so nothing to split.\n")
 
 
+# ---- Production RuleFirstGatedModel, measured end to end -----------------------------------------
+
+
+def gated_e2e(records, models, out):
+    """Decision stages and false-positive classes from the real production planner, not a composite."""
+    keys = [key for key in keys_for(SUITE_B, records, models) if key[2] == "R-gated-e2e"]
+    if not keys:
+        out.append("Not run: `R-gated-e2e` has no saved per-case records on this host.\n")
+        return
+    out.append("`R-gated-e2e` drives production `InitialToolPlanner.planLocalModelFirst` and "
+               "`HybridActionPlanningRuntime` on the production `.litertlm` files. Rules and the negation "
+               "guard run before the strict 0.9 action-intent gate; only an open gate reaches production "
+               "retrieval, the `answer` choice, the fixed action prompt, the `web_search` filter, strict "
+               "parsing, registry validation and `SafetyPolicy`. These are measured final plans, not an "
+               "offline combination of earlier model outputs. Gate JSON validity is the production "
+               "parser's verdict: fences and trailing prose are invalid, never stripped by the lab.\n")
+    stages = ["rule", "negation guard", "gate closed", "gate open → accepted", "gate open → answer",
+              "gate open → failed"]
+    rows = []
+    for key in keys:
+        rs = records[key]
+        counter = Counter(r.get("decisionStage") for r in rs)
+        valid = sum(1 for r in rs if r.get("gateRawJsonValid") is True)
+        invalid = sum(1 for r in rs if r.get("gateRawJsonValid") is False)
+        unavailable = sum(1 for r in rs if r.get("modelCalls") and r.get("gateRawJsonValid") is None)
+        rows.append([key[1], key[2], run_cell(key, f"{sum(r['correct'] for r in rs)}/{len(rs)}")]
+                    + [run_cell(key, counter.get(stage, 0)) for stage in stages]
+                    + [run_cell(key, valid), run_cell(key, invalid), run_cell(key, unavailable)])
+    out.append(table(["model", "mode", "overall correct"] + stages
+                     + ["gate JSON valid", "gate JSON invalid", "gate unavailable"], rows))
+    out.append("")
+    rows = []
+    for key in keys:
+        rs = records[key]
+        rows.append([
+            key[1], key[2],
+            run_cell(key, sum(1 for r in rs if r.get("falsePositive"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpOrchestrationOnly"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpDeviceNetworkExternal"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpPrivateRead"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpNetworkEgress"))),
+        ])
+    out.append("No-tool false positives in the final accepted plan (51 no-tool requests). Orchestration-only "
+               "choices have no device, network or external-app effect; private reads and network egress "
+               "are the privacy-relevant subsets of the executable-action column:\n")
+    out.append(table(["model", "mode", "false positives", "orchestration only",
+                      "device/network/external", "of which private reads", "of which network egress"], rows))
+    out.append("")
+
+
 # ---- Main ----------------------------------------------------------------------------------------
 
 
@@ -1462,6 +1517,8 @@ def generated(folder, manifest, records, models):
         suite_e(records, host_models, out)
         out.append("### Production-faithful LocalModelFirst\n")
         production_faithful(fidelity, host_models, out)
+        out.append("### Production RuleFirstGatedModel end-to-end\n")
+        gated_e2e(records, host_models, out)
         out.append("### Offline composites\n")
         composite_r_then_model(records, host_models, out)
         composite_gate(records, host_models, out)

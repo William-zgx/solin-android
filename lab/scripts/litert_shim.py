@@ -181,6 +181,43 @@ def _tool_calls_of(response):
     return calls
 
 
+def _estimate_output_tokens(text):
+    """The same conservative streaming-chunk estimate as LocalEngine.collectOneShot."""
+    if not text or text.isspace():
+        return 0
+    tokens = 0
+    ascii_run = 0
+    for char in text:
+        if not char.isspace() and 0x20 <= ord(char) <= 0x7E:
+            ascii_run += 1
+        else:
+            tokens += (ascii_run + 3) // 4
+            ascii_run = 0
+            tokens += 1
+    return tokens + (ascii_run + 3) // 4
+
+
+def _send_one_shot(conversation, user, max_output_tokens):
+    """Send with the production streaming output cap, draining after native cancellation."""
+    if max_output_tokens is None:
+        return conversation.send_message(user), False
+    text_parts = []
+    tool_calls = []
+    output_tokens = 0
+    capped = False
+    for chunk in conversation.send_message_async(user):
+        if capped:
+            continue
+        text = _text_of(chunk)
+        text_parts.append(text)
+        tool_calls.extend(_tool_calls_of(chunk))
+        output_tokens += _estimate_output_tokens(text)
+        if output_tokens >= max_output_tokens:
+            capped = True
+            conversation.cancel_process()
+    return {"role": "assistant", "content": "".join(text_parts), "tool_calls": tool_calls}, capped
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     model_root = "."
@@ -249,11 +286,16 @@ class Handler(BaseHTTPRequestHandler):
             if message.get("role") == "user":
                 user = message.get("content") or ""
         options = body.get("options") or {}
+        max_output_tokens = options.get("num_predict")
+        if max_output_tokens is not None:
+            max_output_tokens = int(max_output_tokens)
+            if max_output_tokens <= 0:
+                return self._send(400, {"error": "invalid_num_predict"})
         sampler = self.litert.SamplerConfig(
             top_k=int(options.get("top_k") or 1),
             top_p=float(options.get("top_p") or 0.1),
             temperature=float(options.get("temperature") or 0.0),
-            seed=int(options.get("seed") or 7),
+            seed=int(options["seed"]) if "seed" in options else None,
         )
         engine = _engine_for(self.model_root, name, self.cache_dir)
         started = time.time()
@@ -266,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
                 sampler_config=sampler,
             )
             try:
-                response = conversation.send_message(user)
+                response, output_capped = _send_one_shot(conversation, user, max_output_tokens)
             finally:
                 conversation.close()
         except Exception as error:
@@ -288,7 +330,8 @@ class Handler(BaseHTTPRequestHandler):
                 "model": name,
                 "message": {"role": "assistant", "content": _text_of(response), "tool_calls": _tool_calls_of(response)},
                 "done": True,
-                "done_reason": "stop",
+                "done_reason": "length" if output_capped else "stop",
+                "litert_output_capped": output_capped,
                 # LiteRT-LM 0.12.0 does not report token counts here; 0 means "not available".
                 "total_duration": elapsed_ms * 1_000_000,
                 "load_duration": 0,

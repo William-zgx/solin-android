@@ -39,7 +39,8 @@ the task up to date or serve a previous (skipped) result from the build cache. O
 `SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name, 8 digits),
 `SOLIN_LAB_HOST_NOTE` (names the machine that produced the numbers; the default is the Mac bench
 host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-topk,json-schema`;
-rule baselines always run).
+rule baselines always run). `SOLIN_LAB_CASE_IDS` optionally selects explicit dataset ids for a small
+smoke run; leave it unset for every scored run.
 
 ## Errored runs never look like scores (Decision L1)
 
@@ -124,6 +125,7 @@ Per case it records:
 | `R+M` | Production order with a model installed: skills, then rule intent gate, then model, then rule fallback |
 | `M-full-fix`, `M-topk-fix` | Lab-only ablation: `M-full` / `M-topk` with the prompt's `call:function {"arg":"value"}` placeholder replaced by `call:函数名 {"参数名":"值"}` |
 | `M-topk-fix-lmf` | Production-faithful LocalModelFirst text shape: top 8 retrieved tools **plus** production's `answer` no-tool choice, with the placeholder fix |
+| `R-gated-e2e` | The merged production `RuleFirstGatedModel`: rules, negation guard, strict 0.9 action-intent gate, production retrieval plus `answer`, fixed prompt, `web_search` filter, parsing, registry and safety; driven through a test-only `LocalEngine` on the production `.litertlm` files |
 
 The `-fix` modes (and Suite A's `replanner-fix`) exist because small models copy the placeholder
 `function` as the tool name. They change only that text (`PlaceholderAblation`); they are not what
@@ -141,6 +143,15 @@ on no-tool cases, parse/format validity (a known tool in the `call:` format) and
 (`ToolRegistry.validate`), latency, prompt tokens. `M-topk` also reports retriever recall@8;
 `LabDatasetValidationTest` (no model) records recall@k for k in 4, 8, 12, 16 with the misses and
 the mean `actionPrompt` size at each k.
+
+`R-gated-e2e` additionally records the production decision stage (`rule`, `negation guard`, `gate closed`,
+or gate open to `accepted` / `answer` / `failed`), strict gate JSON validity, trace reasons and every
+call's `metrics.error`. Its no-tool false positives are split into orchestration-only versus
+device/network/external-app actions, with private reads and network egress flagged. It uses production's
+12-tool retriever (not the lab's lexical top 8), production's model-driven app-search skill bootstrap,
+and `actionModelPath = null` with the selected Chat file in `localPlanningModelPath`, matching the merged
+post-PF1 composition. The adapter sends production one-shot sampling and the real per-request output cap
+(64 gate, 512 proposal); there is no lab reimplementation of the gate, prompts, retrieval or parsing.
 
 ### Suite C: native tools (`native-tools`)
 
@@ -187,12 +198,14 @@ files emit, is stripped by the lab tests only; production's `parseDecisionRespon
 
 ### Suite E: the local model as an action gate (`action-gate`)
 
-A lab-only experiment the app does not have today. One short call per Suite B request asks only
-whether the request needs a phone action at all, as JSON `{"action": true|false, "confidence": 0..1}`
-(same acceptance shape as Suite D). The gate opens on `action = true` with confidence >= the app's
-routing gate (`DECISION_MODEL_MIN_CONFIDENCE`, 0.9); false, low confidence or invalid JSON keeps it
-closed, so a broken gate fails closed to no tool. Metrics: precision and recall of the gate decision,
-and the same over the 74 rule-gap cases. Explicit negations are labelled no-action.
+A standalone gate experiment, distinct from the merged production gate measured by `R-gated-e2e`. One short
+call per Suite B request asks only whether the request needs a phone action at all, as JSON
+`{"action": true|false, "confidence": 0..1}` (same acceptance shape as Suite D). The gate opens on
+`action = true` with confidence >= the app's routing gate (`DECISION_MODEL_MIN_CONFIDENCE`, 0.9); false,
+low confidence or invalid JSON keeps it closed, so a broken gate fails closed to no tool. This suite's
+reader is deliberately the older lenient diagnostic (it strips fences); production's strict parser does
+not. Metrics: precision and recall of the gate decision, and the same over the 74 rule-gap cases.
+Explicit negations are labelled no-action.
 
 ### Offline composites
 
