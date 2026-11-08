@@ -91,6 +91,27 @@ reason such as `local_model_action_gate_open` or `local_model_action_gate_busy`.
 prompt, raw model output, confidence text, request arguments, or engine error detail. Accepted proposals
 keep the same `proposed_request=` provenance and always ask through `LocalModelProposedStep`.
 
+### C1 Stop cancellation design
+
+The initial route uses option (i): `ChatController` runs the blocking route in `runInterruptible`,
+rethrows route `CancellationException`, and calls `ensureActive` before applying any route, action, or chat
+outcome. LiteRT one-shots already turn interruption into `Cancelled`, cancel native decode, and close their
+conversation in `finally`; the gate maps that result to closed, so no tool-proposal call follows. The same
+route-level interruption covers the older LocalModelFirst proposal one-shot. A one-shot timeout remains
+`Failed` and also closes the gate.
+
+This avoids threading a new cancellation token through `AgentRunOptions`, `AssistantRouter`, the planner,
+and every fake. The wrapped route and its argument resolution use Room/SQLite, DataStore or
+SharedPreferences, ordinary `File.inputStream` hashing, and in-memory projections; there is no route-time
+NIO `InterruptibleChannel`. Those writes finish their normal `use` / transaction boundaries rather than
+having a channel closed by thread interruption. The only interruption-driven native cleanup is the
+one-shot's existing audited path.
+
+Regression coverage: `SolinViewModelTest.stopGenerationDuringGatedInitialRouteInterruptsEngineAndAppliesNoOutcome`
+uses the real controller/orchestrator/gate with a blocked fake shared engine and proves interruption, no
+proposal call, and no post-Stop outcome. `ActionPlannerEngineRoutingTest.actionIntentGateCancelledAndTimeoutFailClosed`
+covers direct `Cancelled` and timeout-as-`Failed` closure.
+
 ## 2. Fail-closed behavior
 
 Every failure yields the RuleFirst result. Under the fast path the rules have already run and planned

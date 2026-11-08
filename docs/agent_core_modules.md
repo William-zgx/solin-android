@@ -206,6 +206,13 @@ Current status:
   gates; no confirmation rule changed. **Suite A evidence on production files
   is pending (D-lab2).** Evidence and the debug-only gated rule-gap strategy are
   owned by [the local-model-first spec](specs/20261107-local-model-first/spec.md).
+- Initial local-model planning is stopped end to end. `ChatController` runs the
+  blocking initial route in `runInterruptible`, propagates cancellation instead
+  of converting it to a route failure, and checks activity before applying a
+  route outcome. LiteRT's existing interrupt cleanup cancels/closes the one-shot;
+  a cancelled or timed-out action-intent gate closes without a proposal call.
+  The design rationale and regression map are owned by
+  [the local-model-first spec](specs/20261107-local-model-first/spec.md#c1-stop-cancellation-design).
 - App search has two modes: static Skill fallback, and model-driven bootstrap
   when a verified local Chat/action-planning model is available. The bootstrap
   only opens, waits, and observes; `ModelObservationReplanner` then plans one UI

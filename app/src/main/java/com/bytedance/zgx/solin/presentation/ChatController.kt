@@ -65,9 +65,11 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -582,16 +584,20 @@ class ChatController internal constructor(
                     privacy = effectiveMessagePrivacy,
                 )
                 val route = preparedExecution?.routeForDispatch ?: try {
-                    assistantOrchestrator.route(
-                        input = trimmed,
-                        installedCapabilities = stateBeforeSend.installedCapabilities,
-                        memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
-                        actionModelPath = modelRepository.verifiedActionModelPath(),
-                        deviceContext = deviceContextSnapshot().takeIf { includePrivateLocalContext },
-                        sessionId = stateBeforeSend.activeSessionId,
-                        options = agentRunOptions,
-                        installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
-                    )
+                    runInterruptible {
+                        assistantOrchestrator.route(
+                            input = trimmed,
+                            installedCapabilities = stateBeforeSend.installedCapabilities,
+                            memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
+                            actionModelPath = modelRepository.verifiedActionModelPath(),
+                            deviceContext = deviceContextSnapshot().takeIf { includePrivateLocalContext },
+                            sessionId = stateBeforeSend.activeSessionId,
+                            options = agentRunOptions,
+                            installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
+                        )
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
                 } catch (throwable: Throwable) {
                     solinE(TAG_MODEL, "initial chat route failed", throwable)
                     uiState.update {
@@ -599,6 +605,7 @@ class ChatController internal constructor(
                     }
                     return@generation
                 }
+                currentCoroutineContext().ensureActive()
                 if (preparedExecution == null && route is AssistantRoute.Action && route.runId != null) {
                     if (
                         bindContinuationRun(

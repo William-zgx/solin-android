@@ -194,6 +194,24 @@ class ActionPlannerEngineRoutingTest {
     }
 
     @Test
+    fun actionIntentGateCancelledAndTimeoutFailClosed() {
+        listOf(
+            LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "interrupted") to
+                "local_model_action_gate_cancelled",
+            LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Failed, "one-shot timed out") to
+                "local_model_action_gate_failed",
+        ).forEach { (unavailable, expectedReason) ->
+            shared.next = unavailable
+
+            val result = planner(sharedEngine = shared).gateActionIntent("请求", MODEL)
+
+            assertFalse(result.open)
+            assertEquals(expectedReason, result.reason)
+        }
+        assertTrue(factory.engines.isEmpty())
+    }
+
+    @Test
     fun closingThePlannerReleasesItsFallbackEngine() {
         val runtime = planner(sharedEngine = null)
         runtime.plan("请求", MODEL)
