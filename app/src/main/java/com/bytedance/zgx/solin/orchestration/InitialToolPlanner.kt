@@ -14,6 +14,7 @@ import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.startsWithActionNegation
 import com.bytedance.zgx.solin.logging.solinW
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
@@ -76,16 +77,6 @@ internal class InitialToolPlanner(
     private val actionPlanningRuntime: ActionPlanningRuntime,
     private val traceStore: AgentTraceStore,
 ) {
-    /**
-     * [InitialPlanningMode.LocalModelFirst]: a verified on-device model may choose the first tool
-     * from a retrieved shortlist, and its choice passes the same registry and safety gates as a rule
-     * draft. It skips RuleFirst's intent-classifier precondition, so it only ever tightens: the
-     * proposed step always asks the user ([CriticalApprovalReason.LocalModelProposedStep]), and a
-     * request that starts with a negation ("别启动微信") never reaches the model. Every failure
-     * yields exactly the [InitialPlanningMode.RuleFirst] plan: no verified planning model, an empty
-     * shortlist, a model error, unparseable output, a tool outside the shortlist, invalid arguments,
-     * or a registry or safety rejection.
-     */
     fun planLocalModelFirst(
         runId: String,
         input: String,
@@ -93,27 +84,38 @@ internal class InitialToolPlanner(
         actionModelPath: String?,
         options: AgentRunOptions,
     ): AgentPlan? {
+        val runOptions = options.withInitialRouteCancellation()
+        val cancellation = requireNotNull(runOptions.initialRouteCancellation)
+        runOptions.throwIfInitialRouteCancelled()
         val planRuleFirst = {
-            planToolIfSupported(input, installedCapabilityProfiles, actionModelPath, options.remoteGuiDrivingEnabled)
+            planToolIfSupported(
+                input,
+                installedCapabilityProfiles,
+                actionModelPath,
+                runOptions.remoteGuiDrivingEnabled,
+            )
         }
-        val modelPath = options.localPlanningModelPath
-            ?.takeIf { options.localModelPlansTools() && hasMobileActionPlanningModel(installedCapabilityProfiles) }
+        val modelPath = runOptions.localPlanningModelPath
+            ?.takeIf { runOptions.localModelPlansTools() && hasMobileActionPlanningModel(installedCapabilityProfiles) }
             ?: return planRuleFirst()
-        val strategy = options.localPlanningStrategy
+        val strategy = runOptions.localPlanningStrategy
         var gateReason: String? = null
         if (strategy == LocalPlanningStrategy.RuleFirstGatedModel) {
             // Rules keep every plan they already understand. Only a rule-gap request reaches the gate.
             planRuleFirst()?.let { rulePlan -> return rulePlan }
             if (input.startsWithActionNegation()) return null
             val modelInput = input.initialSequentialActionInput() ?: input
-            val gate = runCatching { actionPlanningRuntime.gateActionIntent(modelInput, modelPath) }
-                .getOrElse { throwable ->
-                    solinW(TAG, "local action-intent gate failed: ${throwable.javaClass.simpleName}")
-                    ActionIntentGateResult(
-                        open = false,
-                        reason = "local_model_action_gate_error",
-                    )
-                }
+            runOptions.throwIfInitialRouteCancelled()
+            val gate = runCatching {
+                actionPlanningRuntime.gateActionIntent(modelInput, modelPath, cancellation)
+            }.getOrElse { throwable ->
+                solinW(TAG, "local action-intent gate failed: ${throwable.javaClass.simpleName}")
+                ActionIntentGateResult(
+                    open = false,
+                    reason = "local_model_action_gate_error",
+                )
+            }
+            runOptions.throwIfInitialRouteCancelled()
             if (!gate.open) {
                 recordLocalModelProposal(
                     runId,
@@ -130,28 +132,29 @@ internal class InitialToolPlanner(
                 planRuleFirst()?.let { rulePlan -> return rulePlan }
             }
         }
+        runOptions.throwIfInitialRouteCancelled()
         val proposal = proposeLocalModelTool(
             input = input,
             modelPath = modelPath,
             dropWebSearchWithoutExplicitVerb = strategy == LocalPlanningStrategy.RuleFirstGatedModel,
-        ).copy(gateReason = gateReason)
-        recordLocalModelProposal(runId, strategy, proposal)
-        return when (proposal.outcome) {
-            LocalModelOutcome.Accepted -> proposal.plan
+            cancellation = cancellation,
+        )
+        runOptions.throwIfInitialRouteCancelled()
+        val tracedProposal = proposal.copy(gateReason = gateReason)
+        recordLocalModelProposal(runId, strategy, tracedProposal)
+        return when (tracedProposal.outcome) {
+            LocalModelOutcome.Accepted -> tracedProposal.plan
             LocalModelOutcome.NoTool -> null
             // The fast path and gated strategy already ran the rules and they planned nothing.
             LocalModelOutcome.Failed -> if (strategy == LocalPlanningStrategy.ModelFirst) planRuleFirst() else null
         }
     }
 
-    /**
-     * One model call over the retrieved tools. A multi-step request is planned one segment at a
-     * time, the way the rule planner does, so the model only sees the first segment.
-     */
     private fun proposeLocalModelTool(
         input: String,
         modelPath: String,
         dropWebSearchWithoutExplicitVerb: Boolean = false,
+        cancellation: LocalOneShotCancellation,
     ): LocalModelProposal {
         val segment = input.initialSequentialActionInput()
         val modelInput = segment ?: input
@@ -173,7 +176,7 @@ internal class InitialToolPlanner(
         // HybridActionPlanningRuntime reports an engine error in its result, but its rule fallback
         // runs outside that catch, and the interface promises nothing, so a throw still fails closed.
         val result = runCatching {
-            actionPlanningRuntime.plan(modelInput, modelPath, retrieved + noToolChoiceSpec)
+            actionPlanningRuntime.plan(modelInput, modelPath, retrieved + noToolChoiceSpec, cancellation)
         }.getOrElse { throwable ->
             solinW(TAG, "local planning model failed: ${throwable.javaClass.simpleName}")
             return failed("local_model_planning_error")

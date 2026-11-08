@@ -4,6 +4,7 @@ import com.bytedance.zgx.solin.orchestration.collab.StrictJsonScan
 import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
 import com.bytedance.zgx.solin.runtime.LocalCallMetrics
 import com.bytedance.zgx.solin.runtime.LocalEngine
+import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
 import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.runtime.LocalOneShotUnavailableReason
@@ -40,6 +41,14 @@ interface ActionPlanningRuntime {
     fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
         plan(input, actionModelPath)
 
+    /** Initial-route variant whose model one-shot shares the run's cooperative Stop signal. */
+    fun plan(
+        input: String,
+        actionModelPath: String?,
+        toolSpecs: List<ToolSpec>,
+        cancellation: LocalOneShotCancellation,
+    ): ActionPlanningResult = plan(input, actionModelPath, toolSpecs)
+
     fun parseModelToolOutput(output: String): ModelToolOutputParseResult = ModelToolOutputParseResult.None
 
     /**
@@ -48,6 +57,13 @@ interface ActionPlanningRuntime {
      */
     fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult =
         ActionIntentGateResult(open = false, reason = "local_model_action_gate_unsupported")
+
+    /** Initial-route variant whose gate one-shot shares the run's cooperative Stop signal. */
+    fun gateActionIntent(
+        input: String,
+        actionModelPath: String?,
+        cancellation: LocalOneShotCancellation,
+    ): ActionIntentGateResult = gateActionIntent(input, actionModelPath)
 }
 
 data class ActionPlanningResult(
@@ -104,18 +120,28 @@ class HybridActionPlanningRuntime(
         classifyIntent(input).isAction
 
     override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-        planWithToolSpecs(input, actionModelPath, toolSpecs = null)
+        planWithToolSpecs(input, actionModelPath, toolSpecs = null, LocalOneShotCancellation())
 
     override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
-        planWithToolSpecs(input, actionModelPath, toolSpecs)
+        planWithToolSpecs(input, actionModelPath, toolSpecs, LocalOneShotCancellation())
+
+    override fun plan(
+        input: String,
+        actionModelPath: String?,
+        toolSpecs: List<ToolSpec>,
+        cancellation: LocalOneShotCancellation,
+    ): ActionPlanningResult = planWithToolSpecs(input, actionModelPath, toolSpecs, cancellation)
 
     private fun planWithToolSpecs(
         input: String,
         actionModelPath: String?,
         toolSpecs: List<ToolSpec>?,
+        cancellation: LocalOneShotCancellation,
     ): ActionPlanningResult {
         if (actionModelPath != null) {
-            val modelAttemptResult = runCatching { modelPlanner.plan(input, actionModelPath, toolSpecs) }
+            val modelAttemptResult = runCatching {
+                modelPlanner.plan(input, actionModelPath, toolSpecs, cancellation)
+            }
             val modelAttempt = modelAttemptResult.getOrNull()
             val modelPlan = modelAttempt?.plan
             if (modelPlan?.kind == ActionPlanKind.Draft && modelPlan.draft != null) {
@@ -153,11 +179,18 @@ class HybridActionPlanningRuntime(
     override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
         rulePlanner.parseModelToolOutput(output)
 
-    override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult {
+    override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult =
+        gateActionIntent(input, actionModelPath, LocalOneShotCancellation())
+
+    override fun gateActionIntent(
+        input: String,
+        actionModelPath: String?,
+        cancellation: LocalOneShotCancellation,
+    ): ActionIntentGateResult {
         if (actionModelPath == null) {
             return ActionIntentGateResult(open = false, reason = "local_model_action_gate_no_model")
         }
-        return runCatching { modelPlanner.gateActionIntent(input, actionModelPath) }
+        return runCatching { modelPlanner.gateActionIntent(input, actionModelPath, cancellation) }
             .getOrElse { ActionIntentGateResult(open = false, reason = "local_model_action_gate_error") }
     }
 
@@ -172,11 +205,17 @@ private class ModelBackedActionPlanner(
     private val parser: MobileActionPlanner,
     private val toolRegistry: ToolRegistry,
 ) : AutoCloseable {
-    fun plan(input: String, modelPath: String, toolSpecs: List<ToolSpec>?): ModelBackedPlanningAttempt {
+    fun plan(
+        input: String,
+        modelPath: String,
+        toolSpecs: List<ToolSpec>?,
+        cancellation: LocalOneShotCancellation = LocalOneShotCancellation(),
+    ): ModelBackedPlanningAttempt {
         val request = LocalOneShotRequest(
             modelPath = modelPath,
             systemInstruction = ACTION_PLANNER_SYSTEM_INSTRUCTION,
             prompt = actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()),
+            cancellation = cancellation,
         )
         return when (val result = generate(request)) {
             is LocalOneShotResult.Generated -> {
@@ -198,12 +237,17 @@ private class ModelBackedActionPlanner(
         }
     }
 
-    fun gateActionIntent(input: String, modelPath: String): ActionIntentGateResult {
+    fun gateActionIntent(
+        input: String,
+        modelPath: String,
+        cancellation: LocalOneShotCancellation = LocalOneShotCancellation(),
+    ): ActionIntentGateResult {
         val request = LocalOneShotRequest(
             modelPath = modelPath,
             systemInstruction = ACTION_INTENT_GATE_SYSTEM_INSTRUCTION,
             prompt = JSONObject().put("request", input).toString(),
             maxOutputTokens = ACTION_INTENT_GATE_MAX_OUTPUT_TOKENS,
+            cancellation = cancellation,
         )
         return when (val result = generate(request)) {
             is LocalOneShotResult.Generated -> parseActionIntentGateResult(result.text)

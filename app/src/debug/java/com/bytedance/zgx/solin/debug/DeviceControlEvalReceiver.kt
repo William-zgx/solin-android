@@ -875,6 +875,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             is AssistantRoute.MissingModel -> "missing_model_${capability.name}"
             is AssistantRoute.ToolRejected -> "tool_rejected_${summary.cleanValue()}"
             is AssistantRoute.Action -> "missing_action_request"
+            is AssistantRoute.Cancelled -> "run_cancelled"
         }
 
     private fun AgentPlan.UseTool.toEvalAction(

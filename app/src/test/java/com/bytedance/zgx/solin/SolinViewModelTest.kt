@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
+import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.audit.ToolAuditLog
@@ -5075,8 +5076,9 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun stopGenerationDuringGatedInitialRouteInterruptsEngineAndAppliesNoOutcome() = runBlocking {
+    fun stopGenerationDuringGatedInitialRouteCancelsEngineAndAppliesNoOutcome() = runBlocking {
         val gateEngine = BlockingSharedGateEngine()
+        val traceStore = InMemoryAgentTraceStore()
         val cacheDir = Files.createTempDirectory("stop-gated-initial-route").toFile()
         val planningRuntime = HybridActionPlanningRuntime(
             cacheDir = cacheDir,
@@ -5085,7 +5087,7 @@ class SolinViewModelTest {
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = planningRuntime,
-            traceStore = InMemoryAgentTraceStore(),
+            traceStore = traceStore,
         )
         val localRuntime = FakeLiteRtRuntime()
         val routeDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -5127,9 +5129,10 @@ class SolinViewModelTest {
             val generationJob = requireNotNull(currentGenerationJob(viewModel))
             viewModel.stopGeneration()
 
-            assertTrue("Stop did not interrupt the gate decode", gateEngine.interrupted.await(5, TimeUnit.SECONDS))
+            assertTrue("Stop did not cooperatively cancel the gate decode", gateEngine.cancelled.await(5, TimeUnit.SECONDS))
             withTimeout(5_000) { generationJob.join() }
 
+            assertEquals("Stop must not use thread interruption", 1, gateEngine.interrupted.count)
             assertEquals("a cancelled gate must not start the tool-proposal one-shot", 1, gateEngine.requests.size)
             assertTrue(localRuntime.preparedForSendPrompts.isEmpty())
             assertTrue(localRuntime.prompts.isEmpty())
@@ -5139,6 +5142,13 @@ class SolinViewModelTest {
             assertFalse(viewModel.uiState.value.isGenerating)
             assertFalse(viewModel.uiState.value.isBusy)
             assertTrue(viewModel.uiState.value.statusText.startsWith("已停止"))
+            val run = traceStore.recentRunSummaries(limit = 1).single().run
+            assertEquals(AgentRunState.Cancelled, run.state)
+            val steps = traceStore.steps(run.id)
+            assertTrue(steps.none { step ->
+                step is AgentStep.IntentRouted && step.decision.selectedPath == IntentRoutingPath.NoAction
+            })
+            assertTrue(steps.none { step -> step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer })
         } finally {
             gateEngine.release.countDown()
             invokeOnCleared(viewModel)
@@ -5823,11 +5833,16 @@ class SolinViewModelTest {
         }
 
         val defaultOptions = requireNotNull(defaultRouter.lastRouteOptions)
+        assertNotNull(defaultOptions.initialRouteCancellation)
         assertEquals(
-            AgentRunOptions(reduceDeviceActionConfirmations = defaultOptions.reduceDeviceActionConfirmations),
+            AgentRunOptions(
+                reduceDeviceActionConfirmations = defaultOptions.reduceDeviceActionConfirmations,
+                initialRouteCancellation = defaultOptions.initialRouteCancellation,
+            ),
             defaultOptions,
         )
         val strategyOptions = requireNotNull(strategyRouter.lastRouteOptions)
+        assertNotNull(strategyOptions.initialRouteCancellation)
         assertEquals(InitialPlanningMode.LocalModelFirst, strategyOptions.initialPlanningMode)
         assertEquals(LocalPlanningStrategy.ModelFirstWithRuleFastPath, strategyOptions.localPlanningStrategy)
         assertEquals(chat.path, strategyOptions.localPlanningModelPath)
@@ -10069,6 +10084,7 @@ class SolinViewModelTest {
     private class BlockingSharedGateEngine : LocalEngine {
         val requests = Collections.synchronizedList(mutableListOf<LocalOneShotRequest>())
         val started = CountDownLatch(1)
+        val cancelled = CountDownLatch(1)
         val interrupted = CountDownLatch(1)
         val release = CountDownLatch(1)
 
@@ -10078,9 +10094,18 @@ class SolinViewModelTest {
         override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult {
             requests += request
             started.countDown()
+            val stopListening = request.cancellation.onCancel {
+                cancelled.countDown()
+                release.countDown()
+            }
             return try {
-                if (release.await(10, TimeUnit.SECONDS)) {
-                    LocalOneShotResult.Generated(
+                val completed = release.await(10, TimeUnit.SECONDS)
+                when {
+                    request.cancellation.isCancelled -> LocalOneShotResult.Unavailable(
+                        LocalOneShotUnavailableReason.Cancelled,
+                        "caller cancelled",
+                    )
+                    completed -> LocalOneShotResult.Generated(
                         text = """{"action":true,"confidence":1.0}""",
                         metrics = LocalCallMetrics(
                             LocalEngineSource.SharedChatEngine,
@@ -10092,13 +10117,17 @@ class SolinViewModelTest {
                             null,
                         ),
                     )
-                } else {
-                    LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Failed, "test gate timed out")
+                    else -> LocalOneShotResult.Unavailable(
+                        LocalOneShotUnavailableReason.Failed,
+                        "test gate timed out",
+                    )
                 }
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
                 interrupted.countDown()
                 LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "interrupted")
+            } finally {
+                stopListening()
             }
         }
     }
@@ -10482,6 +10511,8 @@ class SolinViewModelTest {
                 is AssistantRoute.Chat -> route.runId?.let { runId ->
                     knownRunStates[runId] = AgentRunState.GeneratingAnswer
                 }
+
+                is AssistantRoute.Cancelled -> knownRunStates[route.runId] = AgentRunState.Cancelled
 
                 is AssistantRoute.MissingModel,
                 is AssistantRoute.ToolRejected -> Unit

@@ -22,8 +22,9 @@ import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolStatus
 import org.json.JSONArray
 
-fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
-    when (val planned = plan) {
+fun AgentLoopResult.toAssistantRoute(): AssistantRoute {
+    if (run.state == AgentRunState.Cancelled) return AssistantRoute.Cancelled(run.id)
+    return when (val planned = plan) {
         is AgentPlan.Answer -> AssistantRoute.Chat(
             runId = run.id,
             promptForModel = planned.promptForModel,
@@ -45,6 +46,7 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
 
         is AgentPlan.MissingModel -> AssistantRoute.MissingModel(planned.capability)
     }
+}
 
 internal fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
     safetyDecision.outcome == SafetyOutcome.RequireConfirmation

@@ -946,12 +946,26 @@ class DedicatedLiteRtEngine internal constructor(
             }
             val conversation = runCatching { currentEngine.createConversation(request.toConversationSpec()) }
                 .getOrElse { throwable -> return failed(throwable) }
-            val output = try {
-                conversation.collectOneShot(request, waits.oneShotTimeoutMs)
-            } finally {
+            var cleanedUp = false
+            try {
+                val output = conversation.collectOneShot(request, waits.oneShotTimeoutMs)
                 runCatching { conversation.close() }
+                cleanedUp = true
+                return output.toResult(
+                    LocalEngineSource.DedicatedEngine,
+                    LocalAccelerator.CPU,
+                    loadMs,
+                    startedAtNanos,
+                    reclaimed = false,
+                )
+            } finally {
+                // Cancellation normally reaches native decode through collectOneShot's listener.
+                // An exceptional or abandoned exit has no such guarantee: cancel before close.
+                if (!cleanedUp) {
+                    runCatching { conversation.cancelProcess() }
+                    runCatching { conversation.close() }
+                }
             }
-            return output.toResult(LocalEngineSource.DedicatedEngine, LocalAccelerator.CPU, loadMs, startedAtNanos, reclaimed = false)
         } finally {
             lock.unlock()
             applyPendingRelease()
