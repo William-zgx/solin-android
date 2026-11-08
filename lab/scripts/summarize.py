@@ -22,10 +22,13 @@ SUITE_C = "native-tools"
 SUITE_D = "routing"
 SUITE_E = "action-gate"
 SUITE_LETTER = {SUITE_A: "A", SUITE_B: "B", SUITE_C: "C", SUITE_D: "D", SUITE_E: "E"}
+LITERT_HOST_LABEL = "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"
 MODE_ORDER = {
     SUITE_A: ["replanner", "replanner-fix"],
-    SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "R+M"],
-    SUITE_C: ["N-full", "N-topk", "N-topk-free"],
+    # `*-lmf` modes mirror production LocalModelFirst: the retrieved top-k plus the `answer`
+    # no-tool choice spec (orchestration/InitialToolPlanner.kt:43,52-60).
+    SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "M-topk-fix-lmf", "R+M"],
+    SUITE_C: ["N-full", "N-topk", "N-topk-free", "N-topk-lmf"],
     SUITE_D: ["complexity", "json-prompt", "json-schema"],
     SUITE_E: ["json-prompt"],
 }
@@ -113,6 +116,37 @@ def pct(k, n):
     if n == 0:
         return "n/a"
     return f"{100.0 * k / n:.0f}%"
+
+
+def errored(record):
+    """True when a model call behind this record failed.
+
+    A failed call answered nothing, so it must never be counted as a score. Read from
+    `metrics.error` first (one flat record or any of its `modelOutputs`), with `rawKind` as the
+    fallback for record shapes that carry no metrics.
+    """
+    metrics = [record.get("metrics") or {}]
+    metrics += [output.get("metrics") or {} for output in (record.get("modelOutputs") or [])]
+    return any(m.get("error") for m in metrics) or record.get("rawKind") == "error"
+
+
+def score_cell(rs, hits):
+    """`k/n` for [rs], or the error count when some of the calls never answered.
+
+    A fully errored cell is `errored 151/151`, a partly errored one `61/151 (112 errored)`.
+    A run that errored on every case was scoring as `51/151` before, because a refused call is
+    shaped exactly like a correct no-tool answer.
+    """
+    n = len(rs)
+    if n == 0:
+        return "n/a"
+    bad = sum(1 for r in rs if errored(r))
+    if bad == n:
+        return f"errored {n}/{n}"
+    text = frac(hits, n)
+    if bad:
+        text += f" ({bad} errored)"
+    return text
 
 
 def percentile(values, q):
@@ -360,29 +394,62 @@ def present_columns(records, models, manifest, suites):
             or (c[0] == SUITE_C and unsupported_for(manifest, SUITE_C))]
 
 
+def host_label(model, manifest=None):
+    """The exact host label a table heading uses, one label per host.
+
+    A result folder can hold two hosts for one day (the Ollama GGUF runs and the LiteRT shim on
+    the production `.litertlm` files). Tables must never mix them, so a label is derived per model
+    from its origin, not from the folder's single `hostNote` (which only names the last writer).
+    The detailed per-model note, including quantization and the concurrency caveat, stays in
+    **Run facts**.
+    """
+    if model.startswith("litert/"):
+        return LITERT_HOST_LABEL
+    recorded = ((manifest or {}).get("models") or {}).get(model, {}).get("host") or ""
+    match = re.search(r"Ollama\s+(\S+)", recorded)
+    return f"devbox CPU / Ollama {match.group(1)}" if match else "devbox CPU / Ollama (version unknown)"
+
+
+def host_groups(manifest, records, models):
+    """Ordered host label -> the models measured on it. `rules` has no host and is not listed."""
+    groups = OrderedDict()
+    for model in models:
+        if model in RULE_MODELS:
+            continue
+        groups.setdefault(host_label(model, manifest), []).append(model)
+    return groups
+
+
 def headline(records, models, manifest, out):
     initial = present_columns(records, models, manifest, (SUITE_B, SUITE_C))
     if initial:
         out.append("Suites B and C, requests that need a tool: right first tool with every pinned argument.\n")
-        out.append(headline_table(records, models, manifest, initial, lambda s, rs: frac(
-            sum(r["argsExact"] for r in rs if r["expectsTool"]), sum(1 for r in rs if r["expectsTool"]))))
+        out.append(headline_table(records, models, manifest, initial, lambda s, rs: score_cell(
+            [r for r in rs if r["expectsTool"]],
+            sum(r["argsExact"] for r in rs if r["expectsTool"]))))
         out.append("")
         out.append("Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing "
                    "executed. An invalid call executes nothing and counts as correct here.\n")
-        out.append(headline_table(records, models, manifest, initial, lambda s, rs: frac(
-            sum(r["correct"] for r in rs if not r["expectsTool"]), sum(1 for r in rs if not r["expectsTool"]))))
+        out.append(headline_table(records, models, manifest, initial, lambda s, rs: score_cell(
+            [r for r in rs if not r["expectsTool"]],
+            sum(r["correct"] for r in rs if not r["expectsTool"]))))
         out.append("")
         out.append("Suites B and C, all 151 requests together:\n")
-        out.append(headline_table(records, models, manifest, initial, lambda s, rs: frac(*score_of(s, rs))))
+        out.append(headline_table(records, models, manifest, initial,
+                                  lambda s, rs: score_cell(rs, score_of(s, rs)[0])))
         out.append("")
     other = present_columns(records, models, manifest, (SUITE_A, SUITE_D))
     if other:
         out.append("Suite A (final step after the replanner guards, 46 screens) and Suite D (placement on 26 "
                    "routing cases):\n")
-        out.append(headline_table(records, models, manifest, other, lambda s, rs: frac(*score_of(s, rs))))
+        out.append(headline_table(records, models, manifest, other,
+                                  lambda s, rs: score_cell(rs, score_of(s, rs)[0])))
         out.append("")
-    out.append("`rules` is the production rule path with no model. `-` means not run. `-fix` modes are the "
-               "lab-only placeholder ablation, not what the app sends.\n")
+    out.append("`rules` is the production rule path with no model, so it has no host and its row is repeated "
+               "under each host as the same reference. `-` means not run. `-fix` modes are the lab-only "
+               "placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful "
+               "LocalModelFirst shape. `errored n/n` means every call failed (nothing was answered); "
+               "`(k errored)` counts the failures inside a partly errored cell.\n")
 
 
 # ---- Suite A -------------------------------------------------------------------------------------
@@ -502,18 +569,16 @@ def initial_rows(keys, records, native):
     rows = []
     for key in keys:
         rs = records[key]
-        n = len(rs)
         tool_cases = [r for r in rs if r["expectsTool"]]
         none_cases = [r for r in rs if not r["expectsTool"]]
-        errored = [r for r in rs if r["rawKind"] == "error"]
+        bad = [r for r in rs if errored(r)]
         # An errored case answered nothing. It is never "correct": say so instead of letting a
         # refusal-shaped record inflate the score (the 270M overflow case looked like 51/151 before).
-        if len(errored) == n:
-            overall = f"{n}/{n} errored ({error_reason(errored[0])})"
-        else:
-            overall = frac(sum(r["correct"] for r in rs), n)
-            if errored:
-                overall += f"; {len(errored)} errored"
+        overall = score_cell(rs, sum(r["correct"] for r in rs))
+        if bad and len(bad) == len(rs):
+            overall = f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})"
+        elif bad:
+            overall = f"{frac(sum(r['correct'] for r in rs), len(rs))} ({len(bad)} errored)"
         attempted = [r for r in rs if r["rawKind"] not in ("text", "blank", "no_tool", "answer", "error")]
         if native:
             parsed = [r for r in attempted if r["rawKind"] in ("call", "multi_call")]
@@ -526,10 +591,13 @@ def initial_rows(keys, records, native):
             key[1],
             key[2],
             overall,
-            len(errored),
-            frac(sum(r["toolCorrect"] for r in tool_cases), len(tool_cases)),
-            frac(sum(r["argsExact"] for r in tool_cases), len(tool_cases)),
-            frac(sum(r["falsePositive"] for r in none_cases), len(none_cases)),
+            len(bad),
+            frac(sum(r["toolCorrect"] for r in tool_cases if not errored(r)),
+                 sum(1 for r in tool_cases if not errored(r))),
+            frac(sum(r["argsExact"] for r in tool_cases if not errored(r)),
+                 sum(1 for r in tool_cases if not errored(r))),
+            frac(sum(r["falsePositive"] for r in none_cases if not errored(r)),
+                 sum(1 for r in none_cases if not errored(r))),
             pct(len(parsed), len(attempted)) if attempted else "-",
             pct(sum(r["schemaValid"] for r in schema), len(schema)),
         ])
@@ -555,15 +623,17 @@ def suite_b(records, models, out):
                "nothing else. `R+M` is the production order (skills, rule intent gate, model, rule fallback).\n")
     topk_rows = []
     for key in keys:
-        if key[2] not in ("M-topk", "M-topk-fix"):
+        if key[2] not in ("M-topk", "M-topk-fix", "M-topk-fix-lmf"):
             continue
         rs = [r for r in records[key] if r["expectsTool"]]
-        hits = [r for r in rs if r.get("retrieverHit")]
+        answered = [r for r in rs if not errored(r)]
+        hits = [r for r in answered if r.get("retrieverHit")]
         outside = sum(1 for r in records[key] if r.get("outsideAdvertised"))
-        topk_rows.append([key[1], key[2], frac(len(hits), len(rs)), frac(sum(r["correct"] for r in hits), len(hits)),
-                          outside])
+        topk_rows.append([key[1], key[2], frac(len(hits), len(answered)),
+                          score_cell(hits, sum(r["correct"] for r in hits)), outside])
     if topk_rows:
-        out.append("Top-8 modes with the lexical retriever:\n")
+        out.append("Top-8 modes with the lexical retriever (errored calls excluded from the recall base; "
+                   "a hit cannot be scored if the call never answered):\n")
         out.append(table(["model", "mode", "retriever recall@8", "correct when gold tool retrieved",
                           "answers outside the 8"], topk_rows))
         out.append("")
@@ -572,10 +642,13 @@ def suite_b(records, models, out):
         if not key[2].startswith("M-"):
             continue
         rs = [r for r in records[key] if r["expectsTool"]]
-        scores = [lenient_scores(r) for r in rs]
-        lenient_rows.append([key[1], key[2], frac(sum(r["toolCorrect"] for r in rs), len(rs)),
-                             frac(sum(s[0] for s in scores), len(rs)), frac(sum(r["argsExact"] for r in rs), len(rs)),
-                             frac(sum(s[1] for s in scores), len(rs))])
+        answered = [r for r in rs if not errored(r)]
+        scores = [lenient_scores(r) for r in answered]
+        lenient_rows.append([key[1], key[2],
+                             score_cell(answered, sum(r["toolCorrect"] for r in answered)),
+                             score_cell(answered, sum(s[0] for s in scores)),
+                             score_cell(answered, sum(r["argsExact"] for r in answered)),
+                             score_cell(answered, sum(s[1] for s in scores))])
     if lenient_rows:
         out.append("Format compliance against model knowledge, tool requests only. Strict = the app's parser. "
                    "Lenient = a diagnostic reader that also accepts a space after `call:`, a missing `call:` "
@@ -627,7 +700,8 @@ def initial_categories(records, models, out):
         for r in records[key]:
             by[family(r)].append(r)
         rows.append([SUITE_LETTER[key[0]], key[1], key[2]] + [
-            f"{sum(r['correct'] for r in by[f])}/{len(by[f])}" if by[f] else "-" for f in families
+            score_cell([x for x in by[f] if not errored(x)], sum(x["correct"] for x in by[f] if not errored(x)))
+            if by[f] else "-" for f in families
         ])
     out.append(table(header, rows))
     out.append("")
@@ -644,9 +718,14 @@ def failure_taxonomy(records, models, out):
         failures = [initial_failure(r) for r in records[key]]
         counter = Counter(f for f in failures if f)
         placeholder = sum(1 for r in records[key] if initial_failure(r) == "hallucinated tool name" and copied_placeholder(r))
+        # `initial_failure` already classes an errored call as "error"; say how many lines that is
+        # so a fully errored mode reads as an errored run, not as 151 discrete failures.
+        bad = sum(1 for r in records[key] if errored(r))
         rows.append([SUITE_LETTER[key[0]], key[1], key[2], sum(counter.values())]
-                    + [counter.get(c, 0) for c in FAILURE_ORDER] + [placeholder])
-    out.append(table(["suite", "model", "mode", "wrong"] + FAILURE_ORDER + ["of which literal `call:function`"], rows))
+                    + [counter.get(c, 0) for c in FAILURE_ORDER] + [placeholder,
+                       f"{bad}/{len(records[key])}" if bad else "0"])
+    out.append(table(["suite", "model", "mode", "wrong"] + FAILURE_ORDER
+                     + ["of which literal `call:function`", "errored"], rows))
     out.append("")
     out.append("Classes: wrong tool = a valid call to a registry tool that is not gold; bad/missing args = gold "
                "tool with a pinned argument wrong or absent (or rejected by the schema); unparseable call = a "
@@ -667,7 +746,8 @@ def rm_delta(records, models, out):
         if not rm:
             continue
         gains = [r["caseId"] for r in rm if r["correct"] and not rules[r["caseId"]]["correct"]]
-        losses = [r["caseId"] for r in rm if not r["correct"] and rules[r["caseId"]]["correct"]]
+        losses = [r["caseId"] for r in rm
+                  if not r["correct"] and not errored(r) and rules[r["caseId"]]["correct"]]
         model_used = sum(1 for r in rm if r.get("planSource") == "model")
         model_called = sum(1 for r in rm if r.get("modelCalls"))
         rows.append([model, model_called, model_used, len(gains), len(losses),
@@ -693,7 +773,9 @@ def model_vs_rules(records, models, suite_modes, out):
                 continue
             by_id = {r["caseId"]: r for r in rs}
             recovered = [case_id for case_id in misses if by_id.get(case_id, {}).get("correct")]
-            broken = [r["caseId"] for r in rs if not r["correct"] and rules.get(r["caseId"], {}).get("correct")]
+            # An errored call produced no answer, so it cannot "break" a case R got right.
+            broken = [r["caseId"] for r in rs
+                      if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
             rows.append([model, mode, frac(len(recovered), len(misses)), len(broken),
                          ", ".join(recovered[:6]) + (" ..." if len(recovered) > 6 else "")])
     if rows:
@@ -747,22 +829,26 @@ def suite_d(records, models, out):
         return
     rows = []
     for key in keys:
-        rs = records[key]
+        rs = [r for r in records[key] if not errored(r)]
+        if not rs:
+            rows.append([key[1], key[2]] + [f"errored {len(records[key])}/{len(records[key])}"] * 7)
+            continue
         n = len(rs)
         local = [r for r in rs if r["gold"] == "local"]
         remote = [r for r in rs if r["gold"] == "remote"]
         confident = [r for r in rs if r.get("confident")]
         is_rule = key[1] in RULE_MODELS
+        note = "" if len(rs) == len(records[key]) else f"; {len(records[key]) - len(rs)} errored"
         rows.append([
             key[1],
             key[2],
-            frac(sum(r["valid"] for r in rs), n),
-            frac(sum(r["correct"] for r in rs), n),
+            score_cell(rs, sum(r["valid"] for r in rs)) + note,
+            score_cell(rs, sum(r["correct"] for r in rs)) + note,
             frac(sum(r["correct"] for r in local), len(local)),
             frac(sum(r["correct"] for r in remote), len(remote)),
             "-" if is_rule else frac(len(confident), n),
             "-" if is_rule else frac(sum(r["correct"] for r in confident), len(confident)),
-            frac(sum(r["effectiveCorrect"] for r in rs), n),
+            score_cell(rs, sum(r["effectiveCorrect"] for r in rs)) + note,
         ])
     out.append(table(
         ["model", "mode", "valid", "accuracy", "local gold", "remote gold", "coverage at >= 0.9",
@@ -904,10 +990,14 @@ def suite_e(records, models, out):
     gap = {case_id for case_id, r in rules.items() if r["rawKind"] != "use_tool"} if rules else set()
     rows = []
     for key in keys:
-        rs = records[key]
+        all_rs = records[key]
+        rs = [r for r in all_rs if not errored(r)]
+        if not rs:
+            rows.append([key[1], len(all_rs)] + [f"errored {len(all_rs)}/{len(all_rs)}"] * 7)
+            continue
         n = len(rs)
+        note = "" if len(rs) == len(all_rs) else f"; {len(all_rs) - len(rs)} errored"
         valid = [r for r in rs if r.get("valid")]
-        opened = [r for r in rs if r.get("gateOpen")]
         acted = [r for r in rs if r["expectsAction"]]
         idle = [r for r in rs if not r["expectsAction"]]
         # Gate-open is a positive prediction; recall = share of action cases where it opened.
@@ -919,12 +1009,12 @@ def suite_e(records, models, out):
         rows.append([
             key[1],
             n,
-            frac(len(valid), n),
-            frac(sum(1 for r in rs if r.get("gatedCorrect")), n),
+            score_cell(rs, len(valid)) + note,
+            score_cell(rs, sum(1 for r in rs if r.get("gatedCorrect"))) + note,
             f"{precision} ({pct(true_pos, true_pos + false_pos)})",
             frac(true_pos, len(acted)),
             frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle)),
-            frac(sum(1 for r in gap_rs if r.get("gatedCorrect")), len(gap_rs)) if gap_rs else "-",
+            score_cell(gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect"))) if gap_rs else "-",
             frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)) if gap_acted else "-",
         ])
     out.append(table(
@@ -978,15 +1068,20 @@ def composite_r_then_model(records, models, out):
                 filled = [by_id[c] for c in sorted(gap) if c in by_id]
                 if not filled:
                     continue
-                fixed = [r for r in filled if r["correct"] and not base[r["caseId"]]["correct"]]
-                broken = [r for r in filled if not r["correct"] and base[r["caseId"]]["correct"]]
+                # Only an answered call can override R; an errored one leaves R's plan in place,
+                # which is exactly what a fail-closed hand-off does.
+                answered = [r for r in filled if not errored(r)]
+                fixed = [r for r in answered if r["correct"] and not base[r["caseId"]]["correct"]]
+                broken = [r for r in answered if not r["correct"] and base[r["caseId"]]["correct"]]
                 total = sum(base[c]["correct"] for c in base) - sum(base[c]["correct"] for c in gap)
-                total += sum(r["correct"] for r in filled)
+                total += sum(r["correct"] for r in answered)
+                total += sum(base[r["caseId"]]["correct"] for r in filled if errored(r))
                 total += sum(base[c]["correct"] for c in gap if c not in by_id)
                 rows.append([
                     SUITE_LETTER[suite], model, mode,
                     f"{total}/{len(base)}",
                     len(fixed), len(broken),
+                    sum(1 for r in filled if errored(r)),
                     ", ".join(r["caseId"] for r in fixed[:5]) + (" ..." if len(fixed) > 5 else ""),
                 ])
     if not rows:
@@ -994,8 +1089,10 @@ def composite_r_then_model(records, models, out):
     out.append("Offline composite: `R` keeps every plan it makes, and the model answers only the "
                "frames where `R` returned no tool (51 no-tool + 23 tool requests = the 74 rule-gap "
                "cases). Fixed = the model gets right a gap case `R` missed; broken = the model loses "
-               "a gap case `R` got right. No model was called for this table:\n")
-    out.append(table(["suite", "model", "mode", "R+model correct", "fixed", "broken", "fixed cases"], rows))
+               "a gap case `R` got right; errored = the call failed, so `R`'s plan stays. No model was "
+               "called for this table:\n")
+    out.append(table(["suite", "model", "mode", "R+model correct", "fixed", "broken", "errored",
+                      "fixed cases"], rows))
     out.append("")
 
 
@@ -1013,14 +1110,19 @@ def composite_gate(records, models, out):
     base = {r["caseId"]: r for r in records[(SUITE_B, "rules", "R")]}
     rows = []
     for model in models:
-        gate_rows = {r["caseId"]: r for r in records.get((SUITE_E, model, "json-prompt"), [])}
+        gate_rows = {r["caseId"]: r for r in records.get((SUITE_E, model, "json-prompt"), [])
+                     if not errored(r)}
         if not gate_rows:
             continue
-        native_mode = "N-full"
-        native = {r["caseId"]: r for r in records.get((SUITE_C, model, native_mode), [])}
-        if not native:
-            native_mode = "N-topk"
-            native = {r["caseId"]: r for r in records.get((SUITE_C, model, native_mode), [])}
+        # Prefer the mode that is closest to production: N-full, then the production-faithful
+        # N-topk-lmf (top-k plus the `answer` choice), then plain N-topk. The mode is named per row.
+        native_mode, native = None, {}
+        for candidate in ("N-full", "N-topk-lmf", "N-topk"):
+            rows_for = {r["caseId"]: r for r in records.get((SUITE_C, model, candidate), [])
+                        if not errored(r)}
+            if rows_for:
+                native_mode, native = candidate, rows_for
+                break
         if not native:
             continue
         fixed = broken = opened = 0
@@ -1048,8 +1150,9 @@ def composite_gate(records, models, out):
     out.append("Offline composite: `R`, then the action gate, then the native mode in its column only "
                "where the gate opens on a request `R` left alone (gate open = `action = true` and "
                "confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are "
-               "against `R` alone. `N-topk` rows are not comparable to `N-full` rows: they differ in "
-               "which tools the model was shown, not only in model quality.\n")
+               "against `R` alone. The native mode is the first of `N-full`, `N-topk-lmf`, `N-topk` that "
+               "the model has, and the row names it: they differ in which tools the model was shown and "
+               "whether it could decline, so rows are not comparable across a different mode.\n")
     out.append(table(["model", "native mode", "R+gate+native correct", "native answers used", "fixed",
                       "broken", "gate coverage of the gap"], rows))
     out.append("")
@@ -1059,28 +1162,30 @@ def composite_gate(records, models, out):
 
 
 def host_for(model, manifest=None):
-    """The host that produced [model]'s numbers.
+    """The recorded host note that produced [model]'s numbers, or a name-prefix fallback.
 
     One folder can hold two hosts (Ollama and the LiteRT shim on the same day). Prefer the host the
     run recorded on the model itself; fall back to the name prefix, because `litert/*` ids come from
     `lab/scripts/litert_shim.py` and everything else from Ollama. This never inherits the folder's
-    single `hostNote`, which only names the last host that wrote there.
+    single `hostNote`, which only names the last host that wrote there. Tables use [host_label],
+    which shortens this to the exact heading; this keeps the full note for prose.
     """
     recorded = ((manifest or {}).get("models") or {}).get(model, {}).get("host")
     if recorded:
         return recorded
-    return "LiteRT-LM 0.12.0 (.litertlm)" if model.startswith("litert/") else "Ollama"
+    return LITERT_HOST_LABEL if model.startswith("litert/") else "Ollama"
 
 
 def run_facts(folder, manifest, out):
     out.append("Generated by `lab/scripts/summarize.py` from the JSONL files in this folder. Desktop numbers "
-               "on Ollama and LiteRT-LM are not device evidence.\n")
+               "on Ollama and LiteRT-LM are not device evidence. Tables are split by host; the exact "
+               "wording of each heading is the host label.\n")
     models = manifest.get("models") or {}
     hosts = OrderedDict()
     for name in models:
-        hosts.setdefault(host_for(name, manifest), None)
+        hosts.setdefault(host_label(name, manifest), None)
     rows = [
-        ["models in this folder, by host", ", ".join(hosts) or "?"],
+        ["models in this folder, by host", "; ".join(hosts) or "?"],
         ["git HEAD at the last model run", manifest.get("gitHead", "?")],
         ["sampling", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
     ]
@@ -1091,40 +1196,65 @@ def run_facts(folder, manifest, out):
         for name, info in models.items():
             details = info.get("details") or {}
             size = info.get("sizeBytes")
-            rows.append([name, host_for(name, manifest), (info.get("digest") or "?")[:12],
+            rows.append([name, host_label(name, manifest), (info.get("digest") or "?")[:12],
                          details.get("parameter_size") or "?",
                          details.get("quantization_level") or "?", details.get("format") or "?",
                          details.get("runner") or "-", f"{size / 1e9:.2f} GB" if size else "?"])
         out.append(table(["model", "host", "digest", "parameters", "quantization", "format", "runner", "size"], rows))
         out.append("")
+        notes = OrderedDict()
+        for name, info in models.items():
+            note = info.get("host")
+            if note:
+                notes.setdefault(note, []).append(name)
+        if notes:
+            out.append("Per-model host note as recorded by the run:\n")
+            out.append(table(["host note (recorded)", "models"], [[note, ", ".join(names)]
+                                                                    for note, names in notes.items()]))
+            out.append("")
 
 
 def generated(folder, manifest, records, models):
     out = []
-    out.append("## Results at a glance\n")
-    headline(records, models, manifest, out)
     out.append("## Run facts\n")
     run_facts(folder, manifest, out)
-    out.append("## Suite A: observation step\n")
-    suite_a(records, models, out)
-    out.append("## Suite B: initial planning (`call:` text format)\n")
-    suite_b(records, models, out)
-    out.append("## Suite C: native tool calling\n")
-    suite_c(records, models, manifest, out)
-    out.append("## Suites B and C by request family\n")
-    initial_categories(records, models, out)
-    out.append("## Suites B and C failure taxonomy\n")
-    failure_taxonomy(records, models, out)
-    out.append("## Suite D: cloud/edge routing\n")
-    suite_d(records, models, out)
-    out.append("## Suite E: local model as an action gate\n")
-    suite_e(records, models, out)
-    out.append("## Offline composites\n")
-    composite_r_then_model(records, models, out)
-    composite_gate(records, models, out)
-    out.append("## Latency and prompt size\n")
-    latency(records, models, out)
+    # One section per host. A generated table never carries rows from two hosts: the Ollama GGUF
+    # numbers and the LiteRT numbers on the production `.litertlm` files measure different weights
+    # on different runtimes, and reading down a mixed column would compare them.
+    groups = host_groups(manifest, records, models)
+    if not groups:
+        out.append("## No model results\n")
+        out.append("Only rule baselines were recorded in this folder.\n")
+        groups = {None: []}
+    for label, group_models in groups.items():
+        host_models = [m for m in models if m in RULE_MODELS] + group_models
+        out.append(f"## {label}\n" if label else "## Rules only (no model host)\n")
+        if label:
+            out.append("Every table below was produced on this host only.\n")
+        out.append("### Results at a glance\n")
+        headline(records, host_models, manifest, out)
+        out.append("### Suite A: observation step\n")
+        suite_a(records, host_models, out)
+        out.append("### Suite B: initial planning (`call:` text format)\n")
+        suite_b(records, host_models, out)
+        out.append("### Suite C: native tool calling\n")
+        suite_c(records, host_models, manifest, out)
+        out.append("### Suites B and C by request family\n")
+        initial_categories(records, host_models, out)
+        out.append("### Suites B and C failure taxonomy\n")
+        failure_taxonomy(records, host_models, out)
+        out.append("### Suite D: cloud/edge routing\n")
+        suite_d(records, host_models, out)
+        out.append("### Suite E: local model as an action gate\n")
+        suite_e(records, host_models, out)
+        out.append("### Offline composites\n")
+        composite_r_then_model(records, host_models, out)
+        composite_gate(records, host_models, out)
+        out.append("### Latency and prompt size\n")
+        latency(records, host_models, out)
     out.append("## Tool retriever recall\n")
+    out.append("Host-independent: the lexical retriever and the prompt it builds are the same on every "
+               "host.\n")
     retriever(manifest, out)
     out.append("Failure examples for every group are in [`failure_examples.md`](failure_examples.md).\n")
     return "\n".join(out).rstrip() + "\n"
