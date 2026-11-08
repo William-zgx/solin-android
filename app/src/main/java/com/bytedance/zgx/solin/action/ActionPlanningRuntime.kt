@@ -211,7 +211,7 @@ private data class ModelBackedPlanningAttempt(
 )
 
 private const val ACTION_PLANNER_SYSTEM_INSTRUCTION =
-    "你是手机动作规划器。只能输出 call:function {\"arg\":\"value\"}，不解释。"
+    "你是手机动作规划器。只能输出 call:函数名 {\"参数名\":\"值\"}，不解释。"
 
 private fun MobileActionPlanner.modelOutputFailureReason(output: String): String =
     when (val parseResult = parseModelToolOutput(output)) {
@@ -239,7 +239,7 @@ internal fun actionPrompt(
         spec.toActionPromptLine()
     }
     return """
-        将用户请求转换成一个手机动作调用。只能输出 call:function {"arg":"value"}，不解释。
+        将用户请求转换成一个手机动作调用。只能输出 call:函数名 {"参数名":"值"}（函数名换成下面列表里的一个函数），不解释。
         支持函数如下；参数必须符合对应 JSON schema：
         $toolLines
 

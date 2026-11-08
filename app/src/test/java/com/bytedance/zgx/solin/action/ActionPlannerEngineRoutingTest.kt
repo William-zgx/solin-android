@@ -43,6 +43,10 @@ class ActionPlannerEngineRoutingTest {
         assertEquals("the fallback copy is released once chat serves the model", 1, factory.engines.single().closeCount)
         val request = shared.requests.last()
         assertEquals(MODEL, request.modelPath)
+        assertEquals("你是手机动作规划器。只能输出 call:函数名 {\"参数名\":\"值\"}，不解释。", request.systemInstruction)
+        assertFalse(request.systemInstruction.contains("call:function"))
+        assertFalse(request.prompt.contains("call:function"))
+        assertFalse(request.prompt.contains("""{"arg":"value"}"""))
         assertTrue(request.prompt.contains("- $TOOL_NAME "))
     }
 
