@@ -41,6 +41,32 @@ the task up to date or serve a previous (skipped) result from the build cache. O
 host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-topk,json-schema`;
 rule baselines always run).
 
+## Errored runs never look like scores (Decision L1)
+
+A case is **errored** when its `metrics.error` is non-null: the model call failed, so it answered
+nothing. Every number in `SUMMARY.md` that comes from a run with at least one errored case carries
+that run's error count in the same cell or sentence:
+
+- fully errored run → `errored N/N`, and no score;
+- partly errored run → `<value> (E errored)`.
+
+This applies to every generated table and to the hand-written narrative. `summarize.py` computes the
+per-run counts once and every renderer formats through one function (`run_cell` / `score_cell`), so
+there is no second place to forget the annotation.
+
+```bash
+python3 -I lab/scripts/summarize.py lab/results/20261108          # regenerate
+python3 -I lab/scripts/summarize.py --check lab/results/20261108   # exit 1 on a missing annotation
+python3 -I lab/scripts/test_summarize.py                           # regression test (stdlib unittest)
+```
+
+`--check` reads the regenerated `SUMMARY.md`, including the hand-written text outside the GENERATED
+markers, and fails on any line that cites an errored run (by model and mode) without its error
+count. It is the deterministic gate for this rule; fix the narrative rather than the check.
+
+`python3 -I -m unittest <path>` does not work here: `-I` drops the cwd from `sys.path`, so unittest
+cannot import a path-qualified module. Run the test file as a script instead.
+
 **Label the host.** Every devbox run must set `SOLIN_LAB_HOST_NOTE` (for example
 `devbox CPU, Ollama 0.40.13, no GPU`) so its numbers land in a different table from the Mac MLX
 run. A devbox CPU number is not comparable to a Mac MLX number and the two must never share a

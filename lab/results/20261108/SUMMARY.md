@@ -91,7 +91,7 @@ Format compliance against model knowledge, tool requests only. Strict = the app'
 | functiongemma:270m | M-full | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) |
 | functiongemma:270m | M-full-fix | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) |
 
-Model-only modes against `R`, case by case (`R` misses 24 cases):
+Model-only modes against `R`, case by case (`R` misses 24 cases). A cell from a run with errored calls carries its error count, because an errored call is neither recovered nor broken:
 
 | model | mode | R misses the model gets right | R hits the model gets wrong | recovered cases |
 | --- | --- | --- | --- | --- |
@@ -132,7 +132,7 @@ Native response kinds (`unknown_tool` and `nested_arguments` would be rejected b
 | gemma4:e4b | N-full | call 145, text 5, blank 1 |
 | gemma4:e2b | N-full | call 132, text 17, nested_arguments 2 |
 
-Model-only modes against `R`, case by case (`R` misses 24 cases):
+Model-only modes against `R`, case by case (`R` misses 24 cases). A cell from a run with errored calls carries its error count, because an errored call is neither recovered nor broken:
 
 | model | mode | R misses the model gets right | R hits the model gets wrong | recovered cases |
 | --- | --- | --- | --- | --- |
@@ -153,18 +153,18 @@ Model-only modes against `R`, case by case (`R` misses 24 cases):
 | C | gemma4:e4b | N-full | 6/51 (12%) | 9/9 (100%) | 13/14 (93%) | 14/14 (100%) | 21/25 (84%) | 11/13 (85%) | 9/9 (100%) | 4/4 (100%) | 3/3 (100%) | 9/9 (100%) |
 | C | gemma4:e2b | N-full | 17/51 (33%) | 9/9 (100%) | 6/14 (43%) | 13/14 (93%) | 22/25 (88%) | 13/13 (100%) | 8/9 (89%) | 4/4 (100%) | 3/3 (100%) | 9/9 (100%) |
 
-Family = the gold first tool's family; dataset cases labeled `in_app_search` ("在淘宝搜索牛奶", gold `open_app_by_name`) are split out. `no tool` = chat, questions and explicit negations.
+Family = the gold first tool's family; dataset cases labeled `in_app_search` ("在淘宝搜索牛奶", gold `open_app_by_name`) are split out. `no tool` = chat, questions and explicit negations. A cell from a partly errored run carries that run's error count.
 
 ### Suites B and C failure taxonomy
 
 | suite | model | mode | wrong | wrong tool | bad/missing args | unparseable call | hallucinated tool name | answered instead of tool | tool on no-tool request | error | of which literal `call:function` | errored |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| B | functiongemma:270m | M-full | 100 | 0 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 0 |
-| B | functiongemma:270m | M-full-fix | 100 | 0 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 0 |
-| C | functiongemma:270m | N-full | 100 | 0 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 0 |
-| C | functiongemma:270m | N-topk | 89 | 4 | 6 | 0 | 6 | 71 | 2 | 0 | 0 | 0 |
-| C | gemma4:e4b | N-full | 52 | 5 | 2 | 0 | 0 | 0 | 45 | 0 | 0 | 0 |
-| C | gemma4:e2b | N-full | 47 | 9 | 2 | 0 | 0 | 2 | 34 | 0 | 0 | 0 |
+| B | functiongemma:270m | M-full | 151 | 0 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 0 |
+| B | functiongemma:270m | M-full-fix | 151 | 0 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 0 |
+| C | functiongemma:270m | N-full | 151 | 0 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 0 |
+| C | functiongemma:270m | N-topk | 151 | 4 | 6 | 0 | 6 | 71 | 2 | 0 | 0 | 0 |
+| C | gemma4:e4b | N-full | 151 | 5 | 2 | 0 | 0 | 0 | 45 | 0 | 0 | 0 |
+| C | gemma4:e2b | N-full | 151 | 9 | 2 | 0 | 0 | 2 | 34 | 0 | 0 | 0 |
 
 Classes: wrong tool = a valid call to a registry tool that is not gold; bad/missing args = gold tool with a pinned argument wrong or absent (or rejected by the schema); unparseable call = a `call:` / tool call the app's parser rejects for format, multiple calls or nested arguments; hallucinated tool name = a call to a tool that is not in the registry; answered instead of tool = plain text or nothing on a request that needs a tool; tool on no-tool request = an executable tool call where the gold is no tool. `call:function` counts outputs that copied the `call:function {"arg":"value"}` placeholder from the prompt as the tool name.
 
@@ -202,7 +202,7 @@ Offline composite: `R` keeps every plan it makes, and the model answers only the
 | C | gemma4:e4b | N-full | 103/151 | 21 | 45 | 0 | bench_draft_email, bench_multi_taobao_sort_sales, bench_nav_maps_search, bench_search_bili_cat, bench_search_cloudmusic_song ... |
 | C | gemma4:e2b | N-full | 107/151 | 14 | 34 | 0 | bench_draft_email, bench_nav_maps_search, bench_search_douyin_fitness, bench_search_eleme_tea, bench_search_pdd_tissue ... |
 
-Offline composite: `R`, then the action gate, then the native mode in its column only where the gate opens on a request `R` left alone (gate open = `action = true` and confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are against `R` alone. The native mode is the first of `N-full`, `N-topk-lmf`, `N-topk` that the model has, and the row names it: they differ in which tools the model was shown and whether it could decline, so rows are not comparable across a different mode.
+Offline composite: `R`, then the action gate, then the native mode in its column only where the gate opens on a request `R` left alone (gate open = `action = true` and confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are against `R` alone. The native mode is the first of `N-full`, `N-topk-lmf`, `N-topk` that the model has, and the row names it: they differ in which tools the model was shown and whether it could decline, so rows are not comparable across a different mode. A composite cell carries the error count of every run it draws on (the gate and the native mode).
 
 | model | native mode | R+gate+native correct | native answers used | fixed | broken | gate coverage of the gap |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -222,7 +222,7 @@ Offline composite: `R`, then the action gate, then the native mode in its column
 | E | gemma4:e4b | json-prompt | 151 | 1416 | 1992 | 175 | 187 | 0 | 14 |
 | E | gemma4:e2b | json-prompt | 151 | 1229 | 1426 | 175 | 187 | 0 | 15 |
 
-Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency.
+Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run has no row at all, because there is nothing to time.
 
 ## devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)
 
@@ -235,18 +235,18 @@ Suites B and C, requests that need a tool: right first tool with every pinned ar
 | model | B R | B M-full | B M-full-fix | B M-topk | B M-topk-fix | B M-topk-fix-lmf | C N-full | C N-topk | C N-topk-lmf |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | rules | 76/100 (76%) | - | - | - | - | - | - | - | - |
-| litert/gemma-4-e2b | - | - | - | 0/100 (0%) | 70/100 (70%) | 68/100 (68%) | - | 71/100 (71%) (2 errored) | 73/100 (73%) (1 errored) |
+| litert/gemma-4-e2b | - | - | - | 0/100 (0%) | 70/100 (70%) | 68/100 (68%) | - | 71/100 (71%) (3 errored) | 73/100 (73%) (1 errored) |
 | litert/gemma-4-e4b | - | - | - | 0/100 (0%) | - | 77/100 (77%) | - | 77/100 (77%) | 77/100 (77%) |
-| litert/mobile-actions-270m | - | errored 100/100 | errored 100/100 | 0/100 (0%) | 0/100 (0%) | - | errored 100/100 | 16/100 (16%) (71 errored) | - |
+| litert/mobile-actions-270m | - | errored 100/100 | errored 100/100 | 0/100 (0%) | 0/100 (0%) | - | errored 100/100 | 16/100 (16%) (112 errored) | - |
 
 Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing executed. An invalid call executes nothing and counts as correct here.
 
 | model | B R | B M-full | B M-full-fix | B M-topk | B M-topk-fix | B M-topk-fix-lmf | C N-full | C N-topk | C N-topk-lmf |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | rules | 51/51 (100%) | - | - | - | - | - | - | - | - |
-| litert/gemma-4-e2b | - | - | - | 51/51 (100%) | 2/51 (4%) | 28/51 (55%) | - | 12/51 (24%) (1 errored) | 31/51 (61%) |
+| litert/gemma-4-e2b | - | - | - | 51/51 (100%) | 2/51 (4%) | 28/51 (55%) | - | 12/51 (24%) (3 errored) | 31/51 (61%) (1 errored) |
 | litert/gemma-4-e4b | - | - | - | 51/51 (100%) | - | 35/51 (69%) | - | 16/51 (31%) | 40/51 (78%) |
-| litert/mobile-actions-270m | - | errored 51/51 | errored 51/51 | 51/51 (100%) | 51/51 (100%) | - | errored 51/51 | 45/51 (88%) (41 errored) | - |
+| litert/mobile-actions-270m | - | errored 51/51 | errored 51/51 | 51/51 (100%) | 51/51 (100%) | - | errored 51/51 | 45/51 (88%) (112 errored) | - |
 
 Suites B and C, all 151 requests together:
 
@@ -280,14 +280,14 @@ No Suite A results.
 | litert/gemma-4-e2b | M-topk-fix-lmf | 96/151 (64%) | 0 | 77/100 (77%) | 68/100 (68%) | 23/51 (45%) | 100% | 91% |
 | litert/gemma-4-e4b | M-topk | 51/151 (34%) | 0 | 0/100 (0%) | 0/100 (0%) | 0/51 (0%) | 0% | n/a |
 | litert/gemma-4-e4b | M-topk-fix-lmf | 112/151 (74%) | 0 | 79/100 (79%) | 77/100 (77%) | 16/51 (31%) | 100% | 96% |
-| litert/mobile-actions-270m | M-full | errored 151/151 (engine rejected the call) | 151 | n/a | n/a | n/a | - | n/a |
-| litert/mobile-actions-270m | M-full-fix | errored 151/151 (engine rejected the call) | 151 | n/a | n/a | n/a | - | n/a |
+| litert/mobile-actions-270m | M-full | errored 151/151 (engine rejected the call) | 151 | errored 100/100 | errored 100/100 | errored 51/51 | errored 151/151 | errored 151/151 |
+| litert/mobile-actions-270m | M-full-fix | errored 151/151 (engine rejected the call) | 151 | errored 100/100 | errored 100/100 | errored 51/51 | errored 151/151 | errored 151/151 |
 | litert/mobile-actions-270m | M-topk | 51/151 (34%) | 0 | 0/100 (0%) | 0/100 (0%) | 0/51 (0%) | 0% | n/a |
 | litert/mobile-actions-270m | M-topk-fix | 51/151 (34%) | 0 | 0/100 (0%) | 0/100 (0%) | 0/51 (0%) | 0% | n/a |
 
 An invalid call executes nothing, so it is wrong on tool cases and not a false positive on no-tool cases. `M-full` / `M-topk` run the model alone with the production `actionPrompt` and parser; the `-fix` variants are a lab-only ablation that replaces the prompt's `call:function {"arg":"value"}` placeholder with `call:函数名 {"参数名":"值"}` and changes nothing else. `R+M` is the production order (skills, rule intent gate, model, rule fallback).
 
-Top-8 modes with the lexical retriever (errored calls excluded from the recall base; a hit cannot be scored if the call never answered):
+Top-8 modes with the lexical retriever (errored calls excluded from the recall base; a hit cannot be scored if the call never answered; the run's error count is in the cell):
 
 | model | mode | retriever recall@8 | correct when gold tool retrieved | answers outside the 8 |
 | --- | --- | --- | --- | --- |
@@ -308,12 +308,12 @@ Format compliance against model knowledge, tool requests only. Strict = the app'
 | litert/gemma-4-e2b | M-topk-fix-lmf | 77/100 (77%) | 77/100 (77%) | 68/100 (68%) | 68/100 (68%) |
 | litert/gemma-4-e4b | M-topk | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) |
 | litert/gemma-4-e4b | M-topk-fix-lmf | 79/100 (79%) | 79/100 (79%) | 77/100 (77%) | 77/100 (77%) |
-| litert/mobile-actions-270m | M-full | n/a | n/a | n/a | n/a |
-| litert/mobile-actions-270m | M-full-fix | n/a | n/a | n/a | n/a |
+| litert/mobile-actions-270m | M-full | errored 100/100 | errored 100/100 | errored 100/100 | errored 100/100 |
+| litert/mobile-actions-270m | M-full-fix | errored 100/100 | errored 100/100 | errored 100/100 | errored 100/100 |
 | litert/mobile-actions-270m | M-topk | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) |
 | litert/mobile-actions-270m | M-topk-fix | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) | 0/100 (0%) |
 
-Model-only modes against `R`, case by case (`R` misses 24 cases):
+Model-only modes against `R`, case by case (`R` misses 24 cases). A cell from a run with errored calls carries its error count, because an errored call is neither recovered nor broken:
 
 | model | mode | R misses the model gets right | R hits the model gets wrong | recovered cases |
 | --- | --- | --- | --- | --- |
@@ -322,8 +322,8 @@ Model-only modes against `R`, case by case (`R` misses 24 cases):
 | litert/gemma-4-e2b | M-topk-fix-lmf | 8/24 (33%) | 39 | golden_042, bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro ... |
 | litert/gemma-4-e4b | M-topk | 0/24 (0%) | 76 |  |
 | litert/gemma-4-e4b | M-topk-fix-lmf | 8/24 (33%) | 23 | bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro, hw_share_text ... |
-| litert/mobile-actions-270m | M-full | 0/24 (0%) | 0 |  |
-| litert/mobile-actions-270m | M-full-fix | 0/24 (0%) | 0 |  |
+| litert/mobile-actions-270m | M-full | errored 151/151 | errored 151/151 |  |
+| litert/mobile-actions-270m | M-full-fix | errored 151/151 | errored 151/151 |  |
 | litert/mobile-actions-270m | M-topk | 0/24 (0%) | 76 |  |
 | litert/mobile-actions-270m | M-topk-fix | 0/24 (0%) | 76 |  |
 
@@ -343,8 +343,8 @@ Per-argument accuracy, scored only where the tool was right (10 most common gold
 | litert/gemma-4-e2b | M-topk-fix-lmf | 9/9 | 8/8 | 7/7 | 6/6 | 3/5 | 3/4 | 4/4 | 0/4 | 4/4 | 3/4 |
 | litert/gemma-4-e4b | M-topk | - | - | - | - | - | - | - | - | - | - |
 | litert/gemma-4-e4b | M-topk-fix-lmf | 9/9 | 9/9 | 6/7 | 6/6 | 5/5 | 5/5 | 5/5 | 4/4 | 4/4 | 3/4 |
-| litert/mobile-actions-270m | M-full | - | - | - | - | - | - | - | - | - | - |
-| litert/mobile-actions-270m | M-full-fix | - | - | - | - | - | - | - | - | - | - |
+| litert/mobile-actions-270m (errored 151/151) | M-full | - | - | - | - | - | - | - | - | - | - |
+| litert/mobile-actions-270m (errored 151/151) | M-full-fix | - | - | - | - | - | - | - | - | - | - |
 | litert/mobile-actions-270m | M-topk | - | - | - | - | - | - | - | - | - | - |
 | litert/mobile-actions-270m | M-topk-fix | - | - | - | - | - | - | - | - | - | - |
 
@@ -352,12 +352,12 @@ Per-argument accuracy, scored only where the tool was right (10 most common gold
 
 | model | mode | overall correct | errored | tool correct (tool gold) | tool+args exact (tool gold) | false positive (no-tool gold) | valid of attempted calls | schema-valid |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | N-topk | 83/151 (55%) (3 errored) | 3 | 75/98 (77%) | 71/98 (72%) | 39/50 (78%) | 100% | 80% |
-| litert/gemma-4-e2b | N-topk-lmf | 104/151 (69%) (1 errored) | 1 | 76/99 (77%) | 73/99 (74%) | 20/51 (39%) | 100% | 78% |
+| litert/gemma-4-e2b | N-topk | 83/151 (55%) (3 errored) | 3 | 75/98 (77%) (3 errored) | 71/98 (72%) (3 errored) | 39/50 (78%) (3 errored) | 100% | 80% (3 errored) |
+| litert/gemma-4-e2b | N-topk-lmf | 104/151 (69%) (1 errored) | 1 | 76/99 (77%) (1 errored) | 73/99 (74%) (1 errored) | 20/51 (39%) (1 errored) | 100% | 78% (1 errored) |
 | litert/gemma-4-e4b | N-topk | 93/151 (62%) | 0 | 77/100 (77%) | 77/100 (77%) | 35/51 (69%) | 100% | 82% |
 | litert/gemma-4-e4b | N-topk-lmf | 117/151 (77%) | 0 | 77/100 (77%) | 77/100 (77%) | 11/51 (22%) | 100% | 79% |
-| litert/mobile-actions-270m | N-full | errored 151/151 (engine rejected the call) | 151 | n/a | n/a | n/a | - | n/a |
-| litert/mobile-actions-270m | N-topk | 61/151 (40%) (112 errored) | 112 | 18/29 (62%) | 16/29 (55%) | 6/10 (60%) | 76% | 46% |
+| litert/mobile-actions-270m | N-full | errored 151/151 (engine rejected the call) | 151 | errored 100/100 | errored 100/100 | errored 51/51 | errored 151/151 | errored 151/151 |
+| litert/mobile-actions-270m | N-topk | 61/151 (40%) (112 errored) | 112 | 18/29 (62%) (112 errored) | 16/29 (55%) (112 errored) | 6/10 (60%) (112 errored) | 76% | 46% (112 errored) |
 
 `N-full` and `N-topk` use a strict system prompt (always call one tool); `N-topk-free` allows a plain-text answer when no phone action is needed. Arguments are converted to strings the way `RemoteChatRuntime` converts remote tool calls.
 
@@ -365,23 +365,23 @@ Native response kinds (`unknown_tool` and `nested_arguments` would be rejected b
 
 | model | mode | kinds |
 | --- | --- | --- |
-| litert/gemma-4-e2b | N-topk | call 136, text 12, error 3 |
-| litert/gemma-4-e2b | N-topk-lmf | call 116, no_tool_choice 23, text 11, error 1 |
+| litert/gemma-4-e2b | N-topk | call 136, text 12, error 3 (3 errored) |
+| litert/gemma-4-e2b | N-topk-lmf | call 116, no_tool_choice 23, text 11, error 1 (1 errored) |
 | litert/gemma-4-e4b | N-topk | call 133, text 18 |
 | litert/gemma-4-e4b | N-topk-lmf | call 108, no_tool_choice 29, text 14 |
-| litert/mobile-actions-270m | N-full | error 151 |
-| litert/mobile-actions-270m | N-topk | error 112, call 26, unknown_tool 6, text 5, nested_arguments 2 |
+| litert/mobile-actions-270m | N-full | errored 151/151 |
+| litert/mobile-actions-270m | N-topk | error 112, call 26, unknown_tool 6, text 5, nested_arguments 2 (112 errored) |
 
-Model-only modes against `R`, case by case (`R` misses 24 cases):
+Model-only modes against `R`, case by case (`R` misses 24 cases). A cell from a run with errored calls carries its error count, because an errored call is neither recovered nor broken:
 
 | model | mode | R misses the model gets right | R hits the model gets wrong | recovered cases |
 | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | N-topk | 8/24 (33%) | 50 | bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro, hw_share_text ... |
-| litert/gemma-4-e2b | N-topk-lmf | 9/24 (38%) | 31 | golden_042, bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro ... |
+| litert/gemma-4-e2b | N-topk | 8/24 (33%) (3 errored) | 50 (3 errored) | bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro, hw_share_text ... |
+| litert/gemma-4-e2b | N-topk-lmf | 9/24 (38%) (1 errored) | 31 (1 errored) | golden_042, bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro ... |
 | litert/gemma-4-e4b | N-topk | 9/24 (38%) | 43 | golden_042, bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro ... |
 | litert/gemma-4-e4b | N-topk-lmf | 9/24 (38%) | 19 | golden_042, bench_nav_maps_search, bench_draft_email, bench_write_calendar, bench_write_contact, hw_timer_pomodoro ... |
-| litert/mobile-actions-270m | N-full | 0/24 (0%) | 0 |  |
-| litert/mobile-actions-270m | N-topk | 0/24 (0%) | 16 |  |
+| litert/mobile-actions-270m | N-full | errored 151/151 | errored 151/151 |  |
+| litert/mobile-actions-270m | N-topk | 0/24 (0%) (112 errored) | 16 (112 errored) |  |
 
 ### Suites B and C by request family
 
@@ -393,38 +393,38 @@ Model-only modes against `R`, case by case (`R` misses 24 cases):
 | B | litert/gemma-4-e2b | M-topk-fix-lmf | 28/51 (55%) | 7/9 (78%) | 1/14 (7%) | 14/14 (100%) | 12/25 (48%) | 12/13 (92%) | 9/9 (100%) | 4/4 (100%) | 0/3 (0%) | 9/9 (100%) |
 | B | litert/gemma-4-e4b | M-topk | 51/51 (100%) | 0/9 (0%) | 0/14 (0%) | 0/14 (0%) | 0/25 (0%) | 0/13 (0%) | 0/9 (0%) | 0/4 (0%) | 0/3 (0%) | 0/9 (0%) |
 | B | litert/gemma-4-e4b | M-topk-fix-lmf | 35/51 (69%) | 7/9 (78%) | 1/14 (7%) | 13/14 (93%) | 22/25 (88%) | 12/13 (92%) | 9/9 (100%) | 4/4 (100%) | 0/3 (0%) | 9/9 (100%) |
-| B | litert/mobile-actions-270m | M-full | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| B | litert/mobile-actions-270m | M-full-fix | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| B | litert/mobile-actions-270m | M-full | errored 51/51 | errored 9/9 | errored 14/14 | errored 14/14 | errored 25/25 | errored 13/13 | errored 9/9 | errored 4/4 | errored 3/3 | errored 9/9 |
+| B | litert/mobile-actions-270m | M-full-fix | errored 51/51 | errored 9/9 | errored 14/14 | errored 14/14 | errored 25/25 | errored 13/13 | errored 9/9 | errored 4/4 | errored 3/3 | errored 9/9 |
 | B | litert/mobile-actions-270m | M-topk | 51/51 (100%) | 0/9 (0%) | 0/14 (0%) | 0/14 (0%) | 0/25 (0%) | 0/13 (0%) | 0/9 (0%) | 0/4 (0%) | 0/3 (0%) | 0/9 (0%) |
 | B | litert/mobile-actions-270m | M-topk-fix | 51/51 (100%) | 0/9 (0%) | 0/14 (0%) | 0/14 (0%) | 0/25 (0%) | 0/13 (0%) | 0/9 (0%) | 0/4 (0%) | 0/3 (0%) | 0/9 (0%) |
-| C | litert/gemma-4-e2b | N-topk | 11/50 (22%) | 7/9 (78%) | 1/14 (7%) | 13/14 (93%) | 19/25 (76%) | 11/13 (85%) | 7/7 (100%) | 4/4 (100%) | 0/3 (0%) | 9/9 (100%) |
-| C | litert/gemma-4-e2b | N-topk-lmf | 31/51 (61%) | 7/9 (78%) | 1/14 (7%) | 14/14 (100%) | 19/25 (76%) | 11/13 (85%) | 8/8 (100%) | 4/4 (100%) | 0/3 (0%) | 9/9 (100%) |
+| C | litert/gemma-4-e2b | N-topk | 11/50 (22%) (3 errored) | 7/9 (78%) (3 errored) | 1/14 (7%) (3 errored) | 13/14 (93%) (3 errored) | 19/25 (76%) (3 errored) | 11/13 (85%) (3 errored) | 7/7 (100%) (3 errored) | 4/4 (100%) (3 errored) | 0/3 (0%) (3 errored) | 9/9 (100%) (3 errored) |
+| C | litert/gemma-4-e2b | N-topk-lmf | 31/51 (61%) (1 errored) | 7/9 (78%) (1 errored) | 1/14 (7%) (1 errored) | 14/14 (100%) (1 errored) | 19/25 (76%) (1 errored) | 11/13 (85%) (1 errored) | 8/8 (100%) (1 errored) | 4/4 (100%) (1 errored) | 0/3 (0%) (1 errored) | 9/9 (100%) (1 errored) |
 | C | litert/gemma-4-e4b | N-topk | 16/51 (31%) | 7/9 (78%) | 1/14 (7%) | 14/14 (100%) | 22/25 (88%) | 11/13 (85%) | 9/9 (100%) | 4/4 (100%) | 0/3 (0%) | 9/9 (100%) |
 | C | litert/gemma-4-e4b | N-topk-lmf | 40/51 (78%) | 7/9 (78%) | 1/14 (7%) | 14/14 (100%) | 22/25 (88%) | 11/13 (85%) | 9/9 (100%) | 4/4 (100%) | 0/3 (0%) | 9/9 (100%) |
-| C | litert/mobile-actions-270m | N-full | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| C | litert/mobile-actions-270m | N-topk | 4/10 (40%) | 3/7 (43%) | n/a | 9/13 (69%) | 0/3 (0%) | 3/5 (60%) | n/a | n/a | n/a | 1/1 (100%) |
+| C | litert/mobile-actions-270m | N-full | errored 51/51 | errored 9/9 | errored 14/14 | errored 14/14 | errored 25/25 | errored 13/13 | errored 9/9 | errored 4/4 | errored 3/3 | errored 9/9 |
+| C | litert/mobile-actions-270m | N-topk | 4/10 (40%) (112 errored) | 3/7 (43%) (112 errored) | n/a (112 errored) | 9/13 (69%) (112 errored) | 0/3 (0%) (112 errored) | 3/5 (60%) (112 errored) | n/a (112 errored) | n/a (112 errored) | n/a (112 errored) | 1/1 (100%) (112 errored) |
 
-Family = the gold first tool's family; dataset cases labeled `in_app_search` ("在淘宝搜索牛奶", gold `open_app_by_name`) are split out. `no tool` = chat, questions and explicit negations.
+Family = the gold first tool's family; dataset cases labeled `in_app_search` ("在淘宝搜索牛奶", gold `open_app_by_name`) are split out. `no tool` = chat, questions and explicit negations. A cell from a partly errored run carries that run's error count.
 
 ### Suites B and C failure taxonomy
 
 | suite | model | mode | wrong | wrong tool | bad/missing args | unparseable call | hallucinated tool name | answered instead of tool | tool on no-tool request | error | of which literal `call:function` | errored |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| B | litert/gemma-4-e2b | M-topk | 100 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 100 | 0 |
-| B | litert/gemma-4-e2b | M-topk-fix | 79 | 23 | 7 | 0 | 0 | 0 | 49 | 0 | 0 | 0 |
-| B | litert/gemma-4-e2b | M-topk-fix-lmf | 55 | 18 | 9 | 0 | 0 | 5 | 23 | 0 | 0 | 0 |
-| B | litert/gemma-4-e4b | M-topk | 100 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 100 | 0 |
-| B | litert/gemma-4-e4b | M-topk-fix-lmf | 39 | 18 | 2 | 0 | 0 | 3 | 16 | 0 | 0 | 0 |
-| B | litert/mobile-actions-270m | M-full | 100 | 0 | 0 | 0 | 0 | 0 | 0 | 100 | 0 | 151/151 |
-| B | litert/mobile-actions-270m | M-full-fix | 100 | 0 | 0 | 0 | 0 | 0 | 0 | 100 | 0 | 151/151 |
-| B | litert/mobile-actions-270m | M-topk | 100 | 0 | 0 | 4 | 0 | 96 | 0 | 0 | 0 | 0 |
-| B | litert/mobile-actions-270m | M-topk-fix | 100 | 0 | 0 | 3 | 0 | 97 | 0 | 0 | 0 | 0 |
-| C | litert/gemma-4-e2b | N-topk | 68 | 22 | 4 | 0 | 0 | 1 | 39 | 2 | 0 | 3/151 |
-| C | litert/gemma-4-e2b | N-topk-lmf | 47 | 20 | 3 | 0 | 0 | 3 | 20 | 1 | 0 | 1/151 |
-| C | litert/gemma-4-e4b | N-topk | 58 | 21 | 0 | 0 | 0 | 2 | 35 | 0 | 0 | 0 |
-| C | litert/gemma-4-e4b | N-topk-lmf | 34 | 20 | 0 | 0 | 0 | 3 | 11 | 0 | 0 | 0 |
-| C | litert/mobile-actions-270m | N-full | 100 | 0 | 0 | 0 | 0 | 0 | 0 | 100 | 0 | 151/151 |
-| C | litert/mobile-actions-270m | N-topk | 90 | 2 | 2 | 0 | 6 | 3 | 6 | 71 | 0 | 112/151 |
+| B | litert/gemma-4-e2b | M-topk | 151 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 100 | 0 |
+| B | litert/gemma-4-e2b | M-topk-fix | 151 | 23 | 7 | 0 | 0 | 0 | 49 | 0 | 0 | 0 |
+| B | litert/gemma-4-e2b | M-topk-fix-lmf | 151 | 18 | 9 | 0 | 0 | 5 | 23 | 0 | 0 | 0 |
+| B | litert/gemma-4-e4b | M-topk | 151 | 0 | 0 | 0 | 100 | 0 | 0 | 0 | 100 | 0 |
+| B | litert/gemma-4-e4b | M-topk-fix-lmf | 151 | 18 | 2 | 0 | 0 | 3 | 16 | 0 | 0 | 0 |
+| B | litert/mobile-actions-270m | M-full | 151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
+| B | litert/mobile-actions-270m | M-full-fix | 151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
+| B | litert/mobile-actions-270m | M-topk | 151 | 0 | 0 | 4 | 0 | 96 | 0 | 0 | 0 | 0 |
+| B | litert/mobile-actions-270m | M-topk-fix | 151 | 0 | 0 | 3 | 0 | 97 | 0 | 0 | 0 | 0 |
+| C | litert/gemma-4-e2b | N-topk | 151 | 22 (3 errored) | 4 (3 errored) | 0 (3 errored) | 0 (3 errored) | 1 (3 errored) | 39 (3 errored) | 2 (3 errored) | 0 (3 errored) | 3/151 (3 errored) |
+| C | litert/gemma-4-e2b | N-topk-lmf | 151 | 20 (1 errored) | 3 (1 errored) | 0 (1 errored) | 0 (1 errored) | 3 (1 errored) | 20 (1 errored) | 1 (1 errored) | 0 (1 errored) | 1/151 (1 errored) |
+| C | litert/gemma-4-e4b | N-topk | 151 | 21 | 0 | 0 | 0 | 2 | 35 | 0 | 0 | 0 |
+| C | litert/gemma-4-e4b | N-topk-lmf | 151 | 20 | 0 | 0 | 0 | 3 | 11 | 0 | 0 | 0 |
+| C | litert/mobile-actions-270m | N-full | 151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
+| C | litert/mobile-actions-270m | N-topk | 151 | 2 (112 errored) | 2 (112 errored) | 0 (112 errored) | 6 (112 errored) | 3 (112 errored) | 6 (112 errored) | 71 (112 errored) | 0 (112 errored) | 112/151 (112 errored) |
 
 Classes: wrong tool = a valid call to a registry tool that is not gold; bad/missing args = gold tool with a pinned argument wrong or absent (or rejected by the schema); unparseable call = a `call:` / tool call the app's parser rejects for format, multiple calls or nested arguments; hallucinated tool name = a call to a tool that is not in the registry; answered instead of tool = plain text or nothing on a request that needs a tool; tool on no-tool request = an executable tool call where the gold is no tool. `call:function` counts outputs that copied the `call:function {"arg":"value"}` placeholder from the prompt as the tool name.
 
@@ -455,15 +455,15 @@ Production's negation guard, offline: a guarded request never reaches the model 
 | litert/gemma-4-e2b | B M-topk | 51/151 | 51/151 | 18 | 0 -> 0 |
 | litert/gemma-4-e2b | B M-topk-fix | 72/151 | 88/151 | 18 | 49 -> 33 |
 | litert/gemma-4-e2b | B M-topk-fix-lmf | 96/151 | 105/151 | 18 | 23 -> 14 |
-| litert/gemma-4-e2b | C N-topk | 82/148 (3 errored) | 95/148 (3 errored) | 18 | 39 -> 26 |
-| litert/gemma-4-e2b | C N-topk-lmf | 104/150 (1 errored) | 110/150 (1 errored) | 18 | 20 -> 14 |
+| litert/gemma-4-e2b | C N-topk | 82/148 (3 errored) | 95/148 (3 errored) | 18 (3 errored) | 39 -> 26 (3 errored) |
+| litert/gemma-4-e2b | C N-topk-lmf | 104/150 (1 errored) | 110/150 (1 errored) | 18 (1 errored) | 20 -> 14 (1 errored) |
 | litert/gemma-4-e4b | B M-topk | 51/151 | 51/151 | 18 | 0 -> 0 |
 | litert/gemma-4-e4b | B M-topk-fix-lmf | 112/151 | 118/151 | 18 | 16 -> 10 |
 | litert/gemma-4-e4b | C N-topk | 93/151 | 103/151 | 18 | 35 -> 25 |
 | litert/gemma-4-e4b | C N-topk-lmf | 117/151 | 122/151 | 18 | 11 -> 6 |
 | litert/mobile-actions-270m | B M-topk | 51/151 | 51/151 | 18 | 0 -> 0 |
 | litert/mobile-actions-270m | B M-topk-fix | 51/151 | 51/151 | 18 | 0 -> 0 |
-| litert/mobile-actions-270m | C N-topk | 20/39 (112 errored) | 24/39 (112 errored) | 5 | 6 -> 2 |
+| litert/mobile-actions-270m | C N-topk | 20/39 (112 errored) | 24/39 (112 errored) | 5 (112 errored) | 6 -> 2 (112 errored) |
 
 Every no-tool false positive, split. **Orchestration-only** = the production `ToolSpec.capability == ToolCapability.Orchestration`, a hallucinated (unregistered) name, or `answer`: no device, network or external-app effect. **Device / network / external-app** = everything else, i.e. an executable action on the phone. Private reads (`read_clipboard`, screen text, notifications) and network egress (`web_search`, `search_maps`, `open_deep_link`) are named separately because they are the privacy-relevant subset, and are already counted inside the action column:
 
@@ -471,12 +471,12 @@ Every no-tool false positive, split. **Orchestration-only** = the production `To
 | --- | --- | --- | --- | --- | --- | --- |
 | litert/gemma-4-e2b | B M-topk-fix | 49 | 5 | 44 | 1 | 12 |
 | litert/gemma-4-e2b | B M-topk-fix-lmf | 23 | 0 | 23 | 1 | 5 |
-| litert/gemma-4-e2b | C N-topk | 39 | 5 | 34 | 4 | 11 |
-| litert/gemma-4-e2b | C N-topk-lmf | 20 | 1 | 19 | 1 | 6 |
+| litert/gemma-4-e2b | C N-topk | 39 (3 errored) | 5 (3 errored) | 34 (3 errored) | 4 (3 errored) | 11 (3 errored) |
+| litert/gemma-4-e2b | C N-topk-lmf | 20 (1 errored) | 1 (1 errored) | 19 (1 errored) | 1 (1 errored) | 6 (1 errored) |
 | litert/gemma-4-e4b | B M-topk-fix-lmf | 16 | 2 | 14 | 1 | 8 |
 | litert/gemma-4-e4b | C N-topk | 35 | 2 | 33 | 1 | 15 |
 | litert/gemma-4-e4b | C N-topk-lmf | 11 | 2 | 9 | 1 | 2 |
-| litert/mobile-actions-270m | C N-topk | 6 | 0 | 6 | 2 | 0 |
+| litert/mobile-actions-270m | C N-topk | 6 (112 errored) | 0 (112 errored) | 6 (112 errored) | 2 (112 errored) | 0 (112 errored) |
 
 ### Offline composites
 
@@ -489,22 +489,22 @@ Offline composite: `R` keeps every plan it makes, and the model answers only the
 | B | litert/gemma-4-e2b | M-topk-fix-lmf | 111/151 | 7 | 23 | 0 | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_maps_gas ... |
 | B | litert/gemma-4-e4b | M-topk | 127/151 | 0 | 0 | 0 |  |
 | B | litert/gemma-4-e4b | M-topk-fix-lmf | 119/151 | 8 | 16 | 0 | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
-| B | litert/mobile-actions-270m | M-full | 127/151 | 0 | 0 | 74 |  |
-| B | litert/mobile-actions-270m | M-full-fix | 127/151 | 0 | 0 | 74 |  |
+| B | litert/mobile-actions-270m | M-full | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |  |
+| B | litert/mobile-actions-270m | M-full-fix | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |  |
 | B | litert/mobile-actions-270m | M-topk | 127/151 | 0 | 0 | 0 |  |
 | B | litert/mobile-actions-270m | M-topk-fix | 127/151 | 0 | 0 | 0 |  |
-| C | litert/gemma-4-e2b | N-topk | 96/151 | 8 | 39 | 1 | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
-| C | litert/gemma-4-e2b | N-topk-lmf | 115/151 | 8 | 20 | 0 | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
+| C | litert/gemma-4-e2b | N-topk | 96/151 (3 errored) | 8 (3 errored) | 39 (3 errored) | 1 (3 errored) | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
+| C | litert/gemma-4-e2b | N-topk-lmf | 115/151 (1 errored) | 8 (1 errored) | 20 (1 errored) | 0 (1 errored) | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
 | C | litert/gemma-4-e4b | N-topk | 100/151 | 8 | 35 | 0 | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
 | C | litert/gemma-4-e4b | N-topk-lmf | 124/151 | 8 | 11 | 0 | bench_draft_email, bench_nav_maps_search, bench_write_calendar, bench_write_contact, hw_calendar ... |
-| C | litert/mobile-actions-270m | N-full | 127/151 | 0 | 0 | 74 |  |
-| C | litert/mobile-actions-270m | N-topk | 121/151 | 0 | 6 | 62 |  |
+| C | litert/mobile-actions-270m | N-full | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |  |
+| C | litert/mobile-actions-270m | N-topk | 121/151 (112 errored) | 0 (112 errored) | 6 (112 errored) | 62 (112 errored) |  |
 
-Offline composite: `R`, then the action gate, then the native mode in its column only where the gate opens on a request `R` left alone (gate open = `action = true` and confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are against `R` alone. The native mode is the first of `N-full`, `N-topk-lmf`, `N-topk` that the model has, and the row names it: they differ in which tools the model was shown and whether it could decline, so rows are not comparable across a different mode.
+Offline composite: `R`, then the action gate, then the native mode in its column only where the gate opens on a request `R` left alone (gate open = `action = true` and confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are against `R` alone. The native mode is the first of `N-full`, `N-topk-lmf`, `N-topk` that the model has, and the row names it: they differ in which tools the model was shown and whether it could decline, so rows are not comparable across a different mode. A composite cell carries the error count of every run it draws on (the gate and the native mode).
 
 | model | native mode | R+gate+native correct | native answers used | fixed | broken | gate coverage of the gap |
 | --- | --- | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | N-topk-lmf | 129/151 | 27 | 7 | 5 | 74/74 (100%) |
+| litert/gemma-4-e2b | N-topk-lmf | 129/151 (1 errored) | 27 (1 errored) | 7 (1 errored) | 5 (1 errored) | 74/74 (100%) (1 errored) |
 | litert/gemma-4-e4b | N-topk-lmf | 133/151 | 25 | 8 | 2 | 74/74 (100%) |
 
 ### Latency and prompt size
@@ -516,18 +516,21 @@ Offline composite: `R`, then the action gate, then the native mode in its column
 | B | litert/gemma-4-e2b | M-topk-fix-lmf | 151 | 4496 | 5249 | 0 | 0 | 0 | 0 |
 | B | litert/gemma-4-e4b | M-topk | 148 | 8864 | 10264 | 0 | 0 | 0 | 0 |
 | B | litert/gemma-4-e4b | M-topk-fix-lmf | 151 | 8551 | 11905 | 0 | 0 | 0 | 0 |
+| B | litert/mobile-actions-270m | M-full | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
+| B | litert/mobile-actions-270m | M-full-fix | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
 | B | litert/mobile-actions-270m | M-topk | 148 | 463 | 639 | 0 | 0 | 0 | 0 |
 | B | litert/mobile-actions-270m | M-topk-fix | 151 | 471 | 619 | 0 | 0 | 0 | 0 |
-| C | litert/gemma-4-e2b | N-topk | 148 | 15496 | 28676 | 0 | 0 | 0 | 0 |
-| C | litert/gemma-4-e2b | N-topk-lmf | 150 | 5332 | 9557 | 0 | 0 | 0 | 0 |
+| C | litert/gemma-4-e2b | N-topk | 148 (3 errored) | 15496 | 28676 | 0 | 0 | 0 | 0 |
+| C | litert/gemma-4-e2b | N-topk-lmf | 150 (1 errored) | 5332 | 9557 | 0 | 0 | 0 | 0 |
 | C | litert/gemma-4-e4b | N-topk | 151 | 9774 | 17560 | 0 | 0 | 0 | 0 |
 | C | litert/gemma-4-e4b | N-topk-lmf | 151 | 9802 | 18582 | 0 | 0 | 0 | 0 |
-| C | litert/mobile-actions-270m | N-topk | 39 | 407 | 567 | 0 | 0 | 0 | 0 |
+| C | litert/mobile-actions-270m | N-full | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
+| C | litert/mobile-actions-270m | N-topk | 39 (112 errored) | 407 | 567 | 0 | 0 | 0 | 0 |
 | D | litert/gemma-4-e2b | json-prompt | 26 | 14448 | 14740 | 0 | 0 | 0 | 0 |
 | E | litert/gemma-4-e2b | json-prompt | 151 | 13350 | 14432 | 0 | 0 | 0 | 0 |
 | E | litert/gemma-4-e4b | json-prompt | 151 | 8417 | 8564 | 0 | 0 | 0 | 0 |
 
-Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency.
+Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run has no row at all, because there is nothing to time.
 
 ## Tool retriever recall
 
@@ -672,8 +675,9 @@ rules left alone, every model mode scores **below `R`'s 127/151** (`M-topk-fix` 
 for E2B/E4B); with the action gate in front, the same runs score **above** it — E2B 129/151 (+7/−5) and
 E4B 133/151 (+8/−2). The gate, not the model, is what makes the model usable.
 
-**(d) 270M `M-full` prompt overflows.** 151 of 151. The prompt is 2632–2672 tokens against a
-1024-token limit, so there is no case where the production prompt fits.
+**(d) 270M `M-full` prompt overflows.** errored 151/151 (every call failed; there is no score). The
+prompt is 2632–2672 tokens against a 1024-token limit, so there is no case where the production
+prompt fits.
 
 **(e) Production-faithful LocalModelFirst: the `answer` choice is the difference, and the negation
 guard is free accuracy.** The `-topk` modes above are not what production sends. Production
@@ -722,9 +726,10 @@ guard can only help. Raw → guarded, and no-tool false positives raw → guarde
 | E4B `N-topk-lmf` | 117 → 122 | 11 → 6 |
 
 The first three reproduce the coordinator's independent Python estimate exactly (`M-topk-fix`
-72→88 / 49→33; E4B `N-topk` 93→103 / 35→25) with one expected difference: E2B `N-topk` reads
-82→95 / 39→26 against the estimate's 83→96 / 39→26, because the estimate counted the 3 errored calls
-and this composite excludes them (an errored call is not a score). The `-lmf` rows gain as well.
+72→88 / 49→33; E4B `N-topk` 93→103 / 35→25) with one expected difference: E2B `N-topk` (3 errored)
+reads 82→95 / 39→26 against the estimate's 83→96 / 39→26, because the estimate counted the 3
+errored calls and this composite excludes them (an errored call is not a score). The `-lmf` rows
+gain as well.
 
 **No-tool false positives, split.** Every false positive is either an orchestration-only choice (the
 production `ToolCapability.Orchestration` tools, an unregistered name, or `answer`: no device, network
@@ -895,14 +900,15 @@ model is the only thing that can pick `open_app_by_name` for it.
 - **Suite F (LiteRT-LM on the production `.litertlm` files) is in the section above**, with its own
   host label. The Ollama numbers elsewhere in this file are not evidence about the shipped weights.
 - **Not run on the production files:** E2B and E4B `N-full`, E4B `M-topk-fix`, E4B Suite D, and Suite A
-  for every model. `N-full` is the production-shaped native mode and the most important gap: on the 270M
-  it overflows the 1024-token context, and on E2B (8192) it was not measured, so whether the
-  full-registry prompt fits there is **unknown** — do not read the `N-topk` rows as a substitute. The
-  270M cannot run `N-full` at all (151/151 overflow), so its native evidence is `N-topk` only.
+  for every model. `N-full` is the production-shaped native mode and the most important gap: on the
+  270M `N-full` it errors 151/151 on the 1024-token context, and on E2B (8192) it was not measured, so
+  whether the full-registry prompt fits there is **unknown** — do not read the `N-topk` rows as a
+  substitute. The 270M cannot run `N-full` at all (errored 151/151, context overflow), so its native
+  evidence is `N-topk` only (112 of 151 errored).
 - Suite A (observation step) was not run on the devbox for any model.
 - The Ollama `N-topk-free` mode is not run.
-- **Production-faithful `*-lmf` modes:** E2B `M-topk-fix-lmf` and `N-topk-lmf`, and E4B
-  `M-topk-fix-lmf`, are run; E4B `N-topk-lmf` is run. The 270M has no `*-lmf` row —
+- **Production-faithful `*-lmf` modes:** E2B `M-topk-fix-lmf` and `N-topk-lmf` (1 errored), and E4B
+  `M-topk-fix-lmf` and `N-topk-lmf` (0 errored), are run. The 270M has no `*-lmf` row —
   `M-full`/`N-full` overflow its 1024-token context and its `*-topk` text mode cannot parse, so the
   `answer` choice has nothing to attach to there. The offline negation-guard composite covers every
   B/C LiteRT mode and model that ran, including the `-lmf` rows.

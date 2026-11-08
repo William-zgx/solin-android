@@ -2,6 +2,7 @@
 """Summarize one lab run: lab/results/<YYYYMMDD>/*.jsonl -> SUMMARY.md and failure_examples.md.
 
 Standard library only. Run with: python3 -I lab/scripts/summarize.py lab/results/<YYYYMMDD>
+Audit the Decision L1 annotation with: python3 -I lab/scripts/summarize.py --check <folder>
 
 The tables in SUMMARY.md sit between two GENERATED markers. Text outside the markers is hand-written
 (findings, conclusions) and survives a rerun of this script.
@@ -138,31 +139,110 @@ def errored(record):
     """True when a model call behind this record failed.
 
     A failed call answered nothing, so it must never be counted as a score. Read from
-    `metrics.error` first (one flat record or any of its `modelOutputs`), with `rawKind` as the
-    fallback for record shapes that carry no metrics.
+    `metrics.error` on every recorded call (`calls` for Suite A, `modelOutputs` and the flat
+    `metrics` for the other suites), with `rawKind` as the fallback for record shapes that carry
+    no metrics.
     """
     metrics = [record.get("metrics") or {}]
     metrics += [output.get("metrics") or {} for output in (record.get("modelOutputs") or [])]
+    metrics += [call.get("metrics") or {} for call in (record.get("calls") or [])]
     return any(m.get("error") for m in metrics) or record.get("rawKind") == "error"
 
 
-def score_cell(rs, hits):
-    """`k/n` for [rs], or the error count when some of the calls never answered.
+# Per-run error counts, computed once from the loaded records (Decision L1). Every renderer that
+# prints a number derived from a run reads it through [run_cell]; nothing else may format one.
+# key = (suite, model, mode) -> (records in the run, records whose model call failed)
+RUN_ERRORS = {}
 
-    A fully errored cell is `errored 151/151`, a partly errored one `61/151 (112 errored)`.
-    A run that errored on every case was scoring as `51/151` before, because a refused call is
-    shaped exactly like a correct no-tool answer.
-    """
-    n = len(rs)
-    if n == 0:
-        return "n/a"
-    bad = sum(1 for r in rs if errored(r))
-    if bad == n:
-        return f"errored {n}/{n}"
-    text = frac(hits, n)
-    if bad:
-        text += f" ({bad} errored)"
+
+def set_run_errors(records):
+    """Compute the per-run error counts once, before any table is rendered."""
+    global RUN_ERRORS
+    RUN_ERRORS = {key: (len(rs), sum(1 for r in rs if errored(r))) for key, rs in records.items()}
+    return RUN_ERRORS
+
+
+def run_annotation(key):
+    """`""`, `" (E errored)"` or `" (errored N/N)"` for one run (Decision L1)."""
+    n, e = RUN_ERRORS.get(key, (0, 0))
+    if not e:
+        return ""
+    if e == n:
+        return f" (errored {n}/{n})"
+    return f" ({e} errored)"
+
+
+# Every cell a renderer produced through [run_cell] or [labelled], with the runs it came from.
+# `--check` audits this list: it is the machine-checkable form of Decision L1.
+RUN_CELLS = []
+
+
+def record_cell(keys, text):
+    RUN_CELLS.append((tuple(keys), str(text)))
     return text
+
+
+def run_cell(key, text):
+    """The one formatting path for a number derived from a run (Decision L1).
+
+    A run is `(suite, model, mode)`. Any number from a run with at least one errored case carries
+    that run's error count in the same cell. A run that errored on every case has no score at all:
+    the cell reads `errored N/N`, because a failed call answered nothing, and a refusal is shaped
+    exactly like a correct no-tool answer (that is how a 151/151-overflow run once read 51/151).
+    """
+    n, e = RUN_ERRORS.get(key, (0, 0))
+    text = f"errored {n}/{n}" if (e and e == n) else str(text) + run_annotation(key)
+    return record_cell([key], text)
+
+
+def score_cell(key, rs, hits, total=None):
+    """`k/n` for the answered subset [rs] of a run, formatted through that run's error count.
+
+    [key] is the run the cell belongs to (Decision L1), so a cell built from a subset (tool-gold
+    cases, one family) still carries the whole run's error count. [total] is the size of the cell's
+    population when [rs] has already had errored cases filtered out of it; it defaults to `len(rs)`.
+
+    A fully errored run has no score in any cell: the cell reads `errored N/N`, where N is the
+    population the cell is about, not the run size.
+    """
+    run_n, run_e = RUN_ERRORS.get(key, (0, 0))
+    population = len(rs) if total is None else total
+    if run_e and run_e == run_n:
+        return record_cell([key], f"errored {population}/{population}")
+    if not rs:
+        return "n/a" if not run_e else run_cell(key, "n/a")
+    return run_cell(key, frac(hits, len(rs)))
+
+
+def labelled(key, text):
+    """A label cell (model, mode, plan source) that carries its run's error count.
+
+    Tables whose cells are not scores (response kinds, per-argument accuracy, latency, Suite A
+    rows) still derive every value from one run, so Decision L1 puts the run's error count in a
+    cell of that row; the label column is the one that belongs to the whole row.
+    """
+    n, e = RUN_ERRORS.get(key, (0, 0))
+    if not e:
+        return record_cell([key], str(text))
+    if e == n:
+        return record_cell([key], f"{text} (errored {n}/{n})")
+    return record_cell([key], f"{text} ({e} errored)")
+
+
+def cell_for_runs(keys, text):
+    """A cell derived from more than one run (a composite), annotated per contributing run.
+
+    One errored contributor reads like every other cell, `text (E errored)`. When more than one
+    contributing run has failures, each is named with its mode, because the composite's number
+    depends on all of them.
+    """
+    dirty = [key for key in keys if RUN_ERRORS.get(key, (0, 0))[1]]
+    if not dirty:
+        return record_cell(keys, str(text))
+    if len(dirty) == 1:
+        return run_cell(dirty[0], text)
+    parts = ", ".join(f"{RUN_ERRORS[key][1]} errored in {key[2]}" for key in dirty)
+    return record_cell(keys, f"{text} ({parts})")
 
 
 def percentile(values, q):
@@ -392,9 +472,10 @@ def headline_table(records, models, manifest, columns, cell):
     for model in models:
         row = [model]
         for suite, mode in columns:
-            rs = records.get((suite, model, mode))
+            key = (suite, model, mode)
+            rs = records.get(key)
             if rs:
-                row.append(cell(suite, rs))
+                row.append(cell(key, rs))
             elif model in unsupported_for(manifest, suite):
                 row.append("unsupported")
             else:
@@ -440,26 +521,28 @@ def headline(records, models, manifest, out):
     initial = present_columns(records, models, manifest, (SUITE_B, SUITE_C))
     if initial:
         out.append("Suites B and C, requests that need a tool: right first tool with every pinned argument.\n")
-        out.append(headline_table(records, models, manifest, initial, lambda s, rs: score_cell(
+        out.append(headline_table(records, models, manifest, initial, lambda k, rs: score_cell(
+            k,
             [r for r in rs if r["expectsTool"]],
             sum(r["argsExact"] for r in rs if r["expectsTool"]))))
         out.append("")
         out.append("Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing "
                    "executed. An invalid call executes nothing and counts as correct here.\n")
-        out.append(headline_table(records, models, manifest, initial, lambda s, rs: score_cell(
+        out.append(headline_table(records, models, manifest, initial, lambda k, rs: score_cell(
+            k,
             [r for r in rs if not r["expectsTool"]],
             sum(r["correct"] for r in rs if not r["expectsTool"]))))
         out.append("")
         out.append("Suites B and C, all 151 requests together:\n")
         out.append(headline_table(records, models, manifest, initial,
-                                  lambda s, rs: score_cell(rs, score_of(s, rs)[0])))
+                                  lambda k, rs: score_cell(k, rs, score_of(k[0], rs)[0])))
         out.append("")
     other = present_columns(records, models, manifest, (SUITE_A, SUITE_D))
     if other:
         out.append("Suite A (final step after the replanner guards, 46 screens) and Suite D (placement on 26 "
                    "routing cases):\n")
         out.append(headline_table(records, models, manifest, other,
-                                  lambda s, rs: score_cell(rs, score_of(s, rs)[0])))
+                                  lambda k, rs: score_cell(k, rs, score_of(k[0], rs)[0])))
         out.append("")
     out.append("`rules` is the production rule path with no model, so it has no host and its row is repeated "
                "under each host as the same reference. `-` means not run. `-fix` modes are the lab-only "
@@ -487,12 +570,12 @@ def suite_a(records, models, out):
         rows.append([
             key[1],
             n,
-            frac(sum(r["rawCorrect"] for r in rs), n),
-            frac(sum(r["finalCorrect"] for r in rs), n),
-            frac(sum(r["finalCorrect"] for r in action_cases), len(action_cases)),
-            frac(sum(r["finalCorrect"] for r in stop_cases), len(stop_cases)),
-            pct(len(parse_fail), len(attempted)),
-            f"{statistics.mean(r['modelCalls'] for r in rs):.2f}",
+            run_cell(key, frac(sum(r["rawCorrect"] for r in rs), n)),
+            run_cell(key, frac(sum(r["finalCorrect"] for r in rs), n)),
+            run_cell(key, frac(sum(r["finalCorrect"] for r in action_cases), len(action_cases))),
+            run_cell(key, frac(sum(r["finalCorrect"] for r in stop_cases), len(stop_cases))),
+            run_cell(key, pct(len(parse_fail), len(attempted))),
+            run_cell(key, f"{statistics.mean(r['modelCalls'] for r in rs):.2f}"),
         ])
     out.append(table(
         ["model", "n", "raw draft correct", "final correct", "final, action gold", "final, stop gold",
@@ -502,7 +585,8 @@ def suite_a(records, models, out):
     out.append("")
     out.append("Raw draft = the first model call's parsed `call:` line, before any guard. Final = what "
                "`ModelObservationReplanner.planNext` returns after the guards and the optional second call; "
-               "`null` counts as stop.\n")
+               "`null` counts as stop. A cell from a run with errored calls carries the run's error "
+               "count.\n")
 
     categories = []
     for key in keys:
@@ -514,8 +598,9 @@ def suite_a(records, models, out):
         by_cat = defaultdict(list)
         for r in records[key]:
             by_cat[r["category"]].append(r)
-        rows.append([key[1]] + [
-            f"{sum(r['finalCorrect'] for r in by_cat[c])}/{len(by_cat[c])}" if by_cat[c] else "-"
+        rows.append([labelled(key, key[1])] + [
+            run_cell(key, f"{sum(r['finalCorrect'] for r in by_cat[c])}/{len(by_cat[c])}")
+            if by_cat[c] else "-"
             for c in categories
         ])
     out.append("Final correct by screen category:\n")
@@ -530,9 +615,10 @@ def suite_a(records, models, out):
         first_calls = [r["calls"][0] for r in records[key] if r["calls"]]
         unknown = sum(1 for c in first_calls if (c.get("parseFailure") or "").startswith("Unknown tool"))
         malformed = sum(1 for c in first_calls if c.get("parseFailure") and not c["parseFailure"].startswith("Unknown tool"))
-        rows.append([key[1]] + [counter.get(c, 0) for c in classes] + [malformed, unknown])
+        rows.append([labelled(key, key[1]), run_cell(key, len(records[key]))]
+                    + [counter.get(c, 0) for c in classes] + [malformed, unknown])
     out.append("Failure taxonomy (final answer), plus first-call format failures:\n")
-    out.append(table(["model"] + classes + ["first call unparseable", "first call hallucinated tool"], rows))
+    out.append(table(["model", "n"] + classes + ["first call unparseable", "first call hallucinated tool"], rows))
     out.append("")
 
     reasons = Counter()
@@ -548,13 +634,15 @@ def suite_a(records, models, out):
     if reasons:
         ordered = [reason for reason, _ in reasons.most_common()]
         out.append("Replanner rejection reasons, counted per model call (a step can have two):\n")
-        out.append(table(["model"] + ordered, [[m] + [per_model[m].get(r, 0) for r in ordered] for m in per_model]))
+        out.append(table(["model"] + ordered,
+                         [[labelled(key, key[1])] + [per_model[key[1]].get(r, 0) for r in ordered]
+                          for key in keys]))
         out.append("")
 
     rows = []
     for key in keys:
         sources = Counter(r["finalSource"] for r in records[key])
-        rows.append([key[1], ", ".join(f"{k} {v}" for k, v in sources.most_common())])
+        rows.append([labelled(key, key[1]), run_cell(key, ", ".join(f"{k} {v}" for k, v in sources.most_common()))])
     out.append("Where the final answer came from:\n")
     out.append(table(["model", "final source"], rows))
     out.append("")
@@ -590,11 +678,10 @@ def initial_rows(keys, records, native):
         bad = [r for r in rs if errored(r)]
         # An errored case answered nothing. It is never "correct": say so instead of letting a
         # refusal-shaped record inflate the score (the 270M overflow case looked like 51/151 before).
-        overall = score_cell(rs, sum(r["correct"] for r in rs))
+        # The fully errored case also names the cause, which the engine's stderr carries.
+        overall = score_cell(key, rs, sum(r["correct"] for r in rs))
         if bad and len(bad) == len(rs):
             overall = f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})"
-        elif bad:
-            overall = f"{frac(sum(r['correct'] for r in rs), len(rs))} ({len(bad)} errored)"
         attempted = [r for r in rs
                      if r["rawKind"] not in ("text", "blank", "no_tool", "no_tool_choice", "answer", "error")]
         if native:
@@ -604,19 +691,21 @@ def initial_rows(keys, records, native):
         else:
             attempted, parsed = [], []
         schema = [r for r in rs if r.get("schemaValid") is not None]
+        answered_tool = [r for r in tool_cases if not errored(r)]
+        answered_none = [r for r in none_cases if not errored(r)]
         rows.append([
             key[1],
             key[2],
             overall,
             len(bad),
-            frac(sum(r["toolCorrect"] for r in tool_cases if not errored(r)),
-                 sum(1 for r in tool_cases if not errored(r))),
-            frac(sum(r["argsExact"] for r in tool_cases if not errored(r)),
-                 sum(1 for r in tool_cases if not errored(r))),
-            frac(sum(r["falsePositive"] for r in none_cases if not errored(r)),
-                 sum(1 for r in none_cases if not errored(r))),
-            pct(len(parsed), len(attempted)) if attempted else "-",
-            pct(sum(r["schemaValid"] for r in schema), len(schema)),
+            score_cell(key, answered_tool, sum(r["toolCorrect"] for r in answered_tool),
+                       total=len(tool_cases)),
+            score_cell(key, answered_tool, sum(r["argsExact"] for r in answered_tool),
+                       total=len(tool_cases)),
+            score_cell(key, answered_none, sum(r["falsePositive"] for r in answered_none),
+                       total=len(none_cases)),
+            pct(len(parsed), len(attempted)) if attempted else run_cell(key, "-"),
+            run_cell(key, pct(sum(r["schemaValid"] for r in schema), len(schema))),
         ])
     return rows
 
@@ -646,11 +735,12 @@ def suite_b(records, models, out):
         answered = [r for r in rs if not errored(r)]
         hits = [r for r in answered if r.get("retrieverHit")]
         outside = sum(1 for r in records[key] if r.get("outsideAdvertised"))
-        topk_rows.append([key[1], key[2], frac(len(hits), len(answered)),
-                          score_cell(hits, sum(r["correct"] for r in hits)), outside])
+        topk_rows.append([key[1], key[2], run_cell(key, frac(len(hits), len(answered))),
+                          score_cell(key, hits, sum(r["correct"] for r in hits)), run_cell(key, outside)])
     if topk_rows:
         out.append("Top-8 modes with the lexical retriever (errored calls excluded from the recall base; "
-                   "a hit cannot be scored if the call never answered):\n")
+                   "a hit cannot be scored if the call never answered; the run's error count is in the "
+                   "cell):\n")
         out.append(table(["model", "mode", "retriever recall@8", "correct when gold tool retrieved",
                           "answers outside the 8"], topk_rows))
         out.append("")
@@ -662,10 +752,10 @@ def suite_b(records, models, out):
         answered = [r for r in rs if not errored(r)]
         scores = [lenient_scores(r) for r in answered]
         lenient_rows.append([key[1], key[2],
-                             score_cell(answered, sum(r["toolCorrect"] for r in answered)),
-                             score_cell(answered, sum(s[0] for s in scores)),
-                             score_cell(answered, sum(r["argsExact"] for r in answered)),
-                             score_cell(answered, sum(s[1] for s in scores))])
+                             score_cell(key, answered, sum(r["toolCorrect"] for r in answered), total=len(rs)),
+                             score_cell(key, answered, sum(s[0] for s in scores), total=len(rs)),
+                             score_cell(key, answered, sum(r["argsExact"] for r in answered), total=len(rs)),
+                             score_cell(key, answered, sum(s[1] for s in scores), total=len(rs))])
     if lenient_rows:
         out.append("Format compliance against model knowledge, tool requests only. Strict = the app's parser. "
                    "Lenient = a diagnostic reader that also accepts a space after `call:`, a missing `call:` "
@@ -696,7 +786,8 @@ def suite_c(records, models, manifest, out):
     rows = []
     for key in keys:
         kinds = Counter(r["rawKind"] for r in records[key])
-        rows.append([key[1], key[2], ", ".join(f"{k} {v}" for k, v in kinds.most_common())])
+        rows.append([key[1], key[2],
+                     run_cell(key, ", ".join(f"{k} {v}" for k, v in kinds.most_common()))])
     out.append("Native response kinds (`unknown_tool` and `nested_arguments` would be rejected by the app):\n")
     out.append(table(["model", "mode", "kinds"], rows))
     out.append("")
@@ -717,13 +808,15 @@ def initial_categories(records, models, out):
         for r in records[key]:
             by[family(r)].append(r)
         rows.append([SUITE_LETTER[key[0]], key[1], key[2]] + [
-            score_cell([x for x in by[f] if not errored(x)], sum(x["correct"] for x in by[f] if not errored(x)))
-            if by[f] else "-" for f in families
+            score_cell(key, [x for x in by[f] if not errored(x)],
+                       sum(x["correct"] for x in by[f] if not errored(x)), total=len(by[f]))
+            if by[f] else run_cell(key, "-") for f in families
         ])
     out.append(table(header, rows))
     out.append("")
     out.append("Family = the gold first tool's family; dataset cases labeled `in_app_search` (\"在淘宝搜索牛奶\", gold "
-               "`open_app_by_name`) are split out. `no tool` = chat, questions and explicit negations.\n")
+               "`open_app_by_name`) are split out. `no tool` = chat, questions and explicit negations. A cell "
+               "from a partly errored run carries that run's error count.\n")
 
 
 def failure_taxonomy(records, models, out):
@@ -734,13 +827,14 @@ def failure_taxonomy(records, models, out):
     for key in keys:
         failures = [initial_failure(r) for r in records[key]]
         counter = Counter(f for f in failures if f)
-        placeholder = sum(1 for r in records[key] if initial_failure(r) == "hallucinated tool name" and copied_placeholder(r))
+        placeholder = sum(1 for r in records[key]
+                          if initial_failure(r) == "hallucinated tool name" and copied_placeholder(r))
         # `initial_failure` already classes an errored call as "error"; say how many lines that is
         # so a fully errored mode reads as an errored run, not as 151 discrete failures.
-        bad = sum(1 for r in records[key] if errored(r))
-        rows.append([SUITE_LETTER[key[0]], key[1], key[2], sum(counter.values())]
-                    + [counter.get(c, 0) for c in FAILURE_ORDER] + [placeholder,
-                       f"{bad}/{len(records[key])}" if bad else "0"])
+        n, e = RUN_ERRORS.get(key, (0, 0))
+        rows.append([SUITE_LETTER[key[0]], key[1], key[2], len(records[key])]
+                    + [run_cell(key, counter.get(c, 0)) for c in FAILURE_ORDER]
+                    + [run_cell(key, placeholder), run_cell(key, f"{e}/{n}" if e else "0")])
     out.append(table(["suite", "model", "mode", "wrong"] + FAILURE_ORDER
                      + ["of which literal `call:function`", "errored"], rows))
     out.append("")
@@ -767,10 +861,13 @@ def rm_delta(records, models, out):
                   if not r["correct"] and not errored(r) and rules[r["caseId"]]["correct"]]
         model_used = sum(1 for r in rm if r.get("planSource") == "model")
         model_called = sum(1 for r in rm if r.get("modelCalls"))
-        rows.append([model, model_called, model_used, len(gains), len(losses),
+        key = (SUITE_B, model, "R+M")
+        rows.append([model, model_called, model_used, run_cell(key, len(gains)),
+                     run_cell(key, len(losses)),
                      ", ".join(losses[:6]) + (" ..." if len(losses) > 6 else "")])
     if rows:
-        out.append("`R+M` against `R` (production order with a model installed, against rules only):\n")
+        out.append("`R+M` against `R` (production order with a model installed, against rules only). A cell "
+                   "from a partly errored run carries that run's error count:\n")
         out.append(table(["model", "requests that reached the model", "plans from the model", "cases fixed",
                           "cases broken", "broken cases"], rows))
         out.append("")
@@ -789,14 +886,18 @@ def model_vs_rules(records, models, suite_modes, out):
             if not rs:
                 continue
             by_id = {r["caseId"]: r for r in rs}
+            key = (suite, model, mode)
             recovered = [case_id for case_id in misses if by_id.get(case_id, {}).get("correct")]
             # An errored call produced no answer, so it cannot "break" a case R got right.
             broken = [r["caseId"] for r in rs
                       if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
-            rows.append([model, mode, frac(len(recovered), len(misses)), len(broken),
+            rows.append([model, mode, run_cell(key, frac(len(recovered), len(misses))),
+                         run_cell(key, len(broken)),
                          ", ".join(recovered[:6]) + (" ..." if len(recovered) > 6 else "")])
     if rows:
-        out.append(f"Model-only modes against `R`, case by case (`R` misses {len(misses)} cases):\n")
+        out.append(f"Model-only modes against `R`, case by case (`R` misses {len(misses)} cases). A cell "
+                   "from a run with errored calls carries its error count, because an errored call is "
+                   "neither recovered nor broken:\n")
         out.append(table(["model", "mode", "R misses the model gets right", "R hits the model gets wrong",
                           "recovered cases"], rows))
         out.append("")
@@ -808,7 +909,8 @@ def plan_sources(keys, records, out):
         if key[2] not in ("R", "R+M"):
             continue
         counter = Counter(r.get("planSource", "?") for r in records[key])
-        rows.append([key[1], key[2], ", ".join(f"{k} {v}" for k, v in counter.most_common())])
+        rows.append([key[1], key[2],
+                     run_cell(key, ", ".join(f"{k} {v}" for k, v in counter.most_common()))])
     if rows:
         out.append("Where `R` / `R+M` plans came from:\n")
         out.append(table(["model", "mode", "plan source"], rows))
@@ -829,7 +931,9 @@ def arg_keys(keys, records, out):
     if not all_keys:
         return
     names = [name for name, _ in all_keys.most_common(10)]
-    rows = [[key[1], key[2]] + [f"{stats[key][n][0]}/{stats[key][n][1]}" if stats[key][n][1] else "-" for n in names]
+    rows = [[labelled(key, key[1]), key[2]]
+            + [run_cell(key, f"{stats[key][n][0]}/{stats[key][n][1]}") if stats[key][n][1] else "-"
+               for n in names]
             for key in keys]
     out.append("Per-argument accuracy, scored only where the tool was right (10 most common gold keys):\n")
     out.append(table(["model", "mode"] + names, rows))
@@ -848,24 +952,23 @@ def suite_d(records, models, out):
     for key in keys:
         rs = [r for r in records[key] if not errored(r)]
         if not rs:
-            rows.append([key[1], key[2]] + [f"errored {len(records[key])}/{len(records[key])}"] * 7)
+            rows.append([key[1], key[2]] + ["errored %d/%d" % (len(records[key]), len(records[key]))] * 7)
             continue
         n = len(rs)
         local = [r for r in rs if r["gold"] == "local"]
         remote = [r for r in rs if r["gold"] == "remote"]
         confident = [r for r in rs if r.get("confident")]
         is_rule = key[1] in RULE_MODELS
-        note = "" if len(rs) == len(records[key]) else f"; {len(records[key]) - len(rs)} errored"
         rows.append([
             key[1],
             key[2],
-            score_cell(rs, sum(r["valid"] for r in rs)) + note,
-            score_cell(rs, sum(r["correct"] for r in rs)) + note,
-            frac(sum(r["correct"] for r in local), len(local)),
-            frac(sum(r["correct"] for r in remote), len(remote)),
-            "-" if is_rule else frac(len(confident), n),
-            "-" if is_rule else frac(sum(r["correct"] for r in confident), len(confident)),
-            score_cell(rs, sum(r["effectiveCorrect"] for r in rs)) + note,
+            score_cell(key, rs, sum(r["valid"] for r in rs)),
+            score_cell(key, rs, sum(r["correct"] for r in rs)),
+            run_cell(key, frac(sum(r["correct"] for r in local), len(local))),
+            run_cell(key, frac(sum(r["correct"] for r in remote), len(remote))),
+            "-" if is_rule else run_cell(key, frac(len(confident), n)),
+            "-" if is_rule else run_cell(key, frac(sum(r["correct"] for r in confident), len(confident))),
+            score_cell(key, rs, sum(r["effectiveCorrect"] for r in rs)),
         ])
     out.append(table(
         ["model", "mode", "valid", "accuracy", "local gold", "remote gold", "coverage at >= 0.9",
@@ -889,11 +992,17 @@ def latency(records, models, out):
                 continue
             calls = [m for r in records[key] for m in model_calls(r)]
             if not calls:
+                # Every call in this run failed (`model_calls` drops failed calls), so there is no
+                # timing to report. Say the run errored rather than leaving it out of the table.
+                n, e = RUN_ERRORS.get(key, (0, 0))
+                if e:
+                    rows.append([SUITE_LETTER[suite], key[1], key[2], f"errored {n}/{n}"]
+                                + [f"errored {n}/{n}"] * 6)
                 continue
             walls = [m.get("wallMs") for m in calls]
             prompt = [m.get("promptTokens") for m in calls]
             rows.append([
-                SUITE_LETTER[suite], key[1], key[2], len(calls),
+                SUITE_LETTER[suite], key[1], key[2], run_cell(key, len(calls)),
                 fmt(percentile(walls, 0.5)), fmt(percentile(walls, 0.95)),
                 fmt(percentile(prompt, 0.5)), fmt(percentile(prompt, 0.95)),
                 mean([m.get("promptCachedTokens") for m in calls]),
@@ -906,7 +1015,9 @@ def latency(records, models, out):
     out.append("")
     out.append("Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. "
                "Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call "
-               "would not. Use these numbers to compare modes and models with each other, not as phone latency.\n")
+               "would not. Use these numbers to compare modes and models with each other, not as phone latency. "
+               "A failed call adds no timing, so a partly errored run's call count carries its error count; a "
+               "fully errored run has no row at all, because there is nothing to time.\n")
 
 
 def retriever(manifest, out):
@@ -1013,7 +1124,6 @@ def suite_e(records, models, out):
             rows.append([key[1], len(all_rs)] + [f"errored {len(all_rs)}/{len(all_rs)}"] * 7)
             continue
         n = len(rs)
-        note = "" if len(rs) == len(all_rs) else f"; {len(all_rs) - len(rs)} errored"
         valid = [r for r in rs if r.get("valid")]
         acted = [r for r in rs if r["expectsAction"]]
         idle = [r for r in rs if not r["expectsAction"]]
@@ -1026,13 +1136,14 @@ def suite_e(records, models, out):
         rows.append([
             key[1],
             n,
-            score_cell(rs, len(valid)) + note,
-            score_cell(rs, sum(1 for r in rs if r.get("gatedCorrect"))) + note,
-            f"{precision} ({pct(true_pos, true_pos + false_pos)})",
-            frac(true_pos, len(acted)),
-            frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle)),
-            score_cell(gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect"))) if gap_rs else "-",
-            frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)) if gap_acted else "-",
+            score_cell(key, rs, len(valid)),
+            score_cell(key, rs, sum(1 for r in rs if r.get("gatedCorrect"))),
+            run_cell(key, f"{precision} ({pct(true_pos, true_pos + false_pos)})"),
+            run_cell(key, frac(true_pos, len(acted))),
+            run_cell(key, frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle))),
+            score_cell(key, gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect"))) if gap_rs else "-",
+            run_cell(key, frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)))
+            if gap_acted else "-",
         ])
     out.append(table(
         ["model", "n", "valid JSON", "gate decision correct", "gate precision (true/false open)",
@@ -1094,11 +1205,12 @@ def composite_r_then_model(records, models, out):
                 total += sum(r["correct"] for r in answered)
                 total += sum(base[r["caseId"]]["correct"] for r in filled if errored(r))
                 total += sum(base[c]["correct"] for c in gap if c not in by_id)
+                key = (suite, model, mode)
                 rows.append([
                     SUITE_LETTER[suite], model, mode,
-                    f"{total}/{len(base)}",
-                    len(fixed), len(broken),
-                    sum(1 for r in filled if errored(r)),
+                    run_cell(key, f"{total}/{len(base)}"),
+                    run_cell(key, len(fixed)), run_cell(key, len(broken)),
+                    run_cell(key, sum(1 for r in filled if errored(r))),
                     ", ".join(r["caseId"] for r in fixed[:5]) + (" ..." if len(fixed) > 5 else ""),
                 ])
     if not rows:
@@ -1160,8 +1272,13 @@ def composite_gate(records, models, out):
                 fixed += 1
             elif not answer and rule["correct"]:
                 broken += 1
-        rows.append([model, native_mode, f"{total}/{len(base)}", opened, fixed, broken,
-                     frac(sum(1 for c in gap if c in gate_rows), len(gap))])
+        native_key = (SUITE_C, model, native_mode)
+        gate_key = (SUITE_E, model, "json-prompt")
+        contributors = [gate_key, native_key]
+        rows.append([model, native_mode, cell_for_runs(contributors, f"{total}/{len(base)}"),
+                     cell_for_runs(contributors, opened),
+                     cell_for_runs(contributors, fixed), cell_for_runs(contributors, broken),
+                     cell_for_runs(contributors, frac(sum(1 for c in gap if c in gate_rows), len(gap)))])
     if not rows:
         return
     out.append("Offline composite: `R`, then the action gate, then the native mode in its column only "
@@ -1169,7 +1286,8 @@ def composite_gate(records, models, out):
                "confidence >= 0.9). A closed gate returns no tool, so it fails closed. Fixed/broken are "
                "against `R` alone. The native mode is the first of `N-full`, `N-topk-lmf`, `N-topk` that "
                "the model has, and the row names it: they differ in which tools the model was shown and "
-               "whether it could decline, so rows are not comparable across a different mode.\n")
+               "whether it could decline, so rows are not comparable across a different mode. A composite "
+               "cell carries the error count of every run it draws on (the gate and the native mode).\n")
     out.append(table(["model", "native mode", "R+gate+native correct", "native answers used", "fixed",
                       "broken", "gate coverage of the gap"], rows))
     out.append("")
@@ -1206,14 +1324,16 @@ def production_faithful(fidelity, models, out):
     table_rows = []
     for r in sorted(rows, key=lambda x: (x["model"], SUITE_LETTER.get(x["suite"], x["suite"]), x["mode"])):
         answered = r["answered"]
-        errored_note = f" ({r['errored']} errored)" if r.get("errored") else ""
+        # Same one formatting path as every other table: the annotation comes from the run's error
+        # count, never from a second, table-local rule.
+        key = (r["suite"], r["model"], r["mode"])
         table_rows.append([
             r["model"],
             f"{SUITE_LETTER.get(r['suite'], r['suite'])} {r['mode']}",
-            f"{r['rawCorrect']}/{answered}{errored_note}",
-            f"{r['guardedCorrect']}/{answered}{errored_note}",
-            r["guardedCases"],
-            f"{r['rawFalsePositive']} -> {r['guardedFalsePositive']}",
+            run_cell(key, f"{r['rawCorrect']}/{answered}"),
+            run_cell(key, f"{r['guardedCorrect']}/{answered}"),
+            run_cell(key, r["guardedCases"]),
+            run_cell(key, f"{r['rawFalsePositive']} -> {r['guardedFalsePositive']}"),
         ])
     out.append(table(["model", "suite / mode", "raw correct", "guarded correct (production)",
                       "negated requests", "no-tool false positives raw -> guarded"], table_rows))
@@ -1225,11 +1345,11 @@ def production_faithful(fidelity, models, out):
         split_rows.append([
             r["model"],
             f"{SUITE_LETTER.get(r['suite'], r['suite'])} {r['mode']}",
-            r["rawFalsePositive"],
-            r["fpOrchestrationOnly"],
-            r["fpDeviceNetworkExternal"],
-            r["fpPrivateRead"],
-            r["fpNetworkEgress"],
+            run_cell((r["suite"], r["model"], r["mode"]), r["rawFalsePositive"]),
+            run_cell((r["suite"], r["model"], r["mode"]), r["fpOrchestrationOnly"]),
+            run_cell((r["suite"], r["model"], r["mode"]), r["fpDeviceNetworkExternal"]),
+            run_cell((r["suite"], r["model"], r["mode"]), r["fpPrivateRead"]),
+            run_cell((r["suite"], r["model"], r["mode"]), r["fpNetworkEgress"]),
         ])
     if split_rows:
         out.append("Every no-tool false positive, split. **Orchestration-only** = the production "
@@ -1368,14 +1488,88 @@ def write_summary(folder, manifest, body):
     return target
 
 
-def main(argv):
-    if len(argv) != 2:
-        print(__doc__.strip())
-        return 2
-    folder = Path(argv[1])
+# ---- Decision L1 check ---------------------------------------------------------------------------
+#
+# `--check` audits a regenerated folder: every generated row and every hand-written line that
+# cites a run with errored cases must carry that run's error count. It reads SUMMARY.md (so it
+# covers the narrative outside the GENERATED markers, which this script never rewrites) and
+# resolves each run to the labels the file can use for it.
+
+# Short model names the narrative uses for a model id. Kept explicit: guessing an alias from a
+# model id would silently stop checking that model if the id changed.
+MODEL_ALIASES = {
+    "litert/gemma-4-e2b": ("E2B",),
+    "litert/gemma-4-e4b": ("E4B",),
+    "litert/mobile-actions-270m": ("270M",),
+}
+
+
+def model_labels(model):
+    """Every label SUMMARY.md may use for [model]: the id itself and its short alias."""
+    return (model,) + MODEL_ALIASES.get(model, ())
+
+
+def cites(line, model, mode):
+    """True when [line] names this model and this mode, as separate tokens.
+
+    The mode needs a token boundary so `N-topk` does not match `N-topk-lmf`, which is a different
+    run with a different error count.
+    """
+    if mode not in line:
+        return False
+    if not re.search(r"(?<![\w/-])" + re.escape(mode) + r"(?![\w-])", line):
+        return False
+    return any(label in line for label in model_labels(model))
+
+
+def check_folder(folder):
+    """Return the lines that cite an errored run without its error count, plus a summary line."""
     manifest_path = folder / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     records = load_records(folder)
+    set_run_errors(records)
+    summary = folder / "SUMMARY.md"
+    if not summary.is_file():
+        return [f"{summary}: missing (run summarize.py first)"], (0, 0)
+    dirty = [(key, n, e) for key, (n, e) in RUN_ERRORS.items() if e]
+    lines = summary.read_text(encoding="utf-8").splitlines()
+    problems = []
+    for number, line in enumerate(lines, start=1):
+        for (suite, model, mode), n, e in dirty:
+            if not cites(line, model, mode):
+                continue
+            # The run's error count has to be in the same cell or sentence. `errored 151/151`
+            # (fully errored) and `(3 errored)` (partly) both satisfy this, and so does the bare
+            # count written as `112/151`, which a narrative line may use.
+            ok = "errored" in line or f"{e}/{n}" in line
+            if not ok:
+                problems.append(
+                    f"{summary}:{number}: cites {model} {mode}, which has {e} errored of {n}, "
+                    f"without its error count: {line.strip()[:160]}")
+    return problems, (len(dirty), len(lines))
+
+
+def main(argv):
+    args = [a for a in argv[1:] if a != "--check"]
+    check = "--check" in argv[1:]
+    if len(args) != 1:
+        print(__doc__.strip())
+        return 2
+    folder = Path(args[0])
+    if check:
+        problems, (runs, lines) = check_folder(folder)
+        for problem in problems:
+            print(problem)
+        if problems:
+            print(f"FAIL: {len(problems)} line(s) cite an errored run without its error count "
+                  f"({runs} errored run(s), {lines} line(s) checked).")
+            return 1
+        print(f"ok: {runs} errored run(s) annotated on every citing line ({lines} line(s) checked).")
+        return 0
+    manifest_path = folder / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+    records = load_records(folder)
+    set_run_errors(records)
     models = model_order(manifest, records)
     summary = write_summary(folder, manifest, generated(folder, manifest, records, models))
     examples = []
