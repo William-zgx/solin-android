@@ -53,8 +53,8 @@ VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
 
 ## Contents
 
-The package includes the pinned recommended model set from
-`docs/model_manifest.md`:
+The package includes the pinned model set from `docs/model_manifest.md`,
+including the retired asset called out below:
 
 - `chat-e2b`: `gemma-4-E2B-it.litertlm`
 - `memory-embedding-gemma-300m`:
@@ -62,6 +62,11 @@ The package includes the pinned recommended model set from
   `sentencepiece.model`
 - `mobile-action-270m`: `mobile-actions_q8_ekv1024.litertlm`
 - `chat-e4b`: `gemma-4-E4B-it.litertlm`
+
+The 270M entry preserves the internal package's pinned-artifact provenance only.
+It is retired from setup and all planning; bundling or installing it does not make
+it a planning fallback. An installed copy is visibility/deletion-only and is
+labelled `已停用，可删除`.
 
 On first launch, `AssetBundledModelInstaller` reads
 `assets/solin-bundled-models/manifest.json`, copies bundled assets into the
@@ -226,12 +231,15 @@ adb -s "$ANDROID_SERIAL" shell pm path com.bytedance.zgx.solin
 
 should list the base APK plus all four modelpack splits.
 
-Model Manager should show the four recommended models as SHA-256 verified:
+Model Manager should show all four bundled assets as SHA-256 verified:
 
 - 基础对话 E2B
 - 本地记忆模型
-- 可选实验低资源动作模型
+- 已退役 270M 动作模型（仅查看/删除，标记为 `已停用，可删除`）
 - 高质量对话 E4B
+
+The retired row is retained only for inventory and deletion. Its presence in this
+package does not make it a setup recommendation or a planning fallback.
 
 For a fresh state, verify that E2B is selected and the installer has finished
 before checking model loading. A successful local load should show

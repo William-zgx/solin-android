@@ -117,8 +117,9 @@ Choose one setup path in the app:
    `.litertlm` file. Unsupported model capabilities fail closed.
 2. **Remote:** configure an OpenAI-compatible endpoint and model, then select
    Remote mode. Auto can choose an eligible configured endpoint too.
-3. **Model Manager:** inspect installed models, verification, runtime status, and
-   optional memory/action models.
+3. **Model Manager:** inspect installed models, verification, runtime status,
+   optional memory models, and retired action-model installs (visibility/deletion
+   only, labelled `已停用，可删除`).
 
 Downloads wait for Wi-Fi by default. A paused download offers **continue with
 mobile data**, showing the remaining size when known. Downloading alone leaves
