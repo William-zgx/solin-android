@@ -1,0 +1,84 @@
+{
+  "cases": 106,
+  "negatives": 46,
+  "rawFacts": 59,
+  "fallbacks": {},
+  "rawModel": {
+    "gold": 62,
+    "predictedCorrect": 54,
+    "precision": 0.915,
+    "recall": 0.871,
+    "goldFound": 54,
+    "predicted": 59
+  },
+  "falsePositiveCases": ["fx-134"],
+  "guardedModel": {
+    "gold": 62,
+    "predictedCorrect": 53,
+    "precision": 0.981,
+    "recall": 0.855,
+    "goldFound": 53,
+    "predicted": 54
+  },
+  "merged": {
+    "gold": 62,
+    "predictedCorrect": 52,
+    "precision": 0.981,
+    "recall": 0.855,
+    "goldFound": 53,
+    "predicted": 53
+  },
+  "modelCalls": 104,
+  "mergedModelGroup": {
+    "gold": 39,
+    "predictedCorrect": 29,
+    "precision": 1,
+    "recall": 0.769,
+    "goldFound": 30,
+    "predicted": 29
+  },
+  "mergedRegexGroup": {
+    "gold": 23,
+    "predictedCorrect": 23,
+    "precision": 1,
+    "recall": 1,
+    "goldFound": 23,
+    "predicted": 23
+  },
+  "kindAccuracy": 1,
+  "suite": "facts",
+  "mergedNegativeFalsePositiveRate": 0.022,
+  "hallucinationRate": 0,
+  "parseFailureRate": 0,
+  "model": {
+    "ollamaVersion": "litert-lm-0.12.0",
+    "think": false,
+    "digest": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+    "options": {
+      "top_p": 0.1,
+      "seed": 7,
+      "top_k": 1,
+      "temperature": 0,
+      "num_predict": 512,
+      "num_ctx": 8192
+    },
+    "hostNote": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)",
+    "model": "litert/gemma-4-e4b",
+    "details": null
+  },
+  "regexNegativeFalsePositiveRate": 0,
+  "latencyMs": {
+    "max": 9829,
+    "p50": 8522,
+    "p95": 9582,
+    "n": 104
+  },
+  "regexOnly": {
+    "gold": 62,
+    "predictedCorrect": 24,
+    "precision": 1,
+    "recall": 0.403,
+    "goldFound": 25,
+    "predicted": 24
+  }
+}

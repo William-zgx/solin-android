@@ -2,7 +2,7 @@
 
 Evidence class: **devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)**. Synthetic data, not held out: the guards were tuned on these cases. **Not device evidence.**
 
-Models in this folder: litert/gemma-4-e2b.
+Models in this folder: litert/gemma-4-e2b, litert/gemma-4-e4b.
 
 ## Fact extraction (106 cases, 46 negative messages)
 
@@ -11,6 +11,7 @@ Scored by the production `LocalModelMemoryFactExtractor` over `fact_extraction.j
 | model | merged P | merged R | raw P | raw R | negation FP rate | raw hallucination | parse failure | errors | p50 / p95 ms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | litert/gemma-4-e2b | 0.982 | 0.903 | 0.778 | 0.903 | 2.2% | 2.8% | 0.0% | 0/104 | 4633 / 4981 |
+| litert/gemma-4-e4b | 0.981 | 0.855 | 0.915 | 0.871 | 2.2% | 0.0% | 0.0% | 0/104 | 8522 / 9582 |
 
 ## Compaction summaries (12 cases; must-keep retention)
 
@@ -19,6 +20,7 @@ Scored by the production `DefaultContextCompactor` with `modelSummaryEnabled = t
 | model | must-keep retention (final) | heuristic retention | model summary accepted | fallbacks | ungrounded-number rate | p50 / p95 ms |
 | --- | --- | --- | --- | --- | --- | --- |
 | litert/gemma-4-e2b | 78.8% | 68.2% | 5/12 | OverLength 7 | 0.0% | 15546 / 26437 |
+| litert/gemma-4-e4b | 92.4% | 68.2% | 9/12 | OverLength 3 | 0.0% | 22309 / 40985 |
 
 The third-party gap is part of the accepted/rejected decision: a summary line that attributes a fact to someone other than the user (我的好朋友…, 我们老板…) is rejected by the production guard, so it never counts as accepted. ACL-3 (`fx-129`, 我们公司的同事…) is the labelled probe for it in `fact_extraction.jsonl`.
 

@@ -729,43 +729,19 @@ the first acceptance numbers for the prompt production would actually send.
 | model | facts merged P | facts merged R | facts errors | compaction accepted | must-keep retention (final) | heuristic retention | compaction fallbacks | ungrounded numbers | p50 facts / compaction ms |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | E2B | 0.982 | 0.903 | 0/104 | 5/12 | 78.8% | 68.2% | OverLength 7 | 0.0% | 4633 / 15546 |
+| E4B | 0.981 | 0.855 | 0/104 | 9/12 | 92.4% | 68.2% | OverLength 3 | 0.0% | 8522 / 22309 |
 
-**Fact extraction.** E2B's merged suggestions are precision 0.982 / recall 0.903 (the regex detector
-alone is P 1.000 / R 0.403, so the model is adding the recall the rules miss). Only one negative case in
-106 produces a suggestion (2.2%), every answer parses (0 parse failures, 0 engine errors in 104 calls),
-and every third-party probe — `fx-105`, `fx-106`, `fx-129`, `fx-142` — is correctly rejected. This is
-*better* than Mac E2B (merged R 0.839) on the same data, so the production file is not weaker than the
-Ollama GGUF build here either.
+**Fact extraction.** Both models are close. E2B merged precision 0.982 / recall 0.903, E4B 0.981 / 0.855 (the regex detector alone is P 1.000 / R 0.403, so the model adds the recall the rules miss). Each has one false positive in the 46 negatives (2.2%), zero parse failures and zero engine errors in 104 calls, and every third-party probe — `fx-105`, `fx-106`, `fx-129`, `fx-142` — is correctly rejected. E2B slightly edges E4B on recall here and is ~1.8x faster; both beat the Mac 20261107 E2B (merged R 0.839) on the same data, so the production file is not weaker than the Ollama GGUF build.
 
-**Compaction.** E2B's summary is accepted on 5/12 cases, and every rejection is `OverLength`: the model
-answers with several sentences of fluent prose instead of the requested ≤8 short labelled lines, so the
-production guard rejects it and the heuristic summary is used. That is the cost of the label/short-line
-rule on this model, and it is the whole gap — when a summary **is** accepted it retains 26/26 must-keep
-items (100%) against the heuristic's 68.2%, with zero ungrounded numbers. The labelled prompt did what it
-was built to do (no hallucinated numbers, no unlabelled lines); what it did not do is make a verbose 2B
-model concise.
+**Compaction.** The gap between the models is all in acceptance, not grounding. E4B is accepted 9/12 and retains 92.4% of must-keep items; E2B is accepted 5/12 and retains 78.8% — against a heuristic baseline of 68.2%. Every rejection for both is `OverLength`: the model writes several sentences of fluent prose instead of the requested ≤8 short labelled lines, so the guard rejects it and the heuristic is used. Neither model produced a single ungrounded number. So the source-label rule (T1) did exactly what it was built to do, and what remains is a conciseness problem: E4B is close to usable, E2B is not, and the fallback makes a rejected summary merely equal to the heuristic rather than worse.
 
-**Which model, if any, is a candidate for default-on memory features?** Neither flag should default on
-yet, and if one is prototyped it is E2B or E4B on this evidence, never the 270M (which cannot run the
-prompts at all).
+**Which model, if any, is a candidate for default-on memory features?** Neither flag should default on yet. If the owner chooses to prototype one, **E4B for compaction and E2B for facts** is what this evidence supports, never the 270M (which cannot run these prompts at all).
 
-- **Fact suggestions are close to shippable on quality, not on evidence.** E2B is merged P 0.982 /
-  R 0.903 with 1 false positive in 106 cases and every third-party probe rejected — better than the Mac
-  20261107 E2B, same scoring code. The open gates are not accuracy: a held-out set (these guards were
-  tuned on these cases), the on-device adapter and latency, and a background task that answers on its
-  own. The lab can say E2B is a credible candidate; it cannot say the feature is safe to default on.
-- **Compaction is not ready, on acceptance rather than grounding.** The labelled prompt works exactly as
-  designed (0 ungrounded numbers, every accepted summary fully labelled) but E2B accepts only 5/12
-  because it writes prose instead of short labelled lines. A rejected summary falls back to the
-  heuristic, which keeps 68.2% of must-keep items against the model's 100% when accepted, so the model
-  path is worth having *when accepted* and worthless when not. Making a small model concise is a prompt
-  or fine-tune problem, not a guard problem, and this run measures its size.
-- **Both features stay LocalOnly, default-off and unwired** in this branch. Nothing here argues for
-  changing that; it argues that E2B is the model to prototype with if the owner decides to.
+- **Facts are close to shippable on quality, not on evidence.** Both models are P ≈ 0.98 with one false positive in 106 cases and all third-party probes rejected. The open gates are not accuracy: a held-out set (these guards were tuned on these cases), the on-device adapter, phone latency and memory, and a background task that answers on its own. The lab can call either a credible candidate; it cannot say the feature is safe to default on.
+- **Compaction is borderline for E4B and not ready for E2B**, on acceptance rather than grounding. E4B's 9/12 at 92.4% retention is a real improvement over the 68.2% heuristic; E2B's 5/12 is not. Making a small model concise is a prompt or fine-tune problem, not a guard problem, and this run measures its size.
+- **Both features stay LocalOnly, default-off and unwired** in this branch. Nothing here argues for changing that.
 
-**E4B on the memory bench is pending.** It is queued behind E2B on the same shim; if it does not finish
-in this lane, the row is recorded as not run rather than inferred from E2B. **On-device latency and
-memory** are pending too — the numbers above are devbox x86 CPU wall times, not phone numbers.
+**Nothing on the memory bench is pending for E2B or E4B.** The 270M was not run: its 1024-token context overflows on the shorter Suite B/C prompts, so it cannot answer these either. **On-device latency and memory** are pending — the numbers above are devbox x86 CPU wall times (compaction p50 15.5 s for E2B, 22.3 s for E4B), not phone numbers.
 
 ### Suite F: production `.litertlm` files on LiteRT-LM 0.12.0
 
@@ -1093,10 +1069,9 @@ model is the only thing that can pick `open_app_by_name` for it.
   screens, 0 errors — see "Suite A on the production files" above. The 270M was not run on Suite A:
   its text prompt overflows the 1024-token context on every Suite B/C case, and Suite A's prompt is
   longer, so it cannot answer at all. That row is pending, not failed.
-- **The memory bench is run for E2B** (facts and compaction, 0 engine errors in 104 fact calls); see
-  "Memory bench on the production files" above and `lab/memory/results/20261108/`. E4B is queued on the
-  same shim and is pending if it does not finish; the 270M cannot run these prompts (context overflow),
-  and no phone latency or memory figure exists for either.
+- **The memory bench is run for E2B and E4B** (facts and compaction, 0 engine errors in 104 fact calls each); see
+  "Memory bench on the production files" above and `lab/memory/results/20261108/`. The 270M cannot run
+  these prompts (context overflow), and no phone latency or memory figure exists for any model.
 - The Ollama `N-topk-free` mode is not run.
 - **Production-faithful `*-lmf` modes:** E2B `M-topk-fix-lmf` and `N-topk-lmf` (1 errored), and E4B
   `M-topk-fix-lmf` and `N-topk-lmf` (0 errored), are run. The 270M has no `*-lmf` row —
