@@ -69,11 +69,13 @@ Recommended profiles map to different runtime paths:
 - `memory-embedding-gemma-300m` is not a chat model and is not a LiteRT-LM
   conversational runtime. It uses an EmbeddingGemma `.tflite` primary file plus
   the `sentencepiece.model` companion through the local text-embedding runtime.
-- `mobile-action-270m` is an optional experimental low-resource `.litertlm`
-  action-planning model. Observation-to-action planning prefers verified E2B/E4B
-  Chat models; this model is a fallback when no verified Chat planning model is
-  available. The runtime falls back to conservative rule planning when the
-  selected planning model is missing, fails to load, or produces no valid draft.
+- `mobile-action-270m` is a retired low-resource `.litertlm` action model. It is
+  no longer offered in setup or selected for initial or observation planning.
+  Existing installs remain only as verified inventory metadata for visibility
+  and deletion; they contribute no runtime capability. Verified E2B/E4B Chat
+  models are the only local action-planning models. The runtime falls back to
+  conservative rule planning when the selected planning model is missing, fails
+  to load, or produces no valid draft.
 
 E2B is the default recommended Chat selection. Recommended Chat profiles use an
 8192-token runtime context budget; custom-model capability claims do not inherit

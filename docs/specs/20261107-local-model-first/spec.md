@@ -127,7 +127,8 @@ nothing, so the result is "no tool". Under ModelFirst the rule planner runs afte
   `mobile-action-270m` is excluded there and from `verifiedActionModelPath()` by the shared verified-model
   resolver, so the default path treats it exactly as "no verified action model". Its catalog entry is
   `RetiredInstalledOnly`: setup and optional downloads no longer offer it, while an installed copy remains
-  visible and deletable.
+  visible and deletable. That retired row contributes no installed capability or capability profile, so a
+  state containing only the 270M takes the same MissingModel and open-then-stop paths as an empty state.
 - `ChatController` builds the options lazily, so the settings and Room reads first run inside the
   generation block on the IO dispatcher.
 - No UI. The debug-build entry point is an adb broadcast to `DebugRemoteConfigReceiver`, the same receiver

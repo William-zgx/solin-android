@@ -195,9 +195,11 @@ Current status:
   default or observation planning. The `mobile-action-270m` entry is retired:
   its 1024-token context cannot hold the default full-registry prompt, its fixed
   top-k prompt scored 0/100, setup no longer offers it, and both verified action
-  paths exclude it. An already-installed copy stays visible and deletable. If
-  the selected Chat model is missing, fails, or produces no valid draft, the
-  runtime falls back to conservative rule planning.
+  paths exclude it. An already-installed copy stays visible and deletable, but
+  contributes no installed capability or capability profile, so it cannot pass
+  the inline-tool or post-launch planning gates. If the selected Chat model is
+  missing, fails, or produces no valid draft, the runtime falls back to
+  conservative rule planning.
 - Initial and observation action prompts share the placeholder fix measured by
   the 20261108 lab ablation. This also makes model-proposed observation replans
   possible through the existing registry, evidence, safety, and confirmation

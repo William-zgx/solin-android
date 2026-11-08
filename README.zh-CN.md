@@ -99,9 +99,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | `ui_find` | 精确查找并检查歧义；找到目标不自动点击 |
 | `ui_set_wheel` | 仅支持可识别 NumberPicker；必须读回最终目标值 |
 
-每个组合子步骤都重新授权。本地观察规划优先使用已校验 E2B/E4B Chat 模型，实验动作
-模型作为回退。后续操作受目标包名及新鲜证据约束；规划不可用时保守回退。验证路线
-复用不携带旧授权或旧坐标。
+每个组合子步骤都重新授权。本地观察规划只使用已校验 E2B/E4B Chat 模型，已退役的
+270M 动作模型不会被选择。后续操作受目标包名及新鲜证据约束；规划不可用时保守回退。
+验证路线复用不携带旧授权或旧坐标。
 
 **远程视觉**可以使用无障碍截图与可见控件文字规划本地动作，动作仍经过相同守卫。
 该能力默认关闭，并遵守上文批准规则；普通屏幕文本证据保持 `LocalOnly`。
@@ -122,9 +122,10 @@ Android 12+；启动独立焦点的后台应用要求 Android 14+ 及平台支�
 | 默认本地聊天 | E2B `.litertlm`，Text+Vision | 2.59 GB |
 | 可选本地聊天 | E4B `.litertlm`，Text+Vision | 3.66 GB |
 | 语义记忆 | EmbeddingGemma `.tflite` + tokenizer | 184 MB |
-| 实验动作回退 | mobile-action-270m `.litertlm` | 284 MB |
+| 已退役动作模型（仅查看/删除） | mobile-action-270m `.litertlm` | 284 MB |
 
-以上为十进制单位。精确字节数、固定来源、哈希及人工许可审核状态见[模型清单](docs/model_manifest.md)。
+270M 不再提供下载，也不参与动作规划；已有安装仅用于查看和删除。以上为十进制单位。
+精确字节数、固定来源、哈希及人工许可审核状态见[模型清单](docs/model_manifest.md)。
 权重不进 Git，普通公共产物不打包模型；[内部 bundledModels 包](docs/bundled_model_package.md)
 有独立的构建、安装与再分发要求。
 
