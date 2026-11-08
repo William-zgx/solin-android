@@ -46,7 +46,7 @@ MODELS = {
 # One engine per model, loaded lazily, and only one model resident at a time: loading two Gemma 4
 # files at once is more memory than the bench needs and would also contend for CPU.
 _engine_lock = threading.Lock()
-_loaded = {"name": None, "engine": None}
+_loaded = {"name": None, "engine": None, "cache": None}
 
 
 def _import_litert():
@@ -84,24 +84,33 @@ def _digest(path):
 _digest.cache = {}
 
 
-def _engine_for(model_root, name):
+def _engine_for(model_root, name, cache_dir=""):
     litert = _import_litert()
     with _engine_lock:
-        if _loaded["name"] == name:
+        if _loaded["name"] == name and _loaded["cache"] == cache_dir:
             return _loaded["engine"]
         # Unload the previous model before loading the next one.
         _loaded["engine"] = None
         _loaded["name"] = None
         _, max_tokens = MODELS[name]
         kwargs = {} if max_tokens is None else {"max_num_tokens": max_tokens}
+        if cache_dir:
+            # A second shim process must not share a compiled-model cache with the first.
+            kwargs["cache_dir"] = cache_dir
         started = time.time()
         engine = litert.Engine(_model_path(model_root, name), backend=litert.interfaces.CPU(), **kwargs)
         print(
-            "[shim] loaded %s in %.1fs%s" % (name, time.time() - started, "" if max_tokens is None else " max_num_tokens=%d" % max_tokens),
+            "[shim] loaded %s in %.1fs%s%s" % (
+                name,
+                time.time() - started,
+                "" if max_tokens is None else " max_num_tokens=%d" % max_tokens,
+                "" if not cache_dir else " cache_dir=%s" % cache_dir,
+            ),
             flush=True,
         )
         _loaded["engine"] = engine
         _loaded["name"] = name
+        _loaded["cache"] = cache_dir
         return engine
 
 
@@ -175,6 +184,7 @@ def _tool_calls_of(response):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     model_root = "."
+    cache_dir = ""
     litert = None
 
     def log_message(self, fmt, *args):  # quieter than the default
@@ -245,7 +255,7 @@ class Handler(BaseHTTPRequestHandler):
             temperature=float(options.get("temperature") or 0.0),
             seed=int(options.get("seed") or 7),
         )
-        engine = _engine_for(self.model_root, name)
+        engine = _engine_for(self.model_root, name, self.cache_dir)
         started = time.time()
         try:
             # A fresh conversation per request with empty history, as a one-shot in the app.
@@ -295,8 +305,10 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=11437)
     parser.add_argument("--model-root", default="/data00/home/zouguoxue/edge-litert/models")
+    parser.add_argument("--cache-dir", default="", help="compiled-model cache; keep one per shim process")
     args = parser.parse_args(argv[1:])
     Handler.model_root = args.model_root
+    Handler.cache_dir = args.cache_dir
     Handler.litert = _import_litert()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print("[shim] listening on http://127.0.0.1:%d (model root %s)" % (args.port, args.model_root), flush=True)

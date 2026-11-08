@@ -128,15 +128,29 @@ object LabScoring {
      * Classifies one raw `call:` model output exactly as the app's parser sees it: `call` (a draft the
      * parser accepts), `invalid` (a call was attempted but rejected), `text` (plain text, i.e. the model
      * chose not to call a tool) or `blank`.
+     *
+     * With [noToolChoice] set, the mode offered production's `answer` choice. Production reads a
+     * rejected `call:answer` as a deliberate no-tool decision (`InitialToolPlanner.kt:144` and
+     * `choseNoTool()`), not as a hallucinated tool, so that is what this returns (`noToolChoice`).
      */
-    fun answerFromCallOutput(raw: String, parser: MobileActionPlanner): Pair<LabAnswer, String> {
+    fun answerFromCallOutput(
+        raw: String,
+        parser: MobileActionPlanner,
+        noToolChoice: Boolean = false,
+    ): Pair<LabAnswer, String> {
         parser.parseModelOutput(raw)?.let { draft -> return LabAnswer(draft.functionName, draft.parameters) to "call" }
+        if (noToolChoice && normalizedChoice(raw) == LOCAL_MODEL_NO_TOOL_CHOICE) {
+            return LabAnswer.STOP to "no_tool_choice"
+        }
         return when {
             raw.isBlank() -> LabAnswer.STOP to "blank"
             raw.contains("call:") -> LabAnswer(tool = rejectedToolName(raw), invalid = true) to "invalid"
             else -> LabAnswer.STOP to "text"
         }
     }
+
+    /** The `answer` choice in a raw output, or null when the output does not name it. */
+    fun normalizedChoice(raw: String): String? = callName.find(raw)?.groupValues?.get(1)
 
     private val callName = Regex("""call:\s*([A-Za-z0-9_]+)""")
 

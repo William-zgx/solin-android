@@ -10,3 +10,34 @@
 2026-11-07T18:02:47.186095816Z suite E model=gemma4:e4b mode=json-prompt cases=151 correct=133 gatedCorrect=132
 2026-11-07T18:16:43.463292072Z suite B mode=R cases=151 correct=127
 2026-11-07T18:58:22.441785700Z suite B mode=R cases=151 correct=127
+2026-11-07T19:11:20.249881896Z suite B mode=R cases=151 correct=127
+2026-11-07T19:46:00.060198013Z suite B model=litert/gemma-4-e2b mode=M-topk cases=151 correct=51
+2026-11-07T19:46:00.198460332Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-07T19:54:02.946278728Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-07T20:08:27.092722124Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-07T20:08:54.078309329Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-07T20:09:21.038425473Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-07T20:09:48.015448554Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-07T20:10:54.788124917Z suite B model=litert/gemma-4-e4b mode=M-topk cases=151 correct=51
+2026-11-07T20:40:54.041720785Z suite C model=litert/gemma-4-e4b mode=N-topk cases=151 correct=93
+2026-11-07T20:44:20.932190388Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-07T20:44:47.759330987Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-07T20:45:16.482697889Z suite C model=litert/gemma-4-e2b mode=N-topk cases=151 correct=83
+2026-11-07T20:45:26.610581187Z suite B mode=R cases=151 correct=127
+2026-11-07T21:02:09.649869671Z suite E model=litert/gemma-4-e4b mode=json-prompt cases=151 correct=137 gatedCorrect=136
+2026-11-07T21:20:03.213766032Z suite B model=litert/gemma-4-e2b mode=M-topk-fix cases=151 correct=72
+2026-11-07T21:20:03.352839632Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-07T21:20:06.047539243Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-07T21:20:06.231595926Z suite D rules cases=26 correct=15
+2026-11-07T21:26:26.518490884Z suite D model=litert/gemma-4-e2b mode=json-prompt cases=26 correct=25
+2026-11-08T02:52:49.444449230Z suite B mode=R cases=151 correct=127
+2026-11-08T03:04:10.530065024Z suite B model=litert/gemma-4-e2b mode=M-topk-fix-lmf cases=151 correct=96
+2026-11-08T03:04:10.676423400Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-08T03:09:35.195557868Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-08T03:09:44.116408374Z ollama chat failed for litert/gemma-4-e2b: IOException:ollama_error:litert_error:litert_lm_conversation_send_message failed
+2026-11-08T03:22:08.669731542Z suite C model=litert/gemma-4-e2b mode=N-topk-lmf cases=151 correct=104
+2026-11-08T03:22:08.753587484Z production-fidelity negation guard: guarded=18 toolGoldGuarded=0 rows=10 -> production-fidelity__negation-guard.jsonl
+2026-11-08T03:48:28.947668785Z production-fidelity negation guard: guarded=18 toolGoldGuarded=0 rows=12 -> production-fidelity__negation-guard.jsonl
+2026-11-08T03:49:55.268847689Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-08T03:17:54.239418429Z suite B model=litert/gemma-4-e4b mode=M-topk-fix-lmf cases=151 correct=112 (parallel lane .claude/worktrees/lab-lmf-e4b, shim :11440)
+2026-11-08T03:47:55.825794357Z suite C model=litert/gemma-4-e4b mode=N-topk-lmf cases=151 correct=117 (parallel lane .claude/worktrees/lab-lmf-e4b, shim :11440)

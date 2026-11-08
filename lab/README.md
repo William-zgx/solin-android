@@ -41,6 +41,46 @@ the task up to date or serve a previous (skipped) result from the build cache. O
 host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-topk,json-schema`;
 rule baselines always run).
 
+## Errored runs never look like scores (Decision L1)
+
+A case is **errored** when its `metrics.error` is non-null: the model call failed, so it answered
+nothing. Every number in `SUMMARY.md` that comes from a run with at least one errored case carries
+that run's error count in the same cell or sentence:
+
+- fully errored run → `errored N/N`, and no score;
+- partly errored run → `<value> (E errored)`.
+
+This applies to every generated table and to the hand-written narrative. `summarize.py` computes the
+per-run counts once and every renderer formats through one function (`run_cell` / `score_cell`), so
+there is no second place to forget the annotation.
+
+```bash
+python3 -I lab/scripts/summarize.py lab/results/20261108          # regenerate
+python3 -I lab/scripts/summarize.py --check lab/results/20261108   # exit 1 on a missing annotation
+python3 -I lab/scripts/test_summarize.py                           # regression test (stdlib unittest)
+```
+
+`--check` reads the regenerated `SUMMARY.md`, including the hand-written text outside the GENERATED
+markers, and fails on any line that cites an errored run (by model and mode) without its error
+count. It is the deterministic gate for this rule; fix the narrative rather than the check. Three
+guards:
+
+- **Exact annotation, never a bare fraction.** A line satisfies the rule only if it carries that
+  run's own token: `E errored` (or `E/N errored`) for a partly errored run, and `errored N/N` (or
+  `N/N errored`) for a fully errored run. A bare fraction is not an annotation — `83/151` does not
+  count as `3/151`, the bug that once let an unannotated row through.
+- **Every errored run on the line.** A generated row can draw on several runs (one per mode column)
+  and each of them is resolved from the column headers (or the `suite` / `mode` cell) and needs its
+  own annotation. A narrative line is resolved by model+mode label, in any rendering: with or without
+  backticks, the `litert/gemma-4-e2b` id, or the `E2B` / `E4B` / `270M` short form.
+- **Drift.** `--check` regenerates every generated section from the JSONL in memory and fails on the
+  first committed line that differs. A hand edit to a generated cell is therefore caught even when
+  the row still carries every annotation. Regenerate instead of editing between the GENERATED
+  markers.
+
+`python3 -I -m unittest <path>` does not work here: `-I` drops the cwd from `sys.path`, so unittest
+cannot import a path-qualified module. Run the test file as a script instead.
+
 **Label the host.** Every devbox run must set `SOLIN_LAB_HOST_NOTE` (for example
 `devbox CPU, Ollama 0.40.13, no GPU`) so its numbers land in a different table from the Mac MLX
 run. A devbox CPU number is not comparable to a Mac MLX number and the two must never share a
@@ -83,10 +123,18 @@ Per case it records:
 | `M-topk` | Model only, prompt advertises the top 8 tools from `LabToolRetriever` (lexical, deterministic) |
 | `R+M` | Production order with a model installed: skills, then rule intent gate, then model, then rule fallback |
 | `M-full-fix`, `M-topk-fix` | Lab-only ablation: `M-full` / `M-topk` with the prompt's `call:function {"arg":"value"}` placeholder replaced by `call:函数名 {"参数名":"值"}` |
+| `M-topk-fix-lmf` | Production-faithful LocalModelFirst text shape: top 8 retrieved tools **plus** production's `answer` no-tool choice, with the placeholder fix |
 
 The `-fix` modes (and Suite A's `replanner-fix`) exist because small models copy the placeholder
 `function` as the tool name. They change only that text (`PlaceholderAblation`); they are not what
 the app sends.
+
+The `-lmf` mode is what production LocalModelFirst actually sends: the retrieved shortlist plus a
+`answer` tool declaration (`LOCAL_MODEL_NO_TOOL_CHOICE`, title `直接回答`,
+`orchestration/InitialToolPlanner.kt:43,52-60,136`). Choosing `answer` scores as **no tool**
+(`rawKind no_tool_choice`), the way production reads it (`:144`); it is never registered, so nothing
+can execute it. Here it is built on the placeholder fix because the production prompt text still
+copies `function` on both files that can run it (see SUMMARY Suite F).
 
 Metrics: tool-name accuracy, argument accuracy (all gold keys, and per key), false-positive tool rate
 on no-tool cases, parse/format validity (a known tool in the `call:` format) and schema validity
@@ -104,6 +152,20 @@ The Suite B cases with the tools passed through Ollama's native `tools` field (J
 | `N-full` | Whole registry, system prompt says to always call one tool (like the app's) |
 | `N-topk` | Top 8 retrieved tools, same system prompt |
 | `N-topk-free` | Top 8 retrieved tools, system prompt allows a plain-text answer when no phone action is needed |
+| `N-topk-lmf` | Production-faithful LocalModelFirst native shape: top 8 retrieved tools plus the `answer` no-tool choice (`N-topk` + `LOCAL_MODEL_NO_TOOL_CHOICE`) |
+
+The `-lmf` modes are the candidate production configurations: they are the only ones that offer the
+model the same choice the app does. `answer` scores as no tool.
+
+### Production-faithful composite (`production-fidelity`, no model calls)
+
+`ProductionFidelitySuiteTest` reads the saved Suite B/C JSONL and calls the production
+`String.startsWithActionNegation()` (`action/BasicDraftActionParsers.kt:199`) on every case input.
+Production never shows a negated request to the model (`orchestration/InitialToolPlanner.kt:100`
+takes `planRuleFirst()`), so a guarded case is scored with the rules' `R` answer. It emits
+`production-fidelity__negation-guard.jsonl` with raw vs guarded counting per mode, and splits each
+no-tool false positive into orchestration-only (`ToolCapability.Orchestration` / unregistered name /
+`answer`) versus a device, network or external-app action, naming private reads and network egress.
 
 This tells us whether moving the app to LiteRT-LM native tool calling would help.
 
@@ -114,6 +176,14 @@ The 26 labeled cases of `docs/decision_routing_eval.json`. The local model acts 
 Modes: `json-prompt` (format requested in the prompt only) and `json-schema` (Ollama structured
 output). The rule baseline is `RequestComplexityAggregator` fed exactly as `chatPlacementInputs`
 feeds it. Metrics: accuracy, coverage and accuracy at confidence >= 0.9 (the app's gate).
+
+Read the accuracy as "can this model answer the routing question", not as end-to-end app behavior.
+The question text (`DECISION_MODEL_PLACEMENT_INSTRUCTIONS` / `_CRITERIA`) is the one production sends,
+but the transport is not: the lab uses a flat `{"choice", "confidence"}` response under a system
+prompt, while the app's only router (`runtime/CodivDecisionModelRouter.kt`) posts to a remote
+`/systemone` endpoint and parses a nested `{"answers": {"placement": {..., "probabilities": {...}}}}`.
+There is no local-model decision parser in the app. A fenced ```` ```json ```` answer, which the LiteRT
+files emit, is stripped by the lab tests only; production's `parseDecisionResponse` would reject it.
 
 ### Suite E: the local model as an action gate (`action-gate`)
 
@@ -132,7 +202,9 @@ and the same over the 74 rule-gap cases. Explicit negations are labelled no-acti
   the 74 requests where `R` returned no tool (51 no-tool + 23 tool). Reported for every B and C mode,
   with the count of cases fixed and broken against `R` alone.
 - **R, then the gate, then `N-full`.** `R` keeps its plans; where `R` returned no tool the gate
-  decides, and only an open gate lets `N-full` answer. A closed gate yields no tool.
+  decides, and only an open gate lets `N-full` answer. A closed gate yields no tool. A model that only
+  has `N-topk` (the LiteRT files cannot run `N-full`) is scored with `N-topk`, and the row names the
+  mode it used; the two are never mixed in one row.
 
 ## Labeling rules
 

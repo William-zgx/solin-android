@@ -63,6 +63,17 @@ class InitialPlanningSuiteTest {
             if (LabEnv.modeSelected("M-topk-fix")) {
                 runModelOnly(model, "M-topk-fix", cases, ablation) { case -> retriever.topK(case.input, TOP_K) }
             }
+            // Production-faithful LocalModelFirst text shape: the top-k shortlist plus the `answer`
+            // no-tool choice, with the lab's placeholder fix (the production prompt still overflows
+            // or copies `function`; see SUMMARY Suite F).
+            val productionText = OllamaActionPlanningRuntime(
+                client, model, toolRegistry = registry, placeholderAblation = true, noToolChoice = true,
+            )
+            if (LabEnv.modeSelected("M-topk-fix-lmf")) {
+                runModelOnly(model, "M-topk-fix-lmf", cases, productionText) { case ->
+                    retriever.topK(case.input, TOP_K)
+                }
+            }
         }
     }
 
@@ -94,6 +105,7 @@ class InitialPlanningSuiteTest {
         runtime: OllamaActionPlanningRuntime,
         specsFor: (InitialCase) -> List<ToolSpec>,
     ) {
+        val noToolChoice = mode.endsWith("-lmf")
         var correct = 0
         JsonlWriter(SUITE, model, mode).use { writer ->
             cases.forEach { case ->
@@ -104,9 +116,9 @@ class InitialPlanningSuiteTest {
                 val (answer, kind) = if (call.result.error != null) {
                     LabAnswer.INVALID to "error"
                 } else {
-                    LabScoring.answerFromCallOutput(call.rawOutput, parser)
+                    LabScoring.answerFromCallOutput(call.rawOutput, parser, noToolChoice = noToolChoice)
                 }
-                val advertised = specs.map(ToolSpec::name)
+                val advertised = call.toolNames
                 val record = InitialPlanningCases.record(SUITE, model, mode, case, answer, kind, call.rawOutput, registry)
                     .put("parseFailure", call.failureReason ?: JSONObject.NULL)
                     .put("modelCalls", 1)
