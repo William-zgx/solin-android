@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.action
 
+import com.bytedance.zgx.solin.orchestration.collab.StrictJsonScan
 import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
 import com.bytedance.zgx.solin.runtime.LocalCallMetrics
 import com.bytedance.zgx.solin.runtime.LocalEngine
@@ -11,7 +12,6 @@ import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
 import java.io.File
 import org.json.JSONObject
-import org.json.JSONTokener
 
 interface ActionPlanningRuntime {
     fun classifyIntent(input: String): IntentCandidate =
@@ -267,10 +267,10 @@ private const val ACTION_INTENT_GATE_SYSTEM_INSTRUCTION =
 
 /** Strictly one object with exactly a Boolean action and a numeric confidence in 0..1. */
 private fun parseActionIntentGateResult(raw: String): ActionIntentGateResult {
-    val json = runCatching {
-        val tokener = JSONTokener(raw.trim())
-        (tokener.nextValue() as? JSONObject)?.takeIf { !tokener.more() }
-    }.getOrNull()
+    if (StrictJsonScan.firstViolation(raw) != null) {
+        return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
+    }
+    val json = runCatching { JSONObject(raw) }.getOrNull()
         ?: return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
     if (json.length() != 2 || !json.has("action") || !json.has("confidence")) {
         return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")

@@ -11,11 +11,21 @@ import com.bytedance.zgx.solin.action.ActionPlan
 import com.bytedance.zgx.solin.action.ActionPlanKind
 import com.bytedance.zgx.solin.action.ActionPlanningResult
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
+import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.action.ModelToolOutputParseResult
 import com.bytedance.zgx.solin.memory.MemoryRepository
+import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
+import com.bytedance.zgx.solin.runtime.FakeLiteRtFactory
+import com.bytedance.zgx.solin.runtime.LocalAccelerator
+import com.bytedance.zgx.solin.runtime.LocalCallMetrics
+import com.bytedance.zgx.solin.runtime.LocalEngine
+import com.bytedance.zgx.solin.runtime.LocalEngineCapabilities
+import com.bytedance.zgx.solin.runtime.LocalEngineSource
+import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
+import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillManifest
@@ -32,6 +42,7 @@ import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.isFirstStepPlanningCandidate
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -198,6 +209,55 @@ class LocalModelFirstPlanningTest {
             val reasons = localModelDecision(actualRunId).rejectionReasons
             assertTrue(reasons.toString(), gateReason in reasons)
             assertTrue(reasons.toString(), reasons.none { reason -> ALARM_REQUEST in reason })
+        }
+    }
+
+    @Test
+    fun ruleFirstGatedModelRejectsNonJsonSyntaxWithoutCallingToolPlanner() {
+        val malformedOutputs = listOf(
+            """{action:true,confidence:0.9}""",
+            """{'action':true,'confidence':0.9}""",
+            """{"action":true,"confidence":0.9,}""",
+            """{"action":true;"confidence":0.9}""",
+            """{"action":true=>"confidence":0.9}""",
+            """{"action":false,"action":true,"confidence":0.9}""",
+            "﻿{\"action\":true,\"confidence\":0.9}",
+            "// comment\n{\"action\":true,\"confidence\":0.9}",
+        )
+        val engine = ScriptedGateEngine()
+        val gateRuntime = HybridActionPlanningRuntime(
+            fallbackEngine = DedicatedLiteRtEngine(
+                Files.createTempDirectory("strict-action-gate").toFile(),
+                FakeLiteRtFactory(),
+            ),
+            sharedEngine = engine,
+        )
+
+        try {
+            malformedOutputs.forEach { output ->
+                engine.output = output
+                val runtime = ScriptedPlanningRuntime(
+                    modelOutput = ALARM_CALL,
+                    gateDelegate = gateRuntime,
+                )
+                val actualRunId = runId(ALARM_REQUEST)
+
+                val plan = planner(runtime).planLocalModelFirst(
+                    actualRunId,
+                    ALARM_REQUEST,
+                    ACTION_MODEL_PROFILES,
+                    null,
+                    localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+                )
+
+                assertNull(output, plan)
+                assertEquals(output, listOf(ALARM_REQUEST), runtime.gateInputs)
+                assertEquals(output, 0, runtime.modelCallCount)
+                val reasons = localModelDecision(actualRunId).rejectionReasons
+                assertTrue(output, "local_model_action_gate_invalid_output" in reasons)
+            }
+        } finally {
+            gateRuntime.close()
         }
     }
 
@@ -747,6 +807,7 @@ class LocalModelFirstPlanningTest {
             open = true,
             reason = "local_model_action_gate_open",
         ),
+        private val gateDelegate: ActionPlanningRuntime? = null,
         toolRegistry: ToolRegistry = ToolRegistry(),
     ) : ActionPlanningRuntime {
         private val parser = MobileActionPlanner(toolRegistry = toolRegistry)
@@ -759,7 +820,7 @@ class LocalModelFirstPlanningTest {
 
         override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult {
             gateInputs += input
-            return gateResult
+            return gateDelegate?.gateActionIntent(input, actionModelPath) ?: gateResult
         }
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
@@ -809,6 +870,27 @@ class LocalModelFirstPlanningTest {
         private fun rulePlan(input: String): ActionPlan =
             ruleDrafts[input]?.let { draft -> ActionPlan(ActionPlanKind.Draft, draft) }
                 ?: ActionPlan(ActionPlanKind.NoAction)
+    }
+
+    private class ScriptedGateEngine : LocalEngine {
+        var output: String = ""
+
+        override fun engineCapabilities() =
+            LocalEngineCapabilities("fake", setOf(LocalAccelerator.CPU), 8_192)
+
+        override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult =
+            LocalOneShotResult.Generated(
+                text = output,
+                metrics = LocalCallMetrics(
+                    source = LocalEngineSource.SharedChatEngine,
+                    accelerator = LocalAccelerator.CPU,
+                    loadMs = null,
+                    firstTokenMs = 5,
+                    totalMs = 10,
+                    inputTokens = null,
+                    outputTokens = null,
+                ),
+            )
     }
 
     private companion object {
