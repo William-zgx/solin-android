@@ -28,6 +28,15 @@ object LabEnv {
     val caseLimit: Int?
         get() = System.getenv("SOLIN_LAB_LIMIT")?.toIntOrNull()?.takeIf { it > 0 }
 
+    /** Optional explicit case ids for a small transport smoke; unset means every labelled case. */
+    val requestedCaseIds: Set<String>?
+        get() = System.getenv("SOLIN_LAB_CASE_IDS")
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.toSet()
+            ?.takeIf { it.isNotEmpty() }
+
     val requestedModels: List<String>
         get() = System.getenv("SOLIN_LAB_MODELS")
             ?.split(',')

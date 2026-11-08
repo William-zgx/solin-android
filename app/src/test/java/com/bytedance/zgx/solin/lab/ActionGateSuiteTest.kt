@@ -11,7 +11,8 @@ import org.junit.Test
  * `action = true` with confidence >= [DECISION_MODEL_MIN_CONFIDENCE]; anything else (false, low
  * confidence, invalid output) keeps it closed, so a broken gate fails closed to no tool.
  *
- * Lab-only experiment: the app has no such gate today.
+ * Standalone diagnostic experiment. The merged production gate is measured end to end by
+ * `RuleFirstGatedE2eSuiteTest`; this older reader intentionally strips fences, unlike production.
  */
 class ActionGateSuiteTest {
     @Test

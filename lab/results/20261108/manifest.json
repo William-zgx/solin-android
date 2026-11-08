@@ -1,6 +1,6 @@
 {
   "ollamaVersion": "litert-lm-0.12.0",
-  "gitHead": "655029cfce85ddd08200c7c8aa6291da56d0f85e",
+  "gitHead": "20955f1a5bfefbce976906dcc465ea5d2baa4f1d",
   "samplingOptions": {
     "top_p": 0.1,
     "seed": 7,
@@ -20,9 +20,7 @@
         "parameter_size": "268.10M",
         "parent_model": "",
         "family": "gemma3",
-        "families": [
-          "gemma3"
-        ],
+        "families": ["gemma3"],
         "runner": "ggml",
         "quantization_level": "Q8_0"
       },
@@ -38,9 +36,7 @@
         "parameter_size": "7.5B",
         "parent_model": "gemma4-validation-20260929:e4b-imatrix-attention-q6-q8-draft2",
         "family": "gemma4",
-        "families": [
-          "gemma4"
-        ],
+        "families": ["gemma4"],
         "runner": "llamacpp",
         "quantization_level": "Q4_K_M"
       },
@@ -53,7 +49,7 @@
     },
     "litert/gemma-4-e4b": {
       "digest": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
-      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm); lmf modes ran in the parallel worktree .claude/worktrees/lab-lmf-e4b against its own shim on 127.0.0.1:11440, concurrently with E2B",
+      "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)",
       "sizeBytes": 3659530240
     },
     "gemma4:e2b": {
@@ -66,9 +62,7 @@
         "parameter_size": "4.6B",
         "parent_model": "gemma4-validation-20260929:e2b-imatrix-attention-q6-q8-draft2",
         "family": "gemma4",
-        "families": [
-          "gemma4"
-        ],
+        "families": ["gemma4"],
         "runner": "llamacpp",
         "quantization_level": "Q4_K_M"
       },
@@ -78,14 +72,26 @@
   "runDate": "20261108",
   "suites": {
     "initial-planning": {
-      "topK": 8,
+      "gateMinConfidence": 0.9,
       "cases": 151,
-      "registryTools": 52,
-      "fixedClock": "2026-06-14T02:00:00Z",
       "datasetCases": 173,
-      "rmInstalledProfile": "mobile-action-270m",
-      "skillModeR": "StaticSkill",
-      "skillModeRM": "ModelDrivenBootstrap"
+      "webSearchFilter": "production explicit-search-verb filter",
+      "runtime": "production HybridActionPlanningRuntime",
+      "gateMaxOutputTokens": 64,
+      "actionModelPath": null,
+      "mode": "R-gated-e2e",
+      "retriever": "production ToolRetriever, limit 12, plus answer",
+      "proposalMaxOutputTokens": 512,
+      "strategy": "RuleFirstGatedModel",
+      "planner": "production InitialToolPlanner.planLocalModelFirst",
+      "skillMode": "ModelDrivenBootstrap",
+      "oneShotSampling": {
+        "top_p": 0.1,
+        "seed": 0,
+        "top_k": 1,
+        "temperature": 0,
+        "num_ctx": 8192
+      }
     },
     "native-tools": {
       "topK": 8,
@@ -123,7 +129,7 @@
       ],
       "registryTools": 52,
       "retrieverRecallAt8": 0.79,
-      "actionPromptCharsFullRegistry": 6308,
+      "actionPromptCharsFullRegistry": 6316,
       "nativeToolSchemaCharsFullRegistry": 25629,
       "retrieverRecallAtK": {
         "12": {
@@ -144,10 +150,10 @@
         }
       },
       "actionPromptCharsMeanAtK": {
-        "12": 1559,
-        "4": 597,
-        "16": 2035,
-        "8": 1085
+        "12": 1567,
+        "4": 605,
+        "16": 2043,
+        "8": 1093
       },
       "retrieverMissesAtK": {
         "12": [
@@ -239,7 +245,7 @@
         ]
       },
       "observationRegistryTools": 13,
-      "actionPromptCharsObservationRegistry": 2307,
+      "actionPromptCharsObservationRegistry": 2315,
       "retrieverGoldRank": {
         "golden_066": 1,
         "golden_067": 2,
@@ -343,15 +349,15 @@
         "bench_sys_alarm": 1
       }
     },
-    "action-gate": {
-      "cases": 151,
-      "system": "You decide whether a phone assistant must perform a phone action for the user's request. action = true: the user asks the assistant to do something on the phone now, such as opening an app, setting an alarm, timer or reminder, drafting a message, email, contact or calendar event, calling, searching the web or a map, or changing a setting. action = false: chat, a question the assistant can answer in text, an explanation, a translation, or a request that tells the assistant not to do something.\n\nThe user message is a JSON object whose \"request\" field is the request. Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}.",
-      "minConfidence": 0.9
-    },
     "observation-step": {
       "cases": 46,
       "datasetCases": 46,
       "maxModelReplans": 5
+    },
+    "action-gate": {
+      "cases": 151,
+      "system": "You decide whether a phone assistant must perform a phone action for the user's request. action = true: the user asks the assistant to do something on the phone now, such as opening an app, setting an alarm, timer or reminder, drafting a message, email, contact or calendar event, calling, searching the web or a map, or changing a setting. action = false: chat, a question the assistant can answer in text, an explanation, a translation, or a request that tells the assistant not to do something.\n\nThe user message is a JSON object whose \"request\" field is the request. Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}.",
+      "minConfidence": 0.9
     }
   },
   "hostNote": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"

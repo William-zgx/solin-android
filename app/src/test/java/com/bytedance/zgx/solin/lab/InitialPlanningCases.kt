@@ -27,8 +27,10 @@ object InitialPlanningCases {
     /** Scored cases only; unlabeled benchmark tasks are excluded (see lab/README.md). */
     fun loadLabeled(): List<InitialCase> = loadAll().filter(InitialCase::labeled)
 
-    /** Labeled cases, cut to `SOLIN_LAB_LIMIT` for smoke runs. */
-    fun benchCases(): List<InitialCase> = loadLabeled().let { all -> LabEnv.caseLimit?.let(all::take) ?: all }
+    /** Labeled cases, optionally cut to explicit smoke ids and then `SOLIN_LAB_LIMIT`. */
+    fun benchCases(): List<InitialCase> = loadLabeled()
+        .let { all -> LabEnv.requestedCaseIds?.let { ids -> all.filter { it.id in ids } } ?: all }
+        .let { selected -> LabEnv.caseLimit?.let(selected::take) ?: selected }
 
     /** Shared record shape for Suites B and C, so `summarize.py` reads one schema. */
     fun record(

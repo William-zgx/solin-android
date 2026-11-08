@@ -28,7 +28,8 @@ MODE_ORDER = {
     SUITE_A: ["replanner", "replanner-fix"],
     # `*-lmf` modes mirror production LocalModelFirst: the retrieved top-k plus the `answer`
     # no-tool choice spec (orchestration/InitialToolPlanner.kt:43,52-60).
-    SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "M-topk-fix-lmf", "R+M"],
+    SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "M-topk-fix-lmf", "R+M",
+              "R-gated-e2e"],
     SUITE_C: ["N-full", "N-topk", "N-topk-free", "N-topk-lmf"],
     SUITE_D: ["complexity", "json-prompt", "json-schema"],
     SUITE_E: ["json-prompt"],
@@ -1190,6 +1191,10 @@ def composite_r_then_model(records, models, out):
             if model in RULE_MODELS:
                 continue
             for mode in MODE_ORDER[suite]:
+                # The end-to-end mode already includes rules, guard, gate and proposal; composing it
+                # with R a second time would not describe any production path.
+                if mode == "R-gated-e2e":
+                    continue
                 rs = records.get((suite, model, mode))
                 if not rs:
                     continue
@@ -1370,6 +1375,174 @@ def production_faithful(fidelity, models, out):
         out.append("No no-tool false positives in the rows above, so nothing to split.\n")
 
 
+# ---- Production RuleFirstGatedModel, measured end to end -----------------------------------------
+
+
+def gated_e2e(records, models, out):
+    """Decision stages and false-positive classes from the real production planner, not a composite."""
+    keys = [key for key in keys_for(SUITE_B, records, models) if key[2] == "R-gated-e2e"]
+    if not keys:
+        out.append("Not run: `R-gated-e2e` has no saved per-case records on this host.\n")
+        return
+    out.append("`R-gated-e2e` drives production `InitialToolPlanner.planLocalModelFirst` and "
+               "`HybridActionPlanningRuntime` on the production `.litertlm` files. Rules and the negation "
+               "guard run before the strict 0.9 action-intent gate; only an open gate reaches production "
+               "retrieval, the `answer` choice, the fixed action prompt, the `web_search` filter, strict "
+               "parsing, registry validation and `SafetyPolicy`. These are measured final plans, not an "
+               "offline combination of earlier model outputs. Gate JSON validity is the production "
+               "parser's verdict: fences and trailing prose are invalid, never stripped by the lab.\n")
+    stages = ["rule", "negation guard", "gate closed", "gate open → accepted", "gate open → answer",
+              "gate open → failed"]
+    rows = []
+    for key in keys:
+        rs = records[key]
+        counter = Counter(r.get("decisionStage") for r in rs)
+        valid = sum(1 for r in rs if r.get("gateRawJsonValid") is True)
+        invalid = sum(1 for r in rs if r.get("gateRawJsonValid") is False)
+        unavailable = sum(1 for r in rs if r.get("modelCalls") and r.get("gateRawJsonValid") is None)
+        rows.append([key[1], key[2], run_cell(key, f"{sum(r['correct'] for r in rs)}/{len(rs)}")]
+                    + [run_cell(key, counter.get(stage, 0)) for stage in stages]
+                    + [run_cell(key, valid), run_cell(key, invalid), run_cell(key, unavailable)])
+    out.append(table(["model", "mode", "overall correct"] + stages
+                     + ["gate JSON valid", "gate JSON invalid", "gate unavailable"], rows))
+    out.append("")
+    rows = []
+    for key in keys:
+        rs = records[key]
+        rows.append([
+            key[1], key[2],
+            run_cell(key, sum(1 for r in rs if r.get("falsePositive"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpOrchestrationOnly"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpDeviceNetworkExternal"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpPrivateRead"))),
+            run_cell(key, sum(1 for r in rs if r.get("fpNetworkEgress"))),
+        ])
+    out.append("No-tool false positives in the final accepted plan (51 no-tool requests). Orchestration-only "
+               "choices have no device, network or external-app effect; private reads and network egress "
+               "are the privacy-relevant subsets of the executable-action column:\n")
+    out.append(table(["model", "mode", "false positives", "orchestration only",
+                      "device/network/external", "of which private reads", "of which network egress"], rows))
+    out.append("")
+    gated_e2e_comparison(records, keys, out)
+
+
+def closed_answer(rule):
+    return {"correct": not rule["expectsTool"], "falsePositive": False,
+            "answer": {"kind": "stop", "tool": None, "args": {}}}
+
+
+def plan_outcome(record):
+    answer = record.get("answer") or {}
+    tool = answer.get("tool")
+    outcome = tool or "no tool"
+    return f"{'✓' if record.get('correct') else '✗'} {outcome}"
+
+
+def e2e_case_explanation(record):
+    stage = record.get("decisionStage") or "?"
+    if stage == "rule":
+        return f"rule fast path ({record.get('planSource') or 'rule'}); zero model calls"
+    if stage == "negation guard":
+        return "production negation guard; zero model calls"
+    reason = record.get("gateReason") or "?"
+    if stage == "gate closed":
+        if reason == "local_model_action_gate_invalid_output":
+            raw = record.get("gateRawPreview") or ""
+            shape = "fenced JSON" if raw.lstrip().startswith("```") else "non-strict JSON"
+            return f"strict gate rejected {shape}; no proposal call"
+        return f"gate closed: {reason}; no proposal call"
+    outcome = record.get("proposalOutcome") or "no outcome tag"
+    if stage == "gate open → accepted":
+        tool = (record.get("answer") or {}).get("tool") or "?"
+        return f"gate open; accepted {tool} ({outcome})"
+    if stage == "gate open → answer":
+        return "gate open; model chose the production `answer` choice"
+    if (record.get("metrics") or {}).get("error"):
+        return f"gate open; engine error: {(record.get('metrics') or {}).get('error')}"
+    return f"gate open; proposal failed closed: {outcome}"
+
+
+def gated_e2e_comparison(records, e2e_keys, out):
+    """Case-level delta against R and the coordinator's exact saved text-fixed offline estimate."""
+    rules_list = records.get((SUITE_B, "rules", "R"), [])
+    if len(rules_list) != 151:
+        return
+    rules = {r["caseId"]: r for r in rules_list}
+    rows = []
+    differences = []
+    for key in e2e_keys:
+        model = key[1]
+        actual_list = records[key]
+        if len(actual_list) != 151:
+            continue
+        gate_key = (SUITE_E, model, "json-prompt")
+        estimate_key = (SUITE_B, model, "M-topk-fix-lmf")
+        gates = {r["caseId"]: r for r in records.get(gate_key, [])}
+        proposals = {r["caseId"]: r for r in records.get(estimate_key, [])}
+        if len(gates) != 151 or len(proposals) != 151:
+            continue
+        actual = {r["caseId"]: r for r in actual_list}
+        negated = {cid for cid, r in actual.items() if r.get("decisionStage") == "negation guard"}
+        estimate = {}
+        for cid, rule in rules.items():
+            gate = gates[cid]
+            proposal = proposals[cid]
+            if rule["rawKind"] == "use_tool":
+                estimate[cid] = rule
+            elif cid in negated:
+                estimate[cid] = closed_answer(rule)
+            elif not errored(gate) and gate.get("gateOpen") and not errored(proposal):
+                estimate[cid] = proposal
+            else:
+                estimate[cid] = closed_answer(rule)
+        estimate_total = sum(bool(r["correct"]) for r in estimate.values())
+        estimate_fp = sum(bool(r.get("falsePositive")) for r in estimate.values())
+        actual_total = sum(bool(r["correct"]) for r in actual.values())
+        actual_fp = sum(bool(r.get("falsePositive")) for r in actual.values())
+        rule_total = sum(bool(r["correct"]) for r in rules.values())
+        contributors = [key, gate_key, estimate_key]
+        rows.append([
+            model,
+            run_cell((SUITE_B, "rules", "R"), f"{rule_total}/151"),
+            cell_for_runs([gate_key, estimate_key], f"{estimate_total}/151"),
+            run_cell(key, f"{actual_total}/151"),
+            cell_for_runs(contributors, f"{actual_total - estimate_total:+d}"),
+            cell_for_runs(contributors + [(SUITE_B, "rules", "R")], f"{actual_total - rule_total:+d}"),
+            cell_for_runs([gate_key, estimate_key], f"{estimate_fp}/51"),
+            run_cell(key, f"{actual_fp}/51"),
+        ])
+        for cid, rule in rules.items():
+            e = estimate[cid]
+            a = actual[cid]
+            if len({bool(rule["correct"]), bool(e["correct"]), bool(a["correct"])}) == 1:
+                continue
+            differences.append([
+                model, cid, preview(rule["input"], 52),
+                run_cell((SUITE_B, "rules", "R"), plan_outcome(rule)),
+                cell_for_runs([gate_key, estimate_key], plan_outcome(e)),
+                run_cell(key, plan_outcome(a)),
+                e2e_case_explanation(a),
+            ])
+    if not rows:
+        return
+    out.append("Comparison with the same committed `R` records and the coordinator's offline estimate: "
+               "rules, then the measured production negation cases, then the saved lenient Suite E gate, "
+               "then saved `M-topk-fix-lmf` only where that gate opened. This reconstructs 131/151 for E2B "
+               "and 133/151 for E4B with 2/51 false positives; it is a comparison baseline, not the "
+               "end-to-end measurement. Δ is measured production minus the named baseline:\n")
+    out.append(table(["model", "R correct", "offline estimate", "production e2e", "Δ estimate", "Δ R",
+                      "estimate FP", "e2e FP"], rows))
+    out.append("")
+    out.append("Every case whose correctness differs between `R`, the offline estimate and measured "
+               "production. `✓`/`✗` is the existing lab score; the text after it is the final tool or no "
+               "tool. The last column is the actual production decision, so fenced-gate closures, answer "
+               "choices, wrong accepted tools and retrieval failures are explicit rather than hidden in "
+               "the totals:\n")
+    out.append(table(["model", "case", "request", "R", "offline estimate", "production e2e",
+                      "measured explanation"], differences))
+    out.append("")
+
+
 # ---- Main ----------------------------------------------------------------------------------------
 
 
@@ -1399,8 +1572,14 @@ def run_facts(folder, manifest, out):
     rows = [
         ["models in this folder, by host", "; ".join(hosts) or "?"],
         ["git HEAD at the last model run", manifest.get("gitHead", "?")],
-        ["sampling", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
+        ["sampling (older lab modes)", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
     ]
+    initial_info = (manifest.get("suites") or {}).get(SUITE_B) or {}
+    one_shot = initial_info.get("oneShotSampling")
+    if one_shot:
+        rows.append(["R-gated-e2e production one-shot sampling", json.dumps(one_shot, ensure_ascii=False)])
+        rows.append(["R-gated-e2e output caps", f"gate {initial_info.get('gateMaxOutputTokens')}; "
+                                                f"proposal {initial_info.get('proposalMaxOutputTokens')}"])
     out.append(table(["item", "value"], rows))
     out.append("")
     if models:
@@ -1462,6 +1641,8 @@ def generated(folder, manifest, records, models):
         suite_e(records, host_models, out)
         out.append("### Production-faithful LocalModelFirst\n")
         production_faithful(fidelity, host_models, out)
+        out.append("### Production RuleFirstGatedModel end-to-end\n")
+        gated_e2e(records, host_models, out)
         out.append("### Offline composites\n")
         composite_r_then_model(records, host_models, out)
         composite_gate(records, host_models, out)
