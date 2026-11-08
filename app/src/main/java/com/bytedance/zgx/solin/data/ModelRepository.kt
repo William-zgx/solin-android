@@ -9,11 +9,11 @@ import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.HIGH_QUALITY_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.InstalledModelSummary
 import com.bytedance.zgx.solin.MODEL_FILE_EXTENSION
-import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RECOMMENDED_MODELS
 import com.bytedance.zgx.solin.RecommendedModel
+import com.bytedance.zgx.solin.SetupTier
 import com.bytedance.zgx.solin.isLocalDebugHost
 import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import com.bytedance.zgx.solin.storage.openableMetadata
@@ -769,7 +769,6 @@ private fun observationActionPlanningModelPriority(
         isActiveInstalledModel && recommendedModelId in CHAT_ACTION_PLANNING_MODEL_IDS -> 0
         recommendedModelId == DEFAULT_CHAT_MODEL_ID -> 1
         recommendedModelId == HIGH_QUALITY_CHAT_MODEL_ID -> 2
-        recommendedModelId == MOBILE_ACTION_MODEL_ID -> 3
         else -> 4
     }
 
@@ -786,7 +785,8 @@ private fun verifiedRecommendedModelPath(
     models.firstOrNull { model ->
         val catalogModel = model.recommendedModelId?.let(ModelCatalog::recommendedModelOrNull)
             ?: return@firstOrNull false
-        modelPredicate(catalogModel) &&
+        catalogModel.setupTier != SetupTier.RetiredInstalledOnly &&
+            modelPredicate(catalogModel) &&
             model.hasVerifiedRecommendedEvidence(catalogModel) &&
             currentFileVerifier(model, catalogModel)
     }?.path

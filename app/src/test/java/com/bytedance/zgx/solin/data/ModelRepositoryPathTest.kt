@@ -33,7 +33,7 @@ class ModelRepositoryPathTest {
     }
 
     @Test
-    fun verifiedRecommendedModelPathIgnoresUnverifiedOrWrongCapabilityModels() {
+    fun verifiedRecommendedModelPathIgnoresUnverifiedWrongCapabilityAndRetiredModels() {
         withTempModelFile { memoryFile ->
             withTempModelFile { actionFile ->
                 val models = listOf(
@@ -53,7 +53,7 @@ class ModelRepositoryPathTest {
                 )
 
                 assertNull(verifiedPath(models, ModelCapability.MemoryEmbedding))
-                assertEquals(actionFile.absolutePath, verifiedPath(models, ModelCapability.MobileAction))
+                assertNull("the retired 270M behaves as no verified action model", verifiedPath(models, ModelCapability.MobileAction))
             }
         }
     }
@@ -93,7 +93,7 @@ class ModelRepositoryPathTest {
     }
 
     @Test
-    fun verifiedObservationActionPlanningPathPrefersActiveChatThenDefaultChatThenActionFallback() {
+    fun verifiedObservationActionPlanningPathPrefersChatAndSkipsRetiredActionFallback() {
         withTempModelFile { e2bFile ->
             withTempModelFile { e4bFile ->
                 withTempModelFile { actionFile ->
@@ -128,17 +128,14 @@ class ModelRepositoryPathTest {
                         e4bFile.absolutePath,
                         verifiedObservationPath(models = models, activeInstalledModelId = HIGH_QUALITY_CHAT_MODEL_ID),
                     )
-                    assertEquals(
-                        actionFile.absolutePath,
-                        verifiedObservationPath(models = listOf(action), activeInstalledModelId = null),
-                    )
+                    assertNull(verifiedObservationPath(models = listOf(action), activeInstalledModelId = null))
                 }
             }
         }
     }
 
     @Test
-    fun verifiedObservationActionPlanningPathIgnoresUnverifiedChatModels() {
+    fun verifiedObservationActionPlanningPathIgnoresUnverifiedChatAndRetiredActionModels() {
         withTempModelFile { e2bFile ->
             withTempModelFile { actionFile ->
                 val unverifiedE2b = installedModel(
@@ -155,8 +152,7 @@ class ModelRepositoryPathTest {
                     withVerifiedCatalogEvidence = true,
                 )
 
-                assertEquals(
-                    actionFile.absolutePath,
+                assertNull(
                     verifiedObservationPath(
                         models = listOf(unverifiedE2b, action),
                         activeInstalledModelId = DEFAULT_CHAT_MODEL_ID,

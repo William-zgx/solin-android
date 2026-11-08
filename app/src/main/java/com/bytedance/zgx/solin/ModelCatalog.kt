@@ -145,6 +145,9 @@ enum class SetupTier {
     BasicRecommended,
     OptionalChat,
     OptionalExperimental,
+
+    /** Kept for installed-model metadata, but never offered for download or selected for planning. */
+    RetiredInstalledOnly,
 }
 
 data class RecommendedModel(
@@ -238,9 +241,9 @@ val RECOMMENDED_MODELS = listOf(
         sha256Hex = "92109695f911d1872fa8ae07c1e3ff0ed70f2c3d1690d410ec6db8587c2ab409",
         repositoryUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/82d0f654a6270c518d16c600edce3136221b3347/mobile-actions_q8_ekv1024.litertlm?download=true",
-        deviceHint = "可选实验低资源动作模型；主规划优先使用本地 Chat 模型，下载约 271 MB",
+        deviceHint = "已停用；已安装副本仅可查看和删除",
         capability = ModelCapability.MobileAction,
-        setupTier = SetupTier.OptionalExperimental,
+        setupTier = SetupTier.RetiredInstalledOnly,
     ),
     RecommendedModel(
         id = HIGH_QUALITY_CHAT_MODEL_ID,
@@ -332,7 +335,7 @@ internal object ModelCatalog {
         }
 
     fun optionalModels(): List<RecommendedModel> =
-        RECOMMENDED_MODELS.filter { it.setupTier != SetupTier.BasicRecommended }
+        RECOMMENDED_MODELS.filter { it.setupTier == SetupTier.OptionalChat || it.setupTier == SetupTier.OptionalExperimental }
 
     fun defaultSetupModelIds(): Set<String> =
         setOf(DEFAULT_CHAT_MODEL_ID)

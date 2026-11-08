@@ -139,7 +139,7 @@ internal class ChatRouteOutcomeHandler(
             ModelCapability.MobileAction -> "动作规划模型"
         }
         val installHint = if (route.capability == ModelCapability.MobileAction) {
-            "请到模型管理安装本地 Chat 模型，或可选低资源动作模型。"
+            "请到模型管理安装支持动作规划的本地 Chat 模型。"
         } else {
             "请到模型管理安装基础能力包。"
         }
