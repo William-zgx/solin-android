@@ -83,6 +83,18 @@ def load_records(folder):
     return records
 
 
+def load_fidelity(folder):
+    """The production-fidelity records (negation guard, false-positive split), keyed by file order.
+
+    Written by `ProductionFidelitySuiteTest`, not by a model run: one line per (suite, model, mode)
+    with the raw and guarded counts. Absent until that test has run.
+    """
+    path = folder / "production-fidelity__negation-guard.jsonl"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
 def model_order(manifest, records):
     seen = OrderedDict()
     for model in RULE_MODELS:
@@ -579,7 +591,8 @@ def initial_rows(keys, records, native):
             overall = f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})"
         elif bad:
             overall = f"{frac(sum(r['correct'] for r in rs), len(rs))} ({len(bad)} errored)"
-        attempted = [r for r in rs if r["rawKind"] not in ("text", "blank", "no_tool", "answer", "error")]
+        attempted = [r for r in rs
+                     if r["rawKind"] not in ("text", "blank", "no_tool", "no_tool_choice", "answer", "error")]
         if native:
             parsed = [r for r in attempted if r["rawKind"] in ("call", "multi_call")]
         elif key[2].startswith("M-"):
@@ -1158,6 +1171,73 @@ def composite_gate(records, models, out):
     out.append("")
 
 
+# ---- Production-faithful LocalModelFirst --------------------------------------------------------
+
+
+def production_faithful(fidelity, models, out):
+    """Raw vs guard-corrected scores and the false-positive split, per B/C mode and model.
+
+    Written by `ProductionFidelitySuiteTest` from the saved JSONL; no model is called here. A
+    guarded case is one whose input starts with an action negation: production does not show it to
+    the model and takes the rule plan (`orchestration/InitialToolPlanner.kt:100`).
+    """
+    rows = [r for r in fidelity if r.get("model") in models]
+    if not rows:
+        out.append("Not run in this folder: the production-faithful table needs "
+                   "`production-fidelity__negation-guard.jsonl` (produced by "
+                   "`ProductionFidelitySuiteTest`, offline over the saved JSONL).\n")
+        return
+    guarded = sorted({r["guardedCases"] for r in rows})
+    out.append("Production's negation guard, offline: a guarded request never reaches the model "
+               "(`orchestration/InitialToolPlanner.kt:100` calls `String.startsWithActionNegation()` "
+               "at `action/BasicDraftActionParsers.kt:199` and takes the rule plan), so a guarded "
+               "case is scored with the rules' `R` answer. Raw is the mode as it ran; guarded is what "
+               "production would have done on the same model outputs. No model was called for this "
+               f"table. Guarded requests per mode: {', '.join(map(str, guarded))}.\n")
+    table_rows = []
+    for r in sorted(rows, key=lambda x: (x["model"], SUITE_LETTER.get(x["suite"], x["suite"]), x["mode"])):
+        answered = r["answered"]
+        errored_note = f" ({r['errored']} errored)" if r.get("errored") else ""
+        table_rows.append([
+            r["model"],
+            f"{SUITE_LETTER.get(r['suite'], r['suite'])} {r['mode']}",
+            f"{r['rawCorrect']}/{answered}{errored_note}",
+            f"{r['guardedCorrect']}/{answered}{errored_note}",
+            r["guardedCases"],
+            f"{r['rawFalsePositive']} -> {r['guardedFalsePositive']}",
+        ])
+    out.append(table(["model", "suite / mode", "raw correct", "guarded correct (production)",
+                      "negated requests", "no-tool false positives raw -> guarded"], table_rows))
+    out.append("")
+    split_rows = []
+    for r in sorted(rows, key=lambda x: (x["model"], SUITE_LETTER.get(x["suite"], x["suite"]), x["mode"])):
+        if not r["rawFalsePositive"]:
+            continue
+        split_rows.append([
+            r["model"],
+            f"{SUITE_LETTER.get(r['suite'], r['suite'])} {r['mode']}",
+            r["rawFalsePositive"],
+            r["fpOrchestrationOnly"],
+            r["fpDeviceNetworkExternal"],
+            r["fpPrivateRead"],
+            r["fpNetworkEgress"],
+        ])
+    if split_rows:
+        out.append("Every no-tool false positive, split. **Orchestration-only** = the production "
+                   "`ToolSpec.capability == ToolCapability.Orchestration`, a hallucinated (unregistered) "
+                   "name, or `answer`: no device, network or external-app effect. **Device / network / "
+                   "external-app** = everything else, i.e. an executable action on the phone. Private "
+                   "reads (`read_clipboard`, screen text, notifications) and network egress "
+                   "(`web_search`, `search_maps`, `open_deep_link`) are named separately because they "
+                   "are the privacy-relevant subset, and are already counted inside the action column:\n")
+        out.append(table(["model", "suite / mode", "false positives", "orchestration only",
+                          "device/network/external", "of which private reads", "of which network egress"],
+                         split_rows))
+        out.append("")
+    else:
+        out.append("No no-tool false positives in the rows above, so nothing to split.\n")
+
+
 # ---- Main ----------------------------------------------------------------------------------------
 
 
@@ -1218,6 +1298,7 @@ def generated(folder, manifest, records, models):
     out = []
     out.append("## Run facts\n")
     run_facts(folder, manifest, out)
+    fidelity = load_fidelity(folder)
     # One section per host. A generated table never carries rows from two hosts: the Ollama GGUF
     # numbers and the LiteRT numbers on the production `.litertlm` files measure different weights
     # on different runtimes, and reading down a mixed column would compare them.
@@ -1247,6 +1328,8 @@ def generated(folder, manifest, records, models):
         suite_d(records, host_models, out)
         out.append("### Suite E: local model as an action gate\n")
         suite_e(records, host_models, out)
+        out.append("### Production-faithful LocalModelFirst\n")
+        production_faithful(fidelity, host_models, out)
         out.append("### Offline composites\n")
         composite_r_then_model(records, host_models, out)
         composite_gate(records, host_models, out)

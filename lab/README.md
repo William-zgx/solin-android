@@ -83,10 +83,18 @@ Per case it records:
 | `M-topk` | Model only, prompt advertises the top 8 tools from `LabToolRetriever` (lexical, deterministic) |
 | `R+M` | Production order with a model installed: skills, then rule intent gate, then model, then rule fallback |
 | `M-full-fix`, `M-topk-fix` | Lab-only ablation: `M-full` / `M-topk` with the prompt's `call:function {"arg":"value"}` placeholder replaced by `call:函数名 {"参数名":"值"}` |
+| `M-topk-fix-lmf` | Production-faithful LocalModelFirst text shape: top 8 retrieved tools **plus** production's `answer` no-tool choice, with the placeholder fix |
 
 The `-fix` modes (and Suite A's `replanner-fix`) exist because small models copy the placeholder
 `function` as the tool name. They change only that text (`PlaceholderAblation`); they are not what
 the app sends.
+
+The `-lmf` mode is what production LocalModelFirst actually sends: the retrieved shortlist plus a
+`answer` tool declaration (`LOCAL_MODEL_NO_TOOL_CHOICE`, title `直接回答`,
+`orchestration/InitialToolPlanner.kt:43,52-60,136`). Choosing `answer` scores as **no tool**
+(`rawKind no_tool_choice`), the way production reads it (`:144`); it is never registered, so nothing
+can execute it. Here it is built on the placeholder fix because the production prompt text still
+copies `function` on both files that can run it (see SUMMARY Suite F).
 
 Metrics: tool-name accuracy, argument accuracy (all gold keys, and per key), false-positive tool rate
 on no-tool cases, parse/format validity (a known tool in the `call:` format) and schema validity
@@ -104,6 +112,20 @@ The Suite B cases with the tools passed through Ollama's native `tools` field (J
 | `N-full` | Whole registry, system prompt says to always call one tool (like the app's) |
 | `N-topk` | Top 8 retrieved tools, same system prompt |
 | `N-topk-free` | Top 8 retrieved tools, system prompt allows a plain-text answer when no phone action is needed |
+| `N-topk-lmf` | Production-faithful LocalModelFirst native shape: top 8 retrieved tools plus the `answer` no-tool choice (`N-topk` + `LOCAL_MODEL_NO_TOOL_CHOICE`) |
+
+The `-lmf` modes are the candidate production configurations: they are the only ones that offer the
+model the same choice the app does. `answer` scores as no tool.
+
+### Production-faithful composite (`production-fidelity`, no model calls)
+
+`ProductionFidelitySuiteTest` reads the saved Suite B/C JSONL and calls the production
+`String.startsWithActionNegation()` (`action/BasicDraftActionParsers.kt:199`) on every case input.
+Production never shows a negated request to the model (`orchestration/InitialToolPlanner.kt:100`
+takes `planRuleFirst()`), so a guarded case is scored with the rules' `R` answer. It emits
+`production-fidelity__negation-guard.jsonl` with raw vs guarded counting per mode, and splits each
+no-tool false positive into orchestration-only (`ToolCapability.Orchestration` / unregistered name /
+`answer`) versus a device, network or external-app action, naming private reads and network egress.
 
 This tells us whether moving the app to LiteRT-LM native tool calling would help.
 
