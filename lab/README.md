@@ -95,9 +95,10 @@ To regenerate the datasets after changing a label table: `python3 -I lab/scripts
 
 ## What each suite measures
 
-All model calls use `/api/chat` with `"think": false` (the app runs non-thinking) and greedy
-sampling: `temperature 0, top_k 1, top_p 0.1, seed 7`. `num_ctx` is 8192 unless a mode needs more;
-the JSONL records the prompt token count of every call.
+Except for `R-gated-e2e`, model calls use `/api/chat` with `"think": false` (the app runs non-thinking)
+and greedy sampling: `temperature 0, top_k 1, top_p 0.1, seed 7`. `num_ctx` is 8192 unless a mode needs
+more; the JSONL records the prompt token count of every call. `R-gated-e2e` instead sends production's
+unset-seed equivalent (`seed 0`) and its actual per-request output caps, as recorded in the manifest.
 
 ### Suite A: observation step (`observation-step`)
 
@@ -283,8 +284,10 @@ it in a separate commit that says why, and rerun.
 - Ollama applies each model's own chat template. LiteRT-LM applies the template baked into the
   `.litertlm` file. The prompt text, system instruction and parser are identical, but the template
   around them may differ.
-- The lab caps output at `num_predict = 384`. A valid `call:` line is far shorter, so the cap only
-  cuts outputs that would fail parsing anyway.
+- The older lab modes cap output at `num_predict = 384`. A valid `call:` line is far shorter, so that cap
+  only cuts outputs that would fail parsing anyway. `R-gated-e2e` uses production's 64-token gate and
+  512-token proposal caps instead; the shim applies them with the same streaming estimate and native
+  cancellation/drain behavior as `LocalEngine`.
 - Ollama reuses the KV cache for an identical prompt prefix (`promptCachedTokens`). Long shared
   prefixes (the tool list) make later calls cheaper than a cold phone call would be.
 - Suite A screens are fixture dumps, not live apps. Each case scores one step with a fixed history;

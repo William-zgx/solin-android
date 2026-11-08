@@ -1423,6 +1423,124 @@ def gated_e2e(records, models, out):
     out.append(table(["model", "mode", "false positives", "orchestration only",
                       "device/network/external", "of which private reads", "of which network egress"], rows))
     out.append("")
+    gated_e2e_comparison(records, keys, out)
+
+
+def closed_answer(rule):
+    return {"correct": not rule["expectsTool"], "falsePositive": False,
+            "answer": {"kind": "stop", "tool": None, "args": {}}}
+
+
+def plan_outcome(record):
+    answer = record.get("answer") or {}
+    tool = answer.get("tool")
+    outcome = tool or "no tool"
+    return f"{'✓' if record.get('correct') else '✗'} {outcome}"
+
+
+def e2e_case_explanation(record):
+    stage = record.get("decisionStage") or "?"
+    if stage == "rule":
+        return f"rule fast path ({record.get('planSource') or 'rule'}); zero model calls"
+    if stage == "negation guard":
+        return "production negation guard; zero model calls"
+    reason = record.get("gateReason") or "?"
+    if stage == "gate closed":
+        if reason == "local_model_action_gate_invalid_output":
+            raw = record.get("gateRawPreview") or ""
+            shape = "fenced JSON" if raw.lstrip().startswith("```") else "non-strict JSON"
+            return f"strict gate rejected {shape}; no proposal call"
+        return f"gate closed: {reason}; no proposal call"
+    outcome = record.get("proposalOutcome") or "no outcome tag"
+    if stage == "gate open → accepted":
+        tool = (record.get("answer") or {}).get("tool") or "?"
+        return f"gate open; accepted {tool} ({outcome})"
+    if stage == "gate open → answer":
+        return "gate open; model chose the production `answer` choice"
+    if (record.get("metrics") or {}).get("error"):
+        return f"gate open; engine error: {(record.get('metrics') or {}).get('error')}"
+    return f"gate open; proposal failed closed: {outcome}"
+
+
+def gated_e2e_comparison(records, e2e_keys, out):
+    """Case-level delta against R and the coordinator's exact saved text-fixed offline estimate."""
+    rules_list = records.get((SUITE_B, "rules", "R"), [])
+    if len(rules_list) != 151:
+        return
+    rules = {r["caseId"]: r for r in rules_list}
+    rows = []
+    differences = []
+    for key in e2e_keys:
+        model = key[1]
+        actual_list = records[key]
+        if len(actual_list) != 151:
+            continue
+        gate_key = (SUITE_E, model, "json-prompt")
+        estimate_key = (SUITE_B, model, "M-topk-fix-lmf")
+        gates = {r["caseId"]: r for r in records.get(gate_key, [])}
+        proposals = {r["caseId"]: r for r in records.get(estimate_key, [])}
+        if len(gates) != 151 or len(proposals) != 151:
+            continue
+        actual = {r["caseId"]: r for r in actual_list}
+        negated = {cid for cid, r in actual.items() if r.get("decisionStage") == "negation guard"}
+        estimate = {}
+        for cid, rule in rules.items():
+            gate = gates[cid]
+            proposal = proposals[cid]
+            if rule["rawKind"] == "use_tool":
+                estimate[cid] = rule
+            elif cid in negated:
+                estimate[cid] = closed_answer(rule)
+            elif not errored(gate) and gate.get("gateOpen") and not errored(proposal):
+                estimate[cid] = proposal
+            else:
+                estimate[cid] = closed_answer(rule)
+        estimate_total = sum(bool(r["correct"]) for r in estimate.values())
+        estimate_fp = sum(bool(r.get("falsePositive")) for r in estimate.values())
+        actual_total = sum(bool(r["correct"]) for r in actual.values())
+        actual_fp = sum(bool(r.get("falsePositive")) for r in actual.values())
+        rule_total = sum(bool(r["correct"]) for r in rules.values())
+        contributors = [key, gate_key, estimate_key]
+        rows.append([
+            model,
+            run_cell((SUITE_B, "rules", "R"), f"{rule_total}/151"),
+            cell_for_runs([gate_key, estimate_key], f"{estimate_total}/151"),
+            run_cell(key, f"{actual_total}/151"),
+            cell_for_runs(contributors, f"{actual_total - estimate_total:+d}"),
+            cell_for_runs(contributors + [(SUITE_B, "rules", "R")], f"{actual_total - rule_total:+d}"),
+            cell_for_runs([gate_key, estimate_key], f"{estimate_fp}/51"),
+            run_cell(key, f"{actual_fp}/51"),
+        ])
+        for cid, rule in rules.items():
+            e = estimate[cid]
+            a = actual[cid]
+            if len({bool(rule["correct"]), bool(e["correct"]), bool(a["correct"])}) == 1:
+                continue
+            differences.append([
+                model, cid, preview(rule["input"], 52),
+                run_cell((SUITE_B, "rules", "R"), plan_outcome(rule)),
+                cell_for_runs([gate_key, estimate_key], plan_outcome(e)),
+                run_cell(key, plan_outcome(a)),
+                e2e_case_explanation(a),
+            ])
+    if not rows:
+        return
+    out.append("Comparison with the same committed `R` records and the coordinator's offline estimate: "
+               "rules, then the measured production negation cases, then the saved lenient Suite E gate, "
+               "then saved `M-topk-fix-lmf` only where that gate opened. This reconstructs 131/151 for E2B "
+               "and 133/151 for E4B with 2/51 false positives; it is a comparison baseline, not the "
+               "end-to-end measurement. Δ is measured production minus the named baseline:\n")
+    out.append(table(["model", "R correct", "offline estimate", "production e2e", "Δ estimate", "Δ R",
+                      "estimate FP", "e2e FP"], rows))
+    out.append("")
+    out.append("Every case whose correctness differs between `R`, the offline estimate and measured "
+               "production. `✓`/`✗` is the existing lab score; the text after it is the final tool or no "
+               "tool. The last column is the actual production decision, so fenced-gate closures, answer "
+               "choices, wrong accepted tools and retrieval failures are explicit rather than hidden in "
+               "the totals:\n")
+    out.append(table(["model", "case", "request", "R", "offline estimate", "production e2e",
+                      "measured explanation"], differences))
+    out.append("")
 
 
 # ---- Main ----------------------------------------------------------------------------------------
@@ -1454,8 +1572,14 @@ def run_facts(folder, manifest, out):
     rows = [
         ["models in this folder, by host", "; ".join(hosts) or "?"],
         ["git HEAD at the last model run", manifest.get("gitHead", "?")],
-        ["sampling", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
+        ["sampling (older lab modes)", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
     ]
+    initial_info = (manifest.get("suites") or {}).get(SUITE_B) or {}
+    one_shot = initial_info.get("oneShotSampling")
+    if one_shot:
+        rows.append(["R-gated-e2e production one-shot sampling", json.dumps(one_shot, ensure_ascii=False)])
+        rows.append(["R-gated-e2e output caps", f"gate {initial_info.get('gateMaxOutputTokens')}; "
+                                                f"proposal {initial_info.get('proposalMaxOutputTokens')}"])
     out.append(table(["item", "value"], rows))
     out.append("")
     if models:

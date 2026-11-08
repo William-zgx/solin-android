@@ -46,3 +46,7 @@
 2026-11-08T05:19:35.175428903Z suite A model=litert/gemma-4-e4b mode=replanner cases=46 rawCorrect=23 finalCorrect=23 (parallel lane .claude/worktrees/lab-2-e4b, shim :11442)
 2026-11-08T05:34:35.932152844Z suite A model=litert/gemma-4-e4b mode=replanner-fix cases=46 rawCorrect=23 finalCorrect=22 (parallel lane .claude/worktrees/lab-2-e4b, shim :11442)
 2026-11-08T06:07:29.440642602Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-08T11:15:43.587674348Z suite B model=litert/gemma-4-e2b mode=R-gated-e2e cases=3 correct=2
+2026-11-08T11:24:20.236303712Z suite B model=litert/gemma-4-e2b mode=R-gated-e2e cases=151 correct=129
+2026-11-08T11:31:26Z suite B model=litert/gemma-4-e4b mode=R-gated-e2e cases=151 correct=133 (parallel detached lane, shim 11438; merged into main lab-e2e worktree)
+2026-11-08T11:37:23.982807377Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
