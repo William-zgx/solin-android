@@ -79,7 +79,8 @@ the only release strategy. After the rules return no plan and the negation guard
    `confidence` (number in 0..1); trailing prose, Markdown, missing or extra fields, and wrong types fail.
 3. The gate opens only for `action == true && confidence >= 0.9`. Invalid output, low confidence,
    `action=false`, an unavailable engine, Busy, an error, cancellation, or a timeout closes it and returns
-   no tool, so the turn continues as an ordinary chat answer.
+   no tool. Failures and timeouts continue as an ordinary chat answer; a user-Stop cancellation instead
+   terminalizes the run through C2 and never falls through to an answer.
 4. Only an open gate runs `proposeLocalModelTool`: retrieved top-k candidates plus `answer`, the corrected
    `call:` prompt, and the existing strict parser. Accepted proposals take the normal plan path; NoTool and
    Failed both mean no tool. This is a planner candidate gate, never an execution authorization.
@@ -91,26 +92,44 @@ reason such as `local_model_action_gate_open` or `local_model_action_gate_busy`.
 prompt, raw model output, confidence text, request arguments, or engine error detail. Accepted proposals
 keep the same `proposed_request=` provenance and always ask through `LocalModelProposedStep`.
 
-### C1 Stop cancellation design
+### C2 Stop cancellation design
 
-The initial route uses option (i): `ChatController` runs the blocking route in `runInterruptible`,
-rethrows route `CancellationException`, and calls `ensureActive` before applying any route, action, or chat
-outcome. LiteRT one-shots already turn interruption into `Cancelled`, cancel native decode, and close their
-conversation in `finally`; the gate maps that result to closed, so no tool-proposal call follows. The same
-route-level interruption covers the older LocalModelFirst proposal one-shot. A one-shot timeout remains
-`Failed` and also closes the gate.
+The initial route uses cooperative, run-owned cancellation; it never interrupts the route thread.
+`ChatController` creates one `LocalOneShotCancellation` per generation, attaches it to
+`AgentRunOptions.initialRouteCancellation`, and cancels it in `stopGeneration` **before** cancelling the
+coroutine job. The release `RuleFirst` route is therefore not interrupted and keeps its existing routing
+behavior. Route `CancellationException` propagation and the post-route activity check remain for ordinary
+coroutine cancellation.
 
-This avoids threading a new cancellation token through `AgentRunOptions`, `AssistantRouter`, the planner,
-and every fake. The wrapped route and its argument resolution use Room/SQLite, DataStore or
-SharedPreferences, ordinary `File.inputStream` hashing, and in-memory projections; there is no route-time
-NIO `InterruptibleChannel`. Those writes finish their normal `use` / transaction boundaries rather than
-having a channel closed by thread interruption. The only interruption-driven native cleanup is the
-one-shot's existing audited path.
+The W2 gate and both LocalModelFirst/W2 proposal paths pass that same handle into their
+`LocalOneShotRequest`. The shared LiteRT engine and `DedicatedLiteRtEngine` both cancel native decode when
+the handle fires. The dedicated path also calls `cancelProcess()` before `close()` on an exceptional or
+abandoned exit, matching the shared path's cleanup. A cancelled gate result is closed, but it does not
+become an ordinary answer: the cancellation boundary below terminalizes the run instead. A one-shot
+timeout remains `Failed` and closes the gate to the usual no-tool chat path.
 
-Regression coverage: `SolinViewModelTest.stopGenerationDuringGatedInitialRouteInterruptsEngineAndAppliesNoOutcome`
-uses the real controller/orchestrator/gate with a blocked fake shared engine and proves interruption, no
-proposal call, and no post-Stop outcome. `ActionPlannerEngineRoutingTest.actionIntentGateCancelledAndTimeoutFailClosed`
-covers direct `Cancelled` and timeout-as-`Failed` closure.
+The route checks the handle before the gate, after the gate, before and after the proposal, before each
+`NoAction` / answer-plan / `GeneratingAnswer` persistence step, and immediately after a pending
+confirmation snapshot is saved. On cancellation it calls the existing `cancelRun` path, which makes the
+run terminal `Cancelled`, clears pending confirmations and pending state, clears every per-run map through
+`clearEphemeralRunState`, and forgets the `BackgroundPhoneSession` binding. The inert
+`AssistantRoute.Cancelled` result carries the run id but has no chat or action outcome to apply. If Stop
+wins while a blocking operation is outside one of those boundaries, `ChatController` repeats `cancelRun`
+with the returned run id instead of dropping the run or its bindings.
+
+Semantic recall is unchanged. Stop does not interrupt an embedding future, close the semantic runtime, or
+turn semantic recall into `DegradedLexical`; recall finishes and the pre-gate boundary stops the run before
+any gate or proposal request starts.
+
+Regression coverage: `SolinViewModelTest.stopGenerationDuringGatedInitialRouteCancelsEngineAndAppliesNoOutcome`
+drives the real controller/orchestrator/gate and proves cooperative engine cancellation without thread
+interruption, no proposal call, no post-Stop outcome, and a terminal run. `InitialRouteCancellationTest`
+uses the real orchestrator, loop, planner and hybrid runtime for both model-call boundaries, every
+persistence boundary, the post-snapshot race, semantic-runtime preservation, run/background cleanup, and
+unchanged RuleFirst routing. `LocalOneShotEngineTest` asserts native cancel count, exactly one close and a
+`Cancelled` result on the shared and dedicated paths, including exceptional interruption cleanup.
+`ActionPlannerEngineRoutingTest.actionIntentGateCancelledAndTimeoutFailClosed` keeps direct `Cancelled` and
+timeout-as-`Failed` closure.
 
 ## 2. Fail-closed behavior
 
@@ -123,7 +142,8 @@ nothing, so the result is "no tool". Under ModelFirst the rule planner runs afte
 | No verified planning model path | RuleFirst; model not called |
 | No installed profile with MobileActionPlanning | RuleFirst; model not called |
 | Fast path or gated strategy and the rules planned a tool | That rule plan; gate/model not called |
-| Gated action-intent gate closed, invalid, unavailable, Busy, cancelled, timed out, or threw | No tool; tool planner not called |
+| Gated action-intent gate closed, invalid, unavailable, Busy, timed out, or threw | No tool; tool planner not called |
+| Gate or proposal cancelled by user Stop | Gate closed, run terminal `Cancelled`; no proposal or answer outcome |
 | Retriever returns no tool | RuleFirst; model not called |
 | Model throws, or the runtime reports an exception as its failure reason | RuleFirst; trace tag `local_model_planning_error` |
 | Request starts with a negation (「别…」「不要…」) | RuleFirst; model not called |
@@ -265,4 +285,4 @@ also stays debug-only until its final production-file composite, latency, and de
 | Shortlist and first-step scope | `tool/ToolRetriever.kt` |
 | Setting | `data/Stores.kt`, `data/PreferenceSettingsStore.kt`, `data/ModelRepository.kt` |
 | Run options | `presentation/ChatControllerHelpers.kt`, `presentation/ChatController.kt` |
-| Tests | `LocalModelFirstPlanningTest`, `AgentRunOptionsTest`, `ToolRetrieverTest`, `ChatPlacementInputsTest`, `PreferenceSettingsStoreTest`, `SolinViewModelTest` |
+| Tests | `LocalModelFirstPlanningTest`, `InitialRouteCancellationTest`, `LocalOneShotEngineTest`, `AgentRunOptionsTest`, `ToolRetrieverTest`, `ChatPlacementInputsTest`, `PreferenceSettingsStoreTest`, `SolinViewModelTest` |
