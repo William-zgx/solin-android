@@ -52,6 +52,12 @@ enum class LocalPlanningStrategy {
     ModelFirstWithRuleFastPath,
 
     /**
+     * Rules first, then a negation guard and a high-confidence local action-intent gate. Only an
+     * open gate reaches the ordinary retrieved-tool proposal path; every closed/error result is chat.
+     */
+    RuleFirstGatedModel,
+
+    /**
      * The model is asked first on every turn and its choice, including "answer without a tool",
      * stands; the rules run only when its proposal fails (measures the model on every request).
      */

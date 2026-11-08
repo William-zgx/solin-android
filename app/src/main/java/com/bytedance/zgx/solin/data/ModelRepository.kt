@@ -443,7 +443,7 @@ class ModelRepository(
     }
 
     override fun localPlanningStrategy(): LocalPlanningStrategy =
-        if (BuildConfig.DEBUG) settingsStore.localPlanningStrategy() else LocalPlanningStrategy.RuleFirst
+        localPlanningStrategyForBuild(BuildConfig.DEBUG, settingsStore::localPlanningStrategy)
 
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
@@ -790,6 +790,12 @@ private fun verifiedRecommendedModelPath(
             model.hasVerifiedRecommendedEvidence(catalogModel) &&
             currentFileVerifier(model, catalogModel)
     }?.path
+
+internal fun localPlanningStrategyForBuild(
+    debugBuild: Boolean,
+    storedStrategy: () -> LocalPlanningStrategy,
+): LocalPlanningStrategy =
+    if (debugBuild) storedStrategy() else LocalPlanningStrategy.RuleFirst
 
 internal fun recommendedRegistrationVerificationStatus(
     file: File,

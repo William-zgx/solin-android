@@ -7,6 +7,7 @@ import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.RecommendedModel
+import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -243,6 +244,25 @@ class ModelRepositoryPathTest {
 
             assertNull(verifiedPath(models, ModelCapability.MemoryEmbedding))
         }
+    }
+
+    @Test
+    fun releaseBuildsNeverExposeAStoredLocalPlanningStrategy() {
+        LocalPlanningStrategy.entries.forEach { strategy ->
+            var reads = 0
+
+            val actual = localPlanningStrategyForBuild(debugBuild = false) {
+                reads += 1
+                strategy
+            }
+
+            assertEquals(LocalPlanningStrategy.RuleFirst, actual)
+            assertEquals("release must not even read the developer setting", 0, reads)
+        }
+        assertEquals(
+            LocalPlanningStrategy.RuleFirstGatedModel,
+            localPlanningStrategyForBuild(debugBuild = true) { LocalPlanningStrategy.RuleFirstGatedModel },
+        )
     }
 
     @Test
