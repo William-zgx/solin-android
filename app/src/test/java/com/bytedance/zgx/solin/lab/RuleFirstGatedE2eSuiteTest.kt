@@ -18,7 +18,6 @@ import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
-import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import java.io.File
@@ -70,7 +69,9 @@ class RuleFirstGatedE2eSuiteTest {
             SUITE,
             JSONObject()
                 .put("cases", cases.size)
-                .put("datasetCases", InitialPlanningCases.loadAll().size)
+                .put("datasetCases", InitialPlanningCases.loadSelected().size)
+                .put("caseSource", LabEnv.initialPlanningCaseSource)
+                .put("datasetFile", InitialPlanningCases.selectedDatasetFilename())
                 .put("mode", mode)
                 .put("planner", "production InitialToolPlanner.planLocalModelFirst")
                 .put("runtime", "production HybridActionPlanningRuntime")
@@ -215,7 +216,7 @@ class RuleFirstGatedE2eSuiteTest {
                             .put("argsExact", false)
                             .put("falsePositive", false)
                     }
-                    addFalsePositiveSplit(record)
+                    addFalsePositiveSplit(record, registry)
                     val retrieved = reasons.retrievedTools()
                     if (retrieved.isNotEmpty()) {
                         record.put("advertisedToolCount", retrieved.size + 1)
@@ -272,34 +273,6 @@ class RuleFirstGatedE2eSuiteTest {
             .put("evalTokens", 0)
             .put("error", error ?: JSONObject.NULL)
 
-    private fun addFalsePositiveSplit(record: JSONObject) {
-        if (!record.getBoolean("falsePositive")) {
-            record.put("falsePositiveClass", JSONObject.NULL)
-                .put("fpOrchestrationOnly", false)
-                .put("fpDeviceNetworkExternal", false)
-                .put("fpPrivateRead", false)
-                .put("fpNetworkEgress", false)
-                .put("privacyRelevant", false)
-            return
-        }
-        val tool = record.getJSONObject("answer").optString("tool")
-        val spec = registry.specFor(tool)
-        val orchestrationOnly = tool == LOCAL_MODEL_NO_TOOL_CHOICE ||
-            spec == null || spec.capability == ToolCapability.Orchestration
-        val privateRead = tool in PRIVATE_READ_TOOLS
-        val network = tool in NETWORK_TOOLS
-        record.put(
-            "falsePositiveClass",
-            if (orchestrationOnly) "orchestration_only" else "device_network_external",
-        )
-            .put("fpOrchestrationOnly", orchestrationOnly)
-            .put("fpDeviceNetworkExternal", !orchestrationOnly)
-            .put("fpPrivateRead", privateRead)
-            .put("fpNetworkEgress", network)
-            .put("privacyRelevant", privateRead || network)
-            .put("fpTool", tool)
-    }
-
     private fun List<String>.retrievedTools(): List<String> =
         filter { it.startsWith("retrieved=") }.map { it.removePrefix("retrieved=") }
 
@@ -335,7 +308,5 @@ class RuleFirstGatedE2eSuiteTest {
             "litert/gemma-4-e2b" to "gemma-4-E2B-it.litertlm",
             "litert/gemma-4-e4b" to "gemma-4-E4B-it.litertlm",
         )
-        val PRIVATE_READ_TOOLS = setOf("read_clipboard", "read_current_screen_text", "read_notifications")
-        val NETWORK_TOOLS = setOf("web_search", "search_maps", "open_deep_link")
     }
 }

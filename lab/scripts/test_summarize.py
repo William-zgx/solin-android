@@ -205,6 +205,82 @@ def build_fence_fixture(folder):
     }), encoding="utf-8")
 
 
+def build_heldout_fixture(folder):
+    """Four records that pin held-out-only populations, categories and within-set deltas."""
+    definitions = [
+        ("tool_case", "tool", "settings", ["open_system_settings"], {"target": "wifi"}),
+        ("domain_question", "no_tool", "tool_domain_question", [], {}),
+        ("adversarial_negation", "adversarial", "negation", [], {}),
+        ("polite_tool", "adversarial", "polite_indirect", ["create_calendar_event"], {"title": "return"}),
+    ]
+
+    def record(definition, model, mode, answer, correct, tool_correct, args_exact, fp_class=None):
+        case_id, group, category, tools, args = definition
+        expects_tool = bool(tools)
+        false_positive = fp_class is not None
+        gated = mode == "R-gated-e2e"
+        gate_open = gated and case_id != "tool_case"
+        return {
+            "suite": "initial-planning", "model": model, "mode": mode, "caseId": case_id,
+            "source": "heldout_evaluation_only", "group": group, "category": category,
+            "input": case_id, "gold": {"tools": tools, "args": args},
+            "rawKind": "use_tool" if answer.get("tool") else "no_tool",
+            "rawPreview": "", "answer": answer, "schemaValid": True,
+            "expectsTool": expects_tool, "correct": correct, "toolCorrect": tool_correct,
+            "argsExact": args_exact, "falsePositive": false_positive,
+            "callAttempted": bool(answer.get("tool")), "missedTool": expects_tool and not answer.get("tool"),
+            "argKeys": {}, "planSource": "model" if gate_open else "rules",
+            "decisionStage": "gate open → accepted" if gate_open else "rule",
+            "gateOpen": gate_open, "gateRawJsonValid": True if gate_open else None,
+            "modelCalls": 2 if gate_open else 0, "wallMs": 10,
+            "metrics": {"wallMs": 10, "totalMs": 10, "promptTokens": 20,
+                        "promptCachedTokens": 0, "evalTokens": 5, "error": None},
+            "falsePositiveClass": fp_class,
+            "fpOrchestrationOnly": fp_class == "orchestration_only",
+            "fpDeviceNetworkExternal": fp_class == "device_network_external",
+            "fpPrivateRead": False, "fpNetworkEgress": false_positive and group == "no_tool",
+            "privacyRelevant": false_positive and group == "no_tool",
+        }
+
+    rules = [
+        record(definitions[0], "rules", "R",
+               {"kind": "tool", "tool": "open_system_settings", "args": {"target": "wifi"}},
+               True, True, True),
+        record(definitions[1], "rules", "R", {"kind": "stop", "tool": None, "args": {}},
+               True, True, False),
+        record(definitions[2], "rules", "R", {"kind": "stop", "tool": None, "args": {}},
+               True, True, False),
+        record(definitions[3], "rules", "R", {"kind": "stop", "tool": None, "args": {}},
+               False, False, False),
+    ]
+    gated = [
+        record(definitions[0], "litert/gemma-4-e2b", "R-gated-e2e",
+               {"kind": "tool", "tool": "open_system_settings", "args": {"target": "wifi"}},
+               True, True, True),
+        record(definitions[1], "litert/gemma-4-e2b", "R-gated-e2e",
+               {"kind": "tool", "tool": "web_search", "args": {"query": "unwanted"}},
+               False, False, False, "device_network_external"),
+        record(definitions[2], "litert/gemma-4-e2b", "R-gated-e2e",
+               {"kind": "tool", "tool": "note", "args": {"text": "unwanted"}},
+               False, False, False, "orchestration_only"),
+        record(definitions[3], "litert/gemma-4-e2b", "R-gated-e2e",
+               {"kind": "tool", "tool": "create_calendar_event", "args": {"title": "return"}},
+               True, True, True),
+    ]
+    for name, records in (("initial-planning__rules__R.jsonl", rules),
+                          ("initial-planning__litert-gemma-4-e2b__R-gated-e2e.jsonl", gated)):
+        with (folder / name).open("w", encoding="utf-8") as handle:
+            for item in records:
+                handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+    (folder / "manifest.json").write_text(json.dumps({
+        "runDate": folder.name,
+        "models": {"litert/gemma-4-e2b": {
+            "host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"}},
+        "suites": {"initial-planning": {
+            "caseSource": "heldout", "datasetFile": "initial_planning_heldout.jsonl", "cases": 4}},
+    }), encoding="utf-8")
+
+
 class DecisionL1Test(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="l1-fixture-"))
@@ -410,6 +486,52 @@ class DecisionL1Test(unittest.TestCase):
         result = run("--check", copy)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("without its own error count", result.stdout)
+
+
+class HeldOutSummaryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="heldout-summary-"))
+        self.folder = self.tmp / "20261109-heldout"
+        self.folder.mkdir()
+        build_heldout_fixture(self.folder)
+        result = run(self.folder)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.target = self.folder / "SUMMARY.md"
+        self.summary = self.target.read_text(encoding="utf-8")
+        self.lines = self.summary.splitlines()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_populations_fp_split_gate_and_within_set_delta(self):
+        row = next(line for line in self.lines
+                   if line.startswith("| litert/gemma-4-e2b | R-gated-e2e |"))
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+        self.assertEqual(["2/4 (50%)", "2/2 (100%)", "2/2 (100%)", "1/1 (100%)"], cells[2:6])
+        self.assertEqual(["0", "1", "1", "0", "1", "1/1 (100%)", "3", "0", "-1", "1", "2"],
+                         cells[6:17])
+        self.assertIn("do not compare its absolute numbers with the tuned 151-case campaign", self.summary)
+        self.assertIn("Devbox CPU measurements are not device evidence", self.summary)
+        result = run("--check", self.folder)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_category_rows_keep_domain_questions_and_negations_separate(self):
+        expected = {
+            ("no_tool", "tool_domain_question"): "0/1 (0%)",
+            ("adversarial", "negation"): "0/1 (0%)",
+            ("adversarial", "polite_indirect"): "1/1 (100%)",
+        }
+        for (group, category), score in expected.items():
+            row = next(line for line in self.lines
+                       if line.startswith("| litert/gemma-4-e2b | R-gated-e2e |")
+                       and f"| {group} | {category} |" in line)
+            self.assertTrue(row.endswith(f"| {score} |"), row)
+
+    def test_heldout_generated_cell_drift_is_rejected(self):
+        self.target.write_text(self.summary.replace("2/4 (50%)", "3/4 (75%)", 1), encoding="utf-8")
+        result = run("--check", self.folder)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("drifted", result.stdout)
 
 
 class FenceSummaryTest(unittest.TestCase):

@@ -113,6 +113,29 @@ class HeldOutInitialPlanningDatasetTest {
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
     }
 
+    @Test
+    fun heldOutRecordsRetainTheirGroupAndClassifyFalsePositives() {
+        val case = HeldOutInitialPlanningCases.loadAll().single { it.id == "heldout_no_tool_014" }
+        val record = InitialPlanningCases.record(
+            suite = "initial-planning",
+            model = "rules",
+            mode = "R",
+            case = case,
+            answer = LabAnswer("web_search", mapOf("query" to "unwanted")),
+            rawKind = "use_tool",
+            rawPreview = "",
+            registry = registry,
+        )
+
+        assertEquals("no_tool", record.getString("group"))
+        assertEquals("tool_domain_question", record.getString("category"))
+        assertTrue(record.getBoolean("falsePositive"))
+        assertEquals("device_network_external", record.getString("falsePositiveClass"))
+        assertTrue(record.getBoolean("fpDeviceNetworkExternal"))
+        assertTrue(record.getBoolean("fpNetworkEgress"))
+        assertTrue(record.getBoolean("privacyRelevant"))
+    }
+
     private fun JSONObject.intMap(): Map<String, Int> =
         keys().asSequence().associateWith { getInt(it) }
 }

@@ -38,7 +38,9 @@ class InitialPlanningSuiteTest {
             SUITE,
             JSONObject()
                 .put("cases", cases.size)
-                .put("datasetCases", InitialPlanningCases.loadAll().size)
+                .put("datasetCases", InitialPlanningCases.loadSelected().size)
+                .put("caseSource", LabEnv.initialPlanningCaseSource)
+                .put("datasetFile", InitialPlanningCases.selectedDatasetFilename())
                 .put("registryTools", registry.specs().size)
                 .put("topK", TOP_K)
                 .put("fixedClock", FIXED_NOW.toString())

@@ -1,0 +1,3 @@
+2026-11-09T14:11:49.081796695Z suite B mode=R cases=60 correct=37
+2026-11-09T14:16:04.174322407Z suite B model=litert/gemma-4-e2b mode=R-gated-e2e cases=60 correct=47
+2026-11-09T14:23:22.904293718Z suite B model=litert/gemma-4-e4b mode=R-gated-e2e cases=60 correct=47
