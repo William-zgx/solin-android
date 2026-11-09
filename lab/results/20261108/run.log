@@ -50,3 +50,6 @@
 2026-11-08T11:24:20.236303712Z suite B model=litert/gemma-4-e2b mode=R-gated-e2e cases=151 correct=129
 2026-11-08T11:31:26Z suite B model=litert/gemma-4-e4b mode=R-gated-e2e cases=151 correct=133 (parallel detached lane, shim 11438; merged into main lab-e2e worktree)
 2026-11-08T11:37:23.982807377Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-09T12:12:51.574948590Z suite B model=litert/gemma-4-e2b mode=R-gated-e2e-fence cases=2 correct=1
+2026-11-09T12:19:48.509225840Z suite B model=litert/gemma-4-e2b mode=R-gated-e2e-fence cases=151 correct=133
+2026-11-09T12:24:47.356758018Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100

@@ -29,7 +29,7 @@ MODE_ORDER = {
     # `*-lmf` modes mirror production LocalModelFirst: the retrieved top-k plus the `answer`
     # no-tool choice spec (orchestration/InitialToolPlanner.kt:43,52-60).
     SUITE_B: ["R", "M-full", "M-full-fix", "M-topk", "M-topk-fix", "M-topk-fix-lmf", "R+M",
-              "R-gated-e2e"],
+              "R-gated-e2e", "R-gated-e2e-fence"],
     SUITE_C: ["N-full", "N-topk", "N-topk-free", "N-topk-lmf"],
     SUITE_D: ["complexity", "json-prompt", "json-schema"],
     SUITE_E: ["json-prompt"],
@@ -1193,7 +1193,7 @@ def composite_r_then_model(records, models, out):
             for mode in MODE_ORDER[suite]:
                 # The end-to-end mode already includes rules, guard, gate and proposal; composing it
                 # with R a second time would not describe any production path.
-                if mode == "R-gated-e2e":
+                if mode in ("R-gated-e2e", "R-gated-e2e-fence"):
                     continue
                 rs = records.get((suite, model, mode))
                 if not rs:
@@ -1426,6 +1426,101 @@ def gated_e2e(records, models, out):
     gated_e2e_comparison(records, keys, out)
 
 
+def e2e_proposed_tool(record):
+    """The proposed call even when registry/argument validation rejected its final plan."""
+    tool = (record.get("answer") or {}).get("tool")
+    if tool:
+        return tool
+    for output in record.get("modelOutputs") or []:
+        if output.get("phase") != "proposal":
+            continue
+        match = re.match(r"call:([^\s]+)", output.get("rawPreview") or "")
+        if match:
+            return match.group(1)
+    return "no tool"
+
+
+def gated_e2e_fence(records, models, out):
+    """The lab-only whole-fence gate transform, with a final-outcome delta against strict production."""
+    mode = "R-gated-e2e-fence"
+    baseline_mode = "R-gated-e2e"
+    keys = [key for key in keys_for(SUITE_B, records, models) if key[2] == mode]
+    if not keys:
+        out.append(f"Not run: `{mode}` has no saved per-case records on this host.\n")
+        return
+    out.append(f"`{mode}` changes only the test adapter's gate reply: exactly one whole-reply Markdown "
+               "fence is removed before the unchanged production parser and planner run. The original "
+               "reply stays in `gateRawPreview`; proposal calls are never transformed. This is not a "
+               "production parser change. The delta table includes every case whose final decision "
+               "stage, correctness or proposed tool differs from `R-gated-e2e`, and no other case.\n")
+    stages = ["rule", "negation guard", "gate closed", "gate open → accepted", "gate open → answer",
+              "gate open → failed"]
+    score_rows = []
+    stage_rows = []
+    delta_rows = []
+    for key in keys:
+        rs = records[key]
+        baseline_key = (SUITE_B, key[1], baseline_mode)
+        tool_rs = [r for r in rs if r.get("expectsTool")]
+        no_tool_rs = [r for r in rs if not r.get("expectsTool")]
+        score_rows.append([
+            key[1],
+            run_cell(key, f"{sum(bool(r['correct']) for r in rs)}/{len(rs)}"),
+            run_cell(key, f"{sum(bool(r['toolCorrect']) for r in tool_rs)}/{len(tool_rs)}"),
+            run_cell(key, f"{sum(bool(r['argsExact']) for r in tool_rs)}/{len(tool_rs)}"),
+            run_cell(key, f"{sum(bool(r.get('falsePositive')) for r in no_tool_rs)}/{len(no_tool_rs)}"),
+            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("privacyRelevant")) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("fpPrivateRead")) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("fpNetworkEgress")) for r in no_tool_rs)),
+        ])
+        counter = Counter(r.get("decisionStage") for r in rs)
+        stage_rows.append(
+            [key[1]]
+            + [run_cell(key, counter.get(stage, 0)) for stage in stages]
+            + [run_cell(key, sum(bool(r.get("gateOpen")) for r in rs)),
+               run_cell(key, sum(bool(r.get("gateFenceUnwrapped")) for r in rs))],
+        )
+        before = {r["caseId"]: r for r in records.get(baseline_key, [])}
+        for after in rs:
+            prior = before.get(after["caseId"])
+            if prior is None:
+                continue
+            prior_tool = e2e_proposed_tool(prior)
+            after_tool = e2e_proposed_tool(after)
+            if (prior.get("decisionStage") == after.get("decisionStage")
+                    and bool(prior.get("correct")) == bool(after.get("correct"))
+                    and prior_tool == after_tool):
+                continue
+            delta_rows.append([
+                key[1], after["caseId"], preview(after.get("input"), 160),
+                f"{prior.get('decisionStage') or '?'} → {after.get('decisionStage') or '?'}",
+                f"{'✓' if prior.get('correct') else '✗'} → "
+                f"{'✓' if after.get('correct') else '✗'}",
+                after_tool,
+            ])
+    out.append(table(
+        ["model", "correct", "tool correct", "args exact", "no-tool FP", "FP orchestration only",
+         "FP device/network/external", "FP privacy flagged", "of which private reads",
+         "of which network egress"],
+        score_rows,
+    ))
+    out.append("")
+    out.append(table(
+        ["model"] + stages + ["gate open (total)", "gate fence unwrapped"], stage_rows,
+    ))
+    out.append("")
+    if delta_rows:
+        out.append(table(
+            ["model", "case", "input", "stage before → after", "correct before → after", "tool proposed"],
+            delta_rows,
+        ))
+    else:
+        out.append("No case changed its final decision stage, correctness or proposed tool.")
+    out.append("")
+
+
 def closed_answer(rule):
     return {"correct": not rule["expectsTool"], "falsePositive": False,
             "answer": {"kind": "stop", "tool": None, "args": {}}}
@@ -1643,6 +1738,8 @@ def generated(folder, manifest, records, models):
         production_faithful(fidelity, host_models, out)
         out.append("### Production RuleFirstGatedModel end-to-end\n")
         gated_e2e(records, host_models, out)
+        out.append("### R-gated-e2e-fence: lab-only single-fence gate\n")
+        gated_e2e_fence(records, host_models, out)
         out.append("### Offline composites\n")
         composite_r_then_model(records, host_models, out)
         composite_gate(records, host_models, out)

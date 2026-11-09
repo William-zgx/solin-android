@@ -11,6 +11,7 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -127,6 +128,59 @@ class LiteRtShimLocalEngineTest {
                 (result.get() as LocalOneShotResult.Unavailable).reason,
             )
             assertTrue(engine.calls.single().metrics.getString("error").isNotBlank())
+        }
+    }
+
+    @Test
+    fun singleFenceTransformAcceptsOnlyOneWholeReplyFence() {
+        // Bodies copied from the golden_014 / golden_023 fenced gate previews.
+        val body = "{ \"action\": false, \"confidence\": 0.95 }"
+        val fenced = "```json\n$body\n```"
+        assertEquals(body, unwrapSingleJsonFence(fenced))
+        assertEquals(
+            body,
+            unwrapSingleJsonFence(" \t\n```\n$body\n```\n\t"),
+        )
+
+        val twoFences = "$fenced\n$fenced"
+        assertEquals(twoFences, unwrapSingleJsonFence(twoFences))
+        val proseBefore = "Here is the gate result:\n$fenced"
+        assertEquals(proseBefore, unwrapSingleJsonFence(proseBefore))
+        val proseAfter = "$fenced\nDone."
+        assertEquals(proseAfter, unwrapSingleJsonFence(proseAfter))
+        assertEquals(body, unwrapSingleJsonFence(body))
+        val fenceInsideBody = "```json\n{ \"action\": false, \"note\": \"```\" }\n```"
+        assertEquals(fenceInsideBody, unwrapSingleJsonFence(fenceInsideBody))
+    }
+
+    @Test
+    fun replyTransformSkipsProposalAndResetsWithCallObservations() {
+        MockWebServer().use { server ->
+            val body = "{ \"action\": true, \"confidence\": 0.95 }"
+            val fenced = "```json\n$body\n```"
+            repeat(3) {
+                server.enqueue(MockResponse.Builder().code(200).body(chatResponse(fenced)).build())
+            }
+            server.start()
+            val engine = LiteRtShimLocalEngine(
+                loadedModelPath = MODEL_PATH,
+                baseUrl = server.url("/").toString(),
+                gateReplyTransform = ::unwrapSingleJsonFence,
+            )
+
+            val gate = engine.generateOneShot(request()) as LocalOneShotResult.Generated
+            val proposal = engine.generateOneShot(request()) as LocalOneShotResult.Generated
+
+            assertEquals(body, gate.text)
+            assertEquals(fenced, proposal.text)
+            assertEquals(fenced, engine.calls[0].rawText)
+            assertEquals(body, engine.calls[0].transformedText)
+            assertNull(engine.calls[1].transformedText)
+
+            engine.clearCalls()
+            val nextGate = engine.generateOneShot(request()) as LocalOneShotResult.Generated
+            assertEquals(body, nextGate.text)
+            assertEquals(body, engine.calls.single().transformedText)
         }
     }
 

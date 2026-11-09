@@ -130,6 +130,81 @@ def build_real_fixture(folder):
         shutil.copyfile(RESULTS / name, folder / name)
 
 
+def build_fence_fixture(folder):
+    """Three real strict-gate records plus their lab-only fence outcomes.
+
+    golden_014 unwraps to the same closed/no-tool outcome and must not appear in the delta.
+    golden_023 opens into a web_search false positive; golden_035 has a rejected schedule_reminder
+    proposal; bench_search_xhs_coffee opens into a wrong tool while remaining incorrect, proving the
+    delta is not limited to correctness flips.
+    """
+    source = read_jsonl(RESULTS / "initial-planning__litert-gemma-4-e2b__R-gated-e2e.jsonl")
+    case_ids = {"golden_014", "golden_023", "golden_035", "bench_search_xhs_coffee"}
+    baseline = [r for r in source if r["caseId"] in case_ids]
+    assert len(baseline) == len(case_ids)
+    rules = [r for r in read_jsonl(RESULTS / "initial-planning__rules__R.jsonl")
+             if r["caseId"] in case_ids]
+    fence = []
+    for prior in baseline:
+        record = json.loads(json.dumps(prior))
+        record["mode"] = "R-gated-e2e-fence"
+        record["gateFenceUnwrapped"] = True
+        record["gateRawJsonValid"] = True
+        record["gateUnwrappedPreview"] = (record["gateRawPreview"]
+                                                   .removeprefix("```json").removesuffix("```").strip())
+        if record["caseId"] == "golden_035":
+            record.update(
+                decisionStage="gate open → failed",
+                gateReason="local_model_action_gate_open",
+                gateOpen=True,
+                proposalOutcome="local_model_tool_rejected",
+                modelCalls=2,
+            )
+            record["modelOutputs"].append({
+                "phase": "proposal",
+                "rawPreview": 'call:schedule_reminder {"title":"15分钟英文怎么说"}',
+                "metrics": {},
+            })
+        elif record["caseId"] != "golden_014":
+            record.update(
+                decisionStage="gate open → accepted",
+                planSource="model",
+                gateReason="local_model_action_gate_open",
+                gateOpen=True,
+                rawKind="use_tool",
+                correct=False,
+                toolCorrect=False,
+                argsExact=False,
+                answer={"kind": "use_tool", "tool": "web_search", "args": {"query": "coffee"}},
+                modelCalls=2,
+            )
+        if record["caseId"] == "golden_023":
+            record.update(
+                falsePositive=True,
+                falsePositiveClass="device_network_external",
+                fpOrchestrationOnly=False,
+                fpDeviceNetworkExternal=True,
+                fpPrivateRead=False,
+                fpNetworkEgress=True,
+                privacyRelevant=True,
+                fpTool="web_search",
+            )
+        fence.append(record)
+    for name, records in (
+        ("initial-planning__litert-gemma-4-e2b__R-gated-e2e.jsonl", baseline),
+        ("initial-planning__litert-gemma-4-e2b__R-gated-e2e-fence.jsonl", fence),
+        ("initial-planning__rules__R.jsonl", rules),
+    ):
+        with (folder / name).open("w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    (folder / "manifest.json").write_text(json.dumps({
+        "runDate": folder.name,
+        "models": {"litert/gemma-4-e2b": {"host": "devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"}},
+        "suites": {},
+    }), encoding="utf-8")
+
+
 class DecisionL1Test(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="l1-fixture-"))
@@ -335,6 +410,47 @@ class DecisionL1Test(unittest.TestCase):
         result = run("--check", copy)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("without its own error count", result.stdout)
+
+
+class FenceSummaryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="fence-summary-"))
+        self.folder = self.tmp / "20260101"
+        self.folder.mkdir()
+        build_fence_fixture(self.folder)
+        result = run(self.folder)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.target = self.folder / "SUMMARY.md"
+        self.summary = self.target.read_text(encoding="utf-8")
+        self.section = self.summary.split("### R-gated-e2e-fence: lab-only single-fence gate", 1)[1]
+        self.section = self.section.split("### Offline composites", 1)[0]
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_fence_section_counts_and_exact_final_outcome_delta(self):
+        self.assertIn("| litert/gemma-4-e2b | 2/4 | 0/1 | 0/1 | 1/3 | 0 | 1 | 1 | 0 | 1 |",
+                      self.section)
+        self.assertIn("| litert/gemma-4-e2b | 0 | 0 | 1 | 2 | 0 | 1 | 3 | 4 |", self.section)
+        delta = self.section.split("| model | case | input | stage before → after |", 1)[1]
+        self.assertIn("golden_023", delta)
+        self.assertIn("golden_035", delta)
+        self.assertIn("bench_search_xhs_coffee", delta)
+        self.assertNotIn("golden_014", delta)
+        self.assertEqual(2, delta.count("gate closed → gate open → accepted"))
+        self.assertEqual(1, delta.count("gate closed → gate open → failed"))
+        self.assertIn("schedule_reminder", delta)
+        self.assertIn("✓ → ✗", delta)
+        self.assertIn("✓ → ✓", delta)
+        self.assertIn("✗ → ✗", delta)
+        result = run("--check", self.folder)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_check_detects_fence_delta_drift(self):
+        self.target.write_text(self.summary.replace("✓ → ✗", "✓ → ✓", 1), encoding="utf-8")
+        result = run("--check", self.folder)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("drifted", result.stdout)
 
 
 if __name__ == "__main__":
