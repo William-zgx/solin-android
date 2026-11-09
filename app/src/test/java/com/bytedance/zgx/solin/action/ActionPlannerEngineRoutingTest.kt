@@ -161,7 +161,7 @@ class ActionPlannerEngineRoutingTest {
             """{"action":"true","confidence":1.0}""" to "local_model_action_gate_invalid_output",
             """{"action":true,"confidence":1.0,"extra":0}""" to "local_model_action_gate_invalid_output",
             """{"action":true,"confidence":1.1}""" to "local_model_action_gate_invalid_output",
-            "```json\n{\"action\":true,\"confidence\":1.0}\n```" to "local_model_action_gate_invalid_output",
+            "```JSON\n{\"action\":true,\"confidence\":1.0}\n```" to "local_model_action_gate_invalid_output",
             """{"action":true,"confidence":1.0} trailing""" to "local_model_action_gate_invalid_output",
             "not json" to "local_model_action_gate_invalid_output",
         )

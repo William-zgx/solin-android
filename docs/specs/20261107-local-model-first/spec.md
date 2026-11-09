@@ -76,11 +76,16 @@ the only release strategy. After the rules return no plan and the negation guard
    unavailable results do not load a second copy of a model the shared engine already holds.
 2. The system prompt is the lab suite E `json-prompt` verbatim. The user message is a JSON object with one
    `request` field. The parser accepts exactly one JSON object with exactly `action` (Boolean) and
-   `confidence` (number in 0..1); trailing prose, Markdown, missing or extra fields, and wrong types fail.
-3. The gate opens only for `action == true && confidence >= 0.9`. Invalid output, low confidence,
-   `action=false`, an unavailable engine, Busy, an error, cancellation, or a timeout closes it and returns
-   no tool. Failures and timeouts continue as an ordinary chat answer; a user-Stop cancellation instead
-   terminalizes the run through C2 and never falls through to an answer.
+   `confidence` (number in 0..1). The whole reply may instead be one Markdown fence: optional surrounding
+   whitespace, an opening ```` ``` ```` or lowercase ```` ```json ````, one LF or CRLF, the body, one LF or
+   CRLF, and the closing fence at absolute end. The body is unwrapped unchanged and must contain no further
+   fence. Uppercase ```` ```JSON ````, a missing newline before the closing fence, prose after it, two fences,
+   a fence inside the body, an empty body, unquoted keys, extra fields, and all other Markdown or trailing
+   prose stay closed by design; unfenced valid JSON is unchanged.
+3. The gate opens only for `action == true && confidence >= 0.9`, including inside an accepted fence. Invalid
+   output, low confidence, `action=false`, an unavailable engine, Busy, an error, cancellation, or a timeout
+   closes it and returns no tool. Failures and timeouts continue as an ordinary chat answer; a user-Stop
+   cancellation instead terminalizes the run through C2 and never falls through to an answer.
 4. Only an open gate runs `proposeLocalModelTool`: retrieved top-k candidates plus `answer`, the corrected
    `call:` prompt, and the existing strict parser. Accepted proposals take the normal plan path; NoTool and
    Failed both mean no tool. This is a planner candidate gate, never an execution authorization.
@@ -90,7 +95,9 @@ segment contains an explicit search verb: 搜索, 搜一下, 搜搜, 查一下, 
 The filter can only reduce model-proposed actions; it is not a safety rule. The trace adds a stable gate
 reason such as `local_model_action_gate_open` or `local_model_action_gate_busy`. It never records the gate
 prompt, raw model output, confidence text, request arguments, or engine error detail. Accepted proposals
-keep the same `proposed_request=` provenance and always ask through `LocalModelProposedStep`.
+keep the same `proposed_request=` provenance and always ask through `LocalModelProposedStep`. Single-fence
+handling changes only gate decoding: the rules-first order, negation guard, 0.9 threshold and confirmation
+contract are unchanged.
 
 ### C2 Stop cancellation design
 
@@ -247,8 +254,14 @@ and ablation evidence, still not phone evidence:
   observation action-model resolution rather than kept as a fallback.
 - A coordinator offline composite measured rules → negation guard → action-intent gate → model at
   **131–133/151**, with **2/51** no-tool false positives, versus rules at **127/151** with **0** false
-  positives. Without the gate it scored **120–125/151**. These are pre-implementation composite numbers;
-  end-to-end lab evidence on the final production files is pending (D-lab2).
+  positives. Without the gate it scored **120–125/151**. These are pre-implementation composite numbers.
+- The end-to-end production-file runs in `lab/results/20261108/` (fence run executed 2026-11-09) measured E2B
+  strict `R-gated-e2e` at **129/151**, tool **79/100**, exact args **78/100**, no-tool FP **0/51**, with 11
+  open gates. The lab single-fence adapter measured **133/151**, tool **84/100**, exact args **83/100**, FP
+  **1/51**, with 24 open gates: 37 of 56 gate replies were fenced and unwrapping opened 13 more gates. The
+  only new FP was `golden_023` → `web_search`, still user-confirmed through `LocalModelProposedStep`.
+  Production now applies that same whole-reply transform only to this debug gate. These are devbox-CPU
+  LiteRT-LM 0.12.0 results on production `.litertlm` files, **not device evidence**.
 
 Reading:
 
@@ -257,12 +270,12 @@ Reading:
 - Native tool calling is much stronger but still below the rules.
 
 That is why the model strategies remain non-default and ModelFirst is an ablation. The newer gated strategy
-also stays debug-only until its final production-file composite, latency, and device evidence exist.
+also stays debug-only: the production-file devbox composite above supplies no latency or device evidence.
 
 ## 7. Pending device evidence and follow-ups
 
-- Final production-file Suite A observation evidence and the end-to-end gated composite (D-lab2); the
-  desktop ablations above do not establish on-device accuracy.
+- Final production-file Suite A observation evidence (D-lab2) remains pending. The end-to-end gated composite
+  above is devbox-CPU evidence only and does not establish on-device accuracy.
 - Per-turn latency. The fast path adds a model call only on rule misses; the gated strategy adds the gate
   and, only when it opens, the tool-proposal call; ModelFirst adds one call every turn.
 - Memory and engine swaps. Chat and both planners now try the one loaded `LocalEngine` first. A
@@ -280,7 +293,7 @@ also stays debug-only until its final production-file composite, latency, and de
 | --- | --- |
 | Modes, strategies, options | `orchestration/AgentRunOptions.kt` |
 | LocalModelFirst planning and gate flow | `orchestration/InitialToolPlanner.kt` |
-| Corrected `call:` prompt and local gate one-shot / strict JSON parser | `action/ActionPlanningRuntime.kt` |
+| Corrected `call:` prompt and local gate one-shot / single-fence strict JSON parser | `action/ActionPlanningRuntime.kt` |
 | Planning switch (one branch) | `orchestration/AgentLoopRuntime.kt` |
 | Shortlist and first-step scope | `tool/ToolRetriever.kt` |
 | Setting | `data/Stores.kt`, `data/PreferenceSettingsStore.kt`, `data/ModelRepository.kt` |
