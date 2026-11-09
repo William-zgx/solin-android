@@ -30,6 +30,18 @@ object LabEnv {
             ?.takeIf { it.isNotBlank() }
             ?.let(::File)
 
+    /** Initial-planning cases default to the tuned 151; held-out evaluation must be explicit. */
+    val initialPlanningCaseSource: String
+        get() {
+            val source = System.getenv("SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE")
+                ?.takeIf { it.isNotBlank() }
+                ?: "tuning"
+            require(source in setOf("tuning", "heldout")) {
+                "SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE must be tuning or heldout, not $source"
+            }
+            return source
+        }
+
     /** Optional per-suite case cap for smoke runs; null means the full dataset. */
     val caseLimit: Int?
         get() = System.getenv("SOLIN_LAB_LIMIT")?.toIntOrNull()?.takeIf { it > 0 }
@@ -70,7 +82,8 @@ object LabEnv {
     fun modeSelected(mode: String): Boolean = requestedModes?.contains(mode) ?: true
 
     val runDate: String
-        get() = System.getenv("SOLIN_LAB_DATE")?.takeIf { it.matches(Regex("\\d{8}")) }
+        get() = System.getenv("SOLIN_LAB_DATE")
+            ?.takeIf { it.matches(Regex("\\d{8}(?:-heldout)?")) }
             ?: LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
 
     /**

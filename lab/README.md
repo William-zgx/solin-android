@@ -38,11 +38,12 @@ python3 -I lab/scripts/summarize.py lab/results/$(date +%Y%m%d)
 
 `--rerun` matters. The opt-in variable is not a Gradle task input, so without it Gradle can report
 the task up to date or serve a previous (skipped) result from the build cache. Other knobs:
-`SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name, 8 digits),
-`SOLIN_LAB_HOST_NOTE` (names the machine that produced the numbers; the default is the Mac bench
+`SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name, 8 digits plus the optional
+`-heldout` suffix), `SOLIN_LAB_HOST_NOTE` (names the machine that produced the numbers; the default is the Mac bench
 host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-topk,json-schema`;
 rule baselines always run). `SOLIN_LAB_CASE_IDS` optionally selects explicit dataset ids for a small
-smoke run; leave it unset for every scored run.
+smoke run; leave it unset for every scored run. `SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE=heldout` selects
+the independent 60-case source for Suite B/C; its default `tuning` preserves the historical 151-case campaign.
 
 For `R-gated-e2e` on the production `.litertlm` files, provide their directory explicitly and start the
 local LiteRT shim. The suite and shim both read `SOLIN_LAB_LITERT_MODEL_ROOT`; neither has a host-specific
@@ -58,8 +59,8 @@ export SOLIN_LAB_OLLAMA_URL=http://127.0.0.1:11437
 ```
 
 `--model-root` can override the environment variable for the shim. An unset root or a missing model file
-skips the suite with an assumption failure rather than selecting another path. Set
-`SOLIN_LAB_MODES=R-gated-e2e-fence` to run the lab-only single-fence variant instead.
+skips the suite with an assumption failure rather than selecting another path. The historical
+`SOLIN_LAB_MODES=R-gated-e2e-fence` mode remains available to reproduce the pre-production-fence comparison.
 
 ## Errored runs never look like scores (Decision L1)
 
@@ -137,6 +138,33 @@ The test checks unique ids, normalized-input disjointness against every record r
 `InitialPlanningCases.loadAll()`, built-in tool and argument names, held-out metadata, and the declared
 group/category distribution.
 
+For the production gated evaluation, set the case source and a separate results folder explicitly, then run
+rules and each production model through the same Suite B harness (start the corresponding LiteRT shim first):
+
+```bash
+export SOLIN_LAB=1
+export SOLIN_LAB_SUITES=B
+export SOLIN_LAB_MODES=R-gated-e2e
+export SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE=heldout
+export SOLIN_LAB_DATE=20261109-heldout
+export SOLIN_LAB_HOST_NOTE="devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)"
+export SOLIN_LAB_LITERT_MODEL_ROOT=/path/to/models
+
+# Rules only; the empty model list prevents a model call.
+SOLIN_LAB_MODELS= ./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.lab.InitialPlanningSuiteTest" --rerun --console=plain
+
+# Then E2B and E4B in separate invocations, with SOLIN_LAB_OLLAMA_URL pointing at each shim.
+SOLIN_LAB_MODELS=litert/gemma-4-e2b ./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.lab.RuleFirstGatedE2eSuiteTest.ruleFirstGatedModelEndToEnd" \
+  --rerun --console=plain
+```
+
+The held-out summary reports overall correct `/60`, tool and exact-argument accuracy over all 29 tool-gold
+cases (24 ordinary + 5 adversarial), ordinary no-tool FP `/24` with the production class split, adversarial
+no-tool FP `/7`, gate-open and Decision-L1 error counts, a within-set gated-vs-rules delta, and every
+group/category. Do not compare its absolute numbers with the 151-case campaign.
+
 ## What each suite measures
 
 Except for `R-gated-e2e` and `R-gated-e2e-fence`, model calls use `/api/chat` with `"think": false` (the app runs non-thinking)
@@ -199,13 +227,13 @@ and `actionModelPath = null` with the selected Chat file in `localPlanningModelP
 post-PF1 composition. The adapter sends production one-shot sampling and the real per-request output cap
 (64 gate, 512 proposal); there is no lab reimplementation of the gate, prompts, retrieval or parsing.
 
-`R-gated-e2e-fence` differs only in the adapter's first reply after `clearCalls()` (the gate). The
-transform accepts optional surrounding whitespace, one ```` ``` ```` fence with an optional `json` tag,
-and a body containing no further fence; it returns that body unchanged. Two fences, surrounding prose,
-and unfenced JSON stay untouched, as does every proposal reply. Records retain the original
-`gateRawPreview`, add `gateFenceUnwrapped`, and include `gateUnwrappedPreview` only when unwrapping
-occurred. Production still rejects fenced gate output; this mode only measures what accepting exactly
-one fence would change.
+`R-gated-e2e-fence` was the pre-fence-merge lab variant: it differed only in the adapter's first reply after
+`clearCalls()` (the gate), unwrapping one whole-reply fence before the production parser. Production now accepts
+that same single fence at the debug-only gate parse point, so new `R-gated-e2e` runs need no adapter transform.
+The separate mode remains only to reproduce the 20261108 comparison; its records retain the original
+`gateRawPreview`, add `gateFenceUnwrapped`, and include `gateUnwrappedPreview` only when unwrapping occurred.
+Two fences, surrounding prose, uppercase tags and malformed bodies stay closed. Proposal replies are never
+transformed in either mode.
 
 ### Suite C: native tools (`native-tools`)
 

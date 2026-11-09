@@ -1670,6 +1670,10 @@ def run_facts(folder, manifest, out):
         ["sampling (older lab modes)", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
     ]
     initial_info = (manifest.get("suites") or {}).get(SUITE_B) or {}
+    if initial_info.get("caseSource"):
+        rows.append(["initial-planning case source", initial_info["caseSource"]])
+        rows.append(["initial-planning dataset", initial_info.get("datasetFile", "?")])
+        rows.append(["initial-planning scored cases", initial_info.get("cases", "?")])
     one_shot = initial_info.get("oneShotSampling")
     if one_shot:
         rows.append(["R-gated-e2e production one-shot sampling", json.dumps(one_shot, ensure_ascii=False)])
@@ -1700,6 +1704,113 @@ def run_facts(folder, manifest, out):
             out.append("")
 
 
+def is_heldout_initial_planning(manifest, records):
+    """This folder is the independent 60-case evaluation, not the tuned 151-case campaign."""
+    initial_info = (manifest.get("suites") or {}).get(SUITE_B) or {}
+    return (initial_info.get("caseSource") == "heldout"
+            or any(r.get("source") == "heldout_evaluation_only" for rs in records.values() for r in rs))
+
+
+def heldout_initial_planning(records, models, out):
+    """Held-out overall, gated-vs-rules, FP-class and fine-grained category results.
+
+    The ordinary no_tool group alone is the requested FP denominator. Adversarial no-tool cases stay
+    visible as their own column and category rows instead of being silently folded into that rate.
+    """
+    keys = [key for key in keys_for(SUITE_B, records, models)
+            if key[2] in ("R", "R-gated-e2e")]
+    if not keys:
+        out.append("No held-out `R` or `R-gated-e2e` results.\n")
+        return
+    out.append("**Held-out evaluation only.** This is a different, harder, non-tuned set; do not compare "
+               "its absolute numbers with the tuned 151-case campaign. Correct means the exact pinned "
+               "arguments on tool-gold cases and no executed tool on no-tool cases. The `no_tool` group "
+               "is the ordinary FP denominator; adversarial no-tool cases are reported separately.\n")
+    rules = {r["caseId"]: r for r in records.get((SUITE_B, "rules", "R"), [])}
+    rules_correct = sum(bool(r["correct"]) for r in rules.values())
+    rows = []
+    for key in keys:
+        rs = records[key]
+        tool_rs = [r for r in rs if r["expectsTool"]]
+        ordinary_none = [r for r in rs if r.get("group") == "no_tool" and not r["expectsTool"]]
+        adversarial_none = [r for r in rs if r.get("group") == "adversarial" and not r["expectsTool"]]
+        by_id = {r["caseId"]: r for r in rs}
+        fixed = [case_id for case_id, rule in rules.items()
+                 if not rule["correct"] and by_id.get(case_id, {}).get("correct")]
+        broken = [r["caseId"] for r in rs
+                  if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
+        delta = (f"{sum(bool(r['correct']) for r in rs) - rules_correct:+d}"
+                 if key[1] not in RULE_MODELS and len(by_id) == len(rules) else "-")
+        rows.append([
+            key[1], key[2],
+            score_cell(key, rs, sum(bool(r["correct"]) for r in rs)),
+            score_cell(key, tool_rs, sum(bool(r["toolCorrect"]) for r in tool_rs)),
+            score_cell(key, tool_rs, sum(bool(r["argsExact"]) for r in tool_rs)),
+            score_cell(key, ordinary_none, sum(bool(r.get("falsePositive")) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("privacyRelevant")) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpPrivateRead")) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpNetworkEgress")) for r in ordinary_none)),
+            score_cell(key, adversarial_none,
+                       sum(bool(r.get("falsePositive")) for r in adversarial_none)),
+            run_cell(key, sum(bool(r.get("gateOpen")) for r in rs))
+            if key[2] == "R-gated-e2e" else "-",
+            run_cell(key, sum(errored(r) for r in rs)),
+            run_cell(key, delta), run_cell(key, len(fixed)), run_cell(key, len(broken)),
+        ])
+    out.append(table([
+        "model", "mode", "correct", "tool correct", "args exact", "ordinary no-tool FP",
+        "FP orchestration only", "FP device/network/external", "FP privacy flagged",
+        "of which private reads", "of which network egress", "adversarial no-tool FP",
+        "gate open", "errors", "correct delta vs R", "fixed vs R", "broken vs R",
+    ], rows))
+    out.append("")
+    out.append("Fixed/broken and the score delta are within this held-out set only. An errored call is "
+               "neither a fix nor a break. Every run-derived cell carries its Decision-L1 error "
+               "annotation when needed.\n")
+
+    stages = ["rule", "negation guard", "gate closed", "gate open → accepted", "gate open → answer",
+              "gate open → failed"]
+    rows = []
+    for key in keys:
+        if key[2] != "R-gated-e2e":
+            continue
+        rs = records[key]
+        counter = Counter(r.get("decisionStage") for r in rs)
+        rows.append([key[1], key[2]]
+                    + [run_cell(key, counter.get(stage, 0)) for stage in stages]
+                    + [run_cell(key, sum(bool(r.get("gateOpen")) for r in rs)),
+                       run_cell(key, sum(r.get("gateRawJsonValid") is True for r in rs)),
+                       run_cell(key, sum(r.get("gateRawJsonValid") is False for r in rs))])
+    if rows:
+        out.append("Production `RuleFirstGatedModel` decision stages and gate parse outcomes. The gate "
+                   "parser is the merged production parser, including its one whole-reply fence "
+                   "handling; no lab-only fence transform is used.\n")
+        out.append(table(["model", "mode"] + stages
+                         + ["gate open (total)", "gate JSON valid", "gate JSON invalid"], rows))
+        out.append("")
+
+    categories = OrderedDict()
+    for key in keys:
+        for r in records[key]:
+            categories[(r.get("group") or "ungrouped", r.get("category") or "uncategorized")] = None
+    rows = []
+    for key in keys:
+        by_category = defaultdict(list)
+        for r in records[key]:
+            by_category[(r.get("group") or "ungrouped", r.get("category") or "uncategorized")].append(r)
+        for group, category in categories:
+            rs = by_category[(group, category)]
+            rows.append([key[1], key[2], group, category, len(rs),
+                         score_cell(key, rs, sum(bool(r["correct"]) for r in rs))])
+    out.append("Per-category correct results. `no_tool / tool_domain_question` and both negation rows "
+               "are explicit so tool-domain questions and negations cannot disappear inside a broad "
+               "family aggregate.\n")
+    out.append(table(["model", "mode", "group", "category", "n", "correct"], rows))
+    out.append("")
+
+
 def generated(folder, manifest, records, models):
     out = []
     out.append("## Run facts\n")
@@ -1709,6 +1820,21 @@ def generated(folder, manifest, records, models):
     # numbers and the LiteRT numbers on the production `.litertlm` files measure different weights
     # on different runtimes, and reading down a mixed column would compare them.
     groups = host_groups(manifest, records, models)
+    if is_heldout_initial_planning(manifest, records):
+        if not groups:
+            groups = {None: []}
+        for label, group_models in groups.items():
+            host_models = [m for m in models if m in RULE_MODELS] + group_models
+            out.append(f"## {label}\n" if label else "## Rules only (no model host)\n")
+            if label:
+                out.append("Every table below was produced on this host only. Devbox CPU measurements "
+                           "are not device evidence.\n")
+            out.append("### Suite B held-out evaluation\n")
+            heldout_initial_planning(records, host_models, out)
+            out.append("### Latency and prompt size\n")
+            latency(records, host_models, out)
+        out.append("Failure examples for every group are in [`failure_examples.md`](failure_examples.md).\n")
+        return "\n".join(out).rstrip() + "\n"
     if not groups:
         out.append("## No model results\n")
         out.append("Only rule baselines were recorded in this folder.\n")
