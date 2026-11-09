@@ -38,13 +38,27 @@ class RuleFirstGatedE2eSuiteTest {
     fun ruleFirstGatedModelEndToEnd() {
         requireLabOptIn("B")
         Assume.assumeTrue("R-gated-e2e not selected by SOLIN_LAB_MODES", LabEnv.modeSelected(MODE))
+        val modelRoot = LabEnv.liteRtModelRoot
+        Assume.assumeTrue(
+            "$MODE requires SOLIN_LAB_LITERT_MODEL_ROOT to point to the production .litertlm directory",
+            modelRoot != null,
+        )
         val client = OllamaClient()
         val requested = availableLabModels(client)
-        val models = requested.filter { it in MODEL_PATHS }
+        val models = requested.filter { it in MODEL_FILE_NAMES }
         (requested - models.toSet()).forEach { model ->
             LabLog.info("suite B mode=$MODE model=$model skipped: mode requires a production .litertlm id")
         }
         Assume.assumeTrue("no production LiteRT lab models selected", models.isNotEmpty())
+        val modelPaths = models.associateWith { model ->
+            File(modelRoot, MODEL_FILE_NAMES.getValue(model)).absolutePath
+        }
+        modelPaths.forEach { (model, path) ->
+            Assume.assumeTrue(
+                "$MODE requires the production file for $model at $path; check SOLIN_LAB_LITERT_MODEL_ROOT",
+                File(path).isFile,
+            )
+        }
         val cases = InitialPlanningCases.benchCases()
         LabManifest.recordModels(client, models)
         LabManifest.recordSuite(
@@ -76,7 +90,7 @@ class RuleFirstGatedE2eSuiteTest {
         models.forEach { model ->
             // The adapter represents the shared engine already loaded for chat, as in SolinAppContainer.
             client.warmUp(model)
-            runModel(model, requireNotNull(MODEL_PATHS[model]), cases)
+            runModel(model, modelPaths.getValue(model), cases)
         }
     }
 
@@ -303,9 +317,9 @@ class RuleFirstGatedE2eSuiteTest {
         const val GATE_REASON_PREFIX = "local_model_action_gate_"
         const val GATE_OPEN = "local_model_action_gate_open"
         val FIXED_NOW: Instant = Instant.parse("2026-06-14T02:00:00Z")
-        val MODEL_PATHS = mapOf(
-            "litert/gemma-4-e2b" to "/data00/home/zouguoxue/edge-litert/models/gemma-4-E2B-it.litertlm",
-            "litert/gemma-4-e4b" to "/data00/home/zouguoxue/edge-litert/models/gemma-4-E4B-it.litertlm",
+        val MODEL_FILE_NAMES = mapOf(
+            "litert/gemma-4-e2b" to "gemma-4-E2B-it.litertlm",
+            "litert/gemma-4-e4b" to "gemma-4-E4B-it.litertlm",
         )
         val PRIVATE_READ_TOOLS = setOf("read_clipboard", "read_current_screen_text", "read_notifications")
         val NETWORK_TOOLS = setOf("web_search", "search_maps", "open_deep_link")

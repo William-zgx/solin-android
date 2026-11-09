@@ -42,6 +42,22 @@ host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-
 rule baselines always run). `SOLIN_LAB_CASE_IDS` optionally selects explicit dataset ids for a small
 smoke run; leave it unset for every scored run.
 
+For `R-gated-e2e` on the production `.litertlm` files, provide their directory explicitly and start the
+local LiteRT shim. The suite and shim both read `SOLIN_LAB_LITERT_MODEL_ROOT`; neither has a host-specific
+fallback. The paths below are placeholders:
+
+```bash
+export SOLIN_LAB_MODELS=litert/gemma-4-e2b
+export SOLIN_LAB_MODES=R-gated-e2e
+export SOLIN_LAB_LITERT_MODEL_ROOT=/path/to/models
+export SOLIN_LAB_OLLAMA_URL=http://127.0.0.1:11437
+/path/to/litert-venv/bin/python -I lab/scripts/litert_shim.py \
+    --port 11437 --cache-dir /path/to/litert-cache
+```
+
+`--model-root` can override the environment variable for the shim. An unset root or a missing model file
+skips the suite with an assumption failure rather than selecting another path.
+
 ## Errored runs never look like scores (Decision L1)
 
 A case is **errored** when its `metrics.error` is non-null: the model call failed, so it answered

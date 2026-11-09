@@ -148,6 +148,6 @@ class LiteRtShimLocalEngineTest {
             .toString()
 
     private companion object {
-        const val MODEL_PATH = "/data00/home/zouguoxue/edge-litert/models/gemma-4-E2B-it.litertlm"
+        const val MODEL_PATH = "/models/gemma-4-E2B-it.litertlm"
     }
 }
