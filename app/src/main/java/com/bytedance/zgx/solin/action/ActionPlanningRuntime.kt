@@ -309,12 +309,24 @@ private const val ACTION_INTENT_GATE_SYSTEM_INSTRUCTION =
         "The user message is a JSON object whose \"request\" field is the request. " +
         "Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}."
 
+private val SINGLE_JSON_FENCE = Regex(
+    """\A\s*```(?:json)?\r?\n((?:(?!```)[\s\S])*?)\r?\n```\s*\z""",
+)
+
+/**
+ * T-LM: unwrap only one unambiguous whole-reply fence, never prose or multiple fences. E2B devbox-CPU
+ * measurement: 37/56 gate replies were fenced; accepting this shape moved the score from 129 to 133.
+ */
+private fun unwrapSingleJsonFence(reply: String): String =
+    SINGLE_JSON_FENCE.matchEntire(reply)?.groupValues?.get(1) ?: reply
+
 /** Strictly one object with exactly a Boolean action and a numeric confidence in 0..1. */
 private fun parseActionIntentGateResult(raw: String): ActionIntentGateResult {
-    if (StrictJsonScan.firstViolation(raw) != null) {
+    val jsonText = unwrapSingleJsonFence(raw)
+    if (StrictJsonScan.firstViolation(jsonText) != null) {
         return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
     }
-    val json = runCatching { JSONObject(raw) }.getOrNull()
+    val json = runCatching { JSONObject(jsonText) }.getOrNull()
         ?: return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")
     if (json.length() != 2 || !json.has("action") || !json.has("confidence")) {
         return ActionIntentGateResult(open = false, reason = "local_model_action_gate_invalid_output")

@@ -262,6 +262,119 @@ class LocalModelFirstPlanningTest {
     }
 
     @Test
+    fun ruleFirstGatedModelAcceptsOnlyOneWholeReplyFence() {
+        val cases = listOf(
+            GateOutputCase(
+                "one json fence",
+                "```json\n{\"action\":true,\"confidence\":0.95}\n```",
+                "local_model_action_gate_open",
+            ),
+            GateOutputCase(
+                "one bare fence",
+                "```\n{\"action\":true,\"confidence\":0.95}\n```",
+                "local_model_action_gate_open",
+            ),
+            GateOutputCase(
+                "CRLF delimiters",
+                "```json\r\n{\"action\":true,\"confidence\":0.95}\r\n```",
+                "local_model_action_gate_open",
+            ),
+            GateOutputCase(
+                "uppercase tag",
+                "```JSON\n{\"action\":true,\"confidence\":0.95}\n```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "missing newline before closing fence",
+                "```json\n{\"action\":true,\"confidence\":0.95}```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "prose after closing fence",
+                "```json\n{\"action\":true,\"confidence\":0.95}\n```\nprose",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "two fences",
+                "```json\n{\"action\":true,\"confidence\":0.95}\n```\n" +
+                    "```json\n{\"action\":true,\"confidence\":0.95}\n```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "fence inside body",
+                "```json\n{\"action\":true,\"confidence\":0.95}\n```inside\n```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "empty body",
+                "```json\n\n```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "unquoted keys inside fence",
+                "```json\n{action:true,confidence:0.95}\n```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "low confidence inside fence",
+                "```json\n{\"action\":true,\"confidence\":0.5}\n```",
+                "local_model_action_gate_low_confidence",
+            ),
+            GateOutputCase(
+                "extra field inside fence",
+                "```json\n{\"action\":true,\"confidence\":0.95,\"extra\":0}\n```",
+                "local_model_action_gate_invalid_output",
+            ),
+            GateOutputCase(
+                "unfenced valid JSON",
+                "{\"action\":true,\"confidence\":0.95}",
+                "local_model_action_gate_open",
+            ),
+        )
+        val engine = ScriptedGateEngine()
+        val gateRuntime = HybridActionPlanningRuntime(
+            fallbackEngine = DedicatedLiteRtEngine(
+                Files.createTempDirectory("single-fence-action-gate").toFile(),
+                FakeLiteRtFactory(),
+            ),
+            sharedEngine = engine,
+        )
+
+        try {
+            cases.forEach { case ->
+                engine.output = case.output
+                val runtime = ScriptedPlanningRuntime(
+                    modelOutput = ALARM_CALL,
+                    gateDelegate = gateRuntime,
+                )
+                val actualRunId = runId(ALARM_REQUEST)
+
+                val plan = planner(runtime).planLocalModelFirst(
+                    actualRunId,
+                    ALARM_REQUEST,
+                    ACTION_MODEL_PROFILES,
+                    null,
+                    localModelFirst(LocalPlanningStrategy.RuleFirstGatedModel),
+                )
+
+                val shouldOpen = case.expectedReason == "local_model_action_gate_open"
+                if (shouldOpen) {
+                    assertTrue(case.name, plan is AgentPlan.UseTool)
+                    assertEquals(case.name, 1, runtime.modelCallCount)
+                } else {
+                    assertNull(case.name, plan)
+                    assertEquals(case.name, 0, runtime.modelCallCount)
+                }
+                assertEquals(case.name, listOf(ALARM_REQUEST), runtime.gateInputs)
+                val reasons = localModelDecision(actualRunId).rejectionReasons
+                assertTrue(case.name, case.expectedReason in reasons)
+            }
+        } finally {
+            gateRuntime.close()
+        }
+    }
+
+    @Test
     fun ruleFirstGatedModelFiltersWebSearchUnlessTheRequestHasASearchVerb() {
         val implicitSearch = "最新 AI 新闻"
         val implicitRuntime = ScriptedPlanningRuntime(
@@ -871,6 +984,12 @@ class LocalModelFirstPlanningTest {
             ruleDrafts[input]?.let { draft -> ActionPlan(ActionPlanKind.Draft, draft) }
                 ?: ActionPlan(ActionPlanKind.NoAction)
     }
+
+    private data class GateOutputCase(
+        val name: String,
+        val output: String,
+        val expectedReason: String,
+    )
 
     private class ScriptedGateEngine : LocalEngine {
         var output: String = ""

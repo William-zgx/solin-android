@@ -206,6 +206,14 @@ Current status:
   gates; no confirmation rule changed. **Suite A evidence on production files
   is pending (D-lab2).** Evidence and the debug-only gated rule-gap strategy are
   owned by [the local-model-first spec](specs/20261107-local-model-first/spec.md).
+- The debug-only `RuleFirstGatedModel` action-intent gate accepts strict JSON or exactly one whole-reply
+  ```` ```json ```` / bare ```` ``` ```` fence with LF or CRLF delimiters. Uppercase tags, a missing newline
+  before the closing fence, trailing prose, multiple or nested fences, empty bodies, unquoted keys, low
+  confidence and extra fields stay closed; unfenced JSON is unchanged. The 0.9 threshold, rules-first order,
+  negation guard and `LocalModelProposedStep` confirmation are unchanged. On production E2B `.litertlm` files,
+  devbox CPU, 37/56 gate replies were fenced; accepting them moved 129/151 → 133/151, tool 79 → 84/100,
+  exact args 78 → 83/100 and no-tool FP 0 → 1/51 (`golden_023` → `web_search`, still user-confirmed). This
+  is not device evidence; the edge-case contract and measurements are owned by the spec.
 - Initial local-model planning is stopped end to end without thread interrupts.
   `ChatController` owns one cooperative `LocalOneShotCancellation` per generation
   and cancels it before the generation job. Gate and proposal one-shots share that
