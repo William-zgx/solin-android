@@ -68,4 +68,25 @@ object InitialPlanningCases {
     }
 }
 
+/**
+ * The independent 60-case held-out set. These labels are evaluation-only: never use them to tune
+ * prompts, rules, retrieval, or thresholds. Keep this loader separate from [InitialPlanningCases]
+ * so the tuned 151-case source remains the default for historical campaign reproduction.
+ */
+object HeldOutInitialPlanningCases {
+    const val DATASET_FILENAME = "initial_planning_heldout.jsonl"
+    const val METADATA_FILENAME = "initial_planning_heldout.metadata.json"
+
+    fun loadAll(): List<InitialCase> =
+        readJsonl(File(LabEnv.datasetsDir, DATASET_FILENAME)).map(::InitialCase)
+
+    fun loadMetadata(): JSONObject =
+        JSONObject(File(LabEnv.datasetsDir, METADATA_FILENAME).readText(Charsets.UTF_8))
+
+    /** Held-out cases, optionally cut to explicit smoke ids and then `SOLIN_LAB_LIMIT`. */
+    fun benchCases(): List<InitialCase> = loadAll()
+        .let { all -> LabEnv.requestedCaseIds?.let { ids -> all.filter { it.id in ids } } ?: all }
+        .let { selected -> LabEnv.caseLimit?.let(selected::take) ?: selected }
+}
+
 fun List<String>.toJsonStringArray(): JSONArray = JSONArray().also { array -> forEach(array::put) }
