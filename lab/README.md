@@ -14,7 +14,9 @@ Nothing here ships in the APK. The harness lives in the JVM unit-test source set
 | --- | --- |
 | `lab/datasets/observation_step.jsonl` | Suite A cases: user goal, screen, prior steps, gold next step |
 | `lab/datasets/initial_planning.jsonl` | Suites B and C cases: user request, gold first tool and arguments |
-| `lab/scripts/build_datasets.py` | Generates both datasets from the label tables in the script |
+| `lab/datasets/initial_planning_heldout.jsonl` | **Held-out evaluation only:** 60 independent requests; never for prompt, rule or threshold tuning |
+| `lab/datasets/initial_planning_heldout.metadata.json` | Held-out warning, declared group/category distribution and disjointness contract |
+| `lab/scripts/build_datasets.py` | Generates the tuned Suite A/B/C datasets from the label tables in the script |
 | `lab/scripts/summarize.py` | Turns `lab/results/<date>/*.jsonl` into `SUMMARY.md` and `failure_examples.md` |
 | `lab/results/<YYYYMMDD>/` | One JSONL per (suite, model, mode), `manifest.json`, `run.log`, `SUMMARY.md`, `failure_examples.md` |
 
@@ -109,6 +111,31 @@ Run one model per Gradle invocation so the model is unloaded between models. A m
 in Suite C. `think: false` is only sent to models that declare `thinking`.
 
 To regenerate the datasets after changing a label table: `python3 -I lab/scripts/build_datasets.py`.
+
+## Held-out initial-planning set
+
+`initial_planning_heldout.jsonl` is **for evaluation only and must not be used for prompt, rule or
+threshold tuning**. It was authored independently of the 151 labeled cases and is loaded separately
+through `HeldOutInitialPlanningCases`; it is not part of the historical campaign's default case source.
+Its sidecar metadata pins 24 ordinary tool cases across 15 categories, 24 ordinary no-tool cases and
+12 adversarial cases, plus every category count. The adversarial group covers explicit negations,
+polite indirect requests, mixed Chinese/English, typos, a long request and manual how-to questions.
+
+The `no_tool` group is the `n/24` false-positive denominator. Adversarial no-tool cases are reported
+separately by category rather than silently added to that denominator. The `notes` tool case explicitly
+requests the per-run scratchpad; it is not a label for opening an external notes app.
+
+Labels are committed before any model run. Do not edit them to match output or iterate prompts, rules,
+retrieval or thresholds against this set. Its deterministic validation needs no model or lab opt-in:
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.lab.HeldOutInitialPlanningDatasetTest"
+```
+
+The test checks unique ids, normalized-input disjointness against every record returned by
+`InitialPlanningCases.loadAll()`, built-in tool and argument names, held-out metadata, and the declared
+group/category distribution.
 
 ## What each suite measures
 
@@ -248,9 +275,12 @@ Explicit negations are labelled no-action.
 
 ## Labeling rules
 
-Labels are written in `lab/scripts/build_datasets.py`, generated to `lab/datasets/`, and committed
-before any model run. A label is never edited to match model output. If a label turns out wrong, fix
-it in a separate commit that says why, and rerun.
+Labels for `observation_step.jsonl` and `initial_planning.jsonl` are written in
+`lab/scripts/build_datasets.py`, generated to `lab/datasets/`, and committed before any model run. The
+held-out file is independently hand-authored instead, with its distribution and evaluation-only contract
+in `initial_planning_heldout.metadata.json`; the generator never creates it. A label is never edited to
+match model output. If a non-held-out label turns out wrong, fix it in a separate commit that says why,
+and rerun. A held-out label correction must likewise be separate and must not become a tuning loop.
 
 ### Suite A (next step on a screen)
 

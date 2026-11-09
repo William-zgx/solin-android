@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "datasetFile": "initial_planning_heldout.jsonl",
+  "status": "HELD_OUT_EVALUATION_ONLY",
+  "heldOut": true,
+  "evaluationOnly": true,
+  "tuningProhibited": true,
+  "warning": "HELD-OUT EVALUATION ONLY — DO NOT USE FOR PROMPT, RULE, OR THRESHOLD TUNING.",
+  "prohibitedUses": [
+    "prompt tuning",
+    "rule tuning",
+    "threshold tuning"
+  ],
+  "authoredDate": "2026-11-09",
+  "caseCount": 60,
+  "groupCounts": {
+    "tool": 24,
+    "no_tool": 24,
+    "adversarial": 12
+  },
+  "categoryCountsByGroup": {
+    "tool": {
+      "settings": 3,
+      "alarm": 2,
+      "timer": 2,
+      "reminder": 2,
+      "calendar": 2,
+      "email_draft": 1,
+      "sms_draft": 1,
+      "maps_search": 2,
+      "web_search": 2,
+      "in_app_search": 2,
+      "clipboard": 1,
+      "notes": 1,
+      "app_launch": 1,
+      "media": 1,
+      "share": 1
+    },
+    "no_tool": {
+      "chat": 4,
+      "explanation": 3,
+      "translation": 3,
+      "arithmetic_no_tool": 3,
+      "tool_domain_question": 5,
+      "hypothetical_action": 3,
+      "negation": 3
+    },
+    "adversarial": {
+      "negation": 4,
+      "polite_indirect": 2,
+      "mixed_language": 2,
+      "typo": 1,
+      "long_request": 1,
+      "manual_howto": 2
+    }
+  },
+  "minimumToolFamilyCount": 8,
+  "requiredToolCategories": [
+    "settings",
+    "alarm",
+    "timer",
+    "reminder",
+    "calendar",
+    "email_draft",
+    "sms_draft",
+    "maps_search",
+    "web_search",
+    "in_app_search",
+    "clipboard",
+    "notes"
+  ],
+  "requiredAdversarialCategories": [
+    "negation",
+    "polite_indirect",
+    "mixed_language",
+    "typo",
+    "long_request",
+    "manual_howto"
+  ],
+  "disjointFrom": "initial_planning.jsonl",
+  "normalization": "LabScoring.normalized: lowercase and remove all whitespace",
+  "noToolReporting": "The n/24 false-positive denominator is the ordinary no_tool group. Adversarial no-tool cases are reported separately by category.",
+  "labelingNotes": "The notes case explicitly requests the per-run scratchpad, so its gold is note rather than an external notes-app launch."
+}
