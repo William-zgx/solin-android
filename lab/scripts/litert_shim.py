@@ -5,11 +5,16 @@ Why: the capability bench talks to Ollama (`OllamaClient.kt`). The app ships Lit
 0.12.0 with `.litertlm` weights, so the bench can only measure the real production files if
 something answers in Ollama's shape. This shim does exactly that, and nothing else.
 
-Run (in the coordinator's venv, with the locally unpacked GL/Vulkan loader libraries):
+Run (in a LiteRT-LM 0.12.0 venv, with the locally unpacked GL/Vulkan loader libraries;
+the paths below are placeholders):
 
-    export LD_LIBRARY_PATH=/data00/home/zouguoxue/edge-litert/deb/root/usr/lib/x86_64-linux-gnu
-    /data00/home/zouguoxue/edge-litert/venv/bin/python -I lab/scripts/litert_shim.py \\
-        --port 11437 --model-root /data00/home/zouguoxue/edge-litert/models
+    export LITERT_HOME=/path/to/edge-litert
+    export LD_LIBRARY_PATH="$LITERT_HOME/deb/root/usr/lib/x86_64-linux-gnu"
+    export SOLIN_LAB_LITERT_MODEL_ROOT="$LITERT_HOME/models"
+    "$LITERT_HOME/venv/bin/python" -I lab/scripts/litert_shim.py \\
+        --port 11437 --cache-dir /path/to/litert-cache
+
+`--model-root` overrides `SOLIN_LAB_LITERT_MODEL_ROOT`; one of them is required.
 
 Then point the harness at it:
 
@@ -347,9 +352,11 @@ class Handler(BaseHTTPRequestHandler):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=11437)
-    parser.add_argument("--model-root", default="/data00/home/zouguoxue/edge-litert/models")
+    parser.add_argument("--model-root", default=os.environ.get("SOLIN_LAB_LITERT_MODEL_ROOT") or None)
     parser.add_argument("--cache-dir", default="", help="compiled-model cache; keep one per shim process")
     args = parser.parse_args(argv[1:])
+    if not args.model_root:
+        parser.error("--model-root or SOLIN_LAB_LITERT_MODEL_ROOT is required")
     Handler.model_root = args.model_root
     Handler.cache_dir = args.cache_dir
     Handler.litert = _import_litert()

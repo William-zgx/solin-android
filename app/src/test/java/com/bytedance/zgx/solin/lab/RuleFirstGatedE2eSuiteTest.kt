@@ -30,21 +30,40 @@ import org.json.JSONObject
 import org.junit.Assume
 import org.junit.Test
 
-/** Suite B mode `R-gated-e2e`: the merged production RuleFirstGatedModel path on production files. */
+/** Suite B modes `R-gated-e2e` and its lab-only single-fence gate variant on production files. */
 class RuleFirstGatedE2eSuiteTest {
     private val registry: ToolRegistry = defaultBuiltInToolRegistry
 
     @Test
-    fun ruleFirstGatedModelEndToEnd() {
+    fun ruleFirstGatedModelEndToEnd() = runMode(MODE)
+
+    @Test
+    fun ruleFirstGatedModelSingleFenceEndToEnd() = runMode(FENCE_MODE)
+
+    private fun runMode(mode: String) {
         requireLabOptIn("B")
-        Assume.assumeTrue("R-gated-e2e not selected by SOLIN_LAB_MODES", LabEnv.modeSelected(MODE))
+        Assume.assumeTrue("$mode not selected by SOLIN_LAB_MODES", LabEnv.modeSelected(mode))
+        val modelRoot = LabEnv.liteRtModelRoot
+        Assume.assumeTrue(
+            "$mode requires SOLIN_LAB_LITERT_MODEL_ROOT to point to the production .litertlm directory",
+            modelRoot != null,
+        )
         val client = OllamaClient()
         val requested = availableLabModels(client)
-        val models = requested.filter { it in MODEL_PATHS }
+        val models = requested.filter { it in MODEL_FILE_NAMES }
         (requested - models.toSet()).forEach { model ->
-            LabLog.info("suite B mode=$MODE model=$model skipped: mode requires a production .litertlm id")
+            LabLog.info("suite B mode=$mode model=$model skipped: mode requires a production .litertlm id")
         }
         Assume.assumeTrue("no production LiteRT lab models selected", models.isNotEmpty())
+        val modelPaths = models.associateWith { model ->
+            File(modelRoot, MODEL_FILE_NAMES.getValue(model)).absolutePath
+        }
+        modelPaths.forEach { (model, path) ->
+            Assume.assumeTrue(
+                "$mode requires the production file for $model at $path; check SOLIN_LAB_LITERT_MODEL_ROOT",
+                File(path).isFile,
+            )
+        }
         val cases = InitialPlanningCases.benchCases()
         LabManifest.recordModels(client, models)
         LabManifest.recordSuite(
@@ -52,7 +71,7 @@ class RuleFirstGatedE2eSuiteTest {
             JSONObject()
                 .put("cases", cases.size)
                 .put("datasetCases", InitialPlanningCases.loadAll().size)
-                .put("mode", MODE)
+                .put("mode", mode)
                 .put("planner", "production InitialToolPlanner.planLocalModelFirst")
                 .put("runtime", "production HybridActionPlanningRuntime")
                 .put("strategy", LocalPlanningStrategy.RuleFirstGatedModel.name)
@@ -76,12 +95,15 @@ class RuleFirstGatedE2eSuiteTest {
         models.forEach { model ->
             // The adapter represents the shared engine already loaded for chat, as in SolinAppContainer.
             client.warmUp(model)
-            runModel(model, requireNotNull(MODEL_PATHS[model]), cases)
+            runModel(model, modelPaths.getValue(model), cases, mode)
         }
     }
 
-    private fun runModel(model: String, modelPath: String, cases: List<InitialCase>) {
-        val engine = LiteRtShimLocalEngine(modelPath)
+    private fun runModel(model: String, modelPath: String, cases: List<InitialCase>, mode: String) {
+        val engine = LiteRtShimLocalEngine(
+            loadedModelPath = modelPath,
+            gateReplyTransform = if (mode == FENCE_MODE) ::unwrapSingleJsonFence else null,
+        )
         val fallback = DedicatedLiteRtEngine(
             Files.createTempDirectory("rule-first-gated-e2e").toFile(),
             FakeLiteRtFactory(),
@@ -108,7 +130,7 @@ class RuleFirstGatedE2eSuiteTest {
         }
         var correct = 0
         try {
-            JsonlWriter(SUITE, model, MODE).use { writer ->
+            JsonlWriter(SUITE, model, mode).use { writer ->
                 cases.forEach { case ->
                     engine.clearCalls()
                     val run = traceStore.createRun(case.input)
@@ -136,6 +158,7 @@ class RuleFirstGatedE2eSuiteTest {
                     val gateReason = reasons.firstOrNull { it.startsWith(GATE_REASON_PREFIX) }
                     val gateOpen = gateReason == GATE_OPEN
                     val gateCall = calls.firstOrNull()
+                    val gateUnwrappedText = gateCall?.transformedText
                     val proposalCall = calls.getOrNull(1)
                     val firstError = calls.firstNotNullOfOrNull { call ->
                         call.metrics.optString("error").takeIf { it.isNotBlank() }
@@ -150,13 +173,14 @@ class RuleFirstGatedE2eSuiteTest {
                         plan.toLabAnswer()
                     }
                     val raw = proposalCall?.rawText ?: gateCall?.rawText.orEmpty()
-                    val record = InitialPlanningCases.record(SUITE, model, MODE, case, answer, kind, raw, registry)
+                    val record = InitialPlanningCases.record(SUITE, model, mode, case, answer, kind, raw, registry)
                         .put("decisionStage", stage)
                         .put("planSource", plan.planSource())
                         .put("gateReason", gateReason ?: JSONObject.NULL)
                         .put("gateOpen", gateOpen)
                         .put("gateRawJsonValid", gateJsonValidity(gateCall, gateReason))
                         .put("gateRawPreview", gateCall?.rawText?.previewForLab().orEmpty())
+                        .put("gateFenceUnwrapped", gateUnwrappedText != null)
                         .put("proposalOutcome", outcome ?: JSONObject.NULL)
                         .put("traceReasons", JSONArray(reasons))
                         .put("retrievedTools", reasons.retrievedTools().toJsonStringArray())
@@ -181,6 +205,9 @@ class RuleFirstGatedE2eSuiteTest {
                                 },
                             ),
                         )
+                    if (gateUnwrappedText != null) {
+                        record.put("gateUnwrappedPreview", gateUnwrappedText.previewForLab())
+                    }
                     if (firstError != null) {
                         // Decision L1: an errored call produced no answer and is never a correct refusal.
                         record.put("correct", false)
@@ -211,7 +238,7 @@ class RuleFirstGatedE2eSuiteTest {
         } finally {
             runtime.close()
         }
-        LabLog.info("suite B model=$model mode=$MODE cases=${cases.size} correct=$correct")
+        LabLog.info("suite B model=$model mode=$mode cases=${cases.size} correct=$correct")
     }
 
     private fun decisionStage(
@@ -300,12 +327,13 @@ class RuleFirstGatedE2eSuiteTest {
     private companion object {
         const val SUITE = "initial-planning"
         const val MODE = "R-gated-e2e"
+        const val FENCE_MODE = "R-gated-e2e-fence"
         const val GATE_REASON_PREFIX = "local_model_action_gate_"
         const val GATE_OPEN = "local_model_action_gate_open"
         val FIXED_NOW: Instant = Instant.parse("2026-06-14T02:00:00Z")
-        val MODEL_PATHS = mapOf(
-            "litert/gemma-4-e2b" to "/data00/home/zouguoxue/edge-litert/models/gemma-4-E2B-it.litertlm",
-            "litert/gemma-4-e4b" to "/data00/home/zouguoxue/edge-litert/models/gemma-4-E4B-it.litertlm",
+        val MODEL_FILE_NAMES = mapOf(
+            "litert/gemma-4-e2b" to "gemma-4-E2B-it.litertlm",
+            "litert/gemma-4-e4b" to "gemma-4-E4B-it.litertlm",
         )
         val PRIVATE_READ_TOOLS = setOf("read_clipboard", "read_current_screen_text", "read_notifications")
         val NETWORK_TOOLS = setOf("web_search", "search_maps", "open_deep_link")

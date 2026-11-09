@@ -1,6 +1,6 @@
 {
   "ollamaVersion": "litert-lm-0.12.0",
-  "gitHead": "20955f1a5bfefbce976906dcc465ea5d2baa4f1d",
+  "gitHead": "8003a510d803d750950be28052bcc7febc131776",
   "samplingOptions": {
     "top_p": 0.1,
     "seed": 7,
@@ -79,7 +79,7 @@
       "runtime": "production HybridActionPlanningRuntime",
       "gateMaxOutputTokens": 64,
       "actionModelPath": null,
-      "mode": "R-gated-e2e",
+      "mode": "R-gated-e2e-fence",
       "retriever": "production ToolRetriever, limit 12, plus answer",
       "proposalMaxOutputTokens": 512,
       "strategy": "RuleFirstGatedModel",

@@ -20,6 +20,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
+private val SINGLE_JSON_FENCE = Regex(
+    """\A\s*```(?:json)?\r?\n((?:(?!```)[\s\S])*?)\r?\n```\s*\z""",
+)
+
+/** Lab-only whole-reply transform; an unmatched reply is returned byte for byte. */
+internal fun unwrapSingleJsonFence(reply: String): String =
+    SINGLE_JSON_FENCE.matchEntire(reply)?.groupValues?.get(1) ?: reply
+
 /**
  * Test-only [LocalEngine] transport for the production planner, backed by `lab/scripts/litert_shim.py`.
  * Planning, prompts, parsing, retrieval and acceptance stay in production code; this class only maps
@@ -29,6 +37,7 @@ class LiteRtShimLocalEngine(
     private val loadedModelPath: String,
     private val baseUrl: String = LabEnv.ollamaBaseUrl,
     timeoutSeconds: Long = PRODUCTION_ONE_SHOT_TIMEOUT_SECONDS,
+    private val gateReplyTransform: ((String) -> String)? = null,
 ) : LocalEngine {
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -148,9 +157,15 @@ class LiteRtShimLocalEngine(
                     )
                 }
                 val text = json.optJSONObject("message")?.optString("content").orEmpty()
+                // The suite clears observations before each case, so only its gate call is eligible.
+                val transformedText = if (observedCalls.isEmpty()) {
+                    gateReplyTransform?.invoke(text)?.takeIf { it != text }
+                } else {
+                    null
+                }
                 val wallMs = elapsedMillis(started)
                 val generated = LocalOneShotResult.Generated(
-                    text = text,
+                    text = transformedText ?: text,
                     metrics = LocalCallMetrics(
                         source = LocalEngineSource.SharedChatEngine,
                         accelerator = LocalAccelerator.CPU,
@@ -162,7 +177,7 @@ class LiteRtShimLocalEngine(
                     ),
                     toolCalls = json.localToolCalls(),
                 )
-                return record(request, started, generated, text, null, json)
+                return record(request, started, generated, text, null, json, transformedText)
             }
         } catch (error: IOException) {
             val cancelled = request.cancellation.isCancelled
@@ -197,12 +212,14 @@ class LiteRtShimLocalEngine(
         rawText: String,
         error: String? = (result as? LocalOneShotResult.Unavailable)?.detail,
         shimResponse: JSONObject? = null,
+        transformedText: String? = null,
     ): LocalOneShotResult {
         val wallMs = elapsedMillis(started)
         observedCalls += ObservedCall(
             request = request,
             result = result,
             rawText = rawText,
+            transformedText = transformedText,
             metrics = metricsJson(request, wallMs, shimResponse, error),
         )
         return result
@@ -250,6 +267,7 @@ class LiteRtShimLocalEngine(
         val request: LocalOneShotRequest,
         val result: LocalOneShotResult,
         val rawText: String,
+        val transformedText: String? = null,
         val metrics: JSONObject,
     )
 

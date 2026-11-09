@@ -42,6 +42,23 @@ host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-
 rule baselines always run). `SOLIN_LAB_CASE_IDS` optionally selects explicit dataset ids for a small
 smoke run; leave it unset for every scored run.
 
+For `R-gated-e2e` on the production `.litertlm` files, provide their directory explicitly and start the
+local LiteRT shim. The suite and shim both read `SOLIN_LAB_LITERT_MODEL_ROOT`; neither has a host-specific
+fallback. The paths below are placeholders:
+
+```bash
+export SOLIN_LAB_MODELS=litert/gemma-4-e2b
+export SOLIN_LAB_MODES=R-gated-e2e
+export SOLIN_LAB_LITERT_MODEL_ROOT=/path/to/models
+export SOLIN_LAB_OLLAMA_URL=http://127.0.0.1:11437
+/path/to/litert-venv/bin/python -I lab/scripts/litert_shim.py \
+    --port 11437 --cache-dir /path/to/litert-cache
+```
+
+`--model-root` can override the environment variable for the shim. An unset root or a missing model file
+skips the suite with an assumption failure rather than selecting another path. Set
+`SOLIN_LAB_MODES=R-gated-e2e-fence` to run the lab-only single-fence variant instead.
+
 ## Errored runs never look like scores (Decision L1)
 
 A case is **errored** when its `metrics.error` is non-null: the model call failed, so it answered
@@ -95,9 +112,9 @@ To regenerate the datasets after changing a label table: `python3 -I lab/scripts
 
 ## What each suite measures
 
-Except for `R-gated-e2e`, model calls use `/api/chat` with `"think": false` (the app runs non-thinking)
+Except for `R-gated-e2e` and `R-gated-e2e-fence`, model calls use `/api/chat` with `"think": false` (the app runs non-thinking)
 and greedy sampling: `temperature 0, top_k 1, top_p 0.1, seed 7`. `num_ctx` is 8192 unless a mode needs
-more; the JSONL records the prompt token count of every call. `R-gated-e2e` instead sends production's
+more; the JSONL records the prompt token count of every call. These two modes instead send production's
 unset-seed equivalent (`seed 0`) and its actual per-request output caps, as recorded in the manifest.
 
 ### Suite A: observation step (`observation-step`)
@@ -127,6 +144,7 @@ Per case it records:
 | `M-full-fix`, `M-topk-fix` | Lab-only ablation: `M-full` / `M-topk` with the prompt's `call:function {"arg":"value"}` placeholder replaced by `call:函数名 {"参数名":"值"}` |
 | `M-topk-fix-lmf` | Production-faithful LocalModelFirst text shape: top 8 retrieved tools **plus** production's `answer` no-tool choice, with the placeholder fix |
 | `R-gated-e2e` | The merged production `RuleFirstGatedModel`: rules, negation guard, strict 0.9 action-intent gate, production retrieval plus `answer`, fixed prompt, `web_search` filter, parsing, registry and safety; driven through a test-only `LocalEngine` on the production `.litertlm` files |
+| `R-gated-e2e-fence` | The same end-to-end suite with one lab-only adapter transform: unwrap exactly one whole-reply Markdown fence on the gate call only; proposals and every production parser/planner decision are unchanged |
 
 The `-fix` modes (and Suite A's `replanner-fix`) exist because small models copy the placeholder
 `function` as the tool name. They change only that text (`PlaceholderAblation`); they are not what
@@ -153,6 +171,14 @@ device/network/external-app actions, with private reads and network egress flagg
 and `actionModelPath = null` with the selected Chat file in `localPlanningModelPath`, matching the merged
 post-PF1 composition. The adapter sends production one-shot sampling and the real per-request output cap
 (64 gate, 512 proposal); there is no lab reimplementation of the gate, prompts, retrieval or parsing.
+
+`R-gated-e2e-fence` differs only in the adapter's first reply after `clearCalls()` (the gate). The
+transform accepts optional surrounding whitespace, one ```` ``` ```` fence with an optional `json` tag,
+and a body containing no further fence; it returns that body unchanged. Two fences, surrounding prose,
+and unfenced JSON stay untouched, as does every proposal reply. Records retain the original
+`gateRawPreview`, add `gateFenceUnwrapped`, and include `gateUnwrappedPreview` only when unwrapping
+occurred. Production still rejects fenced gate output; this mode only measures what accepting exactly
+one fence would change.
 
 ### Suite C: native tools (`native-tools`)
 
@@ -285,7 +311,7 @@ it in a separate commit that says why, and rerun.
   `.litertlm` file. The prompt text, system instruction and parser are identical, but the template
   around them may differ.
 - The older lab modes cap output at `num_predict = 384`. A valid `call:` line is far shorter, so that cap
-  only cuts outputs that would fail parsing anyway. `R-gated-e2e` uses production's 64-token gate and
+  only cuts outputs that would fail parsing anyway. The `R-gated-e2e` modes use production's 64-token gate and
   512-token proposal caps instead; the shim applies them with the same streaming estimate and native
   cancellation/drain behavior as `LocalEngine`.
 - Ollama reuses the KV cache for an identical prompt prefix (`promptCachedTokens`). Long shared

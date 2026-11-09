@@ -24,6 +24,12 @@ object LabEnv {
     val ollamaBaseUrl: String
         get() = System.getenv("SOLIN_LAB_OLLAMA_URL")?.takeIf { it.isNotBlank() } ?: "http://127.0.0.1:11434"
 
+    /** Root containing the production LiteRT files; no host-specific fallback is committed. */
+    val liteRtModelRoot: File?
+        get() = System.getenv("SOLIN_LAB_LITERT_MODEL_ROOT")
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::File)
+
     /** Optional per-suite case cap for smoke runs; null means the full dataset. */
     val caseLimit: Int?
         get() = System.getenv("SOLIN_LAB_LIMIT")?.toIntOrNull()?.takeIf { it > 0 }
