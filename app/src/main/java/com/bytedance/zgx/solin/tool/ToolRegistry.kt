@@ -9,7 +9,7 @@ import org.json.JSONObject
 
 class ToolRegistry private constructor(
     definitions: List<ToolDefinition>,
-    @Suppress("UNUSED_PARAMETER") internalTag: InternalTag,
+    @Suppress("UNUSED_PARAMETER") internalTag: InternalTag
 ) {
     private enum class InternalTag { Definitions }
 
@@ -35,26 +35,19 @@ class ToolRegistry private constructor(
 
     fun specFor(toolName: String): ToolSpec? = definitionsByName[toolName]?.spec
 
-    fun privateOutputKeysFor(toolName: String): Set<String> =
-        specFor(toolName)?.privateOutputKeys.orEmpty()
+    fun privateOutputKeysFor(toolName: String): Set<String> = specFor(toolName)?.privateOutputKeys.orEmpty()
 
-    fun pendingArgumentAllowlistFor(toolName: String): Set<String> =
-        specFor(toolName)?.pendingArgumentAllowlist.orEmpty()
+    fun pendingArgumentAllowlistFor(toolName: String): Set<String> = specFor(toolName)?.pendingArgumentAllowlist.orEmpty()
 
-    fun androidRuntimePermissionSpecsFor(toolName: String): List<AndroidRuntimePermissionSpec> =
-        specFor(toolName)?.androidRuntimePermissions.orEmpty()
+    fun androidRuntimePermissionSpecsFor(toolName: String): List<AndroidRuntimePermissionSpec> = specFor(toolName)?.androidRuntimePermissions.orEmpty()
 
-    fun redactedResultSummaryFor(toolName: String): String? =
-        specFor(toolName)?.redactedResultSummary
+    fun redactedResultSummaryFor(toolName: String): String? = specFor(toolName)?.redactedResultSummary
 
-    fun hasTag(toolName: String, tag: ToolCapabilityTag): Boolean =
-        specFor(toolName)?.tags?.contains(tag) == true
+    fun hasTag(toolName: String, tag: ToolCapabilityTag): Boolean = specFor(toolName)?.tags?.contains(tag) == true
 
-    fun startsDeviceControlSession(toolName: String): Boolean =
-        hasTag(toolName, ToolCapabilityTag.DeviceControlSession)
+    fun startsDeviceControlSession(toolName: String): Boolean = hasTag(toolName, ToolCapabilityTag.DeviceControlSession)
 
-    fun isOpenAppLaunchTool(toolName: String): Boolean =
-        hasTag(toolName, ToolCapabilityTag.OpenAppLaunch)
+    fun isOpenAppLaunchTool(toolName: String): Boolean = hasTag(toolName, ToolCapabilityTag.OpenAppLaunch)
 
     fun requiresSequentialLocalModelBeforeTail(toolName: String): Boolean {
         val spec = specFor(toolName) ?: return false
@@ -63,45 +56,40 @@ class ToolRegistry private constructor(
             spec.privateOutputKeys.isNotEmpty()
     }
 
-    fun isLowRiskDeviceActionConfirmationSkippable(request: ToolRequest): Boolean =
-        when {
-            hasTag(request.toolName, ToolCapabilityTag.LowRiskDeviceAction) -> true
-            !hasTag(request.toolName, ToolCapabilityTag.ConditionalLowRiskDeviceAction) -> false
-            request.toolName == MobileActionFunctions.UI_TAP ->
-                !request.arguments["target"].hasDangerousTapTargetText()
-            request.toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                request.arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
-            else -> false
+    fun isLowRiskDeviceActionConfirmationSkippable(request: ToolRequest): Boolean = when {
+        hasTag(request.toolName, ToolCapabilityTag.LowRiskDeviceAction) -> true
+        !hasTag(request.toolName, ToolCapabilityTag.ConditionalLowRiskDeviceAction) -> false
+        request.toolName == MobileActionFunctions.UI_TAP ->
+            !request.arguments["target"].hasDangerousTapTargetText()
+        request.toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+            request.arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
+        else -> false
+    }
+
+    fun isLowRiskAppControlContinuationTool(request: ToolRequest): Boolean = isLowRiskDeviceActionConfirmationSkippable(request) &&
+        hasTag(request.toolName, ToolCapabilityTag.LowRiskAppControlContinuation)
+
+    fun isCheckpointedUiActionTool(toolName: String): Boolean = hasTag(toolName, ToolCapabilityTag.CheckpointedUiAction)
+
+    fun specialAccessTagsFor(toolName: String): Set<ToolCapabilityTag> = specFor(toolName)
+        ?.tags
+        ?.filterTo(linkedSetOf()) { tag ->
+            tag == ToolCapabilityTag.UsageStatsSpecialAccess ||
+                tag == ToolCapabilityTag.AccessibilityScreenTextSpecialAccess ||
+                tag == ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess
         }
-
-    fun isLowRiskAppControlContinuationTool(request: ToolRequest): Boolean =
-        isLowRiskDeviceActionConfirmationSkippable(request) &&
-            hasTag(request.toolName, ToolCapabilityTag.LowRiskAppControlContinuation)
-
-    fun isCheckpointedUiActionTool(toolName: String): Boolean =
-        hasTag(toolName, ToolCapabilityTag.CheckpointedUiAction)
-
-    fun specialAccessTagsFor(toolName: String): Set<ToolCapabilityTag> =
-        specFor(toolName)
-            ?.tags
-            ?.filterTo(linkedSetOf()) { tag ->
-                tag == ToolCapabilityTag.UsageStatsSpecialAccess ||
-                    tag == ToolCapabilityTag.AccessibilityScreenTextSpecialAccess ||
-                    tag == ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess
-            }
-            .orEmpty()
+        .orEmpty()
 
     fun isLowRiskRestoredExternalOutcomePopupSkippable(
         toolName: String,
-        result: ToolResult,
-    ): Boolean =
-        when {
-            hasTag(toolName, ToolCapabilityTag.RestoredExternalOutcomePopupSkippable) -> true
-            !hasTag(toolName, ToolCapabilityTag.ConditionalRestoredExternalOutcomePopupSkippable) -> false
-            toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                result.data["targetId"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
-            else -> false
-        }
+        result: ToolResult
+    ): Boolean = when {
+        hasTag(toolName, ToolCapabilityTag.RestoredExternalOutcomePopupSkippable) -> true
+        !hasTag(toolName, ToolCapabilityTag.ConditionalRestoredExternalOutcomePopupSkippable) -> false
+        toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+            result.data["targetId"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
+        else -> false
+    }
 
     fun isKnownTool(toolName: String): Boolean = toolName in definitionsByName
 
@@ -116,7 +104,7 @@ class ToolRegistry private constructor(
                 summary = "Unknown tool: ${request.toolName}",
                 data = mapOf("toolName" to request.toolName),
                 error = ToolError(ToolErrorCode.UnknownTool, "Unknown tool: ${request.toolName}"),
-                retryable = false,
+                retryable = false
             )
 
         definition.argumentValidator.validate(request)?.let { reason ->
@@ -124,7 +112,7 @@ class ToolRegistry private constructor(
                 .sanitizedPrivateNonSucceededResult(
                     request = request,
                     spec = definition.spec,
-                    preserveSummary = true,
+                    preserveSummary = true
                 )
         }
         toolSpecificArgumentInvariant(definition.spec, request)?.let { reason ->
@@ -132,7 +120,7 @@ class ToolRegistry private constructor(
                 .sanitizedPrivateNonSucceededResult(
                     request = request,
                     spec = definition.spec,
-                    preserveSummary = true,
+                    preserveSummary = true
                 )
         }
 
@@ -145,7 +133,7 @@ class ToolRegistry private constructor(
             ?: return request.rejected("Unknown tool: ${request.toolName}")
         if (!spec.isEligibleForParallelBatch()) {
             return request.rejected(
-                "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
+                "Tool ${request.toolName} is not eligible for parallel public evidence execution."
             )
         }
         return null
@@ -156,7 +144,7 @@ class ToolRegistry private constructor(
             val definition = definitionsByName[request.toolName] ?: return null
             val sanitized = result.sanitizedPrivateNonSucceededResult(
                 request = request,
-                spec = definition.spec,
+                spec = definition.spec
             )
             return sanitized.takeIf { it != result }
         }
@@ -172,9 +160,9 @@ class ToolRegistry private constructor(
                 data = mapOf("toolName" to request.toolName),
                 error = ToolError(
                     ToolErrorCode.UnknownTool,
-                    "Unknown tool while validating result: ${request.toolName}",
+                    "Unknown tool while validating result: ${request.toolName}"
                 ),
-                retryable = false,
+                retryable = false
             )
 
         definition.resultValidator.validate(request, result)?.let { reason ->
@@ -193,7 +181,7 @@ class ToolRegistry private constructor(
                 summary = summary,
                 data = mapOf("toolName" to request.toolName),
                 error = ToolError(ToolErrorCode.InvalidResult, summary),
-                retryable = false,
+                retryable = false
             )
         }
 
@@ -203,7 +191,7 @@ class ToolRegistry private constructor(
     private fun ToolResult.sanitizedPrivateNonSucceededResult(
         request: ToolRequest,
         spec: ToolSpec,
-        preserveSummary: Boolean = false,
+        preserveSummary: Boolean = false
     ): ToolResult {
         if (status == ToolStatus.Succeeded || spec.privateOutputKeys.isEmpty()) return this
 
@@ -244,10 +232,14 @@ class ToolRegistry private constructor(
             for (key in listOf("pagesInspected", "writesAttempted")) {
                 data[key]?.toIntOrNull()?.takeIf { it in 0..6 }?.let { sanitizedData[key] = it.toString() }
             }
-            data["stopReason"]?.takeIf { it in setOf("unknown", "timeout", "authorization_required", "read_failed",
-                "invalid_observation", "app_changed", "write_limit", "scroll_failed", "item_limit", "no_new_content",
-                "page_limit", "ambiguous_target", "no_change", "invalid_range", "wheel_not_unique", "wheel_unreadable",
-                "wheel_not_converging", "input_failed", "wheel_changed", "execution_interrupted") }?.let { sanitizedData["stopReason"] = it }
+            data["stopReason"]?.takeIf {
+                it in setOf(
+                    "unknown", "timeout", "authorization_required", "read_failed",
+                    "invalid_observation", "app_changed", "write_limit", "scroll_failed", "item_limit", "no_new_content",
+                    "page_limit", "ambiguous_target", "no_change", "invalid_range", "wheel_not_unique", "wheel_unreadable",
+                    "wheel_not_converging", "input_failed", "wheel_changed", "execution_interrupted"
+                )
+            }?.let { sanitizedData["stopReason"] = it }
             data["remaining"]?.takeIf { it == "observe_before_continuing" }?.let { sanitizedData["remaining"] = it }
         }
         sanitizedData["toolName"] = request.toolName
@@ -260,7 +252,7 @@ class ToolRegistry private constructor(
             privateNonSucceededResultSummary(
                 toolName = request.toolName,
                 status = status,
-                errorCode = error?.code,
+                errorCode = error?.code
             )
         }
 
@@ -268,32 +260,31 @@ class ToolRegistry private constructor(
             requestId = request.id,
             summary = sanitizedSummary,
             data = sanitizedData,
-            error = error?.copy(message = sanitizedSummary),
+            error = error?.copy(message = sanitizedSummary)
         )
     }
 
     private fun privateNonSucceededResultSummary(
         toolName: String,
         status: ToolStatus,
-        errorCode: ToolErrorCode?,
-    ): String =
-        when (status) {
-            ToolStatus.Succeeded -> "Tool $toolName completed."
-            ToolStatus.Rejected -> "Tool $toolName was rejected before returning private local data."
-            ToolStatus.Cancelled -> "Tool $toolName was cancelled before returning private local data."
-            ToolStatus.Failed -> when (errorCode) {
-                ToolErrorCode.PermissionDenied ->
-                    "Tool $toolName requires local permission or special access."
-                else -> "Tool $toolName failed before returning private local data."
-            }
+        errorCode: ToolErrorCode?
+    ): String = when (status) {
+        ToolStatus.Succeeded -> "Tool $toolName completed."
+        ToolStatus.Rejected -> "Tool $toolName was rejected before returning private local data."
+        ToolStatus.Cancelled -> "Tool $toolName was cancelled before returning private local data."
+        ToolStatus.Failed -> when (errorCode) {
+            ToolErrorCode.PermissionDenied ->
+                "Tool $toolName requires local permission or special access."
+            else -> "Tool $toolName failed before returning private local data."
         }
+    }
 
     private fun ToolRequest.invalidResultFailure(summary: String, spec: ToolSpec?): ToolResult {
         val data = mapOf("toolName" to toolName) +
             if (spec?.privateOutputKeys?.isNotEmpty() == true) {
                 mapOf(
                     "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to true.toString(),
+                    "requiresLocalModel" to true.toString()
                 )
             } else {
                 emptyMap()
@@ -304,13 +295,12 @@ class ToolRegistry private constructor(
             summary = summary,
             data = data,
             error = ToolError(ToolErrorCode.InvalidResult, summary),
-            retryable = false,
+            retryable = false
         )
     }
 
     companion object {
-        fun fromSupportedActions(supportedActions: Set<String> = builtInToolNames()): ToolRegistry =
-            ToolRegistry(definitionsFor(supportedActions), InternalTag.Definitions)
+        fun fromSupportedActions(supportedActions: Set<String> = builtInToolNames()): ToolRegistry = ToolRegistry(definitionsFor(supportedActions), InternalTag.Definitions)
     }
 }
 
@@ -408,7 +398,7 @@ private fun Set<String>.humanReadableAlternatives(): String {
 
 private fun privateOutputResultInvariant(
     spec: ToolSpec,
-    result: ToolResult,
+    result: ToolResult
 ): String? {
     if (spec.privateOutputKeys.isEmpty()) return null
     if (result.data["privacy"] != MessagePrivacy.LocalOnly.name) {
@@ -423,7 +413,7 @@ private fun privateOutputResultInvariant(
 private fun externalActivityResultInvariant(
     spec: ToolSpec,
     request: ToolRequest,
-    result: ToolResult,
+    result: ToolResult
 ): String? {
     if (ToolPermission.StartsExternalActivity !in spec.permissions) return null
     val completionState = result.data["completionState"] ?: return null
@@ -453,7 +443,7 @@ private fun externalActivityResultInvariant(
 }
 
 private data class ToolDefinition(
-    val spec: ToolSpec,
+    val spec: ToolSpec
 ) {
     val argumentValidator: ToolArgumentValidator = ToolArgumentValidator.fromSchema(spec)
     val resultValidator: ToolResultDataValidator = ToolResultDataValidator.fromSchema(spec)
@@ -463,7 +453,7 @@ private val privateNonSucceededAllowedSpecialAccessValues = setOf(
     "usage_stats",
     "accessibility_screen_text",
     "accessibility_device_control",
-    CurrentScreenshotOcrContract.CONSENT_REASON,
+    CurrentScreenshotOcrContract.CONSENT_REASON
 )
 
 private val privateNonSucceededAllowedSettingsActions = setOf(
@@ -478,11 +468,11 @@ private val privateNonSucceededAllowedSettingsActions = setOf(
     "android.settings.AIRPLANE_MODE_SETTINGS",
     "android.settings.INPUT_METHOD_SETTINGS",
     "android.settings.USAGE_ACCESS_SETTINGS",
-    "android.settings.ACCESSIBILITY_SETTINGS",
+    "android.settings.ACCESSIBILITY_SETTINGS"
 )
 
 private val privateNonSucceededAllowedRecoveryTools = setOf(
-    MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+    MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS
 )
 
 private val privateNonSucceededAllowedDiagnosticKeys = setOf(
@@ -496,7 +486,7 @@ private val privateNonSucceededAllowedDiagnosticKeys = setOf(
     "uiActionOutcomeReason",
     "appSearchProgressStage",
     // ui_wait's true/false: a failed condition wait must still say whether its condition held.
-    "conditionMet",
+    "conditionMet"
 )
 
 private val privateNonSucceededDeviceControlObservationKeys = setOf(
@@ -505,7 +495,7 @@ private val privateNonSucceededDeviceControlObservationKeys = setOf(
     "verificationSummary",
     "screenObservationDiffSummary",
     "beforeScreenObservationJson",
-    "afterScreenObservationJson",
+    "afterScreenObservationJson"
 )
 
 private val privateNonSucceededAllowedFailureKinds = setOf(
@@ -520,7 +510,7 @@ private val privateNonSucceededAllowedFailureKinds = setOf(
     "submit_not_found",
     "result_not_verified",
     "dangerous_action",
-    "unknown",
+    "unknown"
 )
 
 private fun privateNonSucceededDiagnosticValueAllowed(key: String, value: String): Boolean {
@@ -530,20 +520,19 @@ private fun privateNonSucceededDiagnosticValueAllowed(key: String, value: String
 
 private fun privateNonSucceededDeviceControlObservationValueAllowed(
     key: String,
-    value: String,
-): Boolean =
-    when (key) {
-        "beforeObservationId",
-        "afterObservationId" ->
-            value.length <= 96 && value.matches(Regex("""[A-Za-z0-9_.:-]+"""))
+    value: String
+): Boolean = when (key) {
+    "beforeObservationId",
+    "afterObservationId" ->
+        value.length <= 96 && value.matches(Regex("""[A-Za-z0-9_.:-]+"""))
 
-        "verificationSummary" -> value.length <= 320
-        "screenObservationDiffSummary" -> value.length <= 2_048
-        "beforeScreenObservationJson",
-        "afterScreenObservationJson" -> value.isLocalOnlyScreenObservationJson()
+    "verificationSummary" -> value.length <= 320
+    "screenObservationDiffSummary" -> value.length <= 2_048
+    "beforeScreenObservationJson",
+    "afterScreenObservationJson" -> value.isLocalOnlyScreenObservationJson()
 
-        else -> false
-    }
+    else -> false
+}
 
 private fun String.isLocalOnlyScreenObservationJson(): Boolean {
     if (isBlank() || length > 80_000) return false
@@ -562,17 +551,14 @@ private fun definitionsFor(supportedActions: Set<String>): List<ToolDefinition> 
     return supportedActions.map { toolDefinitionsByName.getValue(it) }
 }
 
-private fun builtInToolNames(): Set<String> =
-    builtInToolSpecs.mapTo(linkedSetOf()) { spec -> spec.name }
+private fun builtInToolNames(): Set<String> = builtInToolSpecs.mapTo(linkedSetOf()) { spec -> spec.name }
 
-private fun definitionsFor(providers: List<ToolProvider>): List<ToolDefinition> =
-    providers.flatMap { provider ->
-        provider.specs().map(::ToolDefinition)
-    }
+private fun definitionsFor(providers: List<ToolProvider>): List<ToolDefinition> = providers.flatMap { provider ->
+    provider.specs().map(::ToolDefinition)
+}
 
-private object BuiltInToolProvider : ToolProvider {
-    override fun specs(): List<ToolSpec> =
-        builtInToolSpecs
+internal object BuiltInToolProvider : ToolProvider {
+    override fun specs(): List<ToolSpec> = builtInToolSpecs
 }
 
 /**
@@ -587,25 +573,14 @@ private object BuiltInToolProvider : ToolProvider {
  * instance is safe to publish and read from any thread.
  *
  * WHAT THIS IS NOT: it contains ONLY built-in tools. It does NOT know about tools
- * contributed by a [com.bytedance.zgx.solin.module.SolinModule] (plan tools, MCP tools,
- * …). Any caller whose decision depends on module tools — permission gating, special
- * access gating, consent gating, risk/confirmation policy — MUST be handed the
- * module-aware registry built in `SolinAppContainer` instead of falling back here.
- * Falling back silently yields "unknown tool", and an unknown tool produces NO permission
- * or consent requirement, which is fail-OPEN for that gate.
+ * contributed by extension modules (plan tools, MCP tools, …). Any caller whose decision
+ * depends on module tools — permission gating, special access gating, consent gating,
+ * risk/confirmation policy — MUST be handed the module-aware registry built in
+ * `SolinAppContainer` instead of falling back here. Falling back silently yields "unknown
+ * tool", and an unknown tool produces NO permission or consent requirement, which is
+ * fail-OPEN for that gate.
  */
 val defaultBuiltInToolRegistry: ToolRegistry by lazy { ToolRegistry() }
-
-/**
- * Built-in tools exposed as a SolinModule. Always registered first; user modules
- * append or override via ToolHandler.
- */
-class BuiltInToolsModule : com.bytedance.zgx.solin.module.SolinModule {
-    override val moduleId: String get() = "builtin:tools"
-    override fun register(registry: com.bytedance.zgx.solin.module.SolinModuleRegistry) {
-        registry.addToolProvider(BuiltInToolProvider)
-    }
-}
 
 /** Built-in specs in registration order (pinned by BuiltInToolSpecSnapshotTest). */
 private val builtInToolSpecs: List<ToolSpec> =

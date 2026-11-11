@@ -9,6 +9,9 @@ import java.io.File
 internal object ProductionSourceScanner {
     private const val MAIN_JAVA_RELATIVE = "app/src/main/java"
     private const val SOLIN_PACKAGE_PATH = "com/bytedance/zgx/solin"
+    private val SOLIN_REFERENCE = Regex(
+        """com\.bytedance\.zgx\.solin\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*"""
+    )
 
     fun mainJavaRoot(): File {
         val candidates = listOf(
@@ -45,18 +48,33 @@ internal object ProductionSourceScanner {
 
     fun kotlinFile(relativePathFromSolinRoot: String): File {
         val file = File(solinPackageRoot(), relativePathFromSolinRoot)
-        require(file.isFile) { "Missing production source: ${file.absolutePath}" }
+        require(file.isFile) { "Missing production source: $relativePathFromSolinRoot" }
         return file
     }
 
     fun packageDirExists(relativePackageDir: String): Boolean = File(solinPackageRoot(), relativePackageDir).isDirectory
 
-    /**
-     * Returns import statements (without the leading `import `), one per line.
-     * Ignores block comments only at a simple line level; good enough for architecture gates.
-     */
-    fun importStatements(file: File): List<String> {
-        val imports = mutableListOf<String>()
+    /** Returns import statements without the leading `import `, one per line. */
+    fun importStatements(file: File): List<String> = codeLinesWithoutComments(file).mapNotNull { line ->
+        val trimmed = line.trim()
+        if (trimmed.startsWith("import ")) {
+            trimmed.removePrefix("import ").trim().removeSuffix(";")
+        } else {
+            null
+        }
+    }
+
+    /** Returns imports and fully qualified Solin references so FQ names cannot bypass a gate. */
+    fun solinReferences(file: File): List<String> {
+        val qualifiedReferences = codeLinesWithoutComments(file).flatMap { line ->
+            SOLIN_REFERENCE.findAll(line).map { match -> match.value }.toList()
+        }
+        return (importStatements(file) + qualifiedReferences).distinct()
+    }
+
+    /** Ignores block comments and full-line `//` comments at the same simple level as before. */
+    private fun codeLinesWithoutComments(file: File): List<String> {
+        val codeLines = mutableListOf<String>()
         var inBlockComment = false
         file.useLines { lines ->
             for (raw in lines) {
@@ -78,14 +96,11 @@ internal object ProductionSourceScanner {
                     }
                     line = line.removeRange(start, end + 2)
                 }
-                val trimmed = line.trim()
-                if (trimmed.startsWith("//")) continue
-                if (trimmed.startsWith("import ")) {
-                    imports += trimmed.removePrefix("import ").trim().removeSuffix(";")
-                }
+                if (line.trim().startsWith("//")) continue
+                codeLines += line
             }
         }
-        return imports
+        return codeLines
     }
 
     fun lineCount(file: File): Int = file.useLines { sequence -> sequence.count() }

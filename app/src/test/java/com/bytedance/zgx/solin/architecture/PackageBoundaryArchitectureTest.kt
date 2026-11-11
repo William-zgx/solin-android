@@ -314,10 +314,10 @@ class PackageBoundaryArchitectureTest {
         val violations = mutableListOf<String>()
         for (file in files) {
             val relative = file.relativeTo(ProductionSourceScanner.solinPackageRoot()).path
-            for (importFqName in ProductionSourceScanner.importStatements(file)) {
+            for (referenceFqName in ProductionSourceScanner.solinReferences(file)) {
                 for (matcher in forbiddenImportMatchers) {
-                    if (matcher.matches(importFqName)) {
-                        violations += "$relative imports `$importFqName` (forbidden: ${matcher.description})"
+                    if (matcher.matches(referenceFqName)) {
+                        violations += "$relative references `$referenceFqName` (forbidden: ${matcher.description})"
                     }
                 }
             }

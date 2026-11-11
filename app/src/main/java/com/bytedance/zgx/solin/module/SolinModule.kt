@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.module
 
 import com.bytedance.zgx.solin.skill.SkillSource
+import com.bytedance.zgx.solin.tool.BuiltInToolProvider
 import com.bytedance.zgx.solin.tool.ToolHandler
 import com.bytedance.zgx.solin.tool.ToolProvider
 
@@ -29,3 +30,12 @@ data class FrozenSolinModuleRegistry(
     val toolHandlers: Map<String, ToolHandler>,
     val skillSources: List<SkillSource>
 )
+
+/** Registers the canonical built-in provider before any extension modules. */
+class BuiltInToolsModule : SolinModule {
+    override val moduleId: String get() = "builtin:tools"
+
+    override fun register(registry: SolinModuleRegistry) {
+        registry.addToolProvider(BuiltInToolProvider)
+    }
+}

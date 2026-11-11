@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.module
 import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
 import com.bytedance.zgx.solin.skill.SkillManifest
 import com.bytedance.zgx.solin.skill.SkillSource
-import com.bytedance.zgx.solin.tool.BuiltInToolsModule
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolHandler

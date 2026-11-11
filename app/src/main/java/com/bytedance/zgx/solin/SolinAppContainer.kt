@@ -56,6 +56,7 @@ import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.memory.RoomMemoryDeletionEventStore
 import com.bytedance.zgx.solin.memory.RoomMemoryEmbeddingStore
 import com.bytedance.zgx.solin.memory.RoomMemoryRecordStore
+import com.bytedance.zgx.solin.module.BuiltInToolsModule
 import com.bytedance.zgx.solin.module.FrozenSolinModuleRegistry
 import com.bytedance.zgx.solin.module.SolinModule
 import com.bytedance.zgx.solin.module.SolinModuleRegistryImpl
@@ -112,7 +113,6 @@ import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
 import com.bytedance.zgx.solin.skill.CompositeSkillRuntime
-import com.bytedance.zgx.solin.tool.BuiltInToolsModule
 import com.bytedance.zgx.solin.tool.EvidenceBoundingToolExecutor
 import com.bytedance.zgx.solin.tool.OkHttpWebSearchProvider
 import com.bytedance.zgx.solin.tool.RoutingToolExecutor
