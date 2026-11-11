@@ -12,6 +12,7 @@ fi
 assert_file_contains_text scripts/verify_local.sh 'SOLIN_SPOTLESS_RATCHET_REF'
 assert_file_contains_text scripts/verify_local.sh 'SOLIN_SPOTLESS_SKIP=1'
 assert_file_contains_text build.gradle.kts 'onlyIf { !spotlessSkip }'
+assert_file_contains_text scripts/test_validation_scripts.sh 'bash "$ROOT_DIR/scripts/tests/test_background_phone_helper.sh"'
 if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; then
   fail "verify_local.sh must generate release KSP sources before lintDebug"
 fi

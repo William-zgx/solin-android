@@ -13,7 +13,7 @@ failed_target_for_reason() {
     unknown-argument|missing-*-argument)
       printf 'argument-parser'
       ;;
-    secret-pattern-detected)
+    secret-pattern-detected|missing-scan-target)
       printf 'scan-target'
       ;;
     placement-trace-sensitive-field)
@@ -94,6 +94,12 @@ done
 if [[ "${#SCAN_TARGETS[@]}" -eq 0 ]]; then
   SCAN_TARGETS=("$ROOT_DIR")
 fi
+
+for target in "${SCAN_TARGETS[@]}"; do
+  if [[ ! -e "$target" ]]; then
+    fail_parse "missing-scan-target" "Privacy scan target does not exist: $target"
+  fi
+done
 
 TMP_FINDINGS="$(mktemp)"
 trap 'rm -f "$TMP_FINDINGS"' EXIT

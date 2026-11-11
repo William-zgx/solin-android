@@ -33,4 +33,6 @@ for validation_test_part in "${VALIDATION_TEST_PARTS[@]}"; do
   source "$ROOT_DIR/scripts/tests/$validation_test_part"
 done
 
+bash "$ROOT_DIR/scripts/tests/test_background_phone_helper.sh"
+
 echo "Validation script tests passed."

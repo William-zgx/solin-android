@@ -127,6 +127,15 @@ assert_report_contains "$PRIVACY_UNKNOWN_OPTION_REPORT" "status=failed"
 assert_report_contains "$PRIVACY_UNKNOWN_OPTION_REPORT" "reason=unknown-argument"
 assert_report_contains "$PRIVACY_UNKNOWN_OPTION_REPORT" "failedTarget=argument-parser"
 
+PRIVACY_MISSING_TARGET="$TMP_DIR/privacy-target-does-not-exist"
+PRIVACY_MISSING_TARGET_REPORT="$ARTIFACT_DIR/privacy-missing-target.properties"
+expect_failure \
+  "privacy scan rejects missing target" \
+  scripts/privacy_scan.sh --report "$PRIVACY_MISSING_TARGET_REPORT" "$PRIVACY_MISSING_TARGET"
+assert_report_contains "$PRIVACY_MISSING_TARGET_REPORT" "status=failed"
+assert_report_contains "$PRIVACY_MISSING_TARGET_REPORT" "reason=missing-scan-target"
+assert_report_contains "$PRIVACY_MISSING_TARGET_REPORT" "failedTarget=scan-target"
+
 UNSAFE_PRIVACY_DIR="$TMP_DIR/privacy-unsafe"
 mkdir -p "$UNSAFE_PRIVACY_DIR"
 PRIVACY_SCAN_SECRET_BODY="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
