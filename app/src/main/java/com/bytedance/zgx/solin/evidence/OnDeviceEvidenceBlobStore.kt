@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.AtomicFile
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.common.sha256Hex
+import com.bytedance.zgx.solin.logging.solinE
+import com.bytedance.zgx.solin.logging.solinW
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
@@ -32,14 +34,14 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
     private val localRoot: File,
     private val remoteRoot: File? = null,
     private val appContext: Context? = null,
-    private val maxTotalBytes: Long = EvidenceBlobStore.MAX_TOTAL_BYTES,
+    private val maxTotalBytes: Long = EvidenceBlobStore.MAX_TOTAL_BYTES
 ) : EvidenceBlobStore {
 
     /** Convenience: use noBackupFilesDir/solin-evidence/v1 for local, cacheDir/solin-evidence/v1 for remote. */
     constructor(appContext: Context) : this(
         localRoot = appContext.noBackupFilesDir.resolve("solin-evidence").resolve("v1"),
         remoteRoot = appContext.cacheDir.resolve("solin-evidence").resolve("v1"),
-        appContext = appContext.applicationContext,
+        appContext = appContext.applicationContext
     )
 
     init {
@@ -58,16 +60,19 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
     }
 
     private val legacyDecryptor: BlobDecryptor? by lazy {
-        if (appContext == null) null else runCatching { LegacyCbcBlobDecryptor() }
-            .onFailure { logw("Legacy evidence key is unavailable", it) }
-            .getOrNull()
+        if (appContext == null) {
+            null
+        } else {
+            runCatching { LegacyCbcBlobDecryptor() }
+                .onFailure { logw("Legacy evidence key is unavailable", it) }
+                .getOrNull()
+        }
     }
 
     /**
      * Encrypts [plaintext] if an encryptor is available.
      */
-    private fun maybeEncrypt(plaintext: ByteArray): ByteArray =
-        encryptor?.encrypt(plaintext) ?: plaintext
+    private fun maybeEncrypt(plaintext: ByteArray): ByteArray = encryptor?.encrypt(plaintext) ?: plaintext
 
     /**
      * Decrypts and content-address verifies [data]. Production accepts only
@@ -98,20 +103,21 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
     companion object {
         private const val TAG = "OnDeviceEvidenceBlob"
         private fun loge(msg: String, t: Throwable? = null) {
-            runCatching { android.util.Log.e(TAG, msg, t) }
-                .onFailure { println("E/$TAG: $msg ${t?.message}") }
+            runCatching {
+                if (t == null) solinE(TAG, msg) else solinE(TAG, msg, t)
+            }.onFailure { println("E/$TAG: $msg ${t?.message}") }
         }
 
         private fun logw(msg: String, t: Throwable? = null) {
-            runCatching { android.util.Log.w(TAG, msg, t) }
-                .onFailure { println("W/$TAG: $msg ${t?.message}") }
+            runCatching {
+                if (t == null) solinW(TAG, msg) else solinW(TAG, msg, t)
+            }.onFailure { println("W/$TAG: $msg ${t?.message}") }
         }
     }
 
     private fun resolveRemote(): File = remoteRoot ?: localRoot
 
-    private fun dirFor(privacy: MessagePrivacy): File =
-        if (privacy == MessagePrivacy.LocalOnly) localRoot else resolveRemote()
+    private fun dirFor(privacy: MessagePrivacy): File = if (privacy == MessagePrivacy.LocalOnly) localRoot else resolveRemote()
 
     private fun binFor(ref: EvidenceBlobRef): File = File(dirFor(ref.privacy), ref.sha256 + ".bin")
 
@@ -125,7 +131,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
         text: String,
         sourceType: EvidenceSourceType,
         privacy: MessagePrivacy,
-        ttlMs: Long,
+        ttlMs: Long
     ): EvidenceBlobRef {
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
         return putBytes(bytes, "text/plain; charset=utf-8", sourceType, privacy, ttlMs)
@@ -136,7 +142,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
         mimeType: String?,
         sourceType: EvidenceSourceType,
         privacy: MessagePrivacy,
-        ttlMs: Long,
+        ttlMs: Long
     ): EvidenceBlobRef {
         val sha = sha256Hex(bytes)
         val ttlUntil = if (ttlMs > 0) System.currentTimeMillis() + ttlMs else null
@@ -187,7 +193,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
                 appendLine("sizeBytes=${ref.sizeBytes}")
                 appendLine("encrypted=${encryptor != null}")
                 appendLine("envelope=${if (encryptor != null) "aes-gcm-v1" else "plaintext-test-only"}")
-            }.toByteArray(StandardCharsets.UTF_8),
+            }.toByteArray(StandardCharsets.UTF_8)
         )
     }
 
@@ -211,8 +217,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
         }
     }
 
-    private fun readAtomically(file: File): ByteArray =
-        if (appContext == null) file.readBytes() else AtomicFile(file).readFully()
+    private fun readAtomically(file: File): ByteArray = if (appContext == null) file.readBytes() else AtomicFile(file).readFully()
 
     private fun migrateLegacyBlob(ref: EvidenceBlobRef, bin: File, plaintext: ByteArray) {
         val currentEncryptor = encryptor ?: return
@@ -226,7 +231,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
         val ttlUntil: Long?,
         val mimeType: String?,
         val sourceType: EvidenceSourceType?,
-        val privacy: MessagePrivacy?,
+        val privacy: MessagePrivacy?
     )
 
     private fun readMeta(bin: File): Meta? {
@@ -241,7 +246,7 @@ class OnDeviceEvidenceBlobStore @JvmOverloads constructor(
                 ttlUntil = map["ttlUntil"]?.toLongOrNull()?.takeIf { it > 0 },
                 mimeType = map["mimeType"]?.takeIf { it != "-" },
                 sourceType = map["sourceType"]?.let { runCatching { EvidenceSourceType.valueOf(it) }.getOrNull() },
-                privacy = map["privacy"]?.let { runCatching { MessagePrivacy.valueOf(it) }.getOrNull() },
+                privacy = map["privacy"]?.let { runCatching { MessagePrivacy.valueOf(it) }.getOrNull() }
             )
         } catch (t: Throwable) {
             logw("readMeta failed for ${bin.name}", t)
@@ -370,12 +375,13 @@ private class AndroidKeyStoreBlobEncryptor : BlobEncryptor {
 
     private fun generateKey(): javax.crypto.SecretKey {
         val generator = javax.crypto.KeyGenerator.getInstance(
-            KEY_ALGORITHM, ANDROID_KEYSTORE,
+            KEY_ALGORITHM,
+            ANDROID_KEYSTORE
         )
         val spec = android.security.keystore.KeyGenParameterSpec.Builder(
             KEY_ALIAS,
             android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or
-                android.security.keystore.KeyProperties.PURPOSE_DECRYPT,
+                android.security.keystore.KeyProperties.PURPOSE_DECRYPT
         )
             .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -394,8 +400,7 @@ private class AndroidKeyStoreBlobEncryptor : BlobEncryptor {
         return MAGIC + byteArrayOf(VERSION, nonce.size.toByte()) + nonce + ciphertext
     }
 
-    override fun hasEnvelope(data: ByteArray): Boolean =
-        data.size >= MAGIC.size && data.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)
+    override fun hasEnvelope(data: ByteArray): Boolean = data.size >= MAGIC.size && data.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)
 
     override fun decrypt(data: ByteArray): ByteArray {
         check(data.size >= MAGIC.size + 2) { "Evidence envelope is truncated." }
@@ -458,5 +463,5 @@ private class LegacyCbcBlobDecryptor : BlobDecryptor {
 
 private data class DecodedBlob(
     val plaintext: ByteArray,
-    val migrateToGcm: Boolean,
+    val migrateToGcm: Boolean
 )

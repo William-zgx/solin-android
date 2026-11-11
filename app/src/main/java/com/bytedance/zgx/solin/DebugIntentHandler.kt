@@ -3,7 +3,7 @@ package com.bytedance.zgx.solin
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.util.Log
+import com.bytedance.zgx.solin.logging.solinI
 
 /**
  * Intent hooks that only exist for ADB and instrumentation evidence runs. Every entry point is a
@@ -11,7 +11,7 @@ import android.util.Log
  */
 internal class DebugIntentHandler(
     private val context: Context,
-    private val viewModel: () -> SolinViewModel,
+    private val viewModel: () -> SolinViewModel
 ) {
     /** Must run off the main thread: it persists the remote model profile. */
     fun configureRemoteModelForScreenshotEvidenceIfPresent(intent: Intent) {
@@ -23,7 +23,7 @@ internal class DebugIntentHandler(
         viewModel().configureDebugRemoteModelForScreenshotEvidence(
             baseUrl = baseUrl,
             modelName = modelName,
-            supportsVisionInput = supportsVisionInput,
+            supportsVisionInput = supportsVisionInput
         )
     }
 
@@ -39,11 +39,11 @@ internal class DebugIntentHandler(
         val prompt = debugPromptOrNull(
             isDebugBuild = BuildConfig.DEBUG,
             restoredFromSavedState = restoredFromSavedState,
-            rawPrompt = intent.getStringExtra(MainActivity.EXTRA_DEBUG_PROMPT),
+            rawPrompt = intent.getStringExtra(MainActivity.EXTRA_DEBUG_PROMPT)
         ) ?: return
         // Consume once so a re-delivered intent (configuration change) does not resend.
         intent.removeExtra(MainActivity.EXTRA_DEBUG_PROMPT)
-        Log.i("Solin/DebugPrompt", "dispatching prompt len=${prompt.length}")
+        solinI("Solin/DebugPrompt", "dispatching prompt len=${prompt.length}")
         viewModel().sendMessage(prompt)
     }
 }
@@ -51,6 +51,5 @@ internal class DebugIntentHandler(
 internal fun debugPromptOrNull(
     isDebugBuild: Boolean,
     restoredFromSavedState: Boolean,
-    rawPrompt: String?,
-): String? =
-    rawPrompt?.trim()?.takeIf { isDebugBuild && !restoredFromSavedState && it.isNotEmpty() }
+    rawPrompt: String?
+): String? = rawPrompt?.trim()?.takeIf { isDebugBuild && !restoredFromSavedState && it.isNotEmpty() }

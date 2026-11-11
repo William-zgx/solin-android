@@ -6,13 +6,44 @@ plugins {
     alias(libs.plugins.android.test) apply false
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.spotless)
+}
+
+val spotlessRatchetRef = providers.gradleProperty("solin.spotlessRatchetRef")
+    .orElse(providers.environmentVariable("SOLIN_SPOTLESS_RATCHET_REF"))
+    .orElse("origin/main")
+val spotlessSkip = providers.gradleProperty("solin.spotless.skip")
+    .orElse(providers.environmentVariable("SOLIN_SPOTLESS_SKIP"))
+    .map { value -> value == "1" || value.equals("true", ignoreCase = true) }
+    .orElse(false)
+    .get()
+
+spotless {
+    kotlin {
+        target("**/*.kt")
+        targetExclude("**/build/**", ".gradle/**", ".kotlin/**")
+        if (!spotlessSkip) ratchetFrom(spotlessRatchetRef.get())
+        ktlint(libs.versions.ktlint.get())
+    }
+    kotlinGradle {
+        target("**/*.gradle.kts")
+        targetExclude("**/build/**", ".gradle/**", ".kotlin/**")
+        if (!spotlessSkip) ratchetFrom(spotlessRatchetRef.get())
+        ktlint(libs.versions.ktlint.get())
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("spotless")) {
+        onlyIf { !spotlessSkip }
+    }
 }
 
 val bundledModelPackModules = listOf(
     "modelpackE2b",
     "modelpackE2bExtra",
     "modelpackE4b",
-    "modelpackE4bExtra",
+    "modelpackE4bExtra"
 )
 
 val bundledModelsPackageApks =
@@ -46,24 +77,22 @@ fun bundledModelAssetPathsFromManifest(manifest: String): Set<String> {
     }.toSet()
 }
 
-fun zipEntryNames(path: String): Set<String> =
-    ZipFile(path).use { zipFile ->
-        zipFile.entries().asSequence().map { entry -> entry.name }.toSet()
-    }
+fun zipEntryNames(path: String): Set<String> = ZipFile(path).use { zipFile ->
+    zipFile.entries().asSequence().map { entry -> entry.name }.toSet()
+}
 
-fun readBundledModelManifest(path: String): String =
-    ZipFile(path).use { zipFile ->
-        val manifestEntry = zipFile.getEntry(bundledModelManifestPath)
-            ?: error("Bundled base APK is missing $bundledModelManifestPath")
-        zipFile.getInputStream(manifestEntry).bufferedReader().use { reader -> reader.readText() }
-    }
+fun readBundledModelManifest(path: String): String = ZipFile(path).use { zipFile ->
+    val manifestEntry = zipFile.getEntry(bundledModelManifestPath)
+        ?: error("Bundled base APK is missing $bundledModelManifestPath")
+    zipFile.getInputStream(manifestEntry).bufferedReader().use { reader -> reader.readText() }
+}
 
 tasks.register("assembleBundledModelsPackage") {
     group = "distribution"
     description = "Builds the internal bundledModels quick-experience split APK set."
     dependsOn(
         listOf(":app:assembleBundledModels") +
-            bundledModelPackModules.map { module -> ":$module:assembleBundledModels" },
+            bundledModelPackModules.map { module -> ":$module:assembleBundledModels" }
     )
 }
 

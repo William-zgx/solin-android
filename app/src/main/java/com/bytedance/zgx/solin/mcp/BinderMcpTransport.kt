@@ -11,12 +11,12 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.RemoteException
-import android.util.Log
+import com.bytedance.zgx.solin.logging.solinW
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 
 /**
  * MCP transport over Android Binder Messenger. Connects to a remote Service
@@ -46,7 +46,7 @@ import kotlinx.coroutines.sync.withLock
 class BinderMcpTransport(
     private val context: Context,
     private val component: ComponentName,
-    private val requestTimeoutMs: Long = McpProtocol.DEFAULT_REQUEST_TIMEOUT_MS,
+    private val requestTimeoutMs: Long = McpProtocol.DEFAULT_REQUEST_TIMEOUT_MS
 ) : McpTransport {
 
     override val serverId: String = component.flattenToShortString()
@@ -54,9 +54,13 @@ class BinderMcpTransport(
     private val stateLock = Any()
 
     @Volatile private var expectedServerUid: Int? = null
+
     @Volatile private var replyMessenger: Messenger? = null
+
     @Volatile private var service: Messenger? = null
+
     @Volatile private var bound = false
+
     @Volatile private var bindRequested = false
 
     /** Pending in-flight requests keyed by id; guarded by [stateLock]. */
@@ -74,12 +78,12 @@ class BinderMcpTransport(
             }
             val expectedUid = expectedServerUid
             if (expectedUid == null || msg.sendingUid != expectedUid) {
-                Log.w(TAG, "dropping MCP reply from unexpected uid for $serverId")
+                solinW(TAG, "dropping MCP reply from unexpected uid for $serverId")
                 return
             }
             val json = runCatching { msg.data?.getString("json") }.getOrNull() ?: return
             if (json.length > MAX_RESPONSE_CHARS) {
-                Log.w(TAG, "dropping oversized MCP reply from $serverId")
+                solinW(TAG, "dropping oversized MCP reply from $serverId")
                 return
             }
             handleIncomingResponse(json)
@@ -131,12 +135,12 @@ class BinderMcpTransport(
             McpJsonRpcCodec.parseResponse(json)
         } catch (t: Throwable) {
             // Never log the payload: MCP results may contain private data.
-            Log.w(TAG, "failed to parse response from $serverId (${t.javaClass.simpleName})")
+            solinW(TAG, "failed to parse response from $serverId (${t.javaClass.simpleName})")
             return
         }
         val def = synchronized(stateLock) { pending.remove(resp.id) }
         if (def == null) {
-            Log.w(TAG, "received response for unknown/expired id ${resp.id} from $serverId")
+            solinW(TAG, "received response for unknown/expired id ${resp.id} from $serverId")
             return
         }
         def.complete(resp)
@@ -152,7 +156,7 @@ class BinderMcpTransport(
         connectMutex.withLock {
             if (bound) return true
             if (!McpServerVerifier.isTrustedServer(context, component)) {
-                Log.w(TAG, "refusing to bind untrusted MCP server $serverId")
+                solinW(TAG, "refusing to bind untrusted MCP server $serverId")
                 return false
             }
             expectedServerUid = McpServerVerifier.serverUid(context, component) ?: return false
@@ -163,7 +167,7 @@ class BinderMcpTransport(
                 bindRequested = true
                 context.bindService(intent, conn, Context.BIND_AUTO_CREATE)
             } catch (t: SecurityException) {
-                Log.w(TAG, "bind denied for $serverId")
+                solinW(TAG, "bind denied for $serverId")
                 false
             }
             if (!bindOk) {
@@ -176,7 +180,7 @@ class BinderMcpTransport(
             return try {
                 withTimeout(requestTimeoutMs) { deferred.await() }
             } catch (t: TimeoutCancellationException) {
-                Log.w(TAG, "bind timed out for $serverId")
+                solinW(TAG, "bind timed out for $serverId")
                 runCatching { context.unbindService(conn) }
                 bindRequested = false
                 synchronized(stateLock) {
@@ -216,7 +220,7 @@ class BinderMcpTransport(
 
     override suspend fun notify(method: String, params: Map<String, Any?>?) {
         if (!bound) {
-            Log.w(TAG, "dropping notification $method; not connected to $serverId")
+            solinW(TAG, "dropping notification $method; not connected to $serverId")
             return
         }
         // JSON-RPC notifications carry id=0 and receive no response.

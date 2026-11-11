@@ -2,12 +2,12 @@ package com.bytedance.zgx.solin.plan
 
 import com.bytedance.zgx.solin.module.SolinModule
 import com.bytedance.zgx.solin.module.SolinModuleRegistry
-import com.bytedance.zgx.solin.module.ToolHandler
 import com.bytedance.zgx.solin.tool.ConfirmationPolicy
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolCapabilityTag
 import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.tool.ToolHandler
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
@@ -15,10 +15,9 @@ import com.bytedance.zgx.solin.tool.failed
 import com.bytedance.zgx.solin.tool.succeeded
 import java.util.UUID
 import org.json.JSONArray
-import org.json.JSONObject
 
 class PlanToolHandler(
-    private val store: SessionPlanStore,
+    private val store: SessionPlanStore
 ) {
     fun toolSpecs(): List<ToolSpec> = listOf(
         ToolSpec(
@@ -29,7 +28,7 @@ class PlanToolHandler(
             capability = ToolCapability.Orchestration,
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.NotRequired,
-            tags = setOf(ToolCapabilityTag.Planning),
+            tags = setOf(ToolCapabilityTag.Planning)
         ),
         ToolSpec(
             name = PLAN_READ_TOOL,
@@ -39,8 +38,8 @@ class PlanToolHandler(
             capability = ToolCapability.Orchestration,
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.NotRequired,
-            tags = setOf(ToolCapabilityTag.Planning),
-        ),
+            tags = setOf(ToolCapabilityTag.Planning)
+        )
     )
 
     fun handler(): ToolHandler = ToolHandler { request ->
@@ -56,13 +55,13 @@ class PlanToolHandler(
             ?: return@runCatching request.failed(
                 ToolErrorCode.MissingArgument,
                 "plan_write requires runId",
-                retryable = false,
+                retryable = false
             )
         val itemsJsonRaw = request.arguments["itemsJson"]?.takeIf { it.isNotBlank() }
             ?: return@runCatching request.failed(
                 ToolErrorCode.MissingArgument,
                 "plan_write requires itemsJson (JSON array of plan items)",
-                retryable = false,
+                retryable = false
             )
         val items = parseItems(runId, itemsJsonRaw)
         val snap = store.replaceAll(runId, items)
@@ -74,14 +73,14 @@ class PlanToolHandler(
                 "runId" to runId,
                 "itemCount" to snap.items.size.toString(),
                 "doneCount" to done.toString(),
-                "pendingCount" to pending.toString(),
-            ),
+                "pendingCount" to pending.toString()
+            )
         )
     }.getOrElse { error ->
         request.failed(
             ToolErrorCode.InvalidRequest,
             "plan_write failed: ${error.message ?: error.javaClass.simpleName}",
-            retryable = false,
+            retryable = false
         )
     }
 
@@ -90,13 +89,13 @@ class PlanToolHandler(
             ?: return@runCatching request.failed(
                 ToolErrorCode.MissingArgument,
                 "plan_read requires runId",
-                retryable = false,
+                retryable = false
             )
         val snap = store.get(runId)
         if (snap == null) {
             return@runCatching request.succeeded(
                 summary = "No plan for run $runId.",
-                data = mapOf("runId" to runId, "itemCount" to "0", "rendered" to ""),
+                data = mapOf("runId" to runId, "itemCount" to "0", "rendered" to "")
             )
         }
         val rendered = snap.items.joinToString("\n") { item ->
@@ -118,14 +117,14 @@ class PlanToolHandler(
                 "itemCount" to snap.items.size.toString(),
                 "doneCount" to snap.doneCount().toString(),
                 "pendingCount" to snap.pendingCount().toString(),
-                "rendered" to rendered,
-            ),
+                "rendered" to rendered
+            )
         )
     }.getOrElse { error ->
         request.failed(
             ToolErrorCode.InvalidRequest,
             "plan_read failed: ${error.message ?: error.javaClass.simpleName}",
-            retryable = false,
+            retryable = false
         )
     }
 
@@ -172,7 +171,7 @@ class PlanToolHandler(
                 position = position,
                 title = title,
                 status = status,
-                note = note,
+                note = note
             )
         }
     }
@@ -219,7 +218,7 @@ private val planReadInputSchema = """
 """.trimIndent()
 
 class PlanToolsModule(
-    private val handler: PlanToolHandler,
+    private val handler: PlanToolHandler
 ) : SolinModule {
     override val moduleId: String get() = "plan:core"
 

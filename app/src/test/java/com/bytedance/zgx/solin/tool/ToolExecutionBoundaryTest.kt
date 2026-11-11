@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.safety.SafetyPolicyToolExecutionAuthorizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -19,7 +20,7 @@ class ToolExecutionBoundaryTest {
                 request.succeeded("unexpected")
             },
             dispatcher = Dispatchers.Unconfined,
-            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(ToolRegistry(emptyList())),
+            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(ToolRegistry(emptyList()))
         )
 
         val result = boundary.execute(ToolRequest(id = "unknown", toolName = "unknown"))
@@ -41,10 +42,10 @@ class ToolExecutionBoundaryTest {
                         inputSchemaJson = """{"type":"object","additionalProperties":false}""",
                         capability = ToolCapability.Extension,
                         riskLevel = RiskLevel.MediumDraftOrNavigation,
-                        confirmationPolicy = ConfirmationPolicy.NotRequired,
-                    ),
+                        confirmationPolicy = ConfirmationPolicy.NotRequired
+                    )
                 )
-            },
+            }
         )
         val boundary = TimeoutToolExecutionBoundary(
             executor = LambdaToolExecutor {
@@ -52,7 +53,7 @@ class ToolExecutionBoundaryTest {
                 it.succeeded("unexpected")
             },
             dispatcher = Dispatchers.Unconfined,
-            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(registry),
+            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(registry)
         )
 
         val result = boundary.execute(ToolRequest(id = "medium", toolName = "medium"), userConfirmed = true)
@@ -74,10 +75,10 @@ class ToolExecutionBoundaryTest {
                         description = "required",
                         inputSchemaJson = """{"type":"object","additionalProperties":false}""",
                         capability = ToolCapability.Extension,
-                        confirmationPolicy = ConfirmationPolicy.Required,
-                    ),
+                        confirmationPolicy = ConfirmationPolicy.Required
+                    )
                 )
-            },
+            }
         )
         val boundary = TimeoutToolExecutionBoundary(
             executor = LambdaToolExecutor {
@@ -85,7 +86,7 @@ class ToolExecutionBoundaryTest {
                 it.succeeded("ok")
             },
             dispatcher = Dispatchers.Unconfined,
-            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(registry),
+            executionAuthorizer = SafetyPolicyToolExecutionAuthorizer(registry)
         )
 
         assertEquals(ToolStatus.Rejected, boundary.execute(request).status)
@@ -107,7 +108,7 @@ class ToolExecutionBoundaryTest {
             executionAuthorizer = ToolExecutionAuthorizer { authorizedRequest, _ ->
                 authorizationCalls += 1
                 if (authorizationCalls > 1) authorizedRequest.rejected("authorization changed") else null
-            },
+            }
         )
 
         val result = boundary.executeBatch(listOf(request)).single()
@@ -130,7 +131,7 @@ class ToolExecutionBoundaryTest {
             dispatcher = Dispatchers.Unconfined,
             executionAuthorizer = ToolExecutionAuthorizer { authorizedRequest, _ ->
                 if (authorizedRequest.id == "blocked") authorizedRequest.rejected("blocked") else null
-            },
+            }
         )
 
         val results = boundary.executeBatch(listOf(allowed, blocked))
@@ -146,7 +147,7 @@ class ToolExecutionBoundaryTest {
             executor = LambdaToolExecutor {
                 throw IllegalStateException("boom")
             },
-            dispatcher = Dispatchers.Unconfined,
+            dispatcher = Dispatchers.Unconfined
         )
 
         val result = boundary.execute(request)
@@ -166,7 +167,7 @@ class ToolExecutionBoundaryTest {
             executor = LambdaToolExecutor {
                 throw CancellationException("stop")
             },
-            dispatcher = Dispatchers.Unconfined,
+            dispatcher = Dispatchers.Unconfined
         )
 
         var cancellationThrown = false
@@ -190,7 +191,7 @@ class ToolExecutionBoundaryTest {
                 request.succeeded("unexpected")
             },
             dispatcher = Dispatchers.Unconfined,
-            timeoutMillis = 0L,
+            timeoutMillis = 0L
         )
 
         val result = boundary.execute(request)
@@ -211,7 +212,7 @@ class ToolExecutionBoundaryTest {
             dispatcher = Dispatchers.Unconfined,
             timeoutMillis = 60_000L,
             deviceControlTimeoutMillis = 0L,
-            toolRegistry = defaultBuiltInToolRegistry,
+            toolRegistry = defaultBuiltInToolRegistry
         )
 
         val result = boundary.execute(request)
@@ -237,7 +238,7 @@ class ToolExecutionBoundaryTest {
                         request.failed(
                             code = ToolErrorCode.ExecutionFailed,
                             summary = "temporary failure",
-                            retryable = true,
+                            retryable = true
                         )
                     } else {
                         request.succeeded("retry success")
@@ -245,17 +246,17 @@ class ToolExecutionBoundaryTest {
                     "stable-failure" -> request.failed(
                         code = ToolErrorCode.ExecutionFailed,
                         summary = "final failure",
-                        retryable = false,
+                        retryable = false
                     )
                     else -> error("Unexpected request ${request.id}")
                 }
             },
             dispatcher = Dispatchers.Unconfined,
-            publicEvidenceBatchRetryAttempts = 1,
+            publicEvidenceBatchRetryAttempts = 1
         )
 
         val results = boundary.executePublicEvidenceBatch(
-            requests = listOf(first, retryable, stableFailure),
+            requests = listOf(first, retryable, stableFailure)
         ) {
             retryCallbackCount += 1
         }
@@ -281,10 +282,10 @@ class ToolExecutionBoundaryTest {
                 request.failed(
                     code = ToolErrorCode.ExecutionFailed,
                     summary = "final failure",
-                    retryable = false,
+                    retryable = false
                 )
             },
-            dispatcher = Dispatchers.Unconfined,
+            dispatcher = Dispatchers.Unconfined
         )
 
         val results = boundary.executePublicEvidenceBatch(listOf(request)) {
@@ -309,7 +310,7 @@ class ToolExecutionBoundaryTest {
                     else -> error("Unexpected request ${request.id}")
                 }
             },
-            dispatcher = Dispatchers.Unconfined,
+            dispatcher = Dispatchers.Unconfined
         )
 
         val results = boundary.executePublicEvidenceBatch(listOf(cancelled, succeeded))
@@ -338,7 +339,7 @@ class ToolExecutionBoundaryTest {
                 } else {
                     null
                 }
-            },
+            }
         )
 
         val results = boundary.executePublicEvidenceBatch(listOf(allowed, blocked))
@@ -352,7 +353,7 @@ class ToolExecutionBoundaryTest {
 }
 
 private class LambdaToolExecutor(
-    private val executeBlock: (ToolRequest) -> ToolResult,
+    private val executeBlock: (ToolRequest) -> ToolResult
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult = executeBlock(request)
 }

@@ -1,12 +1,10 @@
 package com.bytedance.zgx.solin.orchestration
 
-import com.bytedance.zgx.solin.SolinConstants
-import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ChatMessage
-import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.MessagePrivacy
-import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
-import com.bytedance.zgx.solin.tool.publicWebEvidencePacksFromToolResults
+import com.bytedance.zgx.solin.ModelCapability
+import com.bytedance.zgx.solin.ModelCapabilityProfile
+import com.bytedance.zgx.solin.SolinConstants
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.action.IntentRoutingDecision
@@ -18,29 +16,31 @@ import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
-import com.bytedance.zgx.solin.plan.SessionPlanStore
+import com.bytedance.zgx.solin.logging.solinE
+import com.bytedance.zgx.solin.logging.solinW
 import com.bytedance.zgx.solin.memory.MemoryIndex
+import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.safety.SafetyContext
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
-import com.bytedance.zgx.solin.skill.SkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRunProgressor
+import com.bytedance.zgx.solin.skill.SkillRuntime
+import com.bytedance.zgx.solin.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolStatus
 import com.bytedance.zgx.solin.tool.cancelled
-import com.bytedance.zgx.solin.tool.failed
 import com.bytedance.zgx.solin.tool.isEligibleForParallelBatch
 import com.bytedance.zgx.solin.tool.isRemoteModelPlanningEligible
-import com.bytedance.zgx.solin.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
-import com.bytedance.zgx.solin.tool.isUserConfirmedCompletedExternalOutcome
 import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
+import com.bytedance.zgx.solin.tool.isUserConfirmedCompletedExternalOutcome
+import com.bytedance.zgx.solin.tool.publicWebEvidencePacksFromToolResults
 import com.bytedance.zgx.solin.tool.rejected
 import com.bytedance.zgx.solin.tool.succeeded
-import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -90,7 +90,7 @@ private fun terminateRunBackoff(attempt: Int) {
  */
 private data class PendingMessageBatch(
     val runId: String,
-    val messages: List<ChatMessage>,
+    val messages: List<ChatMessage>
 )
 
 /**
@@ -101,7 +101,7 @@ private data class PendingMessageBatch(
  */
 data class PendingMessagesDrain(
     val steer: List<ChatMessage>,
-    val queued: List<ChatMessage>,
+    val queued: List<ChatMessage>
 ) {
     fun isEmpty(): Boolean = steer.isEmpty() && queued.isEmpty()
 
@@ -128,12 +128,12 @@ class AgentLoopRuntime(
     private val sessionPlanStore: SessionPlanStore? = null,
     private val contextCompactor: ContextCompactor = NoOpContextCompactor,
     private val contextAssembler: ContextAssembler? = null,
-    private val memoryRetrieval: MemoryRetrieval = MemoryRetrieval(memoryIndex),
+    private val memoryRetrieval: MemoryRetrieval = MemoryRetrieval(memoryIndex)
 ) {
     private val resolvedContextAssembler: ContextAssembler =
         contextAssembler ?: ContextAssembler(
             systemPromptBuilder = systemPromptBuilder,
-            memoryIndex = memoryIndex,
+            memoryIndex = memoryIndex
         )
     private val runtimeJob: Job = SupervisorJob()
     private val runtimeScope: CoroutineScope = CoroutineScope(Dispatchers.Default + runtimeJob)
@@ -148,20 +148,22 @@ class AgentLoopRuntime(
                                 itemCount = snapshot.items.size,
                                 pendingCount = snapshot.pendingCount(),
                                 doneCount = snapshot.doneCount(),
-                                updatedAtMillis = snapshot.updatedAtMillis,
-                            ),
+                                updatedAtMillis = snapshot.updatedAtMillis
+                            )
                         )
                     }.onFailure { throwable ->
-                        Log.e(TAG, "Plan update subscription failed", throwable)
+                        solinE(TAG, "Plan update subscription failed", throwable)
                     }
                 }
                 .collect {}
         }
     }
+
     @Volatile
     private var closed = false
 
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
+
     // Per-run maps live in one holder so terminal cleanup cannot miss one; the aliases below keep the
     // call sites unchanged.
     private val runScopedState = RunScopedState()
@@ -232,14 +234,14 @@ class AgentLoopRuntime(
         // run-level wall-clock deadline (step counts alone cannot bound an untimed model generation).
         runStartedAtMillis = { runId -> runStartedAtMillis[runId] },
         runParkedMillis = ::parkedMillisFor,
-        compositeStepCount = { runScopedState.compositeStepsByRunId[it] ?: 0 },
+        compositeStepCount = { runScopedState.compositeStepsByRunId[it] ?: 0 }
     )
     private val initialToolPlanner = InitialToolPlanner(
         toolRegistry = toolRegistry,
         skillRuntime = skillRuntime,
         safetyPolicy = safetyPolicy,
         actionPlanningRuntime = actionPlanningRuntime,
-        traceStore = traceStore,
+        traceStore = traceStore
     )
     private val confirmationBypassPolicy = ConfirmationBypassPolicy(
         toolRegistry = toolRegistry,
@@ -248,13 +250,13 @@ class AgentLoopRuntime(
         isCriticalOnlyConfirmationEnabled = { runId -> lowRiskDeviceActionConfirmationBypassByRunId[runId] == true },
         safetyPolicy = safetyPolicy,
         // Remote-vision runs must confirm one step before their first screenshot leaves.
-        isRemoteVisionDrivingEnabled = { runId -> remoteGuiDrivingEnabledByRunId[runId] == true },
+        isRemoteVisionDrivingEnabled = { runId -> remoteGuiDrivingEnabledByRunId[runId] == true }
     )
     private val publicEvidenceContinuation = PublicEvidenceContinuation(
         toolRegistry = toolRegistry,
         traceStore = traceStore,
         traceQueries = traceQueries,
-        evidenceBlobStore = evidenceBlobStore,
+        evidenceBlobStore = evidenceBlobStore
     )
     private val pendingConfirmationSupport = PendingConfirmationSupport(
         toolRegistry = toolRegistry,
@@ -263,10 +265,9 @@ class AgentLoopRuntime(
         initialToolPlanner = initialToolPlanner,
         valueFreeCompletedStepFrontiersByRunId = valueFreeCompletedStepFrontiersByRunId,
         host = object : PendingConfirmationSupport.Host {
-            override fun clearEphemeralRunState(runId: String) =
-                this@AgentLoopRuntime.clearEphemeralRunState(runId)
+            override fun clearEphemeralRunState(runId: String) = this@AgentLoopRuntime.clearEphemeralRunState(runId)
         },
-        auditRecorder = auditRecorder,
+        auditRecorder = auditRecorder
     )
 
     private val toolPlanCoordinator = ToolPlanCoordinator(
@@ -282,26 +283,21 @@ class AgentLoopRuntime(
         initialToolPlanner = initialToolPlanner,
         confirmationBypassPolicy = confirmationBypassPolicy,
         host = object : ToolPlanCoordinator.Host {
-            override fun installedCapabilityProfiles(runId: String): List<ModelCapabilityProfile> =
-                installedCapabilityProfilesByRunId[runId].orEmpty()
+            override fun installedCapabilityProfiles(runId: String): List<ModelCapabilityProfile> = installedCapabilityProfilesByRunId[runId].orEmpty()
 
-            override fun remoteGuiDrivingEnabled(runId: String): Boolean =
-                remoteGuiDrivingEnabledByRunId[runId] ?: false
+            override fun remoteGuiDrivingEnabled(runId: String): Boolean = remoteGuiDrivingEnabledByRunId[runId] ?: false
 
-            override fun localScratchpadNotes(runId: String): List<String> =
-                scratchpadNotesFromPromptBlock(runCatching { scratchpad.formatForPrompt(runId) }.getOrNull())
+            override fun localScratchpadNotes(runId: String): List<String> = scratchpadNotesFromPromptBlock(runCatching { scratchpad.formatForPrompt(runId) }.getOrNull())
 
             // First-confirm-then-auto, in BOTH confirmation modes: the remote-GUI opt-in is not a
             // per-run approval, so a screenshot may leave only after the user confirmed a step of
             // this run. Critical-only mode rarely prompts, so such a run usually has no confirmed
             // step and the remote-vision path stays closed (the local action model takes over).
-            override fun runHasUserConfirmedStep(runId: String): Boolean =
-                traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
+            override fun runHasUserConfirmedStep(runId: String): Boolean = traceStore.steps(runId).any { step -> step is AgentStep.UserConfirmed }
 
-            override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> =
-                valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()
+            override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> = valueFreeCompletedStepFrontiersByRunId[runId].orEmpty()
         },
-        auditRecorder = auditRecorder,
+        auditRecorder = auditRecorder
     )
 
     // Eager: every dependency above is initialized by now.
@@ -313,7 +309,7 @@ class AgentLoopRuntime(
         traceQueries = traceQueries,
         publicEvidenceContinuation = publicEvidenceContinuation,
         scratchpad = scratchpad,
-        evidenceBlobStore = evidenceBlobStore,
+        evidenceBlobStore = evidenceBlobStore
     )
 
     private val toolObservationCoordinator = ToolObservationCoordinator(
@@ -332,19 +328,16 @@ class AgentLoopRuntime(
         publicEvidenceContinuation = publicEvidenceContinuation,
         continuationBuilder = toolObservationContinuationBuilder,
         host = object : ToolObservationCoordinator.Host {
-            override fun hasPendingUserInput(runId: String): Boolean =
-                runScopedState.pendingUserInputByRunId[runId] == true
+            override fun hasPendingUserInput(runId: String): Boolean = runScopedState.pendingUserInputByRunId[runId] == true
 
             override fun failObservationBudget(
                 runId: String,
                 result: ToolResult,
                 assistantMessage: String,
-                reason: String,
-            ): AgentObservationResult? =
-                this@AgentLoopRuntime.failObservationBudget(runId, result, assistantMessage, reason)
+                reason: String
+            ): AgentObservationResult? = this@AgentLoopRuntime.failObservationBudget(runId, result, assistantMessage, reason)
 
-            override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
-                this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
+            override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean = this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
 
             override fun parkForTakeOver(runId: String, prompt: String?, result: ToolResult) {
                 this@AgentLoopRuntime.parkForTakeOver(runId, prompt, result)
@@ -353,7 +346,7 @@ class AgentLoopRuntime(
             override fun shouldAwaitExternalOutcomeConfirmation(
                 runId: String,
                 request: ToolRequest,
-                result: ToolResult,
+                result: ToolResult
             ): Boolean = this@AgentLoopRuntime.shouldAwaitExternalOutcomeConfirmation(runId, request, result)
 
             override fun clearEphemeralRunState(runId: String) {
@@ -368,12 +361,11 @@ class AgentLoopRuntime(
                 this@AgentLoopRuntime.recordStepLatency(stepType, runId)
             }
 
-            override fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult =
-                this@AgentLoopRuntime.failInitialPlanBudget(run, request)
+            override fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult = this@AgentLoopRuntime.failInitialPlanBudget(run, request)
 
             override fun addScratchpadNote(runId: String, noteContent: String) {
                 runCatching { scratchpad.addNote(runId, noteContent) }
-                    .onFailure { Log.e(TAG, "Scratchpad note failed", it) }
+                    .onFailure { solinE(TAG, "Scratchpad note failed", it) }
             }
 
             override fun markToolDispatchStarted(requestId: String) {
@@ -388,7 +380,7 @@ class AgentLoopRuntime(
             override fun setRemoteToolScope(runId: String, scope: RemoteToolScope) {
                 remoteToolScopesByRunId[runId] = scope
             }
-        },
+        }
     )
 
     private val modelToolRequestCoordinator = ModelToolRequestCoordinator(
@@ -403,25 +395,19 @@ class AgentLoopRuntime(
         confirmationBypassPolicy = confirmationBypassPolicy,
         pendingConfirmationSupport = pendingConfirmationSupport,
         host = object : ModelToolRequestCoordinator.Host {
-            override fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult? =
-                this@AgentLoopRuntime.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)
+            override fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult? = this@AgentLoopRuntime.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)
 
-            override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? =
-                this@AgentLoopRuntime.failRunBudget(runId, reason)
+            override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? = this@AgentLoopRuntime.failRunBudget(runId, reason)
 
-            override fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) =
-                this@AgentLoopRuntime.publishRunFailed(runId, code, message)
+            override fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) = this@AgentLoopRuntime.publishRunFailed(runId, code, message)
 
-            override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean =
-                this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
+            override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean = this@AgentLoopRuntime.parkForAskUserIfNeeded(runId, plan)
 
-            override fun clearEphemeralRunState(runId: String) =
-                this@AgentLoopRuntime.clearEphemeralRunState(runId)
+            override fun clearEphemeralRunState(runId: String) = this@AgentLoopRuntime.clearEphemeralRunState(runId)
 
-            override fun markStepStart(runId: String, stepType: String) =
-                this@AgentLoopRuntime.markStepStart(runId, stepType)
+            override fun markStepStart(runId: String, stepType: String) = this@AgentLoopRuntime.markStepStart(runId, stepType)
         },
-        auditRecorder = auditRecorder,
+        auditRecorder = auditRecorder
     )
 
     // Per-run monotonic turn counter for lifecycle events.
@@ -458,13 +444,14 @@ class AgentLoopRuntime(
     // AwaitingUserAnswer; cleared on answer/cancel/cancelRun/terminal state.
     private data class PendingUserQuestionState(
         val questionId: String,
-        val request: ToolRequest,
+        val request: ToolRequest
     )
     private val pendingUserQuestionsByRunId = java.util.concurrent.ConcurrentHashMap<String, PendingUserQuestionState>()
 
     // Wall-clock time a ToolRequested step was appended, keyed by requestId, so ToolCompleted telemetry can record latencyMs. Entries are cleared when the
     // corresponding tool result is observed so the map stays bounded by in-flight tool count.
     private val toolDispatchStartedAtMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     // (runId, stepType) -> last started-at epoch millis, so StepLatency samples can
     // record deltas when the next step boundary arrives. Keyed per run: concurrent runs (e.g.
     // subagents) would otherwise clobber each other's start marker and drop or mis-measure samples.
@@ -475,21 +462,20 @@ class AgentLoopRuntime(
      * (e.g. a Room error on a fresh install). The ephemeral run is not persisted, but all in-memory
      * bookkeeping still works so the route can proceed.
      */
-    private fun createRunOrEphemeral(input: String, sessionId: String?): AgentRun =
-        runCatching { traceStore.createRun(input, sessionId) }
-            .getOrElse { throwable ->
-                val now = System.currentTimeMillis()
-                AgentRun(
-                    id = "ephemeral-${now}-${(0..Int.MAX_VALUE).random()}",
-                    input = input,
-                    state = AgentRunState.Created,
-                    createdAtMillis = now,
-                    updatedAtMillis = now,
-                    sessionId = sessionId,
-                ).also { run ->
-                    Log.w(TAG, "traceStore.createRun failed, using ephemeral run ${run.id}: ${throwable.message}")
-                }
+    private fun createRunOrEphemeral(input: String, sessionId: String?): AgentRun = runCatching { traceStore.createRun(input, sessionId) }
+        .getOrElse { throwable ->
+            val now = System.currentTimeMillis()
+            AgentRun(
+                id = "ephemeral-$now-${(0..Int.MAX_VALUE).random()}",
+                input = input,
+                state = AgentRunState.Created,
+                createdAtMillis = now,
+                updatedAtMillis = now,
+                sessionId = sessionId
+            ).also { run ->
+                solinW(TAG, "traceStore.createRun failed, using ephemeral run ${run.id}: ${throwable.message}")
             }
+        }
 
     /**
      * Fails a run whose initial plan was rejected before any tool ran: records the rejection,
@@ -499,7 +485,7 @@ class AgentLoopRuntime(
     private fun failInitialPlanValidation(
         runId: String,
         plan: AgentPlan.RejectedTool,
-        failedStepMessage: String?,
+        failedStepMessage: String?
     ): AgentLoopResult {
         traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
         traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
@@ -510,14 +496,14 @@ class AgentLoopRuntime(
             SolinEvent.Agent.RunFailed(
                 runId = runId,
                 code = AgentErrorCode.Validation,
-                message = failedStepMessage ?: plan.result.summary,
-            ),
+                message = failedStepMessage ?: plan.result.summary
+            )
         )
         clearEphemeralRunState(runId)
         return AgentLoopResult(
             run = failedRun,
             plan = plan,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
@@ -529,7 +515,7 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot? = null,
         sessionId: String? = null,
         options: AgentRunOptions = AgentRunOptions(),
-        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList()
     ): AgentLoopResult {
         val runOptions = options.withInitialRouteCancellation()
         val createdRun = createRunOrEphemeral(input, sessionId)
@@ -546,15 +532,15 @@ class AgentLoopRuntime(
             SolinEvent.Agent.RunStarted(
                 runId = createdRun.id,
                 modelLabel = actionModelPath ?: "local",
-                inputText = input,
-            ),
+                inputText = input
+            )
         )
         eventBus.publish(
             SolinEvent.Agent.TurnStarted(
                 runId = createdRun.id,
                 turnIndex = 0,
-                occurredAtMillis = startedAt,
-            ),
+                occurredAtMillis = startedAt
+            )
         )
         try {
             val memoryHits = memoryRetrieval.retrieve(input, memoryEnabled).hits
@@ -566,11 +552,15 @@ class AgentLoopRuntime(
                     input = input,
                     installedCapabilityProfiles = installedCapabilityProfiles,
                     actionModelPath = actionModelPath,
-                    remoteGuiDrivingEnabled = runOptions.remoteGuiDrivingEnabled,
+                    remoteGuiDrivingEnabled = runOptions.remoteGuiDrivingEnabled
                 )
                 InitialPlanningMode.ModelFirstRemoteTools -> initialToolPlanner.planLocalOnlySkillBeforeRemote(input)
                 InitialPlanningMode.LocalModelFirst -> initialToolPlanner.planLocalModelFirst(
-                    createdRun.id, input, installedCapabilityProfiles, actionModelPath, runOptions,
+                    createdRun.id,
+                    input,
+                    installedCapabilityProfiles,
+                    actionModelPath,
+                    runOptions
                 )
             }
             runOptions.throwIfInitialRouteCancelled()
@@ -579,7 +569,7 @@ class AgentLoopRuntime(
                     val confirmation = toolObservationCoordinator.requestToolConfirmation(
                         createdRun,
                         initialToolPlan,
-                        runOptions.initialRouteCancellation,
+                        runOptions.initialRouteCancellation
                     )
                     runOptions.throwIfInitialRouteCancelled()
                     return confirmation
@@ -609,15 +599,15 @@ class AgentLoopRuntime(
                         accepted = false,
                         confidence = ActionIntentConfidence.None,
                         rejectionReasons = listOf("no_action_intent_detected"),
-                        requiresConfirmation = null,
-                    ),
-                ),
+                        requiresConfirmation = null
+                    )
+                )
             )
             runOptions.throwIfInitialRouteCancelled()
             val answerPlan = AgentPlan.Answer(
                 promptForModel = resolvedContextAssembler.assembleAnswerPrompt(input, memoryHits, deviceContext, createdRun),
                 memoryHits = memoryHits,
-                deviceContext = deviceContext,
+                deviceContext = deviceContext
             )
             runOptions.throwIfInitialRouteCancelled()
             traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(answerPlan))
@@ -629,7 +619,7 @@ class AgentLoopRuntime(
             return AgentLoopResult(
                 run = generatingRun,
                 plan = answerPlan,
-                steps = traceStore.steps(createdRun.id),
+                steps = traceStore.steps(createdRun.id)
             )
         } catch (_: InitialRouteCancelledException) {
             val cancellation = cancelRun(createdRun.id)
@@ -638,7 +628,7 @@ class AgentLoopRuntime(
                 run = cancelledRun,
                 // The cancelled run state makes this inert: routing never serves or persists it.
                 plan = AgentPlan.Answer(promptForModel = "", memoryHits = emptyList()),
-                steps = cancellation?.steps ?: traceStore.steps(createdRun.id),
+                steps = cancellation?.steps ?: traceStore.steps(createdRun.id)
             )
         }
     }
@@ -655,7 +645,7 @@ class AgentLoopRuntime(
                 draft = recovery.draft,
                 plannedByModel = false,
                 fallbackReason = "typed recovery action",
-                skillPlan = null,
+                skillPlan = null
             )
         ) {
             is AgentPlan.UseTool -> toolObservationCoordinator.requestToolConfirmation(createdRun, plan)
@@ -664,19 +654,17 @@ class AgentLoopRuntime(
         }
     }
 
-    fun failStaleInFlightRuns(reason: String): Int =
-        traceStore.failStaleInFlightRuns(reason)
+    fun failStaleInFlightRuns(reason: String): Int = traceStore.failStaleInFlightRuns(reason)
 
     fun runEvents(runId: String): List<AgentRunEvent> {
         val run = traceStore.run(runId) ?: return emptyList()
         return AgentStepRunEventAdapter.adapt(run, traceStore.steps(runId))
     }
 
-    fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> =
-        publicWebEvidencePacksFromToolResults(
-            traceStore.steps(runId)
-                .mapNotNull { step -> (step as? AgentStep.ToolObserved)?.result },
-        )
+    fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> = publicWebEvidencePacksFromToolResults(
+        traceStore.steps(runId)
+            .mapNotNull { step -> (step as? AgentStep.ToolObserved)?.result }
+    )
 
     fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
@@ -686,7 +674,7 @@ class AgentLoopRuntime(
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.GeneratingAnswer,
-            state = AgentRunState.Failed,
+            state = AgentRunState.Failed
         ) ?: return null
         traceStore.appendStep(runId, AgentStep.Failed(failureReason))
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
@@ -695,7 +683,7 @@ class AgentLoopRuntime(
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
@@ -714,7 +702,7 @@ class AgentLoopRuntime(
                 return AgentModelObservationResult(
                     run = cancelled.run,
                     decision = cancelled.decision,
-                    steps = cancelled.steps,
+                    steps = cancelled.steps
                 )
             }
             traceStore.clearPendingConfirmationsForRun(runId)
@@ -727,7 +715,7 @@ class AgentLoopRuntime(
                 return AgentModelObservationResult(
                     run = cancelled.run,
                     decision = cancelled.decision,
-                    steps = cancelled.steps,
+                    steps = cancelled.steps
                 )
             }
             traceStore.clearPendingConfirmationsForRun(runId)
@@ -736,7 +724,7 @@ class AgentLoopRuntime(
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = run.state,
-            state = AgentRunState.Cancelled,
+            state = AgentRunState.Cancelled
         ) ?: return null
         traceStore.clearPendingConfirmationsForRun(runId)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
@@ -744,14 +732,14 @@ class AgentLoopRuntime(
             SolinEvent.Agent.RunCancelled(
                 runId = runId,
                 reason = reason,
-                byUser = true,
-            ),
+                byUser = true
+            )
         )
         clearEphemeralRunState(runId)
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
@@ -777,16 +765,16 @@ class AgentLoopRuntime(
             updatedRun = traceStore.compareAndSetState(
                 runId = runId,
                 expectedState = run.state,
-                state = AgentRunState.Cancelled,
+                state = AgentRunState.Cancelled
             )
             if (updatedRun == null) terminateRunBackoff(attempt)
         }
         if (updatedRun == null) {
             runCatching {
-                Log.e(
+                solinE(
                     TAG,
                     "terminateRun($runId) gave up after $MAX_TERMINATE_RUN_CAS_ATTEMPTS CAS attempts; " +
-                        "run state is contended or the trace store's persisted/live views disagree",
+                        "run state is contended or the trace store's persisted/live views disagree"
                 )
             }
             return null
@@ -799,14 +787,14 @@ class AgentLoopRuntime(
             SolinEvent.Agent.RunCancelled(
                 runId = runId,
                 reason = reason,
-                byUser = true,
-            ),
+                byUser = true
+            )
         )
         clearEphemeralRunState(runId)
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
@@ -856,8 +844,8 @@ class AgentLoopRuntime(
             runCatching {
                 activeModelCallJobs[id]?.cancel(
                     kotlinx.coroutines.CancellationException(
-                        "run $id steered by user; aborting in-flight model generation",
-                    ),
+                        "run $id steered by user; aborting in-flight model generation"
+                    )
                 )
             }
         }
@@ -935,8 +923,8 @@ class AgentLoopRuntime(
         runCatching {
             job.cancel(
                 kotlinx.coroutines.CancellationException(
-                    "run $runId cancelled; aborting in-flight model generation",
-                ),
+                    "run $runId cancelled; aborting in-flight model generation"
+                )
             )
         }
     }
@@ -989,8 +977,8 @@ class AgentLoopRuntime(
                 SolinEvent.Agent.RunSteered(
                     runId = runId,
                     injectedMessageCount = totalInjected,
-                    reason = if (steer.isNotEmpty()) "steer" else "queue",
-                ),
+                    reason = if (steer.isNotEmpty()) "steer" else "queue"
+                )
             )
         }
         return PendingMessagesDrain(steer = steer.toList(), queued = queued.toList())
@@ -1008,7 +996,7 @@ class AgentLoopRuntime(
         channel: Channel<PendingMessageBatch>,
         priority: Priority,
         steerAccum: MutableList<ChatMessage>,
-        queuedAccum: MutableList<ChatMessage>,
+        queuedAccum: MutableList<ChatMessage>
     ) {
         // We bound the pump defensively: in the worst case a concurrent producer could keep
         // trySend-ing while we loop, but that would require another thread to call steer/queue
@@ -1037,12 +1025,12 @@ class AgentLoopRuntime(
 
     private fun failRunBudget(
         runId: String,
-        reason: String,
+        reason: String
     ): AgentModelObservationResult? {
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.GeneratingAnswer,
-            state = AgentRunState.Failed,
+            state = AgentRunState.Failed
         ) ?: return null
         traceStore.clearPendingConfirmationsForRun(runId)
         val augmentedReason = runBudget.augmentReasonWithStepBudgetHint(runId, reason)
@@ -1054,7 +1042,7 @@ class AgentLoopRuntime(
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
@@ -1062,12 +1050,12 @@ class AgentLoopRuntime(
         runId: String,
         result: ToolResult,
         assistantMessage: String,
-        reason: String,
+        reason: String
     ): AgentObservationResult? {
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.Observing,
-            state = AgentRunState.Failed,
+            state = AgentRunState.Failed
         ) ?: return null
         traceStore.clearPendingConfirmationsForRun(runId)
         traceStore.appendStep(runId, AgentStep.Failed(reason))
@@ -1085,13 +1073,13 @@ class AgentLoopRuntime(
             continuationRequiresLocalModel = false,
             retryRequest = null,
             retryAttempt = 0,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
     private fun failInitialPlanBudget(
         run: AgentRun,
-        request: ToolRequest,
+        request: ToolRequest
     ): AgentLoopResult {
         val hintReason = runBudget.augmentReasonWithStepBudgetHint(run.id, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         val rejectedPlan = AgentPlan.RejectedTool(request.rejected(hintReason))
@@ -1106,7 +1094,7 @@ class AgentLoopRuntime(
         return AgentLoopResult(
             run = failedRun,
             plan = rejectedPlan,
-            steps = traceStore.steps(run.id),
+            steps = traceStore.steps(run.id)
         )
     }
 
@@ -1115,16 +1103,15 @@ class AgentLoopRuntime(
      * invalid, unknown, or safety-rejected. Publishes RunFailed because the run already published
      * RunStarted, and no later transition publisher runs on this path.
      */
-    private fun failAwaitingConfirmation(runId: String, reason: String): AgentRun? =
-        traceStore.compareAndSetState(
-            runId = runId,
-            expectedState = AgentRunState.AwaitingUserConfirmation,
-            state = AgentRunState.Failed,
-        )
-            ?.also {
-                publishRunFailed(runId, AgentErrorCode.Validation, reason)
-                clearEphemeralRunState(runId)
-            }
+    private fun failAwaitingConfirmation(runId: String, reason: String): AgentRun? = traceStore.compareAndSetState(
+        runId = runId,
+        expectedState = AgentRunState.AwaitingUserConfirmation,
+        state = AgentRunState.Failed
+    )
+        ?.also {
+            publishRunFailed(runId, AgentErrorCode.Validation, reason)
+            clearEphemeralRunState(runId)
+        }
 
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
@@ -1161,20 +1148,20 @@ class AgentLoopRuntime(
                 runId = runId,
                 requestId = requestId,
                 toolCallId = request.id,
-                actionLabel = request.toolName,
-            ),
+                actionLabel = request.toolName
+            )
         )
         auditRecorder.request(
             runId = runId,
             request = request,
             eventType = ToolAuditEventType.UserConfirmed,
             status = null,
-            summary = safetyDecision.reason,
+            summary = safetyDecision.reason
         )
         val executingRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.AwaitingUserConfirmation,
-            state = AgentRunState.ExecutingTool,
+            state = AgentRunState.ExecutingTool
         ) ?: return null
         markStepStart(runId, "tool_execution")
         traceStore.clearPendingConfirmation(runId, requestId)
@@ -1192,20 +1179,20 @@ class AgentLoopRuntime(
                 runId = runId,
                 requestId = requestId,
                 toolCallId = request.id,
-                actionLabel = request.toolName,
-            ),
+                actionLabel = request.toolName
+            )
         )
         auditRecorder.request(
             runId = runId,
             request = request,
             eventType = ToolAuditEventType.UserCancelled,
             status = ToolStatus.Cancelled,
-            summary = "User cancelled tool request before execution.",
+            summary = "User cancelled tool request before execution."
         )
         val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = request.cancelled("用户取消了工具请求"),
-            allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
+            allowedStates = setOf(AgentRunState.AwaitingUserConfirmation)
         )
         traceStore.clearPendingConfirmation(runId, requestId)
         return observed
@@ -1214,7 +1201,7 @@ class AgentLoopRuntime(
     fun failPendingToolRequest(
         runId: String,
         requestId: String,
-        result: ToolResult,
+        result: ToolResult
     ): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return null
@@ -1228,12 +1215,12 @@ class AgentLoopRuntime(
             request = request,
             eventType = ToolAuditEventType.UserConfirmed,
             status = null,
-            summary = "User confirmed tool request, but execution was blocked before start.",
+            summary = "User confirmed tool request, but execution was blocked before start."
         )
         val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = result,
-            allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
+            allowedStates = setOf(AgentRunState.AwaitingUserConfirmation)
         )
         traceStore.clearPendingConfirmation(runId, requestId)
         return observed
@@ -1251,7 +1238,7 @@ class AgentLoopRuntime(
     fun answerUserQuestion(
         runId: String,
         questionId: String,
-        answer: String,
+        answer: String
     ): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserAnswer) return null
@@ -1263,15 +1250,15 @@ class AgentLoopRuntime(
             runId,
             AgentStep.UserQuestionAnswered(
                 questionId = questionId,
-                answer = trimmedAnswer,
-            ),
+                answer = trimmedAnswer
+            )
         )
         eventBus.publish(
             SolinEvent.Agent.UserQuestionAnswered(
                 runId = runId,
                 questionId = questionId,
-                answer = trimmedAnswer,
-            ),
+                answer = trimmedAnswer
+            )
         )
         val syntheticResult = pending.request.succeeded(
             summary = "用户已回答澄清问题",
@@ -1284,13 +1271,13 @@ class AgentLoopRuntime(
                 // continuation through the local-model-only path (matching read_clipboard /
                 // query_contacts / other LocalEvidence tools).
                 "privacy" to MessagePrivacy.LocalOnly.name,
-                "requiresLocalModel" to "true",
-            ),
+                "requiresLocalModel" to "true"
+            )
         )
         val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = syntheticResult,
-            allowedStates = setOf(AgentRunState.AwaitingUserAnswer),
+            allowedStates = setOf(AgentRunState.AwaitingUserAnswer)
         )
         pendingUserQuestionsByRunId.remove(runId)
         return observed
@@ -1303,7 +1290,7 @@ class AgentLoopRuntime(
      */
     fun cancelUserQuestion(
         runId: String,
-        questionId: String,
+        questionId: String
     ): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserAnswer) return null
@@ -1314,57 +1301,68 @@ class AgentLoopRuntime(
             request = pending.request,
             eventType = ToolAuditEventType.UserCancelled,
             status = ToolStatus.Cancelled,
-            summary = "User cancelled clarifying question before answering.",
+            summary = "User cancelled clarifying question before answering."
         )
         val syntheticResult = pending.request.cancelled(
             summary = "用户取消了澄清问题",
             data = mapOf(
                 "toolName" to MobileActionFunctions.ASK_USER,
-                "questionId" to questionId,
-            ),
+                "questionId" to questionId
+            )
         )
         val observed = toolObservationCoordinator.observeToolResultInternal(
             runId = runId,
             result = syntheticResult,
-            allowedStates = setOf(AgentRunState.AwaitingUserAnswer),
+            allowedStates = setOf(AgentRunState.AwaitingUserAnswer)
         )
         pendingUserQuestionsByRunId.remove(runId)
         return observed
     }
 
-    fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =
-        toolObservationCoordinator.observeToolResultInternal(
-            runId = runId,
-            result = result,
-            allowedStates = setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool),
-        )
+    fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? = toolObservationCoordinator.observeToolResultInternal(
+        runId = runId,
+        result = result,
+        allowedStates = setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool)
+    )
 
-    fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean =
-        synchronized(runScopedState) {
-            if (runScopedState.pendingUserInputByRunId[runId] == true || runBudget.toolStepBudgetExceeded(runId) ||
-                runBudget.runDeadlineExceeded(runId) ||
-                !confirmationBypassPolicy.canAuthorizeCompositeChild(runId, parent, child)) return@synchronized false
-            val ids = runScopedState.compositeChildIdsByRunId.getOrPut(runId) { mutableSetOf() }
-            if (!ids.add(child.id)) return@synchronized false
-            runScopedState.compositeStepsByRunId.merge(runId, 1, Int::plus)
-            auditRecorder.request(runId, child, ToolAuditEventType.ToolPlanned, null,
-                "Composite child authorized by current run policy.")
-            true
+    fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean = synchronized(runScopedState) {
+        if (runScopedState.pendingUserInputByRunId[runId] == true ||
+            runBudget.toolStepBudgetExceeded(runId) ||
+            runBudget.runDeadlineExceeded(runId) ||
+            !confirmationBypassPolicy.canAuthorizeCompositeChild(runId, parent, child)
+        ) {
+            return@synchronized false
         }
+        val ids = runScopedState.compositeChildIdsByRunId.getOrPut(runId) { mutableSetOf() }
+        if (!ids.add(child.id)) return@synchronized false
+        runScopedState.compositeStepsByRunId.merge(runId, 1, Int::plus)
+        auditRecorder.request(
+            runId,
+            child,
+            ToolAuditEventType.ToolPlanned,
+            null,
+            "Composite child authorized by current run policy."
+        )
+        true
+    }
 
     fun observeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest, result: ToolResult) {
         if (result.requestId != child.id || !child.id.startsWith("${parent.id}:child:")) return
-        auditRecorder.request(runId, child, ToolAuditEventType.ToolObserved, result.status,
-            "Composite child finished; private evidence remains local.")
+        auditRecorder.request(
+            runId,
+            child,
+            ToolAuditEventType.ToolObserved,
+            result.status,
+            "Composite child finished; private evidence remains local."
+        )
     }
 
-    fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? =
-        toolObservationCoordinator.observeToolResults(runId, results)
+    fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? = toolObservationCoordinator.observeToolResults(runId, results)
 
     fun recordExternalOutcome(
         runId: String,
         requestId: String,
-        outcome: AgentExternalOutcome,
+        outcome: AgentExternalOutcome
     ): AgentExternalOutcomeResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingExternalOutcome) return null
@@ -1378,8 +1376,8 @@ class AgentLoopRuntime(
                 "toolName" to request.toolName,
                 "completionVerified" to outcome.completionVerified.toString(),
                 "externalOutcome" to outcome.metadataValue,
-                "externalOutcomeSource" to "UserConfirmed",
-            ),
+                "externalOutcomeSource" to "UserConfirmed"
+            )
         )
         val safeResult = toolRegistry.validateResult(request, result) ?: result
         if (safeResult.status != ToolStatus.Succeeded) return null
@@ -1390,7 +1388,7 @@ class AgentLoopRuntime(
             request = request,
             eventType = ToolAuditEventType.ExternalOutcomeConfirmed,
             status = traceResult.status,
-            summary = traceResult.summary,
+            summary = traceResult.summary
         )
         val nextToolPlan = if (traceResult.isUserConfirmedCompletedExternalOutcome()) {
             toolPlanCoordinator.planNextToolAfterObservation(run, request, traceResult)
@@ -1401,7 +1399,7 @@ class AgentLoopRuntime(
             NextObservationPlan.None -> AgentObservationDecision.Complete
             is NextObservationPlan.Planned -> AgentObservationDecision.PlanNextTool(
                 plan = nextToolPlan.plan,
-                reason = traceResult.summary,
+                reason = traceResult.summary
             )
 
             is NextObservationPlan.Rejected -> AgentObservationDecision.Fail(nextToolPlan.reason)
@@ -1418,7 +1416,7 @@ class AgentLoopRuntime(
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.AwaitingExternalOutcome,
-            state = finalState,
+            state = finalState
         ) ?: return null
         val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
@@ -1428,7 +1426,7 @@ class AgentLoopRuntime(
             publishRunFailed(
                 runId,
                 AgentErrorCode.Unknown("tool_failure"),
-                (decision as? AgentObservationDecision.Fail)?.reason ?: traceResult.summary,
+                (decision as? AgentObservationDecision.Fail)?.reason ?: traceResult.summary
             )
         }
         if (finalState.isTerminal()) {
@@ -1446,14 +1444,14 @@ class AgentLoopRuntime(
             result = traceResult,
             assistantMessage = traceResult.summary,
             decision = decision,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
     fun observeModelResult(
         runId: String,
         text: String,
-        allowInlineToolCalls: Boolean = true,
+        allowInlineToolCalls: Boolean = true
     ): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
@@ -1472,10 +1470,10 @@ class AgentLoopRuntime(
             text.isNotBlank() -> toolPlanCoordinator.planNextToolAfterModelResult(
                 run = run,
                 text = text.trim(),
-                allowInlineToolCalls = allowInlineToolCalls,
+                allowInlineToolCalls = allowInlineToolCalls
             )
             traceQueries.latestSkillPlan(runId) != null -> NextObservationPlan.Rejected(
-                "Model output was blank; cannot continue skill.",
+                "Model output was blank; cannot continue skill."
             )
             else -> NextObservationPlan.None
         }
@@ -1487,13 +1485,13 @@ class AgentLoopRuntime(
         val decision = when {
             citationRetryPrompt != null -> AgentObservationDecision.ContinueWithModel(
                 requiresLocalModel = false,
-                reason = PUBLIC_EVIDENCE_CITATION_RETRY_REASON,
+                reason = PUBLIC_EVIDENCE_CITATION_RETRY_REASON
             )
 
             nextToolPlan == NextObservationPlan.None -> AgentObservationDecision.Complete
             nextToolPlan is NextObservationPlan.Planned -> AgentObservationDecision.PlanNextTool(
                 plan = nextToolPlan.plan,
-                reason = "Model output satisfied the next skill step.",
+                reason = "Model output satisfied the next skill step."
             )
 
             nextToolPlan is NextObservationPlan.Rejected -> AgentObservationDecision.Fail(nextToolPlan.reason)
@@ -1511,7 +1509,7 @@ class AgentLoopRuntime(
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.GeneratingAnswer,
-            state = finalState,
+            state = finalState
         ) ?: return null
         val parkedForAskUser = appendPlannedNextToolSteps(runId, decision)
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
@@ -1527,9 +1525,9 @@ class AgentLoopRuntime(
                 tps = 0.0,
                 backend = ServingBackend.LocalLiteRt,
                 modelId = "",
-                runId = runId,
+                runId = runId
             ),
-            "GenerationComplete",
+            "GenerationComplete"
         )
         runEvents.publishTransition(
             runId = runId,
@@ -1537,7 +1535,7 @@ class AgentLoopRuntime(
             completedText = null,
             publishTurnEndedOnCompletion = true,
             failureCode = AgentErrorCode.Unknown("model_observation"),
-            failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: "observation failed",
+            failureMessage = (decision as? AgentObservationDecision.Fail)?.reason ?: "observation failed"
         )
         if (finalState.isTerminal()) {
             clearEphemeralRunState(runId)
@@ -1555,7 +1553,7 @@ class AgentLoopRuntime(
             steps = traceStore.steps(runId),
             continuationPromptForModel = citationRetryPrompt,
             continuationRequiresLocalModel = false,
-            continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
+            continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly
         )
     }
 
@@ -1572,7 +1570,7 @@ class AgentLoopRuntime(
         if (decision !is AgentObservationDecision.PlanNextTool) return false
         toolObservationCoordinator.appendToolPlanSteps(
             runId = runId,
-            plan = decision.plan,
+            plan = decision.plan
         )
         return parkForAskUserIfNeeded(runId, decision.plan)
     }
@@ -1580,7 +1578,7 @@ class AgentLoopRuntime(
     fun recordRemoteToolsExposed(
         runId: String,
         scope: RemoteToolScope,
-        toolNames: Set<String>,
+        toolNames: Set<String>
     ) {
         val run = traceStore.run(runId) ?: return
         if (run.state != AgentRunState.GeneratingAnswer) return
@@ -1595,8 +1593,8 @@ class AgentLoopRuntime(
             runId,
             AgentStep.RemoteToolsExposed(
                 scope = scope,
-                toolNames = sanitizedNames.toList(),
-            ),
+                toolNames = sanitizedNames.toList()
+            )
         )
     }
 
@@ -1621,23 +1619,23 @@ class AgentLoopRuntime(
         runId: String?,
         reason: String,
         contextBefore: Int,
-        contextAfter: Int,
+        contextAfter: Int
     ) {
         safeRecordTelemetry(
             MetricSample.CompactionTriggered(
                 reason = reason,
                 contextBefore = contextBefore,
                 contextAfter = contextAfter,
-                runId = runId,
+                runId = runId
             ),
-            "CompactionTriggered",
+            "CompactionTriggered"
         )
         safeRecordTelemetry(
             MetricSample.CounterInc(
                 name = TelemetryCounter.CompactionTriggered,
-                runId = runId,
+                runId = runId
             ),
-            "CompactionTriggered counter",
+            "CompactionTriggered counter"
         )
     }
 
@@ -1657,7 +1655,7 @@ class AgentLoopRuntime(
         tokenBudget: Int,
         runId: String? = null,
         force: Boolean = false,
-        estimatedTokens: (List<ChatMessage>) -> Int = ::estimateTokensApproximate,
+        estimatedTokens: (List<ChatMessage>) -> Int = ::estimateTokensApproximate
     ): List<ChatMessage> {
         if (messages.isEmpty()) return messages
         if (contextCompactor is NoOpContextCompactor) return messages
@@ -1675,12 +1673,12 @@ class AgentLoopRuntime(
                         result.triggerReason.name
                     },
                     contextBefore = result.tokensBefore,
-                    contextAfter = result.tokensAfter,
+                    contextAfter = result.tokensAfter
                 )
             }
             result.messages
         }.onFailure { throwable ->
-            Log.e(TAG, "Context compactor failed; falling back to original history", throwable)
+            solinE(TAG, "Context compactor failed; falling back to original history", throwable)
         }.getOrDefault(messages)
     }
 
@@ -1694,63 +1692,58 @@ class AgentLoopRuntime(
         stepStartedAtMillis[StepStartKey(runId, stepType)] = System.currentTimeMillis()
     }
 
-    fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =
-        modelToolRequestCoordinator.observeModelToolRequest(runId, request)
+    fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? = modelToolRequestCoordinator.observeModelToolRequest(runId, request)
 
-    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? =
-        modelToolRequestCoordinator.observeModelToolRequests(runId, requests)
+    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? = modelToolRequestCoordinator.observeModelToolRequests(runId, requests)
 
-    fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? =
-        traceStore.latestPendingConfirmation(sessionId)
-            ?.takeIf { snapshot -> pendingConfirmationSupport.restoredPendingConfirmationIsAuthorized(snapshot) }
-            ?.also { snapshot -> pendingConfirmationSupport.rememberValueFreeFrontier(snapshot) }
+    fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? = traceStore.latestPendingConfirmation(sessionId)
+        ?.takeIf { snapshot -> pendingConfirmationSupport.restoredPendingConfirmationIsAuthorized(snapshot) }
+        ?.also { snapshot -> pendingConfirmationSupport.rememberValueFreeFrontier(snapshot) }
 
-    fun latestPendingExternalOutcome(sessionId: String? = null): PendingExternalOutcomeSnapshot? =
-        traceStore.recentRunSummaries(limit = PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT, stepLimit = 0)
-            .asSequence()
-            .map { summary -> summary.run }
-            .filter { run ->
-                run.state in pendingConfirmationSupport.pendingExternalOutcomeRestoreStates &&
-                    (sessionId == null || run.sessionId == sessionId)
-            }
-            .mapNotNull { run -> pendingConfirmationSupport.pendingExternalOutcomeSnapshotFor(run) }
-            .firstOrNull()
+    fun latestPendingExternalOutcome(sessionId: String? = null): PendingExternalOutcomeSnapshot? = traceStore.recentRunSummaries(limit = PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT, stepLimit = 0)
+        .asSequence()
+        .map { summary -> summary.run }
+        .filter { run ->
+            run.state in pendingConfirmationSupport.pendingExternalOutcomeRestoreStates &&
+                (sessionId == null || run.sessionId == sessionId)
+        }
+        .mapNotNull { run -> pendingConfirmationSupport.pendingExternalOutcomeSnapshotFor(run) }
+        .firstOrNull()
 
     private fun rejectRemoteToolIfNotExposedInCurrentScope(
         runId: String,
-        request: ToolRequest,
+        request: ToolRequest
     ): ToolResult? {
         val spec = toolRegistry.specFor(request.toolName)
             ?: return request.rejected("Unknown tool: ${request.toolName}")
         val scope = remoteToolScopesByRunId[runId] ?: RemoteToolScope.PublicEvidenceOnly
         val exposedNames = remoteExposedToolNamesByRunId[runId]
             ?: return request.rejected(
-                "Remote tool ${request.toolName} cannot be used before a remote tool snapshot is recorded.",
+                "Remote tool ${request.toolName} cannot be used before a remote tool snapshot is recorded."
             )
         if (request.toolName !in exposedNames) {
             return request.rejected(
-                "Remote tool ${request.toolName} was not exposed in the current remote tool snapshot.",
+                "Remote tool ${request.toolName} was not exposed in the current remote tool snapshot."
             )
         }
         return if (spec.isExposableInRemoteToolScope(scope)) {
             null
         } else {
             request.rejected(
-                "Remote tool ${request.toolName} was not exposed in the current ${scope.name} tool scope.",
+                "Remote tool ${request.toolName} was not exposed in the current ${scope.name} tool scope."
             )
         }
     }
 
-    private fun ToolSpec.isExposableInRemoteToolScope(scope: RemoteToolScope): Boolean =
-        when (scope) {
-            RemoteToolScope.PublicEvidenceOnly -> isEligibleForParallelBatch()
-            RemoteToolScope.ModelPlanning -> isRemoteModelPlanningEligible()
-        }
+    private fun ToolSpec.isExposableInRemoteToolScope(scope: RemoteToolScope): Boolean = when (scope) {
+        RemoteToolScope.PublicEvidenceOnly -> isEligibleForParallelBatch()
+        RemoteToolScope.ModelPlanning -> isRemoteModelPlanningEligible()
+    }
 
     private fun shouldAwaitExternalOutcomeConfirmation(
         runId: String,
         request: ToolRequest,
-        result: ToolResult,
+        result: ToolResult
     ): Boolean {
         if (!result.isUnverifiedExternalLaunch()) return false
         if (request.isLowRiskDeviceActionConfirmationSkippable()) return false
@@ -1759,8 +1752,7 @@ class AgentLoopRuntime(
         return !confirmationBypassPolicy.isAutoApproved(runId, request)
     }
 
-    private fun ToolRequest.isLowRiskDeviceActionConfirmationSkippable(): Boolean =
-        toolRegistry.isLowRiskDeviceActionConfirmationSkippable(this)
+    private fun ToolRequest.isLowRiskDeviceActionConfirmationSkippable(): Boolean = toolRegistry.isLowRiskDeviceActionConfirmationSkippable(this)
 
     private fun clearEphemeralRunState(runId: String) {
         if (runUsedDeviceControlSession(runId)) {
@@ -1784,14 +1776,12 @@ class AgentLoopRuntime(
     }
 
     /** Run ids that still hold in-memory per-run state; test hook for terminal-cleanup coverage. */
-    internal fun runIdsWithScopedState(): Set<String> =
-        runScopedState.trackedRunIds() + pendingUserQuestionsByRunId.keys + activeModelCallJobs.keys
+    internal fun runIdsWithScopedState(): Set<String> = runScopedState.trackedRunIds() + pendingUserQuestionsByRunId.keys + activeModelCallJobs.keys
 
-    private fun runUsedDeviceControlSession(runId: String): Boolean =
-        traceQueries.toolRequestsFor(runId).any { request ->
-            toolRegistry.startsDeviceControlSession(request.toolName) ||
-                toolPlanCoordinator.isDeviceControlTool(request)
-        }
+    private fun runUsedDeviceControlSession(runId: String): Boolean = traceQueries.toolRequestsFor(runId).any { request ->
+        toolRegistry.startsDeviceControlSession(request.toolName) ||
+            toolPlanCoordinator.isDeviceControlTool(request)
+    }
 
     /**
      * States in which a run is waiting on someone outside the agent, so its wall-clock deadline is
@@ -1800,16 +1790,14 @@ class AgentLoopRuntime(
     private val parkedRunStates = setOf(
         AgentRunState.AwaitingUserConfirmation,
         AgentRunState.AwaitingUserAnswer,
-        AgentRunState.AwaitingExternalOutcome,
+        AgentRunState.AwaitingExternalOutcome
     )
 
     private companion object {
         const val RUN_DELETED_SESSION_REASON = "Session deleted before this Agent run completed."
     }
 
-    private fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) =
-        runEvents.publishRunFailed(runId, code, message)
-
+    private fun publishRunFailed(runId: String, code: AgentErrorCode, message: String) = runEvents.publishRunFailed(runId, code, message)
 
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
         val restoredSnapshot = traceStore.latestPendingConfirmation()
@@ -1856,7 +1844,7 @@ class AgentLoopRuntime(
      */
     private fun parkForAskUserIfNeeded(
         runId: String,
-        plan: AgentPlan.UseTool,
+        plan: AgentPlan.UseTool
     ): Boolean {
         if (plan.request.toolName != MobileActionFunctions.ASK_USER) return false
         val prompt = plan.request.arguments["prompt"]?.takeIf { it.isNotBlank() }
@@ -1868,28 +1856,28 @@ class AgentLoopRuntime(
             AgentStep.UserQuestionAsked(
                 questionId = questionId,
                 prompt = prompt,
-                choices = choices,
-            ),
+                choices = choices
+            )
         )
         eventBus.publish(
             SolinEvent.Agent.UserQuestionAsked(
                 runId = runId,
                 questionId = questionId,
                 prompt = prompt,
-                choices = choices,
-            ),
+                choices = choices
+            )
         )
         pendingUserQuestionsByRunId[runId] = PendingUserQuestionState(
             questionId = questionId,
-            request = plan.request,
+            request = plan.request
         )
         // Count ask_user interception (question parked in AwaitingUserAnswer).
         safeRecordTelemetry(
             MetricSample.CounterInc(
                 name = TelemetryCounter.AskUserQuestions,
-                runId = runId,
+                runId = runId
             ),
-            "AskUserQuestions counter",
+            "AskUserQuestions counter"
         )
         return true
     }
@@ -1907,10 +1895,10 @@ class AgentLoopRuntime(
 
     private fun safeRecordTelemetry(
         sample: MetricSample,
-        label: String,
+        label: String
     ) {
         runCatching { telemetrySink.record(sample) }.onFailure { throwable ->
-            Log.e(TAG, "Telemetry sink failed to record '$label'", throwable)
+            solinE(TAG, "Telemetry sink failed to record '$label'", throwable)
         }
     }
 
@@ -1921,10 +1909,9 @@ class AgentLoopRuntime(
             MetricSample.StepLatency(
                 stepType = stepType,
                 latencyMs = latency,
-                runId = runId,
+                runId = runId
             ),
-            "StepLatency:$stepType",
+            "StepLatency:$stepType"
         )
     }
 }
-

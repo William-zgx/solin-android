@@ -51,7 +51,7 @@ OpenAI 兼容远程推理，以及受权限、确认和审计约束的手机工�
 | `download/`、`resource/`、`background/` | 下载与校验、资源采样、提醒与定时任务 |
 | `module/`、`mcp/` | 模块注册冻结、MCP 接入 |
 | `capability/`、`plan/`、`eval/`、`rcperf/`、`logging/` | 能力声明、计划、评估、性能证据和日志 |
-| `common/` | 跨包共用的 JSON 读取与哈希小工具 |
+| `common/` | 跨包共用的 JSON 读取、严格语法扫描与哈希小工具 |
 
 根包只放应用入口与组装根、跨包共享模型和 Activity 侧协调器（清单见
 [AGENTS.md](AGENTS.md)）；新功能代码放进所属的包。
@@ -73,7 +73,7 @@ OpenAI 兼容远程推理，以及受权限、确认和审计约束的手机工�
 
 ## 验证与交付
 
-使用 JDK 21 与 CI 对齐。按变更选择最小有效门禁；完整本地门禁包含脚本回归、JVM、
+使用 JDK 21 与 CI 对齐。按变更选择最小有效门禁；完整本地门禁包含 Kotlin 格式检查、脚本回归、JVM、
 Lint、构建和产物检查，单独编译成功不能替代它。
 
 ```bash
@@ -82,10 +82,15 @@ scripts/doctor.sh
 scripts/verify_local.sh
 
 # 实现期间按需选择
+./gradlew spotlessCheck
 ./gradlew :app:testDebugUnitTest --tests "<affected-test-pattern>"
 ./gradlew :app:compileDebugKotlin
 ./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.architecture.*"
 ```
+
+`spotlessCheck` 默认以 `origin/main` 为增量基线；缺少该 ref 时设置
+`SOLIN_SPOTLESS_RATCHET_REF`。无 Git 元数据的源码包可用 `SOLIN_SPOTLESS_SKIP=1`
+显式跳过本地格式检查，CI 不跳过。
 
 纯文档修改只运行相关链接、格式和记录校验；隐私相关文档另跑 `scripts/privacy_scan.sh`。
 设备与发布证据见上述 owner 文档。CI 的基础设施 skip 不等于设备测试通过；完整模拟器

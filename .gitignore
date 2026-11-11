@@ -31,9 +31,10 @@ sentencepiece*.model
 # Local agent tooling state and worktrees.
 .claude/
 
-# Memory bench output (lab/memory). Only the committed 20261107 run is tracked; other runs are local.
+# Memory bench output (lab/memory). Only the reviewed 20261107 and 20261108 runs are tracked.
 lab/memory/results/*
 !lab/memory/results/20261107/
+!lab/memory/results/20261108/
 
 # Lab bench leftovers: Python bytecode from lab/scripts, and local scratch outputs.
 __pycache__/

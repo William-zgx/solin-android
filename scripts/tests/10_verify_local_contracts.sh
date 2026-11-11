@@ -3,8 +3,15 @@
 # Sourced in order by scripts/test_validation_scripts.sh; shares its shell state
 # (helpers, fakes, TMP_DIR, ARTIFACT_DIR). Not runnable on its own.
 
+spotless_line="$(grep -n 'GRADLE_CMD.*spotlessCheck' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
 ksp_line="$(grep -n 'GRADLE_CMD.*:app:kspReleaseKotlin' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
 verify_line="$(grep -n 'GRADLE_CMD.*:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease :releaseSmoke:assembleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
+if [[ -z "$spotless_line" || -z "$ksp_line" || "$spotless_line" -ge "$ksp_line" ]]; then
+  fail "verify_local.sh must check changed Kotlin formatting before compilation"
+fi
+assert_file_contains_text scripts/verify_local.sh 'SOLIN_SPOTLESS_RATCHET_REF'
+assert_file_contains_text scripts/verify_local.sh 'SOLIN_SPOTLESS_SKIP=1'
+assert_file_contains_text build.gradle.kts 'onlyIf { !spotlessSkip }'
 if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; then
   fail "verify_local.sh must generate release KSP sources before lintDebug"
 fi

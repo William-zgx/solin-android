@@ -3,13 +3,15 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.audit.ToolAuditSummaryRedactor
-import com.bytedance.zgx.solin.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.solin.data.AgentRunEntity
+import com.bytedance.zgx.solin.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.AgentTraceDao
 import com.bytedance.zgx.solin.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
+import com.bytedance.zgx.solin.logging.solinE
+import com.bytedance.zgx.solin.logging.solinW
 import com.bytedance.zgx.solin.skill.SkillBackgroundExecution
 import com.bytedance.zgx.solin.skill.SkillBackgroundWork
 import com.bytedance.zgx.solin.skill.SkillManifest
@@ -23,12 +25,12 @@ import com.bytedance.zgx.solin.skill.validateStructure
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
-import org.json.JSONArray
-import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
-import java.util.UUID
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class AgentTraceStepSummary(
     val runId: String,
@@ -36,13 +38,13 @@ data class AgentTraceStepSummary(
     val type: String,
     val summary: String,
     val json: String,
-    val createdAtMillis: Long,
+    val createdAtMillis: Long
 )
 
 data class AgentTraceRunSummary(
     val run: AgentRun,
     val steps: List<AgentTraceStepSummary>,
-    val runDataReceiptStep: AgentTraceStepSummary? = null,
+    val runDataReceiptStep: AgentTraceStepSummary? = null
 )
 
 private val toolObservedCompletionMetadataAllowlist = listOf(
@@ -68,7 +70,7 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "targetUriScheme",
     "recoveryTaskId",
     "recoveryToolName",
-    "failureKind",
+    "failureKind"
 )
 
 /** `failureKind` is persisted only as a known enum value, so no free text can enter the trace. */
@@ -82,7 +84,7 @@ private const val UNRESTORABLE_PENDING_EXTERNAL_OUTCOME_REASON =
 
 private data class PendingConfirmationRepairResult(
     val validPendingRunIds: Set<String>,
-    val failedRunIds: Set<String>,
+    val failedRunIds: Set<String>
 )
 
 interface AgentTraceStore {
@@ -92,7 +94,7 @@ interface AgentTraceStore {
     fun compareAndSetState(
         runId: String,
         expectedState: AgentRunState,
-        state: AgentRunState,
+        state: AgentRunState
     ): AgentRun? = synchronized(this) {
         val current = run(runId) ?: return@synchronized null
         if (current.state != expectedState) return@synchronized null
@@ -128,7 +130,7 @@ interface AgentTraceStore {
 }
 
 class InMemoryAgentTraceStore(
-    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val clockMillis: () -> Long = { System.currentTimeMillis() }
 ) : AgentTraceStore {
     private val nextRunId = AtomicLong(0L)
     private val runs = ConcurrentHashMap<String, AgentRun>()
@@ -145,7 +147,7 @@ class InMemoryAgentTraceStore(
             state = AgentRunState.Created,
             createdAtMillis = now,
             updatedAtMillis = now,
-            sessionId = sessionId,
+            sessionId = sessionId
         )
         runs[run.id] = run
         runSteps[run.id] = CopyOnWriteArrayList()
@@ -153,14 +155,13 @@ class InMemoryAgentTraceStore(
         return run
     }
 
-    override fun run(runId: String): AgentRun? =
-        runs[runId]
+    override fun run(runId: String): AgentRun? = runs[runId]
 
     override fun updateState(runId: String, state: AgentRunState): AgentRun {
         val existing = runs.getValue(runId)
         val updated = existing.copy(
             state = state,
-            updatedAtMillis = clockMillis(),
+            updatedAtMillis = clockMillis()
         )
         runs[runId] = updated
         if (state.isTerminal()) dropTerminalState(runId)
@@ -170,7 +171,7 @@ class InMemoryAgentTraceStore(
     override fun compareAndSetState(
         runId: String,
         expectedState: AgentRunState,
-        state: AgentRunState,
+        state: AgentRunState
     ): AgentRun? {
         var updated: AgentRun? = null
         runs.compute(runId) { _, current ->
@@ -179,7 +180,7 @@ class InMemoryAgentTraceStore(
             } else {
                 current.copy(
                     state = state,
-                    updatedAtMillis = clockMillis(),
+                    updatedAtMillis = clockMillis()
                 ).also { next -> updated = next }
             }
         }
@@ -200,21 +201,19 @@ class InMemoryAgentTraceStore(
                 step.toTraceStepSummary(
                     runId = runId,
                     position = steps.size,
-                    createdAtMillis = clockMillis(),
-                ),
+                    createdAtMillis = clockMillis()
+                )
             )
             steps.add(step)
         }
     }
 
-    override fun steps(runId: String): List<AgentStep> =
-        runSteps[runId].orEmpty().toList()
+    override fun steps(runId: String): List<AgentStep> = runSteps[runId].orEmpty().toList()
 
     /** In-memory steps cannot fail to read: the list IS the source of truth, so never degraded. */
     override fun stepHistoryDegraded(runId: String): Boolean = false
 
-    override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
-        runStepSummaries[runId].orEmpty().toList()
+    override fun stepSummaries(runId: String): List<AgentTraceStepSummary> = runStepSummaries[runId].orEmpty().toList()
 
     override fun recentRunSummaries(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
         if (limit <= 0) return emptyList()
@@ -226,7 +225,7 @@ class InMemoryAgentTraceStore(
                 AgentTraceRunSummary(
                     run = run,
                     steps = summaries.takeLast(stepLimit.coerceAtLeast(0)),
-                    runDataReceiptStep = summaries.lastOrNull { step -> step.type == "RunDataReceiptRecorded" },
+                    runDataReceiptStep = summaries.lastOrNull { step -> step.type == "RunDataReceiptRecorded" }
                 )
             }
     }
@@ -238,29 +237,27 @@ class InMemoryAgentTraceStore(
             ?: continuationCursors.remove(snapshot.run.id)
     }
 
-    override fun latestPendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? =
-        pendingConfirmations.values
-            .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
-            .firstNotNullOfOrNull { snapshot ->
-                val run = runs[snapshot.run.id]
-                if (sessionId != null && run != null && run.sessionId != sessionId) return@firstNotNullOfOrNull null
-                when (run?.state) {
-                    AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
-                    null -> null
-                    else -> {
-                        dropTerminalState(snapshot.run.id)
-                        null
-                    }
+    override fun latestPendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? = pendingConfirmations.values
+        .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
+        .firstNotNullOfOrNull { snapshot ->
+            val run = runs[snapshot.run.id]
+            if (sessionId != null && run != null && run.sessionId != sessionId) return@firstNotNullOfOrNull null
+            when (run?.state) {
+                AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
+                null -> null
+                else -> {
+                    dropTerminalState(snapshot.run.id)
+                    null
                 }
             }
+        }
 
-    override fun clearPendingConfirmation(runId: String, requestId: String): Boolean =
-        pendingConfirmations[runId]
-            ?.takeIf { snapshot -> snapshot.request.id == requestId }
-            ?.let {
-                pendingConfirmations.remove(runId)
-                true
-            } ?: false
+    override fun clearPendingConfirmation(runId: String, requestId: String): Boolean = pendingConfirmations[runId]
+        ?.takeIf { snapshot -> snapshot.request.id == requestId }
+        ?.let {
+            pendingConfirmations.remove(runId)
+            true
+        } ?: false
 
     override fun clearPendingConfirmationsForRun(runId: String): Int {
         val removed = if (pendingConfirmations.remove(runId) != null) 1 else 0
@@ -268,8 +265,7 @@ class InMemoryAgentTraceStore(
         return removed
     }
 
-    override fun nextActionInput(runId: String): String? =
-        pendingConfirmations[runId]?.nextActionInput
+    override fun nextActionInput(runId: String): String? = pendingConfirmations[runId]?.nextActionInput
 
     override fun continuationCursor(runId: String): AgentContinuationCursor? {
         val run = runs[runId] ?: return null
@@ -317,17 +313,17 @@ class RoomAgentTraceStore(
      * this store keeps its narrow dependency surface; the composition root can bridge it to the
      * real [TelemetrySink]. Never receives step payload — only the run id and the flag.
      */
-    private val onStepHistoryDegradedChanged: (runId: String, degraded: Boolean) -> Unit = { _, _ -> },
+    private val onStepHistoryDegradedChanged: (runId: String, degraded: Boolean) -> Unit = { _, _ -> }
 ) : AgentTraceStore {
     private data class LiveStepEntry(
         val step: AgentStep,
-        val createdAtMillis: Long,
+        val createdAtMillis: Long
     )
 
     private data class MergedStepEntry(
         val step: AgentStep,
         val persisted: AgentStepEntity?,
-        val createdAtMillis: Long,
+        val createdAtMillis: Long
     )
 
     private val liveRuns = ConcurrentHashMap<String, AgentRun>()
@@ -351,7 +347,7 @@ class RoomAgentTraceStore(
             state = AgentRunState.Created,
             createdAtMillis = now,
             updatedAtMillis = now,
-            sessionId = sessionId,
+            sessionId = sessionId
         )
         // Persist to Room, but never let a DB failure prevent the run from being
         // usable. The in-memory maps (liveRuns, liveSteps, etc.) are the source
@@ -360,9 +356,9 @@ class RoomAgentTraceStore(
         // tables cleared), the run still proceeds in-memory.
         val insertResult = runCatching { traceDao.insertRunIfAbsent(run.toEntity()) }
             .onFailure { throwable ->
-                android.util.Log.w(
+                solinW(
                     "RoomAgentTraceStore",
-                    "insertRun failed for ${run.id}, continuing in-memory: ${throwable.message}",
+                    "insertRun failed for ${run.id}, continuing in-memory: ${throwable.message}"
                 )
             }
         check(insertResult.getOrNull() != -1L) { "Duplicate agent run id: ${run.id}" }
@@ -383,7 +379,7 @@ class RoomAgentTraceStore(
             persisted.state.isTerminal() || persisted.updatedAtMillis > live.updatedAtMillis -> {
                 val merged = live.copy(
                     state = persisted.state,
-                    updatedAtMillis = maxOf(live.updatedAtMillis, persisted.updatedAtMillis),
+                    updatedAtMillis = maxOf(live.updatedAtMillis, persisted.updatedAtMillis)
                 )
                 liveRuns[runId] = merged
                 merged
@@ -421,7 +417,7 @@ class RoomAgentTraceStore(
         liveRuns[runId]?.let { liveRun ->
             val updated = liveRun.copy(
                 state = state,
-                updatedAtMillis = now,
+                updatedAtMillis = now
             )
             liveRuns[runId] = updated
             if (state.isTerminal()) dropLiveTerminalState(runId)
@@ -434,12 +430,12 @@ class RoomAgentTraceStore(
 
     private fun projectPersistedTerminal(
         runId: String,
-        persisted: AgentRun,
+        persisted: AgentRun
     ): AgentRun {
         val projected = liveRuns[runId]?.let { live ->
             live.copy(
                 state = persisted.state,
-                updatedAtMillis = maxOf(live.updatedAtMillis, persisted.updatedAtMillis),
+                updatedAtMillis = maxOf(live.updatedAtMillis, persisted.updatedAtMillis)
             )
         } ?: persisted
         liveRuns[runId] = projected
@@ -458,7 +454,7 @@ class RoomAgentTraceStore(
     override fun compareAndSetState(
         runId: String,
         expectedState: AgentRunState,
-        state: AgentRunState,
+        state: AgentRunState
     ): AgentRun? {
         val now = clockMillis()
         val persistedUpdated = runCatching {
@@ -466,14 +462,14 @@ class RoomAgentTraceStore(
                 runId = runId,
                 expectedState = expectedState.name,
                 state = state.name,
-                updatedAtMillis = now,
+                updatedAtMillis = now
             )
         }.getOrNull()
         val updated = persistedUpdated?.let { persistedRun ->
             liveRuns.compute(runId) { _, liveRun ->
                 liveRun?.copy(
                     state = state,
-                    updatedAtMillis = now,
+                    updatedAtMillis = now
                 ) ?: persistedRun.toDomain()
             } ?: persistedRun.toDomain()
         } ?: run {
@@ -485,7 +481,7 @@ class RoomAgentTraceStore(
                 } else {
                     current.copy(
                         state = state,
-                        updatedAtMillis = now,
+                        updatedAtMillis = now
                     ).also { next -> liveUpdated = next }
                 }
             }
@@ -508,8 +504,8 @@ class RoomAgentTraceStore(
                         step.toTraceEntity(
                             runId = runId,
                             position = 0,
-                            createdAtMillis = now,
-                        ),
+                            createdAtMillis = now
+                        )
                     )
                 }
                 runCatching { traceDao.touchRun(runId, now) }
@@ -521,21 +517,18 @@ class RoomAgentTraceStore(
         }
     }
 
-    override fun steps(runId: String): List<AgentStep> =
-        mergedStepEntries(runId).map { entry -> entry.step }
+    override fun steps(runId: String): List<AgentStep> = mergedStepEntries(runId).map { entry -> entry.step }
 
-    override fun stepHistoryDegraded(runId: String): Boolean =
-        stepHistoryDegradedRunIds[runId] == true
+    override fun stepHistoryDegraded(runId: String): Boolean = stepHistoryDegradedRunIds[runId] == true
 
-    override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
-        mergedStepEntries(runId).mapIndexed { index, entry ->
-            entry.persisted?.copy(position = index)?.toSummary()
-                ?: entry.step.toTraceEntity(
-                    runId = runId,
-                    position = index,
-                    createdAtMillis = entry.createdAtMillis,
-                ).toSummary()
-        }
+    override fun stepSummaries(runId: String): List<AgentTraceStepSummary> = mergedStepEntries(runId).mapIndexed { index, entry ->
+        entry.persisted?.copy(position = index)?.toSummary()
+            ?: entry.step.toTraceEntity(
+                runId = runId,
+                position = index,
+                createdAtMillis = entry.createdAtMillis
+            ).toSummary()
+    }
 
     override fun recentRunSummaries(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
         if (limit <= 0) return emptyList()
@@ -546,7 +539,7 @@ class RoomAgentTraceStore(
             AgentTraceRunSummary(
                 run = run,
                 steps = summaries.takeLast(safeStepLimit),
-                runDataReceiptStep = summaries.lastOrNull { step -> step.type == "RunDataReceiptRecorded" },
+                runDataReceiptStep = summaries.lastOrNull { step -> step.type == "RunDataReceiptRecorded" }
             )
         }
     }
@@ -562,7 +555,7 @@ class RoomAgentTraceStore(
             ?: liveContinuationCursors.remove(snapshot.run.id)
         traceDao.upsertPendingConfirmationWithCheckpoint(
             pending = snapshot.toEntity(now, toolRegistry),
-            checkpoint = snapshot.skillRunCheckpoint?.toEntity(now),
+            checkpoint = snapshot.skillRunCheckpoint?.toEntity(now)
         )
     }
 
@@ -614,8 +607,7 @@ class RoomAgentTraceStore(
         return maxOf(liveRemoved, persistedRemoved)
     }
 
-    override fun nextActionInput(runId: String): String? =
-        liveNextActionInputs[runId]
+    override fun nextActionInput(runId: String): String? = liveNextActionInputs[runId]
 
     override fun continuationCursor(runId: String): AgentContinuationCursor? {
         val run = run(runId) ?: return null
@@ -682,27 +674,26 @@ class RoomAgentTraceStore(
         }
         return PendingConfirmationRepairResult(
             validPendingRunIds = validPendingRunIds,
-            failedRunIds = failedRunIds,
+            failedRunIds = failedRunIds
         )
     }
 
-    private fun latestLivePendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? =
-        livePendingConfirmations.values
-            .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
-            .firstNotNullOfOrNull { snapshot ->
-                val run = run(snapshot.run.id)
-                if (sessionId != null && run != null && run.sessionId != sessionId) return@firstNotNullOfOrNull null
-                when (run?.state) {
-                    AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
-                    null -> null
-                    else -> {
-                        livePendingConfirmations.remove(snapshot.run.id)
-                        liveNextActionInputs.remove(snapshot.run.id)
-                        liveContinuationCursors.remove(snapshot.run.id)
-                        null
-                    }
+    private fun latestLivePendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? = livePendingConfirmations.values
+        .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
+        .firstNotNullOfOrNull { snapshot ->
+            val run = run(snapshot.run.id)
+            if (sessionId != null && run != null && run.sessionId != sessionId) return@firstNotNullOfOrNull null
+            when (run?.state) {
+                AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
+                null -> null
+                else -> {
+                    livePendingConfirmations.remove(snapshot.run.id)
+                    liveNextActionInputs.remove(snapshot.run.id)
+                    liveContinuationCursors.remove(snapshot.run.id)
+                    null
                 }
             }
+        }
 
     private fun restoredContinuationCursor(runId: String): AgentContinuationCursor? {
         val summaries = stepSummaries(runId)
@@ -724,18 +715,17 @@ class RoomAgentTraceStore(
     }
 
     /** Same predicate the UI restore uses; see [pendingUnverifiedExternalOutcomeOrNull]. */
-    private fun hasRestorablePendingExternalOutcome(runId: String): Boolean =
-        stepSummaries(runId).pendingUnverifiedExternalOutcomeOrNull(toolRegistry) != null
+    private fun hasRestorablePendingExternalOutcome(runId: String): Boolean = stepSummaries(runId).pendingUnverifiedExternalOutcomeOrNull(toolRegistry) != null
 
     private fun restorablePendingSnapshotOrFailRun(
         entity: PendingAgentConfirmationEntity,
         checkpointEntity: AgentSkillRunCheckpointEntity?,
-        run: AgentRun,
+        run: AgentRun
     ): PendingToolConfirmationSnapshot? {
         val snapshot = try {
             entity.toSnapshot(
                 run = run,
-                skillRunCheckpoint = checkpointEntity?.toCheckpoint(),
+                skillRunCheckpoint = checkpointEntity?.toCheckpoint()
             )
         } catch (_: Exception) {
             null
@@ -762,8 +752,7 @@ class RoomAgentTraceStore(
 
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
         val steps = liveSteps.computeIfAbsent(snapshot.run.id) { CopyOnWriteArrayList() }
-        fun hasToolRequested(requestId: String) =
-            steps.any { entry -> (entry.step as? AgentStep.ToolRequested)?.request?.id == requestId }
+        fun hasToolRequested(requestId: String) = steps.any { entry -> (entry.step as? AgentStep.ToolRequested)?.request?.id == requestId }
         traceDao.steps(snapshot.run.id)
             .mapNotNull { entity -> entity.toRestoredToolRequestedOrNull()?.let { restored -> entity to restored } }
             .filterNot { (_, step) -> step.request.id == snapshot.request.id }
@@ -780,7 +769,7 @@ class RoomAgentTraceStore(
                 }
                 val skillStep = LiveStepEntry(
                     AgentStep.SkillPlanned(plan.request, plan),
-                    snapshot.run.updatedAtMillis,
+                    snapshot.run.updatedAtMillis
                 )
                 if (toolIndex >= 0) {
                     steps.add(toolIndex, skillStep)
@@ -792,7 +781,7 @@ class RoomAgentTraceStore(
         if (!hasToolRequested(snapshot.request.id)) {
             steps += LiveStepEntry(
                 AgentStep.ToolRequested(snapshot.request, snapshot.draft),
-                snapshot.run.updatedAtMillis,
+                snapshot.run.updatedAtMillis
             )
         }
         if (steps.none { entry ->
@@ -801,7 +790,7 @@ class RoomAgentTraceStore(
         ) {
             steps += LiveStepEntry(
                 AgentStep.UserConfirmationRequested(snapshot.request, snapshot.draft),
-                snapshot.run.updatedAtMillis,
+                snapshot.run.updatedAtMillis
             )
         }
     }
@@ -819,10 +808,10 @@ class RoomAgentTraceStore(
                 // Log is wrapped: android.util.Log is unmocked on the JVM unit-test path, and an
                 // unavailable logger must not escalate a degraded read into a thrown exception.
                 runCatching {
-                    android.util.Log.e(
+                    solinE(
                         "RoomAgentTraceStore",
                         "steps($runId) read failed; step-derived budgets degrade to fail-closed",
-                        throwable,
+                        throwable
                     )
                 }
             }
@@ -856,7 +845,7 @@ class RoomAgentTraceStore(
 
     private data class IndexedLiveStepEntry(
         val sequence: Int,
-        val entry: LiveStepEntry,
+        val entry: LiveStepEntry
     )
 
     /**
@@ -878,7 +867,7 @@ class RoomAgentTraceStore(
     private fun LiveStepEntry.toMergedStepEntry(): MergedStepEntry = MergedStepEntry(
         step = step,
         persisted = null,
-        createdAtMillis = createdAtMillis,
+        createdAtMillis = createdAtMillis
     )
 
     private fun LiveStepEntry.matchesPersisted(runId: String, entity: AgentStepEntity): Boolean = runCatching {
@@ -902,31 +891,28 @@ private val staleAfterProcessRestartStates = setOf(
     AgentRunState.RetryingTool,
     AgentRunState.Observing,
     AgentRunState.GeneratingAnswer,
-    AgentRunState.AwaitingUserAnswer,
+    AgentRunState.AwaitingUserAnswer
 )
 
 private fun AgentRunState.isStaleAfterProcessRestart(): Boolean = this in staleAfterProcessRestartStates
 
+private fun AgentRun.toEntity(): AgentRunEntity = AgentRunEntity(
+    id = id,
+    input = REDACTED_AGENT_RUN_INPUT,
+    state = state.name,
+    createdAtMillis = createdAtMillis,
+    updatedAtMillis = updatedAtMillis,
+    sessionId = sessionId
+)
 
-private fun AgentRun.toEntity(): AgentRunEntity =
-    AgentRunEntity(
-        id = id,
-        input = REDACTED_AGENT_RUN_INPUT,
-        state = state.name,
-        createdAtMillis = createdAtMillis,
-        updatedAtMillis = updatedAtMillis,
-        sessionId = sessionId,
-    )
-
-private fun AgentRunEntity.toDomain(): AgentRun =
-    AgentRun(
-        id = id,
-        input = input,
-        state = runCatching { AgentRunState.valueOf(state) }.getOrDefault(AgentRunState.Failed),
-        createdAtMillis = createdAtMillis,
-        updatedAtMillis = updatedAtMillis,
-        sessionId = sessionId,
-    )
+private fun AgentRunEntity.toDomain(): AgentRun = AgentRun(
+    id = id,
+    input = input,
+    state = runCatching { AgentRunState.valueOf(state) }.getOrDefault(AgentRunState.Failed),
+    createdAtMillis = createdAtMillis,
+    updatedAtMillis = updatedAtMillis,
+    sessionId = sessionId
+)
 
 internal fun AgentStep.toTraceEntity(runId: String, position: Int, createdAtMillis: Long): AgentStepEntity {
     val summary = toTraceStepSummary(runId, position, createdAtMillis)
@@ -936,14 +922,14 @@ internal fun AgentStep.toTraceEntity(runId: String, position: Int, createdAtMill
         type = summary.type,
         summary = summary.summary,
         json = summary.json,
-        createdAtMillis = summary.createdAtMillis,
+        createdAtMillis = summary.createdAtMillis
     )
 }
 
 internal fun AgentStep.toTraceStepSummary(
     runId: String,
     position: Int,
-    createdAtMillis: Long,
+    createdAtMillis: Long
 ): AgentTraceStepSummary {
     val type = traceType()
     return AgentTraceStepSummary(
@@ -952,26 +938,24 @@ internal fun AgentStep.toTraceStepSummary(
         type = type,
         summary = traceSummary(),
         json = traceJson(type, runId).toString(),
-        createdAtMillis = createdAtMillis,
+        createdAtMillis = createdAtMillis
     )
 }
 
-private fun AgentStepEntity.toSummary(): AgentTraceStepSummary =
-    AgentTraceStepSummary(
-        runId = runId,
-        position = position,
-        type = type,
-        summary = summary,
-        json = json,
-        createdAtMillis = createdAtMillis,
-    )
+private fun AgentStepEntity.toSummary(): AgentTraceStepSummary = AgentTraceStepSummary(
+    runId = runId,
+    position = position,
+    type = type,
+    summary = summary,
+    json = json,
+    createdAtMillis = createdAtMillis
+)
 
-private fun AgentStepEntity.toRestoredStep(): AgentStep.RestoredSummary =
-    AgentStep.RestoredSummary(
-        persistedType = type,
-        summary = summary,
-        json = json,
-    )
+private fun AgentStepEntity.toRestoredStep(): AgentStep.RestoredSummary = AgentStep.RestoredSummary(
+    persistedType = type,
+    summary = summary,
+    json = json
+)
 
 private fun AgentStepEntity.toRestoredToolRequestedOrNull(): AgentStep.ToolRequested? {
     if (type != "ToolRequested") return null
@@ -985,119 +969,115 @@ private fun AgentStepEntity.toRestoredToolRequestedOrNull(): AgentStep.ToolReque
                 id = requestId,
                 toolName = toolName,
                 arguments = emptyMap(),
-                reason = "",
+                reason = ""
             ),
             draft = ActionDraft(
                 functionName = toolName,
                 title = draftTitle,
                 summary = "",
-                parameters = emptyMap(),
-            ),
+                parameters = emptyMap()
+            )
         )
     }.getOrNull()
 }
 
-private fun SkillRunCheckpoint.toEntity(now: Long): AgentSkillRunCheckpointEntity =
-    AgentSkillRunCheckpointEntity(
-        runId = runId,
-        requestId = pendingRequestId,
-        skillId = skillId,
-        skillRequestId = skillRequestId,
-        manifestId = manifestId,
-        manifestVersion = manifestVersion,
-        manifestHash = manifestHash,
-        phase = phase.name,
-        pendingStepIndex = pendingStepIndex,
-        pendingStepId = pendingStepId,
-        pendingToolName = pendingToolName,
-        completedStepIdsJson = completedStepIds.toJsonArray().toString(),
-        outputKeysByStepJson = outputKeysByStep.toStringListJsonObject().toString(),
-        privateOutputRefsJson = privateOutputRefs.sorted().toJsonArray().toString(),
-        schemaVersion = schemaVersion,
-        createdAtMillis = now,
-        updatedAtMillis = now,
-    )
+private fun SkillRunCheckpoint.toEntity(now: Long): AgentSkillRunCheckpointEntity = AgentSkillRunCheckpointEntity(
+    runId = runId,
+    requestId = pendingRequestId,
+    skillId = skillId,
+    skillRequestId = skillRequestId,
+    manifestId = manifestId,
+    manifestVersion = manifestVersion,
+    manifestHash = manifestHash,
+    phase = phase.name,
+    pendingStepIndex = pendingStepIndex,
+    pendingStepId = pendingStepId,
+    pendingToolName = pendingToolName,
+    completedStepIdsJson = completedStepIds.toJsonArray().toString(),
+    outputKeysByStepJson = outputKeysByStep.toStringListJsonObject().toString(),
+    privateOutputRefsJson = privateOutputRefs.sorted().toJsonArray().toString(),
+    schemaVersion = schemaVersion,
+    createdAtMillis = now,
+    updatedAtMillis = now
+)
 
-private fun AgentSkillRunCheckpointEntity.toCheckpoint(): SkillRunCheckpoint =
-    SkillRunCheckpoint(
-        schemaVersion = schemaVersion,
-        runId = runId,
-        skillId = skillId,
-        skillRequestId = skillRequestId,
-        manifestId = manifestId,
-        manifestVersion = manifestVersion,
-        manifestHash = manifestHash,
-        phase = SkillRunCheckpointPhase.valueOf(phase),
-        pendingStepIndex = pendingStepIndex,
-        pendingStepId = pendingStepId,
-        pendingRequestId = requestId,
-        pendingToolName = pendingToolName,
-        completedStepIds = JSONArray(completedStepIdsJson).toStringList(),
-        outputKeysByStep = JSONObject(outputKeysByStepJson).toStringListMap(),
-        privateOutputRefs = JSONArray(privateOutputRefsJson).toStringList().toSet(),
-    )
+private fun AgentSkillRunCheckpointEntity.toCheckpoint(): SkillRunCheckpoint = SkillRunCheckpoint(
+    schemaVersion = schemaVersion,
+    runId = runId,
+    skillId = skillId,
+    skillRequestId = skillRequestId,
+    manifestId = manifestId,
+    manifestVersion = manifestVersion,
+    manifestHash = manifestHash,
+    phase = SkillRunCheckpointPhase.valueOf(phase),
+    pendingStepIndex = pendingStepIndex,
+    pendingStepId = pendingStepId,
+    pendingRequestId = requestId,
+    pendingToolName = pendingToolName,
+    completedStepIds = JSONArray(completedStepIdsJson).toStringList(),
+    outputKeysByStep = JSONObject(outputKeysByStepJson).toStringListMap(),
+    privateOutputRefs = JSONArray(privateOutputRefsJson).toStringList().toSet()
+)
 
 private fun PendingToolConfirmationSnapshot.toEntity(
     now: Long,
-    toolRegistry: ToolRegistry,
-): PendingAgentConfirmationEntity =
-    PendingAgentConfirmationEntity(
-        runId = run.id,
-        requestId = request.id,
-        toolName = request.toolName,
-        argumentsJson = request.arguments
-            .persistablePendingArgumentsFor(request.toolName, toolRegistry)
-            .toJsonObject()
-            .toString(),
-        reason = request.reason.redactedIfNotBlank(),
-        draftFunctionName = draft.functionName,
-        draftTitle = draft.title.redactedIfNotBlank(),
-        draftSummary = draft.summary.redactedIfNotBlank(),
-        draftParametersJson = draft.parameters
-            .persistablePendingArgumentsFor(request.toolName, toolRegistry)
-            .toJsonObject()
-            .toString(),
-        skillId = skillId,
-        skillPlanJson = skillPlan?.redactedForPendingPersistence()?.toJsonObject()?.toString(),
-        plannedByModel = plannedByModel,
-        fallbackReason = fallbackReason,
-        nextActionInput = null,
-        continuationCursorJson = continuationCursor
-            ?.persistableForPendingPersistence(sourceRequestId = request.id, toolRegistry = toolRegistry)
-            ?.toJsonObject()
-            ?.toString(),
-        createdAtMillis = now,
-        updatedAtMillis = now,
-    )
+    toolRegistry: ToolRegistry
+): PendingAgentConfirmationEntity = PendingAgentConfirmationEntity(
+    runId = run.id,
+    requestId = request.id,
+    toolName = request.toolName,
+    argumentsJson = request.arguments
+        .persistablePendingArgumentsFor(request.toolName, toolRegistry)
+        .toJsonObject()
+        .toString(),
+    reason = request.reason.redactedIfNotBlank(),
+    draftFunctionName = draft.functionName,
+    draftTitle = draft.title.redactedIfNotBlank(),
+    draftSummary = draft.summary.redactedIfNotBlank(),
+    draftParametersJson = draft.parameters
+        .persistablePendingArgumentsFor(request.toolName, toolRegistry)
+        .toJsonObject()
+        .toString(),
+    skillId = skillId,
+    skillPlanJson = skillPlan?.redactedForPendingPersistence()?.toJsonObject()?.toString(),
+    plannedByModel = plannedByModel,
+    fallbackReason = fallbackReason,
+    nextActionInput = null,
+    continuationCursorJson = continuationCursor
+        ?.persistableForPendingPersistence(sourceRequestId = request.id, toolRegistry = toolRegistry)
+        ?.toJsonObject()
+        ?.toString(),
+    createdAtMillis = now,
+    updatedAtMillis = now
+)
 
 private fun PendingAgentConfirmationEntity.toSnapshot(
     run: AgentRun,
-    skillRunCheckpoint: SkillRunCheckpoint?,
-): PendingToolConfirmationSnapshot =
-    PendingToolConfirmationSnapshot(
-        run = run,
-        request = ToolRequest(
-            id = requestId,
-            toolName = toolName,
-            arguments = argumentsJson.toStringMap(),
-            reason = reason,
-        ),
-        draft = ActionDraft(
-            functionName = draftFunctionName,
-            title = draftTitle,
-            summary = draftSummary,
-            parameters = draftParametersJson.toStringMap(),
-        ),
-        skillId = skillId,
-        skillPlan = skillPlanJson?.let { json -> JSONObject(json).toSkillPlan() },
-        plannedByModel = plannedByModel,
-        fallbackReason = fallbackReason,
-        nextActionInput = null,
-        continuationCursor = continuationCursorJson?.let { json ->
-            JSONObject(json).toAgentContinuationCursor()
-        },
-        skillRunCheckpoint = skillRunCheckpoint,
-    )
+    skillRunCheckpoint: SkillRunCheckpoint?
+): PendingToolConfirmationSnapshot = PendingToolConfirmationSnapshot(
+    run = run,
+    request = ToolRequest(
+        id = requestId,
+        toolName = toolName,
+        arguments = argumentsJson.toStringMap(),
+        reason = reason
+    ),
+    draft = ActionDraft(
+        functionName = draftFunctionName,
+        title = draftTitle,
+        summary = draftSummary,
+        parameters = draftParametersJson.toStringMap()
+    ),
+    skillId = skillId,
+    skillPlan = skillPlanJson?.let { json -> JSONObject(json).toSkillPlan() },
+    plannedByModel = plannedByModel,
+    fallbackReason = fallbackReason,
+    nextActionInput = null,
+    continuationCursor = continuationCursorJson?.let { json ->
+        JSONObject(json).toAgentContinuationCursor()
+    },
+    skillRunCheckpoint = skillRunCheckpoint
+)
 
 private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boolean {
     val plan = skillPlan ?: return true
@@ -1109,7 +1089,7 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boo
 }
 
 private fun PendingToolConfirmationSnapshot.hasRestorableSkillRunCheckpoint(
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry
 ): Boolean {
     val plan = skillPlan
     val checkpoint = skillRunCheckpoint
@@ -1122,7 +1102,7 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillRunCheckpoint(
 }
 
 private fun PendingToolConfirmationSnapshot.hasRestorableContinuationCursor(
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry
 ): Boolean {
     val cursor = continuationCursor ?: return true
     return cursor.isRestorableForSourceRequest(request.id, toolRegistry)
@@ -1130,7 +1110,7 @@ private fun PendingToolConfirmationSnapshot.hasRestorableContinuationCursor(
 
 private fun AgentContinuationCursor.isRestorableForSourceRequest(
     sourceRequestId: String,
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry
 ): Boolean {
     if (!hasValueFreeCursorPersistenceShape(sourceRequestId)) return false
     if (toolRegistry.validate(request) != null) return false
@@ -1141,14 +1121,12 @@ private fun AgentContinuationCursor.isRestorableForSourceRequest(
 
 private fun AgentContinuationCursor.persistableForPendingPersistence(
     sourceRequestId: String,
-    toolRegistry: ToolRegistry,
-): AgentContinuationCursor? =
-    redactedForPendingPersistence()
-        .takeIf { cursor -> cursor.isRestorableForSourceRequest(sourceRequestId, toolRegistry) }
+    toolRegistry: ToolRegistry
+): AgentContinuationCursor? = redactedForPendingPersistence()
+    .takeIf { cursor -> cursor.isRestorableForSourceRequest(sourceRequestId, toolRegistry) }
 
-private fun AgentContinuationCursor.persistableForTracePersistence(): AgentContinuationCursor? =
-    redactedForPendingPersistence()
-        .takeIf { cursor -> cursor.hasValueFreeCursorPersistenceShape(cursor.sourceRequestId) }
+private fun AgentContinuationCursor.persistableForTracePersistence(): AgentContinuationCursor? = redactedForPendingPersistence()
+    .takeIf { cursor -> cursor.hasValueFreeCursorPersistenceShape(cursor.sourceRequestId) }
 
 private fun AgentContinuationCursor.hasValueFreeCursorPersistenceShape(sourceRequestId: String): Boolean {
     if (this.sourceRequestId != sourceRequestId) return false
@@ -1177,37 +1155,32 @@ private fun SkillPlan.hasOnlyValueFreeOrRedactedPayloadForCursor(): Boolean {
     return true
 }
 
-private fun AgentContinuationCursor.redactedForPendingPersistence(): AgentContinuationCursor =
-    copy(
-        request = request.copy(reason = request.reason.redactedIfNotBlank()),
-        draft = draft.copy(
-            title = draft.title.redactedIfNotBlank(),
-            summary = draft.summary.redactedIfNotBlank(),
-        ),
-        skillPlan = skillPlan?.redactedForPendingPersistence(),
-    )
+private fun AgentContinuationCursor.redactedForPendingPersistence(): AgentContinuationCursor = copy(
+    request = request.copy(reason = request.reason.redactedIfNotBlank()),
+    draft = draft.copy(
+        title = draft.title.redactedIfNotBlank(),
+        summary = draft.summary.redactedIfNotBlank()
+    ),
+    skillPlan = skillPlan?.redactedForPendingPersistence()
+)
 
-private fun PendingToolConfirmationSnapshot.hasRedactedExecutablePayload(): Boolean =
-    request.arguments.hasRedactedValue() ||
-        draft.parameters.hasRedactedValue()
+private fun PendingToolConfirmationSnapshot.hasRedactedExecutablePayload(): Boolean = request.arguments.hasRedactedValue() ||
+    draft.parameters.hasRedactedValue()
 
-private fun Map<String, String>.hasRedactedValue(): Boolean =
-    values.any { value -> value == REDACTED_AGENT_RUN_INPUT }
+private fun Map<String, String>.hasRedactedValue(): Boolean = values.any { value -> value == REDACTED_AGENT_RUN_INPUT }
 
-private fun Map<String, String>.hasOnlyBlankOrRedactedValues(): Boolean =
-    values.all { value -> value.isBlankOrRedacted() }
+private fun Map<String, String>.hasOnlyBlankOrRedactedValues(): Boolean = values.all { value -> value.isBlankOrRedacted() }
 
-private fun String.isBlankOrRedacted(): Boolean =
-    isBlank() || this == REDACTED_AGENT_RUN_INPUT
+private fun String.isBlankOrRedacted(): Boolean = isBlank() || this == REDACTED_AGENT_RUN_INPUT
 
 private fun Map<String, String>.persistablePendingArgumentsFor(
     toolName: String,
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry
 ): Map<String, String> {
     if (isEmpty()) return emptyMap()
     val allowlist = toolRegistry.pendingArgumentAllowlistFor(toolName)
     val originalRequestIsValid = toolRegistry.validate(
-        ToolRequest(toolName = toolName, arguments = this),
+        ToolRequest(toolName = toolName, arguments = this)
     ) == null
     return filterKeys { key -> key in allowlist }
         .mapValues { (_, value) ->
@@ -1215,59 +1188,51 @@ private fun Map<String, String>.persistablePendingArgumentsFor(
         }
 }
 
-private fun SkillPlan.redactedForPendingPersistence(): SkillPlan =
-    copy(
-        request = request.copy(
-            arguments = request.arguments.redactedValuesForPendingPersistence(),
-            reason = request.reason.redactedIfNotBlank(),
-        ),
-        steps = steps.map { step ->
-            when (step) {
-                is SkillStep.ToolStep -> step.copy(
-                    request = step.request.copy(
-                        arguments = step.request.arguments.redactedValuesForPendingPersistence(),
-                        reason = step.request.reason.redactedIfNotBlank(),
-                    ),
-                    draft = step.draft.copy(
-                        title = step.draft.title.redactedIfNotBlank(),
-                        summary = step.draft.summary.redactedIfNotBlank(),
-                        parameters = step.draft.parameters.redactedValuesForPendingPersistence(),
-                    ),
+private fun SkillPlan.redactedForPendingPersistence(): SkillPlan = copy(
+    request = request.copy(
+        arguments = request.arguments.redactedValuesForPendingPersistence(),
+        reason = request.reason.redactedIfNotBlank()
+    ),
+    steps = steps.map { step ->
+        when (step) {
+            is SkillStep.ToolStep -> step.copy(
+                request = step.request.copy(
+                    arguments = step.request.arguments.redactedValuesForPendingPersistence(),
+                    reason = step.request.reason.redactedIfNotBlank()
+                ),
+                draft = step.draft.copy(
+                    title = step.draft.title.redactedIfNotBlank(),
+                    summary = step.draft.summary.redactedIfNotBlank(),
+                    parameters = step.draft.parameters.redactedValuesForPendingPersistence()
                 )
+            )
 
-                is SkillStep.ModelStep -> step
-                is SkillStep.BranchStep -> step
-            }
-        },
-    )
+            is SkillStep.ModelStep -> step
+            is SkillStep.BranchStep -> step
+        }
+    }
+)
 
 private fun SkillPlan.isSingleToolStepPlanFor(request: ToolRequest): Boolean {
     val step = steps.singleOrNull() as? SkillStep.ToolStep ?: return false
     return step.request.id == request.id && step.request.toolName == request.toolName
 }
 
-private fun Map<String, String>.redactedValuesForPendingPersistence(): Map<String, String> =
-    mapValues { (_, value) -> value.redactedIfNotBlank() }
+private fun Map<String, String>.redactedValuesForPendingPersistence(): Map<String, String> = mapValues { (_, value) -> value.redactedIfNotBlank() }
 
-private fun String.redactedIfNotBlank(): String =
-    if (isBlank()) this else REDACTED_AGENT_RUN_INPUT
+private fun String.redactedIfNotBlank(): String = if (isBlank()) this else REDACTED_AGENT_RUN_INPUT
 
-private fun Map<String, String>.toJsonObject(): JSONObject =
-    JSONObject().also { json -> entries.sortedBy { it.key }.forEach { (key, value) -> json.put(key, value) } }
+private fun Map<String, String>.toJsonObject(): JSONObject = JSONObject().also { json -> entries.sortedBy { it.key }.forEach { (key, value) -> json.put(key, value) } }
 
-private fun Map<String, List<String>>.toStringListJsonObject(): JSONObject =
-    JSONObject().also { json ->
-        entries.sortedBy { it.key }.forEach { (key, values) -> json.put(key, values.distinct().sorted().toJsonArray()) }
-    }
+private fun Map<String, List<String>>.toStringListJsonObject(): JSONObject = JSONObject().also { json ->
+    entries.sortedBy { it.key }.forEach { (key, values) -> json.put(key, values.distinct().sorted().toJsonArray()) }
+}
 
-private fun String.toStringMap(): Map<String, String> =
-    JSONObject(this).toStringMap()
+private fun String.toStringMap(): Map<String, String> = JSONObject(this).toStringMap()
 
-private fun JSONObject.toStringMap(): Map<String, String> =
-    buildMap { keys().forEach { key -> put(key, optString(key)) } }
+private fun JSONObject.toStringMap(): Map<String, String> = buildMap { keys().forEach { key -> put(key, optString(key)) } }
 
-private fun JSONObject.toStringListMap(): Map<String, List<String>> =
-    buildMap { keys().forEach { key -> put(key, getJSONArray(key).toStringList()) } }
+private fun JSONObject.toStringListMap(): Map<String, List<String>> = buildMap { keys().forEach { key -> put(key, getJSONArray(key).toStringList()) } }
 
 /** Adds the allowlisted, shortened completion metadata from [data], or nothing when none is present. */
 private fun JSONObject.putCompletionMetadata(data: Map<String, String>): JSONObject {
@@ -1281,241 +1246,219 @@ private fun JSONObject.putCompletionMetadata(data: Map<String, String>): JSONObj
     return this
 }
 
-private fun SkillPlan.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("request", request.toJsonObject())
-        .put("manifest", manifest.toJsonObject())
-        .put(
-            "steps",
-            JSONArray().also { array ->
-                steps.forEach { step -> array.put(step.toJsonObject()) }
-            },
-        )
-
-private fun JSONObject.toSkillPlan(): SkillPlan =
-    SkillPlan(
-        request = getJSONObject("request").toSkillRequest(),
-        manifest = getJSONObject("manifest").toSkillManifest(),
-        steps = getJSONArray("steps").toSkillSteps(),
+private fun SkillPlan.toJsonObject(): JSONObject = JSONObject()
+    .put("request", request.toJsonObject())
+    .put("manifest", manifest.toJsonObject())
+    .put(
+        "steps",
+        JSONArray().also { array ->
+            steps.forEach { step -> array.put(step.toJsonObject()) }
+        }
     )
 
-private fun SkillRequest.toJsonObject(): JSONObject =
-    JSONObject()
+private fun JSONObject.toSkillPlan(): SkillPlan = SkillPlan(
+    request = getJSONObject("request").toSkillRequest(),
+    manifest = getJSONObject("manifest").toSkillManifest(),
+    steps = getJSONArray("steps").toSkillSteps()
+)
+
+private fun SkillRequest.toJsonObject(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("skillId", skillId)
+    .put("arguments", arguments.toJsonObject())
+    .put("reason", reason)
+
+private fun JSONObject.toSkillRequest(): SkillRequest = SkillRequest(
+    id = getString("id"),
+    skillId = getString("skillId"),
+    arguments = getJSONObject("arguments").toStringMap(),
+    reason = optString("reason")
+)
+
+private fun SkillManifest.toJsonObject(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("version", version)
+    .put("title", title)
+    .put("description", description)
+    .put("triggerExamples", triggerExamples.toJsonArray())
+    .put("requiredTools", requiredTools.toJsonArray())
+    .put("inputSchemaJson", inputSchemaJson)
+    .put("riskLevel", riskLevel.name)
+    .put("lowRiskAppControlEligible", lowRiskAppControlEligible)
+    .put("continuesAfterUnverifiedOpenAppLaunch", continuesAfterUnverifiedOpenAppLaunch)
+    .put("backgroundExecution", backgroundExecution?.toJsonObject())
+
+private fun JSONObject.toSkillManifest(): SkillManifest = SkillManifest(
+    id = getString("id"),
+    version = getInt("version"),
+    title = getString("title"),
+    description = getString("description"),
+    triggerExamples = getJSONArray("triggerExamples").toStringList(),
+    requiredTools = getJSONArray("requiredTools").toStringList(),
+    inputSchemaJson = getString("inputSchemaJson"),
+    riskLevel = RiskLevel.valueOf(getString("riskLevel")),
+    lowRiskAppControlEligible = optBoolean("lowRiskAppControlEligible", false),
+    continuesAfterUnverifiedOpenAppLaunch = optBoolean("continuesAfterUnverifiedOpenAppLaunch", false),
+    backgroundExecution = optJSONObject("backgroundExecution")?.toSkillBackgroundExecution()
+)
+
+private fun SkillBackgroundExecution.toJsonObject(): JSONObject = JSONObject()
+    .put("requiredTools", requiredTools.toJsonArray())
+    .put("userConfigured", userConfigured)
+    .put("minimumIntervalMinutes", minimumIntervalMinutes)
+    .put("localOnly", localOnly)
+    .put("allowedWork", allowedWork.map { work -> work.name }.sorted().toJsonArray())
+    .put("foregroundConfirmationForOutboundOrExecution", foregroundConfirmationForOutboundOrExecution)
+
+private fun JSONObject.toSkillBackgroundExecution(): SkillBackgroundExecution = SkillBackgroundExecution(
+    requiredTools = getJSONArray("requiredTools").toStringList(),
+    userConfigured = optBoolean("userConfigured", true),
+    minimumIntervalMinutes = optLong("minimumIntervalMinutes", 60L),
+    localOnly = optBoolean("localOnly", true),
+    allowedWork = getJSONArray("allowedWork")
+        .toStringList()
+        .mapTo(linkedSetOf()) { value -> SkillBackgroundWork.valueOf(value) },
+    foregroundConfirmationForOutboundOrExecution =
+    optBoolean("foregroundConfirmationForOutboundOrExecution", true)
+)
+
+private fun SkillStep.toJsonObject(): JSONObject = when (this) {
+    is SkillStep.ToolStep -> JSONObject()
+        .put("type", "tool")
         .put("id", id)
-        .put("skillId", skillId)
-        .put("arguments", arguments.toJsonObject())
-        .put("reason", reason)
-
-private fun JSONObject.toSkillRequest(): SkillRequest =
-    SkillRequest(
-        id = getString("id"),
-        skillId = getString("skillId"),
-        arguments = getJSONObject("arguments").toStringMap(),
-        reason = optString("reason"),
-    )
-
-private fun SkillManifest.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("id", id)
-        .put("version", version)
-        .put("title", title)
-        .put("description", description)
-        .put("triggerExamples", triggerExamples.toJsonArray())
-        .put("requiredTools", requiredTools.toJsonArray())
-        .put("inputSchemaJson", inputSchemaJson)
-        .put("riskLevel", riskLevel.name)
-        .put("lowRiskAppControlEligible", lowRiskAppControlEligible)
-        .put("continuesAfterUnverifiedOpenAppLaunch", continuesAfterUnverifiedOpenAppLaunch)
-        .put("backgroundExecution", backgroundExecution?.toJsonObject())
-
-private fun JSONObject.toSkillManifest(): SkillManifest =
-    SkillManifest(
-        id = getString("id"),
-        version = getInt("version"),
-        title = getString("title"),
-        description = getString("description"),
-        triggerExamples = getJSONArray("triggerExamples").toStringList(),
-        requiredTools = getJSONArray("requiredTools").toStringList(),
-        inputSchemaJson = getString("inputSchemaJson"),
-        riskLevel = RiskLevel.valueOf(getString("riskLevel")),
-        lowRiskAppControlEligible = optBoolean("lowRiskAppControlEligible", false),
-        continuesAfterUnverifiedOpenAppLaunch = optBoolean("continuesAfterUnverifiedOpenAppLaunch", false),
-        backgroundExecution = optJSONObject("backgroundExecution")?.toSkillBackgroundExecution(),
-    )
-
-private fun SkillBackgroundExecution.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("requiredTools", requiredTools.toJsonArray())
-        .put("userConfigured", userConfigured)
-        .put("minimumIntervalMinutes", minimumIntervalMinutes)
-        .put("localOnly", localOnly)
-        .put("allowedWork", allowedWork.map { work -> work.name }.sorted().toJsonArray())
-        .put("foregroundConfirmationForOutboundOrExecution", foregroundConfirmationForOutboundOrExecution)
-
-private fun JSONObject.toSkillBackgroundExecution(): SkillBackgroundExecution =
-    SkillBackgroundExecution(
-        requiredTools = getJSONArray("requiredTools").toStringList(),
-        userConfigured = optBoolean("userConfigured", true),
-        minimumIntervalMinutes = optLong("minimumIntervalMinutes", 60L),
-        localOnly = optBoolean("localOnly", true),
-        allowedWork = getJSONArray("allowedWork")
-            .toStringList()
-            .mapTo(linkedSetOf()) { value -> SkillBackgroundWork.valueOf(value) },
-        foregroundConfirmationForOutboundOrExecution =
-            optBoolean("foregroundConfirmationForOutboundOrExecution", true),
-    )
-
-private fun SkillStep.toJsonObject(): JSONObject =
-    when (this) {
-        is SkillStep.ToolStep -> JSONObject()
-            .put("type", "tool")
-            .put("id", id)
-            .put("dependsOn", dependsOn.toJsonArray())
-            .put("request", request.toJsonObject())
-            .put("draft", draft.toJsonObject())
-            .put("argumentBindings", argumentBindings.toJsonObject())
-
-        is SkillStep.ModelStep -> JSONObject()
-            .put("type", "model")
-            .put("id", id)
-            .put("dependsOn", dependsOn.toJsonArray())
-            .put("title", title)
-            .put("instruction", instruction)
-            .put("inputBindings", inputBindings.toJsonObject())
-            .put("outputKey", outputKey)
-            .put("keepsSensitiveInputLocal", keepsSensitiveInputLocal)
-
-        is SkillStep.BranchStep -> JSONObject()
-            .put("type", "branch")
-            .put("id", id)
-            .put("dependsOn", dependsOn.toJsonArray())
-            .put("condition", condition.toJsonObject())
-            .put("onMatchStepId", onMatchStepId)
-            .put("onElseStepId", onElseStepId ?: JSONObject.NULL)
-    }
-
-private fun JSONArray.toSkillSteps(): List<SkillStep> =
-    List(length()) { index -> getJSONObject(index).toSkillStep() }
-
-private fun JSONObject.toSkillStep(): SkillStep =
-    when (getString("type")) {
-        "tool" -> SkillStep.ToolStep(
-            id = getString("id"),
-            dependsOn = getJSONArray("dependsOn").toStringList(),
-            request = getJSONObject("request").toToolRequest(),
-            draft = getJSONObject("draft").toActionDraft(),
-            argumentBindings = getJSONObject("argumentBindings").toStringMap(),
-        )
-
-        "model" -> SkillStep.ModelStep(
-            id = getString("id"),
-            dependsOn = getJSONArray("dependsOn").toStringList(),
-            title = getString("title"),
-            instruction = getString("instruction"),
-            inputBindings = getJSONObject("inputBindings").toStringMap(),
-            outputKey = getString("outputKey"),
-            keepsSensitiveInputLocal = optBoolean("keepsSensitiveInputLocal", true),
-        )
-
-        "branch" -> SkillStep.BranchStep(
-            id = getString("id"),
-            dependsOn = getJSONArray("dependsOn").toStringList(),
-            condition = getJSONObject("condition").toStepOutcomeCondition(),
-            onMatchStepId = getString("onMatchStepId"),
-            onElseStepId = if (isNull("onElseStepId")) null else getString("onElseStepId"),
-        )
-
-        else -> error("Unknown skill step type: ${getString("type")}")
-    }
-
-private fun StepOutcomeCondition.toJsonObject(): JSONObject =
-    when (this) {
-        is StepOutcomeCondition.AppSearchOutcomeEquals -> JSONObject()
-            .put("kind", "app_search_outcome_equals")
-            .put("outcome", outcome)
-
-        is StepOutcomeCondition.SearchVerified -> JSONObject()
-            .put("kind", "search_verified")
-
-        is StepOutcomeCondition.ResultDataEquals -> JSONObject()
-            .put("kind", "result_data_equals")
-            .put("key", key)
-            .put("value", value)
-    }
-
-private fun JSONObject.toStepOutcomeCondition(): StepOutcomeCondition =
-    when (getString("kind")) {
-        "app_search_outcome_equals" -> StepOutcomeCondition.AppSearchOutcomeEquals(getString("outcome"))
-        "search_verified" -> StepOutcomeCondition.SearchVerified
-        "result_data_equals" -> StepOutcomeCondition.ResultDataEquals(getString("key"), getString("value"))
-        else -> error("Unknown step outcome condition kind: ${getString("kind")}")
-    }
-
-private fun ToolRequest.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("id", id)
-        .put("toolName", toolName)
-        .put("arguments", arguments.toJsonObject())
-        .put("reason", reason)
-
-private fun JSONObject.toToolRequest(): ToolRequest =
-    ToolRequest(
-        id = getString("id"),
-        toolName = getString("toolName"),
-        arguments = getJSONObject("arguments").toStringMap(),
-        reason = optString("reason"),
-    )
-
-private fun ActionDraft.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("functionName", functionName)
-        .put("title", title)
-        .put("summary", summary)
-        .put("parameters", parameters.toJsonObject())
-        .put("requiresConfirmation", requiresConfirmation)
-
-private fun JSONObject.toActionDraft(): ActionDraft =
-    ActionDraft(
-        functionName = getString("functionName"),
-        title = getString("title"),
-        summary = getString("summary"),
-        parameters = getJSONObject("parameters").toStringMap(),
-        requiresConfirmation = optBoolean("requiresConfirmation", true),
-    )
-
-private fun AgentContinuationCursor.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("sourceRequestId", sourceRequestId)
-        .put("completedSegmentCount", completedSegmentCount)
+        .put("dependsOn", dependsOn.toJsonArray())
         .put("request", request.toJsonObject())
         .put("draft", draft.toJsonObject())
-        .put("plannedByModel", plannedByModel)
-        .put("fallbackReason", fallbackReason)
-        .put("skillPlan", skillPlan?.toJsonObject())
+        .put("argumentBindings", argumentBindings.toJsonObject())
 
-private fun JSONObject.toAgentContinuationCursor(): AgentContinuationCursor =
-    AgentContinuationCursor(
-        sourceRequestId = getString("sourceRequestId"),
-        completedSegmentCount = getInt("completedSegmentCount"),
+    is SkillStep.ModelStep -> JSONObject()
+        .put("type", "model")
+        .put("id", id)
+        .put("dependsOn", dependsOn.toJsonArray())
+        .put("title", title)
+        .put("instruction", instruction)
+        .put("inputBindings", inputBindings.toJsonObject())
+        .put("outputKey", outputKey)
+        .put("keepsSensitiveInputLocal", keepsSensitiveInputLocal)
+
+    is SkillStep.BranchStep -> JSONObject()
+        .put("type", "branch")
+        .put("id", id)
+        .put("dependsOn", dependsOn.toJsonArray())
+        .put("condition", condition.toJsonObject())
+        .put("onMatchStepId", onMatchStepId)
+        .put("onElseStepId", onElseStepId ?: JSONObject.NULL)
+}
+
+private fun JSONArray.toSkillSteps(): List<SkillStep> = List(length()) { index -> getJSONObject(index).toSkillStep() }
+
+private fun JSONObject.toSkillStep(): SkillStep = when (getString("type")) {
+    "tool" -> SkillStep.ToolStep(
+        id = getString("id"),
+        dependsOn = getJSONArray("dependsOn").toStringList(),
         request = getJSONObject("request").toToolRequest(),
         draft = getJSONObject("draft").toActionDraft(),
-        plannedByModel = optBoolean("plannedByModel", false),
-        fallbackReason = optString("fallbackReason").takeIf { it.isNotBlank() },
-        skillPlan = optJSONObject("skillPlan")?.toSkillPlan(),
+        argumentBindings = getJSONObject("argumentBindings").toStringMap()
     )
 
-private fun AgentTraceStepSummary.restoredContinuationCursorOrNull(): AgentContinuationCursor? =
-    runCatching {
-        JSONObject(json)
-            .optJSONObject("cursor")
-            ?.toAgentContinuationCursor()
-    }.getOrNull()
+    "model" -> SkillStep.ModelStep(
+        id = getString("id"),
+        dependsOn = getJSONArray("dependsOn").toStringList(),
+        title = getString("title"),
+        instruction = getString("instruction"),
+        inputBindings = getJSONObject("inputBindings").toStringMap(),
+        outputKey = getString("outputKey"),
+        keepsSensitiveInputLocal = optBoolean("keepsSensitiveInputLocal", true)
+    )
 
-private fun List<String>.toJsonArray(): JSONArray =
-    JSONArray().also { array -> forEach { value -> array.put(value) } }
+    "branch" -> SkillStep.BranchStep(
+        id = getString("id"),
+        dependsOn = getJSONArray("dependsOn").toStringList(),
+        condition = getJSONObject("condition").toStepOutcomeCondition(),
+        onMatchStepId = getString("onMatchStepId"),
+        onElseStepId = if (isNull("onElseStepId")) null else getString("onElseStepId")
+    )
 
-private fun JSONArray.toStringList(): List<String> =
-    List(length()) { index -> optString(index) }
+    else -> error("Unknown skill step type: ${getString("type")}")
+}
+
+private fun StepOutcomeCondition.toJsonObject(): JSONObject = when (this) {
+    is StepOutcomeCondition.AppSearchOutcomeEquals -> JSONObject()
+        .put("kind", "app_search_outcome_equals")
+        .put("outcome", outcome)
+
+    is StepOutcomeCondition.SearchVerified -> JSONObject()
+        .put("kind", "search_verified")
+
+    is StepOutcomeCondition.ResultDataEquals -> JSONObject()
+        .put("kind", "result_data_equals")
+        .put("key", key)
+        .put("value", value)
+}
+
+private fun JSONObject.toStepOutcomeCondition(): StepOutcomeCondition = when (getString("kind")) {
+    "app_search_outcome_equals" -> StepOutcomeCondition.AppSearchOutcomeEquals(getString("outcome"))
+    "search_verified" -> StepOutcomeCondition.SearchVerified
+    "result_data_equals" -> StepOutcomeCondition.ResultDataEquals(getString("key"), getString("value"))
+    else -> error("Unknown step outcome condition kind: ${getString("kind")}")
+}
+
+private fun ToolRequest.toJsonObject(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("toolName", toolName)
+    .put("arguments", arguments.toJsonObject())
+    .put("reason", reason)
+
+private fun JSONObject.toToolRequest(): ToolRequest = ToolRequest(
+    id = getString("id"),
+    toolName = getString("toolName"),
+    arguments = getJSONObject("arguments").toStringMap(),
+    reason = optString("reason")
+)
+
+private fun ActionDraft.toJsonObject(): JSONObject = JSONObject()
+    .put("functionName", functionName)
+    .put("title", title)
+    .put("summary", summary)
+    .put("parameters", parameters.toJsonObject())
+    .put("requiresConfirmation", requiresConfirmation)
+
+private fun JSONObject.toActionDraft(): ActionDraft = ActionDraft(
+    functionName = getString("functionName"),
+    title = getString("title"),
+    summary = getString("summary"),
+    parameters = getJSONObject("parameters").toStringMap(),
+    requiresConfirmation = optBoolean("requiresConfirmation", true)
+)
+
+private fun AgentContinuationCursor.toJsonObject(): JSONObject = JSONObject()
+    .put("sourceRequestId", sourceRequestId)
+    .put("completedSegmentCount", completedSegmentCount)
+    .put("request", request.toJsonObject())
+    .put("draft", draft.toJsonObject())
+    .put("plannedByModel", plannedByModel)
+    .put("fallbackReason", fallbackReason)
+    .put("skillPlan", skillPlan?.toJsonObject())
+
+private fun JSONObject.toAgentContinuationCursor(): AgentContinuationCursor = AgentContinuationCursor(
+    sourceRequestId = getString("sourceRequestId"),
+    completedSegmentCount = getInt("completedSegmentCount"),
+    request = getJSONObject("request").toToolRequest(),
+    draft = getJSONObject("draft").toActionDraft(),
+    plannedByModel = optBoolean("plannedByModel", false),
+    fallbackReason = optString("fallbackReason").takeIf { it.isNotBlank() },
+    skillPlan = optJSONObject("skillPlan")?.toSkillPlan()
+)
+
+private fun AgentTraceStepSummary.restoredContinuationCursorOrNull(): AgentContinuationCursor? = runCatching {
+    JSONObject(json)
+        .optJSONObject("cursor")
+        ?.toAgentContinuationCursor()
+}.getOrNull()
+
+private fun List<String>.toJsonArray(): JSONArray = JSONArray().also { array -> forEach { value -> array.put(value) } }
+
+private fun JSONArray.toStringList(): List<String> = List(length()) { index -> optString(index) }
 
 private val allowedProtectedContentTypes = setOf(
     "本地记忆",
@@ -1525,7 +1468,7 @@ private val allowedProtectedContentTypes = setOf(
     "非图片附件",
     "LocalOnly 输入证据",
     "截断输入证据",
-    "本地工具结果",
+    "本地工具结果"
 )
 
 private val allowedDeletableRecordTypes = setOf("对话消息", "Agent 轨迹", "显式记忆")
@@ -1536,7 +1479,7 @@ private val allowedOutputQualityIssues = setOf(
     "EmptyOutput",
     "FormatViolation",
     "LengthExceeded",
-    "UnsafeOrPolicyViolation",
+    "UnsafeOrPolicyViolation"
 )
 
 private val allowedOutputQualityActions = setOf(
@@ -1544,300 +1487,311 @@ private val allowedOutputQualityActions = setOf(
     "StopAndKeepPrefix",
     "StopAndReplaceWithNotice",
     "RetrySuggested",
-    "FailClosed",
+    "FailClosed"
 )
 
-private fun String.safeMessagePrivacyName(): String =
-    runCatching { MessagePrivacy.valueOf(this).name }.getOrDefault(MessagePrivacy.LocalOnly.name)
+private fun String.safeMessagePrivacyName(): String = runCatching { MessagePrivacy.valueOf(this).name }.getOrDefault(MessagePrivacy.LocalOnly.name)
 
 private fun List<String>.safeEvidenceSourceTypes(): List<String> {
     val allowed = EvidenceSourceType.entries.mapTo(hashSetOf()) { it.name }
     return filter { it in allowed }.distinct()
 }
 
-private fun List<String>.safeProtectedContentTypes(): List<String> =
-    filter { it in allowedProtectedContentTypes }.distinct()
+private fun List<String>.safeProtectedContentTypes(): List<String> = filter { it in allowedProtectedContentTypes }.distinct()
 
-private fun List<String>.safeDeletableRecordTypes(): List<String> =
-    filter { it in allowedDeletableRecordTypes }.distinct()
+private fun List<String>.safeDeletableRecordTypes(): List<String> = filter { it in allowedDeletableRecordTypes }.distinct()
 
-private fun String?.safeOutputQualityIssue(): Any =
-    takeIf { it in allowedOutputQualityIssues } ?: JSONObject.NULL
+private fun String?.safeOutputQualityIssue(): Any = takeIf { it in allowedOutputQualityIssues } ?: JSONObject.NULL
 
-private fun String?.safeOutputQualityAction(): Any =
-    takeIf { it in allowedOutputQualityActions } ?: JSONObject.NULL
+private fun String?.safeOutputQualityAction(): Any = takeIf { it in allowedOutputQualityActions } ?: JSONObject.NULL
 
-private fun AgentStep.traceType(): String =
-    when (this) {
-        is AgentStep.ContextLoaded -> "ContextLoaded"
-        is AgentStep.ModelPlanned -> "ModelPlanned"
-        is AgentStep.IntentRouted -> "IntentRouted"
-        is AgentStep.RemoteToolsExposed -> "RemoteToolsExposed"
-        is AgentStep.PlacementSelected -> "PlacementSelected"
-        is AgentStep.ModelRuntimeInvocationStarted -> "ModelRuntimeInvocationStarted"
-        is AgentStep.ShadowPlacementEvaluated -> "ShadowPlacementEvaluated"
-        is AgentStep.RunDataReceiptRecorded -> "RunDataReceiptRecorded"
-        is AgentStep.ModelOutputQualityGuardTriggered -> "ModelOutputQualityGuardTriggered"
-        is AgentStep.ToolRequested -> "ToolRequested"
-        is AgentStep.SkillPlanned -> "SkillPlanned"
-        is AgentStep.SafetyChecked -> "SafetyChecked"
-        is AgentStep.UserConfirmationRequested -> "UserConfirmationRequested"
-        is AgentStep.UserConfirmed -> "UserConfirmed"
-        is AgentStep.UserRejected -> "UserRejected"
-        is AgentStep.UserQuestionAsked -> "UserQuestionAsked"
-        is AgentStep.UserQuestionAnswered -> "UserQuestionAnswered"
-        is AgentStep.ToolObserved -> "ToolObserved"
-        is AgentStep.ExternalOutcomeConfirmed -> "ExternalOutcomeConfirmed"
-        is AgentStep.ContinuationCursorRecorded -> "ContinuationCursorRecorded"
-        is AgentStep.ToolRetryScheduled -> "ToolRetryScheduled"
-        is AgentStep.ObservationDecided -> "ObservationDecided"
-        is AgentStep.AssistantResponded -> "AssistantResponded"
-        is AgentStep.ToolRejected -> "ToolRejected"
-        is AgentStep.Failed -> "Failed"
-        is AgentStep.RestoredSummary -> persistedType
+private fun AgentStep.traceType(): String = when (this) {
+    is AgentStep.ContextLoaded -> "ContextLoaded"
+    is AgentStep.ModelPlanned -> "ModelPlanned"
+    is AgentStep.IntentRouted -> "IntentRouted"
+    is AgentStep.RemoteToolsExposed -> "RemoteToolsExposed"
+    is AgentStep.PlacementSelected -> "PlacementSelected"
+    is AgentStep.ModelRuntimeInvocationStarted -> "ModelRuntimeInvocationStarted"
+    is AgentStep.ShadowPlacementEvaluated -> "ShadowPlacementEvaluated"
+    is AgentStep.RunDataReceiptRecorded -> "RunDataReceiptRecorded"
+    is AgentStep.ModelOutputQualityGuardTriggered -> "ModelOutputQualityGuardTriggered"
+    is AgentStep.ToolRequested -> "ToolRequested"
+    is AgentStep.SkillPlanned -> "SkillPlanned"
+    is AgentStep.SafetyChecked -> "SafetyChecked"
+    is AgentStep.UserConfirmationRequested -> "UserConfirmationRequested"
+    is AgentStep.UserConfirmed -> "UserConfirmed"
+    is AgentStep.UserRejected -> "UserRejected"
+    is AgentStep.UserQuestionAsked -> "UserQuestionAsked"
+    is AgentStep.UserQuestionAnswered -> "UserQuestionAnswered"
+    is AgentStep.ToolObserved -> "ToolObserved"
+    is AgentStep.ExternalOutcomeConfirmed -> "ExternalOutcomeConfirmed"
+    is AgentStep.ContinuationCursorRecorded -> "ContinuationCursorRecorded"
+    is AgentStep.ToolRetryScheduled -> "ToolRetryScheduled"
+    is AgentStep.ObservationDecided -> "ObservationDecided"
+    is AgentStep.AssistantResponded -> "AssistantResponded"
+    is AgentStep.ToolRejected -> "ToolRejected"
+    is AgentStep.Failed -> "Failed"
+    is AgentStep.RestoredSummary -> persistedType
+}
+
+private fun AgentStep.traceSummary(): String = when (this) {
+    is AgentStep.ContextLoaded -> {
+        val deviceContext = if (deviceContext == null) "without device context" else "with device context"
+        "Loaded ${memoryHits.size} memory hit(s) $deviceContext."
     }
 
-private fun AgentStep.traceSummary(): String =
-    when (this) {
-        is AgentStep.ContextLoaded -> {
-            val deviceContext = if (deviceContext == null) "without device context" else "with device context"
-            "Loaded ${memoryHits.size} memory hit(s) $deviceContext."
-        }
+    is AgentStep.ModelPlanned -> plan.traceSummary()
+    is AgentStep.IntentRouted ->
+        "Intent routed via ${decision.selectedPath.name} to " +
+            (decision.selectedToolName ?: decision.selectedSkillId ?: "no action") +
+            " (accepted=${decision.accepted})."
+    is AgentStep.RemoteToolsExposed ->
+        "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
+    is AgentStep.PlacementSelected -> "Serving placement selected."
+    is AgentStep.ModelRuntimeInvocationStarted -> "Serving runtime invocation started."
+    is AgentStep.ShadowPlacementEvaluated -> "Shadow placement evaluated."
+    is AgentStep.RunDataReceiptRecorded ->
+        "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
+            "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
+            "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}, " +
+            "evidence=${receipt.evidenceCardCount}, qualityGuard=${receipt.outputQualityGuardTriggered}."
+    is AgentStep.ModelOutputQualityGuardTriggered ->
+        "Model output guard stopped ${trace.runtimeKind} generation: ${trace.issue} via ${trace.triggeredRule}."
+    is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
+    is AgentStep.SkillPlanned -> "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
+    is AgentStep.SafetyChecked -> "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
+    is AgentStep.UserConfirmationRequested -> "Requested confirmation for ${request.toolName}."
+    is AgentStep.UserConfirmed -> "User confirmed request $requestId."
+    is AgentStep.UserRejected -> "User rejected request $requestId."
+    is AgentStep.UserQuestionAsked ->
+        "Asked user clarifying question ($questionId): ${prompt.shortTraceText()}"
+    is AgentStep.UserQuestionAnswered ->
+        "User answered question $questionId: ${answer.shortTraceText()}"
+    is AgentStep.ToolObserved -> "Observed ${result.status} for ${result.requestId}."
+    is AgentStep.ExternalOutcomeConfirmed ->
+        "External outcome ${outcome.name} confirmed for $requestId."
+    is AgentStep.ContinuationCursorRecorded ->
+        "Recorded continuation cursor for ${cursor.sourceRequestId} -> ${cursor.request.toolName}."
+    is AgentStep.ToolRetryScheduled -> "Retry $attempt scheduled for ${request.toolName}."
+    is AgentStep.ObservationDecided -> decision.traceSummary()
+    is AgentStep.AssistantResponded -> "Assistant responded: ${text.shortTraceText()}"
+    is AgentStep.ToolRejected -> "Rejected tool result ${result.requestId}: ${result.summary.shortTraceText()}"
+    is AgentStep.Failed -> "Failed: ${reason.shortTraceText()}"
+    is AgentStep.RestoredSummary -> summary
+}
 
-        is AgentStep.ModelPlanned -> plan.traceSummary()
-        is AgentStep.IntentRouted ->
-            "Intent routed via ${decision.selectedPath.name} to " +
-                (decision.selectedToolName ?: decision.selectedSkillId ?: "no action") +
-                " (accepted=${decision.accepted})."
-        is AgentStep.RemoteToolsExposed ->
-            "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
-        is AgentStep.PlacementSelected -> "Serving placement selected."
-        is AgentStep.ModelRuntimeInvocationStarted -> "Serving runtime invocation started."
-        is AgentStep.ShadowPlacementEvaluated -> "Shadow placement evaluated."
-        is AgentStep.RunDataReceiptRecorded ->
-            "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
-                "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
-                "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}, " +
-                "evidence=${receipt.evidenceCardCount}, qualityGuard=${receipt.outputQualityGuardTriggered}."
-        is AgentStep.ModelOutputQualityGuardTriggered ->
-            "Model output guard stopped ${trace.runtimeKind} generation: ${trace.issue} via ${trace.triggeredRule}."
-        is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
-        is AgentStep.SkillPlanned -> "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
-        is AgentStep.SafetyChecked -> "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
-        is AgentStep.UserConfirmationRequested -> "Requested confirmation for ${request.toolName}."
-        is AgentStep.UserConfirmed -> "User confirmed request $requestId."
-        is AgentStep.UserRejected -> "User rejected request $requestId."
-        is AgentStep.UserQuestionAsked ->
-            "Asked user clarifying question ($questionId): ${prompt.shortTraceText()}"
-        is AgentStep.UserQuestionAnswered ->
-            "User answered question $questionId: ${answer.shortTraceText()}"
-        is AgentStep.ToolObserved -> "Observed ${result.status} for ${result.requestId}."
-        is AgentStep.ExternalOutcomeConfirmed ->
-            "External outcome ${outcome.name} confirmed for $requestId."
-        is AgentStep.ContinuationCursorRecorded ->
-            "Recorded continuation cursor for ${cursor.sourceRequestId} -> ${cursor.request.toolName}."
-        is AgentStep.ToolRetryScheduled -> "Retry $attempt scheduled for ${request.toolName}."
-        is AgentStep.ObservationDecided -> decision.traceSummary()
-        is AgentStep.AssistantResponded -> "Assistant responded: ${text.shortTraceText()}"
-        is AgentStep.ToolRejected -> "Rejected tool result ${result.requestId}: ${result.summary.shortTraceText()}"
-        is AgentStep.Failed -> "Failed: ${reason.shortTraceText()}"
-        is AgentStep.RestoredSummary -> summary
-    }
+private fun AgentPlan.traceSummary(): String = when (this) {
+    is AgentPlan.Answer -> "Planned answer generation."
+    is AgentPlan.UseTool -> "Planned tool ${request.toolName}."
+    is AgentPlan.RejectedTool -> "Rejected tool plan: ${result.summary.shortTraceText()}"
+    is AgentPlan.MissingModel -> "Missing model capability ${capability.name}."
+}
 
-private fun AgentPlan.traceSummary(): String =
-    when (this) {
-        is AgentPlan.Answer -> "Planned answer generation."
-        is AgentPlan.UseTool -> "Planned tool ${request.toolName}."
-        is AgentPlan.RejectedTool -> "Rejected tool plan: ${result.summary.shortTraceText()}"
-        is AgentPlan.MissingModel -> "Missing model capability ${capability.name}."
-    }
-
-private fun AgentObservationDecision.traceSummary(): String =
-    when (this) {
-        AgentObservationDecision.Complete -> "Observation complete."
-        is AgentObservationDecision.ContinueWithModel ->
-            "Continue with model (requiresLocalModel=$requiresLocalModel)."
-        is AgentObservationDecision.RetryTool ->
-            "Retry ${request.toolName} attempt $attempt."
-        is AgentObservationDecision.PlanNextTool ->
-            "Plan next tool ${plan.request.toolName}."
-        is AgentObservationDecision.PlanToolBatch ->
-            "Plan tool batch ${plans.joinToString { plan -> plan.request.toolName }}."
-        is AgentObservationDecision.Fail -> "Observation failed."
-        AgentObservationDecision.Cancel -> "Observation cancelled."
-    }
+private fun AgentObservationDecision.traceSummary(): String = when (this) {
+    AgentObservationDecision.Complete -> "Observation complete."
+    is AgentObservationDecision.ContinueWithModel ->
+        "Continue with model (requiresLocalModel=$requiresLocalModel)."
+    is AgentObservationDecision.RetryTool ->
+        "Retry ${request.toolName} attempt $attempt."
+    is AgentObservationDecision.PlanNextTool ->
+        "Plan next tool ${plan.request.toolName}."
+    is AgentObservationDecision.PlanToolBatch ->
+        "Plan tool batch ${plans.joinToString { plan -> plan.request.toolName }}."
+    is AgentObservationDecision.Fail -> "Observation failed."
+    AgentObservationDecision.Cancel -> "Observation cancelled."
+}
 
 private fun AgentStep.traceJson(type: String, runId: String): JSONObject {
     val json = JSONObject().put("type", type)
     when (this) {
-        is AgentStep.ContextLoaded -> json
-            .put("memoryHitCount", memoryHits.size)
-            .put("hasDeviceContext", deviceContext != null)
+        is AgentStep.ContextLoaded ->
+            json
+                .put("memoryHitCount", memoryHits.size)
+                .put("hasDeviceContext", deviceContext != null)
 
         is AgentStep.ModelPlanned -> json.put("plan", plan.traceJson())
-        is AgentStep.IntentRouted -> json
-            .put("selectedPath", decision.selectedPath.name)
-            .put("selectedToolName", decision.selectedToolName)
-            .put("selectedSkillId", decision.selectedSkillId)
-            .put("priority", decision.priority)
-            .put("accepted", decision.accepted)
-            .put("confidence", decision.confidence.name)
-            .put(
-                "rejectionReasons",
-                decision.rejectionReasons
-                    .map { reason -> reason.shortTraceText(maxLength = PERSISTED_ROUTING_REASON_LENGTH) }
-                    .toJsonArray(),
-            )
-            .put("requiresConfirmation", decision.requiresConfirmation)
-        is AgentStep.RemoteToolsExposed -> json
-            .put("scope", scope.name)
-            .put("toolNames", toolNames.sorted())
+        is AgentStep.IntentRouted ->
+            json
+                .put("selectedPath", decision.selectedPath.name)
+                .put("selectedToolName", decision.selectedToolName)
+                .put("selectedSkillId", decision.selectedSkillId)
+                .put("priority", decision.priority)
+                .put("accepted", decision.accepted)
+                .put("confidence", decision.confidence.name)
+                .put(
+                    "rejectionReasons",
+                    decision.rejectionReasons
+                        .map { reason -> reason.shortTraceText(maxLength = PERSISTED_ROUTING_REASON_LENGTH) }
+                        .toJsonArray()
+                )
+                .put("requiresConfirmation", decision.requiresConfirmation)
+        is AgentStep.RemoteToolsExposed ->
+            json
+                .put("scope", scope.name)
+                .put("toolNames", toolNames.sorted())
 
-        is AgentStep.PlacementSelected -> json
-            .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
-            .put("runId", runId)
-            .put("policyVersion", binding.policyVersion)
-            .put("preference", binding.preference.name)
-            .put("placement", binding.placement.name)
-            .put("primaryReason", binding.primaryReason.name)
-            .put("complexity", binding.complexity.name)
-            .put("resourceBand", binding.resourceBand.name)
-            .put("localState", binding.localState.name)
-            .put("remoteState", binding.remoteState.name)
-            .put("remoteProfileRevision", binding.remoteProfileRevision ?: JSONObject.NULL)
+        is AgentStep.PlacementSelected ->
+            json
+                .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+                .put("runId", runId)
+                .put("policyVersion", binding.policyVersion)
+                .put("preference", binding.preference.name)
+                .put("placement", binding.placement.name)
+                .put("primaryReason", binding.primaryReason.name)
+                .put("complexity", binding.complexity.name)
+                .put("resourceBand", binding.resourceBand.name)
+                .put("localState", binding.localState.name)
+                .put("remoteState", binding.remoteState.name)
+                .put("remoteProfileRevision", binding.remoteProfileRevision ?: JSONObject.NULL)
 
-        is AgentStep.ModelRuntimeInvocationStarted -> json
-            .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
-            .put("runId", runId)
-            .put("placement", invocation.placement.name)
-            .put("attempt", invocation.attempt)
-            .put("remoteProfileRevision", invocation.remoteProfileRevision ?: JSONObject.NULL)
+        is AgentStep.ModelRuntimeInvocationStarted ->
+            json
+                .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+                .put("runId", runId)
+                .put("placement", invocation.placement.name)
+                .put("attempt", invocation.attempt)
+                .put("remoteProfileRevision", invocation.remoteProfileRevision ?: JSONObject.NULL)
 
-        is AgentStep.ShadowPlacementEvaluated -> json
-            .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
-            .put("runId", runId)
-            .put("policyVersion", trace.policyVersion)
-            .put("preference", trace.preference.name)
-            .put("placement", trace.placement?.name ?: JSONObject.NULL)
-            .put("primaryReason", trace.primaryReason.name)
-            .put("complexity", trace.complexity.name)
-            .put("resourceBand", trace.resourceBand.name)
-            .put("localState", trace.localState.name)
-            .put("remoteState", trace.remoteState.name)
+        is AgentStep.ShadowPlacementEvaluated ->
+            json
+                .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+                .put("runId", runId)
+                .put("policyVersion", trace.policyVersion)
+                .put("preference", trace.preference.name)
+                .put("placement", trace.placement?.name ?: JSONObject.NULL)
+                .put("primaryReason", trace.primaryReason.name)
+                .put("complexity", trace.complexity.name)
+                .put("resourceBand", trace.resourceBand.name)
+                .put("localState", trace.localState.name)
+                .put("remoteState", trace.remoteState.name)
 
-        is AgentStep.RunDataReceiptRecorded -> json
-            .put("destination", receipt.destination.name)
-            .put("currentPromptPrivacy", receipt.currentPromptPrivacy.safeMessagePrivacyName())
-            .put("remoteHistoryCount", receipt.remoteHistoryCount)
-            .put("localOnlyHistoryFilteredCount", receipt.localOnlyHistoryFilteredCount)
-            .put("memoryHitCount", receipt.memoryHitCount)
-            .put("semanticMemoryHitCount", receipt.semanticMemoryHitCount)
-            .put("lexicalMemoryHitCount", receipt.lexicalMemoryHitCount)
-            .put("memoryContextIncluded", receipt.memoryContextIncluded)
-            .put("deviceContextIncluded", receipt.deviceContextIncluded)
-            .put("imageAttachmentCount", receipt.imageAttachmentCount)
-            .put("protectedSourceCount", receipt.protectedSourceCount)
-            .put("evidenceCardCount", receipt.evidenceCardCount)
-            .put("localOnlyEvidenceCardCount", receipt.localOnlyEvidenceCardCount)
-            .put("truncatedEvidenceCardCount", receipt.truncatedEvidenceCardCount)
-            .put("lowQualityEvidenceCardCount", receipt.lowQualityEvidenceCardCount)
-            .put("evidenceSourceTypes", receipt.evidenceSourceTypes.safeEvidenceSourceTypes().toJsonArray())
-            .put("rawContentPersisted", receipt.rawContentPersisted)
-            .put("protectedContentTypes", receipt.protectedContentTypes.safeProtectedContentTypes().toJsonArray())
-            .put("deletableRecordTypes", receipt.deletableRecordTypes.safeDeletableRecordTypes().toJsonArray())
-            .put("outputQualityGuardTriggered", receipt.outputQualityGuardTriggered)
-            .put("outputQualityIssue", receipt.outputQualityIssue.safeOutputQualityIssue())
-            .put("outputQualityRule", JSONObject.NULL)
-            .put("outputQualityAction", receipt.outputQualityAction.safeOutputQualityAction())
-            .put("outputQualityStopped", receipt.outputQualityStopped)
-            .put("outputQualityKeptPrefix", receipt.outputQualityKeptPrefix)
+        is AgentStep.RunDataReceiptRecorded ->
+            json
+                .put("destination", receipt.destination.name)
+                .put("currentPromptPrivacy", receipt.currentPromptPrivacy.safeMessagePrivacyName())
+                .put("remoteHistoryCount", receipt.remoteHistoryCount)
+                .put("localOnlyHistoryFilteredCount", receipt.localOnlyHistoryFilteredCount)
+                .put("memoryHitCount", receipt.memoryHitCount)
+                .put("semanticMemoryHitCount", receipt.semanticMemoryHitCount)
+                .put("lexicalMemoryHitCount", receipt.lexicalMemoryHitCount)
+                .put("memoryContextIncluded", receipt.memoryContextIncluded)
+                .put("deviceContextIncluded", receipt.deviceContextIncluded)
+                .put("imageAttachmentCount", receipt.imageAttachmentCount)
+                .put("protectedSourceCount", receipt.protectedSourceCount)
+                .put("evidenceCardCount", receipt.evidenceCardCount)
+                .put("localOnlyEvidenceCardCount", receipt.localOnlyEvidenceCardCount)
+                .put("truncatedEvidenceCardCount", receipt.truncatedEvidenceCardCount)
+                .put("lowQualityEvidenceCardCount", receipt.lowQualityEvidenceCardCount)
+                .put("evidenceSourceTypes", receipt.evidenceSourceTypes.safeEvidenceSourceTypes().toJsonArray())
+                .put("rawContentPersisted", receipt.rawContentPersisted)
+                .put("protectedContentTypes", receipt.protectedContentTypes.safeProtectedContentTypes().toJsonArray())
+                .put("deletableRecordTypes", receipt.deletableRecordTypes.safeDeletableRecordTypes().toJsonArray())
+                .put("outputQualityGuardTriggered", receipt.outputQualityGuardTriggered)
+                .put("outputQualityIssue", receipt.outputQualityIssue.safeOutputQualityIssue())
+                .put("outputQualityRule", JSONObject.NULL)
+                .put("outputQualityAction", receipt.outputQualityAction.safeOutputQualityAction())
+                .put("outputQualityStopped", receipt.outputQualityStopped)
+                .put("outputQualityKeptPrefix", receipt.outputQualityKeptPrefix)
 
-        is AgentStep.ModelOutputQualityGuardTriggered -> json
-            .put("issue", trace.issue)
-            .put("severity", trace.severity)
-            .put("triggeredRule", trace.triggeredRule)
-            .put("action", trace.action)
-            .put("rawOutputLength", trace.rawOutputLength)
-            .put("keptPrefix", trace.keptPrefix)
-            .put("modelId", trace.modelId)
-            .put("backend", trace.backend)
-            .put("runtimeKind", trace.runtimeKind)
+        is AgentStep.ModelOutputQualityGuardTriggered ->
+            json
+                .put("issue", trace.issue)
+                .put("severity", trace.severity)
+                .put("triggeredRule", trace.triggeredRule)
+                .put("action", trace.action)
+                .put("rawOutputLength", trace.rawOutputLength)
+                .put("keptPrefix", trace.keptPrefix)
+                .put("modelId", trace.modelId)
+                .put("backend", trace.backend)
+                .put("runtimeKind", trace.runtimeKind)
 
-        is AgentStep.ToolRequested -> json
-            .put("requestId", request.id)
-            .put("toolName", request.toolName)
-            .put("argumentKeys", request.arguments.keys.sorted())
-            .put("draftTitle", draft.title.shortTraceText())
+        is AgentStep.ToolRequested ->
+            json
+                .put("requestId", request.id)
+                .put("toolName", request.toolName)
+                .put("argumentKeys", request.arguments.keys.sorted())
+                .put("draftTitle", draft.title.shortTraceText())
 
-        is AgentStep.SkillPlanned -> json
-            .put("skillRequestId", request.id)
-            .put("skillId", request.skillId)
-            .put("stepCount", plan?.steps?.size ?: 0)
-            .put("toolStepCount", plan?.steps?.filterIsInstance<SkillStep.ToolStep>()?.size ?: 0)
-            .put(
-                "toolRequestIds",
-                plan?.steps
-                    ?.filterIsInstance<SkillStep.ToolStep>()
-                    ?.map { step -> step.request.id }
-                    ?.toJsonArray()
-                    ?: JSONArray(),
-            )
+        is AgentStep.SkillPlanned ->
+            json
+                .put("skillRequestId", request.id)
+                .put("skillId", request.skillId)
+                .put("stepCount", plan?.steps?.size ?: 0)
+                .put("toolStepCount", plan?.steps?.filterIsInstance<SkillStep.ToolStep>()?.size ?: 0)
+                .put(
+                    "toolRequestIds",
+                    plan?.steps
+                        ?.filterIsInstance<SkillStep.ToolStep>()
+                        ?.map { step -> step.request.id }
+                        ?.toJsonArray()
+                        ?: JSONArray()
+                )
 
-        is AgentStep.SafetyChecked -> json
-            .put("outcome", decision.outcome.name)
-            .put("reason", decision.reason.shortTraceText())
+        is AgentStep.SafetyChecked ->
+            json
+                .put("outcome", decision.outcome.name)
+                .put("reason", decision.reason.shortTraceText())
 
-        is AgentStep.UserConfirmationRequested -> json
-            .put("requestId", request.id)
-            .put("toolName", request.toolName)
-            .put("draftTitle", draft.title.shortTraceText())
+        is AgentStep.UserConfirmationRequested ->
+            json
+                .put("requestId", request.id)
+                .put("toolName", request.toolName)
+                .put("draftTitle", draft.title.shortTraceText())
 
         is AgentStep.UserConfirmed -> json.put("requestId", requestId)
         is AgentStep.UserRejected -> json.put("requestId", requestId)
-        is AgentStep.UserQuestionAsked -> json
-            .put("questionId", questionId)
-            .put("prompt", prompt.shortTraceText())
-            .put("choices", choices.toJsonArray())
+        is AgentStep.UserQuestionAsked ->
+            json
+                .put("questionId", questionId)
+                .put("prompt", prompt.shortTraceText())
+                .put("choices", choices.toJsonArray())
 
-        is AgentStep.UserQuestionAnswered -> json
-            .put("questionId", questionId)
-            .put("answer", answer.shortTraceText())
+        is AgentStep.UserQuestionAnswered ->
+            json
+                .put("questionId", questionId)
+                .put("answer", answer.shortTraceText())
 
-        is AgentStep.ToolObserved -> json
-            .put("requestId", result.requestId)
-            .put("status", result.status.name)
-            .put("retryable", result.retryable)
-            .putCompletionMetadata(result.data)
+        is AgentStep.ToolObserved ->
+            json
+                .put("requestId", result.requestId)
+                .put("status", result.status.name)
+                .put("retryable", result.retryable)
+                .putCompletionMetadata(result.data)
 
-        is AgentStep.ExternalOutcomeConfirmed -> json
-            .put("requestId", requestId)
-            .put("outcome", outcome.name)
-            .put("status", result.status.name)
-            .putCompletionMetadata(result.data)
+        is AgentStep.ExternalOutcomeConfirmed ->
+            json
+                .put("requestId", requestId)
+                .put("outcome", outcome.name)
+                .put("status", result.status.name)
+                .putCompletionMetadata(result.data)
 
-        is AgentStep.ContinuationCursorRecorded -> json
-            .put("sourceRequestId", cursor.sourceRequestId)
-            .put("targetToolName", cursor.request.toolName)
-            .also {
-                cursor.persistableForTracePersistence()?.let { persistableCursor ->
-                    it.put("cursor", persistableCursor.toJsonObject())
+        is AgentStep.ContinuationCursorRecorded ->
+            json
+                .put("sourceRequestId", cursor.sourceRequestId)
+                .put("targetToolName", cursor.request.toolName)
+                .also {
+                    cursor.persistableForTracePersistence()?.let { persistableCursor ->
+                        it.put("cursor", persistableCursor.toJsonObject())
+                    }
                 }
-            }
 
-        is AgentStep.ToolRetryScheduled -> json
-            .put("requestId", request.id)
-            .put("toolName", request.toolName)
-            .put("attempt", attempt)
+        is AgentStep.ToolRetryScheduled ->
+            json
+                .put("requestId", request.id)
+                .put("toolName", request.toolName)
+                .put("attempt", attempt)
 
         is AgentStep.ObservationDecided -> json.put("decision", decision.traceJson())
-        is AgentStep.AssistantResponded -> json
-            .put("textPreview", text.shortTraceText())
-            .put("textLength", text.length)
+        is AgentStep.AssistantResponded ->
+            json
+                .put("textPreview", text.shortTraceText())
+                .put("textLength", text.length)
 
-        is AgentStep.ToolRejected -> json
-            .put("requestId", result.requestId)
-            .put("status", result.status.name)
-            .put("summary", result.summary.shortTraceText())
+        is AgentStep.ToolRejected ->
+            json
+                .put("requestId", result.requestId)
+                .put("status", result.status.name)
+                .put("summary", result.summary.shortTraceText())
 
         is AgentStep.Failed -> json.put("reason", reason.shortTraceText())
 
@@ -1853,28 +1807,32 @@ private fun AgentStep.traceJson(type: String, runId: String): JSONObject {
 private fun AgentPlan.traceJson(): JSONObject {
     val json = JSONObject()
     when (this) {
-        is AgentPlan.Answer -> json
-            .put("type", "Answer")
-            .put("memoryHitCount", memoryHits.size)
-            .put("hasDeviceContext", deviceContext != null)
+        is AgentPlan.Answer ->
+            json
+                .put("type", "Answer")
+                .put("memoryHitCount", memoryHits.size)
+                .put("hasDeviceContext", deviceContext != null)
 
-        is AgentPlan.UseTool -> json
-            .put("type", "UseTool")
-            .put("requestId", request.id)
-            .put("toolName", request.toolName)
-            .put("plannedByModel", plannedByModel)
-            .put("skillId", skillRequest?.skillId)
-            .put("fallbackReason", fallbackReason?.shortTraceText())
-            .put("safetyOutcome", safetyDecision.outcome.name)
+        is AgentPlan.UseTool ->
+            json
+                .put("type", "UseTool")
+                .put("requestId", request.id)
+                .put("toolName", request.toolName)
+                .put("plannedByModel", plannedByModel)
+                .put("skillId", skillRequest?.skillId)
+                .put("fallbackReason", fallbackReason?.shortTraceText())
+                .put("safetyOutcome", safetyDecision.outcome.name)
 
-        is AgentPlan.RejectedTool -> json
-            .put("type", "RejectedTool")
-            .put("requestId", result.requestId)
-            .put("summary", result.summary.shortTraceText())
+        is AgentPlan.RejectedTool ->
+            json
+                .put("type", "RejectedTool")
+                .put("requestId", result.requestId)
+                .put("summary", result.summary.shortTraceText())
 
-        is AgentPlan.MissingModel -> json
-            .put("type", "MissingModel")
-            .put("capability", capability.name)
+        is AgentPlan.MissingModel ->
+            json
+                .put("type", "MissingModel")
+                .put("capability", capability.name)
     }
     return json
 }
@@ -1883,35 +1841,39 @@ private fun AgentObservationDecision.traceJson(): JSONObject {
     val json = JSONObject()
     when (this) {
         AgentObservationDecision.Complete -> json.put("type", "Complete")
-        is AgentObservationDecision.ContinueWithModel -> json
-            .put("type", "ContinueWithModel")
-            .put("requiresLocalModel", requiresLocalModel)
+        is AgentObservationDecision.ContinueWithModel ->
+            json
+                .put("type", "ContinueWithModel")
+                .put("requiresLocalModel", requiresLocalModel)
 
-        is AgentObservationDecision.RetryTool -> json
-            .put("type", "RetryTool")
-            .put("requestId", request.id)
-            .put("toolName", request.toolName)
-            .put("attempt", attempt)
+        is AgentObservationDecision.RetryTool ->
+            json
+                .put("type", "RetryTool")
+                .put("requestId", request.id)
+                .put("toolName", request.toolName)
+                .put("attempt", attempt)
 
-        is AgentObservationDecision.PlanNextTool -> json
-            .put("type", "PlanNextTool")
-            .put("requestId", plan.request.id)
-            .put("toolName", plan.request.toolName)
+        is AgentObservationDecision.PlanNextTool ->
+            json
+                .put("type", "PlanNextTool")
+                .put("requestId", plan.request.id)
+                .put("toolName", plan.request.toolName)
 
-        is AgentObservationDecision.PlanToolBatch -> json
-            .put("type", "PlanToolBatch")
-            .put(
-                "requests",
-                JSONArray().also { array ->
-                    plans.forEach { plan ->
-                        array.put(
-                            JSONObject()
-                                .put("requestId", plan.request.id)
-                                .put("toolName", plan.request.toolName),
-                        )
+        is AgentObservationDecision.PlanToolBatch ->
+            json
+                .put("type", "PlanToolBatch")
+                .put(
+                    "requests",
+                    JSONArray().also { array ->
+                        plans.forEach { plan ->
+                            array.put(
+                                JSONObject()
+                                    .put("requestId", plan.request.id)
+                                    .put("toolName", plan.request.toolName)
+                            )
+                        }
                     }
-                },
-            )
+                )
 
         is AgentObservationDecision.Fail -> json.put("type", "Fail")
 

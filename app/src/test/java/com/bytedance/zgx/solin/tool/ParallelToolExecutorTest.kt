@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.tool
 import com.bytedance.zgx.solin.device.CalendarAvailabilityProvider
 import com.bytedance.zgx.solin.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.solin.device.CalendarAvailabilityReadResult
-import com.bytedance.zgx.solin.device.ContactSummaryItem
 import com.bytedance.zgx.solin.device.ContactSummaryProvider
 import com.bytedance.zgx.solin.device.ContactSummaryReadResult
 import com.bytedance.zgx.solin.device.ForegroundAppInfo
@@ -15,15 +14,12 @@ import com.bytedance.zgx.solin.device.NotificationSummaryReadResult
 import com.bytedance.zgx.solin.device.RecentFileItem
 import com.bytedance.zgx.solin.device.RecentFileProvider
 import com.bytedance.zgx.solin.device.RecentFileReadResult
-import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
-import com.bytedance.zgx.solin.module.ToolHandler
 import java.time.Instant
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class ParallelToolExecutorTest {
@@ -31,46 +27,40 @@ class ParallelToolExecutorTest {
     // ---- Providers ----
 
     private val dummyCalendar = object : CalendarAvailabilityProvider {
-        override fun queryAvailability(window: com.bytedance.zgx.solin.device.CalendarAvailabilityWindow): CalendarAvailabilityReadResult =
-            CalendarAvailabilityReadResult.Available(
-                CalendarAvailabilityQuery.snapshotFromBusyIntervals(window = window, busyIntervals = emptyList()),
-            )
+        override fun queryAvailability(window: com.bytedance.zgx.solin.device.CalendarAvailabilityWindow): CalendarAvailabilityReadResult = CalendarAvailabilityReadResult.Available(
+            CalendarAvailabilityQuery.snapshotFromBusyIntervals(window = window, busyIntervals = emptyList())
+        )
     }
     private val dummyForeground = object : ForegroundAppProvider {
-        override fun currentForegroundApp(): ForegroundAppReadResult =
-            ForegroundAppReadResult.Available(
-                ForegroundAppInfo(packageName = "x", appLabel = "x", lastTimeUsedMillis = 0L),
-            )
+        override fun currentForegroundApp(): ForegroundAppReadResult = ForegroundAppReadResult.Available(
+            ForegroundAppInfo(packageName = "x", appLabel = "x", lastTimeUsedMillis = 0L)
+        )
     }
     private val dummyContacts = object : ContactSummaryProvider {
-        override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult =
-            ContactSummaryReadResult.Available(emptyList())
+        override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult = ContactSummaryReadResult.Available(emptyList())
     }
     private val dummyNotifications = object : NotificationSummaryProvider {
-        override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult =
-            NotificationSummaryReadResult.Available(
-                listOf(NotificationSummaryItem(id = 1, title = "t", isOngoing = false, postTimeMillis = 1L)),
-            )
+        override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult = NotificationSummaryReadResult.Available(
+            listOf(NotificationSummaryItem(id = 1, title = "t", isOngoing = false, postTimeMillis = 1L))
+        )
     }
     private val dummyFiles = object : RecentFileProvider {
-        override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult =
-            RecentFileReadResult.Available(
-                listOf(
-                    RecentFileItem(
-                        id = 1L,
-                        name = "f",
-                        mimeType = "text/plain",
-                        kind = "all",
-                        sizeBytes = 1L,
-                        lastModifiedMillis = Instant.parse("2026-01-01T00:00:00Z").toEpochMilli(),
-                    ),
-                ),
+        override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = RecentFileReadResult.Available(
+            listOf(
+                RecentFileItem(
+                    id = 1L,
+                    name = "f",
+                    mimeType = "text/plain",
+                    kind = "all",
+                    sizeBytes = 1L,
+                    lastModifiedMillis = Instant.parse("2026-01-01T00:00:00Z").toEpochMilli()
+                )
             )
+        )
     }
 
     private fun dummyWeb() = object : WebSearchProvider {
-        override fun search(request: WebSearchRequest): WebSearchReadResult =
-            WebSearchReadResult.Failed("unused")
+        override fun search(request: WebSearchRequest): WebSearchReadResult = WebSearchReadResult.Failed("unused")
     }
 
     private fun spec(
@@ -78,7 +68,7 @@ class ParallelToolExecutorTest {
         capability: ToolCapability = ToolCapability.Orchestration,
         risk: RiskLevel = RiskLevel.LowReadOnly,
         confirm: ConfirmationPolicy = ConfirmationPolicy.NotRequired,
-        mode: ToolExecutionMode = ToolExecutionMode.ConcurrentWhenIndependent,
+        mode: ToolExecutionMode = ToolExecutionMode.ConcurrentWhenIndependent
     ) = ToolSpec(
         name = name,
         title = name,
@@ -87,19 +77,19 @@ class ParallelToolExecutorTest {
         capability = capability,
         riskLevel = risk,
         confirmationPolicy = confirm,
-        executionMode = mode,
+        executionMode = mode
     )
 
     private data class Timing(val startMs: Long, val endMs: Long, val threadName: String)
 
     private fun buildExecutor(
         toolHandlers: Map<String, ToolHandler>,
-        specs: List<ToolSpec>,
+        specs: List<ToolSpec>
     ): RoutingToolExecutor {
         val registry = ToolRegistry(
             object : ToolProvider {
                 override fun specs(): List<ToolSpec> = specs
-            },
+            }
         )
         return RoutingToolExecutor(
             calendarAvailabilityProvider = dummyCalendar,
@@ -109,12 +99,10 @@ class ParallelToolExecutorTest {
             recentFileProvider = dummyFiles,
             webSearchProvider = dummyWeb(),
             delegate = object : ToolExecutor {
-                override fun execute(request: ToolRequest): ToolResult =
-                    request.failed(ToolErrorCode.UnknownTool, "delegate not reached for ${request.toolName}", retryable = false)
+                override fun execute(request: ToolRequest): ToolResult = request.failed(ToolErrorCode.UnknownTool, "delegate not reached for ${request.toolName}", retryable = false)
             },
             toolRegistry = registry,
-            toolHandlers = toolHandlers,
-            evidenceBlobStore = NoOpEvidenceBlobStore,
+            toolHandlers = toolHandlers
         )
     }
 
@@ -156,8 +144,8 @@ class ParallelToolExecutorTest {
                     capability = ToolCapability.DeviceControl,
                     risk = RiskLevel.CriticalDeviceOrPayment,
                     confirm = ConfirmationPolicy.Required,
-                    mode = ToolExecutionMode.Sequential,
-                ),
+                    mode = ToolExecutionMode.Sequential
+                )
             )
             indyNames.forEach { add(spec(it)) }
         }
@@ -186,7 +174,7 @@ class ParallelToolExecutorTest {
         // (ii) Total elapsed < 600ms proves concurrent independent execution (sequential would be >= 600ms).
         assertTrue(
             "Expected total elapsed < 600ms but was ${elapsed}ms (concurrent independent tools should run in parallel)",
-            elapsed < 600L,
+            elapsed < 600L
         )
 
         // (iii) Sequential device tool completed before any independent tool even started
@@ -198,7 +186,7 @@ class ParallelToolExecutorTest {
         val earliestIndyStart = indyStarts.minOrNull()!!
         assertTrue(
             "Device-control tool (end=${deviceTiming!!.endMs}) should finish before earliest independent start=$earliestIndyStart",
-            deviceTiming.endMs <= earliestIndyStart + 50, // 50ms slack for scheduler
+            deviceTiming.endMs <= earliestIndyStart + 50 // 50ms slack for scheduler
         )
     }
 
@@ -214,16 +202,22 @@ class ParallelToolExecutorTest {
 
         val specs = allNames.map { spec(it) }
         val handlers = buildMap<String, ToolHandler> {
-            put(crashName, ToolHandler { _ ->
-                delay(delayMs / 2)
-                error("boom from $crashName")
-            })
+            put(
+                crashName,
+                ToolHandler { _ ->
+                    delay(delayMs / 2)
+                    error("boom from $crashName")
+                }
+            )
             okNames.forEach { name ->
-                put(name, ToolHandler { req ->
-                    delay(delayMs)
-                    synchronized(lock) { timings[name] = true }
-                    req.succeeded(summary = "$name ok")
-                })
+                put(
+                    name,
+                    ToolHandler { req ->
+                        delay(delayMs)
+                        synchronized(lock) { timings[name] = true }
+                        req.succeeded(summary = "$name ok")
+                    }
+                )
             }
         }
         val executor = buildExecutor(handlers, specs)
@@ -247,7 +241,7 @@ class ParallelToolExecutorTest {
         // Siblings ran concurrently with the failing tool, so total time ~ delayMs not multiples.
         assertTrue(
             "Siblings should run concurrently with failing tool; elapsed=$elapsed ms",
-            elapsed < delayMs * 2 + 100,
+            elapsed < delayMs * 2 + 100
         )
     }
 }

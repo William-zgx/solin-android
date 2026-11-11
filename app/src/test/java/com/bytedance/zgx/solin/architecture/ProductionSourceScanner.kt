@@ -14,12 +14,12 @@ internal object ProductionSourceScanner {
         val candidates = listOf(
             File("src/main/java"),
             File(MAIN_JAVA_RELATIVE),
-            File(repoRoot(), MAIN_JAVA_RELATIVE),
+            File(repoRoot(), MAIN_JAVA_RELATIVE)
         )
         return candidates.firstOrNull { it.isDirectory }
             ?: error(
                 "Could not locate production main/java root. Tried: " +
-                    candidates.joinToString { it.absolutePath },
+                    candidates.joinToString { it.absolutePath }
             )
     }
 
@@ -38,14 +38,18 @@ internal object ProductionSourceScanner {
             .toList()
     }
 
+    fun rootPackageKotlinFiles(): List<File> = solinPackageRoot().listFiles()
+        .orEmpty()
+        .filter { it.isFile && it.extension == "kt" }
+        .sortedBy { it.name }
+
     fun kotlinFile(relativePathFromSolinRoot: String): File {
         val file = File(solinPackageRoot(), relativePathFromSolinRoot)
         require(file.isFile) { "Missing production source: ${file.absolutePath}" }
         return file
     }
 
-    fun packageDirExists(relativePackageDir: String): Boolean =
-        File(solinPackageRoot(), relativePackageDir).isDirectory
+    fun packageDirExists(relativePackageDir: String): Boolean = File(solinPackageRoot(), relativePackageDir).isDirectory
 
     /**
      * Returns import statements (without the leading `import `), one per line.
@@ -84,14 +88,12 @@ internal object ProductionSourceScanner {
         return imports
     }
 
-    fun lineCount(file: File): Int =
-        file.useLines { sequence -> sequence.count() }
+    fun lineCount(file: File): Int = file.useLines { sequence -> sequence.count() }
 
-    private fun repoRoot(): File =
-        generateSequence(File(System.getProperty("user.dir") ?: ".")) { it.parentFile }
-            .firstOrNull { candidate ->
-                File(candidate, "settings.gradle.kts").isFile &&
-                    File(candidate, MAIN_JAVA_RELATIVE).isDirectory
-            }
-            ?: File(System.getProperty("user.dir") ?: ".")
+    private fun repoRoot(): File = generateSequence(File(System.getProperty("user.dir") ?: ".")) { it.parentFile }
+        .firstOrNull { candidate ->
+            File(candidate, "settings.gradle.kts").isFile &&
+                File(candidate, MAIN_JAVA_RELATIVE).isDirectory
+        }
+        ?: File(System.getProperty("user.dir") ?: ".")
 }

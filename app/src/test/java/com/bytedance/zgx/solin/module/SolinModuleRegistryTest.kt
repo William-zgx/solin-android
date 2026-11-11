@@ -1,11 +1,12 @@
 package com.bytedance.zgx.solin.module
 
+import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
 import com.bytedance.zgx.solin.skill.SkillManifest
 import com.bytedance.zgx.solin.skill.SkillSource
-import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.BuiltInToolsModule
-import com.bytedance.zgx.solin.skill.BuiltInSkillsModule
+import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
+import com.bytedance.zgx.solin.tool.ToolHandler
 import com.bytedance.zgx.solin.tool.ToolProvider
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
@@ -57,7 +58,7 @@ class SolinModuleRegistryTest {
             ToolProvider {
                 calls += 1
                 listOf(toolSpec("foo"))
-            },
+            }
         )
 
         val first = reg.freeze()
@@ -81,7 +82,7 @@ class SolinModuleRegistryTest {
             SkillSource {
                 calls += 1
                 listOf(manifest)
-            },
+            }
         )
 
         val frozen = reg.freeze()
@@ -127,7 +128,7 @@ class SolinModuleRegistryTest {
         val specNames = reg.toolProviders.first().specs().map { it.name }
         assertTrue(
             "Expected ask_user in built-in tool specs, got $specNames",
-            specNames.contains("ask_user"),
+            specNames.contains("ask_user")
         )
     }
 
@@ -147,7 +148,7 @@ class SolinModuleRegistryTest {
         triggerExamples = emptyList(),
         requiredTools = emptyList(),
         inputSchemaJson = """{"type":"object"}""",
-        riskLevel = RiskLevel.LowReadOnly,
+        riskLevel = RiskLevel.LowReadOnly
     )
 
     private fun toolSpec(name: String): ToolSpec = ToolSpec(
@@ -155,6 +156,6 @@ class SolinModuleRegistryTest {
         title = name,
         description = name,
         inputSchemaJson = """{"type":"object"}""",
-        capability = ToolCapability.Extension,
+        capability = ToolCapability.Extension
     )
 }

@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.orchestration
 
-import android.util.Log
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.action.ActionDraft
@@ -60,7 +59,7 @@ private val noToolChoiceSpec = ToolSpec(
     inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
     capability = ToolCapability.Orchestration,
     riskLevel = RiskLevel.LowReadOnly,
-    confirmationPolicy = ConfirmationPolicy.NotRequired,
+    confirmationPolicy = ConfirmationPolicy.NotRequired
 )
 
 /**
@@ -75,14 +74,14 @@ internal class InitialToolPlanner(
     private val skillRuntime: SkillRuntime,
     private val safetyPolicy: SafetyPolicy,
     private val actionPlanningRuntime: ActionPlanningRuntime,
-    private val traceStore: AgentTraceStore,
+    private val traceStore: AgentTraceStore
 ) {
     fun planLocalModelFirst(
         runId: String,
         input: String,
         installedCapabilityProfiles: List<ModelCapabilityProfile>,
         actionModelPath: String?,
-        options: AgentRunOptions,
+        options: AgentRunOptions
     ): AgentPlan? {
         val runOptions = options.withInitialRouteCancellation()
         val cancellation = requireNotNull(runOptions.initialRouteCancellation)
@@ -92,7 +91,7 @@ internal class InitialToolPlanner(
                 input,
                 installedCapabilityProfiles,
                 actionModelPath,
-                runOptions.remoteGuiDrivingEnabled,
+                runOptions.remoteGuiDrivingEnabled
             )
         }
         val modelPath = runOptions.localPlanningModelPath
@@ -112,7 +111,7 @@ internal class InitialToolPlanner(
                 solinW(TAG, "local action-intent gate failed: ${throwable.javaClass.simpleName}")
                 ActionIntentGateResult(
                     open = false,
-                    reason = "local_model_action_gate_error",
+                    reason = "local_model_action_gate_error"
                 )
             }
             runOptions.throwIfInitialRouteCancelled()
@@ -120,7 +119,7 @@ internal class InitialToolPlanner(
                 recordLocalModelProposal(
                     runId,
                     strategy,
-                    LocalModelProposal(LocalModelOutcome.NoTool, gate.reason, retrievedToolNames = null),
+                    LocalModelProposal(LocalModelOutcome.NoTool, gate.reason, retrievedToolNames = null)
                 )
                 return null
             }
@@ -137,7 +136,7 @@ internal class InitialToolPlanner(
             input = input,
             modelPath = modelPath,
             dropWebSearchWithoutExplicitVerb = strategy == LocalPlanningStrategy.RuleFirstGatedModel,
-            cancellation = cancellation,
+            cancellation = cancellation
         )
         runOptions.throwIfInitialRouteCancelled()
         val tracedProposal = proposal.copy(gateReason = gateReason)
@@ -154,7 +153,7 @@ internal class InitialToolPlanner(
         input: String,
         modelPath: String,
         dropWebSearchWithoutExplicitVerb: Boolean = false,
-        cancellation: LocalOneShotCancellation,
+        cancellation: LocalOneShotCancellation
     ): LocalModelProposal {
         val segment = input.initialSequentialActionInput()
         val modelInput = segment ?: input
@@ -162,15 +161,14 @@ internal class InitialToolPlanner(
             request = modelInput,
             candidates = toolRegistry.specs().filter { spec ->
                 spec.isFirstStepPlanningCandidate() && spec.name != LOCAL_MODEL_NO_TOOL_CHOICE
-            },
+            }
         ).filterNot { spec ->
             dropWebSearchWithoutExplicitVerb &&
                 spec.name == MobileActionFunctions.WEB_SEARCH &&
                 !modelInput.hasExplicitSearchVerb()
         }
         val retrievedNames = retrieved.map { spec -> spec.name }
-        fun failed(reason: String, toolName: String? = null, output: String? = null) =
-            LocalModelProposal(LocalModelOutcome.Failed, reason, retrievedNames, toolName, output)
+        fun failed(reason: String, toolName: String? = null, output: String? = null) = LocalModelProposal(LocalModelOutcome.Failed, reason, retrievedNames, toolName, output)
         // Offering only the no-tool choice cannot produce a plan, so the model is not called.
         if (retrieved.isEmpty()) return failed("local_model_no_tool_retrieved")
         // HybridActionPlanningRuntime reports an engine error in its result, but its rule fallback
@@ -200,7 +198,7 @@ internal class InitialToolPlanner(
             toolName = toolName,
             arguments = draft.parameters,
             reason = draft.summary,
-            sensitivityReason = draft.sensitivityReason,
+            sensitivityReason = draft.sensitivityReason
         )
         val skillPlan = skillRuntime.plan(modelInput, draft, request)
         if (segment != null && skillPlan != null && !skillPlan.isSingleToolStepPlan()) {
@@ -211,10 +209,15 @@ internal class InitialToolPlanner(
             draft = draft,
             plannedByModel = true,
             fallbackReason = LOCAL_MODEL_TOOL_CALL,
-            skillPlan = skillPlan,
+            skillPlan = skillPlan
         ) as? AgentPlan.UseTool ?: return failed("local_model_tool_rejected", toolName, output)
         return LocalModelProposal(
-            LocalModelOutcome.Accepted, "local_model_tool_accepted", retrievedNames, toolName, draft.callShape(), plan,
+            LocalModelOutcome.Accepted,
+            "local_model_tool_accepted",
+            retrievedNames,
+            toolName,
+            draft.callShape(),
+            plan
         )
     }
 
@@ -244,10 +247,10 @@ internal class InitialToolPlanner(
                 proposal.gateReason,
                 proposal.retrievedToolNames?.let { names -> "retrieved_count=${names.size}" },
                 proposal.output?.let { shape -> "output=$shape" },
-                proposal.plan?.let { plan -> localModelProposedRequestTag(plan.request.id) },
+                proposal.plan?.let { plan -> localModelProposedRequestTag(plan.request.id) }
             ) + proposal.retrievedToolNames.orEmpty().map { name -> "retrieved=$name" },
             // An accepted proposal always asks: CriticalApprovalReason.LocalModelProposedStep.
-            requiresConfirmation = if (accepted) true else null,
+            requiresConfirmation = if (accepted) true else null
         )
         traceStore.appendStep(runId, AgentStep.IntentRouted(decision))
     }
@@ -256,38 +259,37 @@ internal class InitialToolPlanner(
         input: String,
         installedCapabilityProfiles: List<ModelCapabilityProfile>,
         actionModelPath: String?,
-        remoteGuiDrivingEnabled: Boolean = false,
-    ): AgentPlan? =
-        planToolForInput(
-            input = input,
+        remoteGuiDrivingEnabled: Boolean = false
+    ): AgentPlan? = planToolForInput(
+        input = input,
+        installedCapabilityProfiles = installedCapabilityProfiles,
+        actionModelPath = actionModelPath,
+        allowDirectSkillPlan = true,
+        allowMultiStepSkillPlan = true,
+        remoteGuiDrivingEnabled = remoteGuiDrivingEnabled
+    ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
+        planInitialSequentialSegment(
+            input = firstActionInput,
             installedCapabilityProfiles = installedCapabilityProfiles,
             actionModelPath = actionModelPath,
-            allowDirectSkillPlan = true,
-            allowMultiStepSkillPlan = true,
-            remoteGuiDrivingEnabled = remoteGuiDrivingEnabled,
-        ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
-            planInitialSequentialSegment(
-                input = firstActionInput,
-                installedCapabilityProfiles = installedCapabilityProfiles,
-                actionModelPath = actionModelPath,
-                remoteGuiDrivingEnabled = remoteGuiDrivingEnabled,
-            )
-        }
+            remoteGuiDrivingEnabled = remoteGuiDrivingEnabled
+        )
+    }
 
     fun planLocalOnlySkillBeforeRemote(input: String): AgentPlan? {
         val skillPlan = runCatching { skillRuntime.plan(input) }
             .getOrElse { throwable ->
-                Log.w(
+                solinW(
                     TAG,
-                    "skillRuntime.plan failed, treating as no local-skill match: ${throwable.message}",
+                    "skillRuntime.plan failed, treating as no local-skill match: ${throwable.message}"
                 )
                 null
             } ?: return null
         return runCatching { buildInitialToolPlanFromSkill(skillPlan) }
             .getOrElse { throwable ->
-                Log.w(
+                solinW(
                     TAG,
-                    "buildInitialToolPlanFromSkill failed, falling through to answer: ${throwable.message}",
+                    "buildInitialToolPlanFromSkill failed, falling through to answer: ${throwable.message}"
                 )
                 null
             }
@@ -297,17 +299,16 @@ internal class InitialToolPlanner(
         input: String,
         installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
         actionModelPath: String?,
-        remoteGuiDrivingEnabled: Boolean = false,
-    ): AgentPlan? =
-        planCompositeSkillForInitialSequentialSegment(input)
-            ?: planToolForInput(
-                input = input,
-                installedCapabilityProfiles = installedCapabilityProfiles,
-                actionModelPath = actionModelPath,
-                allowDirectSkillPlan = false,
-                allowMultiStepSkillPlan = false,
-                remoteGuiDrivingEnabled = remoteGuiDrivingEnabled,
-            )
+        remoteGuiDrivingEnabled: Boolean = false
+    ): AgentPlan? = planCompositeSkillForInitialSequentialSegment(input)
+        ?: planToolForInput(
+            input = input,
+            installedCapabilityProfiles = installedCapabilityProfiles,
+            actionModelPath = actionModelPath,
+            allowDirectSkillPlan = false,
+            allowMultiStepSkillPlan = false,
+            remoteGuiDrivingEnabled = remoteGuiDrivingEnabled
+        )
 
     fun planCompositeSkillForInitialSequentialSegment(input: String): AgentPlan? {
         val skillPlan = skillRuntime.plan(input) ?: return null
@@ -317,10 +318,9 @@ internal class InitialToolPlanner(
 
     fun nextSequentialSegmentInput(
         run: AgentRun,
-        completedSegmentCount: Int,
-    ): String? =
-        traceStore.nextActionInput(run.id)?.immediateSequentialActionText()
-            ?: run.input.explicitSequentialActionTextAt(completedSegmentCount)
+        completedSegmentCount: Int
+    ): String? = traceStore.nextActionInput(run.id)?.immediateSequentialActionText()
+        ?: run.input.explicitSequentialActionTextAt(completedSegmentCount)
 
     fun planToolForInput(
         input: String,
@@ -328,7 +328,7 @@ internal class InitialToolPlanner(
         actionModelPath: String?,
         allowDirectSkillPlan: Boolean,
         allowMultiStepSkillPlan: Boolean,
-        remoteGuiDrivingEnabled: Boolean = false,
+        remoteGuiDrivingEnabled: Boolean = false
     ): AgentPlan? {
         if (allowDirectSkillPlan) {
             skillRuntime.plan(input)?.let { skillPlan ->
@@ -343,7 +343,7 @@ internal class InitialToolPlanner(
             result.usedModel &&
             !remoteGuiDrivingEnabled &&
             !hasMobileActionPlanningModel(
-                installedCapabilityProfiles = installedCapabilityProfiles,
+                installedCapabilityProfiles = installedCapabilityProfiles
             )
         ) {
             return AgentPlan.MissingModel(ModelCapability.MobileAction)
@@ -359,7 +359,7 @@ internal class InitialToolPlanner(
         val request = ToolRequest(
             toolName = draft.functionName,
             arguments = draft.parameters,
-            reason = draft.summary,
+            reason = draft.summary
         )
         val skillPlan = skillRuntime.plan(input, draft, request)
         if (!allowMultiStepSkillPlan && skillPlan != null && !skillPlan.isSingleToolStepPlan()) return null
@@ -368,14 +368,13 @@ internal class InitialToolPlanner(
             draft = draft,
             plannedByModel = result.usedModel,
             fallbackReason = result.fallbackReason,
-            skillPlan = skillPlan,
+            skillPlan = skillPlan
         )
     }
 
     fun hasMobileActionPlanningModel(
-        installedCapabilityProfiles: List<ModelCapabilityProfile>,
-    ): Boolean =
-        installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
+        installedCapabilityProfiles: List<ModelCapabilityProfile>
+    ): Boolean = installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
 
     fun draftForRemoteToolRequest(request: ToolRequest): ActionDraft {
         val spec = toolRegistry.specFor(request.toolName)
@@ -385,7 +384,7 @@ internal class InitialToolPlanner(
             summary = spec?.title?.let { title -> "$title · 远程模型请求" } ?: "远程模型请求执行 ${request.toolName}",
             parameters = request.arguments,
             requiresConfirmation = spec?.confirmationPolicy == ConfirmationPolicy.Required,
-            sensitivityReason = request.sensitivityReason,
+            sensitivityReason = request.sensitivityReason
         )
     }
 
@@ -396,7 +395,7 @@ internal class InitialToolPlanner(
         val validation = skillPlan.validateStructure(toolRegistry)
         if (!validation.isValid) {
             return AgentPlan.RejectedTool(
-                toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}"),
+                toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}")
             )
         }
         return buildInitialToolPlan(
@@ -404,7 +403,7 @@ internal class InitialToolPlanner(
             draft = toolStep.draft,
             plannedByModel = false,
             fallbackReason = "skill-first",
-            skillPlan = skillPlan,
+            skillPlan = skillPlan
         )
     }
 
@@ -413,7 +412,7 @@ internal class InitialToolPlanner(
         draft: ActionDraft,
         plannedByModel: Boolean,
         fallbackReason: String?,
-        skillPlan: SkillPlan?,
+        skillPlan: SkillPlan?
     ): AgentPlan {
         invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
             return AgentPlan.RejectedTool(rejection)
@@ -422,7 +421,7 @@ internal class InitialToolPlanner(
         if (rejection != null) return AgentPlan.RejectedTool(rejection)
         val spec = toolRegistry.specFor(request.toolName)
             ?: return AgentPlan.RejectedTool(
-                request.rejected("Unknown tool: ${request.toolName}"),
+                request.rejected("Unknown tool: ${request.toolName}")
             )
         val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
         if (safetyDecision.outcome == SafetyOutcome.Reject) {
@@ -435,13 +434,13 @@ internal class InitialToolPlanner(
             fallbackReason = fallbackReason,
             skillRequest = skillPlan?.request,
             skillPlan = skillPlan,
-            safetyDecision = safetyDecision,
+            safetyDecision = safetyDecision
         )
     }
 
     fun invalidSkillPlanRejection(
         request: ToolRequest,
-        skillPlan: SkillPlan?,
+        skillPlan: SkillPlan?
     ): ToolResult? {
         val reason = invalidSkillPlanReason(skillPlan) ?: return null
         return request.rejected(reason)
@@ -471,9 +470,8 @@ internal class InitialToolPlanner(
         return null
     }
 
-    private fun String.initialSequentialActionInput(): String? =
-        explicitSequentialActionTextAt(0)
-            ?.takeIf { explicitSequentialActionTextAt(1) != null }
+    private fun String.initialSequentialActionInput(): String? = explicitSequentialActionTextAt(0)
+        ?.takeIf { explicitSequentialActionTextAt(1) != null }
 }
 
 private enum class LocalModelOutcome { Accepted, NoTool, Failed }
@@ -485,18 +483,16 @@ private data class LocalModelProposal(
     val toolName: String? = null,
     val output: String? = null,
     val plan: AgentPlan.UseTool? = null,
-    val gateReason: String? = null,
+    val gateReason: String? = null
 )
 
 private val modelCallHead = Regex("""call:([A-Za-z0-9_]+)""")
 
 /** What the model emitted, as `text(length)` or `none`: never its content. */
-private fun String?.localModelOutputLength(): String =
-    this?.trim()?.takeIf { text -> text.isNotEmpty() }?.let { text -> "text(${text.length})" } ?: "none"
+private fun String?.localModelOutputLength(): String = this?.trim()?.takeIf { text -> text.isNotEmpty() }?.let { text -> "text(${text.length})" } ?: "none"
 
 /** `call:name{key,...}` of an accepted draft: argument names, never values. */
-private fun ActionDraft.callShape(): String =
-    "call:$functionName{${parameters.keys.sorted().take(MAX_TRACED_ARGUMENT_KEYS).joinToString(",")}}"
+private fun ActionDraft.callShape(): String = "call:$functionName{${parameters.keys.sorted().take(MAX_TRACED_ARGUMENT_KEYS).joinToString(",")}}"
 
 private const val MAX_TRACED_ARGUMENT_KEYS = 6
 
@@ -538,7 +534,7 @@ private fun String.hasExplicitSearchVerb(): Boolean {
 
 /** RuleFirstGatedModel candidate filter only; it removes web_search and never adds a capability. */
 private val EXPLICIT_SEARCH_VERBS = listOf(
-    "搜索", "搜一下", "搜搜", "查一下", "查查", "百度", "谷歌", "google", "search", "look up",
+    "搜索", "搜一下", "搜搜", "查一下", "查查", "百度", "谷歌", "google", "search", "look up"
 )
 
 /** Parser reasons for output it read but could not turn into a draft. */

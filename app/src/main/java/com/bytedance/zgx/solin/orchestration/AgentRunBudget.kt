@@ -1,7 +1,7 @@
 package com.bytedance.zgx.solin.orchestration
 
-import android.util.Log
 import com.bytedance.zgx.solin.SolinConstants
+import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.plan.PlanItemStatus
 import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -55,7 +55,7 @@ internal class AgentRunBudget(
     private val runParkedMillis: (runId: String) -> Long = { 0L },
     private val maxRunWallClockMillis: Long = SolinConstants.AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS,
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
-    private val compositeStepCount: (String) -> Int = { 0 },
+    private val compositeStepCount: (String) -> Int = { 0 }
 ) {
     fun toolStepBudgetExceeded(runId: String): Boolean {
         if (stepHistoryDegradedFailClosed(runId, budgetName = "tool step")) return true
@@ -119,12 +119,11 @@ internal class AgentRunBudget(
         runCatching { toolRequestsFor(runId) }
         val stillDegraded = runCatching { stepHistoryDegraded(runId) }.getOrDefault(true)
         if (!stillDegraded) return false
-        // Log is wrapped because android.util.Log is not mocked on the JVM unit-test path; an
-        // unavailable logger must never turn a fail-closed budget check into a thrown exception.
+        // Keep the fail-closed check independent of logger failures on every runtime and test path.
         runCatching {
-            Log.e(
+            solinE(
                 TAG,
-                "Step history degraded for run $runId; treating $budgetName budget as exceeded (fail-closed)",
+                "Step history degraded for run $runId; treating $budgetName budget as exceeded (fail-closed)"
             )
         }
         return true
@@ -171,9 +170,8 @@ internal class AgentRunBudget(
             sb.append("Use plan_write to mark completed items before continuing.")
             sb.toString()
         }.getOrElse { throwable ->
-            // android.util.Log is not mocked on the JVM unit-test path; a logger failure must not
-            // turn a budget message into a thrown exception.
-            runCatching { Log.e(TAG, "Failed to build step-budget plan hint", throwable) }
+            // A logger failure must not turn a budget message into a thrown exception.
+            runCatching { solinE(TAG, "Failed to build step-budget plan hint", throwable) }
             reason
         }
     }

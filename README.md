@@ -197,7 +197,7 @@ use environment variables; never commit their values.
 ## Validation
 
 ```bash
-# Full local gate: script regression, JVM, lint, builds, and artifact checks
+# Full local gate: formatting, script regression, JVM, lint, builds, and artifact checks
 scripts/verify_local.sh
 
 # Device checks; read the acceptance guide before testing on a personal device
@@ -206,6 +206,10 @@ ANDROID_SERIAL=<device-or-emulator> scripts/install_and_test_device.sh
 # Full emulator regression
 AVD_NAME=<your-avd-name> scripts/regression_emulator.sh
 ```
+
+The formatting check uses `origin/main` as its incremental baseline. If it is absent, set
+`SOLIN_SPOTLESS_RATCHET_REF` to a valid base. A source archive without Git metadata can use
+`SOLIN_SPOTLESS_SKIP=1` as an explicit local-only skip; CI keeps the check enabled.
 
 A complete emulator pass requires `regression-emulator.properties` with
 `status=passed`. A green CI job reporting an infrastructure skip, such as

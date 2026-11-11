@@ -1,6 +1,6 @@
 package com.bytedance.zgx.solin.action
 
-import com.bytedance.zgx.solin.orchestration.collab.StrictJsonScan
+import com.bytedance.zgx.solin.common.StrictJsonScan
 import com.bytedance.zgx.solin.runtime.DedicatedLiteRtEngine
 import com.bytedance.zgx.solin.runtime.LocalCallMetrics
 import com.bytedance.zgx.solin.runtime.LocalEngine
@@ -9,26 +9,25 @@ import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
 import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.runtime.LocalOneShotUnavailableReason
 import com.bytedance.zgx.solin.tool.ToolRegistry
-import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import java.io.File
 import org.json.JSONObject
 
 interface ActionPlanningRuntime {
-    fun classifyIntent(input: String): IntentCandidate =
-        if (isLikelyAction(input)) {
-            IntentCandidate(
-                toolName = null,
-                confidence = ActionIntentConfidence.High,
-                reason = "runtime likely action",
-            )
-        } else {
-            IntentCandidate(
-                toolName = null,
-                confidence = ActionIntentConfidence.None,
-                reason = "runtime rejected action intent",
-            )
-        }
+    fun classifyIntent(input: String): IntentCandidate = if (isLikelyAction(input)) {
+        IntentCandidate(
+            toolName = null,
+            confidence = ActionIntentConfidence.High,
+            reason = "runtime likely action"
+        )
+    } else {
+        IntentCandidate(
+            toolName = null,
+            confidence = ActionIntentConfidence.None,
+            reason = "runtime rejected action intent"
+        )
+    }
 
     fun isLikelyAction(input: String): Boolean
     fun plan(input: String, actionModelPath: String?): ActionPlanningResult
@@ -38,15 +37,14 @@ interface ActionPlanningRuntime {
      * replanner's scoped tool list). Parsing and acceptance are unchanged; runtimes without a model
      * prompt ignore the scope.
      */
-    fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
-        plan(input, actionModelPath)
+    fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult = plan(input, actionModelPath)
 
     /** Initial-route variant whose model one-shot shares the run's cooperative Stop signal. */
     fun plan(
         input: String,
         actionModelPath: String?,
         toolSpecs: List<ToolSpec>,
-        cancellation: LocalOneShotCancellation,
+        cancellation: LocalOneShotCancellation
     ): ActionPlanningResult = plan(input, actionModelPath, toolSpecs)
 
     fun parseModelToolOutput(output: String): ModelToolOutputParseResult = ModelToolOutputParseResult.None
@@ -55,14 +53,13 @@ interface ActionPlanningRuntime {
      * Local-only action-intent gate for the debug RuleFirstGatedModel strategy. This is not an
      * authorization decision: it can only decline model planning, never approve a tool execution.
      */
-    fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult =
-        ActionIntentGateResult(open = false, reason = "local_model_action_gate_unsupported")
+    fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult = ActionIntentGateResult(open = false, reason = "local_model_action_gate_unsupported")
 
     /** Initial-route variant whose gate one-shot shares the run's cooperative Stop signal. */
     fun gateActionIntent(
         input: String,
         actionModelPath: String?,
-        cancellation: LocalOneShotCancellation,
+        cancellation: LocalOneShotCancellation
     ): ActionIntentGateResult = gateActionIntent(input, actionModelPath)
 }
 
@@ -74,13 +71,13 @@ data class ActionPlanningResult(
     val modelOutputPreview: String? = null,
     val modelFailureReason: String? = null,
     /** Text-free timing of the model call, when one ran; for the local device bench only. */
-    val modelMetrics: LocalCallMetrics? = null,
+    val modelMetrics: LocalCallMetrics? = null
 )
 
 /** A stable, text-free planner-gate verdict. [reason] is safe to include in a redacted run trace. */
 data class ActionIntentGateResult(
     val open: Boolean,
-    val reason: String,
+    val reason: String
 )
 
 sealed class ModelToolOutputParseResult {
@@ -88,7 +85,7 @@ sealed class ModelToolOutputParseResult {
     data class Parsed(val draft: ActionDraft) : ModelToolOutputParseResult()
     data class Rejected(
         val toolName: String?,
-        val reason: String,
+        val reason: String
     ) : ModelToolOutputParseResult()
 }
 
@@ -102,41 +99,38 @@ class HybridActionPlanningRuntime(
     fallbackEngine: DedicatedLiteRtEngine,
     toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     private val rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
-    sharedEngine: LocalEngine? = null,
-) : ActionPlanningRuntime, AutoCloseable {
+    sharedEngine: LocalEngine? = null
+) : ActionPlanningRuntime,
+    AutoCloseable {
     constructor(
         cacheDir: File,
         toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
         rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
-        sharedEngine: LocalEngine? = null,
+        sharedEngine: LocalEngine? = null
     ) : this(DedicatedLiteRtEngine(cacheDir), toolRegistry, rulePlanner, sharedEngine)
 
     private val modelPlanner = ModelBackedActionPlanner(sharedEngine, fallbackEngine, rulePlanner, toolRegistry)
 
-    override fun classifyIntent(input: String): IntentCandidate =
-        rulePlanner.classifyIntent(input)
+    override fun classifyIntent(input: String): IntentCandidate = rulePlanner.classifyIntent(input)
 
-    override fun isLikelyAction(input: String): Boolean =
-        classifyIntent(input).isAction
+    override fun isLikelyAction(input: String): Boolean = classifyIntent(input).isAction
 
-    override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-        planWithToolSpecs(input, actionModelPath, toolSpecs = null, LocalOneShotCancellation())
+    override fun plan(input: String, actionModelPath: String?): ActionPlanningResult = planWithToolSpecs(input, actionModelPath, toolSpecs = null, LocalOneShotCancellation())
 
-    override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult =
-        planWithToolSpecs(input, actionModelPath, toolSpecs, LocalOneShotCancellation())
+    override fun plan(input: String, actionModelPath: String?, toolSpecs: List<ToolSpec>): ActionPlanningResult = planWithToolSpecs(input, actionModelPath, toolSpecs, LocalOneShotCancellation())
 
     override fun plan(
         input: String,
         actionModelPath: String?,
         toolSpecs: List<ToolSpec>,
-        cancellation: LocalOneShotCancellation,
+        cancellation: LocalOneShotCancellation
     ): ActionPlanningResult = planWithToolSpecs(input, actionModelPath, toolSpecs, cancellation)
 
     private fun planWithToolSpecs(
         input: String,
         actionModelPath: String?,
         toolSpecs: List<ToolSpec>?,
-        cancellation: LocalOneShotCancellation,
+        cancellation: LocalOneShotCancellation
     ): ActionPlanningResult {
         if (actionModelPath != null) {
             val modelAttemptResult = runCatching {
@@ -151,7 +145,7 @@ class HybridActionPlanningRuntime(
                     fallbackReason = null,
                     modelAttempted = true,
                     modelOutputPreview = modelAttempt.output.previewForDiagnostics(),
-                    modelMetrics = modelAttempt.metrics,
+                    modelMetrics = modelAttempt.metrics
                 )
             }
             val modelFailureReason = modelAttempt?.failureReason
@@ -164,7 +158,7 @@ class HybridActionPlanningRuntime(
                 modelAttempted = true,
                 modelOutputPreview = modelAttempt?.output?.previewForDiagnostics(),
                 modelFailureReason = modelFailureReason,
-                modelMetrics = modelAttempt?.metrics,
+                modelMetrics = modelAttempt?.metrics
             )
         }
 
@@ -172,20 +166,18 @@ class HybridActionPlanningRuntime(
             plan = rulePlanner.plan(input),
             usedModel = false,
             fallbackReason = "动作规划模型未安装或未校验",
-            modelAttempted = false,
+            modelAttempted = false
         )
     }
 
-    override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
-        rulePlanner.parseModelToolOutput(output)
+    override fun parseModelToolOutput(output: String): ModelToolOutputParseResult = rulePlanner.parseModelToolOutput(output)
 
-    override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult =
-        gateActionIntent(input, actionModelPath, LocalOneShotCancellation())
+    override fun gateActionIntent(input: String, actionModelPath: String?): ActionIntentGateResult = gateActionIntent(input, actionModelPath, LocalOneShotCancellation())
 
     override fun gateActionIntent(
         input: String,
         actionModelPath: String?,
-        cancellation: LocalOneShotCancellation,
+        cancellation: LocalOneShotCancellation
     ): ActionIntentGateResult {
         if (actionModelPath == null) {
             return ActionIntentGateResult(open = false, reason = "local_model_action_gate_no_model")
@@ -203,19 +195,19 @@ private class ModelBackedActionPlanner(
     private val sharedEngine: LocalEngine?,
     private val ownEngine: DedicatedLiteRtEngine,
     private val parser: MobileActionPlanner,
-    private val toolRegistry: ToolRegistry,
+    private val toolRegistry: ToolRegistry
 ) : AutoCloseable {
     fun plan(
         input: String,
         modelPath: String,
         toolSpecs: List<ToolSpec>?,
-        cancellation: LocalOneShotCancellation = LocalOneShotCancellation(),
+        cancellation: LocalOneShotCancellation = LocalOneShotCancellation()
     ): ModelBackedPlanningAttempt {
         val request = LocalOneShotRequest(
             modelPath = modelPath,
             systemInstruction = ACTION_PLANNER_SYSTEM_INSTRUCTION,
             prompt = actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs()),
-            cancellation = cancellation,
+            cancellation = cancellation
         )
         return when (val result = generate(request)) {
             is LocalOneShotResult.Generated -> {
@@ -224,7 +216,7 @@ private class ModelBackedActionPlanner(
                     plan = draft?.let { ActionPlan(ActionPlanKind.Draft, it) },
                     output = result.text,
                     failureReason = if (draft == null) parser.modelOutputFailureReason(result.text) else null,
-                    metrics = result.metrics,
+                    metrics = result.metrics
                 )
             }
 
@@ -232,7 +224,7 @@ private class ModelBackedActionPlanner(
                 plan = null,
                 output = "",
                 failureReason = result.diagnosticReason(),
-                metrics = null,
+                metrics = null
             )
         }
     }
@@ -240,20 +232,20 @@ private class ModelBackedActionPlanner(
     fun gateActionIntent(
         input: String,
         modelPath: String,
-        cancellation: LocalOneShotCancellation = LocalOneShotCancellation(),
+        cancellation: LocalOneShotCancellation = LocalOneShotCancellation()
     ): ActionIntentGateResult {
         val request = LocalOneShotRequest(
             modelPath = modelPath,
             systemInstruction = ACTION_INTENT_GATE_SYSTEM_INSTRUCTION,
             prompt = JSONObject().put("request", input).toString(),
             maxOutputTokens = ACTION_INTENT_GATE_MAX_OUTPUT_TOKENS,
-            cancellation = cancellation,
+            cancellation = cancellation
         )
         return when (val result = generate(request)) {
             is LocalOneShotResult.Generated -> parseActionIntentGateResult(result.text)
             is LocalOneShotResult.Unavailable -> ActionIntentGateResult(
                 open = false,
-                reason = "local_model_action_gate_${result.reason.name.lowercase()}",
+                reason = "local_model_action_gate_${result.reason.name.lowercase()}"
             )
         }
     }
@@ -276,20 +268,18 @@ private class ModelBackedActionPlanner(
  * Only a shared engine that does not hold this model may hand off to the planner's own engine;
  * Busy and Failed mean the model is already mapped, so loading a second copy is never the answer.
  */
-private fun LocalOneShotResult.mayUseOwnEngine(): Boolean =
-    this is LocalOneShotResult.Unavailable &&
-        (reason == LocalOneShotUnavailableReason.ModelNotLoaded || reason == LocalOneShotUnavailableReason.Unsupported)
+private fun LocalOneShotResult.mayUseOwnEngine(): Boolean = this is LocalOneShotResult.Unavailable &&
+    (reason == LocalOneShotUnavailableReason.ModelNotLoaded || reason == LocalOneShotUnavailableReason.Unsupported)
 
-private fun LocalOneShotResult.Unavailable.diagnosticReason(): String =
-    listOfNotNull("local_engine_${reason.name.lowercase()}", detail?.takeIf { it.isNotBlank() })
-        .joinToString(separator = ":")
-        .take(240)
+private fun LocalOneShotResult.Unavailable.diagnosticReason(): String = listOfNotNull("local_engine_${reason.name.lowercase()}", detail?.takeIf { it.isNotBlank() })
+    .joinToString(separator = ":")
+    .take(240)
 
 private data class ModelBackedPlanningAttempt(
     val plan: ActionPlan?,
     val output: String,
     val failureReason: String?,
-    val metrics: LocalCallMetrics?,
+    val metrics: LocalCallMetrics?
 )
 
 private const val ACTION_PLANNER_SYSTEM_INSTRUCTION =
@@ -310,15 +300,14 @@ private const val ACTION_INTENT_GATE_SYSTEM_INSTRUCTION =
         "Reply with one JSON object only: {\"action\": true or false, \"confidence\": a number from 0 to 1}."
 
 private val SINGLE_JSON_FENCE = Regex(
-    """\A\s*```(?:json)?\r?\n((?:(?!```)[\s\S])*?)\r?\n```\s*\z""",
+    """\A\s*```(?:json)?\r?\n((?:(?!```)[\s\S])*?)\r?\n```\s*\z"""
 )
 
 /**
  * T-LM: unwrap only one unambiguous whole-reply fence, never prose or multiple fences. E2B devbox-CPU
  * measurement: 37/56 gate replies were fenced; accepting this shape moved the score from 129 to 133.
  */
-private fun unwrapSingleJsonFence(reply: String): String =
-    SINGLE_JSON_FENCE.matchEntire(reply)?.groupValues?.get(1) ?: reply
+private fun unwrapSingleJsonFence(reply: String): String = SINGLE_JSON_FENCE.matchEntire(reply)?.groupValues?.get(1) ?: reply
 
 /** Strictly one object with exactly a Boolean action and a numeric confidence in 0..1. */
 private fun parseActionIntentGateResult(raw: String): ActionIntentGateResult {
@@ -344,27 +333,24 @@ private fun parseActionIntentGateResult(raw: String): ActionIntentGateResult {
     }
 }
 
-private fun MobileActionPlanner.modelOutputFailureReason(output: String): String =
-    when (val parseResult = parseModelToolOutput(output)) {
-        ModelToolOutputParseResult.None ->
-            if (output.isBlank()) "blank_model_output" else "missing_call_tool_output"
+private fun MobileActionPlanner.modelOutputFailureReason(output: String): String = when (val parseResult = parseModelToolOutput(output)) {
+    ModelToolOutputParseResult.None ->
+        if (output.isBlank()) "blank_model_output" else "missing_call_tool_output"
 
-        is ModelToolOutputParseResult.Parsed -> "model_tool_call_not_accepted"
-        is ModelToolOutputParseResult.Rejected -> parseResult.reason
-    }
+    is ModelToolOutputParseResult.Parsed -> "model_tool_call_not_accepted"
+    is ModelToolOutputParseResult.Rejected -> parseResult.reason
+}
 
-private fun String.previewForDiagnostics(maxChars: Int = 240): String? =
-    replace(Regex("""\s+"""), " ")
-        .trim()
-        .takeIf { value -> value.isNotBlank() }
-        ?.take(maxChars)
+private fun String.previewForDiagnostics(maxChars: Int = 240): String? = replace(Regex("""\s+"""), " ")
+    .trim()
+    .takeIf { value -> value.isNotBlank() }
+    ?.take(maxChars)
 
-private fun Throwable.diagnosticReason(): String =
-    "${javaClass.simpleName}:${message.orEmpty()}".take(240)
+private fun Throwable.diagnosticReason(): String = "${javaClass.simpleName}:${message.orEmpty()}".take(240)
 
 internal fun actionPrompt(
     input: String,
-    toolSpecs: List<ToolSpec> = defaultBuiltInToolRegistry.specs(),
+    toolSpecs: List<ToolSpec> = defaultBuiltInToolRegistry.specs()
 ): String {
     val toolLines = toolSpecs.joinToString(separator = "\n") { spec ->
         spec.toActionPromptLine()
@@ -405,12 +391,11 @@ private fun ToolSpec.toActionPromptLine(): String {
     return "- $name $primaryShape$optionalClause$descriptionClause$hintClause"
 }
 
-private fun String.compactActionPromptText(maxLength: Int): String =
-    replace(Regex("\\s+"), " ")
-        .trim()
-        .let { value ->
-            if (value.length <= maxLength) value else value.take(maxLength).trimEnd() + "..."
-        }
+private fun String.compactActionPromptText(maxLength: Int): String = replace(Regex("\\s+"), " ")
+    .trim()
+    .let { value ->
+        if (value.length <= maxLength) value else value.take(maxLength).trimEnd() + "..."
+    }
 
 private fun JSONObject.placeholderFor(name: String): String {
     val enumValues = optStringList("enum")
@@ -451,12 +436,11 @@ private fun JSONObject.keysList(): List<String> {
     return names
 }
 
-private fun JSONObject.optNumberAsString(name: String): String? =
-    opt(name)?.let { value ->
-        when (value) {
-            is Number -> value.toLong().takeIf { value.toDouble() == it.toDouble() }?.toString()
-                ?: value.toString()
+private fun JSONObject.optNumberAsString(name: String): String? = opt(name)?.let { value ->
+    when (value) {
+        is Number -> value.toLong().takeIf { value.toDouble() == it.toDouble() }?.toString()
+            ?: value.toString()
 
-            else -> value.toString().takeIf { it.isNotBlank() }
-        }
+        else -> value.toString().takeIf { it.isNotBlank() }
     }
+}

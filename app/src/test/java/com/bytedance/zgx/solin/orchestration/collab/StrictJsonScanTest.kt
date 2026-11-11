@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.orchestration.collab
 
+import com.bytedance.zgx.solin.common.StrictJsonRejection
+import com.bytedance.zgx.solin.common.StrictJsonScan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -13,7 +15,7 @@ class StrictJsonScanTest {
     @Test
     fun syntaxAndroidOrgJsonToleratesIsRefusedBeforeOrgJsonRuns() {
         LENIENT_CASES.forEach { (raw, reason) ->
-            assertEquals(raw, reason, StrictJsonScan.firstViolation(raw))
+            assertEquals(raw, reason.toStrictJsonRejection(), StrictJsonScan.firstViolation(raw))
             assertEquals(raw, MilestoneParseResult.Rejected(reason), MilestonePlanParser.parse(raw, REQUEST))
         }
     }
@@ -28,7 +30,7 @@ class StrictJsonScanTest {
             """{"s":"\" \\ \/ \b \f \n \r \t \u00e9 \uD83D\uDE00 牛奶","n":[0,-0,12,-12.5,1e3,1E+3,2.5e-3]}""",
             """{"l":[true,false,null],"o":{},"a":[]}""",
             """{"a":{"a":{"a":1}},"b":[{"a":1},{"a":2}]}""",
-            maxNesting,
+            maxNesting
         ).forEach { raw -> assertNull(raw, StrictJsonScan.firstViolation(raw)) }
         assertTrue(MilestonePlanParser.parse(" \n$VALID\n ", REQUEST) is MilestoneParseResult.Accepted)
     }
@@ -36,11 +38,19 @@ class StrictJsonScanTest {
     @Test
     fun theDuplicateKeyRejectionDoesNotDependOnTheJvmOrgJson() {
         val lastValueIsValid = """{"version":1,"milestones":[{"intent":"open_app","app":"x","app":"$TAOBAO"}]}"""
-        assertEquals(MilestoneRejection.DuplicateKey, StrictJsonScan.firstViolation(lastValueIsValid))
+        assertEquals(StrictJsonRejection.DuplicateKey, StrictJsonScan.firstViolation(lastValueIsValid))
         assertEquals(
             MilestoneParseResult.Rejected(MilestoneRejection.DuplicateKey),
-            MilestonePlanParser.parse(lastValueIsValid, REQUEST),
+            MilestonePlanParser.parse(lastValueIsValid, REQUEST)
         )
+    }
+
+    private fun MilestoneRejection.toStrictJsonRejection(): StrictJsonRejection = when (this) {
+        MilestoneRejection.NotJsonObject -> StrictJsonRejection.NotJsonObject
+        MilestoneRejection.MalformedJson -> StrictJsonRejection.MalformedJson
+        MilestoneRejection.DuplicateKey -> StrictJsonRejection.DuplicateKey
+        MilestoneRejection.TrailingContent -> StrictJsonRejection.TrailingContent
+        else -> error("Not a strict-JSON syntax rejection: $this")
     }
 
     private companion object {
@@ -86,7 +96,7 @@ class StrictJsonScanTest {
             "{\"version\":1,\u00A0\"milestones\":[$MILESTONE]}" to MilestoneRejection.MalformedJson,
             "\uFEFF$VALID" to MilestoneRejection.NotJsonObject,
             "{\"version\":1,\"milestones\":${"[".repeat(StrictJsonScan.MAX_DEPTH)}1${"]".repeat(StrictJsonScan.MAX_DEPTH)}}" to
-                MilestoneRejection.MalformedJson,
+                MilestoneRejection.MalformedJson
         ) + listOf("01", "0x1", "0X1", "+1", "1.", ".5", "1e", "-", "NaN", "Infinity", "1_0").map { version ->
             """{"version":$version,"milestones":[$MILESTONE]}""" to MilestoneRejection.MalformedJson
         }

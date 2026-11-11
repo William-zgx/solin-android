@@ -1,15 +1,16 @@
 package com.bytedance.zgx.solin.runtime
 
-import android.util.Log
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.GenerationStats
-import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.LocalImageAttachment
+import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCapabilityProfile
 import com.bytedance.zgx.solin.isUsable
+import com.bytedance.zgx.solin.logging.solinD
+import com.bytedance.zgx.solin.logging.solinW
 import com.bytedance.zgx.solin.orchestration.ContextCompactor
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.BenchmarkInfo
@@ -42,7 +43,7 @@ import org.json.JSONObject
 
 data class LocalModelRequest(
     val prompt: String,
-    val imageAttachments: List<LocalImageAttachment> = emptyList(),
+    val imageAttachments: List<LocalImageAttachment> = emptyList()
 )
 
 /**
@@ -57,12 +58,12 @@ data class LocalModelRequest(
 sealed interface RuntimeBenchmarkResult {
     data class Available(
         val tokenCount: Int,
-        val tokensPerSecond: Double,
+        val tokensPerSecond: Double
     ) : RuntimeBenchmarkResult {
         init {
             require(tokenCount > 0) { "benchmark token count must be positive" }
             require(
-                tokensPerSecond > 0.0 && !tokensPerSecond.isNaN() && !tokensPerSecond.isInfinite(),
+                tokensPerSecond > 0.0 && !tokensPerSecond.isNaN() && !tokensPerSecond.isInfinite()
             ) { "benchmark tokensPerSecond must be a positive finite value" }
         }
     }
@@ -73,19 +74,18 @@ sealed interface RuntimeBenchmarkResult {
 data class LocalModelRuntimeCapabilities(
     val supportsVisionInput: Boolean = false,
     val contextWindowTokens: Int = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
-    val preferredBackends: Set<BackendChoice> = emptySet(),
+    val preferredBackends: Set<BackendChoice> = emptySet()
 ) {
     init {
         require(contextWindowTokens > 0) { "Local model context window must be positive" }
     }
 
     companion object {
-        fun fromProfile(profile: ModelCapabilityProfile?): LocalModelRuntimeCapabilities =
-            LocalModelRuntimeCapabilities(
-                supportsVisionInput = profile?.supportsVisionInput == true,
-                contextWindowTokens = LocalModelTokenLimits.contextWindowTokensFor(profile),
-                preferredBackends = profile?.preferredLocalBackends.orEmpty(),
-            )
+        fun fromProfile(profile: ModelCapabilityProfile?): LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities(
+            supportsVisionInput = profile?.supportsVisionInput == true,
+            contextWindowTokens = LocalModelTokenLimits.contextWindowTokensFor(profile),
+            preferredBackends = profile?.preferredLocalBackends.orEmpty()
+        )
     }
 }
 
@@ -97,31 +97,29 @@ data class LocalModelRuntimeCapabilities(
 interface LocalChatRuntime : LocalEngine {
     val isLoaded: Boolean
 
-    override fun engineCapabilities(): LocalEngineCapabilities =
-        LocalEngineCapabilities(
-            backendName = "none",
-            accelerators = emptySet(),
-            maxContextTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
-        )
+    override fun engineCapabilities(): LocalEngineCapabilities = LocalEngineCapabilities(
+        backendName = "none",
+        accelerators = emptySet(),
+        maxContextTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS
+    )
 
-    override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult =
-        LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Unsupported, "runtime serves no one-shots")
+    override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult = LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Unsupported, "runtime serves no one-shots")
 
     fun configureModelCapabilities(
-        capabilities: LocalModelRuntimeCapabilities,
+        capabilities: LocalModelRuntimeCapabilities
     ) = Unit
 
     fun load(
         modelPath: String,
         backend: BackendChoice,
         history: List<ChatMessage>,
-        parameters: GenerationParameters,
+        parameters: GenerationParameters
     )
 
     /** Always starts a fresh conversation from [history]. */
     fun recreateConversation(
         history: List<ChatMessage>,
-        parameters: GenerationParameters,
+        parameters: GenerationParameters
     )
 
     /**
@@ -132,15 +130,14 @@ interface LocalChatRuntime : LocalEngine {
         history: List<ChatMessage>,
         prompt: String,
         parameters: GenerationParameters,
-        maxInputTokens: Int? = null,
+        maxInputTokens: Int? = null
     ) {
         recreateConversation(history, parameters)
     }
 
     fun send(prompt: String): Flow<String>
 
-    fun send(request: LocalModelRequest): Flow<String> =
-        send(request.prompt)
+    fun send(request: LocalModelRequest): Flow<String> = send(request.prompt)
 
     fun lastGenerationStats(): GenerationStats?
 
@@ -163,8 +160,7 @@ interface LocalChatRuntime : LocalEngine {
      * [RuntimeBenchmarkResult.Unavailable] reason. [tokensPerSecond] is only ever the raw LiteRT
      * benchmark value; it is never estimated.
      */
-    fun lastBenchmarkResult(): RuntimeBenchmarkResult =
-        RuntimeBenchmarkResult.Unavailable("benchmark not supported by runtime")
+    fun lastBenchmarkResult(): RuntimeBenchmarkResult = RuntimeBenchmarkResult.Unavailable("benchmark not supported by runtime")
 
     /** Measurements of the most recent finished chat send, or null before the first one. */
     fun lastCallMetrics(): LocalCallMetrics? = null
@@ -177,8 +173,7 @@ interface LocalChatRuntime : LocalEngine {
 typealias LiteRtRuntime = LocalChatRuntime
 
 object DisabledLiteRtRuntime : LocalChatRuntime {
-    private fun unavailable(): Nothing =
-        throw UnsupportedOperationException("Local LiteRT runtime is disabled for this debug launch")
+    private fun unavailable(): Nothing = throw UnsupportedOperationException("Local LiteRT runtime is disabled for this debug launch")
 
     override val isLoaded: Boolean = false
 
@@ -186,14 +181,14 @@ object DisabledLiteRtRuntime : LocalChatRuntime {
         modelPath: String,
         backend: BackendChoice,
         history: List<ChatMessage>,
-        parameters: GenerationParameters,
+        parameters: GenerationParameters
     ) {
         unavailable()
     }
 
     override fun recreateConversation(
         history: List<ChatMessage>,
-        parameters: GenerationParameters,
+        parameters: GenerationParameters
     ) = Unit
 
     override fun send(prompt: String): Flow<String> = unavailable()
@@ -208,7 +203,7 @@ object DisabledLiteRtRuntime : LocalChatRuntime {
 /** One streamed piece of a one-shot: text, plus any native tool calls the model emitted. */
 internal data class LiteRtChunk(
     val text: String,
-    val toolCalls: List<LocalToolCall> = emptyList(),
+    val toolCalls: List<LocalToolCall> = emptyList()
 )
 
 /**
@@ -219,8 +214,7 @@ internal interface LiteRtConversationHandle {
     fun sendMessageAsync(request: LocalModelRequest): Flow<String>
 
     /** A one-shot send; only a conversation created with tools can return tool calls. */
-    fun sendOneShot(prompt: String): Flow<LiteRtChunk> =
-        sendMessageAsync(LocalModelRequest(prompt = prompt)).map { text -> LiteRtChunk(text) }
+    fun sendOneShot(prompt: String): Flow<LiteRtChunk> = sendMessageAsync(LocalModelRequest(prompt = prompt)).map { text -> LiteRtChunk(text) }
 
     @OptIn(ExperimentalApi::class)
     fun benchmarkInfo(): BenchmarkInfo
@@ -247,12 +241,11 @@ internal data class LiteRtConversationSpec(
     /** Overrides the default chat system instruction (one-shots). */
     val systemInstruction: String? = null,
     /** Declared to the model only; automatic tool calling stays off, so the engine runs none. */
-    val tools: List<LocalToolDeclaration> = emptyList(),
+    val tools: List<LocalToolDeclaration> = emptyList()
 )
 
 /** The messages a conversation built from this spec starts with: budgeted, blanks dropped. */
-internal fun LiteRtConversationSpec.initialMessages(): List<ChatMessage> =
-    budgetLocalRuntimeHistory(history, currentPrompt, maxInputTokens).filter { message -> message.text.isNotBlank() }
+internal fun LiteRtConversationSpec.initialMessages(): List<ChatMessage> = budgetLocalRuntimeHistory(history, currentPrompt, maxInputTokens).filter { message -> message.text.isNotBlank() }
 
 internal fun interface LiteRtEngineFactory {
     /** [capabilities] null keeps the model file's own defaults: its token window and no vision. */
@@ -260,7 +253,7 @@ internal fun interface LiteRtEngineFactory {
         modelPath: String,
         backend: BackendChoice,
         cacheDir: File,
-        capabilities: LocalModelRuntimeCapabilities?,
+        capabilities: LocalModelRuntimeCapabilities?
     ): LiteRtEngineHandle
 }
 
@@ -269,29 +262,27 @@ internal object NativeLiteRtEngineFactory : LiteRtEngineFactory {
         modelPath: String,
         backend: BackendChoice,
         cacheDir: File,
-        capabilities: LocalModelRuntimeCapabilities?,
-    ): LiteRtEngineHandle =
-        NativeLiteRtEngineHandle(
-            Engine(
-                defaultEngineConfig(
-                    modelPath = modelPath,
-                    backend = backend,
-                    cacheDir = cacheDir,
-                    capabilities = capabilities,
-                ),
-            ),
+        capabilities: LocalModelRuntimeCapabilities?
+    ): LiteRtEngineHandle = NativeLiteRtEngineHandle(
+        Engine(
+            defaultEngineConfig(
+                modelPath = modelPath,
+                backend = backend,
+                cacheDir = cacheDir,
+                capabilities = capabilities
+            )
         )
+    )
 }
 
 private class NativeLiteRtEngineHandle(
-    private val engine: Engine,
+    private val engine: Engine
 ) : LiteRtEngineHandle {
     override fun initialize() {
         engine.initialize()
     }
 
-    override fun createConversation(config: LiteRtConversationSpec): LiteRtConversationHandle =
-        NativeLiteRtConversationHandle(engine.createConversation(config.toConversationConfig()))
+    override fun createConversation(config: LiteRtConversationSpec): LiteRtConversationHandle = NativeLiteRtConversationHandle(engine.createConversation(config.toConversationConfig()))
 
     override fun close() {
         engine.close()
@@ -299,7 +290,7 @@ private class NativeLiteRtEngineHandle(
 }
 
 private class NativeLiteRtConversationHandle(
-    private val conversation: Conversation,
+    private val conversation: Conversation
 ) : LiteRtConversationHandle {
     override fun sendMessageAsync(request: LocalModelRequest): Flow<String> {
         val responseFlow = if (request.imageAttachments.isEmpty()) {
@@ -310,15 +301,14 @@ private class NativeLiteRtConversationHandle(
         return responseFlow.map { chunk -> chunk.textContent().ifBlank { chunk.toString() } }
     }
 
-    override fun sendOneShot(prompt: String): Flow<LiteRtChunk> =
-        conversation.sendMessageAsync(prompt).map { message ->
-            LiteRtChunk(
-                text = message.textContent(),
-                toolCalls = message.toolCalls.map { call ->
-                    LocalToolCall(name = call.name, argumentsJson = JSONObject(call.arguments).toString())
-                },
-            )
-        }
+    override fun sendOneShot(prompt: String): Flow<LiteRtChunk> = conversation.sendMessageAsync(prompt).map { message ->
+        LiteRtChunk(
+            text = message.textContent(),
+            toolCalls = message.toolCalls.map { call ->
+                LocalToolCall(name = call.name, argumentsJson = JSONObject(call.arguments).toString())
+            }
+        )
+    }
 
     @OptIn(ExperimentalApi::class)
     override fun benchmarkInfo(): BenchmarkInfo = conversation.getBenchmarkInfo()
@@ -334,17 +324,15 @@ private class NativeLiteRtConversationHandle(
 
 /** Declares a tool to the model. Automatic tool calling is off, so the engine never calls [execute]. */
 private class DeclaredOnlyTool(
-    private val declaration: LocalToolDeclaration,
+    private val declaration: LocalToolDeclaration
 ) : OpenApiTool {
-    override fun getToolDescriptionJsonString(): String =
-        JSONObject()
-            .put("name", declaration.name)
-            .put("description", declaration.description)
-            .put("parameters", JSONObject(declaration.parametersJsonSchema))
-            .toString()
+    override fun getToolDescriptionJsonString(): String = JSONObject()
+        .put("name", declaration.name)
+        .put("description", declaration.description)
+        .put("parameters", JSONObject(declaration.parametersJsonSchema))
+        .toString()
 
-    override fun execute(paramsJsonString: String): String =
-        throw IllegalStateException("Solin never lets the engine run a tool")
+    override fun execute(paramsJsonString: String): String = throw IllegalStateException("Solin never lets the engine run a tool")
 }
 
 /** Bounds on how long engine calls wait for each other; tests shorten them. */
@@ -354,7 +342,7 @@ internal data class LocalEngineWaits(
     /** How long chat waits for a one-shot it cancelled; chat may run on the main thread. */
     val reclaimWaitMs: Long = 3_000,
     /** Upper bound on one one-shot generation; the native decode is cancelled after it. */
-    val oneShotTimeoutMs: Long = 120_000,
+    val oneShotTimeoutMs: Long = 120_000
 )
 
 /**
@@ -379,12 +367,12 @@ class RealLiteRtRuntime internal constructor(
     private val contextCompactor: ContextCompactor?,
     private val engineFactory: LiteRtEngineFactory,
     private val waits: LocalEngineWaits = LocalEngineWaits(),
-    private val fallbackEngine: DedicatedLiteRtEngine? = null,
+    private val fallbackEngine: DedicatedLiteRtEngine? = null
 ) : LocalChatRuntime {
     constructor(
         cacheDir: File,
         contextCompactor: ContextCompactor? = null,
-        fallbackEngine: DedicatedLiteRtEngine? = null,
+        fallbackEngine: DedicatedLiteRtEngine? = null
     ) : this(cacheDir, contextCompactor, NativeLiteRtEngineFactory, fallbackEngine = fallbackEngine)
 
     private val lock = ReentrantLock()
@@ -408,15 +396,18 @@ class RealLiteRtRuntime internal constructor(
     private var continueOnNextSend = false
 
     @Volatile private var lastLoadMs: Long? = null
+
     @Volatile private var lastFirstTokenMs: Long? = null
+
     @Volatile private var lastMetrics: LocalCallMetrics? = null
+
     @Volatile private var capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities()
 
     override val isLoaded: Boolean
         get() = engine != null && chat != null
 
     override fun configureModelCapabilities(
-        capabilities: LocalModelRuntimeCapabilities,
+        capabilities: LocalModelRuntimeCapabilities
     ) {
         lock.withLock {
             // A changed window or vision setting means the live conversation no longer matches what
@@ -426,20 +417,19 @@ class RealLiteRtRuntime internal constructor(
         }
     }
 
-    override fun engineCapabilities(): LocalEngineCapabilities =
-        LocalEngineCapabilities(
-            backendName = LITERT_BACKEND_NAME,
-            accelerators = setOf(LocalAccelerator.CPU, LocalAccelerator.GPU),
-            maxContextTokens = capabilities.contextWindowTokens,
-            visionInput = capabilities.supportsVisionInput,
-            nativeToolCalling = true,
-        )
+    override fun engineCapabilities(): LocalEngineCapabilities = LocalEngineCapabilities(
+        backendName = LITERT_BACKEND_NAME,
+        accelerators = setOf(LocalAccelerator.CPU, LocalAccelerator.GPU),
+        maxContextTokens = capabilities.contextWindowTokens,
+        visionInput = capabilities.supportsVisionInput,
+        nativeToolCalling = true
+    )
 
     override fun load(
         modelPath: String,
         backend: BackendChoice,
         history: List<ChatMessage>,
-        parameters: GenerationParameters,
+        parameters: GenerationParameters
     ) {
         lock.withLock {
             reclaimFromOneShotLocked()
@@ -450,14 +440,14 @@ class RealLiteRtRuntime internal constructor(
                 modelPath = modelPath,
                 backend = backend,
                 cacheDir = cacheDir,
-                capabilities = capabilities,
+                capabilities = capabilities
             )
             try {
                 createdEngine.initialize()
                 val loadSpec = LiteRtConversationSpec(
                     history,
                     parameters,
-                    maxInputTokens = profileMaxInputTokens(),
+                    maxInputTokens = profileMaxInputTokens()
                 )
                 val createdConversation = createdEngine.createConversation(loadSpec)
                 // Publish the native handles only once both exist, so a failed load never leaves a
@@ -479,7 +469,7 @@ class RealLiteRtRuntime internal constructor(
 
     override fun recreateConversation(
         history: List<ChatMessage>,
-        parameters: GenerationParameters,
+        parameters: GenerationParameters
     ) {
         recreateConversationInternal(history, parameters, currentPrompt = "", maxInputTokens = null, mayContinue = false)
     }
@@ -488,7 +478,7 @@ class RealLiteRtRuntime internal constructor(
         history: List<ChatMessage>,
         prompt: String,
         parameters: GenerationParameters,
-        maxInputTokens: Int?,
+        maxInputTokens: Int?
     ) {
         recreateConversationInternal(history, parameters, prompt, maxInputTokens, mayContinue = true)
     }
@@ -498,7 +488,7 @@ class RealLiteRtRuntime internal constructor(
         parameters: GenerationParameters,
         currentPrompt: String,
         maxInputTokens: Int?,
-        mayContinue: Boolean,
+        mayContinue: Boolean
     ) {
         if (engine == null) error("模型尚未就绪")
         // Wave 2: opt-in context compaction. If a compactor is supplied and a token budget is
@@ -511,7 +501,7 @@ class RealLiteRtRuntime internal constructor(
             compactedHistory,
             parameters,
             currentPrompt,
-            maxInputTokens ?: profileMaxInputTokens(),
+            maxInputTokens ?: profileMaxInputTokens()
         )
         lock.withLock {
             val currentEngine = engine ?: error("模型尚未就绪")
@@ -534,8 +524,7 @@ class RealLiteRtRuntime internal constructor(
      * History budget when the caller supplies none: derived from the configured model profile
      * window (8K fail-safe default) instead of the static 8K input budget.
      */
-    private fun profileMaxInputTokens(): Int =
-        LocalModelTokenLimits.maxInputTokensFor(capabilities.contextWindowTokens)
+    private fun profileMaxInputTokens(): Int = LocalModelTokenLimits.maxInputTokensFor(capabilities.contextWindowTokens)
 
     /**
      * Run [ContextCompactor.compact] on [history] when configured. Uses [runBlocking] because
@@ -548,7 +537,7 @@ class RealLiteRtRuntime internal constructor(
     private fun compactHistoryIfRequested(
         history: List<ChatMessage>,
         currentPrompt: String,
-        maxInputTokens: Int?,
+        maxInputTokens: Int?
     ): List<ChatMessage> {
         val compactor = contextCompactor ?: return history
         val budget = maxInputTokens ?: return history
@@ -556,7 +545,7 @@ class RealLiteRtRuntime internal constructor(
         // Reserve budget for system prompt + current prompt (mirrors budgetLocalRuntimeHistory).
         val promptReserve = maxOf(
             LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE,
-            estimateLocalRuntimeTokens(currentPrompt),
+            estimateLocalRuntimeTokens(currentPrompt)
         )
         val historyBudget = (
             budget -
@@ -569,29 +558,28 @@ class RealLiteRtRuntime internal constructor(
                 compactor.compact(
                     messages = history,
                     tokenBudget = historyBudget,
-                    estimatedTokens = { msgs -> msgs.sumOf { it.estimatedLocalRuntimeTokens() } },
+                    estimatedTokens = { msgs -> msgs.sumOf { it.estimatedLocalRuntimeTokens() } }
                 )
             }
             if (result.compactionCount > 0) {
-                Log.d(
+                solinD(
                     TAG,
                     "Context compaction: trigger=${result.triggerReason} " +
                         "count=${result.compactionCount} " +
                         "tokensBefore=${result.tokensBefore} tokensAfter=${result.tokensAfter} " +
-                        "budget=$historyBudget",
+                        "budget=$historyBudget"
                 )
             }
             result.messages
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (t: Throwable) {
-            Log.w(TAG, "Context compaction failed, falling through to budget heuristic", t)
+            solinW(TAG, "Context compaction failed, falling through to budget heuristic", t)
             history
         }
     }
 
-    override fun send(prompt: String): Flow<String> =
-        send(LocalModelRequest(prompt = prompt))
+    override fun send(prompt: String): Flow<String> = send(LocalModelRequest(prompt = prompt))
 
     override fun send(request: LocalModelRequest): Flow<String> {
         if (engine == null || chat == null) error("模型尚未就绪")
@@ -633,7 +621,7 @@ class RealLiteRtRuntime internal constructor(
         request: LocalModelRequest,
         output: String,
         completed: Boolean,
-        startedAtNanos: Long,
+        startedAtNanos: Long
     ) {
         // The native decode keeps running when its Flow is abandoned, so stop it explicitly.
         if (!completed) runCatching { turn.handle.cancelProcess() }
@@ -657,14 +645,13 @@ class RealLiteRtRuntime internal constructor(
                 totalMs = elapsedMillisSince(startedAtNanos),
                 inputTokens = benchmark?.lastPrefillTokenCount?.takeIf { it > 0 },
                 outputTokens = benchmark?.lastDecodeTokenCount?.takeIf { it > 0 },
-                conversationReused = turn.continued,
+                conversationReused = turn.continued
             )
             engineReleased.signalAll()
         }
     }
 
-    override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult =
-        interruptAsCancelled { generateOneShotNow(request) }
+    override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult = interruptAsCancelled { generateOneShotNow(request) }
 
     private fun generateOneShotNow(request: LocalOneShotRequest): LocalOneShotResult {
         val startedAtNanos = System.nanoTime()
@@ -719,7 +706,7 @@ class RealLiteRtRuntime internal constructor(
      */
     private fun refusalForOneShotLocked(
         request: LocalOneShotRequest,
-        deadlineNanos: Long,
+        deadlineNanos: Long
     ): LocalOneShotResult.Unavailable? {
         while (true) {
             if (request.cancellation.isCancelled) return cancelledByCaller()
@@ -727,7 +714,7 @@ class RealLiteRtRuntime internal constructor(
             if (loadedModelPath != request.modelPath) {
                 return LocalOneShotResult.Unavailable(
                     LocalOneShotUnavailableReason.ModelNotLoaded,
-                    "the loaded engine serves another model",
+                    "the loaded engine serves another model"
                 )
             }
             if (!chatGenerating && oneShot == null) return null
@@ -787,7 +774,7 @@ class RealLiteRtRuntime internal constructor(
             tokensPerSecond = benchmark.tokensPerSecond,
             backend = currentBackend,
             loadMs = lastLoadMs,
-            firstTokenMs = lastFirstTokenMs,
+            firstTokenMs = lastFirstTokenMs
         ).takeIf { it.isUsable() }
     }
 
@@ -804,7 +791,7 @@ class RealLiteRtRuntime internal constructor(
         val benchmark = runCatching { conversation.benchmarkInfo() }
             .getOrElse { throwable ->
                 return RuntimeBenchmarkResult.Unavailable(
-                    "getBenchmarkInfo failed: ${throwable.message ?: throwable::class.java.simpleName}",
+                    "getBenchmarkInfo failed: ${throwable.message ?: throwable::class.java.simpleName}"
                 )
             }
         return benchmark.toRuntimeBenchmarkResult()
@@ -814,8 +801,7 @@ class RealLiteRtRuntime internal constructor(
         stopWithResult()
     }
 
-    fun stopWithResult(): Result<Unit> =
-        runCatching { liveChatHandle?.cancelProcess() }
+    fun stopWithResult(): Result<Unit> = runCatching { liveChatHandle?.cancelProcess() }
 
     override fun close() {
         lock.withLock {
@@ -868,19 +854,17 @@ class RealLiteRtRuntime internal constructor(
  */
 private class ChatConversation(
     var handle: LiteRtConversationHandle?,
-    val spec: LiteRtConversationSpec,
+    val spec: LiteRtConversationSpec
 ) {
     val transcript: MutableList<Turn> = spec.initialMessages().mapTo(mutableListOf()) { Turn(it.role, it.text) }
     var reusable = true
 
-    fun canContinueAs(next: LiteRtConversationSpec): Boolean =
-        reusable &&
-            next.systemInstruction == spec.systemInstruction &&
-            next.parameters == spec.parameters &&
-            next.initialMessages().map { Turn(it.role, it.text) } == transcript
+    fun canContinueAs(next: LiteRtConversationSpec): Boolean = reusable &&
+        next.systemInstruction == spec.systemInstruction &&
+        next.parameters == spec.parameters &&
+        next.initialMessages().map { Turn(it.role, it.text) } == transcript
 
-    fun restoreSpec(): LiteRtConversationSpec =
-        spec.copy(history = transcript.map { turn -> ChatMessage(turn.role, turn.text) }, currentPrompt = "")
+    fun restoreSpec(): LiteRtConversationSpec = spec.copy(history = transcript.map { turn -> ChatMessage(turn.role, turn.text) }, currentPrompt = "")
 }
 
 private data class Turn(val role: MessageRole, val text: String)
@@ -894,8 +878,9 @@ private data class Turn(val role: MessageRole, val text: String)
 class DedicatedLiteRtEngine internal constructor(
     private val cacheDir: File,
     private val engineFactory: LiteRtEngineFactory,
-    private val waits: LocalEngineWaits = LocalEngineWaits(),
-) : LocalEngine, AutoCloseable {
+    private val waits: LocalEngineWaits = LocalEngineWaits()
+) : LocalEngine,
+    AutoCloseable {
     constructor(cacheDir: File) : this(cacheDir, NativeLiteRtEngineFactory)
 
     private val lock = ReentrantLock()
@@ -909,16 +894,14 @@ class DedicatedLiteRtEngine internal constructor(
     private val pendingRelease = AtomicReference<String?>(null)
 
     /** The window is the model file's own; [LocalModelTokenLimits.DEFAULT_CONTEXT_WINDOW_TOKENS] is the fail-safe. */
-    override fun engineCapabilities(): LocalEngineCapabilities =
-        LocalEngineCapabilities(
-            backendName = LITERT_BACKEND_NAME,
-            accelerators = setOf(LocalAccelerator.CPU),
-            maxContextTokens = LocalModelTokenLimits.DEFAULT_CONTEXT_WINDOW_TOKENS,
-            nativeToolCalling = true,
-        )
+    override fun engineCapabilities(): LocalEngineCapabilities = LocalEngineCapabilities(
+        backendName = LITERT_BACKEND_NAME,
+        accelerators = setOf(LocalAccelerator.CPU),
+        maxContextTokens = LocalModelTokenLimits.DEFAULT_CONTEXT_WINDOW_TOKENS,
+        nativeToolCalling = true
+    )
 
-    override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult =
-        interruptAsCancelled { generateOneShotNow(request) }
+    override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult = interruptAsCancelled { generateOneShotNow(request) }
 
     private fun generateOneShotNow(request: LocalOneShotRequest): LocalOneShotResult {
         val startedAtNanos = System.nanoTime()
@@ -956,7 +939,7 @@ class DedicatedLiteRtEngine internal constructor(
                     LocalAccelerator.CPU,
                     loadMs,
                     startedAtNanos,
-                    reclaimed = false,
+                    reclaimed = false
                 )
             } finally {
                 // Cancellation normally reaches native decode through collectOneShot's listener.
@@ -1010,7 +993,7 @@ private class OneShotOutput(
     val benchmark: BenchmarkInfo?,
     val failure: Throwable?,
     val timedOutAfterMs: Long?,
-    val cancelled: Boolean,
+    val cancelled: Boolean
 )
 
 /**
@@ -1039,7 +1022,7 @@ private class DecodeCancelGate(private val conversation: LiteRtConversationHandl
 @OptIn(ExperimentalApi::class)
 private fun LiteRtConversationHandle.collectOneShot(
     request: LocalOneShotRequest,
-    timeoutMs: Long,
+    timeoutMs: Long
 ): OneShotOutput {
     val text = StringBuilder()
     val toolCalls = mutableListOf<LocalToolCall>()
@@ -1092,7 +1075,7 @@ private fun LiteRtConversationHandle.collectOneShot(
         benchmark = runCatching { benchmarkInfo() }.getOrNull(),
         failure = failure,
         timedOutAfterMs = timeoutMs.takeIf { timedOut },
-        cancelled = request.cancellation.isCancelled,
+        cancelled = request.cancellation.isCancelled
     )
 }
 
@@ -1107,64 +1090,58 @@ private fun OneShotOutput.toResult(
     accelerator: LocalAccelerator,
     loadMs: Long?,
     startedAtNanos: Long,
-    reclaimed: Boolean,
-): LocalOneShotResult =
-    when {
-        reclaimed -> LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Busy, "chat took the engine back")
-        cancelled -> cancelledByCaller()
-        timedOutAfterMs != null -> LocalOneShotResult.Unavailable(
-            LocalOneShotUnavailableReason.Failed,
-            "timed out after $timedOutAfterMs ms",
+    reclaimed: Boolean
+): LocalOneShotResult = when {
+    reclaimed -> LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Busy, "chat took the engine back")
+    cancelled -> cancelledByCaller()
+    timedOutAfterMs != null -> LocalOneShotResult.Unavailable(
+        LocalOneShotUnavailableReason.Failed,
+        "timed out after $timedOutAfterMs ms"
+    )
+
+    failure == null -> LocalOneShotResult.Generated(
+        text = text,
+        toolCalls = toolCalls,
+        metrics = LocalCallMetrics(
+            source = source,
+            accelerator = accelerator,
+            loadMs = loadMs,
+            firstTokenMs = firstTokenMs,
+            totalMs = elapsedMillisSince(startedAtNanos),
+            inputTokens = benchmark?.lastPrefillTokenCount?.takeIf { it > 0 },
+            outputTokens = benchmark?.lastDecodeTokenCount?.takeIf { it > 0 }
         )
+    )
 
-        failure == null -> LocalOneShotResult.Generated(
-            text = text,
-            toolCalls = toolCalls,
-            metrics = LocalCallMetrics(
-                source = source,
-                accelerator = accelerator,
-                loadMs = loadMs,
-                firstTokenMs = firstTokenMs,
-                totalMs = elapsedMillisSince(startedAtNanos),
-                inputTokens = benchmark?.lastPrefillTokenCount?.takeIf { it > 0 },
-                outputTokens = benchmark?.lastDecodeTokenCount?.takeIf { it > 0 },
-            ),
-        )
+    else -> failed(failure)
+}
 
-        else -> failed(failure)
-    }
-
-private fun cancelledByCaller(): LocalOneShotResult.Unavailable =
-    LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "cancelled by the caller")
+private fun cancelledByCaller(): LocalOneShotResult.Unavailable = LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "cancelled by the caller")
 
 /**
  * A one-shot whose thread is interrupted (for example by `runInterruptible` on a cancelled
  * coroutine) gives up its wait and reports Cancelled; the interrupt flag is restored for the caller.
  */
-private inline fun interruptAsCancelled(block: () -> LocalOneShotResult): LocalOneShotResult =
-    try {
-        block()
-    } catch (interrupted: InterruptedException) {
-        Thread.currentThread().interrupt()
-        LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "interrupted")
-    }
+private inline fun interruptAsCancelled(block: () -> LocalOneShotResult): LocalOneShotResult = try {
+    block()
+} catch (interrupted: InterruptedException) {
+    Thread.currentThread().interrupt()
+    LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.Cancelled, "interrupted")
+}
 
-private fun modelNotLoaded(): LocalOneShotResult.Unavailable =
-    LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.ModelNotLoaded, "no local model is loaded")
+private fun modelNotLoaded(): LocalOneShotResult.Unavailable = LocalOneShotResult.Unavailable(LocalOneShotUnavailableReason.ModelNotLoaded, "no local model is loaded")
 
-private fun failed(throwable: Throwable): LocalOneShotResult.Unavailable =
-    LocalOneShotResult.Unavailable(
-        LocalOneShotUnavailableReason.Failed,
-        throwable.message ?: throwable.javaClass.simpleName,
-    )
+private fun failed(throwable: Throwable): LocalOneShotResult.Unavailable = LocalOneShotResult.Unavailable(
+    LocalOneShotUnavailableReason.Failed,
+    throwable.message ?: throwable.javaClass.simpleName
+)
 
-private fun LocalOneShotRequest.toConversationSpec(): LiteRtConversationSpec =
-    LiteRtConversationSpec(
-        history = emptyList(),
-        parameters = ONE_SHOT_PARAMETERS,
-        systemInstruction = systemInstruction,
-        tools = tools,
-    )
+private fun LocalOneShotRequest.toConversationSpec(): LiteRtConversationSpec = LiteRtConversationSpec(
+    history = emptyList(),
+    parameters = ONE_SHOT_PARAMETERS,
+    systemInstruction = systemInstruction,
+    tools = tools
+)
 
 private val ONE_SHOT_PARAMETERS = GenerationParameters(temperature = 0f, topP = 0.1f, topK = 1)
 
@@ -1176,17 +1153,16 @@ internal fun BenchmarkInfo.toRuntimeBenchmarkResult(): RuntimeBenchmarkResult {
     }
     if (tokensPerSecond <= 0.0 || tokensPerSecond.isNaN() || tokensPerSecond.isInfinite()) {
         return RuntimeBenchmarkResult.Unavailable(
-            "benchmark reported non-usable tokensPerSecond",
+            "benchmark reported non-usable tokensPerSecond"
         )
     }
     return RuntimeBenchmarkResult.Available(
         tokenCount = tokenCount,
-        tokensPerSecond = tokensPerSecond,
+        tokensPerSecond = tokensPerSecond
     )
 }
 
-private fun elapsedMillisSince(startedAtNanos: Long): Long =
-    ((System.nanoTime() - startedAtNanos) / NANOS_PER_MILLI).coerceAtLeast(0L)
+private fun elapsedMillisSince(startedAtNanos: Long): Long = ((System.nanoTime() - startedAtNanos) / NANOS_PER_MILLI).coerceAtLeast(0L)
 
 internal data class LiteRtEngineConfigSpec(
     val modelPath: String,
@@ -1195,14 +1171,14 @@ internal data class LiteRtEngineConfigSpec(
     /** Null keeps the model file's default window. */
     val maxNumTokens: Int?,
     val maxNumImages: Int?,
-    val cacheDir: String,
+    val cacheDir: String
 )
 
 internal fun defaultEngineConfigSpec(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
-    capabilities: LocalModelRuntimeCapabilities? = LocalModelRuntimeCapabilities(),
+    capabilities: LocalModelRuntimeCapabilities? = LocalModelRuntimeCapabilities()
 ): LiteRtEngineConfigSpec {
     val vision = capabilities?.supportsVisionInput == true
     return LiteRtEngineConfigSpec(
@@ -1211,7 +1187,7 @@ internal fun defaultEngineConfigSpec(
         visionBackend = if (vision) backend else null,
         maxNumTokens = capabilities?.contextWindowTokens,
         maxNumImages = if (vision) MAX_LOCAL_MODEL_IMAGES else null,
-        cacheDir = cacheDir.absolutePath,
+        cacheDir = cacheDir.absolutePath
     )
 }
 
@@ -1219,13 +1195,13 @@ internal fun defaultEngineConfig(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
-    capabilities: LocalModelRuntimeCapabilities? = LocalModelRuntimeCapabilities(),
+    capabilities: LocalModelRuntimeCapabilities? = LocalModelRuntimeCapabilities()
 ): EngineConfig {
     val spec = defaultEngineConfigSpec(
         modelPath = modelPath,
         backend = backend,
         cacheDir = cacheDir,
-        capabilities = capabilities,
+        capabilities = capabilities
     )
     return EngineConfig(
         modelPath = spec.modelPath,
@@ -1233,36 +1209,35 @@ internal fun defaultEngineConfig(
         visionBackend = spec.visionBackend?.toLiteRtBackend(),
         maxNumTokens = spec.maxNumTokens,
         maxNumImages = spec.maxNumImages,
-        cacheDir = spec.cacheDir,
+        cacheDir = spec.cacheDir
     )
 }
 
-private fun LiteRtConversationSpec.toConversationConfig(): ConversationConfig =
-    ConversationConfig(
-        systemInstruction = Contents.of(systemInstruction ?: DEFAULT_CHAT_SYSTEM_INSTRUCTION),
-        initialMessages = initialMessages().map { message ->
-            when (message.role) {
-                MessageRole.User -> Message.user(message.text)
-                MessageRole.Assistant -> Message.model(message.text)
-            }
-        },
-        tools = tools.map { declaration -> tool(DeclaredOnlyTool(declaration)) },
-        samplerConfig = SamplerConfig(
-            topK = parameters.topK,
-            topP = parameters.topP.toDouble(),
-            temperature = parameters.temperature.toDouble(),
-        ),
-        automaticToolCalling = false,
-    )
+private fun LiteRtConversationSpec.toConversationConfig(): ConversationConfig = ConversationConfig(
+    systemInstruction = Contents.of(systemInstruction ?: DEFAULT_CHAT_SYSTEM_INSTRUCTION),
+    initialMessages = initialMessages().map { message ->
+        when (message.role) {
+            MessageRole.User -> Message.user(message.text)
+            MessageRole.Assistant -> Message.model(message.text)
+        }
+    },
+    tools = tools.map { declaration -> tool(DeclaredOnlyTool(declaration)) },
+    samplerConfig = SamplerConfig(
+        topK = parameters.topK,
+        topP = parameters.topP.toDouble(),
+        temperature = parameters.temperature.toDouble()
+    ),
+    automaticToolCalling = false
+)
 
 internal fun budgetLocalRuntimeHistory(
     messages: List<ChatMessage>,
     currentPrompt: String = "",
-    maxInputTokens: Int? = null,
+    maxInputTokens: Int? = null
 ): List<ChatMessage> {
     val promptReserve = maxOf(
         LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE,
-        estimateLocalRuntimeTokens(currentPrompt),
+        estimateLocalRuntimeTokens(currentPrompt)
     )
     val inputBudget = (maxInputTokens ?: LocalModelTokenLimits.MAX_INPUT_TOKENS)
         .coerceAtLeast(0)
@@ -1316,39 +1291,33 @@ internal fun estimateLocalRuntimeTokens(text: String): Int {
     return tokens
 }
 
-private fun ChatMessage.estimatedLocalRuntimeTokens(): Int =
-    estimateLocalRuntimeTokens(text) + MESSAGE_TOKEN_OVERHEAD
+private fun ChatMessage.estimatedLocalRuntimeTokens(): Int = estimateLocalRuntimeTokens(text) + MESSAGE_TOKEN_OVERHEAD
 
 /** Charges one token per character, a conservative bound on [estimateLocalRuntimeTokens]. */
-private fun String.takeLastEstimatedLocalTokens(maxTokens: Int): String =
-    if (maxTokens <= 0) "" else takeLast(maxTokens).trimStart()
+private fun String.takeLastEstimatedLocalTokens(maxTokens: Int): String = if (maxTokens <= 0) "" else takeLast(maxTokens).trimStart()
 
-private fun BackendChoice.toLiteRtBackend(): Backend =
-    when (this) {
-        BackendChoice.CPU -> Backend.CPU()
-        BackendChoice.GPU -> Backend.GPU()
+private fun BackendChoice.toLiteRtBackend(): Backend = when (this) {
+    BackendChoice.CPU -> Backend.CPU()
+    BackendChoice.GPU -> Backend.GPU()
+}
+
+private fun BackendChoice.toAccelerator(): LocalAccelerator = when (this) {
+    BackendChoice.CPU -> LocalAccelerator.CPU
+    BackendChoice.GPU -> LocalAccelerator.GPU
+}
+
+private fun LocalModelRequest.toLiteRtContents(): Contents = Contents.of(
+    buildList {
+        if (prompt.isNotBlank()) add(Content.Text(prompt))
+        imageAttachments.take(MAX_LOCAL_MODEL_IMAGES).forEach { image ->
+            add(Content.ImageBytes(image.bytes))
+        }
     }
+)
 
-private fun BackendChoice.toAccelerator(): LocalAccelerator =
-    when (this) {
-        BackendChoice.CPU -> LocalAccelerator.CPU
-        BackendChoice.GPU -> LocalAccelerator.GPU
-    }
-
-private fun LocalModelRequest.toLiteRtContents(): Contents =
-    Contents.of(
-        buildList {
-            if (prompt.isNotBlank()) add(Content.Text(prompt))
-            imageAttachments.take(MAX_LOCAL_MODEL_IMAGES).forEach { image ->
-                add(Content.ImageBytes(image.bytes))
-            }
-        },
-    )
-
-private fun Message.textContent(): String =
-    contents.contents
-        .filterIsInstance<Content.Text>()
-        .joinToString(separator = "") { it.text }
+private fun Message.textContent(): String = contents.contents
+    .filterIsInstance<Content.Text>()
+    .joinToString(separator = "") { it.text }
 
 private const val LITERT_BACKEND_NAME = "litert-lm"
 private const val NANOS_PER_MILLI = 1_000_000L

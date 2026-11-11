@@ -21,12 +21,12 @@ import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.solin.device.AppSearchProgressEvidence
 import com.bytedance.zgx.solin.device.AppSearchResultVerifier
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
-import com.bytedance.zgx.solin.device.SolinAccessibilityService
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
-import com.bytedance.zgx.solin.device.UiActionReadResult
+import com.bytedance.zgx.solin.device.SolinAccessibilityService
 import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
+import com.bytedance.zgx.solin.device.UiActionReadResult
 import com.bytedance.zgx.solin.device.UiActionStatus
 import com.bytedance.zgx.solin.device.UiScrollDirection
 import com.bytedance.zgx.solin.device.UiSystemKey
@@ -46,12 +46,13 @@ import com.bytedance.zgx.solin.orchestration.ModelObservationReplanDiagnostic
 import com.bytedance.zgx.solin.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.solin.skill.AppSearchPlanningMode
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.solin.tool.EvidenceBoundingToolExecutor
 import com.bytedance.zgx.solin.tool.OkHttpWebSearchProvider
 import com.bytedance.zgx.solin.tool.RoutingToolExecutor
 import com.bytedance.zgx.solin.tool.ToolExecutor
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ValidatingToolExecutor
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -90,7 +91,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                                 "command=${command.cleanValue()}",
                                 "resultType=available",
                                 "status=${if (started) "Succeeded" else "Failed"}",
-                                "summary=${if (started) "已启动手机控制会话" else "手机控制会话启动失败"}",
+                                "summary=${if (started) "已启动手机控制会话" else "手机控制会话启动失败"}"
                             )
                         }
 
@@ -101,7 +102,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                                 "command=${command.cleanValue()}",
                                 "resultType=available",
                                 "status=${if (stopped) "Succeeded" else "Failed"}",
-                                "summary=${if (stopped) "已停止手机控制会话" else "手机控制会话停止失败"}",
+                                "summary=${if (stopped) "已停止手机控制会话" else "手机控制会话停止失败"}"
                             )
                         }
 
@@ -109,52 +110,52 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                             ToolRequest(
                                 toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                                 arguments = mapOf(
-                                    "appName" to intent.getStringExtra(EXTRA_APP_NAME).orEmpty(),
+                                    "appName" to intent.getStringExtra(EXTRA_APP_NAME).orEmpty()
                                 ),
-                                reason = "Debug eval open app by name.",
-                            ),
+                                reason = "Debug eval open app by name."
+                            )
                         ).toLines(command)
 
                         COMMAND_OBSERVE -> provider.observeCurrentScreen(
                             maxTextChars = 4_000,
-                            maxNodes = 120,
+                            maxNodes = 120
                         ).toLines(command)
 
                         COMMAND_TAP -> provider.tap(
                             target = intent.getStringExtra(EXTRA_TARGET).orEmpty(),
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(
                             command = command,
-                            target = intent.getStringExtra(EXTRA_TARGET),
+                            target = intent.getStringExtra(EXTRA_TARGET)
                         )
 
                         COMMAND_TYPE_TEXT -> provider.typeText(
                             text = intent.getStringExtra(EXTRA_TEXT).orEmpty(),
                             target = intent.getStringExtra(EXTRA_TARGET),
                             timeoutMillis = intent.timeoutMillis(),
-                            allowClipboardPasteFallback = false,
+                            allowClipboardPasteFallback = false
                         ).toLines(
                             command = command,
-                            target = intent.getStringExtra(EXTRA_TARGET),
+                            target = intent.getStringExtra(EXTRA_TARGET)
                         )
 
                         COMMAND_SUBMIT_SEARCH -> provider.submitSearch(
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(command)
 
                         COMMAND_SCROLL -> provider.scroll(
                             direction = UiScrollDirection.fromSchemaValue(
-                                intent.getStringExtra(EXTRA_DIRECTION),
+                                intent.getStringExtra(EXTRA_DIRECTION)
                             ) ?: UiScrollDirection.Down,
                             target = intent.getStringExtra(EXTRA_TARGET),
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(
                             command = command,
-                            target = intent.getStringExtra(EXTRA_TARGET),
+                            target = intent.getStringExtra(EXTRA_TARGET)
                         )
 
                         COMMAND_BACK -> provider.pressBack(
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(command)
 
                         COMMAND_SWIPE -> provider.swipe(
@@ -163,14 +164,14 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                             endXNorm = intent.getIntExtra(EXTRA_END_X_NORM, 500),
                             endYNorm = intent.getIntExtra(EXTRA_END_Y_NORM, 200),
                             durationMillis = intent.getLongExtra(EXTRA_DURATION_MILLIS, 300L),
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(command)
 
                         COMMAND_LONG_PRESS -> provider.longPress(
                             xNorm = intent.getIntExtra(EXTRA_X_NORM, 500),
                             yNorm = intent.getIntExtra(EXTRA_Y_NORM, 500),
                             holdMillis = intent.getLongExtra(EXTRA_HOLD_MILLIS, 600L),
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(command)
 
                         COMMAND_PRESS_KEY -> {
@@ -179,48 +180,48 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                                 listOf(
                                     "command=${command.cleanValue()}",
                                     "resultType=failed",
-                                    "reason=unsupported_key",
+                                    "reason=unsupported_key"
                                 )
                             } else {
                                 provider.pressKey(
                                     key = key,
-                                    timeoutMillis = intent.timeoutMillis(),
+                                    timeoutMillis = intent.timeoutMillis()
                                 ).toLines(command)
                             }
                         }
 
                         COMMAND_WAIT -> provider.waitForScreen(
-                            timeoutMillis = intent.timeoutMillis(),
+                            timeoutMillis = intent.timeoutMillis()
                         ).toLines(
                             command = command,
                             verifySearchQuery = intent.getStringExtra(EXTRA_VERIFY_SEARCH_QUERY),
                             expectedPackageName = intent.getStringExtra(EXTRA_EXPECTED_PACKAGE_NAME),
-                            expectedAppName = intent.getStringExtra(EXTRA_EXPECTED_APP_NAME),
+                            expectedAppName = intent.getStringExtra(EXTRA_EXPECTED_APP_NAME)
                         )
 
                         COMMAND_MODEL_DRIVEN_APP_SEARCH -> runModelDrivenAppSearch(
                             appContext = appContext,
-                            intent = intent,
+                            intent = intent
                         ).toLines(command)
 
                         else -> listOf(
                             "command=${command.cleanValue()}",
                             "resultType=failed",
-                            "reason=unknown_command",
+                            "reason=unknown_command"
                         )
                     }
                 } catch (throwable: Throwable) {
                     listOf(
                         "command=${command.cleanValue()}",
                         "resultType=failed",
-                        "reason=${throwable.toResultReason()}",
+                        "reason=${throwable.toResultReason()}"
                     )
                 }
                 val resultText = (listOf("requestId=${requestId.cleanValue()}") + commandLines)
                     .joinToString(separator = "\n", postfix = "\n")
                 File(
                     appContext.filesDir,
-                    DeviceControlEvalResultFormatter.resultFileName(requestId),
+                    DeviceControlEvalResultFormatter.resultFileName(requestId)
                 ).writeText(resultText)
                 // Keep a latest-result file for existing manual probes; eval scripts use request files.
                 File(appContext.filesDir, LEGACY_RESULT_FILE_NAME).writeText(resultText)
@@ -230,87 +231,84 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         }.start()
     }
 
-    private fun Intent.timeoutMillis(): Long =
-        getLongExtra(EXTRA_TIMEOUT_MILLIS, DEFAULT_TIMEOUT_MILLIS)
-            .coerceIn(100L, 10_000L)
+    private fun Intent.timeoutMillis(): Long = getLongExtra(EXTRA_TIMEOUT_MILLIS, DEFAULT_TIMEOUT_MILLIS)
+        .coerceIn(100L, 10_000L)
 
-    private fun ScreenStateReadResult.toLines(command: String): List<String> =
-        when (this) {
-            is ScreenStateReadResult.Available -> listOf(
-                "command=${command.cleanValue()}",
-                "resultType=available",
-            ) + snapshot.toLines(prefix = "")
+    private fun ScreenStateReadResult.toLines(command: String): List<String> = when (this) {
+        is ScreenStateReadResult.Available -> listOf(
+            "command=${command.cleanValue()}",
+            "resultType=available"
+        ) + snapshot.toLines(prefix = "")
 
-            is ScreenStateReadResult.PermissionDenied -> listOf(
-                "command=${command.cleanValue()}",
-                "resultType=permission_denied",
-                "reason=${reason.cleanValue()}",
-            )
+        is ScreenStateReadResult.PermissionDenied -> listOf(
+            "command=${command.cleanValue()}",
+            "resultType=permission_denied",
+            "reason=${reason.cleanValue()}"
+        )
 
-            is ScreenStateReadResult.Failed -> listOf(
-                "command=${command.cleanValue()}",
-                "resultType=failed",
-                "reason=${reason.cleanValue()}",
-            )
-        }
+        is ScreenStateReadResult.Failed -> listOf(
+            "command=${command.cleanValue()}",
+            "resultType=failed",
+            "reason=${reason.cleanValue()}"
+        )
+    }
 
     private fun UiActionReadResult.toLines(
         command: String,
         target: String? = null,
         verifySearchQuery: String? = null,
         expectedPackageName: String? = null,
-        expectedAppName: String? = null,
-    ): List<String> =
-        when (this) {
-            is UiActionReadResult.Available -> listOf(
-                "command=${command.cleanValue()}",
-                "resultType=available",
-                "status=${result.status.name}",
-                "summary=${result.summary.cleanValue()}",
-                "retryable=${result.retryable}",
-                "failureKind=${result.failureKind?.name.orEmpty()}",
-                "beforeObservationId=${result.before?.id.orEmpty()}",
-                "afterObservationId=${result.after?.id.orEmpty()}",
+        expectedAppName: String? = null
+    ): List<String> = when (this) {
+        is UiActionReadResult.Available -> listOf(
+            "command=${command.cleanValue()}",
+            "resultType=available",
+            "status=${result.status.name}",
+            "summary=${result.summary.cleanValue()}",
+            "retryable=${result.retryable}",
+            "failureKind=${result.failureKind?.name.orEmpty()}",
+            "beforeObservationId=${result.before?.id.orEmpty()}",
+            "afterObservationId=${result.after?.id.orEmpty()}"
+        ) +
+            result.targetResolutionLines(command = command, target = target) +
+            searchVerificationLines(
+                verifySearchQuery = verifySearchQuery,
+                expectedPackageName = expectedPackageName,
+                expectedAppName = expectedAppName,
+                result = this
             ) +
-                result.targetResolutionLines(command = command, target = target) +
-                searchVerificationLines(
-                    verifySearchQuery = verifySearchQuery,
-                    expectedPackageName = expectedPackageName,
-                    expectedAppName = expectedAppName,
-                    result = this,
-                ) +
-                result.after.toLines(prefix = "after.")
+            result.after.toLines(prefix = "after.")
 
-            is UiActionReadResult.PermissionDenied -> listOf(
-                "command=${command.cleanValue()}",
-                "resultType=permission_denied",
-                "reason=${reason.cleanValue()}",
-            )
+        is UiActionReadResult.PermissionDenied -> listOf(
+            "command=${command.cleanValue()}",
+            "resultType=permission_denied",
+            "reason=${reason.cleanValue()}"
+        )
 
-            is UiActionReadResult.Failed -> listOf(
-                "command=${command.cleanValue()}",
-                "resultType=failed",
-                "reason=${reason.cleanValue()}",
-                "retryable=$retryable",
-                "failureKind=${failureKind.name}",
-            )
-        }
+        is UiActionReadResult.Failed -> listOf(
+            "command=${command.cleanValue()}",
+            "resultType=failed",
+            "reason=${reason.cleanValue()}",
+            "retryable=$retryable",
+            "failureKind=${failureKind.name}"
+        )
+    }
 
     private fun UiActionExecutionResult.targetResolutionLines(
         command: String,
-        target: String?,
+        target: String?
     ): List<String> {
         val kind = resolutionKindFor(command, target) ?: return emptyList()
         val snapshot = before ?: return listOf(
             "targetResolution.available=false",
             "targetResolution.kind=${kind.schemaValue}",
             "targetResolution.target=${target.orEmpty().cleanValue()}",
-            "targetResolution.reason=missing_before_snapshot",
+            "targetResolution.reason=missing_before_snapshot"
         )
         val evidence = UiTargetResolver.explain(
             snapshot = snapshot,
             kind = kind,
-            target = target,
+            target = target
         )
         val archivedCandidates = evidence.rankedCandidates.take(MAX_TARGET_RESOLUTION_CANDIDATES)
         return listOf(
@@ -323,27 +321,26 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             "targetResolution.candidateCount=${evidence.rankedCandidates.size}",
             "targetResolution.candidateTotalCount=${evidence.rankedCandidates.size}",
             "targetResolution.archivedCandidateCount=${archivedCandidates.size}",
-            "targetResolution.candidatesJson=${DeviceControlEvalResultFormatter.candidatesJson(archivedCandidates)}",
+            "targetResolution.candidatesJson=${DeviceControlEvalResultFormatter.candidatesJson(archivedCandidates)}"
         )
     }
 
     private fun resolutionKindFor(
         command: String,
-        target: String?,
-    ): UiTargetKind? =
-        when (command) {
-            COMMAND_TAP -> UiTargetResolver.kindForTarget(target)
-            COMMAND_TYPE_TEXT -> UiTargetKind.EditableField
-            COMMAND_SUBMIT_SEARCH -> UiTargetKind.SubmitSearch
-            COMMAND_SCROLL -> UiTargetResolver.kindForTarget(target) ?: UiTargetKind.ScrollContainer
-            else -> null
-        }
+        target: String?
+    ): UiTargetKind? = when (command) {
+        COMMAND_TAP -> UiTargetResolver.kindForTarget(target)
+        COMMAND_TYPE_TEXT -> UiTargetKind.EditableField
+        COMMAND_SUBMIT_SEARCH -> UiTargetKind.SubmitSearch
+        COMMAND_SCROLL -> UiTargetResolver.kindForTarget(target) ?: UiTargetKind.ScrollContainer
+        else -> null
+    }
 
     private fun searchVerificationLines(
         verifySearchQuery: String?,
         expectedPackageName: String?,
         expectedAppName: String?,
-        result: UiActionReadResult.Available,
+        result: UiActionReadResult.Available
     ): List<String> {
         val query = verifySearchQuery?.trim()?.takeIf { it.isNotBlank() } ?: return emptyList()
         val primaryVerification = AppSearchResultVerifier.verify(
@@ -351,7 +348,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             after = result.result.after,
             query = query,
             expectedPackageName = expectedPackageName,
-            expectedAppName = expectedAppName,
+            expectedAppName = expectedAppName
         )
         val verification = if (primaryVerification.verified) {
             primaryVerification
@@ -362,13 +359,13 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     after = beforeSnapshot,
                     query = query,
                     expectedPackageName = expectedPackageName,
-                    expectedAppName = expectedAppName,
+                    expectedAppName = expectedAppName
                 )
             }
             if (beforeVerification?.verified == true) {
                 beforeVerification.copy(
                     summary = "搜索结果验证通过：等待前页面已包含结果证据。",
-                    evidence = "before_wait_${beforeVerification.evidence}",
+                    evidence = "before_wait_${beforeVerification.evidence}"
                 )
             } else {
                 primaryVerification
@@ -377,18 +374,18 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         return listOf(
             "searchVerificationStatus=${if (verification.verified) "verified" else "not_verified"}",
             "searchVerificationEvidence=${verification.evidence.cleanValue()}",
-            "searchVerificationSummary=${verification.summary.cleanValue()}",
+            "searchVerificationSummary=${verification.summary.cleanValue()}"
         )
     }
 
     private fun runModelDrivenAppSearch(
         appContext: Context,
-        intent: Intent,
+        intent: Intent
     ): ModelDrivenAppSearchEvalResult {
         val verificationSpec = ModelDrivenAppSearchEvalSpec(
             verifySearchQuery = intent.nonBlankStringExtra(EXTRA_VERIFY_SEARCH_QUERY),
             expectedPackageName = intent.nonBlankStringExtra(EXTRA_EXPECTED_PACKAGE_NAME),
-            expectedAppName = intent.nonBlankStringExtra(EXTRA_EXPECTED_APP_NAME),
+            expectedAppName = intent.nonBlankStringExtra(EXTRA_EXPECTED_APP_NAME)
         )
         val input = intent.getStringExtra(EXTRA_TEXT)
             ?.trim()
@@ -402,33 +399,33 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             ?: return ModelDrivenAppSearchEvalResult.failed(
                 reason = "missing_verified_observation_action_model",
                 input = input,
-                verificationSpec = verificationSpec,
+                verificationSpec = verificationSpec
             )
         val toolRegistry = ToolRegistry()
         val observationToolRegistry = ToolRegistry.fromSupportedActions(
-            MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES,
+            MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES
         )
         val actionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
-            toolRegistry = toolRegistry,
+            toolRegistry = toolRegistry
         )
         val observationActionPlanningRuntime = HybridActionPlanningRuntime(
             cacheDir = appContext.cacheDir,
-            toolRegistry = observationToolRegistry,
+            toolRegistry = observationToolRegistry
         )
         val modelObservationReplanner = ModelObservationReplanner(
             actionPlanningRuntime = observationActionPlanningRuntime,
             actionModelPathProvider = { actionModelPath },
             toolRegistry = observationToolRegistry,
-            maxModelReplans = maxSteps,
+            maxModelReplans = maxSteps
         )
         val observationReplanner = CompositeAgentObservationReplanner(
             modelObservationReplanner,
             ModelDrivenAppSearchRecoveryObservationReplanner(
                 verifySearchQueryProvider = { verificationSpec.verifySearchQuery },
                 expectedPackageNameProvider = { verificationSpec.expectedPackageName },
-                expectedAppNameProvider = { verificationSpec.expectedAppName },
-            ),
+                expectedAppNameProvider = { verificationSpec.expectedAppName }
+            )
         )
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
@@ -436,10 +433,10 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             toolRegistry = toolRegistry,
             traceStore = InMemoryAgentTraceStore(),
             skillRuntime = BuiltInSkillRuntime(
-                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap },
+                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap }
             ),
             observationReplanner = observationReplanner,
-            deviceControlSessionFinisher = { DeviceControlSessionService.stop(appContext) },
+            deviceControlSessionFinisher = { DeviceControlSessionService.stop(appContext) }
         )
         return try {
             runModelDrivenAppSearchLoop(
@@ -451,7 +448,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 verificationSpec = verificationSpec,
                 controlProvider = AndroidCurrentScreenControlProvider(),
                 modelReplanDiagnosticProvider = { modelObservationReplanner.lastDiagnosticSnapshot() },
-                modelReplanDiagnosticsProvider = { modelObservationReplanner.diagnosticSnapshots() },
+                modelReplanDiagnosticsProvider = { modelObservationReplanner.diagnosticSnapshots() }
             )
         } finally {
             orchestrator.close()
@@ -468,7 +465,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         verificationSpec: ModelDrivenAppSearchEvalSpec,
         controlProvider: AndroidCurrentScreenControlProvider,
         modelReplanDiagnosticProvider: () -> ModelObservationReplanDiagnostic? = { null },
-        modelReplanDiagnosticsProvider: () -> List<ModelObservationReplanDiagnostic> = { emptyList() },
+        modelReplanDiagnosticsProvider: () -> List<ModelObservationReplanDiagnostic> = { emptyList() }
     ): ModelDrivenAppSearchEvalResult {
         val steps = mutableListOf<ModelDrivenAppSearchEvalStep>()
         val started = orchestrator.route(
@@ -477,13 +474,13 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             memoryEnabled = false,
             actionModelPath = actionModelPath,
             options = AgentRunOptions(reduceDeviceActionConfirmations = true),
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
         var action = started.asEvalAction()
             ?: return ModelDrivenAppSearchEvalResult.failed(
                 reason = started.evalFailureReason(),
                 input = input,
-                verificationSpec = verificationSpec,
+                verificationSpec = verificationSpec
             )
         repeat(maxSteps) {
             val runId = action.runId
@@ -493,11 +490,11 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     steps,
                     verificationSpec,
                     modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                    modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                    modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                 )
             val guardedRequest = action.request.withModelDrivenEvalGuards(
                 verificationSpec = verificationSpec,
-                injectSearchVerification = action.plannedByModel,
+                injectSearchVerification = action.plannedByModel
             )
             val request = guardedRequest.request
             if (action.requiresUserConfirmation) {
@@ -508,17 +505,17 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         steps,
                         verificationSpec,
                         modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                        modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                     )
                 if (confirmedRun.state != AgentRunState.ExecutingTool) {
                     return ModelDrivenAppSearchEvalResult.failed(
                         reason = "confirmation_state_${confirmedRun.state.name}",
-                            input = input,
-                            steps = steps,
-                            verificationSpec = verificationSpec,
-                            modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                            modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
-                        )
+                        input = input,
+                        steps = steps,
+                        verificationSpec = verificationSpec,
+                        modelReplanDiagnostic = modelReplanDiagnosticProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
+                    )
                 }
             }
             var result = executor.execute(request)
@@ -526,7 +523,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 result = result,
                 plannedByModel = action.plannedByModel,
                 evalGuardApplied = guardedRequest.guardApplied,
-                recoveryKind = action.recoveryKind,
+                recoveryKind = action.recoveryKind
             )
             if (
                 maybeRecoverLaunchConfirmation(
@@ -534,7 +531,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     failedResult = result,
                     verificationSpec = verificationSpec,
                     controlProvider = controlProvider,
-                    steps = steps,
+                    steps = steps
                 )
             ) {
                 result = executor.execute(request)
@@ -542,7 +539,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     result = result,
                     plannedByModel = false,
                     evalGuardApplied = false,
-                    recoveryKind = null,
+                    recoveryKind = null
                 )
             }
             val observation = orchestrator.observeToolResult(runId, result)
@@ -552,7 +549,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                     steps,
                     verificationSpec,
                     modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                    modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                    modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                 )
             when (val decision = observation.decision) {
                 AgentObservationDecision.Complete -> {
@@ -564,7 +561,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                             verificationSpec = verificationSpec,
                             finalState = observation.run.state.name,
                             modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                            modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                            modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                         )
                     }
                     return ModelDrivenAppSearchEvalResult.passed(
@@ -573,14 +570,14 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         finalState = observation.run.state.name,
                         verificationSpec = verificationSpec,
                         modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                        modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                     )
                 }
 
                 is AgentObservationDecision.PlanNextTool -> {
                     action = decision.plan.toEvalAction(
                         runId = observation.run.id,
-                        requiresUserConfirmation = observation.run.state == AgentRunState.AwaitingUserConfirmation,
+                        requiresUserConfirmation = observation.run.state == AgentRunState.AwaitingUserConfirmation
                     )
                 }
 
@@ -590,7 +587,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         request = decision.request,
                         plannedByModel = false,
                         requiresUserConfirmation = false,
-                        recoveryKind = null,
+                        recoveryKind = null
                     )
                 }
 
@@ -601,7 +598,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         steps,
                         verificationSpec,
                         modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                        modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                     )
 
                 AgentObservationDecision.Cancel ->
@@ -611,7 +608,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         steps,
                         verificationSpec,
                         modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                        modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                     )
 
                 is AgentObservationDecision.ContinueWithModel ->
@@ -621,7 +618,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         steps = steps,
                         verificationSpec = verificationSpec,
                         modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                        modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                     )
 
                 is AgentObservationDecision.PlanToolBatch ->
@@ -631,7 +628,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         steps,
                         verificationSpec,
                         modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-                        modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+                        modelReplanDiagnostics = modelReplanDiagnosticsProvider()
                     )
             }
         }
@@ -641,7 +638,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             steps,
             verificationSpec,
             modelReplanDiagnostic = modelReplanDiagnosticProvider(),
-            modelReplanDiagnostics = modelReplanDiagnosticsProvider(),
+            modelReplanDiagnostics = modelReplanDiagnosticsProvider()
         )
     }
 
@@ -649,13 +646,13 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         result: ToolResult,
         plannedByModel: Boolean,
         evalGuardApplied: Boolean,
-        recoveryKind: String?,
+        recoveryKind: String?
     ): ModelDrivenAppSearchEvalStep {
         val progressData = AppSearchProgressEvidence.fromData(
             result.data + mapOf(
                 "toolName" to toolName,
-                "status" to result.status.name,
-            ),
+                "status" to result.status.name
+            )
         ).toData()
         return ModelDrivenAppSearchEvalStep(
             toolName = toolName,
@@ -675,7 +672,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             uiActionOutcomeReason = result.data["uiActionOutcomeReason"] ?: progressData["uiActionOutcomeReason"],
             appSearchProgressStage = result.data["appSearchProgressStage"] ?: progressData["appSearchProgressStage"],
             evalGuardApplied = evalGuardApplied,
-            recoveryKind = recoveryKind,
+            recoveryKind = recoveryKind
         )
     }
 
@@ -684,7 +681,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         failedResult: ToolResult,
         verificationSpec: ModelDrivenAppSearchEvalSpec,
         controlProvider: AndroidCurrentScreenControlProvider,
-        steps: MutableList<ModelDrivenAppSearchEvalStep>,
+        steps: MutableList<ModelDrivenAppSearchEvalStep>
     ): Boolean {
         if (failedRequest.toolName != MobileActionFunctions.UI_WAIT) return false
         if (failedResult.data["failureKind"] != UiActionFailureKind.AppNotForeground.schemaValue) return false
@@ -692,7 +689,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         val snapshot = when (
             val observation = controlProvider.observeCurrentScreen(
                 maxTextChars = 2_000,
-                maxNodes = 80,
+                maxNodes = 80
             )
         ) {
             is ScreenStateReadResult.Available -> observation.snapshot
@@ -701,7 +698,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         if (!snapshot.isMiuiLaunchConfirmationFor(expectedAppName)) return false
         val recovery = controlProvider.tap(
             target = "本次允许",
-            timeoutMillis = 2_500,
+            timeoutMillis = 2_500
         )
         steps += recovery.toModelDrivenLaunchRecoveryStep()
         return (recovery as? UiActionReadResult.Available)
@@ -715,90 +712,88 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             listOf(textSummary) + nodes.flatMap { node ->
                 listOf(node.text, node.contentDescription)
             }
-        ).joinToString(separator = " ")
+            ).joinToString(separator = " ")
         return "想要打开" in screenText &&
             expectedAppName in screenText &&
             "本次允许" in screenText
     }
 
-    private fun UiActionReadResult.toModelDrivenLaunchRecoveryStep(): ModelDrivenAppSearchEvalStep =
-        when (this) {
-            is UiActionReadResult.Available -> {
-                val progressData = launchRecoveryProgressData(
-                    status = result.status.name.lowercase(),
-                    failureKind = result.failureKind?.schemaValue,
-                )
-                ModelDrivenAppSearchEvalStep(
-                    toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
-                    plannedByModel = false,
-                    status = result.status.name,
-                    summary = result.summary,
-                    failureKind = result.failureKind?.schemaValue,
-                    searchVerificationStatus = null,
-                    target = "本次允许",
-                    uiActionOutcome = progressData["uiActionOutcome"],
-                    uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
-                    appSearchProgressStage = progressData["appSearchProgressStage"],
-                    recoveryKind = "launch_confirmation",
-                )
-            }
-
-            is UiActionReadResult.PermissionDenied -> {
-                val progressData = launchRecoveryProgressData(
-                    status = "failed",
-                    failureKind = UiActionFailureKind.PermissionMissing.schemaValue,
-                )
-                ModelDrivenAppSearchEvalStep(
-                    toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
-                    plannedByModel = false,
-                    status = "Failed",
-                    summary = reason,
-                    failureKind = UiActionFailureKind.PermissionMissing.schemaValue,
-                    searchVerificationStatus = null,
-                    target = "本次允许",
-                    uiActionOutcome = progressData["uiActionOutcome"],
-                    uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
-                    appSearchProgressStage = progressData["appSearchProgressStage"],
-                    recoveryKind = "launch_confirmation",
-                )
-            }
-
-            is UiActionReadResult.Failed -> {
-                val progressData = launchRecoveryProgressData(
-                    status = "failed",
-                    failureKind = failureKind.schemaValue,
-                )
-                ModelDrivenAppSearchEvalStep(
-                    toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
-                    plannedByModel = false,
-                    status = "Failed",
-                    summary = reason,
-                    failureKind = failureKind.schemaValue,
-                    searchVerificationStatus = null,
-                    target = "本次允许",
-                    uiActionOutcome = progressData["uiActionOutcome"],
-                    uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
-                    appSearchProgressStage = progressData["appSearchProgressStage"],
-                    recoveryKind = "launch_confirmation",
-                )
-            }
+    private fun UiActionReadResult.toModelDrivenLaunchRecoveryStep(): ModelDrivenAppSearchEvalStep = when (this) {
+        is UiActionReadResult.Available -> {
+            val progressData = launchRecoveryProgressData(
+                status = result.status.name.lowercase(),
+                failureKind = result.failureKind?.schemaValue
+            )
+            ModelDrivenAppSearchEvalStep(
+                toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
+                plannedByModel = false,
+                status = result.status.name,
+                summary = result.summary,
+                failureKind = result.failureKind?.schemaValue,
+                searchVerificationStatus = null,
+                target = "本次允许",
+                uiActionOutcome = progressData["uiActionOutcome"],
+                uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
+                appSearchProgressStage = progressData["appSearchProgressStage"],
+                recoveryKind = "launch_confirmation"
+            )
         }
+
+        is UiActionReadResult.PermissionDenied -> {
+            val progressData = launchRecoveryProgressData(
+                status = "failed",
+                failureKind = UiActionFailureKind.PermissionMissing.schemaValue
+            )
+            ModelDrivenAppSearchEvalStep(
+                toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
+                plannedByModel = false,
+                status = "Failed",
+                summary = reason,
+                failureKind = UiActionFailureKind.PermissionMissing.schemaValue,
+                searchVerificationStatus = null,
+                target = "本次允许",
+                uiActionOutcome = progressData["uiActionOutcome"],
+                uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
+                appSearchProgressStage = progressData["appSearchProgressStage"],
+                recoveryKind = "launch_confirmation"
+            )
+        }
+
+        is UiActionReadResult.Failed -> {
+            val progressData = launchRecoveryProgressData(
+                status = "failed",
+                failureKind = failureKind.schemaValue
+            )
+            ModelDrivenAppSearchEvalStep(
+                toolName = MODEL_DRIVEN_LAUNCH_CONFIRMATION_RECOVERY_TOOL,
+                plannedByModel = false,
+                status = "Failed",
+                summary = reason,
+                failureKind = failureKind.schemaValue,
+                searchVerificationStatus = null,
+                target = "本次允许",
+                uiActionOutcome = progressData["uiActionOutcome"],
+                uiActionOutcomeReason = progressData["uiActionOutcomeReason"],
+                appSearchProgressStage = progressData["appSearchProgressStage"],
+                recoveryKind = "launch_confirmation"
+            )
+        }
+    }
 
     private fun launchRecoveryProgressData(
         status: String,
-        failureKind: String?,
-    ): Map<String, String> =
-        AppSearchProgressEvidence.fromData(
-            buildMap {
-                put("actionType", "tap")
-                put("status", status)
-                failureKind?.let { value -> put("failureKind", value) }
-            },
-        ).toData()
+        failureKind: String?
+    ): Map<String, String> = AppSearchProgressEvidence.fromData(
+        buildMap {
+            put("actionType", "tap")
+            put("status", status)
+            failureKind?.let { value -> put("failureKind", value) }
+        }
+    ).toData()
 
     private fun ToolRequest.withModelDrivenEvalGuards(
         verificationSpec: ModelDrivenAppSearchEvalSpec,
-        injectSearchVerification: Boolean,
+        injectSearchVerification: Boolean
     ): ModelDrivenEvalGuardedRequest {
         if (!verificationSpec.hasGuards) {
             return ModelDrivenEvalGuardedRequest(request = this, guardApplied = false)
@@ -822,15 +817,15 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         }
         return ModelDrivenEvalGuardedRequest(
             request = copy(arguments = guardedArguments),
-            guardApplied = true,
+            guardApplied = true
         )
     }
 
     private fun modelDrivenEvalToolExecutor(
         appContext: Context,
-        toolRegistry: ToolRegistry,
-    ): ToolExecutor =
-        ValidatingToolExecutor(
+        toolRegistry: ToolRegistry
+    ): ToolExecutor = ValidatingToolExecutor(
+        delegate = EvidenceBoundingToolExecutor(
             delegate = RoutingToolExecutor(
                 calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
                 foregroundAppProvider = AndroidForegroundAppProvider(appContext),
@@ -840,55 +835,53 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 webSearchProvider = OkHttpWebSearchProvider(),
                 delegate = ActionExecutor(
                     context = appContext,
-                    toolRegistry = toolRegistry,
+                    toolRegistry = toolRegistry
                 ),
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
                 currentScreenControlProvider = AndroidCurrentScreenControlProvider(),
-                toolRegistry = toolRegistry,
-            ),
-            registry = toolRegistry,
-        )
+                toolRegistry = toolRegistry
+            )
+        ),
+        registry = toolRegistry
+    )
 
-    private fun AssistantRoute.asEvalAction(): ModelDrivenEvalAction? =
-        when (this) {
-            is AssistantRoute.Action -> {
-                val request = toolRequest ?: ToolRequest(
-                    toolName = draft.functionName,
-                    arguments = draft.parameters,
-                    reason = draft.summary,
-                )
-                ModelDrivenEvalAction(
-                    runId = runId,
-                    request = request,
-                    plannedByModel = plannedByModel,
-                    requiresUserConfirmation = requiresUserConfirmation,
-                )
-            }
-
-            else -> null
+    private fun AssistantRoute.asEvalAction(): ModelDrivenEvalAction? = when (this) {
+        is AssistantRoute.Action -> {
+            val request = toolRequest ?: ToolRequest(
+                toolName = draft.functionName,
+                arguments = draft.parameters,
+                reason = draft.summary
+            )
+            ModelDrivenEvalAction(
+                runId = runId,
+                request = request,
+                plannedByModel = plannedByModel,
+                requiresUserConfirmation = requiresUserConfirmation
+            )
         }
 
-    private fun AssistantRoute.evalFailureReason(): String =
-        when (this) {
-            is AssistantRoute.Chat -> "unexpected_chat_route"
-            is AssistantRoute.MissingModel -> "missing_model_${capability.name}"
-            is AssistantRoute.ToolRejected -> "tool_rejected_${summary.cleanValue()}"
-            is AssistantRoute.Action -> "missing_action_request"
-            is AssistantRoute.Cancelled -> "run_cancelled"
-        }
+        else -> null
+    }
+
+    private fun AssistantRoute.evalFailureReason(): String = when (this) {
+        is AssistantRoute.Chat -> "unexpected_chat_route"
+        is AssistantRoute.MissingModel -> "missing_model_${capability.name}"
+        is AssistantRoute.ToolRejected -> "tool_rejected_${summary.cleanValue()}"
+        is AssistantRoute.Action -> "missing_action_request"
+        is AssistantRoute.Cancelled -> "run_cancelled"
+    }
 
     private fun AgentPlan.UseTool.toEvalAction(
         runId: String,
-        requiresUserConfirmation: Boolean,
-    ): ModelDrivenEvalAction =
-        ModelDrivenEvalAction(
-            runId = runId,
-            request = request,
-            plannedByModel = plannedByModel,
-            requiresUserConfirmation = requiresUserConfirmation,
-            recoveryKind = request.modelDrivenAppSearchRecoveryKind(),
-        )
+        requiresUserConfirmation: Boolean
+    ): ModelDrivenEvalAction = ModelDrivenEvalAction(
+        runId = runId,
+        request = request,
+        plannedByModel = plannedByModel,
+        requiresUserConfirmation = requiresUserConfirmation,
+        recoveryKind = request.modelDrivenAppSearchRecoveryKind()
+    )
 
     private fun ModelDrivenAppSearchEvalResult.toLines(command: String): List<String> {
         val modelReplanTrace = modelReplanDiagnostics.ifEmpty {
@@ -932,7 +925,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             "appSearchProgressStage=${steps.latestMeaningful { it.appSearchProgressStage }.cleanValue()}",
             "searchVerificationStatus=${
                 steps.lastOrNull { it.searchVerificationStatus != null }?.searchVerificationStatus.orEmpty()
-            }",
+            }"
         ) + modelReplanTrace.flatMapIndexed { index, diagnostic ->
             val prefix = "modelReplanTrace_${index}_"
             listOf(
@@ -943,7 +936,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 "${prefix}modelAttempted=${diagnostic.modelAttempted}",
                 "${prefix}modelPlanKind=${diagnostic.modelPlanKind.orEmpty().cleanValue()}",
                 "${prefix}modelFailureReason=${diagnostic.modelFailureReason.orEmpty().cleanValue()}",
-                "${prefix}modelOutputPreview=${diagnostic.modelOutputPreview.orEmpty().cleanValue()}",
+                "${prefix}modelOutputPreview=${diagnostic.modelOutputPreview.orEmpty().cleanValue()}"
             )
         } + steps.flatMapIndexed { index, step ->
             val prefix = "step_${index}_"
@@ -965,7 +958,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 "${prefix}uiActionOutcomeReason=${step.uiActionOutcomeReason.orEmpty().cleanValue()}",
                 "${prefix}appSearchProgressStage=${step.appSearchProgressStage.orEmpty().cleanValue()}",
                 "${prefix}evalGuardApplied=${step.evalGuardApplied}",
-                "${prefix}recoveryKind=${step.recoveryKind.orEmpty().cleanValue()}",
+                "${prefix}recoveryKind=${step.recoveryKind.orEmpty().cleanValue()}"
             )
         }
     }
@@ -985,39 +978,34 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             "${prefix}hasEditable=${nodes.any { node -> node.editable }}",
             "${prefix}hasScrollable=${nodes.any { node -> node.scrollable }}",
             "${prefix}truncated=$truncated",
-            "${prefix}textSummary=${textSummary.cleanValue()}",
+            "${prefix}textSummary=${textSummary.cleanValue()}"
         )
     }
 
-    private fun ToolResult.toLines(command: String): List<String> =
-        listOf(
-            "command=${command.cleanValue()}",
-            "resultType=tool_result",
-            "status=${status.name}",
-            "summary=${summary.cleanValue()}",
-            "retryable=$retryable",
-            "errorCode=${error?.code?.name.orEmpty()}",
-            "errorMessage=${error?.message?.cleanValue().orEmpty()}",
-        ) + data.entries
-            .sortedBy { it.key }
-            .map { (key, value) -> "data.${key.cleanValue()}=${value.cleanValue()}" }
+    private fun ToolResult.toLines(command: String): List<String> = listOf(
+        "command=${command.cleanValue()}",
+        "resultType=tool_result",
+        "status=${status.name}",
+        "summary=${summary.cleanValue()}",
+        "retryable=$retryable",
+        "errorCode=${error?.code?.name.orEmpty()}",
+        "errorMessage=${error?.message?.cleanValue().orEmpty()}"
+    ) + data.entries
+        .sortedBy { it.key }
+        .map { (key, value) -> "data.${key.cleanValue()}=${value.cleanValue()}" }
 
-    private fun String.cleanValue(): String =
-        DeviceControlEvalResultFormatter.cleanValue(this)
+    private fun String.cleanValue(): String = DeviceControlEvalResultFormatter.cleanValue(this)
 
     private fun List<ModelDrivenAppSearchEvalStep>.latestMeaningful(
-        selector: (ModelDrivenAppSearchEvalStep) -> String?,
-    ): String =
-        asReversed()
-            .mapNotNull { step -> selector(step)?.takeIf { value -> value.isNotBlank() && value != "unknown" } }
-            .firstOrNull()
-            .orEmpty()
+        selector: (ModelDrivenAppSearchEvalStep) -> String?
+    ): String = asReversed()
+        .mapNotNull { step -> selector(step)?.takeIf { value -> value.isNotBlank() && value != "unknown" } }
+        .firstOrNull()
+        .orEmpty()
 
-    private fun Intent.nonBlankStringExtra(name: String): String? =
-        getStringExtra(name)?.trim()?.takeIf { it.isNotBlank() }
+    private fun Intent.nonBlankStringExtra(name: String): String? = getStringExtra(name)?.trim()?.takeIf { it.isNotBlank() }
 
-    private fun Throwable.toResultReason(): String =
-        "${javaClass.simpleName}:${message.orEmpty()}".cleanValue()
+    private fun Throwable.toResultReason(): String = "${javaClass.simpleName}:${message.orEmpty()}".cleanValue()
 
     private companion object {
         const val EXTRA_COMMAND = "command"
@@ -1067,7 +1055,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             MobileActionFunctions.UI_TYPE_TEXT,
             MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_SCROLL,
-            MobileActionFunctions.UI_WAIT,
+            MobileActionFunctions.UI_WAIT
         )
     }
 }
@@ -1077,18 +1065,18 @@ private data class ModelDrivenEvalAction(
     val request: ToolRequest,
     val plannedByModel: Boolean,
     val requiresUserConfirmation: Boolean,
-    val recoveryKind: String? = null,
+    val recoveryKind: String? = null
 )
 
 private data class ModelDrivenEvalGuardedRequest(
     val request: ToolRequest,
-    val guardApplied: Boolean,
+    val guardApplied: Boolean
 )
 
 private data class ModelDrivenAppSearchEvalSpec(
     val verifySearchQuery: String? = null,
     val expectedPackageName: String? = null,
-    val expectedAppName: String? = null,
+    val expectedAppName: String? = null
 ) {
     val requiresSearchVerification: Boolean
         get() = !verifySearchQuery.isNullOrBlank()
@@ -1128,7 +1116,7 @@ private data class ModelDrivenAppSearchEvalStep(
     val uiActionOutcomeReason: String? = null,
     val appSearchProgressStage: String? = null,
     val evalGuardApplied: Boolean = false,
-    val recoveryKind: String? = null,
+    val recoveryKind: String? = null
 )
 
 private data class ModelDrivenAppSearchEvalResult(
@@ -1139,7 +1127,7 @@ private data class ModelDrivenAppSearchEvalResult(
     val finalState: String = "",
     val verificationSpec: ModelDrivenAppSearchEvalSpec = ModelDrivenAppSearchEvalSpec(),
     val modelReplanDiagnostic: ModelObservationReplanDiagnostic? = null,
-    val modelReplanDiagnostics: List<ModelObservationReplanDiagnostic> = emptyList(),
+    val modelReplanDiagnostics: List<ModelObservationReplanDiagnostic> = emptyList()
 ) {
     companion object {
         fun passed(
@@ -1148,18 +1136,17 @@ private data class ModelDrivenAppSearchEvalResult(
             finalState: String,
             verificationSpec: ModelDrivenAppSearchEvalSpec,
             modelReplanDiagnostic: ModelObservationReplanDiagnostic? = null,
-            modelReplanDiagnostics: List<ModelObservationReplanDiagnostic> = emptyList(),
-        ): ModelDrivenAppSearchEvalResult =
-            ModelDrivenAppSearchEvalResult(
-                passed = true,
-                reason = "",
-                input = input,
-                steps = steps,
-                finalState = finalState,
-                verificationSpec = verificationSpec,
-                modelReplanDiagnostic = modelReplanDiagnostic,
-                modelReplanDiagnostics = modelReplanDiagnostics,
-            )
+            modelReplanDiagnostics: List<ModelObservationReplanDiagnostic> = emptyList()
+        ): ModelDrivenAppSearchEvalResult = ModelDrivenAppSearchEvalResult(
+            passed = true,
+            reason = "",
+            input = input,
+            steps = steps,
+            finalState = finalState,
+            verificationSpec = verificationSpec,
+            modelReplanDiagnostic = modelReplanDiagnostic,
+            modelReplanDiagnostics = modelReplanDiagnostics
+        )
 
         fun failed(
             reason: String,
@@ -1168,17 +1155,16 @@ private data class ModelDrivenAppSearchEvalResult(
             verificationSpec: ModelDrivenAppSearchEvalSpec = ModelDrivenAppSearchEvalSpec(),
             finalState: String = "",
             modelReplanDiagnostic: ModelObservationReplanDiagnostic? = null,
-            modelReplanDiagnostics: List<ModelObservationReplanDiagnostic> = emptyList(),
-        ): ModelDrivenAppSearchEvalResult =
-            ModelDrivenAppSearchEvalResult(
-                passed = false,
-                reason = reason,
-                input = input,
-                steps = steps,
-                finalState = finalState,
-                verificationSpec = verificationSpec,
-                modelReplanDiagnostic = modelReplanDiagnostic,
-                modelReplanDiagnostics = modelReplanDiagnostics,
-            )
+            modelReplanDiagnostics: List<ModelObservationReplanDiagnostic> = emptyList()
+        ): ModelDrivenAppSearchEvalResult = ModelDrivenAppSearchEvalResult(
+            passed = false,
+            reason = reason,
+            input = input,
+            steps = steps,
+            finalState = finalState,
+            verificationSpec = verificationSpec,
+            modelReplanDiagnostic = modelReplanDiagnostic,
+            modelReplanDiagnostics = modelReplanDiagnostics
+        )
     }
 }

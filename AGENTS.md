@@ -49,7 +49,7 @@ action/          phone action parsing, planning, Android execution boundary
 audit/           redacted tool audit and remote-send audit
 background/      reminders, alarms, periodic checks
 capability/      capability matrix model
-common/          shared JSON readers and hashing helpers
+common/          shared JSON readers / strict syntax scanning and hashing helpers
 data/            Room database, settings, model/session repositories
 device/          device context, accessibility observation and screen control
 download/        model download and verification
@@ -247,6 +247,9 @@ Choose the smallest applicable command instead of running this entire list:
 scripts/doctor.sh
 scripts/verify_local.sh
 
+# Kotlin formatting for files changed from origin/main
+./gradlew spotlessCheck
+
 # Affected JVM behavior
 ./gradlew :app:testDebugUnitTest --tests "<affected-test-pattern>"
 
@@ -259,6 +262,10 @@ scripts/verify_local.sh
 # Integrated branch gate
 ./gradlew :app:testDebugUnitTest
 ```
+
+`spotlessCheck` uses `origin/main` as its incremental baseline. If that ref is unavailable,
+set `SOLIN_SPOTLESS_RATCHET_REF` to a valid base. Source archives without Git metadata may
+use `SOLIN_SPOTLESS_SKIP=1` only as an explicit local skip; CI keeps the check enabled.
 
 For privacy-sensitive code or documentation, run `scripts/privacy_scan.sh`
 after the change as documented in the README.

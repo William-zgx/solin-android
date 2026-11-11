@@ -145,7 +145,7 @@ Android 12+；启动独立焦点的后台应用要求 Android 14+ 及平台支�
 ## 验证
 
 ```bash
-# 完整本地门禁：脚本回归、JVM、Lint、构建及产物检查
+# 完整本地门禁：Kotlin 格式检查、脚本回归、JVM、Lint、构建及产物检查
 scripts/verify_local.sh
 
 # 设备检查；在个人设备上运行前先阅读验收指南
@@ -154,6 +154,9 @@ ANDROID_SERIAL=<device-or-emulator> scripts/install_and_test_device.sh
 # 完整模拟器回归
 AVD_NAME=<your-avd-name> scripts/regression_emulator.sh
 ```
+
+格式检查默认以 `origin/main` 为增量基线；缺少该 ref 时设置 `SOLIN_SPOTLESS_RATCHET_REF`。
+无 Git 元数据的源码包可用 `SOLIN_SPOTLESS_SKIP=1` 显式跳过本地格式检查，CI 不跳过。
 
 完整模拟器通过必须有 `regression-emulator.properties` 的 `status=passed`。
 CI 任务因基础设施不支持（如 HVF 不可用）而跳过，即使显示绿色也不代表实际设备覆盖。

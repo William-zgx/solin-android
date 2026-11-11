@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.tool
 
+import com.bytedance.zgx.solin.logging.cleanMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -8,7 +9,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import com.bytedance.zgx.solin.logging.cleanMessage
+
+fun interface ToolExecutionAuthorizer {
+    fun authorize(request: ToolRequest, userConfirmed: Boolean): ToolResult?
+}
 
 const val DEFAULT_TOOL_EXECUTION_TIMEOUT_MILLIS = 20_000L
 
@@ -42,7 +46,7 @@ class TimeoutToolExecutionBoundary(
     private val executionAuthorizer: ToolExecutionAuthorizer? = null,
     private val compositeChildAuthorizer: (suspend (ToolRequest, ToolRequest) -> Boolean)? = null,
     private val compositeChildObserver: (suspend (ToolRequest, ToolRequest, ToolResult) -> Unit)? = null,
-    private val executionScope: (ToolRequest, () -> ToolResult) -> ToolResult = { _, execute -> execute() },
+    private val executionScope: (ToolRequest, () -> ToolResult) -> ToolResult = { _, execute -> execute() }
 ) {
     suspend fun execute(request: ToolRequest, userConfirmed: Boolean = false): ToolResult {
         if (request.toolName in PhoneCompositeOperations.TOOL_NAMES) {
@@ -95,7 +99,7 @@ class TimeoutToolExecutionBoundary(
                         code = ToolErrorCode.ExecutionFailed,
                         summary = "Tool execution failed before completion: ${throwable.cleanMessage()}",
                         retryable = true,
-                        data = request.toolExecutionContext(),
+                        data = request.toolExecutionContext()
                     )
                 }
             }
@@ -103,7 +107,7 @@ class TimeoutToolExecutionBoundary(
             code = ToolErrorCode.ExecutionFailed,
             summary = "Tool execution timed out after ${timeout / 1_000} seconds.",
             retryable = true,
-            data = request.toolExecutionContext(),
+            data = request.toolExecutionContext()
         )
     }
 
@@ -122,7 +126,7 @@ class TimeoutToolExecutionBoundary(
     suspend fun executeBatch(
         requests: List<ToolRequest>,
         userConfirmed: Boolean = false,
-        onRetry: suspend () -> Unit = {},
+        onRetry: suspend () -> Unit = {}
     ): List<ToolResult> {
         if (requests.isEmpty()) return emptyList()
         if (requests.any { it.toolName in PhoneCompositeOperations.TOOL_NAMES }) {
@@ -132,14 +136,16 @@ class TimeoutToolExecutionBoundary(
 
         // Step 1: pre-validate the whole batch. Any rejection short-circuits execution.
         val rejectedByRequestId = requests.mapNotNull { request ->
-            (executionAuthorizer?.authorize(request, userConfirmed)
-                ?: publicEvidenceBatchRequestValidator(request))
+            (
+                executionAuthorizer?.authorize(request, userConfirmed)
+                    ?: publicEvidenceBatchRequestValidator(request)
+                )
                 ?.let { rejection -> request.id to rejection }
         }.toMap()
         if (rejectedByRequestId.isNotEmpty()) {
             return requests.map { request ->
                 rejectedByRequestId[request.id] ?: request.rejected(
-                    "Public evidence batch rejected before execution because another request was ineligible.",
+                    "Public evidence batch rejected before execution because another request was ineligible."
                 )
             }
         }
@@ -166,7 +172,7 @@ class TimeoutToolExecutionBoundary(
             } else {
                 retryRequests.map { request ->
                     retryRejections[request.id] ?: request.rejected(
-                        "Tool batch retry rejected before execution because another request was not authorized.",
+                        "Tool batch retry rejected before execution because another request was not authorized."
                     )
                 }
             }
@@ -179,40 +185,39 @@ class TimeoutToolExecutionBoundary(
         return results
     }
 
-    private suspend fun executeBatchInternal(requests: List<ToolRequest>): List<ToolResult> =
-        withTimeoutOrNull(timeoutMillis) {
-            supervisorScope {
-                runCatching {
-                    withContext(dispatcher) { executor.executeBatch(requests) }
-                }.getOrElse { throwable ->
-                    if (throwable is CancellationException) {
-                        if (!currentCoroutineContext().isActive) throw throwable
-                        requests.map { request ->
-                            request.cancelled(
-                                summary = "Tool batch was cancelled before completion: ${throwable.cleanMessage()}",
-                                data = request.toolExecutionContext(),
-                            )
-                        }
-                    } else {
-                        requests.map { request ->
-                            request.failed(
-                                code = ToolErrorCode.ExecutionFailed,
-                                summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
-                                retryable = true,
-                                data = request.toolExecutionContext(),
-                            )
-                        }
+    private suspend fun executeBatchInternal(requests: List<ToolRequest>): List<ToolResult> = withTimeoutOrNull(timeoutMillis) {
+        supervisorScope {
+            runCatching {
+                withContext(dispatcher) { executor.executeBatch(requests) }
+            }.getOrElse { throwable ->
+                if (throwable is CancellationException) {
+                    if (!currentCoroutineContext().isActive) throw throwable
+                    requests.map { request ->
+                        request.cancelled(
+                            summary = "Tool batch was cancelled before completion: ${throwable.cleanMessage()}",
+                            data = request.toolExecutionContext()
+                        )
+                    }
+                } else {
+                    requests.map { request ->
+                        request.failed(
+                            code = ToolErrorCode.ExecutionFailed,
+                            summary = "Tool batch failed before completion: ${throwable.cleanMessage()}",
+                            retryable = true,
+                            data = request.toolExecutionContext()
+                        )
                     }
                 }
             }
-        } ?: requests.map { request ->
-            request.failed(
-                code = ToolErrorCode.ExecutionFailed,
-                summary = "Tool batch execution timed out after ${timeoutMillis / 1_000} seconds.",
-                retryable = true,
-                data = request.toolExecutionContext(),
-            )
         }
+    } ?: requests.map { request ->
+        request.failed(
+            code = ToolErrorCode.ExecutionFailed,
+            summary = "Tool batch execution timed out after ${timeoutMillis / 1_000} seconds.",
+            retryable = true,
+            data = request.toolExecutionContext()
+        )
+    }
 
     /**
      * Backwards-compatible public-evidence batch API. Delegates to [executeBatch].
@@ -220,13 +225,13 @@ class TimeoutToolExecutionBoundary(
     suspend fun executePublicEvidenceBatch(
         requests: List<ToolRequest>,
         userConfirmed: Boolean = false,
-        onRetry: suspend () -> Unit = {},
+        onRetry: suspend () -> Unit = {}
     ): List<ToolResult> = executeBatch(requests, userConfirmed, onRetry)
 }
 
 private fun resultsByRequestId(
     results: List<ToolResult>,
-    requests: List<ToolRequest>,
+    requests: List<ToolRequest>
 ): Map<String, ToolResult> {
     if (results.size == requests.size && results.indices.all { results[it].requestId == requests[it].id }) {
         return requests.zip(results).associate { (req, res) -> req.id to res }

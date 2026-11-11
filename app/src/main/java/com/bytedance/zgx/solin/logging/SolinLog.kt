@@ -13,6 +13,7 @@ interface SolinLog {
     fun i(tag: String, msg: String)
     fun w(tag: String, msg: String)
     fun w(tag: String, msg: String, t: Throwable)
+    fun e(tag: String, msg: String)
     fun e(tag: String, msg: String, t: Throwable)
 }
 
@@ -39,6 +40,10 @@ class AndroidSolinLog : SolinLog {
         runCatching { android.util.Log.w(tag, msg, t) }
     }
 
+    override fun e(tag: String, msg: String) {
+        runCatching { android.util.Log.e(tag, msg) }
+    }
+
     override fun e(tag: String, msg: String, t: Throwable) {
         runCatching { android.util.Log.e(tag, msg, t) }
     }
@@ -53,6 +58,7 @@ class NoOpSolinLog : SolinLog {
     override fun i(tag: String, msg: String) {}
     override fun w(tag: String, msg: String) {}
     override fun w(tag: String, msg: String, t: Throwable) {}
+    override fun e(tag: String, msg: String) {}
     override fun e(tag: String, msg: String, t: Throwable) {}
 }
 
@@ -78,8 +84,9 @@ fun solinW(tag: String, msg: String) = SolinLogHolder.current.w(tag, msg)
 
 fun solinW(tag: String, msg: String, t: Throwable) = SolinLogHolder.current.w(tag, msg, t)
 
+fun solinE(tag: String, msg: String) = SolinLogHolder.current.e(tag, msg)
+
 fun solinE(tag: String, msg: String, t: Throwable) = SolinLogHolder.current.e(tag, msg, t)
 
 /** A throwable's message for user-facing summaries, falling back to its class name. */
-internal fun Throwable.cleanMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
+internal fun Throwable.cleanMessage(): String = message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName

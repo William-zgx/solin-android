@@ -1,11 +1,11 @@
 package com.bytedance.zgx.solin.mcp
 
 import com.bytedance.zgx.solin.module.SolinModuleRegistryImpl
-import com.bytedance.zgx.solin.module.ToolHandler
 import com.bytedance.zgx.solin.tool.ConfirmationPolicy
 import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolCapabilityTag
+import com.bytedance.zgx.solin.tool.ToolHandler
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
@@ -28,13 +28,13 @@ class McpModuleTest {
             capability = ToolCapability.Extension,
             riskLevel = RiskLevel.HighExternalSend,
             confirmationPolicy = ConfirmationPolicy.Required,
-            tags = setOf(ToolCapabilityTag.McpTool),
+            tags = setOf(ToolCapabilityTag.McpTool)
         )
         val pingHandler = ToolHandler { _: ToolRequest ->
             ToolResult(
                 requestId = "",
                 status = ToolStatus.Succeeded,
-                summary = "pong",
+                summary = "pong"
             )
         }
 
@@ -43,8 +43,7 @@ class McpModuleTest {
         // test-only registry; the fake overrides all methods so the registry is unused.
         val fakeClient = object : McpClient(McpServerRegistry()) {
             override fun allApprovedToolSpecs(): List<ToolSpec> = listOf(pingSpec)
-            override fun handlerFor(toolName: String): ToolHandler? =
-                if (toolName == specName) pingHandler else null
+            override fun handlerFor(toolName: String): ToolHandler? = if (toolName == specName) pingHandler else null
         }
 
         val reg = SolinModuleRegistryImpl()
@@ -52,8 +51,10 @@ class McpModuleTest {
 
         // The ToolProvider exposes the spec
         val allSpecs = reg.toolProviders.flatMap { it.specs() }
-        assertTrue("expected spec $specName in registered providers, got $allSpecs",
-            allSpecs.any { it.name == specName })
+        assertTrue(
+            "expected spec $specName in registered providers, got $allSpecs",
+            allSpecs.any { it.name == specName }
+        )
 
         // Handler registered by name
         val handler = reg.toolHandlers[specName]
@@ -63,7 +64,9 @@ class McpModuleTest {
         val result = handler!!.execute(ToolRequest(toolName = specName, arguments = emptyMap()))
         assertNotNull(result)
         assertEquals(ToolStatus.Succeeded, result!!.status)
-        assertTrue("summary should contain pong, got '${result.summary}'",
-            result.summary.contains("pong"))
+        assertTrue(
+            "summary should contain pong, got '${result.summary}'",
+            result.summary.contains("pong")
+        )
     }
 }

@@ -4,26 +4,32 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.device.CalendarAvailabilityProvider
-import com.bytedance.zgx.solin.device.ForegroundAppProvider
 import com.bytedance.zgx.solin.device.ContactSummaryProvider
 import com.bytedance.zgx.solin.device.CurrentScreenControlProvider
 import com.bytedance.zgx.solin.device.CurrentScreenTextProvider
+import com.bytedance.zgx.solin.device.ForegroundAppProvider
 import com.bytedance.zgx.solin.device.NotificationSummaryProvider
 import com.bytedance.zgx.solin.device.RecentFileProvider
 import com.bytedance.zgx.solin.device.RecentImageTextProvider
-import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
-import com.bytedance.zgx.solin.evidence.EvidenceBounds
-import com.bytedance.zgx.solin.evidence.EvidenceSourceType
-import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
+import com.bytedance.zgx.solin.logging.cleanMessage
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
-import com.bytedance.zgx.solin.module.ToolHandler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
-import com.bytedance.zgx.solin.logging.cleanMessage
+
+/**
+ * Receives a [ToolRequest] and returns a [ToolResult], or null to fall through to the default
+ * built-in executor.
+ *
+ * Implementations may run concurrently and inside `runInterruptible`-style contexts. They must be
+ * thread-safe, honour cancellation promptly, and propagate [CancellationException].
+ */
+fun interface ToolHandler {
+    suspend fun execute(request: ToolRequest): ToolResult?
+}
 
 interface ToolExecutor {
     fun execute(request: ToolRequest): ToolResult
@@ -45,14 +51,13 @@ interface ToolExecutor {
      * (one tool's throw must not prevent siblings from running and must not surface
      * to the caller as a batch-level throw).
      */
-    fun executeBatch(requests: List<ToolRequest>): List<ToolResult> =
-        requests.map { request ->
-            try {
-                execute(request)
-            } catch (t: Throwable) {
-                request.batchThrowableResult(t, concurrent = false)
-            }
+    fun executeBatch(requests: List<ToolRequest>): List<ToolResult> = requests.map { request ->
+        try {
+            execute(request)
+        } catch (t: Throwable) {
+            request.batchThrowableResult(t, concurrent = false)
         }
+    }
 }
 
 class RoutingToolExecutor(
@@ -74,29 +79,14 @@ class RoutingToolExecutor(
     // by the `else` branch and mis-partitioned. See [defaultBuiltInToolRegistry].
     private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
     private val toolHandlers: Map<String, ToolHandler> = emptyMap(),
-    private val clockMillis: () -> Long = { System.currentTimeMillis() },
-    private val evidenceBlobStore: EvidenceBlobStore = NoOpEvidenceBlobStore,
-    private val maxSummaryChars: Int = EvidenceBlobStore.MAX_INLINE_CHARS,
-    private val maxDataValueChars: Int = EvidenceBlobStore.MAX_INLINE_CHARS,
-    /**
-     * Privacy label stamped on evidence blobs spilled by [bound].
-     *
-     * WHY a parameter and not a literal: privacy classification is a policy decision, so it is
-     * made explicit at the composition root where privacy-boundary reviewers can see it.
-     *
-     * The default MUST stay [MessagePrivacy.LocalOnly] and callers MUST NOT widen it: tool
-     * evidence includes screen text, OCR, and private tool output, which the project's
-     * fail-closed rule keeps on-device. This exists to make the label reviewable and
-     * overridable in tests, NOT to allow remote-capable evidence spill.
-     */
-    private val evidencePrivacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() }
 ) : ToolExecutor {
     private val currentScreenOcrGroundingCache = CurrentScreenOcrGroundingCache(clockMillis)
     private val currentScreenControlProviderWithOcrGrounding =
         currentScreenControlProvider?.let { provider ->
             OcrGroundingCurrentScreenControlProvider(
                 delegate = provider,
-                cache = currentScreenOcrGroundingCache,
+                cache = currentScreenOcrGroundingCache
             )
         }
     private val calendarAvailabilityToolExecutor =
@@ -118,23 +108,18 @@ class RoutingToolExecutor(
         CurrentScreenshotOcrToolExecutor(
             provider = currentScreenshotOcrProvider,
             currentScreenControlProvider = currentScreenControlProvider,
-            clockMillis = clockMillis,
+            clockMillis = clockMillis
         )
     private val deviceControlToolExecutor =
         DeviceControlToolExecutor(
             provider = currentScreenControlProviderWithOcrGrounding,
-            preflightProvider = currentScreenControlProvider,
+            preflightProvider = currentScreenControlProvider
         )
 
-    override fun execute(request: ToolRequest): ToolResult =
-        bound(executeUnvalidated(request))
+    override fun execute(request: ToolRequest): ToolResult = executeRouted(request)
 
-    /**
-     * Raw execution path without [bound] evidence truncation. Used both by [execute]
-     * and by [executeBatch] so the concurrent path does not re-enter [execute] and
-     * does not double-truncate evidence.
-     */
-    private fun executeUnvalidated(request: ToolRequest): ToolResult {
+    /** Routes one request without applying validation or output bounding. */
+    private fun executeRouted(request: ToolRequest): ToolResult {
         val handler = toolHandlers[request.toolName]
         if (handler != null) {
             val handled = runBlocking(Dispatchers.IO) {
@@ -143,7 +128,7 @@ class RoutingToolExecutor(
                         if (t is CancellationException) throw t
                         request.localOnlyFailure(
                             ToolErrorCode.ExecutionFailed,
-                            "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}",
+                            "Tool handler for ${request.toolName} failed: ${t.cleanMessage()}"
                         )
                     }
             }
@@ -187,7 +172,7 @@ class RoutingToolExecutor(
 
         // Run sequential segment first, in input order.
         for (index in sequentialIndices) {
-            results[index] = bound(executeUnvalidated(requests[index]))
+            results[index] = executeRouted(requests[index])
         }
 
         // Run independent segment concurrently when present. Each task is isolated via
@@ -199,7 +184,7 @@ class RoutingToolExecutor(
                     val deferreds = concurrentIndices.map { index ->
                         async(Dispatchers.IO) {
                             val request = requests[index]
-                            runCatching { bound(executeUnvalidated(request)) }
+                            runCatching { executeRouted(request) }
                                 .getOrElse { t -> request.batchThrowableResult(t, concurrent = true) }
                         }
                     }
@@ -223,41 +208,6 @@ class RoutingToolExecutor(
         if (spec.executionMode == ToolExecutionMode.Sequential) return true
         // Only ConcurrentWhenIndependent tools may run concurrently; everything else stays sequential.
         return spec.executionMode != ToolExecutionMode.ConcurrentWhenIndependent
-    }
-
-    /**
-     * Evidence bounding: truncate an oversized summary / data value and spill the overflow
-     * into the content-addressed [evidenceBlobStore].
-     *
-     * ARCHITECTURE NOTE (deliberate debt): this is evidence-bounding policy living inside the
-     * router, so [RoutingToolExecutor] currently mixes routing with evidence truncation. It
-     * belongs in its own decorator sitting between validation and routing
-     * (Timeout → Validating → Bounding → Routing) so each link has one responsibility.
-     * Extracting it is behavior-preserving but touches the decorator-chain assembly in
-     * SolinAppContainer plus every executor construction in tests, so it is deferred to a
-     * follow-up batch; the privacy label is already hoisted to [evidencePrivacy] so the
-     * policy decision is at least explicit at the composition root.
-     */
-    private fun bound(result: ToolResult): ToolResult {
-        fun headTail(text: String, maxChars: Int) = EvidenceBounds.headTail(
-            text = text,
-            maxChars = maxChars,
-            sourceType = EvidenceSourceType.ToolResult,
-            privacy = evidencePrivacy,
-            store = evidenceBlobStore,
-        )
-
-        val summary = headTail(result.summary, maxSummaryChars)
-        val truncatedData = result.data.mapValues { (_, value) -> headTail(value, maxDataValueChars) }
-            .filterValues { bounded -> bounded.truncated }
-        if (!summary.truncated && truncatedData.isEmpty()) return result
-        val newRefs = listOfNotNull(summary.ref.takeIf { summary.truncated }) +
-            truncatedData.values.mapNotNull { bounded -> bounded.ref }
-        return result.copy(
-            summary = if (summary.truncated) summary.text else result.summary,
-            data = result.data + truncatedData.mapValues { (_, bounded) -> bounded.text },
-            overflowRefs = result.overflowRefs + newRefs,
-        )
     }
 
     private fun dispatchAsBuiltIn(request: ToolRequest): ToolResult {
@@ -301,8 +251,7 @@ class RoutingToolExecutor(
         }
     }
 
-    private fun ToolRequest.isDeviceControlTool(): Boolean =
-        toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
+    private fun ToolRequest.isDeviceControlTool(): Boolean = toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
 }
 
 /**
@@ -320,7 +269,7 @@ internal fun ToolRequest.batchThrowableResult(t: Throwable, concurrent: Boolean)
         val where = if (concurrent) " in concurrent batch" else ""
         cancelled(
             summary = "Tool $toolName was cancelled$where: ${t.cleanMessage()}",
-            data = data,
+            data = data
         )
     } else {
         val where = if (concurrent) "concurrent batch" else "batch"
@@ -328,40 +277,33 @@ internal fun ToolRequest.batchThrowableResult(t: Throwable, concurrent: Boolean)
             code = ToolErrorCode.ExecutionFailed,
             summary = "Tool $toolName failed in $where: ${t.cleanMessage()}",
             retryable = true,
-            data = data,
+            data = data
         )
     }
 }
 
 /** The standard "this executor does not handle that tool" failure. */
-internal fun ToolRequest.unknownToolFailure(): ToolResult =
-    failed(
-        code = ToolErrorCode.UnknownTool,
-        summary = "Unknown tool: $toolName",
-        retryable = false,
-    )
+internal fun ToolRequest.unknownToolFailure(): ToolResult = failed(
+    code = ToolErrorCode.UnknownTool,
+    summary = "Unknown tool: $toolName",
+    retryable = false
+)
 
 /**
  * Reads an optional integer argument (trimmed), falling back to [default] when absent or not an
  * integer, then clamps it to [range].
  */
-internal fun ToolRequest.boundedIntArgument(name: String, default: Int, range: IntRange): Int =
-    (arguments[name]?.trim()?.toIntOrNull() ?: default).coerceIn(range)
+internal fun ToolRequest.boundedIntArgument(name: String, default: Int, range: IntRange): Int = (arguments[name]?.trim()?.toIntOrNull() ?: default).coerceIn(range)
 
-internal fun ToolRequest.localOnlyData(): Map<String, String> =
-    mapOf(
-        "toolName" to toolName,
-        "privacy" to MessagePrivacy.LocalOnly.name,
-        "requiresLocalModel" to true.toString(),
-    )
+internal fun ToolRequest.localOnlyData(): Map<String, String> = mapOf(
+    "toolName" to toolName,
+    "privacy" to MessagePrivacy.LocalOnly.name,
+    "requiresLocalModel" to true.toString()
+)
 
 /** Retryable failure whose data marks the result local-only. */
-internal fun ToolRequest.localOnlyFailure(code: ToolErrorCode, summary: String): ToolResult =
-    failed(code = code, summary = summary, retryable = true, data = localOnlyData())
+internal fun ToolRequest.localOnlyFailure(code: ToolErrorCode, summary: String): ToolResult = failed(code = code, summary = summary, retryable = true, data = localOnlyData())
 
-internal fun ToolRequest.toolExecutionContext(): Map<String, String> =
-    mapOf("toolName" to toolName)
+internal fun ToolRequest.toolExecutionContext(): Map<String, String> = mapOf("toolName" to toolName)
 
-internal fun ToolResult.withToolExecutionContext(toolName: String): ToolResult {
-    return if (data["toolName"] == toolName) this else copy(data = data + ("toolName" to toolName))
-}
+internal fun ToolResult.withToolExecutionContext(toolName: String): ToolResult = if (data["toolName"] == toolName) this else copy(data = data + ("toolName" to toolName))

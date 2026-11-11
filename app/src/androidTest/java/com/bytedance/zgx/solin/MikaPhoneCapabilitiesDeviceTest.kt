@@ -16,15 +16,17 @@ import com.bytedance.zgx.solin.device.UiActionReadResult
 import com.bytedance.zgx.solin.device.UiActionStatus
 import com.bytedance.zgx.solin.device.UiInputVerification
 import com.bytedance.zgx.solin.device.UiScreenStability
+import com.bytedance.zgx.solin.safety.SafetyPolicyToolExecutionAuthorizer
 import com.bytedance.zgx.solin.tool.DeviceControlToolExecutor
-import com.bytedance.zgx.solin.tool.SafetyPolicyToolExecutionAuthorizer
 import com.bytedance.zgx.solin.tool.TimeoutToolExecutionBoundary
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolStatus
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
@@ -74,8 +76,13 @@ class MikaPhoneCapabilitiesDeviceTest {
         val children = mutableListOf<ToolRequest>()
         val boundary = boundary(children)
         val result = runBlocking {
-            boundary.execute(ToolRequest(toolName = MobileActionFunctions.UI_COLLECT,
-                arguments = mapOf("pages" to "1", "expectedPackageName" to packageName)), userConfirmed = true)
+            boundary.execute(
+                ToolRequest(
+                    toolName = MobileActionFunctions.UI_COLLECT,
+                    arguments = mapOf("pages" to "1", "expectedPackageName" to packageName)
+                ),
+                userConfirmed = true
+            )
         }
         assertEquals(result.toString(), ToolStatus.Succeeded, result.status)
         assertEquals("LocalOnly", result.data["privacy"])
@@ -83,8 +90,10 @@ class MikaPhoneCapabilitiesDeviceTest {
         assertEquals("true", result.data["partial"])
         assertEquals("false", result.data["completed"])
         assertEquals("true", result.data["truncated"])
-        assertTrue("Collection must contain real fixture content: ${result.data["text"]}",
-            result.data["text"].orEmpty().contains("Eval status idle"))
+        assertTrue(
+            "Collection must contain real fixture content: ${result.data["text"]}",
+            result.data["text"].orEmpty().contains("Eval status idle")
+        )
         assertEquals(listOf(MobileActionFunctions.OBSERVE_CURRENT_SCREEN), children.map { it.toolName })
         assertEquals(packageName, children.single().arguments["expectedPackageName"])
     }
@@ -97,8 +106,13 @@ class MikaPhoneCapabilitiesDeviceTest {
         assertTrue(exposedName.isNotBlank())
         val children = mutableListOf<ToolRequest>()
         val result = runBlocking {
-            boundary(children).execute(ToolRequest(toolName = MobileActionFunctions.UI_FIND,
-                arguments = mapOf("text" to exposedName, "pages" to "1", "expectedPackageName" to packageName)), true)
+            boundary(children).execute(
+                ToolRequest(
+                    toolName = MobileActionFunctions.UI_FIND,
+                    arguments = mapOf("text" to exposedName, "pages" to "1", "expectedPackageName" to packageName)
+                ),
+                true
+            )
         }
         assertEquals(result.toString(), ToolStatus.Succeeded, result.status)
         assertEquals("true", result.data["completed"])
@@ -113,9 +127,18 @@ class MikaPhoneCapabilitiesDeviceTest {
         assertTrue("Existing fixture list must be visible", before.isNotEmpty())
         val children = mutableListOf<ToolRequest>()
         val result = runBlocking {
-            boundary(children, readsOnly = true).execute(ToolRequest(toolName = MobileActionFunctions.UI_FIND,
-                arguments = mapOf("text" to "Mika acceptance absent target", "pages" to "2",
-                    "container" to "EvalScrollContainer", "expectedPackageName" to packageName)), true)
+            boundary(children, readsOnly = true).execute(
+                ToolRequest(
+                    toolName = MobileActionFunctions.UI_FIND,
+                    arguments = mapOf(
+                        "text" to "Mika acceptance absent target",
+                        "pages" to "2",
+                        "container" to "EvalScrollContainer",
+                        "expectedPackageName" to packageName
+                    )
+                ),
+                true
+            )
         }
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals("authorization_required", result.data["stopReason"])
@@ -135,7 +158,7 @@ class MikaPhoneCapabilitiesDeviceTest {
                 children += child
                 // Explicit test-only approval, fresh per child; never inherit the parent boolean.
                 !readsOnly || child.toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN
-            },
+            }
         )
     }
 

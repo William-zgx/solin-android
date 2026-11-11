@@ -3,12 +3,12 @@ package com.bytedance.zgx.solin.mcp
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
-import com.bytedance.zgx.solin.module.ToolHandler
+import com.bytedance.zgx.solin.tool.ToolError
 import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.tool.ToolHandler
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
-import com.bytedance.zgx.solin.tool.ToolError
 import com.bytedance.zgx.solin.tool.ToolStatus
 import kotlinx.coroutines.CancellationException
 
@@ -28,7 +28,7 @@ open class McpClient(
     val registry: McpServerRegistry,
     private val settings: McpCapabilitySettings = InMemoryMcpCapabilitySettings(),
     private val auditSink: RemoteSendAuditSink? = null,
-    private val clockMillis: () -> Long = System::currentTimeMillis,
+    private val clockMillis: () -> Long = System::currentTimeMillis
 ) {
     open fun allApprovedToolSpecs(): List<ToolSpec> {
         if (!settings.isEnabled()) return emptyList()
@@ -47,7 +47,7 @@ open class McpClient(
         if (entry == null || approved == null) {
             return request.mcpRejected(
                 McpServerEntry(serverId = serverId, displayName = serverId),
-                "MCP 工具未获批准，未发送",
+                "MCP 工具未获批准，未发送"
             )
         }
         if (!settings.isEnabled()) {
@@ -89,50 +89,47 @@ open class McpClient(
         request: ToolRequest,
         decision: RemoteSendDecision,
         label: String,
-        sink: RemoteSendAuditSink? = auditSink,
+        sink: RemoteSendAuditSink? = auditSink
     ) {
         sink?.record(
             RemoteSendAuditEvent(
                 decision = decision,
                 modelName = "MCP:${entry.displayName}",
                 summary = "$label：$mcpToolName，参数 ${request.arguments.size} 项（不记录参数内容）",
-                createdAtMillis = clockMillis(),
-            ),
+                createdAtMillis = clockMillis()
+            )
         )
     }
 
-    private fun catalogTools(): List<CatalogTool> =
-        registry.catalog()
-            .flatMap { entry ->
-                entry.approvedTools.mapNotNull { tool ->
-                    McpToolSpecs.toToolSpecOrNull(entry, tool)?.let { spec -> CatalogTool(entry, tool, spec) }
-                }
+    private fun catalogTools(): List<CatalogTool> = registry.catalog()
+        .flatMap { entry ->
+            entry.approvedTools.mapNotNull { tool ->
+                McpToolSpecs.toToolSpecOrNull(entry, tool)?.let { spec -> CatalogTool(entry, tool, spec) }
             }
-            .distinctBy { it.spec.name }
+        }
+        .distinctBy { it.spec.name }
 
     private data class CatalogTool(
         val entry: McpServerEntry,
         val tool: McpApprovedTool,
-        val spec: ToolSpec,
+        val spec: ToolSpec
     )
 }
 
-private fun ToolRequest.mcpRejected(entry: McpServerEntry, summary: String): ToolResult =
-    ToolResult(
-        requestId = id,
-        status = ToolStatus.Rejected,
-        summary = summary,
-        data = McpToolSpecs.privacyData(this, entry),
-        error = ToolError(ToolErrorCode.PermissionDenied, summary),
-        retryable = false,
-    )
+private fun ToolRequest.mcpRejected(entry: McpServerEntry, summary: String): ToolResult = ToolResult(
+    requestId = id,
+    status = ToolStatus.Rejected,
+    summary = summary,
+    data = McpToolSpecs.privacyData(this, entry),
+    error = ToolError(ToolErrorCode.PermissionDenied, summary),
+    retryable = false
+)
 
-private fun ToolRequest.mcpFailed(entry: McpServerEntry, summary: String): ToolResult =
-    ToolResult(
-        requestId = id,
-        status = ToolStatus.Failed,
-        summary = summary,
-        data = McpToolSpecs.privacyData(this, entry),
-        error = ToolError(ToolErrorCode.ExecutionFailed, summary),
-        retryable = true,
-    )
+private fun ToolRequest.mcpFailed(entry: McpServerEntry, summary: String): ToolResult = ToolResult(
+    requestId = id,
+    status = ToolStatus.Failed,
+    summary = summary,
+    data = McpToolSpecs.privacyData(this, entry),
+    error = ToolError(ToolErrorCode.ExecutionFailed, summary),
+    retryable = true
+)

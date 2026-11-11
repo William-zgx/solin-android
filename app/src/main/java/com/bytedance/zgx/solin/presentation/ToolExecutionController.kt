@@ -1,17 +1,16 @@
 package com.bytedance.zgx.solin.presentation
 
 import com.bytedance.zgx.solin.ChatMessage
-import com.bytedance.zgx.solin.MessageKind
 import com.bytedance.zgx.solin.ChatUiState
+import com.bytedance.zgx.solin.MessageKind
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingExternalOutcomeConfirmation
-import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.SpecialAccessRequirement
 import com.bytedance.zgx.solin.action.MobileActionFunctions
-import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_TOOL
+import com.bytedance.zgx.solin.logging.solinD
 import com.bytedance.zgx.solin.matchesExecution
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
@@ -20,18 +19,18 @@ import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
-import kotlinx.coroutines.withContext
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.BoundRunContinuationResolution
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.PendingExternalOutcomeSnapshot
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.requiresUserConfirmation
 import com.bytedance.zgx.solin.runtimePermissionDenialSummary
+import com.bytedance.zgx.solin.safety.SafetyPolicyToolExecutionAuthorizer
 import com.bytedance.zgx.solin.specialAccessDenialSummary
-import com.bytedance.zgx.solin.tool.SafetyPolicyToolExecutionAuthorizer
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.tool.TimeoutToolExecutionBoundary
 import com.bytedance.zgx.solin.tool.ToolErrorCode
 import com.bytedance.zgx.solin.tool.ToolExecutor
@@ -46,6 +45,7 @@ import com.bytedance.zgx.solin.tool.unverifiedExternalLaunchSummary
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
 private const val MISSING_TOOL_REQUEST_REASON =
@@ -69,10 +69,10 @@ class ToolExecutionController(
         promptForModel: String,
         responsePrivacy: MessagePrivacy,
         remoteToolScope: RemoteToolScope,
-        remoteSendConfirmed: Boolean,
+        remoteSendConfirmed: Boolean
     ) -> Unit,
     private val sessionHost: PresentationSessionHost,
-    private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null },
+    private val activeRunPlacement: (String) -> ActiveRunPlacementPermit? = { null }
 ) {
     private val compositeRunBindings = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val toolExecutionBoundary = TimeoutToolExecutionBoundary(
@@ -98,7 +98,7 @@ class ToolExecutionController(
             compositeRunBindings[parent.id]?.let { runId ->
                 assistantOrchestrator.observeCompositeChild(runId, parent, child, result)
             }
-        },
+        }
     )
 
     fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
@@ -130,7 +130,7 @@ class ToolExecutionController(
                     uiState.update {
                         it.copy(
                             latestRecoveryAction = null,
-                            statusText = "撤销动作不可执行",
+                            statusText = "撤销动作不可执行"
                         )
                     }
                     return
@@ -143,12 +143,12 @@ class ToolExecutionController(
                             toolRequest = request,
                             skillId = route.skillId,
                             plannedByModel = route.plannedByModel,
-                            fallbackReason = route.fallbackReason,
+                            fallbackReason = route.fallbackReason
                         ),
                         latestRecoveryAction = null,
                         auditEvents = sessionHost.loadAuditEvents(),
                         agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                        statusText = "撤销提醒待确认",
+                        statusText = "撤销提醒待确认"
                     )
                 }
             }
@@ -159,7 +159,7 @@ class ToolExecutionController(
                         latestRecoveryAction = null,
                         auditEvents = sessionHost.loadAuditEvents(),
                         agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                        statusText = "撤销动作不可执行：${route.summary}",
+                        statusText = "撤销动作不可执行：${route.summary}"
                     )
                 }
             }
@@ -185,7 +185,7 @@ class ToolExecutionController(
             failClosedForMissingToolRequest(
                 pendingConfirmation = pendingConfirmation,
                 statusText = "工具未执行",
-                appendFailureMessage = true,
+                appendFailureMessage = true
             )
             return
         }
@@ -197,7 +197,7 @@ class ToolExecutionController(
             uiState.update {
                 sessionHost.finishedRun(it, runId = confirmation.runId, statusText = "工具确认失败，未执行动作。").copy(
                     pendingConfirmation = pendingConfirmation,
-                    auditEvents = sessionHost.loadAuditEvents(),
+                    auditEvents = sessionHost.loadAuditEvents()
                 )
             }
             return
@@ -207,14 +207,14 @@ class ToolExecutionController(
                 uiState.value.messages + ChatMessage(
                     MessageRole.Assistant,
                     "工具确认失败，未执行动作。",
-                    privacy = MessagePrivacy.LocalOnly,
+                    privacy = MessagePrivacy.LocalOnly
                 ),
-                true,
+                true
             )
             uiState.update {
                 sessionHost.finishedRun(it, runId = confirmation.runId, statusText = "工具未执行").copy(
                     pendingConfirmation = null,
-                    auditEvents = sessionHost.loadAuditEvents(),
+                    auditEvents = sessionHost.loadAuditEvents()
                 )
             }
             return
@@ -225,26 +225,26 @@ class ToolExecutionController(
                 isBusy = true,
                 isGenerating = false,
                 activeRunTimeline = sessionHost.activeRunTimelineFor(confirmation.runId),
-                statusText = "工具执行中",
+                statusText = "工具执行中"
             )
         }
         launchToolExecutionAfterRunIsExecuting(
             confirmation = pendingConfirmation,
             request = request,
-            userConfirmed = true,
+            userConfirmed = true
         )
     }
 
     private fun launchToolExecutionAfterRunIsExecuting(
         confirmation: PendingAgentConfirmation,
         request: ToolRequest,
-        userConfirmed: Boolean,
+        userConfirmed: Boolean
     ) {
         launchToolGenerationJob(confirmation.runId) {
             executeToolRequestAfterRunIsExecuting(
                 confirmation = confirmation,
                 request = request,
-                userConfirmed = userConfirmed,
+                userConfirmed = userConfirmed
             )
         }
     }
@@ -252,7 +252,7 @@ class ToolExecutionController(
     suspend fun executeToolRequestAfterRunIsExecuting(
         confirmation: PendingAgentConfirmation,
         request: ToolRequest,
-        userConfirmed: Boolean = false,
+        userConfirmed: Boolean = false
     ) {
         var executedRequest = request
         var result: ToolResult
@@ -270,8 +270,11 @@ class ToolExecutionController(
                 withContext(ioDispatcher) {
                     try {
                         val background = com.bytedance.zgx.solin.device.background.BackgroundPhoneSession.forRun(runId)
-                        if (background == null) assistantOrchestrator.observeToolResult(runId, result)
-                        else background.withControl { assistantOrchestrator.observeToolResult(runId, result) }
+                        if (background == null) {
+                            assistantOrchestrator.observeToolResult(runId, result)
+                        } else {
+                            background.withControl { assistantOrchestrator.observeToolResult(runId, result) }
+                        }
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -284,7 +287,7 @@ class ToolExecutionController(
             messagesWithObservation = appendObservationMessage(
                 text = observation?.assistantMessage ?: result.statusSummaryForUi(),
                 privacy = observationPrivacy,
-                kind = messageKindFor(result),
+                kind = messageKindFor(result)
             )
             executedRequest = observation?.retryRequest ?: break
             uiState.update { it.copy(statusText = "工具重试中") }
@@ -301,10 +304,10 @@ class ToolExecutionController(
                 blocked = ContinuationBlockedCopy(
                     privacyFailure = "工具结果需要本地模型续写，未发送到远程模型",
                     bindingFailure = "运行绑定不可恢复，已停止工具结果续写",
-                    privacyMessage = "已读取${protectedContentName}。当前运行绑定到远程模型，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请重新发起一个本地运行，或手动粘贴你愿意发送的内容。",
+                    privacyMessage = "已读取$protectedContentName。当前运行绑定到远程模型，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请重新发起一个本地运行，或手动粘贴你愿意发送的内容。",
                     bindingMessage = "本次运行的模型绑定不可恢复，已停止工具结果续写。请重新发起请求。",
-                    privacyStatus = "已保护${protectedContentName}",
-                ),
+                    privacyStatus = "已保护$protectedContentName"
+                )
             )
             if (handedOff) return
         }
@@ -316,10 +319,10 @@ class ToolExecutionController(
                 state = it,
                 runId = confirmation.runId,
                 statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
-                publicWebEvidence = publicWebEvidence,
+                publicWebEvidence = publicWebEvidence
             ).copy(
                 pendingExternalOutcome = pendingExternalOutcome,
-                latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
+                latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null
             )
         }
     }
@@ -327,13 +330,13 @@ class ToolExecutionController(
     private fun appendObservationMessage(
         text: String,
         privacy: MessagePrivacy,
-        kind: MessageKind,
+        kind: MessageKind
     ): List<ChatMessage> {
         val messages = uiState.value.messages + ChatMessage(
             role = MessageRole.Assistant,
             text = text,
             privacy = privacy,
-            kind = kind,
+            kind = kind
         )
         sessionHost.replaceActiveSessionMessages(messages, true)
         return messages
@@ -345,7 +348,7 @@ class ToolExecutionController(
         val bindingFailure: String,
         val privacyMessage: String,
         val bindingMessage: String,
-        val privacyStatus: String,
+        val privacyStatus: String
     )
 
     /**
@@ -358,14 +361,14 @@ class ToolExecutionController(
         observationPrivacy: MessagePrivacy,
         messagesWithObservation: List<ChatMessage>,
         publicWebEvidence: List<PublicWebEvidencePack>,
-        blocked: ContinuationBlockedCopy,
+        blocked: ContinuationBlockedCopy
     ): Boolean {
         val nextToolPlan = (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
         if (nextToolPlan != null) {
             handleNextToolPlan(
                 runId = observation.run.id,
                 plan = nextToolPlan,
-                pendingStatusText = "下一步动作待确认",
+                pendingStatusText = "下一步动作待确认"
             )
             return true
         }
@@ -374,7 +377,7 @@ class ToolExecutionController(
             runId = observation.run.id,
             observationPrivacy = observationPrivacy,
             requiresLocalModel = observation.continuationRequiresLocalModel,
-            activeRunPlacement = activeRunPlacement,
+            activeRunPlacement = activeRunPlacement
         )
         val continuing = continuationResolution !is BoundRunContinuationResolution.Blocked
         val privacyBlocked = !continuing &&
@@ -383,7 +386,7 @@ class ToolExecutionController(
         if (!continuing) {
             assistantOrchestrator.failModelGeneration(
                 observation.run.id,
-                if (privacyBlocked) blocked.privacyFailure else blocked.bindingFailure,
+                if (privacyBlocked) blocked.privacyFailure else blocked.bindingFailure
             )
         }
         sessionHost.replaceActiveSessionMessages(
@@ -393,10 +396,10 @@ class ToolExecutionController(
                 ChatMessage(
                     role = MessageRole.Assistant,
                     text = if (privacyBlocked) blocked.privacyMessage else blocked.bindingMessage,
-                    privacy = MessagePrivacy.LocalOnly,
+                    privacy = MessagePrivacy.LocalOnly
                 )
             },
-            true,
+            true
         )
         if (!continuing) sessionHost.rebuildMemoryIndex()
         uiState.update {
@@ -412,7 +415,7 @@ class ToolExecutionController(
                     continuing -> "生成中"
                     privacyBlocked -> blocked.privacyStatus
                     else -> "运行绑定不可恢复"
-                },
+                }
             )
         }
         if (continuing) {
@@ -421,7 +424,7 @@ class ToolExecutionController(
                 continuationPrompt,
                 observationPrivacy,
                 observation.continuationRemoteToolScope,
-                false,
+                false
             )
         }
         return true
@@ -432,20 +435,19 @@ class ToolExecutionController(
         state: ChatUiState,
         runId: String?,
         statusText: String,
-        publicWebEvidence: List<PublicWebEvidencePack>,
-    ): ChatUiState =
-        sessionHost.finishedRun(state, runId = runId, statusText = statusText)
-            .withBackgroundTasks(sessionHost.loadBackgroundTaskSnapshot())
-            .copy(
-                pendingConfirmation = null,
-                longTermMemories = sessionHost.loadLongTermMemories(),
-                auditEvents = sessionHost.loadAuditEvents(),
-                activePublicWebEvidence = publicWebEvidence,
-            )
+        publicWebEvidence: List<PublicWebEvidencePack>
+    ): ChatUiState = sessionHost.finishedRun(state, runId = runId, statusText = statusText)
+        .withBackgroundTasks(sessionHost.loadBackgroundTaskSnapshot())
+        .copy(
+            pendingConfirmation = null,
+            longTermMemories = sessionHost.loadLongTermMemories(),
+            auditEvents = sessionHost.loadAuditEvents(),
+            activePublicWebEvidence = publicWebEvidence
+        )
 
     private suspend fun executeToolWithBoundary(
         request: ToolRequest,
-        userConfirmed: Boolean,
+        userConfirmed: Boolean
     ): ToolResult {
         solinD(TAG_TOOL, "executeTool: start tool=${request.toolName}")
         val startMs = System.currentTimeMillis()
@@ -454,14 +456,14 @@ class ToolExecutionController(
         val success = result.error == null
         solinD(
             TAG_TOOL,
-            "executeTool: end tool=${request.toolName} success=$success durationMs=$durationMs",
+            "executeTool: end tool=${request.toolName} success=$success durationMs=$durationMs"
         )
         return result
     }
 
     suspend fun executePublicEvidenceToolBatchAfterRunIsExecuting(
         runId: String,
-        plans: List<AgentPlan.UseTool>,
+        plans: List<AgentPlan.UseTool>
     ) {
         if (plans.isEmpty()) {
             assistantOrchestrator.failModelGeneration(runId, "远程模型返回了空工具批次")
@@ -469,7 +471,7 @@ class ToolExecutionController(
             sessionHost.persistActiveSessionFromUi()
             uiState.update {
                 sessionHost.finishedRun(it, runId = runId, statusText = "批量工具不可执行").copy(
-                    auditEvents = sessionHost.loadAuditEvents(),
+                    auditEvents = sessionHost.loadAuditEvents()
                 )
             }
             return
@@ -483,7 +485,7 @@ class ToolExecutionController(
                 auditEvents = sessionHost.loadAuditEvents(),
                 agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                 activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                statusText = "工具并发执行中",
+                statusText = "工具并发执行中"
             )
         }
         val results = executePublicEvidenceToolPlans(plans)
@@ -495,7 +497,7 @@ class ToolExecutionController(
             uiState.update {
                 sessionHost.finishedRun(it, runId = runId, statusText = "批量工具不可执行").copy(
                     pendingConfirmation = null,
-                    auditEvents = sessionHost.loadAuditEvents(),
+                    auditEvents = sessionHost.loadAuditEvents()
                 )
             }
             return
@@ -505,7 +507,7 @@ class ToolExecutionController(
         val messagesWithObservation = appendObservationMessage(
             text = observation.assistantMessage,
             privacy = observationPrivacy,
-            kind = messageKindFor(results),
+            kind = messageKindFor(results)
         )
         val handedOff = continueAfterObservation(
             observation = observation,
@@ -518,8 +520,8 @@ class ToolExecutionController(
                 bindingFailure = "运行绑定不可恢复，已停止批量工具结果续写",
                 privacyMessage = "批量工具结果包含仅本地内容。当前运行绑定到远程模型，我不会把它发送到远程模型。",
                 bindingMessage = "本次运行的模型绑定不可恢复，已停止批量工具结果续写。请重新发起请求。",
-                privacyStatus = "已保护批量工具结果",
-            ),
+                privacyStatus = "已保护批量工具结果"
+            )
         )
         if (handedOff) return
         sessionHost.syncTaskStateMemories()
@@ -529,26 +531,25 @@ class ToolExecutionController(
                 state = it,
                 runId = runId,
                 statusText = observation.assistantMessage,
-                publicWebEvidence = publicWebEvidence,
+                publicWebEvidence = publicWebEvidence
             ).copy(latestRecoveryAction = observation.recoveryAction)
         }
     }
 
     private suspend fun executePublicEvidenceToolPlans(
-        plans: List<AgentPlan.UseTool>,
-    ): List<ToolResult> =
-        toolExecutionBoundary.executePublicEvidenceBatch(
-            requests = plans.map { plan -> plan.request },
-        ) {
-            uiState.update {
-                it.copy(statusText = "工具批量重试中")
-            }
+        plans: List<AgentPlan.UseTool>
+    ): List<ToolResult> = toolExecutionBoundary.executePublicEvidenceBatch(
+        requests = plans.map { plan -> plan.request }
+    ) {
+        uiState.update {
+            it.copy(statusText = "工具批量重试中")
         }
+    }
 
     fun handleNextToolPlan(
         runId: String,
         plan: AgentPlan.UseTool,
-        pendingStatusText: String,
+        pendingStatusText: String
     ) {
         sessionHost.rebuildMemoryIndex()
         val confirmation = PendingAgentConfirmation(
@@ -557,7 +558,7 @@ class ToolExecutionController(
             toolRequest = plan.request,
             skillId = plan.skillRequest?.skillId,
             plannedByModel = plan.plannedByModel,
-            fallbackReason = plan.fallbackReason,
+            fallbackReason = plan.fallbackReason
         )
         if (!plan.requiresUserConfirmation()) {
             uiState.update {
@@ -569,7 +570,7 @@ class ToolExecutionController(
                     auditEvents = sessionHost.loadAuditEvents(),
                     agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                     activeRunTimeline = sessionHost.activeRunTimelineFor(runId),
-                    statusText = "工具执行中",
+                    statusText = "工具执行中"
                 )
             }
             // Only plans SafetyPolicy already allowed reach here: the user confirmed the tool, or the
@@ -579,7 +580,7 @@ class ToolExecutionController(
             launchToolExecutionAfterRunIsExecuting(
                 confirmation = confirmation,
                 request = plan.request,
-                userConfirmed = true,
+                userConfirmed = true
             )
             return
         }
@@ -588,14 +589,14 @@ class ToolExecutionController(
                 pendingConfirmation = confirmation,
                 latestRecoveryAction = null,
                 isReady = true,
-                auditEvents = sessionHost.loadAuditEvents(),
+                auditEvents = sessionHost.loadAuditEvents()
             )
         }
     }
 
     private fun AgentObservationResult.pendingExternalOutcomeFor(
         confirmation: PendingAgentConfirmation,
-        request: ToolRequest,
+        request: ToolRequest
     ): PendingExternalOutcomeConfirmation? {
         if (!result.isUnverifiedExternalLaunch()) return null
         if (run.state != AgentRunState.AwaitingExternalOutcome) return null
@@ -605,13 +606,13 @@ class ToolExecutionController(
             requestId = result.requestId,
             toolName = request.toolName,
             title = confirmation.draft.title,
-            summary = assistantMessage,
+            summary = assistantMessage
         )
     }
 
     fun recordExternalOutcome(
         pending: PendingExternalOutcomeConfirmation,
-        outcome: AgentExternalOutcome,
+        outcome: AgentExternalOutcome
     ) {
         if (sessionHost.dispatchPersistenceWorkIfNeeded { recordExternalOutcome(pending, outcome) }) return
         val current = uiState.value.pendingExternalOutcome
@@ -625,7 +626,7 @@ class ToolExecutionController(
             assistantOrchestrator.recordExternalOutcome(
                 runId = pending.runId,
                 requestId = pending.requestId,
-                outcome = outcome,
+                outcome = outcome
             )
         }.getOrNull()
         if (recorded == null) {
@@ -635,7 +636,7 @@ class ToolExecutionController(
                     auditEvents = sessionHost.loadAuditEvents(),
                     agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                     activeRunTimeline = sessionHost.activeRunTimelineFor(pending.runId),
-                    statusText = "外部结果确认已过期",
+                    statusText = "外部结果确认已过期"
                 )
             }
             return
@@ -644,9 +645,9 @@ class ToolExecutionController(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = recorded.assistantMessage,
-                privacy = MessagePrivacy.LocalOnly,
+                privacy = MessagePrivacy.LocalOnly
             ),
-            true,
+            true
         )
         sessionHost.rebuildMemoryIndex()
         val nextToolPlan = (recorded.decision as? AgentObservationDecision.PlanNextTool)?.plan
@@ -657,13 +658,13 @@ class ToolExecutionController(
                     latestRecoveryAction = null,
                     auditEvents = sessionHost.loadAuditEvents(),
                     agentTraceRuns = sessionHost.loadAgentTraceRuns(),
-                    activeRunTimeline = sessionHost.activeRunTimelineFor(recorded.run.id),
+                    activeRunTimeline = sessionHost.activeRunTimelineFor(recorded.run.id)
                 )
             }
             handleNextToolPlan(
                 runId = recorded.run.id,
                 plan = nextToolPlan,
-                pendingStatusText = "下一步动作待确认",
+                pendingStatusText = "下一步动作待确认"
             )
             return
         }
@@ -673,13 +674,12 @@ class ToolExecutionController(
                 auditEvents = sessionHost.loadAuditEvents(),
                 agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                 activeRunTimeline = sessionHost.activeRunTimelineFor(recorded.run.id),
-                statusText = recorded.assistantMessage,
+                statusText = recorded.assistantMessage
             )
         }
     }
 
-    private fun ToolResult.statusSummaryForUi(): String =
-        if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
+    private fun ToolResult.statusSummaryForUi(): String = if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
 
     /**
      * Classifies a folded tool observation so [ContextCompactor] can preserve it under budget
@@ -693,12 +693,11 @@ class ToolExecutionController(
     }
 
     /** Batch variant: a failed member makes the whole folded observation a [MessageKind.ToolFailure]. */
-    private fun messageKindFor(results: List<ToolResult>): MessageKind =
-        if (results.any { it.status != ToolStatus.Succeeded }) MessageKind.ToolFailure else MessageKind.ToolResult
+    private fun messageKindFor(results: List<ToolResult>): MessageKind = if (results.any { it.status != ToolStatus.Succeeded }) MessageKind.ToolFailure else MessageKind.ToolResult
 
     fun rejectAgentConfirmationForRuntimePermissionDenial(
         confirmation: PendingAgentConfirmation,
-        deniedPermissions: List<String>,
+        deniedPermissions: List<String>
     ) {
         val deniedSummary = runtimePermissionDenialSummary(deniedPermissions)
         val deniedPermissionNames = deniedPermissions.distinct().joinToString()
@@ -713,16 +712,16 @@ class ToolExecutionController(
                     data = mapOf(
                         "toolName" to request.toolName,
                         "deniedPermissions" to deniedPermissionNames,
-                        "deniedPermissionLabels" to deniedSummary,
-                    ),
+                        "deniedPermissionLabels" to deniedSummary
+                    )
                 )
-            },
+            }
         )
     }
 
     fun rejectAgentConfirmationForSpecialAccessDenial(
         confirmation: PendingAgentConfirmation,
-        deniedRequirements: List<SpecialAccessRequirement>,
+        deniedRequirements: List<SpecialAccessRequirement>
     ) {
         val deniedSummary = specialAccessDenialSummary(deniedRequirements)
         rejectAgentConfirmationWithFailure(
@@ -737,15 +736,15 @@ class ToolExecutionController(
                         "toolName" to request.toolName,
                         "specialAccess" to deniedRequirements.joinToString { it.id },
                         "specialAccessLabels" to deniedSummary,
-                        "settingsAction" to deniedRequirements.joinToString { it.settingsAction },
-                    ),
+                        "settingsAction" to deniedRequirements.joinToString { it.settingsAction }
+                    )
                 )
-            },
+            }
         )
     }
 
     fun rejectAgentConfirmationForMediaProjectionDenial(
-        confirmation: PendingAgentConfirmation,
+        confirmation: PendingAgentConfirmation
     ) {
         rejectAgentConfirmationWithFailure(
             confirmation = confirmation,
@@ -759,24 +758,24 @@ class ToolExecutionController(
                         "toolName" to request.toolName,
                         "privacy" to MessagePrivacy.LocalOnly.name,
                         "requiresLocalModel" to true.toString(),
-                        "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON,
-                    ),
+                        "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON
+                    )
                 )
-            },
+            }
         )
     }
 
     private fun rejectAgentConfirmationWithFailure(
         confirmation: PendingAgentConfirmation,
         statusText: String,
-        resultFor: (ToolRequest) -> ToolResult,
+        resultFor: (ToolRequest) -> ToolResult
     ) {
         if (
             sessionHost.dispatchPersistenceWorkIfNeeded {
                 rejectAgentConfirmationWithFailure(
                     confirmation = confirmation,
                     statusText = statusText,
-                    resultFor = resultFor,
+                    resultFor = resultFor
                 )
             }
         ) {
@@ -793,7 +792,7 @@ class ToolExecutionController(
             failClosedForMissingToolRequest(
                 pendingConfirmation = pendingConfirmation,
                 statusText = statusText,
-                appendFailureMessage = true,
+                appendFailureMessage = true
             )
             return
         }
@@ -805,15 +804,15 @@ class ToolExecutionController(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
-                privacy = MessagePrivacy.LocalOnly,
+                privacy = MessagePrivacy.LocalOnly
             ),
-            true,
+            true
         )
         sessionHost.rebuildMemoryIndex()
         uiState.update {
             sessionHost.finishedRun(it, runId = confirmation.runId, statusText = statusText).copy(
                 pendingConfirmation = null,
-                auditEvents = sessionHost.loadAuditEvents(),
+                auditEvents = sessionHost.loadAuditEvents()
             )
         }
     }
@@ -828,7 +827,7 @@ class ToolExecutionController(
     private fun failClosedForMissingToolRequest(
         pendingConfirmation: PendingAgentConfirmation,
         statusText: String,
-        appendFailureMessage: Boolean,
+        appendFailureMessage: Boolean
     ) {
         val runId = pendingConfirmation.runId
         val cancellation = runCatching {
@@ -840,7 +839,7 @@ class ToolExecutionController(
                     pendingConfirmation = pendingConfirmation,
                     isBusy = false,
                     isGenerating = false,
-                    statusText = "工具确认失败，未执行动作。",
+                    statusText = "工具确认失败，未执行动作。"
                 )
             }
             return
@@ -850,15 +849,15 @@ class ToolExecutionController(
                 uiState.value.messages + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "工具确认缺少请求信息，已取消该动作，未执行。",
-                    privacy = MessagePrivacy.LocalOnly,
+                    privacy = MessagePrivacy.LocalOnly
                 ),
-                true,
+                true
             )
         }
         uiState.update {
             sessionHost.finishedRun(it, runId = runId, statusText = statusText).copy(
                 pendingConfirmation = null,
-                auditEvents = sessionHost.loadAuditEvents(),
+                auditEvents = sessionHost.loadAuditEvents()
             )
         }
     }
@@ -882,7 +881,7 @@ class ToolExecutionController(
             failClosedForMissingToolRequest(
                 pendingConfirmation = pendingConfirmation,
                 statusText = "已取消动作草稿",
-                appendFailureMessage = false,
+                appendFailureMessage = false
             )
             return
         }
@@ -897,13 +896,13 @@ class ToolExecutionController(
                 auditEvents = sessionHost.loadAuditEvents(),
                 agentTraceRuns = sessionHost.loadAgentTraceRuns(),
                 activeRunTimeline = sessionHost.activeRunTimelineFor(pendingConfirmation.runId),
-                statusText = observation?.assistantMessage ?: "已取消动作草稿",
+                statusText = observation?.assistantMessage ?: "已取消动作草稿"
             )
         }
     }
 
     private fun AgentObservationResult?.privacyForObservation(
-        fallbackToolName: String? = null,
+        fallbackToolName: String? = null
     ): MessagePrivacy {
         if (this == null) return privacyForPublicEvidenceToolName(fallbackToolName)
         if (continuationRequiresLocalModel) return MessagePrivacy.LocalOnly
@@ -927,15 +926,14 @@ class ToolExecutionController(
         }
     }
 
-    private fun ToolRequest.protectedContinuationContentName(): String =
-        when (toolName) {
-            MobileActionFunctions.READ_CLIPBOARD -> "剪贴板内容"
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
-            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "图片 OCR 内容"
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> "当前屏幕文本"
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图 OCR 内容"
-            else -> "本地工具结果"
-        }
+    private fun ToolRequest.protectedContinuationContentName(): String = when (toolName) {
+        MobileActionFunctions.READ_CLIPBOARD -> "剪贴板内容"
+        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
+        MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "图片 OCR 内容"
+        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> "当前屏幕文本"
+        MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图 OCR 内容"
+        else -> "本地工具结果"
+    }
 
     fun restorePendingAgentConfirmationIfAny(clearMissing: Boolean = false) {
         val route = assistantOrchestrator.restorePendingAction(sessionHost.activeSessionId())
@@ -955,11 +953,11 @@ class ToolExecutionController(
                     toolRequest = route.toolRequest,
                     skillId = route.skillId,
                     plannedByModel = route.plannedByModel,
-                    fallbackReason = route.fallbackReason,
+                    fallbackReason = route.fallbackReason
                 ),
                 isBusy = false,
                 isGenerating = false,
-                statusText = "动作草稿待确认 · 已恢复",
+                statusText = "动作草稿待确认 · 已恢复"
             )
         }
     }
@@ -984,17 +982,16 @@ class ToolExecutionController(
                 latestRecoveryAction = null,
                 isBusy = false,
                 isGenerating = false,
-                statusText = "外部动作结果待确认 · 已恢复",
+                statusText = "外部动作结果待确认 · 已恢复"
             )
         }
     }
 
-    private fun PendingExternalOutcomeSnapshot.toUiPendingExternalOutcome(): PendingExternalOutcomeConfirmation =
-        PendingExternalOutcomeConfirmation(
-            runId = runId,
-            requestId = requestId,
-            toolName = toolName,
-            title = title,
-            summary = summary,
-        )
+    private fun PendingExternalOutcomeSnapshot.toUiPendingExternalOutcome(): PendingExternalOutcomeConfirmation = PendingExternalOutcomeConfirmation(
+        runId = runId,
+        requestId = requestId,
+        toolName = toolName,
+        title = title,
+        summary = summary
+    )
 }

@@ -2,23 +2,27 @@ package com.bytedance.zgx.solin.safety
 
 import com.bytedance.zgx.solin.tool.ConfirmationPolicy
 import com.bytedance.zgx.solin.tool.RiskLevel
+import com.bytedance.zgx.solin.tool.ToolExecutionAuthorizer
 import com.bytedance.zgx.solin.tool.ToolPermission
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.rejected
 
 data class SafetyContext(
-    val userConfirmed: Boolean,
+    val userConfirmed: Boolean
 )
 
 data class SafetyDecision(
     val outcome: SafetyOutcome,
-    val reason: String,
+    val reason: String
 )
 
 enum class SafetyOutcome {
     Allow,
     RequireConfirmation,
-    Reject,
+    Reject
 }
 
 /**
@@ -35,7 +39,7 @@ enum class SafetyCategory(val label: String) {
     PrivateKey("疑似私钥"),
     SecretAssignment("疑似密码/密钥赋值"),
     PersonalIdentity("疑似个人身份信息"),
-    SensitiveDomain("疑似敏感领域信息"),
+    SensitiveDomain("疑似敏感领域信息")
 }
 
 /**
@@ -44,14 +48,34 @@ enum class SafetyCategory(val label: String) {
  */
 data class SensitiveMaskResult(
     val maskedText: String,
-    val maskedCategories: List<SafetyCategory>,
+    val maskedCategories: List<SafetyCategory>
 ) {
     val didMask: Boolean get() = maskedCategories.isNotEmpty()
 }
 
+/** Adapts [SafetyPolicy] to the final tool-execution authorization boundary. */
+class SafetyPolicyToolExecutionAuthorizer(
+    private val registry: ToolRegistry,
+    private val safetyPolicy: SafetyPolicy = SafetyPolicy()
+) : ToolExecutionAuthorizer {
+    override fun authorize(request: ToolRequest, userConfirmed: Boolean): ToolResult? {
+        val spec = registry.specFor(request.toolName)
+            ?: return request.rejected("Tool ${request.toolName} is not registered for execution.")
+        if (spec.riskLevel != RiskLevel.LowReadOnly && spec.confirmationPolicy != ConfirmationPolicy.Required) {
+            return request.rejected("Tool ${request.toolName} has ${spec.riskLevel} risk and must require confirmation.")
+        }
+        val decision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed))
+        return when (decision.outcome) {
+            SafetyOutcome.Allow -> null
+            SafetyOutcome.RequireConfirmation,
+            SafetyOutcome.Reject
+            -> request.rejected(decision.reason)
+        }
+    }
+}
+
 class SafetyPolicy {
-    fun containsSensitivePersonalOrSecretContent(text: String): Boolean =
-        text.containsSensitiveNetworkSearchContent()
+    fun containsSensitivePersonalOrSecretContent(text: String): Boolean = text.containsSensitiveNetworkSearchContent()
 
     /**
      * Returns the distinct [SafetyCategory] values matched in [text], in declaration order.
@@ -180,12 +204,12 @@ class SafetyPolicy {
     fun evaluate(
         spec: ToolSpec,
         request: ToolRequest,
-        context: SafetyContext,
+        context: SafetyContext
     ): SafetyDecision {
         if (spec.riskLevel.requiresHardConfirmation() && spec.confirmationPolicy != ConfirmationPolicy.Required) {
             return SafetyDecision(
                 outcome = SafetyOutcome.Reject,
-                reason = "Tool ${request.toolName} has ${spec.riskLevel} risk and must require confirmation.",
+                reason = "Tool ${request.toolName} has ${spec.riskLevel} risk and must require confirmation."
             )
         }
 
@@ -194,21 +218,21 @@ class SafetyPolicy {
         ) {
             return SafetyDecision(
                 outcome = SafetyOutcome.Reject,
-                reason = "Tool ${request.toolName} crosses a device, external app, background, notification, permission, or private-read boundary and must require confirmation.",
+                reason = "Tool ${request.toolName} crosses a device, external app, background, notification, permission, or private-read boundary and must require confirmation."
             )
         }
 
         if (!context.userConfirmed && spec.confirmationPolicy == ConfirmationPolicy.Required) {
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
-                reason = "Tool ${request.toolName} requires user confirmation before execution.",
+                reason = "Tool ${request.toolName} requires user confirmation before execution."
             )
         }
 
         if (!context.userConfirmed && request.carriesSensitiveEgressText(spec)) {
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
-                reason = "Tool ${request.toolName} text may contain personal or secret data and requires confirmation before it leaves the device.",
+                reason = "Tool ${request.toolName} text may contain personal or secret data and requires confirmation before it leaves the device."
             )
         }
 
@@ -225,28 +249,25 @@ class SafetyPolicy {
             val reason = request.sensitivityReason
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
-                reason = "模型标注敏感度：$reason。Tool ${request.toolName} 在模型标注为敏感操作时需要用户确认。",
+                reason = "模型标注敏感度：$reason。Tool ${request.toolName} 在模型标注为敏感操作时需要用户确认。"
             )
         }
 
         return SafetyDecision(
             outcome = SafetyOutcome.Allow,
-            reason = "Tool ${request.toolName} is allowed by current safety policy.",
+            reason = "Tool ${request.toolName} is allowed by current safety policy."
         )
     }
 
-    private fun RiskLevel.requiresHardConfirmation(): Boolean =
-        this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
+    private fun RiskLevel.requiresHardConfirmation(): Boolean = this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
 
-    private fun ToolRequest.carriesSensitiveEgressText(spec: ToolSpec): Boolean =
-        spec.egressTextArguments.any { name -> arguments[name].orEmpty().containsSensitiveNetworkSearchContent() }
+    private fun ToolRequest.carriesSensitiveEgressText(spec: ToolSpec): Boolean = spec.egressTextArguments.any { name -> arguments[name].orEmpty().containsSensitiveNetworkSearchContent() }
 
     /**
      * Same decision as a non-empty [detectSensitiveCategories]: it evaluated exactly the same
      * patterns on the same inputs, and blank text matches none of them.
      */
-    private fun String.containsSensitiveNetworkSearchContent(): Boolean =
-        detectSensitiveCategories(this).isNotEmpty()
+    private fun String.containsSensitiveNetworkSearchContent(): Boolean = detectSensitiveCategories(this).isNotEmpty()
 
     private companion object {
         /** Replaces all but the first 2 and last 2 chars of a token with asterisks. */
@@ -309,12 +330,13 @@ class SafetyPolicy {
             ToolPermission.PerformsAccessibilityGesture,
             ToolPermission.RequiresMediaProjectionConsent,
             ToolPermission.ReadsDeviceContext,
-            ToolPermission.DispatchesMediaKeyEvent,
+            ToolPermission.DispatchesMediaKeyEvent
         )
         val emailPattern = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
         val isoDateOrDateTimePattern = Regex(
-            """\b\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?\b""",
+            """\b\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?\b"""
         )
+
         // Tightened to reduce false positives on space-separated number lists (e.g. "2020 2021
         // 2022" year comparisons) and medium-length ids (e.g. 9-10 digit order/tracking numbers),
         // while keeping recall on real phone numbers and long sensitive identifiers. Matches:
@@ -322,16 +344,16 @@ class SafetyPolicy {
         // or a contiguous run of >=11 digits (covers phone-length and longer card/account ids,
         // but no longer mis-flags 9-10 digit order numbers).
         val phonePattern = Regex(
-            """(?<!\d)(?:\+\d[\d -]{6,}\d|1[3-9]\d{9}|\d{3}[- ]\d{3,4}[- ]\d{4}|\d{11,})(?!\d)""",
+            """(?<!\d)(?:\+\d[\d -]{6,}\d|1[3-9]\d{9}|\d{3}[- ]\d{3,4}[- ]\d{4}|\d{11,})(?!\d)"""
         )
         val chineseIdPattern = Regex("""(?<!\d)\d{17}[0-9Xx](?!\d)""")
         val secretTokenPattern = Regex("""\b(?:sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b""")
         val cloudSecretPattern = Regex(
-            """\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bAIza[0-9A-Za-z_-]{35}\b|\bxox[abprs]-[0-9A-Za-z-]{16,}\b""",
+            """\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bAIza[0-9A-Za-z_-]{35}\b|\bxox[abprs]-[0-9A-Za-z-]{16,}\b"""
         )
         val privateKeyBlockPattern = Regex("""-----BEGIN [A-Z ]*PRIVATE KEY-----""")
         val secretAssignmentPattern = Regex(
-            """(?i)\b(?:password|passwd|pwd|token|secret|api[_\s-]*key|access[_\s-]*key|client[_\s-]*secret)\b\s*[:=]\s*['"]?[^\s'"]{6,}""",
+            """(?i)\b(?:password|passwd|pwd|token|secret|api[_\s-]*key|access[_\s-]*key|client[_\s-]*secret)\b\s*[:=]\s*['"]?[^\s'"]{6,}"""
         )
         val personalChineseKeywordPattern =
             Regex("""(我|我的|本人|自己).{0,12}(手机号|电话|邮箱|住址|地址|身份证|工号|银行卡|账号|密码|口令|令牌|密钥|API\s*Key)""")
@@ -339,7 +361,7 @@ class SafetyPolicy {
             Regex("""\b(my|mine|personal|private)\b.{0,24}\b(phone|email|address|id|employee\s*id|bank|account|password|token|secret|api\s*key)\b""")
         val sensitiveChineseDomainPattern = Regex(
             """(我|我的|本人|自己).{0,16}(HIV|艾滋|怀孕|孕检|心理|抑郁|焦虑|病历|诊断|律师|起诉|破产|债务|贷款|信用卡|保险|理赔|孩子|儿童|未成年)""",
-            RegexOption.IGNORE_CASE,
+            RegexOption.IGNORE_CASE
         )
         val sensitiveChineseLocationPattern =
             Regex("""(附近|本地|周边).{0,16}(医院|诊所|HIV|艾滋|怀孕|孕检|心理|抑郁|焦虑|咨询|律师|破产|债务|保险|理赔|银行|贷款)""", RegexOption.IGNORE_CASE)

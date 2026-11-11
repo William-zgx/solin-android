@@ -26,6 +26,21 @@ if [[ -z "${AAPT:-}" || ! -x "$AAPT" ]]; then
   exit 1
 fi
 
+if [[ "${SOLIN_SPOTLESS_SKIP:-0}" =~ ^(1|[Tt][Rr][Uu][Ee])$ ]]; then
+  echo "Kotlin formatting explicitly skipped (SOLIN_SPOTLESS_SKIP=$SOLIN_SPOTLESS_SKIP)."
+else
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Kotlin formatting needs Git metadata. Set SOLIN_SPOTLESS_SKIP=1 to explicitly skip it for a source archive." >&2
+    exit 1
+  fi
+  SPOTLESS_RATCHET_REF="${SOLIN_SPOTLESS_RATCHET_REF:-origin/main}"
+  if ! git rev-parse --verify --quiet "${SPOTLESS_RATCHET_REF}^{commit}" >/dev/null; then
+    echo "Spotless baseline '$SPOTLESS_RATCHET_REF' is missing. Fetch it or set SOLIN_SPOTLESS_RATCHET_REF to a valid base; SOLIN_SPOTLESS_SKIP=1 explicitly skips formatting." >&2
+    exit 1
+  fi
+  export SOLIN_SPOTLESS_RATCHET_REF="$SPOTLESS_RATCHET_REF"
+fi
+"$GRADLE_CMD" spotlessCheck
 # lintDebug's lint models can reference Room/KSP release generated sources.
 # Generate them first so lint does not race assembleRelease for the same files.
 "$GRADLE_CMD" :app:kspReleaseKotlin

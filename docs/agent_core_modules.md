@@ -5,18 +5,20 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 [validation_report.md](validation_report.md).
 
-Checked on 2026-11-05 on branch `zouguoxue/simply`. The tree has 324 production
-Kotlin files and 52 registered capability-matrix tool entries. These are measured
-inventory values, not goals to grow toward. `:app` is the product module;
-`releaseSmoke` is a verification helper. Runtime/package boundaries remain
-conventions enforced by architecture tests.
+Checked on 2026-11-11. The tree has 327 production Kotlin files and 52 registered
+capability-matrix tool entries. These are measured inventory values, not goals to
+grow toward. `:app` is the product module; `releaseSmoke` is a verification helper.
+Runtime/package boundaries remain conventions enforced by architecture tests.
 
 Shared helpers live in `app/src/main/java/com/bytedance/zgx/solin/common/`:
 `JsonReaders.kt` (`keysSet`, `jsonObjects`, `optNullableString`,
 `optStringOrNull`, `optDoubleOrNull`, `optStringSet`, `optStringSetOrNull`,
-`firstNonBlank`) and `Hashing.kt` (`sha256Hex`, `toLowerHex`,
-`appendLengthPrefixed`). They are `internal` and carry no policy. The readers
-fail soft (null or empty) so each caller decides how to fail closed.
+`firstNonBlank`), plus the policy-neutral `StrictJsonScan` / `StrictJsonRejection`
+syntax scanner. `Hashing.kt` provides `sha256Hex`, `toLowerHex`, and
+`appendLengthPrefixed`. Helpers are `internal` and carry no product policy. The org.json
+readers fail soft (null or empty) so each caller decides how to fail closed; the strict
+scanner returns neutral syntax violations and each domain parser maps them to its own
+rejection type.
 
 ```mermaid
 flowchart LR
@@ -89,6 +91,11 @@ Current status:
   when every tool is public, read-only, no-confirmation, has no private output,
   and declares no device-context, runtime-permission, scheduling,
   notification, navigation, share, or other side-effect boundary.
+- `EvidenceBoundingToolExecutor` is the output-bounding decorator between validation
+  and routing (`Timeout → Validating → Bounding → Routing`). It owns inline text
+  limits and overflow references; `RoutingToolExecutor` only dispatches work and
+  partitions eligible batches. Evidence privacy remains explicit at the composition
+  root and defaults to `LocalOnly`.
 - `web_search` uses typed evidence requests. `searchMode=general` stays on
   public search; `searchMode=weather_current` is the only weather endpoint.
   Public web results are carried as `PublicWebEvidencePack` /
@@ -138,6 +145,7 @@ Tests:
 - `SolinModuleRegistryTest`
 - `ToolSchemaContractTest`
 - `RoutingAndValidatingToolExecutorTest`
+- `ExecutorBoundingTest`
 - `WebSearchProviderTest`
 - `ActionExecutorTest`
 
@@ -955,10 +963,9 @@ Current status:
   `RemoteChatRuntime`, and the data-layer settings and remote-model
   repositories log through the facade. `RemoteModelRepository` uses
   `solinW(TAG_REMOTE, ...)` for API-key migration warnings.
-- Some files still call `android.util.Log` directly, including
-  `AgentLoopRuntime`, `AgentRunBudget`, `InitialToolPlanner`,
-  `AgentTraceStore`, `LiteRtRuntime`, `BinderMcpTransport`,
-  `OnDeviceEvidenceBlobStore`, and `SolinAppContainer`.
+- All production `android.util.Log` calls are confined to `logging/SolinLog.kt`;
+  other packages use the facade. `PackageBoundaryArchitectureTest` rejects new
+  direct Android log references outside that owner.
 
 Tests:
 

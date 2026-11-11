@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.module
 
 import com.bytedance.zgx.solin.skill.SkillSource
+import com.bytedance.zgx.solin.tool.ToolHandler
 import com.bytedance.zgx.solin.tool.ToolProvider
 
 class SolinModuleRegistryImpl : SolinModuleRegistry {
@@ -64,7 +65,7 @@ class SolinModuleRegistryImpl : SolinModuleRegistry {
         return FrozenSolinModuleRegistry(
             toolProviders = materializedProviders,
             toolHandlers = mutableToolHandlers.toMap(),
-            skillSources = materializedSkillSources,
+            skillSources = materializedSkillSources
         ).also { snapshot -> frozenSnapshot = snapshot }
     }
 
@@ -73,9 +74,8 @@ class SolinModuleRegistryImpl : SolinModuleRegistry {
     }
 }
 
-private fun List<String>.duplicates(): List<String> =
-    groupingBy { value -> value }
-        .eachCount()
-        .filterValues { count -> count > 1 }
-        .keys
-        .sorted()
+private fun List<String>.duplicates(): List<String> = groupingBy { value -> value }
+    .eachCount()
+    .filterValues { count -> count > 1 }
+    .keys
+    .sorted()
