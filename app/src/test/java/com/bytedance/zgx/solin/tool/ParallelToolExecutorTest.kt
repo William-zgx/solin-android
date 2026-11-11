@@ -15,6 +15,7 @@ import com.bytedance.zgx.solin.device.RecentFileItem
 import com.bytedance.zgx.solin.device.RecentFileProvider
 import com.bytedance.zgx.solin.device.RecentFileReadResult
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -188,6 +189,48 @@ class ParallelToolExecutorTest {
             "Device-control tool (end=${deviceTiming!!.endMs}) should finish before earliest independent start=$earliestIndyStart",
             deviceTiming.endMs <= earliestIndyStart + 50 // 50ms slack for scheduler
         )
+    }
+
+    @Test
+    fun sequentialFailureDoesNotAbortSiblings() {
+        var siblingCalls = 0
+        val names = listOf("failed", "sibling")
+        val executor = buildExecutor(
+            toolHandlers = mapOf(
+                "failed" to ToolHandler { throw IllegalStateException("sequential boom") },
+                "sibling" to ToolHandler { request ->
+                    siblingCalls += 1
+                    request.succeeded("ok")
+                }
+            ),
+            specs = names.map { spec(it, mode = ToolExecutionMode.Sequential) }
+        )
+
+        val results = executor.executeBatch(names.map { ToolRequest(toolName = it) })
+
+        assertEquals(listOf(ToolStatus.Failed, ToolStatus.Succeeded), results.map { it.status })
+        assertEquals(1, siblingCalls)
+    }
+
+    @Test
+    fun sequentialCancellationDoesNotAbortSiblings() {
+        var siblingCalls = 0
+        val names = listOf("cancelled", "sibling")
+        val executor = buildExecutor(
+            toolHandlers = mapOf(
+                "cancelled" to ToolHandler { throw CancellationException("stop") },
+                "sibling" to ToolHandler { request ->
+                    siblingCalls += 1
+                    request.succeeded("ok")
+                }
+            ),
+            specs = names.map { spec(it, mode = ToolExecutionMode.Sequential) }
+        )
+
+        val results = executor.executeBatch(names.map { ToolRequest(toolName = it) })
+
+        assertEquals(listOf(ToolStatus.Cancelled, ToolStatus.Succeeded), results.map { it.status })
+        assertEquals(1, siblingCalls)
     }
 
     @Test

@@ -172,7 +172,12 @@ class RoutingToolExecutor(
 
         // Run sequential segment first, in input order.
         for (index in sequentialIndices) {
-            results[index] = executeRouted(requests[index])
+            val request = requests[index]
+            results[index] = try {
+                executeRouted(request)
+            } catch (t: Throwable) {
+                request.batchThrowableResult(t, concurrent = false)
+            }
         }
 
         // Run independent segment concurrently when present. Each task is isolated via

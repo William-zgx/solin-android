@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.device.CalendarAvailabilityProvider
 import com.bytedance.zgx.solin.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.solin.device.CalendarAvailabilityReadResult
@@ -20,7 +21,10 @@ import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.evidence.NoOpEvidenceBlobStore
 import java.time.Instant
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -150,6 +154,73 @@ class ExecutorBoundingTest {
         assertEquals(MessagePrivacy.LocalOnly.name, results[0].data["privacy"])
         assertEquals(ToolStatus.Succeeded, results[1].status)
         assertEquals(1, results[1].overflowRefs.size)
+    }
+
+    @Test
+    fun oversizedJsonObjectIsNotCorrupted() {
+        val payload = JSONObject().put(
+            "text",
+            "o".repeat(EvidenceBlobStore.MAX_INLINE_CHARS * 2)
+        ).toString()
+        val request = ToolRequest(id = "object", toolName = "fake_object")
+        val delegate = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult = request.succeeded(summary = "ok", data = mapOf("payload" to payload))
+        }
+
+        val result = EvidenceBoundingToolExecutor(
+            delegate = delegate,
+            evidenceBlobStore = ThrowingEvidenceBlobStore(failingText = "")
+        ).execute(request)
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(payload, result.data["payload"])
+        assertTrue(result.overflowRefs.isEmpty())
+    }
+
+    @Test
+    fun oversizedContactsJsonSurvivesBoundingAndValidation() {
+        val registry = ToolRegistry()
+        val request = ToolRequest(
+            id = "contacts",
+            toolName = MobileActionFunctions.QUERY_CONTACTS,
+            arguments = mapOf("query" to "Alice", "maxCount" to "20")
+        )
+        val contactsJson = JSONArray().apply {
+            repeat(20) {
+                put(JSONObject().put("name", "n".repeat(220)).put("phone", "+15550000000"))
+            }
+        }.toString()
+        val raw = request.succeeded(
+            summary = "contacts",
+            data = request.localOnlyData() + mapOf(
+                "query" to "Alice",
+                "maxCount" to "20",
+                "contactCount" to "20",
+                "contactsJson" to contactsJson
+            )
+        )
+        assertTrue(contactsJson.length > EvidenceBlobStore.MAX_INLINE_CHARS)
+        assertNull(registry.validateResult(request, raw))
+        val delegate = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult = raw
+        }
+        val executor = ValidatingToolExecutor(
+            delegate = EvidenceBoundingToolExecutor(
+                delegate = delegate,
+                evidenceBlobStore = ThrowingEvidenceBlobStore(failingText = "")
+            ),
+            registry = registry
+        )
+
+        val result = executor.execute(request)
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertNull(registry.validateResult(request, result))
+        val inlineContacts = JSONArray(result.data.getValue("contactsJson"))
+        assertTrue(inlineContacts.length() < 20)
+        assertTrue(result.data.getValue("contactsJson").length <= EvidenceBlobStore.MAX_INLINE_CHARS)
+        assertEquals("20", result.data["contactCount"])
+        assertEquals(1, result.overflowRefs.size)
     }
 
     private fun buildExecutor(

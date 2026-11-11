@@ -92,10 +92,14 @@ Current status:
   and declares no device-context, runtime-permission, scheduling,
   notification, navigation, share, or other side-effect boundary.
 - `EvidenceBoundingToolExecutor` is the output-bounding decorator between validation
-  and routing (`Timeout → Validating → Bounding → Routing`). It owns inline text
-  limits and overflow references; `RoutingToolExecutor` only dispatches work and
-  partitions eligible batches. Evidence privacy remains explicit at the composition
+  and routing (`Timeout → Validating → Bounding → Routing`). Ordinary text keeps its
+  inline limits and overflow references. JSON arrays retain only whole elements so the
+  inline value stays parseable; JSON objects stay intact because generic key deletion
+  could violate their contract. Evidence privacy remains explicit at the composition
   root and defaults to `LocalOnly`.
+- `RoutingToolExecutor` dispatches work and partitions eligible batches. Sequential
+  and concurrent children both isolate per-tool failures and cancellation, preserving
+  result order without turning one child's failure into a batch-wide failure.
 - `web_search` uses typed evidence requests. `searchMode=general` stays on
   public search; `searchMode=weather_current` is the only weather endpoint.
   Public web results are carried as `PublicWebEvidencePack` /
