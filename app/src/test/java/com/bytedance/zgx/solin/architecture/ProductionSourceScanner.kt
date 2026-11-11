@@ -73,14 +73,16 @@ internal object ProductionSourceScanner {
     }
 
     /**
-     * Removes comments and string/character literals with a small Kotlin-aware lexer. Newlines are
-     * preserved for diagnostics, and a space is inserted at removed boundaries to avoid joining tokens.
+     * Removes comments and literal string/character content with a small Kotlin-aware lexer while
+     * preserving executable `${...}` template expressions. Newlines are preserved for diagnostics,
+     * and a space is inserted at removed boundaries to avoid joining tokens.
      */
     private fun codeLines(file: File): List<String> {
         val text = file.readText()
         val output = StringBuilder(text.length)
         var state = ScanState.CODE
         var blockCommentDepth = 0
+        val templateFrames = mutableListOf<TemplateFrame>()
         var index = 0
 
         fun separate() {
@@ -94,6 +96,21 @@ internal object ProductionSourceScanner {
             val next = text.getOrNull(index + 1)
             when (state) {
                 ScanState.CODE -> when {
+                    char == '{' && templateFrames.isNotEmpty() -> {
+                        output.append(char)
+                        templateFrames.last().braceDepth++
+                        index++
+                    }
+                    char == '}' && templateFrames.isNotEmpty() -> {
+                        output.append(char)
+                        val frame = templateFrames.last()
+                        frame.braceDepth--
+                        index++
+                        if (frame.braceDepth == 0) {
+                            state = frame.returnState
+                            templateFrames.removeLast()
+                        }
+                    }
                     char == '/' && next == '/' -> {
                         state = ScanState.LINE_COMMENT
                         separate()
@@ -126,6 +143,12 @@ internal object ProductionSourceScanner {
                     }
                 }
                 ScanState.DOUBLE_QUOTE -> when {
+                    char == '$' && next == '{' -> {
+                        templateFrames += TemplateFrame(returnState = ScanState.DOUBLE_QUOTE, braceDepth = 1)
+                        state = ScanState.CODE
+                        output.append('$').append('{')
+                        index += 2
+                    }
                     char == '\\' -> {
                         if (next == '\n') output.append('\n')
                         index += 2
@@ -142,7 +165,12 @@ internal object ProductionSourceScanner {
                     else -> index++
                 }
                 ScanState.TRIPLE_QUOTE -> {
-                    if (char == '"' && next == '"' && text.getOrNull(index + 2) == '"') {
+                    if (char == '$' && next == '{') {
+                        templateFrames += TemplateFrame(returnState = ScanState.TRIPLE_QUOTE, braceDepth = 1)
+                        state = ScanState.CODE
+                        output.append('$').append('{')
+                        index += 2
+                    } else if (char == '"' && next == '"' && text.getOrNull(index + 2) == '"') {
                         state = ScanState.CODE
                         separate()
                         index += 3
@@ -206,6 +234,11 @@ internal object ProductionSourceScanner {
                 File(candidate, MAIN_JAVA_RELATIVE).isDirectory
         }
         ?: File(System.getProperty("user.dir") ?: ".")
+
+    private data class TemplateFrame(
+        val returnState: ScanState,
+        var braceDepth: Int
+    )
 
     private enum class ScanState {
         CODE,
