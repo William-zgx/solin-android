@@ -192,6 +192,30 @@ class ParallelToolExecutorTest {
     }
 
     @Test
+    fun singleItemBatchFailureIsIsolated() {
+        val executor = buildExecutor(
+            toolHandlers = mapOf("single" to ToolHandler { throw IllegalStateException("single boom") }),
+            specs = listOf(spec("single", mode = ToolExecutionMode.Sequential))
+        )
+
+        val result = executor.executeBatch(listOf(ToolRequest(toolName = "single"))).single()
+
+        assertEquals(ToolStatus.Failed, result.status)
+    }
+
+    @Test
+    fun singleItemBatchCancellationIsIsolated() {
+        val executor = buildExecutor(
+            toolHandlers = mapOf("single" to ToolHandler { throw CancellationException("stop") }),
+            specs = listOf(spec("single", mode = ToolExecutionMode.Sequential))
+        )
+
+        val result = executor.executeBatch(listOf(ToolRequest(toolName = "single"))).single()
+
+        assertEquals(ToolStatus.Cancelled, result.status)
+    }
+
+    @Test
     fun sequentialFailureDoesNotAbortSiblings() {
         var siblingCalls = 0
         val names = listOf("failed", "sibling")

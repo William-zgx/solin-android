@@ -97,9 +97,9 @@ Current status:
   inline value stays parseable; JSON objects stay intact because generic key deletion
   could violate their contract. Evidence privacy remains explicit at the composition
   root and defaults to `LocalOnly`.
-- `RoutingToolExecutor` dispatches work and partitions eligible batches. Sequential
-  and concurrent children both isolate per-tool failures and cancellation, preserving
-  result order without turning one child's failure into a batch-wide failure.
+- `RoutingToolExecutor` dispatches work and partitions eligible batches. Single-item,
+  sequential and concurrent batches all isolate per-tool failures and cancellation,
+  preserving result order without turning one child's failure into a batch-wide failure.
 - `web_search` uses typed evidence requests. `searchMode=general` stays on
   public search; `searchMode=weather_current` is the only weather endpoint.
   Public web results are carried as `PublicWebEvidencePack` /

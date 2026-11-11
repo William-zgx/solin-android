@@ -156,7 +156,16 @@ class RoutingToolExecutor(
      */
     override fun executeBatch(requests: List<ToolRequest>): List<ToolResult> {
         if (requests.isEmpty()) return emptyList()
-        if (requests.size == 1) return listOf(execute(requests.single()))
+        if (requests.size == 1) {
+            val request = requests.single()
+            return listOf(
+                try {
+                    executeRouted(request)
+                } catch (t: Throwable) {
+                    request.batchThrowableResult(t, concurrent = false)
+                }
+            )
+        }
 
         val sequentialIndices = mutableListOf<Int>()
         val concurrentIndices = mutableListOf<Int>()
