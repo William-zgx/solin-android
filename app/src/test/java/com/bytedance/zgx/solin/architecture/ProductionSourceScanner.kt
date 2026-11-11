@@ -9,8 +9,8 @@ import java.io.File
 internal object ProductionSourceScanner {
     private const val MAIN_JAVA_RELATIVE = "app/src/main/java"
     private const val SOLIN_PACKAGE_PATH = "com/bytedance/zgx/solin"
-    private val SOLIN_REFERENCE = Regex(
-        """com\.bytedance\.zgx\.solin\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*"""
+    private val QUALIFIED_REFERENCE = Regex(
+        """\b(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*"""
     )
 
     fun mainJavaRoot(): File {
@@ -55,7 +55,7 @@ internal object ProductionSourceScanner {
     fun packageDirExists(relativePackageDir: String): Boolean = File(solinPackageRoot(), relativePackageDir).isDirectory
 
     /** Returns import statements without the leading `import `, one per line. */
-    fun importStatements(file: File): List<String> = codeLinesWithoutComments(file).mapNotNull { line ->
+    fun importStatements(file: File): List<String> = codeLines(file).mapNotNull { line ->
         val trimmed = line.trim()
         if (trimmed.startsWith("import ")) {
             trimmed.removePrefix("import ").trim().removeSuffix(";")
@@ -64,43 +64,138 @@ internal object ProductionSourceScanner {
         }
     }
 
-    /** Returns imports and fully qualified Solin references so FQ names cannot bypass a gate. */
-    fun solinReferences(file: File): List<String> {
-        val qualifiedReferences = codeLinesWithoutComments(file).flatMap { line ->
-            SOLIN_REFERENCE.findAll(line).map { match -> match.value }.toList()
+    /** Returns imports and fully qualified references, including Android and AndroidX packages. */
+    fun sourceReferences(file: File): List<String> {
+        val qualifiedReferences = codeLines(file).flatMap { line ->
+            QUALIFIED_REFERENCE.findAll(line).map { match -> match.value }.toList()
         }
         return (importStatements(file) + qualifiedReferences).distinct()
     }
 
-    /** Ignores block comments and full-line `//` comments at the same simple level as before. */
-    private fun codeLinesWithoutComments(file: File): List<String> {
-        val codeLines = mutableListOf<String>()
-        var inBlockComment = false
-        file.useLines { lines ->
-            for (raw in lines) {
-                var line = raw
-                if (inBlockComment) {
-                    val end = line.indexOf("*/")
-                    if (end < 0) continue
-                    line = line.substring(end + 2)
-                    inBlockComment = false
-                }
-                while (true) {
-                    val start = line.indexOf("/*")
-                    if (start < 0) break
-                    val end = line.indexOf("*/", start + 2)
-                    if (end < 0) {
-                        line = line.substring(0, start)
-                        inBlockComment = true
-                        break
-                    }
-                    line = line.removeRange(start, end + 2)
-                }
-                if (line.trim().startsWith("//")) continue
-                codeLines += line
+    /**
+     * Removes comments and string/character literals with a small Kotlin-aware lexer. Newlines are
+     * preserved for diagnostics, and a space is inserted at removed boundaries to avoid joining tokens.
+     */
+    private fun codeLines(file: File): List<String> {
+        val text = file.readText()
+        val output = StringBuilder(text.length)
+        var state = ScanState.CODE
+        var blockCommentDepth = 0
+        var index = 0
+
+        fun separate() {
+            if (output.isNotEmpty() && output.last() != ' ' && output.last() != '\n') {
+                output.append(' ')
             }
         }
-        return codeLines
+
+        while (index < text.length) {
+            val char = text[index]
+            val next = text.getOrNull(index + 1)
+            when (state) {
+                ScanState.CODE -> when {
+                    char == '/' && next == '/' -> {
+                        state = ScanState.LINE_COMMENT
+                        separate()
+                        index += 2
+                    }
+                    char == '/' && next == '*' -> {
+                        state = ScanState.BLOCK_COMMENT
+                        blockCommentDepth = 1
+                        separate()
+                        index += 2
+                    }
+                    char == '"' && next == '"' && text.getOrNull(index + 2) == '"' -> {
+                        state = ScanState.TRIPLE_QUOTE
+                        separate()
+                        index += 3
+                    }
+                    char == '"' -> {
+                        state = ScanState.DOUBLE_QUOTE
+                        separate()
+                        index++
+                    }
+                    char == '\'' -> {
+                        state = ScanState.CHAR
+                        separate()
+                        index++
+                    }
+                    else -> {
+                        output.append(char)
+                        index++
+                    }
+                }
+                ScanState.DOUBLE_QUOTE -> when {
+                    char == '\\' -> {
+                        if (next == '\n') output.append('\n')
+                        index += 2
+                    }
+                    char == '"' -> {
+                        state = ScanState.CODE
+                        separate()
+                        index++
+                    }
+                    char == '\n' -> {
+                        output.append(char)
+                        index++
+                    }
+                    else -> index++
+                }
+                ScanState.TRIPLE_QUOTE -> {
+                    if (char == '"' && next == '"' && text.getOrNull(index + 2) == '"') {
+                        state = ScanState.CODE
+                        separate()
+                        index += 3
+                    } else {
+                        if (char == '\n') output.append(char)
+                        index++
+                    }
+                }
+                ScanState.CHAR -> when {
+                    char == '\\' -> {
+                        if (next == '\n') output.append('\n')
+                        index += 2
+                    }
+                    char == '\'' -> {
+                        state = ScanState.CODE
+                        separate()
+                        index++
+                    }
+                    char == '\n' -> {
+                        output.append(char)
+                        index++
+                    }
+                    else -> index++
+                }
+                ScanState.LINE_COMMENT -> {
+                    if (char == '\n') {
+                        output.append(char)
+                        state = ScanState.CODE
+                    }
+                    index++
+                }
+                ScanState.BLOCK_COMMENT -> when {
+                    char == '/' && next == '*' -> {
+                        blockCommentDepth++
+                        index += 2
+                    }
+                    char == '*' && next == '/' -> {
+                        blockCommentDepth--
+                        index += 2
+                        if (blockCommentDepth == 0) {
+                            state = ScanState.CODE
+                            separate()
+                        }
+                    }
+                    char == '\n' -> {
+                        output.append(char)
+                        index++
+                    }
+                    else -> index++
+                }
+            }
+        }
+        return output.toString().lines()
     }
 
     fun lineCount(file: File): Int = file.useLines { sequence -> sequence.count() }
@@ -111,4 +206,13 @@ internal object ProductionSourceScanner {
                 File(candidate, MAIN_JAVA_RELATIVE).isDirectory
         }
         ?: File(System.getProperty("user.dir") ?: ".")
+
+    private enum class ScanState {
+        CODE,
+        DOUBLE_QUOTE,
+        TRIPLE_QUOTE,
+        CHAR,
+        LINE_COMMENT,
+        BLOCK_COMMENT
+    }
 }
