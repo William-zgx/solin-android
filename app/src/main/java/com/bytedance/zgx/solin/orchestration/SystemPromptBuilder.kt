@@ -60,17 +60,8 @@ class SystemPromptBuilder(
             }
         }
         if (includeDeviceControlSurvivalRules) {
-            val survivalCard = EvidenceCard(
-                id = "agent-survival-rules",
-                sourceType = EvidenceSourceType.UserPrompt,
-                privacy = MessagePrivacy.LocalOnly,
-                requiresLocalModel = true,
-                text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
-                quality = EvidenceQuality(EvidenceQualityLevel.High),
-                tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
-            )
-            collected.add(0, survivalCard)
-            attributions.add(0, "SurvivalRules")
+            collected.add(0, createSurvivalCard())
+            attributions.add(0, SURVIVAL_RULES_ATTRIBUTION)
         }
         return SystemPrompt(
             baseInstruction = defaultSystemInstruction,
@@ -97,25 +88,15 @@ class SystemPromptBuilder(
     ): SystemPrompt {
         if (contributors.isEmpty()) {
             // Fast path: no contributors means no suspend calls needed.
-            // Duplicates the survival-rules logic from buildSystemPrompt but avoids
+            // Shares the survival-card factory with buildSystemPrompt but avoids
             // runBlocking entirely — safe because contributors is empty.
             val cards = if (includeDeviceControlSurvivalRules) {
-                listOf(
-                    EvidenceCard(
-                        id = "agent-survival-rules",
-                        sourceType = EvidenceSourceType.UserPrompt,
-                        privacy = MessagePrivacy.LocalOnly,
-                        requiresLocalModel = true,
-                        text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
-                        quality = EvidenceQuality(EvidenceQualityLevel.High),
-                        tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
-                    ),
-                )
+                listOf(createSurvivalCard())
             } else {
                 emptyList()
             }
             val attributions = if (includeDeviceControlSurvivalRules) {
-                listOf("SurvivalRules")
+                listOf(SURVIVAL_RULES_ATTRIBUTION)
             } else {
                 emptyList()
             }
@@ -129,5 +110,19 @@ class SystemPromptBuilder(
         return runBlocking(Dispatchers.Default) {
             buildSystemPrompt(userInput, run)
         }
+    }
+
+    private fun createSurvivalCard(): EvidenceCard = EvidenceCard(
+        id = "agent-survival-rules",
+        sourceType = EvidenceSourceType.UserPrompt,
+        privacy = MessagePrivacy.LocalOnly,
+        requiresLocalModel = true,
+        text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
+        quality = EvidenceQuality(EvidenceQualityLevel.High),
+        tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
+    )
+
+    private companion object {
+        const val SURVIVAL_RULES_ATTRIBUTION = "SurvivalRules"
     }
 }

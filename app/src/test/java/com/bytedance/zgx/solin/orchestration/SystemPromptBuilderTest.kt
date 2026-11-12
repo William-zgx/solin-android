@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.evidence.EvidenceQuality
 import com.bytedance.zgx.solin.evidence.EvidenceQualityLevel
 import com.bytedance.zgx.solin.evidence.EvidenceSourceType
 import com.bytedance.zgx.solin.runtime.DEFAULT_CHAT_SYSTEM_INSTRUCTION
+import com.bytedance.zgx.solin.runtime.estimateLocalRuntimeTokens
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -122,6 +123,29 @@ class SystemPromptBuilderTest {
             listOf(EvidenceSourceType.Memory.name, EvidenceSourceType.DeviceContext.name),
             prompt.contributorAttributions,
         )
+    }
+
+    @Test
+    fun survivalRulesMatchBetweenSuspendAndBlockingWithoutContributors() = runTest {
+        val builder = SystemPromptBuilder(includeDeviceControlSurvivalRules = true)
+        val run = fakeRun()
+
+        val suspendPrompt = builder.buildSystemPrompt("hello", run)
+        val blockingPrompt = builder.buildSystemPromptBlocking("hello", run)
+
+        val expectedCard = EvidenceCard(
+            id = "agent-survival-rules",
+            sourceType = EvidenceSourceType.UserPrompt,
+            privacy = MessagePrivacy.LocalOnly,
+            requiresLocalModel = true,
+            text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
+            quality = EvidenceQuality(EvidenceQualityLevel.High),
+            tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
+        )
+        assertEquals(suspendPrompt, blockingPrompt)
+        assertEquals(DEFAULT_CHAT_SYSTEM_INSTRUCTION, suspendPrompt.baseInstruction)
+        assertEquals(listOf(expectedCard), suspendPrompt.evidenceCards)
+        assertEquals(listOf("SurvivalRules"), suspendPrompt.contributorAttributions)
     }
 
 }
