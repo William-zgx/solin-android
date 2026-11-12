@@ -10,8 +10,7 @@ import java.util.Locale
  * rule for local-model memory output.
  */
 
-internal fun deterministicMemoryRecordId(prefix: String, key: String): String =
-    "$prefix-${sha256Hex(key).take(16)}"
+internal fun deterministicMemoryRecordId(prefix: String, key: String): String = "$prefix-${sha256Hex(key).take(16)}"
 
 /**
  * Whitespace-collapsing pattern shared by the memory normalizers.
@@ -27,11 +26,9 @@ private val TOKEN_SEPARATOR_REGEX = Regex("""[^\p{L}\p{N}]+""")
 /** Unsafe-id sanitizer pattern; hoisted for the same reason. */
 internal val UNSAFE_ID_CHARS_REGEX = Regex("""[^A-Za-z0-9_.:-]+""")
 
-internal fun semanticSourceHash(text: String): String =
-    sha256Hex(text.trim().replace(WHITESPACE_RUN_REGEX, " "))
+internal fun semanticSourceHash(text: String): String = sha256Hex(text.trim().replace(WHITESPACE_RUN_REGEX, " "))
 
-internal fun memoryRecordTextHash(text: String): String =
-    semanticSourceHash(text)
+internal fun memoryRecordTextHash(text: String): String = semanticSourceHash(text)
 
 internal fun searchTextFor(type: MemoryRecordType, text: String): String {
     val aliases = memorySearchAliases(type, text)
@@ -42,14 +39,13 @@ internal fun searchTextFor(type: MemoryRecordType, text: String): String {
     }
 }
 
-private fun memorySearchAliases(type: MemoryRecordType, text: String): Set<String> =
-    when (type) {
-        MemoryRecordType.Preference -> preferenceSearchAliases(text) + placeSearchAliases(text)
-        MemoryRecordType.UserFact -> placeSearchAliases(text)
-        MemoryRecordType.TaskState -> taskStateSearchAliases(text)
-        MemoryRecordType.Conversation,
-        MemoryRecordType.SuppressedTaskState -> emptySet()
-    }
+private fun memorySearchAliases(type: MemoryRecordType, text: String): Set<String> = when (type) {
+    MemoryRecordType.Preference -> preferenceSearchAliases(text) + placeSearchAliases(text)
+    MemoryRecordType.UserFact -> placeSearchAliases(text)
+    MemoryRecordType.TaskState -> taskStateSearchAliases(text)
+    MemoryRecordType.Conversation,
+    MemoryRecordType.SuppressedTaskState -> emptySet()
+}
 
 /**
  * Local aliases for explicit home / work location records so "我家住哪" or "导航回家" recall
@@ -101,12 +97,11 @@ private fun taskStateSearchAliases(text: String): Set<String> {
     }
 }
 
-private fun String.hasStructuredTaskStateMemoryShape(): Boolean =
-    startsWith("任务状态：") &&
-        "后台任务=" in this &&
-        "任务记录=" in this &&
-        "状态=" in this &&
-        "触发时间=" in this
+private fun String.hasStructuredTaskStateMemoryShape(): Boolean = startsWith("任务状态：") &&
+    "后台任务=" in this &&
+    "任务记录=" in this &&
+    "状态=" in this &&
+    "触发时间=" in this
 
 /**
  * A lexical memory token. [strong] tokens (Latin words, CJK bigrams) can on their own justify a
@@ -118,8 +113,7 @@ internal data class MemoryToken(val text: String, val strong: Boolean) {
         get() = if (strong) STRONG_TOKEN_WEIGHT else WEAK_TOKEN_WEIGHT
 }
 
-internal fun tokenize(text: String): List<String> =
-    memoryTokens(text).map(MemoryToken::text)
+internal fun tokenize(text: String): List<String> = memoryTokens(text).map(MemoryToken::text)
 
 /**
  * Tokenizes [text] for lexical memory recall.
@@ -178,11 +172,10 @@ private fun addCjkRunTokens(run: String, tokens: MutableList<MemoryToken>) {
     }
 }
 
-private fun Char.isCjk(): Boolean =
-    this in '\u4E00'..'\u9FFF' ||
-        this in '\u3400'..'\u4DBF' ||
-        this in '\u3040'..'\u30FF' ||
-        this in '\uAC00'..'\uD7AF'
+private fun Char.isCjk(): Boolean = this in '\u4E00'..'\u9FFF' ||
+    this in '\u3400'..'\u4DBF' ||
+    this in '\u3040'..'\u30FF' ||
+    this in '\uAC00'..'\uD7AF'
 
 internal const val STRONG_TOKEN_WEIGHT = 1f
 internal const val WEAK_TOKEN_WEIGHT = 0.5f
@@ -213,7 +206,7 @@ private val CJK_STOP_BIGRAMS = setOf(
     "可以",
     "知道",
     "一点",
-    "用户",
+    "用户"
 )
 
 private val LATIN_STOP_WORDS = setOf(
@@ -262,7 +255,7 @@ private val LATIN_STOP_WORDS = setOf(
     "with",
     "would",
     "you",
-    "your",
+    "your"
 )
 
 /**
@@ -277,7 +270,7 @@ internal class MemoryLexicalMatch(
     val coverage: Float,
     val strongOverlap: Int,
     val weakOverlap: Int,
-    singleWeakTokenQuery: Boolean,
+    singleWeakTokenQuery: Boolean
 ) {
     val qualifies: Boolean =
         strongOverlap > 0 || weakOverlap >= 2 || (singleWeakTokenQuery && weakOverlap == 1)
@@ -288,7 +281,7 @@ internal class MemoryLexicalMatch(
  * fixed-width hashed vector so unrelated tokens never collide into the same bucket.
  */
 internal class MemoryTermVector private constructor(
-    val weights: Map<String, Float>,
+    val weights: Map<String, Float>
 ) {
     private val norm: Float = kotlin.math.sqrt(weights.values.sumOf { (it * it).toDouble() }).toFloat()
 
@@ -305,9 +298,11 @@ internal class MemoryTermVector private constructor(
     }
 
     companion object {
-        fun of(text: String): MemoryTermVector {
+        fun of(text: String): MemoryTermVector = of(memoryTokens(text))
+
+        fun of(tokens: List<MemoryToken>): MemoryTermVector {
             val weights = linkedMapOf<String, Float>()
-            memoryTokens(text).forEach { token ->
+            tokens.forEach { token ->
                 weights[token.text] = (weights[token.text] ?: 0f) + token.weight
             }
             return MemoryTermVector(weights)
@@ -316,13 +311,14 @@ internal class MemoryTermVector private constructor(
 }
 
 internal class MemoryQueryTokens(text: String) {
-    private val distinct: Map<String, MemoryToken> = memoryTokens(text).associateBy(MemoryToken::text)
+    private val tokens: List<MemoryToken> = memoryTokens(text)
+    private val distinct: Map<String, MemoryToken> = tokens.associateBy(MemoryToken::text)
     private val totalWeight: Float = distinct.values.sumOf { it.weight.toDouble() }.toFloat()
     private val singleWeakTokenQuery: Boolean =
         distinct.size == 1 &&
             distinct.values.none(MemoryToken::strong) &&
             text.count(Char::isLetterOrDigit) <= SHORT_QUERY_MAX_CHARS
-    val vector: MemoryTermVector = MemoryTermVector.of(text)
+    val vector: MemoryTermVector = MemoryTermVector.of(tokens)
 
     val isEmpty: Boolean get() = distinct.isEmpty()
 
@@ -340,7 +336,7 @@ internal class MemoryQueryTokens(text: String) {
             coverage = if (totalWeight > 0f) matchedWeight / totalWeight else 0f,
             strongOverlap = strong,
             weakOverlap = weak,
-            singleWeakTokenQuery = singleWeakTokenQuery,
+            singleWeakTokenQuery = singleWeakTokenQuery
         )
     }
 }
@@ -356,24 +352,20 @@ internal fun withoutMemoryRecordLabel(text: String): String {
     return text.removePrefix(prefix)
 }
 
-internal fun String.containsAny(terms: Set<String>): Boolean =
-    terms.any { term -> containsTerm(term) }
+internal fun String.containsAny(terms: Set<String>): Boolean = terms.any { term -> containsTerm(term) }
 
-private fun String.containsTerm(term: String): Boolean =
-    if (term.all { char -> char.isAsciiLetterOrDigit() }) {
-        asciiTermRegex(term).containsMatchIn(this)
-    } else {
-        contains(term)
-    }
+private fun String.containsTerm(term: String): Boolean = if (term.all { char -> char.isAsciiLetterOrDigit() }) {
+    asciiTermRegex(term).containsMatchIn(this)
+} else {
+    contains(term)
+}
 
 /** Word-bounded regex per ASCII term; the term sets are small constants, so the cache stays bounded. */
 private val asciiTermRegexes = java.util.concurrent.ConcurrentHashMap<String, Regex>()
 
-private fun asciiTermRegex(term: String): Regex =
-    asciiTermRegexes.getOrPut(term) { Regex("""(?<![a-z0-9])${Regex.escape(term)}(?![a-z0-9])""") }
+private fun asciiTermRegex(term: String): Regex = asciiTermRegexes.getOrPut(term) { Regex("""(?<![a-z0-9])${Regex.escape(term)}(?![a-z0-9])""") }
 
-private fun Char.isAsciiLetterOrDigit(): Boolean =
-    this in 'a'..'z' || this in '0'..'9'
+private fun Char.isAsciiLetterOrDigit(): Boolean = this in 'a'..'z' || this in '0'..'9'
 
 internal val RESPONSE_PREFERENCE_TERMS = setOf(
     "answer",
@@ -385,7 +377,7 @@ internal val RESPONSE_PREFERENCE_TERMS = setOf(
     "responses",
     "答案",
     "回答",
-    "回复",
+    "回复"
 )
 
 internal val RESPONSE_LENGTH_TERMS = setOf(
@@ -405,7 +397,7 @@ internal val RESPONSE_LENGTH_TERMS = setOf(
     "简短",
     "精炼",
     "详细",
-    "详尽",
+    "详尽"
 )
 
 private val RESPONSE_CONCISE_TERMS = setOf(
@@ -416,7 +408,7 @@ private val RESPONSE_CONCISE_TERMS = setOf(
     "terse",
     "简洁",
     "简短",
-    "精炼",
+    "精炼"
 )
 
 private val RESPONSE_DETAILED_TERMS = setOf(
@@ -429,7 +421,7 @@ private val RESPONSE_DETAILED_TERMS = setOf(
     "thorough",
     "展开",
     "详细",
-    "详尽",
+    "详尽"
 )
 
 internal val RESPONSE_LANGUAGE_TERMS = setOf(
@@ -442,7 +434,7 @@ internal val RESPONSE_LANGUAGE_TERMS = setOf(
     "英文",
     "英语",
     "语言",
-    "语种",
+    "语种"
 )
 
 internal val PREFERENCE_CONTROL_TERMS = setOf(
@@ -451,7 +443,7 @@ internal val PREFERENCE_CONTROL_TERMS = setOf(
     "setting",
     "settings",
     "偏好",
-    "设置",
+    "设置"
 )
 
 private val RESPONSE_CHINESE_TERMS = setOf(
@@ -459,25 +451,16 @@ private val RESPONSE_CHINESE_TERMS = setOf(
     "mandarin",
     "普通话",
     "中文",
-    "汉语",
+    "汉语"
 )
 
 private val RESPONSE_ENGLISH_TERMS = setOf(
     "english",
     "英文",
-    "英语",
+    "英语"
 )
 
-private val RESPONSE_CONCISE_ALIASES = setOf(
-    "brief",
-    "concise",
-    "short",
-    "succinct",
-    "terse",
-    "简洁",
-    "简短",
-    "精炼",
-)
+private val RESPONSE_CONCISE_ALIASES = RESPONSE_CONCISE_TERMS
 
 private val RESPONSE_DETAILED_ALIASES = setOf(
     "detailed",
@@ -488,27 +471,17 @@ private val RESPONSE_DETAILED_ALIASES = setOf(
     "thorough",
     "展开",
     "详细",
-    "详尽",
+    "详尽"
 )
 
-private val RESPONSE_CHINESE_ALIASES = setOf(
-    "chinese",
-    "mandarin",
-    "普通话",
-    "中文",
-    "汉语",
-)
+private val RESPONSE_CHINESE_ALIASES = RESPONSE_CHINESE_TERMS
 
-private val RESPONSE_ENGLISH_ALIASES = setOf(
-    "english",
-    "英文",
-    "英语",
-)
+private val RESPONSE_ENGLISH_ALIASES = RESPONSE_ENGLISH_TERMS
 
 private val TASK_STATE_ALIASES = setOf(
     "taskstate",
     "待办事项",
-    "任务状态",
+    "任务状态"
 )
 
 private val TASK_STATE_REMINDER_ALIASES = setOf(
@@ -520,7 +493,7 @@ private val TASK_STATE_REMINDER_ALIASES = setOf(
     "提醒事项",
     "后台提醒",
     "本地提醒",
-    "闹钟",
+    "闹钟"
 )
 
 private val TASK_STATE_PERIODIC_CHECK_ALIASES = setOf(
@@ -530,7 +503,7 @@ private val TASK_STATE_PERIODIC_CHECK_ALIASES = setOf(
     "周期检查",
     "定期检查",
     "后台检查",
-    "本地巡检",
+    "本地巡检"
 )
 
 private val TASK_STATE_SCHEDULED_ALIASES = setOf(
@@ -541,7 +514,7 @@ private val TASK_STATE_SCHEDULED_ALIASES = setOf(
     "已安排",
     "待执行",
     "已计划",
-    "待触发",
+    "待触发"
 )
 
 private val TASK_STATE_RUNNING_ALIASES = setOf(
@@ -550,7 +523,7 @@ private val TASK_STATE_RUNNING_ALIASES = setOf(
     "inprogress",
     "运行中",
     "进行中",
-    "执行中",
+    "执行中"
 )
 
 internal val TASK_STATE_TERMINAL_QUERY_TERMS = setOf(
@@ -570,7 +543,7 @@ internal val TASK_STATE_TERMINAL_QUERY_TERMS = setOf(
     "完成",
     "已完成",
     "送达",
-    "已送达",
+    "已送达"
 )
 
 /*
@@ -647,12 +620,11 @@ internal class GroundingText(private val text: String) {
         return starts[at] until ends[at + key.length - 1]
     }
 
-    private fun foldPiece(piece: String): String =
-        Normalizer.normalize(piece, Normalizer.Form.NFKC)
-            .lowercase(Locale.ROOT)
-            .replace('’', '\'')
-            .replace('‘', '\'')
-            .filterNot { it.isWhitespace() }
+    private fun foldPiece(piece: String): String = Normalizer.normalize(piece, Normalizer.Form.NFKC)
+        .lowercase(Locale.ROOT)
+        .replace('’', '\'')
+        .replace('‘', '\'')
+        .filterNot { it.isWhitespace() }
 }
 
 private val NUMBER_TOKEN_REGEX = Regex("""\d+(?:[.:：/-]\d+)*""")

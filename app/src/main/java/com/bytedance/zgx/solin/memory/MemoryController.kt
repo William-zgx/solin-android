@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.LongTermMemorySummary
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
+import com.bytedance.zgx.solin.background.ScheduledTask
 import com.bytedance.zgx.solin.background.ScheduledTaskStatus
 import com.bytedance.zgx.solin.data.ModelRepositoryFacade
 import com.bytedance.zgx.solin.data.SessionStore
@@ -22,7 +23,7 @@ data class MemoryControllerResult(
     val semanticMemoryLastRebuiltAtMillis: Long? = null,
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val memoryHitsCleared: Boolean = false,
-    val statusText: String? = null,
+    val statusText: String? = null
 )
 
 /**
@@ -35,7 +36,7 @@ data class SetMemoryEnabledResult(
     val longTermMemories: List<LongTermMemorySummary>,
     val clearMemoryHits: Boolean,
     val statusText: String,
-    val rebuildResult: MemoryControllerResult,
+    val rebuildResult: MemoryControllerResult
 )
 
 /**
@@ -46,7 +47,7 @@ data class ForgetLongTermMemoryResult(
     val removed: Boolean,
     val longTermMemories: List<LongTermMemorySummary>,
     val statusText: String,
-    val rebuildResult: MemoryControllerResult,
+    val rebuildResult: MemoryControllerResult
 )
 
 /**
@@ -54,7 +55,7 @@ data class ForgetLongTermMemoryResult(
  */
 data class ClearLongTermMemoryResult(
     val statusText: String,
-    val rebuildResult: MemoryControllerResult,
+    val rebuildResult: MemoryControllerResult
 )
 
 /**
@@ -80,7 +81,7 @@ class MemoryController(
     private val backgroundTaskScheduler: BackgroundTaskScheduler,
     private val semanticMemoryRuntimeController: SemanticMemoryRuntimeController? = null,
     @Suppress("unused")
-    private val ioDispatcher: CoroutineDispatcher,
+    private val ioDispatcher: CoroutineDispatcher
 ) {
     // ------------------------------------------------------------------
     // Public API
@@ -92,21 +93,21 @@ class MemoryController(
      */
     fun setMemoryEnabled(
         enabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
+        skipModelRuntimeWork: Boolean = false
     ): SetMemoryEnabledResult {
         memoryIndex.enabled = enabled
         syncTaskStateMemories(memoryEnabled = enabled)
         val longTermMemories = loadLongTermMemories()
         val rebuildResult = rebuildMemoryIndex(
             memoryEnabled = enabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
+            skipModelRuntimeWork = skipModelRuntimeWork
         )
         return SetMemoryEnabledResult(
             enabled = enabled,
             longTermMemories = longTermMemories,
             clearMemoryHits = !enabled,
             statusText = if (enabled) "本地记忆已开启" else "本地记忆已关闭",
-            rebuildResult = rebuildResult,
+            rebuildResult = rebuildResult
         )
     }
 
@@ -117,7 +118,7 @@ class MemoryController(
     fun forgetLongTermMemory(
         memoryId: String,
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
+        skipModelRuntimeWork: Boolean = false
     ): ForgetLongTermMemoryResult {
         val removed = longTermMemoryControls.forget(memoryId)
         if (memoryId.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) {
@@ -125,14 +126,14 @@ class MemoryController(
         }
         val rebuildResult = rebuildMemoryIndex(
             memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
+            skipModelRuntimeWork = skipModelRuntimeWork
         )
         return ForgetLongTermMemoryResult(
             memoryId = memoryId,
             removed = removed,
             longTermMemories = loadLongTermMemories(),
             statusText = if (removed) "已遗忘这条记忆" else "未找到这条记忆",
-            rebuildResult = rebuildResult,
+            rebuildResult = rebuildResult
         )
     }
 
@@ -141,7 +142,7 @@ class MemoryController(
      */
     fun clearLongTermMemory(
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
+        skipModelRuntimeWork: Boolean = false
     ): ClearLongTermMemoryResult {
         val activeTaskMemoryIds = activeTaskStateMemoryIds()
         longTermMemoryControls.clear()
@@ -150,11 +151,11 @@ class MemoryController(
         }
         val rebuildResult = rebuildMemoryIndex(
             memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
+            skipModelRuntimeWork = skipModelRuntimeWork
         )
         return ClearLongTermMemoryResult(
             statusText = "长期记忆已清空",
-            rebuildResult = rebuildResult,
+            rebuildResult = rebuildResult
         )
     }
 
@@ -164,52 +165,49 @@ class MemoryController(
      */
     fun rebuildMemoryIndex(
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
-    ): MemoryControllerResult =
-        runCatching {
-            syncSemanticMemoryRuntime(skipModelRuntimeWork)
-            memoryIndex.enabled = memoryEnabled
-            memoryIndex.rebuild(sessionStore.allMessages(limit = 500))
-            semanticMemoryState()
-        }.getOrElse {
-            semanticMemoryState().copy(
-                memoryHitsCleared = true,
-                longTermMemories = emptyList(),
-                statusText = "本地记忆暂不可用",
-            )
-        }
+        skipModelRuntimeWork: Boolean = false
+    ): MemoryControllerResult = runCatching {
+        syncSemanticMemoryRuntime(skipModelRuntimeWork)
+        memoryIndex.enabled = memoryEnabled
+        memoryIndex.rebuild(sessionStore.allMessages(limit = 500))
+        semanticMemoryState()
+    }.getOrElse {
+        semanticMemoryState().copy(
+            memoryHitsCleared = true,
+            longTermMemories = emptyList(),
+            statusText = "本地记忆暂不可用"
+        )
+    }
 
     /**
      * Current semantic-memory runtime fields without rebuilding the index.
      * Used by initial UI-state construction.
      */
-    fun semanticMemoryState(): MemoryControllerResult =
-        MemoryControllerResult(
-            semanticMemoryEnabled = semanticMemoryRuntimeController?.semanticMemoryEnabled == true,
-            semanticMemoryRuntimeStatus = semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
-                ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable,
-            semanticMemoryIndexedRecordCount = semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0,
-            semanticMemoryLastRebuiltAtMillis = semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis,
-        )
+    fun semanticMemoryState(): MemoryControllerResult = MemoryControllerResult(
+        semanticMemoryEnabled = semanticMemoryRuntimeController?.semanticMemoryEnabled == true,
+        semanticMemoryRuntimeStatus = semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
+            ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+        semanticMemoryIndexedRecordCount = semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0,
+        semanticMemoryLastRebuiltAtMillis = semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis
+    )
 
     /**
      * Returns the current list of long-term memory summaries.
      */
-    fun loadLongTermMemories(): List<LongTermMemorySummary> =
-        runCatching {
-            longTermMemoryControls.savedRecords().map { record ->
-                LongTermMemorySummary(
-                    id = record.id,
-                    type = record.type,
-                    text = record.text,
-                    source = record.source,
-                    sensitivity = record.sensitivity,
-                    privacy = record.privacy,
-                    expiresAtMillis = record.expiresAtMillis,
-                    conflictKey = record.conflictKey,
-                )
-            }
-        }.getOrDefault(emptyList())
+    fun loadLongTermMemories(): List<LongTermMemorySummary> = runCatching {
+        longTermMemoryControls.savedRecords().map { record ->
+            LongTermMemorySummary(
+                id = record.id,
+                type = record.type,
+                text = record.text,
+                source = record.source,
+                sensitivity = record.sensitivity,
+                privacy = record.privacy,
+                expiresAtMillis = record.expiresAtMillis,
+                conflictKey = record.conflictKey
+            )
+        }
+    }.getOrDefault(emptyList())
 
     /**
      * Syncs task-state memories: removes stale task-state records and indexes
@@ -217,11 +215,7 @@ class MemoryController(
      */
     fun syncTaskStateMemories(memoryEnabled: Boolean) {
         runCatching {
-            val activeTasks = backgroundTaskScheduler.scheduledTasks()
-                .filter { task ->
-                    task.status == ScheduledTaskStatus.Scheduled ||
-                        task.status == ScheduledTaskStatus.Running
-                }
+            val activeTasks = activeScheduledTasks()
             val activeMemoryIds = activeTasks
                 .mapTo(mutableSetOf()) { task -> taskStateMemoryRecordId(task.id) }
             longTermMemoryControls.savedRecords()
@@ -241,7 +235,7 @@ class MemoryController(
                 }
                 longTermMemoryControls.indexTaskState(
                     id = memoryId,
-                    text = task.toTaskStateMemoryText(),
+                    text = task.toTaskStateMemoryText()
                 )
             }
         }
@@ -253,17 +247,16 @@ class MemoryController(
      * @return true when a preference was indexed; false when the message is not a
      *   user preference message. Storage failures propagate to the caller.
      */
-    fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean =
-        persistExplicitMemory(
-            message = message,
-            parse = ::explicitUserPreferenceFrom,
-            persist = { preference ->
-                longTermMemoryControls.indexPreference(
-                    explicitUserPreferenceRecordId(preference),
-                    preference,
-                )
-            },
-        )
+    fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean = persistExplicitMemory(
+        message = message,
+        parse = ::explicitUserPreferenceFrom,
+        persist = { preference ->
+            longTermMemoryControls.indexPreference(
+                explicitUserPreferenceRecordId(preference),
+                preference
+            )
+        }
+    )
 
     /**
      * Persists an explicit user fact extracted from [message], if any.
@@ -271,17 +264,16 @@ class MemoryController(
      * @return true when a fact was indexed; false when the message is not a user-fact
      *   message. Storage failures propagate to the caller.
      */
-    fun persistExplicitUserFactMemory(message: ChatMessage): Boolean =
-        persistExplicitMemory(
-            message = message,
-            parse = ::explicitUserFactFrom,
-            persist = { fact ->
-                longTermMemoryControls.indexUserFact(
-                    explicitUserFactRecordId(fact),
-                    fact,
-                )
-            },
-        )
+    fun persistExplicitUserFactMemory(message: ChatMessage): Boolean = persistExplicitMemory(
+        message = message,
+        parse = ::explicitUserFactFrom,
+        persist = { fact ->
+            longTermMemoryControls.indexUserFact(
+                explicitUserFactRecordId(fact),
+                fact
+            )
+        }
+    )
 
     /**
      * Stores a fact the user explicitly confirmed from a [MemoryFactSuggestion] chip.
@@ -294,7 +286,7 @@ class MemoryController(
     fun rememberSuggestedFact(
         fact: String,
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
+        skipModelRuntimeWork: Boolean = false
     ): MemorySuggestionResult {
         val command = "记住${fact.trim()}"
         val persisted = memoryEnabled && runCatching {
@@ -303,7 +295,7 @@ class MemoryController(
         }.getOrDefault(false)
         val rebuildResult = rebuildMemoryIndex(
             memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
+            skipModelRuntimeWork = skipModelRuntimeWork
         )
         return MemorySuggestionResult(
             persisted = persisted,
@@ -313,7 +305,7 @@ class MemoryController(
                 persisted -> "已记住这条本地信息"
                 !memoryEnabled -> "本地记忆已关闭，未保存"
                 else -> "本地记忆暂不可用，未保存"
-            },
+            }
         )
     }
 
@@ -326,17 +318,16 @@ class MemoryController(
     fun handleExplicitPreferenceCommand(
         trimmed: String,
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
-    ): MemoryCommandResult =
-        handleExplicitMemoryCommand(
-            trimmed = trimmed,
-            memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
-            persist = ::persistExplicitPreferenceMemory,
-            savedText = "已记住这条本地偏好。你可以在长期记忆中查看或删除。",
-            disabledText = "本地记忆已关闭，未保存这条偏好。",
-            failedText = "本地记忆暂不可用，未保存这条偏好。",
-        )
+        skipModelRuntimeWork: Boolean = false
+    ): MemoryCommandResult = handleExplicitMemoryCommand(
+        trimmed = trimmed,
+        memoryEnabled = memoryEnabled,
+        skipModelRuntimeWork = skipModelRuntimeWork,
+        persist = ::persistExplicitPreferenceMemory,
+        savedText = "已记住这条本地偏好。你可以在长期记忆中查看或删除。",
+        disabledText = "本地记忆已关闭，未保存这条偏好。",
+        failedText = "本地记忆暂不可用，未保存这条偏好。"
+    )
 
     /**
      * Handles an explicit "remember this fact about me" command.
@@ -344,17 +335,16 @@ class MemoryController(
     fun handleExplicitUserFactCommand(
         trimmed: String,
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
-    ): MemoryCommandResult =
-        handleExplicitMemoryCommand(
-            trimmed = trimmed,
-            memoryEnabled = memoryEnabled,
-            skipModelRuntimeWork = skipModelRuntimeWork,
-            persist = ::persistExplicitUserFactMemory,
-            savedText = "已记住这条本地事实。你可以在长期记忆中查看或删除。",
-            disabledText = "本地记忆已关闭，未保存这条事实。",
-            failedText = "本地记忆暂不可用，未保存这条事实。",
-        )
+        skipModelRuntimeWork: Boolean = false
+    ): MemoryCommandResult = handleExplicitMemoryCommand(
+        trimmed = trimmed,
+        memoryEnabled = memoryEnabled,
+        skipModelRuntimeWork = skipModelRuntimeWork,
+        persist = ::persistExplicitUserFactMemory,
+        savedText = "已记住这条本地事实。你可以在长期记忆中查看或删除。",
+        disabledText = "本地记忆已关闭，未保存这条事实。",
+        failedText = "本地记忆暂不可用，未保存这条事实。"
+    )
 
     /** Saves an explicit preference or fact; session writes stay on [sessionStore]. */
     private fun handleExplicitMemoryCommand(
@@ -364,51 +354,49 @@ class MemoryController(
         savedText: String,
         disabledText: String,
         failedText: String,
-        skipModelRuntimeWork: Boolean = false,
-    ): MemoryCommandResult =
-        runExplicitMemoryCommand(trimmed, memoryEnabled, skipModelRuntimeWork) { userMessage ->
-            val persisted = memoryEnabled && runCatching { persist(userMessage) }.getOrDefault(false)
-            ExplicitMemoryOutcome(
-                changed = persisted,
-                assistantText = when {
-                    persisted -> savedText
-                    !memoryEnabled -> disabledText
-                    else -> failedText
-                },
-                statusText = when {
-                    persisted -> "长期记忆已更新"
-                    !memoryEnabled -> "本地记忆已关闭"
-                    else -> "本地记忆暂不可用"
-                },
-            )
-        }
+        skipModelRuntimeWork: Boolean = false
+    ): MemoryCommandResult = runExplicitMemoryCommand(trimmed, memoryEnabled, skipModelRuntimeWork) { userMessage ->
+        val persisted = memoryEnabled && runCatching { persist(userMessage) }.getOrDefault(false)
+        ExplicitMemoryOutcome(
+            changed = persisted,
+            assistantText = when {
+                persisted -> savedText
+                !memoryEnabled -> disabledText
+                else -> failedText
+            },
+            statusText = when {
+                persisted -> "长期记忆已更新"
+                !memoryEnabled -> "本地记忆已关闭"
+                else -> "本地记忆暂不可用"
+            }
+        )
+    }
 
     /** Handles an explicit "forget this memory" command. */
     fun handleExplicitMemoryForgetCommand(
         trimmed: String,
         memoryEnabled: Boolean,
-        skipModelRuntimeWork: Boolean = false,
-    ): MemoryCommandResult =
-        runExplicitMemoryCommand(trimmed, memoryEnabled, skipModelRuntimeWork) {
-            val target = explicitUserPreferenceForgetFrom(trimmed)
-            val removed = target?.let {
-                runCatching {
-                    val removedPreference = longTermMemoryControls.forgetPreference(it)
-                    val removedFact = longTermMemoryControls.forgetUserFact(it)
-                    removedPreference || removedFact
-                }.getOrDefault(false)
-            } == true
-            ExplicitMemoryOutcome(
-                changed = removed,
-                assistantText = if (removed) "已遗忘这条本地记忆。" else "未找到这条本地记忆。",
-                statusText = if (removed) "长期记忆已更新" else "未找到这条记忆",
-            )
-        }
+        skipModelRuntimeWork: Boolean = false
+    ): MemoryCommandResult = runExplicitMemoryCommand(trimmed, memoryEnabled, skipModelRuntimeWork) {
+        val target = explicitUserPreferenceForgetFrom(trimmed)
+        val removed = target?.let {
+            runCatching {
+                val removedPreference = longTermMemoryControls.forgetPreference(it)
+                val removedFact = longTermMemoryControls.forgetUserFact(it)
+                removedPreference || removedFact
+            }.getOrDefault(false)
+        } == true
+        ExplicitMemoryOutcome(
+            changed = removed,
+            assistantText = if (removed) "已遗忘这条本地记忆。" else "未找到这条本地记忆。",
+            statusText = if (removed) "长期记忆已更新" else "未找到这条记忆"
+        )
+    }
 
     private class ExplicitMemoryOutcome(
         val changed: Boolean,
         val assistantText: String,
-        val statusText: String,
+        val statusText: String
     )
 
     /**
@@ -419,7 +407,7 @@ class MemoryController(
         trimmed: String,
         memoryEnabled: Boolean,
         skipModelRuntimeWork: Boolean,
-        act: (ChatMessage) -> ExplicitMemoryOutcome,
+        act: (ChatMessage) -> ExplicitMemoryOutcome
     ): MemoryCommandResult {
         if (memoryEnabled) syncTaskStateMemories(memoryEnabled = true)
         val userMessage = ChatMessage(role = MessageRole.User, text = trimmed, privacy = MessagePrivacy.LocalOnly)
@@ -428,7 +416,7 @@ class MemoryController(
         val assistantMessage = ChatMessage(
             role = MessageRole.Assistant,
             text = outcome.assistantText,
-            privacy = MessagePrivacy.LocalOnly,
+            privacy = MessagePrivacy.LocalOnly
         )
         sessionStore.replaceActiveSessionMessages(sessionStore.activeMessages() + assistantMessage, persistNow = true)
         val rebuildResult = rebuildMemoryIndex(memoryEnabled = memoryEnabled, skipModelRuntimeWork = skipModelRuntimeWork)
@@ -439,7 +427,7 @@ class MemoryController(
             memoryEnabled = memoryEnabled,
             longTermMemories = loadLongTermMemories(),
             rebuildResult = rebuildResult,
-            statusText = outcome.statusText,
+            statusText = outcome.statusText
         )
     }
 
@@ -447,15 +435,16 @@ class MemoryController(
     // Internal helpers
     // ------------------------------------------------------------------
 
-    private fun activeTaskStateMemoryIds(): Set<String> =
-        runCatching {
-            backgroundTaskScheduler.scheduledTasks()
-                .filter { task ->
-                    task.status == ScheduledTaskStatus.Scheduled ||
-                        task.status == ScheduledTaskStatus.Running
-                }
-                .mapTo(mutableSetOf()) { task -> taskStateMemoryRecordId(task.id) }
-        }.getOrDefault(emptySet())
+    private fun activeScheduledTasks(): List<ScheduledTask> = backgroundTaskScheduler.scheduledTasks()
+        .filter { task ->
+            task.status == ScheduledTaskStatus.Scheduled ||
+                task.status == ScheduledTaskStatus.Running
+        }
+
+    private fun activeTaskStateMemoryIds(): Set<String> = runCatching {
+        activeScheduledTasks()
+            .mapTo(mutableSetOf()) { task -> taskStateMemoryRecordId(task.id) }
+    }.getOrDefault(emptySet())
 
     private fun syncSemanticMemoryRuntime(skipModelRuntimeWork: Boolean) {
         val controller = semanticMemoryRuntimeController ?: return
@@ -469,7 +458,7 @@ class MemoryController(
     private fun persistExplicitMemory(
         message: ChatMessage,
         parse: (String) -> String?,
-        persist: (String) -> Unit,
+        persist: (String) -> Unit
     ): Boolean {
         if (message.role != MessageRole.User) return false
         val text = parse(message.text) ?: return false
@@ -477,13 +466,12 @@ class MemoryController(
         return true
     }
 
-    private fun com.bytedance.zgx.solin.background.ScheduledTask.toTaskStateMemoryText(): String =
-        listOf(
-            "后台任务=${type.name}",
-            "任务记录=${taskStateMemoryRecordId(id)}",
-            "状态=${status.name}",
-            "触发时间=$triggerAtMillis",
-        ).joinToString(separator = "；")
+    private fun ScheduledTask.toTaskStateMemoryText(): String = listOf(
+        "后台任务=${type.name}",
+        "任务记录=${taskStateMemoryRecordId(id)}",
+        "状态=${status.name}",
+        "触发时间=$triggerAtMillis"
+    ).joinToString(separator = "；")
 }
 
 /** Result of storing a user-confirmed [MemoryFactSuggestion]. */
@@ -491,7 +479,7 @@ data class MemorySuggestionResult(
     val persisted: Boolean,
     val longTermMemories: List<LongTermMemorySummary>,
     val rebuildResult: MemoryControllerResult,
-    val statusText: String,
+    val statusText: String
 )
 
 /**
@@ -506,5 +494,5 @@ data class MemoryCommandResult(
     val memoryEnabled: Boolean,
     val longTermMemories: List<LongTermMemorySummary>,
     val rebuildResult: MemoryControllerResult,
-    val statusText: String,
+    val statusText: String
 )

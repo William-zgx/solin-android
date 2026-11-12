@@ -9,29 +9,25 @@ import org.json.JSONObject
 /** Reader for the retired plaintext memory documents kept in SharedPreferences. */
 class SharedPreferencesLocalDocumentStore(
     context: Context,
-    name: String = "solin_local_documents_v1",
+    name: String = "solin_local_documents_v1"
 ) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     /** Every parseable document, newest first; unparseable entries are skipped. */
-    fun list(): List<LocalDocument> =
-        prefs.all.values
-            .asSequence()
-            .filterIsInstance<String>()
-            .mapNotNull { value -> runCatching { documentFromJsonStrict(value) }.getOrNull() }
-            .sortedWith(compareByDescending<LocalDocument> { it.updatedAtMillis }.thenBy { it.id })
-            .toList()
+    fun list(): List<LocalDocument> = documentSnapshot { value -> runCatching { documentFromJsonStrict(value) }.getOrNull() }
 
-    /** Throws if any stored document is malformed, so retirement never silently drops data. */
-    internal fun validateForSecureMigration() {
-        prefs.all.values
-            .filterIsInstance<String>()
-            .forEach(::documentFromJsonStrict)
-    }
+    /** Every document, newest first; malformed entries abort before migration writes or deletes. */
+    internal fun snapshotForSecureMigration(): List<LocalDocument> = documentSnapshot(::documentFromJsonStrict)
 
-    internal fun clearForSecureMigration(): Boolean =
-        prefs.edit().clear().commit() && prefs.all.isEmpty()
+    private fun documentSnapshot(parse: (String) -> LocalDocument?): List<LocalDocument> = prefs.all.values
+        .asSequence()
+        .filterIsInstance<String>()
+        .mapNotNull(parse)
+        .sortedWith(compareByDescending<LocalDocument> { it.updatedAtMillis }.thenBy { it.id })
+        .toList()
+
+    internal fun clearForSecureMigration(): Boolean = prefs.edit().clear().commit() && prefs.all.isEmpty()
 
     private fun documentFromJsonStrict(value: String): LocalDocument {
         val json = JSONObject(value)
@@ -48,26 +44,25 @@ class SharedPreferencesLocalDocumentStore(
             privacy = MessagePrivacy.valueOf(json.optString("privacy", MessagePrivacy.LocalOnly.name)),
             updatedAtMillis = json.optLong("updatedAtMillis", 0L),
             expiresAtMillis = json.optNullableLong("expiresAtMillis"),
-            deletedAtMillis = json.optNullableLong("deletedAtMillis"),
+            deletedAtMillis = json.optNullableLong("deletedAtMillis")
         )
     }
 }
 
 /** Read-only view of the retired zvec vector index under [rootDir]. */
 class ZvecNativeLocalVectorIndex(
-    rootDir: File,
+    rootDir: File
 ) : AutoCloseable {
     private val nativeStore: ZvecNativeStore = openNativeStore(rootDir.absolutePath)
 
-    fun get(id: String): LegacyVector? =
-        nativeStore.fetch(id)?.let { record ->
-            val metadata = runCatching { JSONObject(record.metadataJson) }.getOrNull() ?: JSONObject()
-            require(metadata.optString("domain", "default").isNotBlank()) { "Vector domain must not be blank" }
-            LegacyVector(
-                dimension = metadata.optInt("dimension", LocalVectorIndexContract.DIMENSIONS),
-                vector = record.vector.copyOf(),
-            )
-        }
+    fun get(id: String): LegacyVector? = nativeStore.fetch(id)?.let { record ->
+        val metadata = runCatching { JSONObject(record.metadataJson) }.getOrNull() ?: JSONObject()
+        require(metadata.optString("domain", "default").isNotBlank()) { "Vector domain must not be blank" }
+        LegacyVector(
+            dimension = metadata.optInt("dimension", LocalVectorIndexContract.DIMENSIONS),
+            vector = record.vector.copyOf()
+        )
+    }
 
     override fun close() {
         nativeStore.close()
@@ -85,5 +80,4 @@ class ZvecNativeLocalVectorIndex(
     }
 }
 
-private fun JSONObject.optNullableLong(key: String): Long? =
-    if (has(key) && !isNull(key)) optLong(key) else null
+private fun JSONObject.optNullableLong(key: String): Long? = if (has(key) && !isNull(key)) optLong(key) else null

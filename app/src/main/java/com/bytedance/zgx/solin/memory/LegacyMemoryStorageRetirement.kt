@@ -2,8 +2,8 @@ package com.bytedance.zgx.solin.memory
 
 import android.content.Context
 import com.bytedance.zgx.solin.common.sha256Hex
-import com.bytedance.zgx.solin.storage.LocalVectorIndexContract
 import com.bytedance.zgx.solin.storage.LocalDocument
+import com.bytedance.zgx.solin.storage.LocalVectorIndexContract
 import com.bytedance.zgx.solin.storage.SharedPreferencesLocalDocumentStore
 import com.bytedance.zgx.solin.storage.ZvecNativeLocalVectorIndex
 import java.io.File
@@ -13,7 +13,7 @@ internal class LegacyMemoryStorageRetirement(
     context: Context,
     private val records: RoomMemoryRecordStore,
     private val embeddings: RoomMemoryEmbeddingStore,
-    private val deletionEvents: RoomMemoryDeletionEventStore,
+    private val deletionEvents: RoomMemoryDeletionEventStore
 ) {
     private val appContext = context.applicationContext
     private val legacyDocuments = SharedPreferencesLocalDocumentStore(appContext)
@@ -23,43 +23,32 @@ internal class LegacyMemoryStorageRetirement(
     fun retireAfterSecureImport() {
         val deletedRecordIds = deletionEvents.events()
             .mapTo(mutableSetOf()) { event -> event.recordId }
-        legacyDocuments.validateForSecureMigration()
-        val existingRecordIds = records.records()
-            .mapTo(mutableSetOf()) { record -> record.id }
-        val legacyRecords = legacyDocuments.list()
-            .mapNotNull { document -> document.toLegacyMemoryRecordOrNull() }
-            .filterNot { record -> record.id in deletedRecordIds }
-
-        val existingById = records.records().associateBy { record -> record.id }
-        legacyRecords.forEach { record ->
-            val existing = existingById[record.id] ?: return@forEach
-            check(record.contentHash() == existing.contentHash()) {
-                "Legacy plaintext memory conflicts with encrypted Room record ${record.id}."
-            }
-        }
-        legacyRecords
-            .filterNot { record -> record.id in existingRecordIds }
-            .forEach(records::upsert)
-
-        val importedRecordIds = records.records()
-            .mapTo(mutableSetOf()) { record -> record.id }
-        check(legacyRecords.all { record -> record.id in importedRecordIds }) {
-            "Failed to import all legacy plaintext memory records into encrypted Room storage."
-        }
-
-        importLegacyEmbeddings(deletedRecordIds)
-        check(legacyDocuments.clearForSecureMigration()) {
-            "Failed to clear legacy plaintext memory documents."
-        }
-        deleteRecursively(legacyVectorsRoot)
+        retireLegacyMemoryStorage(
+            legacyDocumentSnapshot = legacyDocuments::snapshotForSecureMigration,
+            records = records,
+            deletedRecordIds = deletedRecordIds,
+            importEmbeddings = { documents, importedRecordIds ->
+                importLegacyEmbeddings(documents, importedRecordIds, deletedRecordIds)
+            },
+            clearLegacyDocuments = {
+                check(legacyDocuments.clearForSecureMigration()) {
+                    "Failed to clear legacy plaintext memory documents."
+                }
+            },
+            deleteLegacyVectors = { deleteRecursively(legacyVectorsRoot) }
+        )
     }
 
-    private fun importLegacyEmbeddings(deletedRecordIds: Set<String>) {
+    private fun importLegacyEmbeddings(
+        documents: List<LocalDocument>,
+        importedRecordIds: Set<String>,
+        deletedRecordIds: Set<String>
+    ) {
         val vectorRoot = legacyVectorsRoot.resolve("v1").resolve("pm_vectors_v1")
         val embeddingImports = retainedLegacyEmbeddingImports(
-            documents = legacyDocuments.list(),
-            existingRecordIds = records.records().mapTo(mutableSetOf()) { record -> record.id },
-            deletedRecordIds = deletedRecordIds,
+            documents = documents,
+            existingRecordIds = importedRecordIds,
+            deletedRecordIds = deletedRecordIds
         )
         if (embeddingImports.isEmpty()) return
         check(vectorRoot.exists()) {
@@ -84,15 +73,15 @@ internal class LegacyMemoryStorageRetirement(
                         sourceHash = document.sourceHash,
                         dimension = vector.dimension,
                         vector = vector.vector,
-                        updatedAtMillis = document.updatedAtMillis,
-                    ),
+                        updatedAtMillis = document.updatedAtMillis
+                    )
                 )
                 val imported = embeddings.embedding(embedding.recordId, embedding.modelId)
                 check(
                     imported != null &&
                         imported.sourceHash == document.sourceHash &&
                         imported.dimension == vector.dimension &&
-                        imported.vector.contentEquals(vector.vector),
+                        imported.vector.contentEquals(vector.vector)
                 ) {
                     "Failed to import legacy plaintext embedding for ${document.id}."
                 }
@@ -109,21 +98,58 @@ internal class LegacyMemoryStorageRetirement(
             "Failed to remove legacy plaintext vector storage."
         }
     }
-
-    private fun PersistedMemoryRecord.contentHash(): String =
-        sha256Hex(
-            listOf(
-                id,
-                type.name,
-                text,
-                source.name,
-                sensitivity.name,
-                privacy.name,
-                expiresAtMillis?.toString().orEmpty(),
-                conflictKey.orEmpty(),
-            ).joinToString(separator = "\u0000"),
-        )
 }
+
+/** Imports one strict legacy snapshot and deletes plaintext only after every import verifies. */
+internal fun retireLegacyMemoryStorage(
+    legacyDocumentSnapshot: () -> List<LocalDocument>,
+    records: MemoryRecordStore,
+    deletedRecordIds: Set<String>,
+    importEmbeddings: (documents: List<LocalDocument>, importedRecordIds: Set<String>) -> Unit,
+    clearLegacyDocuments: () -> Unit,
+    deleteLegacyVectors: () -> Unit
+) {
+    val documents = legacyDocumentSnapshot()
+    val existingRecords = records.records()
+    val existingRecordIds = existingRecords.mapTo(mutableSetOf()) { record -> record.id }
+    val existingById = existingRecords.associateBy { record -> record.id }
+    val legacyRecords = documents
+        .mapNotNull { document -> document.toLegacyMemoryRecordOrNull() }
+        .filterNot { record -> record.id in deletedRecordIds }
+
+    legacyRecords.forEach { record ->
+        val existing = existingById[record.id] ?: return@forEach
+        check(record.contentHash() == existing.contentHash()) {
+            "Legacy plaintext memory conflicts with encrypted Room record ${record.id}."
+        }
+    }
+    legacyRecords
+        .filterNot { record -> record.id in existingRecordIds }
+        .forEach(records::upsert)
+
+    val importedRecordIds = records.records()
+        .mapTo(mutableSetOf()) { record -> record.id }
+    check(legacyRecords.all { record -> record.id in importedRecordIds }) {
+        "Failed to import all legacy plaintext memory records into encrypted Room storage."
+    }
+
+    importEmbeddings(documents, importedRecordIds)
+    clearLegacyDocuments()
+    deleteLegacyVectors()
+}
+
+private fun PersistedMemoryRecord.contentHash(): String = sha256Hex(
+    listOf(
+        id,
+        type.name,
+        text,
+        source.name,
+        sensitivity.name,
+        privacy.name,
+        expiresAtMillis?.toString().orEmpty(),
+        conflictKey.orEmpty()
+    ).joinToString(separator = "\u0000")
+)
 
 /** Parses a plaintext record written by the retired zvec/SharedPreferences memory store. */
 internal fun LocalDocument.toLegacyMemoryRecordOrNull(): PersistedMemoryRecord? {
@@ -141,31 +167,30 @@ internal fun LocalDocument.toLegacyMemoryRecordOrNull(): PersistedMemoryRecord? 
             .getOrDefault(MemoryRecordSensitivity.Normal),
         privacy = privacy,
         expiresAtMillis = expiresAtMillis,
-        conflictKey = metadata?.optString(LEGACY_MEMORY_CONFLICT_KEY)?.takeIf { it.isNotBlank() },
+        conflictKey = metadata?.optString(LEGACY_MEMORY_CONFLICT_KEY)?.takeIf { it.isNotBlank() }
     )
 }
 
 internal fun retainedLegacyEmbeddingImports(
     documents: List<LocalDocument>,
     existingRecordIds: Set<String>,
-    deletedRecordIds: Set<String>,
-): List<LegacyEmbeddingImport> =
-    documents.mapNotNull { document ->
-        document.toLegacyEmbeddingImportOrNull(
-            existingRecordIds = existingRecordIds,
-            deletedRecordIds = deletedRecordIds,
-        )
-    }
+    deletedRecordIds: Set<String>
+): List<LegacyEmbeddingImport> = documents.mapNotNull { document ->
+    document.toLegacyEmbeddingImportOrNull(
+        existingRecordIds = existingRecordIds,
+        deletedRecordIds = deletedRecordIds
+    )
+}
 
 internal data class LegacyEmbeddingImport(
     val document: LocalDocument,
     val recordId: String,
-    val modelId: String,
+    val modelId: String
 )
 
 private fun LocalDocument.toLegacyEmbeddingImportOrNull(
     existingRecordIds: Set<String>,
-    deletedRecordIds: Set<String>,
+    deletedRecordIds: Set<String>
 ): LegacyEmbeddingImport? {
     if (
         domain != LEGACY_MEMORY_DOMAIN ||
@@ -191,7 +216,7 @@ private fun LocalDocument.toLegacyEmbeddingImportOrNull(
     return LegacyEmbeddingImport(
         document = this,
         recordId = recordId,
-        modelId = modelId,
+        modelId = modelId
     )
 }
 

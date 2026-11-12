@@ -18,7 +18,7 @@ class PerRunScratchpad {
     data class ScratchpadEntry(
         val index: Int,
         val content: String,
-        val recordedAtMillis: Long,
+        val recordedAtMillis: Long
     )
 
     private val notesByRunId = mutableMapOf<String, MutableList<ScratchpadEntry>>()
@@ -35,10 +35,10 @@ class PerRunScratchpad {
             ScratchpadEntry(
                 index = index,
                 content = content,
-                recordedAtMillis = System.currentTimeMillis(),
+                recordedAtMillis = System.currentTimeMillis()
             )
         )
-        enforceCapacity(runId, notes)
+        enforceCapacity(notes)
         return index
     }
 
@@ -78,7 +78,7 @@ class PerRunScratchpad {
         return sb.toString()
     }
 
-    private fun enforceCapacity(runId: String, notes: MutableList<ScratchpadEntry>) {
+    private fun enforceCapacity(notes: MutableList<ScratchpadEntry>) {
         // Drop oldest notes if count exceeds max
         while (notes.size > AgentSurvivalRules.MAX_NOTES_PER_RUN) {
             notes.removeAt(0)
