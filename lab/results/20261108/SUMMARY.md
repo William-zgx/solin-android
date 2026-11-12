@@ -54,7 +54,7 @@ Suites B and C, requests that need no tool (chat, questions, explicit negations)
 | gemma4:e4b | - | - | - | 6/51 (12%) | - |
 | gemma4:e2b | - | - | - | 17/51 (33%) | - |
 
-Suites B and C, all 151 requests together:
+Suites B and C, requests measured per model (no shared population is inferred).
 
 | model | B R | B M-full | B M-full-fix | C N-full | C N-topk |
 | --- | --- | --- | --- | --- | --- |
@@ -246,18 +246,18 @@ Suites B and C, requests that need a tool: right first tool with every pinned ar
 | rules | 76/100 (76%) | - | - | - | - | - | - | - | - | - | - |
 | litert/gemma-4-e2b | - | - | - | 0/100 (0%) | 70/100 (70%) | 68/100 (68%) | 78/100 (78%) | 83/100 (83%) | - | 71/100 (71%) (3 errored) | 73/100 (73%) (1 errored) |
 | litert/gemma-4-e4b | - | - | - | 0/100 (0%) | - | 77/100 (77%) | 84/100 (84%) | - | - | 77/100 (77%) | 77/100 (77%) |
-| litert/mobile-actions-270m | - | errored 100/100 | errored 100/100 | 0/100 (0%) | 0/100 (0%) | - | - | - | errored 100/100 | 16/100 (16%) (112 errored) | - |
+| litert/mobile-actions-270m | - | errored 0/0 | errored 0/0 | 0/100 (0%) | 0/100 (0%) | - | - | - | errored 0/0 | 16/100 (16%) (112 errored) | - |
 
 Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing executed. An invalid call executes nothing and counts as correct here.
 
 | model | B R | B M-full | B M-full-fix | B M-topk | B M-topk-fix | B M-topk-fix-lmf | B R-gated-e2e | B R-gated-e2e-fence | C N-full | C N-topk | C N-topk-lmf |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | rules | 51/51 (100%) | - | - | - | - | - | - | - | - | - | - |
-| litert/gemma-4-e2b | - | - | - | 51/51 (100%) | 2/51 (4%) | 28/51 (55%) | 51/51 (100%) | 50/51 (98%) | - | 12/51 (24%) (3 errored) | 31/51 (61%) (1 errored) |
+| litert/gemma-4-e2b | - | - | - | 51/51 (100%) | 2/51 (4%) | 28/51 (55%) | 51/51 (100%) | 50/51 (98%) | - | 11/51 (22%) (3 errored) | 31/51 (61%) (1 errored) |
 | litert/gemma-4-e4b | - | - | - | 51/51 (100%) | - | 35/51 (69%) | 49/51 (96%) | - | - | 16/51 (31%) | 40/51 (78%) |
-| litert/mobile-actions-270m | - | errored 51/51 | errored 51/51 | 51/51 (100%) | 51/51 (100%) | - | - | - | errored 51/51 | 45/51 (88%) (112 errored) | - |
+| litert/mobile-actions-270m | - | errored 51/51 | errored 51/51 | 51/51 (100%) | 51/51 (100%) | - | - | - | errored 51/51 | 4/51 (8%) (112 errored) | - |
 
-Suites B and C, all 151 requests together:
+Suites B and C, requests measured per model (no shared population is inferred).
 
 | model | B R | B M-full | B M-full-fix | B M-topk | B M-topk-fix | B M-topk-fix-lmf | B R-gated-e2e | B R-gated-e2e-fence | C N-full | C N-topk | C N-topk-lmf |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

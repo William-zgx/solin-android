@@ -138,7 +138,7 @@ class NativeToolsSuiteTest {
         if (!registry.isKnownTool(call.name)) return LabAnswer(call.name, invalid = true) to "unknown_tool"
         val arguments = call.arguments.toToolArgumentMapOrNull()
             ?: return LabAnswer(call.name, invalid = true) to "nested_arguments"
-        return LabAnswer(call.name, arguments) to if (result.toolCalls.size > 1) "multi_call" else "call"
+        return LabAnswer(call.name, arguments, invalid = result.toolCalls.size > 1) to if (result.toolCalls.size > 1) "multi_call" else "call"
     }
 
     /** Same conversion as the private `toToolArgumentMapOrNull` in runtime/RemoteChatRuntime.kt. */

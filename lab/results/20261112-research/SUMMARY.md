@@ -35,7 +35,7 @@ Suites B and C, requests that need no tool (chat, questions, explicit negations)
 | --- | --- |
 | rules | 6/6 (100%) |
 
-Suites B and C, all 18 requests together:
+Suites B and C, requests measured per model (no shared population is inferred).
 
 | model | B R |
 | --- | --- |
@@ -73,7 +73,7 @@ No Suite C results.
 
 ### Suites B and C by request family
 
-| suite | model | mode | no tool (n=6) | time (n=7) | drafts and calls (n=2) | search and maps (n=3) |
+| suite | model | mode | no tool | time | drafts and calls | search and maps |
 | --- | --- | --- | --- | --- | --- | --- |
 | B | rules | R | 6/6 (100%) | 0/7 (0%) | 0/2 (0%) | 0/3 (0%) |
 

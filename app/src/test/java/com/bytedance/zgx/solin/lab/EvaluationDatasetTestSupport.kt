@@ -109,7 +109,9 @@ internal fun initialPlanningLabelProblems(cases: List<InitialCase>, registry: To
         case.goldTools.filterNot(registry::isKnownTool).forEach { problems += "${case.id}: unknown tool $it" }
         val declared = declaredToolArguments(case, registry)
         (case.goldArgs.keys - declared).forEach { problems += "${case.id}: argument $it not in gold tool schemas" }
-        if (case.goldTools.isNotEmpty() && isCompleteLiteralGold(case, registry) && case.goldTools.none { toolName ->
+        if (case.goldTools.isNotEmpty() &&
+            isCompleteLiteralGold(case, registry) &&
+            case.goldTools.none { toolName ->
                 registry.validate(ToolRequest(toolName = toolName, arguments = case.goldArgs, reason = "dataset")) == null
             }
         ) {

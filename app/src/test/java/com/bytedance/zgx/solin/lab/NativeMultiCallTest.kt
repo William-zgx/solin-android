@@ -17,6 +17,7 @@ class NativeMultiCallTest {
 
         assertEquals("web_search", answer.tool)
         assertEquals("multi_call", kind)
+        assertTrue(answer.invalid)
     }
 
     @Test

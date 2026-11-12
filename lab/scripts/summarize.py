@@ -598,10 +598,10 @@ def suite_a(records, models, out):
             key[1],
             key[2],
             n,
-            run_cell(key, frac(sum(r["rawCorrect"] for r in rs), n)),
-            run_cell(key, frac(sum(r["finalCorrect"] for r in rs), n)),
-            run_cell(key, frac(sum(r["finalCorrect"] for r in action_cases), len(action_cases))),
-            run_cell(key, frac(sum(r["finalCorrect"] for r in stop_cases), len(stop_cases))),
+            run_cell(key, frac(sum(r["rawCorrect"] and not errored(r) for r in rs), n)),
+            run_cell(key, frac(sum(r["finalCorrect"] and not errored(r) for r in rs), n)),
+            run_cell(key, frac(sum(r["finalCorrect"] and not errored(r) for r in action_cases), len(action_cases))),
+            run_cell(key, frac(sum(r["finalCorrect"] and not errored(r) for r in stop_cases), len(stop_cases))),
             run_cell(key, pct(len(parse_fail), len(attempted))),
             run_cell(key, f"{statistics.mean(r['modelCalls'] for r in rs):.2f}"),
         ])
@@ -627,7 +627,7 @@ def suite_a(records, models, out):
         for r in records[key]:
             by_cat[r["category"]].append(r)
         rows.append([key[1], key[2]] + [
-            run_cell(key, f"{sum(r['finalCorrect'] for r in by_cat[c])}/{len(by_cat[c])}")
+            run_cell(key, f"{sum(r['finalCorrect'] and not errored(r) for r in by_cat[c])}/{len(by_cat[c])}")
             if by_cat[c] else "-"
             for c in categories
         ])
@@ -885,7 +885,7 @@ def rm_delta(records, models, out):
         rm = records.get((SUITE_B, model, "R+M"))
         if not rm:
             continue
-        gains = [r["caseId"] for r in rm if r["correct"] and not rules[r["caseId"]]["correct"]]
+        gains = [r["caseId"] for r in rm if r["correct"] and not errored(r) and not rules[r["caseId"]]["correct"]]
         losses = [r["caseId"] for r in rm
                   if not r["correct"] and not errored(r) and rules[r["caseId"]]["correct"]]
         model_used = sum(1 for r in rm if r.get("planSource") == "model")
@@ -916,7 +916,7 @@ def model_vs_rules(records, models, suite_modes, out):
                 continue
             by_id = {r["caseId"]: r for r in rs}
             key = (suite, model, mode)
-            recovered = [case_id for case_id in misses if by_id.get(case_id, {}).get("correct")]
+            recovered = [case_id for case_id in misses if by_id.get(case_id, {}).get("correct") and not errored(by_id[case_id])]
             # An errored call produced no answer, so it cannot "break" a case R got right.
             broken = [r["caseId"] for r in rs
                       if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
@@ -993,10 +993,10 @@ def suite_d(records, models, out):
             key[2],
             score_cell(key, rs, sum(r["valid"] for r in rs)),
             score_cell(key, rs, sum(r["correct"] for r in rs)),
-            run_cell(key, frac(sum(r["correct"] for r in local), len(local))),
-            run_cell(key, frac(sum(r["correct"] for r in remote), len(remote))),
+            run_cell(key, frac(sum(r["correct"] and not errored(r) for r in local), len(local))),
+            run_cell(key, frac(sum(r["correct"] and not errored(r) for r in remote), len(remote))),
             "-" if is_rule else run_cell(key, frac(len(confident), n)),
-            "-" if is_rule else run_cell(key, frac(sum(r["correct"] for r in confident), len(confident))),
+            "-" if is_rule else run_cell(key, frac(sum(r["correct"] and not errored(r) for r in confident), len(confident))),
             score_cell(key, rs, sum(r["effectiveCorrect"] for r in rs)),
         ])
     out.append(table(
@@ -1658,11 +1658,11 @@ def gated_e2e_comparison(records, e2e_keys, out, initial_info=None):
                 estimate[cid] = proposal
             else:
                 estimate[cid] = closed_answer(rule)
-        estimate_total = sum(bool(r["correct"]) for r in estimate.values())
-        estimate_fp = sum(bool(r.get("falsePositive")) for r in estimate.values())
-        actual_total = sum(bool(r["correct"]) for r in actual.values())
-        actual_fp = sum(bool(r.get("falsePositive")) for r in actual.values())
-        rule_total = sum(bool(r["correct"]) for r in rules.values())
+        estimate_total = sum(bool(r["correct"]) and not errored(r) for r in estimate.values())
+        estimate_fp = sum(bool(r.get("falsePositive")) and not errored(r) for r in estimate.values())
+        actual_total = sum(bool(r["correct"]) and not errored(r) for r in actual.values())
+        actual_fp = sum(bool(r.get("falsePositive")) and not errored(r) for r in actual.values())
+        rule_total = sum(bool(r["correct"]) and not errored(r) for r in rules.values())
         contributors = [key, gate_key, estimate_key]
         rows.append([
             model,
@@ -1802,7 +1802,7 @@ def heldout_initial_planning(records, models, out):
                "arguments on tool-gold cases and no executed tool on no-tool cases. The `no_tool` group "
                "is the ordinary FP denominator; adversarial no-tool cases are reported separately.\n")
     rules = {r["caseId"]: r for r in records.get((SUITE_B, "rules", "R"), [])}
-    rules_correct = sum(bool(r["correct"]) for r in rules.values())
+    rules_correct = sum(bool(r["correct"]) and not errored(r) for r in rules.values())
     rows = []
     for key in keys:
         rs = records[key]
@@ -1811,22 +1811,22 @@ def heldout_initial_planning(records, models, out):
         adversarial_none = [r for r in rs if r.get("group") == "adversarial" and not r["expectsTool"]]
         by_id = {r["caseId"]: r for r in rs}
         fixed = [case_id for case_id, rule in rules.items()
-                 if not rule["correct"] and by_id.get(case_id, {}).get("correct")]
+                 if not rule["correct"] and by_id.get(case_id, {}).get("correct") and not errored(by_id[case_id])]
         broken = [r["caseId"] for r in rs
                   if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
-        delta = (f"{sum(bool(r['correct']) for r in rs) - rules_correct:+d}"
+        delta = (f"{sum(bool(r['correct']) and not errored(r) for r in rs) - rules_correct:+d}"
                  if key[1] not in RULE_MODELS and len(by_id) == len(rules) else "-")
         rows.append([
             key[1], key[2],
-            score_cell(key, rs, sum(bool(r["correct"]) for r in rs)),
-            score_cell(key, tool_rs, sum(bool(r["toolCorrect"]) for r in tool_rs)),
-            score_cell(key, tool_rs, sum(bool(r["argsExact"]) for r in tool_rs)),
-            score_cell(key, ordinary_none, sum(bool(r.get("falsePositive")) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("privacyRelevant")) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpPrivateRead")) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpNetworkEgress")) for r in ordinary_none)),
+            score_cell(key, rs, sum(bool(r["correct"]) and not errored(r) for r in rs)),
+            score_cell(key, tool_rs, sum(bool(r["toolCorrect"]) and not errored(r) for r in tool_rs)),
+            score_cell(key, tool_rs, sum(bool(r["argsExact"]) and not errored(r) for r in tool_rs)),
+            score_cell(key, ordinary_none, sum(bool(r.get("falsePositive")) and not errored(r) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) and not errored(r) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) and not errored(r) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("privacyRelevant")) and not errored(r) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpPrivateRead")) and not errored(r) for r in ordinary_none)),
+            run_cell(key, sum(bool(r.get("fpNetworkEgress")) and not errored(r) for r in ordinary_none)),
             score_cell(key, adversarial_none,
                        sum(bool(r.get("falsePositive")) for r in adversarial_none)),
             run_cell(key, sum(bool(r.get("gateOpen")) for r in rs))
@@ -1878,7 +1878,7 @@ def heldout_initial_planning(records, models, out):
         for group, category in categories:
             rs = by_category[(group, category)]
             rows.append([key[1], key[2], group, category, len(rs),
-                         score_cell(key, rs, sum(bool(r["correct"]) for r in rs))])
+                         score_cell(key, rs, sum(bool(r["correct"]) and not errored(r) for r in rs))])
     out.append("Per-category correct results. `no_tool / tool_domain_question` and both negation rows "
                "are explicit so tool-domain questions and negations cannot disappear inside a broad "
                "family aggregate.\n")
