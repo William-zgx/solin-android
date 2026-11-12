@@ -1,16 +1,15 @@
 package com.bytedance.zgx.solin.mcp
 
+import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.audit.RemoteSendDecision
-import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.module.SolinModuleRegistryImpl
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolStatus
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,12 +20,14 @@ class McpClientTest {
     fun disabledByDefaultExposesNoToolsAndRefusesCalls() = runTest {
         val fixture = fixture(enabled = false)
 
-        assertTrue(fixture.client.allApprovedToolSpecs().isEmpty())
+        assertTrue(fixture.client.registrationBindings().isEmpty())
         val reg = SolinModuleRegistryImpl()
         McpModule(fixture.client).register(reg)
         assertTrue(reg.toolProviders.flatMap { it.specs() }.isEmpty())
 
-        val handler = assertNotNullHandler(fixture)
+        fixture.settings.setEnabled(true)
+        val handler = approvedHandler(fixture)
+        fixture.settings.setEnabled(false)
         val result = handler.execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
 
         assertEquals(ToolStatus.Rejected, result.status)
@@ -64,7 +65,7 @@ class McpClientTest {
         val fixture = fixture(enabled = true)
         fixture.transport.liveSchema = schema(extraProperty = "injected")
 
-        val result = assertNotNullHandler(fixture)
+        val result = approvedHandler(fixture)
             .execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
 
         assertEquals(ToolStatus.Rejected, result.status)
@@ -75,13 +76,13 @@ class McpClientTest {
     @Test
     fun missingAuditSinkOrUnverifiedServerFailsClosed() = runTest {
         val noAudit = fixture(enabled = true, withAudit = false)
-        val refused = assertNotNullHandler(noAudit)
+        val refused = approvedHandler(noAudit)
             .execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
         assertEquals(ToolStatus.Rejected, refused.status)
         assertTrue(noAudit.transport.calls.isEmpty())
 
         val untrusted = fixture(enabled = true, trusted = false)
-        val blocked = assertNotNullHandler(untrusted)
+        val blocked = approvedHandler(untrusted)
             .execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
         assertEquals(ToolStatus.Rejected, blocked.status)
         assertTrue(untrusted.transport.calls.isEmpty())
@@ -90,7 +91,7 @@ class McpClientTest {
     @Test
     fun togglingOffTakesEffectImmediatelyForAlreadyRegisteredHandlers() = runTest {
         val fixture = fixture(enabled = true)
-        val handler = assertNotNullHandler(fixture)
+        val handler = approvedHandler(fixture)
         fixture.settings.setEnabled(false)
 
         val result = handler.execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
@@ -104,7 +105,7 @@ class McpClientTest {
         val fixture = fixture(enabled = true)
         fixture.transport.callError = McpError(code = -32000, message = "secret server text")
 
-        val result = assertNotNullHandler(fixture)
+        val result = approvedHandler(fixture)
             .execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
 
         assertEquals(ToolStatus.Failed, result.status)
@@ -115,17 +116,16 @@ class McpClientTest {
     @Test
     fun revokedToolHasNoHandlerAndIsRefusedAtCallTime() = runTest {
         val fixture = fixture(enabled = true)
-        val handler = assertNotNullHandler(fixture)
+        val handler = approvedHandler(fixture)
         fixture.registry.revokeTool(serverId, "lookup")
 
         val result = handler.execute(ToolRequest(toolName = toolName(), arguments = mapOf("query" to "x")))!!
 
         assertEquals(ToolStatus.Rejected, result.status)
-        assertTrue(fixture.client.handlerFor(toolName()) == null)
+        assertTrue(fixture.client.registrationBindings().isEmpty())
     }
 
-    private fun assertNotNullHandler(fixture: Fixture) =
-        requireNotNull(fixture.client.handlerFor(toolName())).also { assertNotNull(it) }
+    private fun approvedHandler(fixture: Fixture) = fixture.client.registrationBindings().single { it.spec.name == toolName() }.handler
 
     private fun toolName(): String = McpToolSpecs.solinToolName(serverId, "lookup")
 
@@ -135,7 +135,7 @@ class McpClientTest {
         val settings = InMemoryMcpCapabilitySettings(
             enabled = enabled,
             disclosureAcknowledged = true,
-            servers = listOf(McpServerEntry(serverId, "Example", approvedTools = listOf(snapshot))),
+            servers = listOf(McpServerEntry(serverId, "Example", approvedTools = listOf(snapshot)))
         )
         val consent = InMemoryMcpConsentStore()
         val registry = McpServerRegistry(
@@ -144,7 +144,7 @@ class McpClientTest {
             settings = settings,
             connectionFactory = { entry ->
                 if (trusted) McpServerConnection(transport, consent, entry.displayName) else null
-            },
+            }
         )
         val audit = RecordingAudit()
         return Fixture(
@@ -152,7 +152,7 @@ class McpClientTest {
             registry = registry,
             settings = settings,
             transport = transport,
-            audit = audit,
+            audit = audit
         )
     }
 
@@ -161,7 +161,7 @@ class McpClientTest {
         val registry: McpServerRegistry,
         val settings: InMemoryMcpCapabilitySettings,
         val transport: FakeTransport,
-        val audit: RecordingAudit,
+        val audit: RecordingAudit
     )
 
     private class RecordingAudit : RemoteSendAuditSink {
@@ -174,7 +174,7 @@ class McpClientTest {
 
     private class FakeTransport(
         override val serverId: String,
-        var liveSchema: Map<String, Any?>,
+        var liveSchema: Map<String, Any?>
     ) : McpTransport {
         val calls = mutableListOf<Map<String, Any?>>()
         var callError: McpError? = null
@@ -185,31 +185,30 @@ class McpClientTest {
             return true
         }
 
-        override suspend fun request(request: McpRequest): McpResponse =
-            when (request.method) {
-                McpProtocol.METHOD_INITIALIZE -> McpResponse(
-                    id = request.id,
-                    result = mapOf("protocolVersion" to McpProtocol.PROTOCOL_VERSION, "serverInfo" to mapOf("name" to "fake")),
+        override suspend fun request(request: McpRequest): McpResponse = when (request.method) {
+            McpProtocol.METHOD_INITIALIZE -> McpResponse(
+                id = request.id,
+                result = mapOf("protocolVersion" to McpProtocol.PROTOCOL_VERSION, "serverInfo" to mapOf("name" to "fake"))
+            )
+
+            McpProtocol.METHOD_TOOLS_LIST -> McpResponse(
+                id = request.id,
+                result = mapOf(
+                    "tools" to listOf(mapOf("name" to "lookup", "description" to "Lookup", "inputSchema" to liveSchema))
                 )
+            )
 
-                McpProtocol.METHOD_TOOLS_LIST -> McpResponse(
-                    id = request.id,
-                    result = mapOf(
-                        "tools" to listOf(mapOf("name" to "lookup", "description" to "Lookup", "inputSchema" to liveSchema)),
-                    ),
-                )
-
-                McpProtocol.METHOD_TOOLS_CALL -> {
-                    calls += request.params.orEmpty()
-                    callError?.let { McpResponse(id = request.id, error = it) }
-                        ?: McpResponse(
-                            id = request.id,
-                            result = mapOf("content" to listOf(mapOf("type" to "text", "text" to "pong"))),
-                        )
-                }
-
-                else -> McpResponse(id = request.id, error = McpError(-32601, "unknown"))
+            McpProtocol.METHOD_TOOLS_CALL -> {
+                calls += request.params.orEmpty()
+                callError?.let { McpResponse(id = request.id, error = it) }
+                    ?: McpResponse(
+                        id = request.id,
+                        result = mapOf("content" to listOf(mapOf("type" to "text", "text" to "pong")))
+                    )
             }
+
+            else -> McpResponse(id = request.id, error = McpError(-32601, "unknown"))
+        }
 
         override suspend fun notify(method: String, params: Map<String, Any?>?) = Unit
 
@@ -221,16 +220,15 @@ class McpClientTest {
     }
 
     private companion object {
-        fun schema(extraProperty: String? = null): Map<String, Any?> =
-            mapOf(
-                "type" to "object",
-                "required" to listOf("query"),
-                "properties" to buildMap {
-                    put("query", mapOf("type" to "string"))
-                    put("limit", mapOf("type" to "integer"))
-                    extraProperty?.let { put(it, mapOf("type" to "string")) }
-                },
-                "additionalProperties" to false,
-            )
+        fun schema(extraProperty: String? = null): Map<String, Any?> = mapOf(
+            "type" to "object",
+            "required" to listOf("query"),
+            "properties" to buildMap {
+                put("query", mapOf("type" to "string"))
+                put("limit", mapOf("type" to "integer"))
+                extraProperty?.let { put(it, mapOf("type" to "string")) }
+            },
+            "additionalProperties" to false
+        )
     }
 }

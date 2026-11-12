@@ -30,14 +30,10 @@ open class McpClient(
     private val auditSink: RemoteSendAuditSink? = null,
     private val clockMillis: () -> Long = System::currentTimeMillis
 ) {
-    open fun allApprovedToolSpecs(): List<ToolSpec> {
+    /** Builds startup specs and handlers from one enabled catalog snapshot. */
+    internal open fun registrationBindings(): List<McpToolBinding> {
         if (!settings.isEnabled()) return emptyList()
-        return catalogTools().map { it.spec }
-    }
-
-    open fun handlerFor(toolName: String): ToolHandler? {
-        val target = catalogTools().firstOrNull { it.spec.name == toolName } ?: return null
-        return ToolHandler { request -> call(request, target.entry.serverId, target.tool.name) }
+        return catalogBindings()
     }
 
     private suspend fun call(request: ToolRequest, serverId: String, mcpToolName: String): ToolResult {
@@ -101,20 +97,24 @@ open class McpClient(
         )
     }
 
-    private fun catalogTools(): List<CatalogTool> = registry.catalog()
+    private fun catalogBindings(): List<McpToolBinding> = registry.catalog()
         .flatMap { entry ->
             entry.approvedTools.mapNotNull { tool ->
-                McpToolSpecs.toToolSpecOrNull(entry, tool)?.let { spec -> CatalogTool(entry, tool, spec) }
+                McpToolSpecs.toToolSpecOrNull(entry, tool)?.let { spec ->
+                    McpToolBinding(
+                        spec = spec,
+                        handler = ToolHandler { request -> call(request, entry.serverId, tool.name) }
+                    )
+                }
             }
         }
         .distinctBy { it.spec.name }
-
-    private data class CatalogTool(
-        val entry: McpServerEntry,
-        val tool: McpApprovedTool,
-        val spec: ToolSpec
-    )
 }
+
+internal data class McpToolBinding(
+    val spec: ToolSpec,
+    val handler: ToolHandler
+)
 
 private fun ToolRequest.mcpRejected(entry: McpServerEntry, summary: String): ToolResult = ToolResult(
     requestId = id,

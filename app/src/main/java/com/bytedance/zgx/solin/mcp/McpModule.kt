@@ -15,15 +15,16 @@ import com.bytedance.zgx.solin.tool.ToolProvider
  * while turning it OFF or revoking a tool takes effect immediately at call time.
  */
 class McpModule(
-    private val client: McpClient,
+    private val client: McpClient
 ) : SolinModule {
     override val moduleId: String get() = "mcp:core"
 
     override fun register(registry: SolinModuleRegistry) {
-        val specs = client.allApprovedToolSpecs()
+        val bindings = client.registrationBindings()
+        val specs = bindings.map { it.spec }
         registry.addToolProvider(ToolProvider { specs })
-        specs.forEach { spec ->
-            client.handlerFor(spec.name)?.let { registry.addToolHandler(spec.name, it) }
+        bindings.forEach { binding ->
+            registry.addToolHandler(binding.spec.name, binding.handler)
         }
     }
 

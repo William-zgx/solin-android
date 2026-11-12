@@ -38,12 +38,11 @@ class McpModuleTest {
             )
         }
 
-        // Build a fake McpClient that returns our stub spec/handler without wiring
+        // Build a fake McpClient that returns our stub binding without wiring
         // a transport/connection (McpClient is open for testing). Pass an empty
-        // test-only registry; the fake overrides all methods so the registry is unused.
+        // test-only registry; the fake overrides registration so the registry is unused.
         val fakeClient = object : McpClient(McpServerRegistry()) {
-            override fun allApprovedToolSpecs(): List<ToolSpec> = listOf(pingSpec)
-            override fun handlerFor(toolName: String): ToolHandler? = if (toolName == specName) pingHandler else null
+            override fun registrationBindings(): List<McpToolBinding> = listOf(McpToolBinding(pingSpec, pingHandler))
         }
 
         val reg = SolinModuleRegistryImpl()
@@ -68,5 +67,62 @@ class McpModuleTest {
             "summary should contain pong, got '${result.summary}'",
             result.summary.contains("pong")
         )
+    }
+
+    @Test
+    fun registrationReadsOneCatalogSnapshotForSpecsAndHandlers() {
+        val serverId = "com.example.mcp/com.example.mcp.Server"
+        val approvedTools = (1..4).map { index ->
+            requireNotNull(
+                McpToolSpecs.approvedSnapshotOrNull(
+                    McpTool(
+                        name = "lookup$index",
+                        description = "Lookup $index",
+                        inputSchema = mapOf(
+                            "type" to "object",
+                            "required" to listOf("query"),
+                            "properties" to mapOf("query" to mapOf("type" to "string")),
+                            "additionalProperties" to false
+                        )
+                    )
+                )
+            )
+        }
+        val settings = CountingSettings(
+            InMemoryMcpCapabilitySettings(
+                enabled = true,
+                disclosureAcknowledged = true,
+                servers = listOf(McpServerEntry(serverId, "Example", approvedTools = approvedTools))
+            )
+        )
+        val serverRegistry = McpServerRegistry(context = null, settings = settings)
+        settings.resetCatalogReads()
+        val reg = SolinModuleRegistryImpl()
+
+        McpModule(McpClient(serverRegistry, settings)).register(reg)
+
+        val frozen = reg.freeze()
+        val specs = frozen.toolProviders.flatMap { it.specs() }
+        val specNames = specs.map { it.name }.toSet()
+        assertEquals("registration must not re-read a changed catalog", 1, settings.catalogReads)
+        assertEquals(approvedTools.size, specNames.size)
+        assertEquals("specs and handlers must come from the same revision", specNames, frozen.toolHandlers.keys)
+    }
+
+    private class CountingSettings(
+        private val delegate: InMemoryMcpCapabilitySettings
+    ) : McpCapabilitySettings by delegate {
+        var catalogReads: Int = 0
+            private set
+
+        fun resetCatalogReads() {
+            catalogReads = 0
+        }
+
+        override fun servers(): List<McpServerEntry> {
+            catalogReads += 1
+            // A second read simulates a newer revision that revoked every tool.
+            return if (catalogReads == 1) delegate.servers() else emptyList()
+        }
     }
 }
