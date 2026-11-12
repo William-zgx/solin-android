@@ -35,11 +35,67 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前 main / CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
+| 当前 main 本地门禁 | `afe221e3` 的完整本地验证、隐私扫描、47 个 summarizer 测试及四个 lab summary drift 检查通过；不是 hosted CI 或设备证据。 | [2026-11-12 — Main simplification and documentation convergence](#2026-11-12--main-simplification-and-documentation-convergence) |
+| 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
+| 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查。二者均不是设备、延迟或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-12 — Main simplification and documentation convergence
+
+本轮覆盖项：删除 screenshot 纯转发并改为单参数函数注入；收归后台任务 UI reducer、scenario ID
+来源、orchestration trace/summary/OCR/progress 热路径、survival card、MCP catalog snapshot、memory
+migration/tokenization 与 lab manifest/架构扫描。同步全面文档、four-result 报表和 pending 候选哈希；
+`LocalOnly`、确认、持久化、审批和设备证据语义不变。
+
+集成代码提交为 `afe221e39775965ced9bf21196a90529996eb351`。在该集成树实际执行并通过：
+
+- `scripts/verify_local.sh`：doctor、validation scripts、Spotless、全量 JVM、Lint、debug/release APK、
+  androidTest APK、AAB、releaseSmoke 和 artifact scan 全部通过。宿主缺少 `zip`，仅在 `/tmp` 使用支持
+  `zip -qr <artifact> .` 的临时 fixture shim；项目脚本未修改，未安装系统包。
+- `scripts/privacy_scan.sh`：通过。
+- `python3 -I lab/scripts/test_summarize.py`：47 tests；`python3 -I lab/scripts/test_litert_shim.py`：3 tests。
+- `python3 -I lab/scripts/summarize.py --check` 分别覆盖 `20261107`、`20261108`、
+  `20261109-heldout`、`20261112-research`：全部通过，包括 Apple M3 Pro / Ollama 0.40.3 (MLX) provenance。
+- Markdown 相对链接、锚点、代码围栏和尾随空格检查覆盖 48 份文档；18 个 JSON 文件语法检查通过。
+- `verify_capability_matrix.sh`、`verify_model_capability_profiles.sh`、`verify_ai_behavior_eval.sh` 通过。
+  `verify_store_policy_record.sh` / `verify_privacy_review.sh` 仍因 pending 审批而不通过；候选哈希刷新
+  不构成批准，也未把预期拒绝写成发布门禁通过。
+
+本次未新增 emulator 或物理设备执行，未声称 OEM、热态、模型任务成功率、性能或发布批准。独立
+focused correctness 复核覆盖 MCP snapshot、memory migration/tokenization 及前序简化，未报告引入缺陷。
+
+## 2026-11-12 — Research evaluation set and rules-only run
+
+本轮覆盖项：新增独立 `initial_planning_research.jsonl` 及 metadata，覆盖 6 个 optional-boolean、
+6 个 argument-shape 和 6 个 irrelevant-tool case；负向参数约束、registry/shortlist 评分和报表 drift
+检查均纳入确定性回归。该数据集为 evaluation-only，不用于 prompt、rule 或 threshold tuning。
+
+原始规则运行记录于 `lab/results/20261112-research/manifest.json`、`run.log` 和
+`initial-planning__rules__R.jsonl`，revision 为 `748bfd65b98043de8179b5a640557f7af70a0bb8`。
+结果为 18 cases、6/18 overall correct、0/12 tool-gold exact tool+arguments、0/6 no-tool false positives、
+0 errors；没有模型运行或模型质量结论。原始 `run.log` 未保留完整 shell 调用，不能把 README 的
+重现命令写成当时实际执行命令。
+
+本次文档集成实际执行：`python3 -I lab/scripts/test_summarize.py`（47 tests）、
+`python3 -I lab/scripts/test_litert_shim.py`（3 tests），以及
+`python3 -I lab/scripts/summarize.py --check lab/results/20261112-research`，全部通过。
+详见 [SUMMARY](../lab/results/20261112-research/SUMMARY.md)。这些是桌面离线检查，不是手机、OEM、
+热态、延迟或发布证据。
+
+## 2026-11-09 — Held-out devbox LiteRT bench
+
+本轮覆盖项：60 条独立 held-out initial-planning 请求，production `.litertlm` 文件经 devbox CPU /
+LiteRT-LM 0.12.0 运行。记录 revision 为 `0bba32776c3e65ecff4d66a63909dc6b32aeb3bd`；rules 37/60、
+E2B 47/60、E4B 47/60，记录的 model errors 为 0。没有工具在手机上执行，数字不证明设备质量、
+延迟、内存、安全验收或发布就绪。
+
+原始证据位于 `lab/results/20261109-heldout/manifest.json`、各 Suite B JSONL 和
+[SUMMARY](../lab/results/20261109-heldout/SUMMARY.md)。原始日志未保留完整 shell 调用；本次没有
+重跑模型，只执行 `python3 -I lab/scripts/summarize.py --check lab/results/20261109-heldout` 并通过，
+确认当前生成器与保存的 JSONL 一致。Held-out metadata 的分布、互斥和 evaluation-only 合同保持不变。
 
 ## 2026-11-04 — Documentation refresh
 

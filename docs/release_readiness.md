@@ -1,12 +1,13 @@
 # Release Readiness
 
-This page summarizes current release readiness as of 2026-11-04, against main
-commit `cb7e4918`. It is not the release checklist or evidence log.
+Repository baseline for this readiness refresh: main `afe221e39775965ced9bf21196a90529996eb351`
+(2026-11-12). The full local gate for that integrated tree passed; the latest recorded hosted full CI
+remains the earlier `cb7e4918` run. This page is not the release checklist or evidence log.
 
 - Use [the release checklist](release_checklist.md) to execute a release candidate.
-- Use [the current CI evidence](validation_report.md#2026-11-04--main-ci-convergence)
-  and the append-only validation report for dated commands, APK hashes, results,
-  and known evidence gaps.
+- Use [the current evidence index](validation_report.md#当前证据索引) for the current local gate and
+  [the latest recorded full hosted CI evidence](validation_report.md#2026-11-04--main-ci-convergence),
+  plus the append-only validation report for dated commands, APK hashes, results, and known gaps.
 - Use the JSON records in `docs/` for machine-readable owner decisions and approvals.
 - [The blocker dashboard](release_blocker_dashboard.md) is generated from this page
   and `roadmap_gap_matrix.json`; regenerate it with
@@ -57,6 +58,7 @@ Current implementation ownership and limitations live in
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
+| Current local main gate | `afe221e3` passed `scripts/verify_local.sh`, including script regression, JVM tests, Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. The 47 summarizer tests and all four lab-summary drift checks also passed. | Local JVM/offline evidence is not hosted CI, emulator, physical-device, OEM, thermal or release approval evidence. |
 | Mainline CI | [Android Verification 41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903) passed on `cb7e4918`: `verify` ran `scripts/verify_local.sh`, including script regression, JVM tests, Lint, builds, and artifact checks. | A push run does not execute the protected signing, release archive, or final public-release jobs. |
 | JVM and Lint | The matching local fix gate passed 2688 JVM tests with zero failures/errors/skips and Lint with zero errors. The registration-race regression failed on the previous implementation and passed after the fix. | This count is evidence for that commit, not a permanent minimum or device-behavior claim. |
 | AI behavior fixtures | CI fixture/boundary validation passed 40 cases across 7 categories and 6 MVP scenarios. | Fixture validation is not a fresh public-strict runtime trace or live-model task benchmark. |
@@ -75,12 +77,12 @@ states describe missing evidence, not automatic permission to ship.
 
 | Status | Owner | Item | Gate / evidence |
 | --- | --- | --- | --- |
-| Owner evidence required | Release owner | Final owner, reviewer, channel, changelog, release notes, artifact SHA, signing fingerprint, evidence links, and blocker decisions in `release_record.json`. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; final public release binds the current commit and artifact. |
-| Manual approval required | Store / policy owner | Real support contact, public privacy URL, Data safety answers, listing/screenshots, and approval in `store_policy_record.json`. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`. |
-| Owner evidence required | Operations owner | Crash/ANR monitoring, rollout thresholds, first-day watcher, rollback and CI evidence in `release_operations_record.json`. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
-| Owner evidence required | Validation owner | Approved artifact-bound emulator, physical, API matrix, manual, release-flow, screenshot, and performance records in `release_validation_record.json`. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; skips cannot fill passed evidence slots. |
-| Manual/legal approval required | Release, security, legal | Review the current privacy notice and capability matrix, including opt-in remote vision and the debug background backend. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`; candidate hash refresh is not approval. |
-| Manual/legal approval required | Model/license reviewer | License source, attribution, notice, and redistribution decisions for every recommended model. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
+| Owner evidence required | Release owner | Final owner, reviewer, channel, changelog, release notes, artifact SHA, signing fingerprint, evidence links, and blocker decisions in `release_record.json`. | `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; final public release binds the current commit and artifact. |
+| Manual approval required | Store / policy owner | Real support contact, public privacy URL, Data safety answers, listing/screenshots, and approval in `store_policy_record.json`. | `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`. |
+| Owner evidence required | Operations owner | Crash/ANR monitoring, rollout thresholds, first-day watcher, rollback and CI evidence in `release_operations_record.json`. | `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
+| Owner evidence required | Validation owner | Approved artifact-bound emulator, physical, API matrix, manual, release-flow, screenshot, and performance records in `release_validation_record.json`. | `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; skips cannot fill passed evidence slots. |
+| Manual/legal approval required | Release, security, legal | Review the current privacy notice and capability matrix, including opt-in remote vision and the debug background backend. | `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`; candidate hash refresh is not approval. |
+| Manual/legal approval required | Model/license reviewer | License source, attribution, notice, and redistribution decisions for every recommended model. | `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
 | Owner evidence required | Signing owner | Production signing material outside Git, upload/app-signing fingerprints, final APK/AAB and mapping provenance. | Protected signing and `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production-upload-cert-sha256> scripts/verify_release_gate.sh`. |
 | Physical hardware required | Device validation owner | Final signed-RC instrumentation, retained-data upgrade, system UI/manual acceptance, and fresh real-app evidence on arm64 hardware. | `APP_APK_MODE=release APP_APK=<signed-release.apk> RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256=<apk-sha> RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh`. |
 | Owner evidence required | CI / emulator owner | Runnable API 28/32/33/34/36 arm64 infrastructure and complete passed nested reports. | `scripts/check_emulator_api_matrix.sh`, `scripts/prepare_emulator_api_matrix.sh`, then `scripts/regression_emulator_api_matrix.sh`. |
