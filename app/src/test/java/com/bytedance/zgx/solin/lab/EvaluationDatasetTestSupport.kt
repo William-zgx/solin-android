@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.lab
 
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.ToolRequest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -94,12 +95,26 @@ internal fun argumentPatternsOverlap(key: String, left: String, right: String): 
     }
 }
 
+private fun isCompleteLiteralGold(case: InitialCase, registry: ToolRegistry): Boolean {
+    if (case.goldArgs.values.any { '|' in it }) return false
+    val required = case.goldTools.mapNotNull(registry::specFor).flatMap { spec ->
+        JSONObject(spec.inputSchemaJson).optJSONArray("required").stringList()
+    }
+    return required.all(case.goldArgs::containsKey)
+}
+
 internal fun initialPlanningLabelProblems(cases: List<InitialCase>, registry: ToolRegistry): List<String> {
     val problems = mutableListOf<String>()
     cases.forEach { case ->
         case.goldTools.filterNot(registry::isKnownTool).forEach { problems += "${case.id}: unknown tool $it" }
         val declared = declaredToolArguments(case, registry)
         (case.goldArgs.keys - declared).forEach { problems += "${case.id}: argument $it not in gold tool schemas" }
+        if (case.goldTools.isNotEmpty() && isCompleteLiteralGold(case, registry) && case.goldTools.none { toolName ->
+                registry.validate(ToolRequest(toolName = toolName, arguments = case.goldArgs, reason = "dataset")) == null
+            }
+        ) {
+            problems += "${case.id}: gold request fails registry validation"
+        }
         (case.forbiddenNonEmptyArgs intersect case.goldArgs.keys).forEach { key ->
             if (case.goldArgs.getValue(key).isNotBlank()) {
                 problems += "${case.id}: nonblank gold argument is forbidden when non-empty: $key"

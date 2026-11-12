@@ -144,7 +144,7 @@ Model-only modes against `R`, case by case (`R` misses 24 cases). A cell from a 
 
 ### Suites B and C by request family
 
-| suite | model | mode | no tool (n=51) | launch app (n=9) | in-app search (n=14) | settings (n=14) | time (n=25) | drafts and calls (n=13) | search and maps (n=9) | media (n=4) | calculate (n=3) | private reads (n=9) |
+| suite | model | mode | no tool | launch app | in-app search | settings | time | drafts and calls | search and maps | media | calculate | private reads |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | B | rules | R | 51/51 (100%) | 8/9 (89%) | 1/14 (7%) | 13/14 (93%) | 21/25 (84%) | 10/13 (77%) | 7/9 (78%) | 4/4 (100%) | 3/3 (100%) | 9/9 (100%) |
 | B | functiongemma:270m | M-full | 51/51 (100%) | 0/9 (0%) | 0/14 (0%) | 0/14 (0%) | 0/25 (0%) | 0/13 (0%) | 0/9 (0%) | 0/4 (0%) | 0/3 (0%) | 0/9 (0%) |
@@ -179,16 +179,16 @@ App outcome applies the app's gate: a valid verdict with confidence >= 0.9 decid
 
 ### Suite E: local model as an action gate
 
-| model | n | valid JSON | gate decision correct | gate precision (true/false open) | recall on action cases | no-action cases kept closed | correct on the 74 rule-gap cases | gate opens on tool cases in the gap |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| gemma4:e4b | 151 | 151/151 (100%) | 132/151 (87%) | 86/91 (95%) | 86/100 (86%) | 46/51 (90%) | 69/74 (93%) | 23/23 (100%) |
-| gemma4:e2b | 151 | 151/151 (100%) | 134/151 (89%) | 86/89 (97%) | 86/100 (86%) | 48/51 (94%) | 70/74 (95%) | 22/23 (96%) |
+| model | n | valid JSON | gate decision correct | gate precision (true/false open) | recall on action cases | no-action cases kept closed | rule-gap n | correct on rule-gap cases | gate opens on tool cases in the gap |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gemma4:e4b | 151 | 151/151 (100%) | 132/151 (87%) | 86/91 (95%) | 86/100 (86%) | 46/51 (90%) | 74/74 (100%) | 69/74 (93%) | 23/23 (100%) |
+| gemma4:e2b | 151 | 151/151 (100%) | 134/151 (89%) | 86/89 (97%) | 86/100 (86%) | 48/51 (94%) | 74/74 (100%) | 70/74 (95%) | 22/23 (96%) |
 
 The gate opens on `action = true` with confidence >= the app's routing gate (`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid JSON) keeps it closed, so a broken gate fails closed to no tool. The 74 rule-gap cases are the Suite B requests where the production rules return no tool (51 no-tool, 23 tool). Explicit negations are labelled no-action. Lab-only experiment: the app has no such gate today.
 
 ### Production-faithful LocalModelFirst
 
-No production-fidelity rows for this host: the composite covers the B/C modes that ran, and none of them are on this host.
+No production-fidelity rows for this host: the file exists but has no eligible model rows for the selected dataset/models.
 
 ### Production RuleFirstGatedModel end-to-end
 
@@ -262,9 +262,9 @@ Suites B and C, all 151 requests together:
 | model | B R | B M-full | B M-full-fix | B M-topk | B M-topk-fix | B M-topk-fix-lmf | B R-gated-e2e | B R-gated-e2e-fence | C N-full | C N-topk | C N-topk-lmf |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | rules | 127/151 (84%) | - | - | - | - | - | - | - | - | - | - |
-| litert/gemma-4-e2b | - | - | - | 51/151 (34%) | 72/151 (48%) | 96/151 (64%) | 129/151 (85%) | 133/151 (88%) | - | 83/151 (55%) (3 errored) | 104/151 (69%) (1 errored) |
+| litert/gemma-4-e2b | - | - | - | 51/151 (34%) | 72/151 (48%) | 96/151 (64%) | 129/151 (85%) | 133/151 (88%) | - | 82/151 (54%) (3 errored) | 104/151 (69%) (1 errored) |
 | litert/gemma-4-e4b | - | - | - | 51/151 (34%) | - | 112/151 (74%) | 133/151 (88%) | - | - | 93/151 (62%) | 117/151 (77%) |
-| litert/mobile-actions-270m | - | errored 151/151 | errored 151/151 | 51/151 (34%) | 51/151 (34%) | - | - | - | errored 151/151 | 61/151 (40%) (112 errored) | - |
+| litert/mobile-actions-270m | - | errored 151/151 | errored 151/151 | 51/151 (34%) | 51/151 (34%) | - | - | - | errored 151/151 | 20/151 (13%) (112 errored) | - |
 
 Suite A (final step after the replanner guards, 46 screens) and Suite D (placement on 26 routing cases):
 
@@ -411,12 +411,12 @@ Per-argument accuracy, scored only where the tool was right (10 most common gold
 
 | model | mode | overall correct | errored | tool correct (tool gold) | tool+args exact (tool gold) | false positive (no-tool gold) | valid of attempted calls | schema-valid |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | N-topk | 83/151 (55%) (3 errored) | 3 | 75/98 (77%) (3 errored) | 71/98 (72%) (3 errored) | 39/50 (78%) (3 errored) | 100% | 80% (3 errored) |
+| litert/gemma-4-e2b | N-topk | 82/151 (54%) (3 errored) | 3 | 75/98 (77%) (3 errored) | 71/98 (72%) (3 errored) | 39/50 (78%) (3 errored) | 100% | 80% (3 errored) |
 | litert/gemma-4-e2b | N-topk-lmf | 104/151 (69%) (1 errored) | 1 | 76/99 (77%) (1 errored) | 73/99 (74%) (1 errored) | 20/51 (39%) (1 errored) | 100% | 78% (1 errored) |
 | litert/gemma-4-e4b | N-topk | 93/151 (62%) | 0 | 77/100 (77%) | 77/100 (77%) | 35/51 (69%) | 100% | 82% |
 | litert/gemma-4-e4b | N-topk-lmf | 117/151 (77%) | 0 | 77/100 (77%) | 77/100 (77%) | 11/51 (22%) | 100% | 79% |
 | litert/mobile-actions-270m | N-full | errored 151/151 (engine rejected the call) | 151 | errored 100/100 | errored 100/100 | errored 51/51 | errored 151/151 | errored 151/151 |
-| litert/mobile-actions-270m | N-topk | 61/151 (40%) (112 errored) | 112 | 18/29 (62%) (112 errored) | 16/29 (55%) (112 errored) | 6/10 (60%) (112 errored) | 76% | 46% (112 errored) |
+| litert/mobile-actions-270m | N-topk | 20/151 (13%) (112 errored) | 112 | 18/29 (62%) (112 errored) | 16/29 (55%) (112 errored) | 6/10 (60%) (112 errored) | 76% | 46% (112 errored) |
 
 `N-full` and `N-topk` use a strict system prompt (always call one tool); `N-topk-free` allows a plain-text answer when no phone action is needed. Arguments are converted to strings the way `RemoteChatRuntime` converts remote tool calls.
 
@@ -444,7 +444,7 @@ Model-only modes against `R`, case by case (`R` misses 24 cases). A cell from a 
 
 ### Suites B and C by request family
 
-| suite | model | mode | no tool (n=51) | launch app (n=9) | in-app search (n=14) | settings (n=14) | time (n=25) | drafts and calls (n=13) | search and maps (n=9) | media (n=4) | calculate (n=3) | private reads (n=9) |
+| suite | model | mode | no tool | launch app | in-app search | settings | time | drafts and calls | search and maps | media | calculate | private reads |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | B | rules | R | 51/51 (100%) | 8/9 (89%) | 1/14 (7%) | 13/14 (93%) | 21/25 (84%) | 10/13 (77%) | 7/9 (78%) | 4/4 (100%) | 3/3 (100%) | 9/9 (100%) |
 | B | litert/gemma-4-e2b | M-topk | 51/51 (100%) | 0/9 (0%) | 0/14 (0%) | 0/14 (0%) | 0/25 (0%) | 0/13 (0%) | 0/9 (0%) | 0/4 (0%) | 0/3 (0%) | 0/9 (0%) |
@@ -484,12 +484,12 @@ Family = the gold first tool's family; dataset cases labeled `in_app_search` ("å
 | B | litert/mobile-actions-270m | M-full-fix | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
 | B | litert/mobile-actions-270m | M-topk | 100 | 0 | 0 | 4 | 0 | 96 | 0 | 0 | 0 | 0 |
 | B | litert/mobile-actions-270m | M-topk-fix | 100 | 0 | 0 | 3 | 0 | 97 | 0 | 0 | 0 | 0 |
-| C | litert/gemma-4-e2b | N-topk | 68 (3 errored) | 22 (3 errored) | 4 (3 errored) | 0 (3 errored) | 0 (3 errored) | 1 (3 errored) | 39 (3 errored) | 2 (3 errored) | 0 (3 errored) | 3/151 (3 errored) |
+| C | litert/gemma-4-e2b | N-topk | 69 (3 errored) | 22 (3 errored) | 4 (3 errored) | 0 (3 errored) | 0 (3 errored) | 1 (3 errored) | 39 (3 errored) | 3 (3 errored) | 0 (3 errored) | 3/151 (3 errored) |
 | C | litert/gemma-4-e2b | N-topk-lmf | 47 (1 errored) | 20 (1 errored) | 3 (1 errored) | 0 (1 errored) | 0 (1 errored) | 3 (1 errored) | 20 (1 errored) | 1 (1 errored) | 0 (1 errored) | 1/151 (1 errored) |
 | C | litert/gemma-4-e4b | N-topk | 58 | 21 | 0 | 0 | 0 | 2 | 35 | 0 | 0 | 0 |
 | C | litert/gemma-4-e4b | N-topk-lmf | 34 | 20 | 0 | 0 | 0 | 3 | 11 | 0 | 0 | 0 |
 | C | litert/mobile-actions-270m | N-full | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 | errored 151/151 |
-| C | litert/mobile-actions-270m | N-topk | 90 (112 errored) | 2 (112 errored) | 2 (112 errored) | 0 (112 errored) | 6 (112 errored) | 3 (112 errored) | 6 (112 errored) | 71 (112 errored) | 0 (112 errored) | 112/151 (112 errored) |
+| C | litert/mobile-actions-270m | N-topk | 131 (112 errored) | 2 (112 errored) | 2 (112 errored) | 0 (112 errored) | 6 (112 errored) | 3 (112 errored) | 6 (112 errored) | 112 (112 errored) | 0 (112 errored) | 112/151 (112 errored) |
 
 Classes: wrong tool = a valid call to a registry tool that is not gold; bad/missing args = gold tool with a pinned argument wrong or absent (or rejected by the schema); unparseable call = a `call:` / tool call the app's parser rejects for format, multiple calls or nested arguments; hallucinated tool name = a call to a tool that is not in the registry; answered instead of tool = plain text or nothing on a request that needs a tool; tool on no-tool request = an executable tool call where the gold is no tool. `call:function` counts outputs that copied the `call:function {"arg":"value"}` placeholder from the prompt as the tool name.
 
@@ -504,10 +504,10 @@ App outcome applies the app's gate: a valid verdict with confidence >= 0.9 decid
 
 ### Suite E: local model as an action gate
 
-| model | n | valid JSON | gate decision correct | gate precision (true/false open) | recall on action cases | no-action cases kept closed | correct on the 74 rule-gap cases | gate opens on tool cases in the gap |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | 151 | 151/151 (100%) | 126/151 (83%) | 80/85 (94%) | 80/100 (80%) | 46/51 (90%) | 68/74 (92%) | 22/23 (96%) |
-| litert/gemma-4-e4b | 151 | 151/151 (100%) | 136/151 (90%) | 87/89 (98%) | 87/100 (87%) | 49/51 (96%) | 72/74 (97%) | 23/23 (100%) |
+| model | n | valid JSON | gate decision correct | gate precision (true/false open) | recall on action cases | no-action cases kept closed | rule-gap n | correct on rule-gap cases | gate opens on tool cases in the gap |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| litert/gemma-4-e2b | 151 | 151/151 (100%) | 126/151 (83%) | 80/85 (94%) | 80/100 (80%) | 46/51 (90%) | 74/74 (100%) | 68/74 (92%) | 22/23 (96%) |
+| litert/gemma-4-e4b | 151 | 151/151 (100%) | 136/151 (90%) | 87/89 (98%) | 87/100 (87%) | 49/51 (96%) | 74/74 (100%) | 72/74 (97%) | 23/23 (100%) |
 
 The gate opens on `action = true` with confidence >= the app's routing gate (`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid JSON) keeps it closed, so a broken gate fails closed to no tool. The 74 rule-gap cases are the Suite B requests where the production rules return no tool (51 no-tool, 23 tool). Explicit negations are labelled no-action. Lab-only experiment: the app has no such gate today.
 
@@ -552,12 +552,12 @@ Every no-tool false positive, split. **Orchestration-only** = the production `To
 | litert/gemma-4-e2b | R-gated-e2e | 129/151 | 77 | 18 | 45 | 11 | 0 | 0 | 19 | 37 | 0 |
 | litert/gemma-4-e4b | R-gated-e2e | 133/151 | 77 | 18 | 31 | 23 | 0 | 2 | 56 | 0 | 0 |
 
-No-tool false positives in the final accepted plan (51 no-tool requests). Orchestration-only choices have no device, network or external-app effect; private reads and network egress are the privacy-relevant subsets of the executable-action column:
+No-tool false positives in the final accepted plan (per-model denominators). Orchestration-only choices have no device, network or external-app effect; private reads and network egress are the privacy-relevant subsets of the executable-action column:
 
-| model | mode | false positives | orchestration only | device/network/external | of which private reads | of which network egress |
-| --- | --- | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | R-gated-e2e | 0 | 0 | 0 | 0 | 0 |
-| litert/gemma-4-e4b | R-gated-e2e | 2 | 0 | 2 | 0 | 0 |
+| model | mode | no-tool n | false positives | orchestration only | device/network/external | of which private reads | of which network egress |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| litert/gemma-4-e2b | R-gated-e2e | 51 | 0 | 0 | 0 | 0 | 0 |
+| litert/gemma-4-e4b | R-gated-e2e | 51 | 2 | 0 | 2 | 0 | 0 |
 
 Comparison with the same committed `R` records and the coordinator's offline estimate: rules, then the measured production negation cases, then the saved lenient Suite E gate, then saved `M-topk-fix-lmf` only where that gate opened. This reconstructs 131/151 for E2B and 133/151 for E4B with 2/51 false positives; it is a comparison baseline, not the end-to-end measurement. Î” is measured production minus the named baseline:
 
@@ -681,9 +681,9 @@ Offline composite: `R`, then the action gate, then the native mode in its column
 
 Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run has no row at all, because there is nothing to time.
 
-## Tool retriever recall
+## Tool retriever recall (tuning campaign)
 
-Host-independent: the lexical retriever and the prompt it builds are the same on every host.
+Host-independent: computed once from the tuned 151-case campaign, not from the selected evaluation dataset. The lexical retriever and the prompt it builds are the same on every host.
 
 | k | recall@k (tool cases) | mean `actionPrompt` chars |
 | --- | --- | --- |

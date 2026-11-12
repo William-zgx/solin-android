@@ -177,7 +177,7 @@ fun addFalsePositiveSplit(record: JSONObject, registry: ToolRegistry) {
 /** Backward-compatible accessors for the original independent 60-case held-out descriptor. */
 object HeldOutInitialPlanningCases {
     val DATASET_FILENAME = InitialPlanningDatasets.heldout.datasetFile
-    val METADATA_FILENAME = InitialPlanningDatasets.heldout.metadataFile
+    val METADATA_FILENAME: String = requireNotNull(InitialPlanningDatasets.heldout.metadataFile)
 
     fun loadAll(): List<InitialCase> = InitialPlanningDatasets.heldout.loadAll()
 

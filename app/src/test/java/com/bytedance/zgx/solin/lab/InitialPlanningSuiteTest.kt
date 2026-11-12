@@ -188,7 +188,12 @@ class InitialPlanningSuiteTest {
                         )
                     )
                 if (calls.any { it.result.error != null }) {
-                    record.put("correct", false).put("argsExact", false)
+                    record.put("correct", false)
+                        .put("argsExact", false)
+                        .put("toolCorrect", false)
+                        .put("argKeys", JSONObject())
+                        .put("constraintResults", JSONObject())
+                        .put("falsePositive", false)
                 }
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)

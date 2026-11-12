@@ -369,10 +369,10 @@ def invalid_reason(record):
 
 def initial_failure(record):
     """Failure class of one Suites B/C record, or None when it is correct."""
-    if record["correct"]:
-        return None
     if errored(record):
         return "error"
+    if record["correct"]:
+        return None
     if not record["expectsTool"]:
         return "tool on no-tool request"
     answer = record["answer"]
@@ -489,7 +489,7 @@ def observation_failure(record):
 def score_of(suite, rs):
     if suite == SUITE_A:
         return sum(r["finalCorrect"] for r in rs), len(rs)
-    return sum(r["correct"] for r in rs), len(rs)
+    return sum(r["correct"] and not errored(r) for r in rs), len(rs)
 
 
 def headline_table(records, models, manifest, columns, cell):
@@ -714,7 +714,7 @@ def initial_rows(keys, records, native):
         # An errored case answered nothing. It is never "correct": say so instead of letting a
         # refusal-shaped record inflate the score (the 270M overflow case looked like 51/151 before).
         # The fully errored case also names the cause, which the engine's stderr carries.
-        overall = score_cell(key, rs, sum(r["correct"] for r in rs))
+        overall = score_cell(key, rs, sum(r["correct"] and not errored(r) for r in rs))
         if bad and len(bad) == len(rs):
             overall = f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})"
         attempted = [r for r in rs
@@ -835,8 +835,7 @@ def initial_categories(records, models, out):
         return
     present = {family(r) for key in keys for r in records[key]}
     families = [f for f in FAMILY_ORDER if f in present]
-    sizes = Counter(family(r) for r in records[keys[0]])
-    header = ["suite", "model", "mode"] + [f"{f} (n={sizes.get(f, 0)})" for f in families]
+    header = ["suite", "model", "mode"] + families
     rows = []
     for key in keys:
         by = defaultdict(list)
@@ -1176,16 +1175,15 @@ def suite_e(records, models, out):
             run_cell(key, f"{precision} ({pct(true_pos, true_pos + false_pos)})"),
             run_cell(key, frac(true_pos, len(acted))),
             run_cell(key, frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle))),
+            score_cell(key, gap_rs, len(gap_rs)),
             score_cell(key, gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect"))) if gap_rs else "-",
             run_cell(key, frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)))
             if gap_acted else "-",
         ])
     population = rule_gap_population(records)
-    gap_in_run = {r["caseId"] for key in keys for r in records[key] if r["caseId"] in gap}
-    gap_label = f"{len(gap_in_run)} rule-gap cases in this run" if population else "rule-gap population unavailable"
     out.append(table(
         ["model", "n", "valid JSON", "gate decision correct", "gate precision (true/false open)",
-         "recall on action cases", "no-action cases kept closed", f"correct on the {gap_label}",
+         "recall on action cases", "no-action cases kept closed", "rule-gap n", "correct on rule-gap cases",
          "gate opens on tool cases in the gap"],
         rows,
     ))

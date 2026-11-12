@@ -165,7 +165,7 @@ object LabScoring {
         noToolChoice: Boolean = false
     ): Pair<LabAnswer, String> {
         parser.parseModelOutput(raw)?.let { draft -> return LabAnswer(draft.functionName, draft.parameters) to "call" }
-        if (noToolChoice && normalizedChoice(raw) == LOCAL_MODEL_NO_TOOL_CHOICE) {
+        if (noToolChoice && callName.findAll(raw).count() == 1 && normalizedChoice(raw) == LOCAL_MODEL_NO_TOOL_CHOICE) {
             return LabAnswer.STOP to "no_tool_choice"
         }
         return when {

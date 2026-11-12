@@ -1,10 +1,12 @@
 package com.bytedance.zgx.solin.lab
 
+import com.bytedance.zgx.solin.action.MobileActionPlanner
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -191,6 +193,18 @@ class ResearchInitialPlanningDatasetTest {
         assertFalse(score.getBoolean("toolCorrect"))
         assertFalse(missingModel.getBoolean("correct"))
         assertFalse(missingModel.getBoolean("toolCorrect"))
+    }
+
+    @Test
+    fun multipleCallsAreNotADeliberateNoToolChoice() {
+        val (answer, kind) = LabScoring.answerFromCallOutput(
+            "call:answer {}\ncall:web_search {\"query\":\"x\"}",
+            MobileActionPlanner(toolRegistry = registry),
+            noToolChoice = true
+        )
+
+        assertNotEquals("no_tool_choice", kind)
+        assertTrue(answer.invalid)
     }
 
     @Test

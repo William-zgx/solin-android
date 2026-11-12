@@ -365,7 +365,7 @@ class DecisionL1Test(unittest.TestCase):
         self.assertFalse(summarize.has_annotation("| row | errored 9/9 |", 151, 151))
 
     def test_check_fails_on_bare_fraction_for_a_partly_errored_run(self):
-        """The committed defect: strip ` (3 errored)` from the real 83/151 row; check must fail.
+        """The committed defect: strip ` (3 errored)` from the real annotated N-topk row; check must fail.
 
         `83/151` contains the characters `3/151` but is not the error count. Against `655029cf`
         this passed (exit 0), which is exactly why SUMMARY.md:664 shipped unannotated.
@@ -377,11 +377,11 @@ class DecisionL1Test(unittest.TestCase):
         target = folder / "SUMMARY.md"
         lines = target.read_text(encoding="utf-8").splitlines()
         for index, line in enumerate(lines):
-            if line in data_rows(lines) and "N-topk" in line and "83/151 (55%) (3 errored)" in line:
+            if line in data_rows(lines) and "N-topk" in line and "(3 errored)" in line:
                 lines[index] = line.replace(" (3 errored)", "", 1)
                 break
         else:
-            self.fail("the real fixture has no annotated 83/151 N-topk row")
+            self.fail("the real fixture has no annotated N-topk row")
         target.write_text("\n".join(lines) + "\n", encoding="utf-8")
         result = run("--check", folder)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
