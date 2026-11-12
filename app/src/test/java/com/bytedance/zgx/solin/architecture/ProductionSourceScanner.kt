@@ -55,7 +55,9 @@ internal object ProductionSourceScanner {
     fun packageDirExists(relativePackageDir: String): Boolean = File(solinPackageRoot(), relativePackageDir).isDirectory
 
     /** Returns import statements without the leading `import `, one per line. */
-    fun importStatements(file: File): List<String> = codeLines(file).mapNotNull { line ->
+    fun importStatements(file: File): List<String> = importStatements(codeLines(file))
+
+    private fun importStatements(lines: List<String>): List<String> = lines.mapNotNull { line ->
         val trimmed = line.trim()
         if (trimmed.startsWith("import ")) {
             trimmed.removePrefix("import ").trim().removeSuffix(";")
@@ -66,10 +68,11 @@ internal object ProductionSourceScanner {
 
     /** Returns imports and fully qualified references, including Android and AndroidX packages. */
     fun sourceReferences(file: File): List<String> {
-        val qualifiedReferences = codeLines(file).flatMap { line ->
+        val lines = codeLines(file)
+        val qualifiedReferences = lines.flatMap { line ->
             QUALIFIED_REFERENCE.findAll(line).map { match -> match.value }.toList()
         }
-        return (importStatements(file) + qualifiedReferences).distinct()
+        return (importStatements(lines) + qualifiedReferences).distinct()
     }
 
     /**

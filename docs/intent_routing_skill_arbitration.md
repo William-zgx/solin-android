@@ -40,7 +40,7 @@ flowchart TD
 | 系统 Wi-Fi 设置动作 | `打开WiFi`、`打开 WiFi`、`打开 Wi-Fi` | `device_settings_skill` / `open_wifi_settings` | 系统设置优先于同名 App。 |
 | 其他系统/权限设置动作 | `打开无障碍设置`、`打开 Usage Access` | `device_settings_skill` / 对应 settings tool | 按当前策略授权打开页面；特殊访问仍由用户在系统界面授予，不当作普通 runtime permission。 |
 | 明确命名 App 打开 | `打开名为 WiFi 的 App` | App navigation 层 | 不能误触系统 Wi-Fi 设置。 |
-| App 内搜索 | `打开淘宝搜索耳机`、`在当前应用搜索耳机` | Static app-search skill；有已校验本地动作规划模型时走 model-driven bootstrap | V1 只做低风险搜索闭环；observation 只给本地动作规划模型，不暴露给远端；不发送、删除、支付、下单、授权或发布。 |
+| App 内搜索 | `打开淘宝搜索耳机`、`在当前应用搜索耳机` | Static app-search skill；有已校验本地动作规划模型时走 model-driven bootstrap | V1 只做低风险搜索闭环；默认本地 replanning 的 observation 只给本地动作规划模型；显式开启远程视觉并通过本次运行确认后，可由远程视觉先处理新鲜截图和可见控件文字；不发送、删除、支付、下单、授权或发布。 |
 | 普通 App 打开 | `打开淘宝` | App navigation 层 | 不接受任意 Intent、Activity、extras 或未白名单 deep target。 |
 | App 打开 + 应用内后续 | `打开淘宝并搜索耳机` | App navigation 层；具备本地动作规划能力或已显式开启远程视觉时可继续 observe→replan | `followUpIntent` 是 schema 受限的意图字符串，不能携带任意 Intent/Activity/extra；后续仍受目标包、当前授权、步数预算和实时危险控件守卫约束。 |
 | 本地私密读取 | `总结剪贴板`、`读取当前屏幕文字` | Skill-first LocalOnly flow | 按当前确认策略执行；结果不得进入远程 continuation，系统权限仍须用户授予。 |
@@ -52,7 +52,8 @@ flowchart TD
 - Action planner：作为兼容和补充，不应覆盖明确的系统设置、权限设置、
   LocalOnly 读取或 App navigation Skill。
 - App 搜索：默认使用静态 Skill；当本地动作规划模型已校验时，Skill 只负责
-  打开/等待/首次观察，之后每轮只允许本地模型规划一个低风险 UI tool。
+  打开/等待/首次观察，之后默认本地 replanning 每轮只允许本地模型规划一个低风险 UI tool。
+  显式开启的远程视觉路径优先于本地 replanner，可返回受预算约束的多步计划。
   模型可用的 UI 词汇现包含有界的 swipe（滑动）、long-press（长按）与白名单系统
   按键（home/recents/enter/delete），ToolSpec 保留 Medium-risk/Required 元数据；是否弹窗由
   当前确认模式及 critical reason 决定，仍计入相应预算并保持不发送/不支付/不发布边界。
@@ -70,7 +71,8 @@ flowchart TD
 
 ## Resolver Evidence 策略
 
-`UiTargetResolver.explain()` 只用于诊断 App 内搜索/control 失败，不替代实际
+`UiTargetResolver.explain()` 用于 App 内搜索/control 的成功进度与失败诊断，包括
+`input_ready`、`observed_entry` 等会进入本地 observation-replanning prompt 的信号；它不替代实际
 Accessibility 执行路径。
 
 Debug eval receiver 可以把这些字段写入 tap/type/submit 的 request result：

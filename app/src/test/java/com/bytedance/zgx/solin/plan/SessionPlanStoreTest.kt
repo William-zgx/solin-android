@@ -18,7 +18,7 @@ class SessionPlanStoreTest {
         val items = listOf(
             PlanItem(planItemId = "a", runId = "r", position = 5, title = "A"),
             PlanItem(planItemId = "b", runId = "r", position = 2, title = "B"),
-            PlanItem(planItemId = "c", runId = "r", position = 9, title = "C"),
+            PlanItem(planItemId = "c", runId = "r", position = 9, title = "C")
         )
         val snap = store.replaceAll("r", items)
         assertEquals(3, snap.items.size)
@@ -38,7 +38,7 @@ class SessionPlanStoreTest {
             runId = "r",
             position = 0,
             title = "A",
-            updatedAtMillis = 1L,
+            updatedAtMillis = 1L
         )
         val before = System.currentTimeMillis()
 

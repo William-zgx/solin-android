@@ -35,12 +35,12 @@ internal class ToolObservationContinuationBuilder(
     private val traceQueries: AgentTraceQueries,
     private val publicEvidenceContinuation: PublicEvidenceContinuation,
     private val scratchpad: PerRunScratchpad,
-    private val evidenceBlobStore: EvidenceBlobStore,
+    private val evidenceBlobStore: EvidenceBlobStore
 ) {
     fun continuationForToolObservation(
         run: AgentRun,
         request: ToolRequest?,
-        result: ToolResult,
+        result: ToolResult
     ): ToolObservationContinuation? {
         if (result.status != ToolStatus.Succeeded) return null
         skillModelContinuationAfterToolObservation(run, request, result)?.let { continuation ->
@@ -66,7 +66,7 @@ internal class ToolObservationContinuationBuilder(
     private fun builtInContinuationForToolObservation(
         run: AgentRun,
         request: ToolRequest?,
-        result: ToolResult,
+        result: ToolResult
     ): ToolObservationContinuation? {
         return when (request?.toolName) {
             MobileActionFunctions.READ_CLIPBOARD -> {
@@ -84,7 +84,7 @@ internal class ToolObservationContinuationBuilder(
                     $clipboardText
                     """.trimIndent(),
                     requiresLocalModel = true,
-                    canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run),
+                    canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run)
                 )
             }
 
@@ -135,7 +135,7 @@ internal class ToolObservationContinuationBuilder(
                     $screenObservationSection
                     """.trimIndent(),
                     requiresLocalModel = true,
-                    canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run),
+                    canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run)
                 )
             }
 
@@ -153,7 +153,7 @@ internal class ToolObservationContinuationBuilder(
                     当前屏幕文本${if (truncated) "（已截断）" else ""}：
                     $screenText
                     """.trimIndent(),
-                    requiresLocalModel = true,
+                    requiresLocalModel = true
                 )
             }
 
@@ -169,7 +169,7 @@ internal class ToolObservationContinuationBuilder(
     private fun policyContinuationAfterToolObservation(
         run: AgentRun,
         request: ToolRequest?,
-        result: ToolResult,
+        result: ToolResult
     ): ToolObservationContinuation? {
         request ?: return null
         val spec = toolRegistry.specFor(request.toolName) ?: return null
@@ -186,7 +186,7 @@ internal class ToolObservationContinuationBuilder(
     private fun localEvidenceContinuationAfterToolObservation(
         run: AgentRun,
         request: ToolRequest,
-        result: ToolResult,
+        result: ToolResult
     ): ToolObservationContinuation? {
         if (result.data["privacy"] != MessagePrivacy.LocalOnly.name) return null
         if (result.data["requiresLocalModel"]?.toBooleanStrictOrNull() != true) return null
@@ -203,14 +203,14 @@ internal class ToolObservationContinuationBuilder(
                 $localData
             """.trimIndent(),
             requiresLocalModel = true,
-            canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run),
+            canPlanNextToolBeforeModel = toolPlanCoordinator.canPlanLocalToolFromCurrentScreenObservation(request, run)
         )
     }
 
     private fun skillModelContinuationAfterToolObservation(
         run: AgentRun,
         request: ToolRequest?,
-        result: ToolResult,
+        result: ToolResult
     ): ToolObservationContinuation? {
         request ?: return null
         val skillPlan = traceQueries.latestSkillPlan(run.id) ?: return null
@@ -258,33 +258,29 @@ internal class ToolObservationContinuationBuilder(
                 只输出 `${nextModelStep.outputKey}` 对应的文本，不要输出 JSON 或额外说明。
             """.trimIndent(),
             requiresLocalModel = requiresLocalModel,
-            blocksSequentialTail = true,
+            blocksSequentialTail = true
         )
     }
 
     private fun originalRequestForSkillContinuation(
         run: AgentRun,
-        skillPlan: SkillPlan,
-    ): String {
-        return run.input
-            .takeIf { input -> input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE }
-            ?: skillPlan.request.arguments["input"]?.takeIf { input ->
-                input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE
-            }
-            ?: skillPlan.request.reason.takeIf { reason ->
-                reason.isNotBlank() && reason != REDACTED_AGENT_RUN_INPUT_VALUE
-            }
-            ?: skillPlan.manifest.title
-    }
-
-    private fun ToolResult.requiresLocalModelContinuation(): Boolean =
-        data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
-            data["privacy"] == MessagePrivacy.LocalOnly.name
-
-    private fun String?.recentImageOcrContentLabel(): String =
-        when (this) {
-            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "最近图片"
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图"
-            else -> "最近截图"
+        skillPlan: SkillPlan
+    ): String = run.input
+        .takeIf { input -> input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE }
+        ?: skillPlan.request.arguments["input"]?.takeIf { input ->
+            input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE
         }
+        ?: skillPlan.request.reason.takeIf { reason ->
+            reason.isNotBlank() && reason != REDACTED_AGENT_RUN_INPUT_VALUE
+        }
+        ?: skillPlan.manifest.title
+
+    private fun ToolResult.requiresLocalModelContinuation(): Boolean = data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
+        data["privacy"] == MessagePrivacy.LocalOnly.name
+
+    private fun String?.recentImageOcrContentLabel(): String = when (this) {
+        MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "最近图片"
+        MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图"
+        else -> "最近截图"
+    }
 }

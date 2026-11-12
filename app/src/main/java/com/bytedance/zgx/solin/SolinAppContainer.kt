@@ -30,7 +30,6 @@ import com.bytedance.zgx.solin.data.RemoteModelRepository
 import com.bytedance.zgx.solin.data.SessionRepository
 import com.bytedance.zgx.solin.data.SharedPreferencesDecisionModelRoutingSettings
 import com.bytedance.zgx.solin.data.SolinDatabase
-import com.bytedance.zgx.solin.device.AccessibilityRawScreenshotProvider
 import com.bytedance.zgx.solin.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.solin.device.AndroidContactSummaryProvider
 import com.bytedance.zgx.solin.device.AndroidCurrentScreenControlProvider
@@ -41,6 +40,7 @@ import com.bytedance.zgx.solin.device.AndroidRecentFileProvider
 import com.bytedance.zgx.solin.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.solin.device.DeviceControlSessionService
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
+import com.bytedance.zgx.solin.device.SolinAccessibilityService
 import com.bytedance.zgx.solin.download.ModelDownloadService
 import com.bytedance.zgx.solin.evidence.EvidenceBlobStore
 import com.bytedance.zgx.solin.evidence.OnDeviceEvidenceBlobStore
@@ -313,7 +313,7 @@ class SolinAppContainer(
         // service (AccessibilityService.takeScreenshot) — NO MediaProjection dialog and NO foreground
         // service. Egress is governed by the in-app opt-in + first-confirm gate + per-send audit.
         // The MediaProjection-based OCR provider above stays the LocalOnly OCR tool's capture path.
-        rawScreenshotProvider = AccessibilityRawScreenshotProvider()
+        rawScreenshotProvider = SolinAccessibilityService::performTakeScreenshotRaw
         // Seams: event bus, telemetry, and system-context contributors.
         eventBus = DefaultSolinEventBus()
         telemetrySink = InMemoryTelemetrySink()

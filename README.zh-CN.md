@@ -37,6 +37,8 @@ Solin 处于**实验阶段**，适合本地开发与个人评估，尚未准备�
 [当前限制](#当前状态)与[发布就绪状态](docs/release_readiness.md)区分已实现功能、
 设备支持证据和发布批准。
 
+聊天界面只展示安全的结果摘要；结构化工具字段保留在 trace/audit 表面，不以类型化聊天卡片展示。
+
 ## 快速开始
 
 使用 **JDK 21** 与 CI 对齐，安装 Android SDK platform 36、build-tools 36.0.0 和
@@ -76,7 +78,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - **默认只确认关键操作。** 获准的可撤销步骤可以直接执行。外发、未知工具、模型标注敏感
   步骤，以及含敏感信息或读过隐私数据后的联网查询需要确认。读过隐私数据后，输入用户
   未提供的文字也要确认；向其他 App 传递敏感文字或此后新编写的文字同样受检查。仅由
-  用户原话构成、非敏感且未触发其他关键规则的草稿可自动批准。
+  用户原话构成、非敏感且未触发其他关键规则的草稿可自动批准。已接受的初始
+  `LocalModelFirst` 工具提案无论是否为低风险工具，在两种确认模式下都需要用户确认。
 - **关键控件由用户操作。** Agent 不点击支付、发送、删除、发布、下单、转账或授权控件。
   信任中心可将普通动作切回“每步确认”。
 - **远程视觉先批准。** 截图外发要求显式开关、远程模式、支持图片的模型，以及本次运行
@@ -92,7 +95,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 本地路径支持观察、点击、输入、搜索提交、滚动、滑动、长按、返回、等待和固定白名单
 系统按键，仍须满足实时页面和隐私守卫。输入读回与有界控件树稳定检查会明确标记
-不确定结果，不盲目重放写操作。
+不确定结果，不盲目重放写操作。重新开启每步确认后，低风险应用控制会在第 5 步设置检查点交还用户。
 
 | 工具 | 边界 |
 | --- | --- |
@@ -162,7 +165,7 @@ AVD_NAME=<your-avd-name> scripts/regression_emulator.sh
 CI 任务因基础设施不支持（如 HVF 不可用）而跳过，即使显示绿色也不代表实际设备覆盖。
 模型驱动的应用搜索还要求指定模型和经过验证的 query/package/app 守卫。
 
-按提交记录的结果见[验证报告](docs/validation_report.md#2026-11-04--main-ci-convergence)。
+按提交记录的结果见[当前验证证据索引](docs/validation_report.md#当前证据索引)。
 语音输入、系统选择器、MediaProjection 同意、物理设备行为和发布批准需要各自证据。
 
 ## 当前状态
@@ -185,6 +188,7 @@ CI 任务因基础设施不支持（如 HVF 不可用）而跳过，即使显示
 | 使用与设备验收 | [手机验收](docs/phone_acceptance.md) |
 | 模型来源和分包 | [清单](docs/model_manifest.md) · [bundled models](docs/bundled_model_package.md) |
 | 发布状态和证据 | [就绪状态](docs/release_readiness.md) · [验证报告](docs/validation_report.md) |
+| 离线模型能力评测 | [Lab 指南](lab/README.md) · [评测结果入口](docs/index.md#architecture-and-implementation) |
 | 全部事实归属文档 | [文档索引](docs/index.md) |
 
 ## 贡献

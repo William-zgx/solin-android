@@ -5,7 +5,7 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 [validation_report.md](validation_report.md).
 
-Checked on 2026-11-11. The tree has 327 production Kotlin files and 52 registered
+Checked on 2026-11-12. The tree has 326 production Kotlin files and 52 registered
 capability-matrix tool entries. These are measured inventory values, not goals to
 grow toward. `:app` is the product module; `releaseSmoke` is a verification helper.
 Runtime/package boundaries remain conventions enforced by architecture tests.
@@ -15,8 +15,9 @@ Shared helpers live in `app/src/main/java/com/bytedance/zgx/solin/common/`:
 `optStringOrNull`, `optDoubleOrNull`, `optStringSet`, `optStringSetOrNull`,
 `firstNonBlank`), plus the policy-neutral `StrictJsonScan` / `StrictJsonRejection`
 syntax scanner. `Hashing.kt` provides `sha256Hex`, `toLowerHex`, and
-`appendLengthPrefixed`. Helpers are `internal` and carry no product policy. The org.json
-readers fail soft (null or empty) so each caller decides how to fail closed; the strict
+`appendLengthPrefixed`. Helpers are `internal` and carry no product policy. Most org.json
+readers fail soft (null or empty) so each caller decides how to fail closed;
+`optStringSetOrNull` / `optStringSet` instead throw for non-string array elements. The strict
 scanner returns neutral syntax violations and each domain parser maps them to its own
 rejection type.
 
@@ -94,9 +95,10 @@ Current status:
 - `EvidenceBoundingToolExecutor` is the output-bounding decorator between validation
   and routing (`Timeout → Validating → Bounding → Routing`). Ordinary text keeps its
   inline limits and overflow references. JSON arrays retain only whole elements so the
-  inline value stays parseable; JSON objects stay intact because generic key deletion
-  could violate their contract. Evidence privacy remains explicit at the composition
-  root and defaults to `LocalOnly`.
+  inline value stays parseable; JSON objects in `ToolResult.data` values stay intact because
+  generic key deletion could violate their contract. `ToolResult.summary` separately uses
+  head/tail text bounding. Evidence privacy defaults to `LocalOnly` in the decorator
+  constructor; the composition root currently overrides only `evidenceBlobStore`.
 - `RoutingToolExecutor` dispatches work and partitions eligible batches. Single-item,
   sequential and concurrent batches all isolate per-tool failures and cancellation,
   preserving result order without turning one child's failure into a batch-wide failure.
@@ -289,9 +291,10 @@ Current status:
   or a repeat of the last action on an unchanged screen, ends the run with a
   local `finish` instead of falling back to the local action model. Capture or
   send failures fail closed and stop the loop.
-  Owned by `orchestration/RemoteVisionObservationReplanner.kt`,
-  `orchestration/AndroidRemoteVisionDecider.kt`, and
-  `device/AccessibilityRawScreenshotProvider.kt`.
+  Owned by `orchestration/RemoteVisionObservationReplanner.kt` and
+  `orchestration/AndroidRemoteVisionDecider.kt`. `SolinAppContainer` binds
+  `RawScreenshotProvider` directly to `SolinAccessibilityService.performTakeScreenshotRaw`;
+  no separate forwarding provider remains.
 - Run-level step and observation budgets fail closed before another pending
   confirmation, retry, replan, or model continuation is saved.
   `orchestration/AgentRunBudget.kt` owns the tool-step budget, the
@@ -418,7 +421,8 @@ Current status:
   used by the memory index.
 - `runtime/ChatPrompts.kt` holds the default chat system instruction
   (`DEFAULT_CHAT_SYSTEM_INSTRUCTION`); `orchestration/SystemPromptBuilder.kt`
-  adds per-turn evidence cards to it.
+  adds per-turn evidence cards to it. Suspend and blocking survival-card paths share one private
+  factory, with parity tests covering privacy/locality fields, ordering and token estimates.
 
 Tests:
 
@@ -663,11 +667,13 @@ Current status:
   `ToolPermission.SendsTextToExternalApp`) whose free-text argument looks
   personal or secret or, after such a read, is not the user's own wording, and
   the first in-app step (`DeviceControl` / `ExternalNavigation`) of a
-  remote-vision run (confirming it approves that run's screenshots). An `Allow`
-  plan with any of these reasons is raised to `RequireConfirmation` in either
-  mode. A draft built only from the user's own words can be auto-approved when
-  non-sensitive and free of other critical reasons; user wording does not override
-  the sensitive-content check.
+  remote-vision run (confirming it approves that run's screenshots), and every accepted
+  initial `LocalModelFirst` tool proposal (`LocalModelProposedStep`, including otherwise
+  auto-approved low-risk tools). An `Allow` plan with any of these reasons is raised to
+  `RequireConfirmation` in either mode. A draft built only from the user's own words can be
+  auto-approved when non-sensitive and free of other critical reasons; user wording does not
+  override the sensitive-content check. Observation replans do not inherit the initial
+  `LocalModelProposedStep` trace tag and continue through the ordinary critical-reason policy.
   Rejections are never relaxed. Auto-run external launches complete as
   "opened" instead of waiting for an outcome record. Turning the setting off
   confirms every step (low-risk app-control skills still continue after one
@@ -758,7 +764,8 @@ Current status:
 
 - The default runtime uses a lightweight token/hash index over saved sessions
   and explicit memory records. It adds non-persisted alias terms only for answer
-  style preferences and active task-state records.
+  style preferences and active task-state records. `MemoryQueryTokens` tokenizes once and reuses
+  that ordered list for both distinct terms and the term vector, preserving ranking weights.
 - Explicit `remember`/`forget` commands upsert or delete deterministic
   `Preference` and `UserFact` records while storing control/status messages as
   `LocalOnly`.
@@ -829,6 +836,7 @@ Wiring prerequisites (each must hold before either flag is wired on):
 Tests:
 
 - `MemoryRepositoryTest`
+- `MemoryTermVectorTest`
 - `LocalModelMemoryFactExtractorTest`
 - `ModelCompactionSummaryTest`
 - `LocalMemoryModelWiringArchitectureTest`
@@ -1435,7 +1443,9 @@ Current status:
   matches the approved snapshot. Each send is recorded in the remote-send
   audit with tool/server names and an argument count only.
 - `McpModule` registers approved MCP tool specs and handlers with the module
-  registry at startup when the toggle was on.
+  registry at startup when the toggle was on. One enabled catalog snapshot constructs each spec and
+  its handler together, avoiding per-tool catalog rereads and keeping registration internally consistent.
+  `call()` still rereads enabled/catalog state so disabling or revocation takes effect immediately.
 - `McpConsentStore` is the in-memory, per-server and per-tool call-time
   approval store; `McpServerRegistry` mirrors durable approvals into it from
   the catalog.
@@ -1482,10 +1492,14 @@ Current status:
   `ZvecNativeStore`).
 - `storage/OpenableMetadata.kt` reads a content URI's display name and size in
   one query for shared-input and model-import callers.
+- Migration uses one strict, identically sorted legacy snapshot for validation and listing, derives
+  existing Room IDs/maps from one read, and reuses the verified post-upsert ID set for embedding import.
+  Malformed input aborts before writes; plaintext is cleared only after verified writes.
 
 Tests:
 
 - `LegacyMemoryStorageRetirementTest`
+- `LegacyMemoryStorageMigrationTest`
 - `ZvecNativeStoreSmokeTest`
 
 ## Data Layer

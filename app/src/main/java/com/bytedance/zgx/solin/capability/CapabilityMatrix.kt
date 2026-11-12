@@ -17,7 +17,7 @@ enum class CapabilityOwnerAgent {
     AgentRuntime,
     Memory,
     TrustPrivacy,
-    PerformanceQa,
+    PerformanceQa
 }
 
 enum class CapabilityPrivacyLevel {
@@ -25,7 +25,7 @@ enum class CapabilityPrivacyLevel {
     PublicEvidence,
     LocalEvidence,
     ExternalAction,
-    BackgroundTask,
+    BackgroundTask
 }
 
 data class CapabilityDescriptor(
@@ -39,7 +39,7 @@ data class CapabilityDescriptor(
     val confirmationPolicy: ConfirmationPolicy,
     val failureBehavior: String,
     val requiredTests: List<String>,
-    val ownerAgent: CapabilityOwnerAgent,
+    val ownerAgent: CapabilityOwnerAgent
 )
 
 data class SensitiveCapabilityDisclosure(
@@ -49,26 +49,16 @@ data class SensitiveCapabilityDisclosure(
     val consentBoundary: String,
     val remoteBoundary: String,
     val revokeOrClearControl: String,
-    val requiredTests: List<String>,
+    val requiredTests: List<String>
 )
 
 object CapabilityMatrix {
-    const val productPositioning: String =
-        "让 AI 住在手机里：本地模型可下载或导入，远程多模态可选，手机操作只确认关键步骤，支付、发送、删除等按钮始终由你亲手点击。"
-    const val targetUserJob: String =
-        "在手机上处理私人日常问答、记忆、图片/文件输入、App 打开和低风险搜索交互，同时默认让本地上下文留在本机。"
+    val productPositioning: String
+        get() = "让 AI 住在手机里：本地模型可下载或导入，远程多模态可选，手机操作只确认关键步骤，支付、发送、删除等按钮始终由你亲手点击。"
+    val targetUserJob: String
+        get() = "在手机上处理私人日常问答、记忆、图片/文件输入、App 打开和低风险搜索交互，同时默认让本地上下文留在本机。"
 
-    fun toolDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> =
-        registry.specs().map { spec -> spec.toCapabilityDescriptor() }
-
-    val nextStageMvpScenarioIds: List<String> = listOf(
-        "local_private_qa_and_memory",
-        "local_screen_clipboard_summary_share",
-        "low_risk_app_search_control",
-        "local_reminders_background_tasks",
-        "remote_public_evidence",
-        "trust_center_capability_review",
-    )
+    fun toolDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> = registry.specs().map { spec -> spec.toCapabilityDescriptor() }
 
     val nextStageMvpScenarioTitles: Map<String, String> = linkedMapOf(
         "local_private_qa_and_memory" to "本地私密问答与记忆",
@@ -76,23 +66,21 @@ object CapabilityMatrix {
         "low_risk_app_search_control" to "低风险 App 搜索控制",
         "local_reminders_background_tasks" to "本地提醒与后台任务",
         "remote_public_evidence" to "远程公开证据查询",
-        "trust_center_capability_review" to "能力与信任中心",
+        "trust_center_capability_review" to "能力与信任中心"
     ).also { titles ->
-        require(titles.keys.toList() == nextStageMvpScenarioIds) {
-            "Next-stage MVP scenario titles must match nextStageMvpScenarioIds"
-        }
         require(titles.values.all { title -> title.isNotBlank() }) {
             "Next-stage MVP scenario titles must be non-blank"
         }
     }
 
-    fun nextStageMvpScenarioTitle(capabilityId: String): String =
-        requireNotNull(nextStageMvpScenarioTitles[capabilityId]) {
-            "Missing next-stage MVP scenario title: $capabilityId"
-        }
+    val nextStageMvpScenarioIds: List<String> = nextStageMvpScenarioTitles.keys.toList()
+
+    fun nextStageMvpScenarioTitle(capabilityId: String): String = requireNotNull(nextStageMvpScenarioTitles[capabilityId]) {
+        "Missing next-stage MVP scenario title: $capabilityId"
+    }
 
     val requiredBehaviorEvalBoundaries: List<String> = listOf(
-        "public_evidence_multi_search_batch_allowed",
+        "public_evidence_multi_search_batch_allowed"
     )
 
     val productDescriptors: List<CapabilityDescriptor> =
@@ -108,7 +96,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "本地模型未就绪时停止生成并提示先准备模型。",
                 requiredTests = listOf("SolinViewModelTest"),
-                ownerAgent = CapabilityOwnerAgent.EdgeModel,
+                ownerAgent = CapabilityOwnerAgent.EdgeModel
             ),
             CapabilityDescriptor(
                 capabilityId = "explicit_memory",
@@ -121,7 +109,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "删除失败时保留现有记忆；会话回忆只从用户消息重建，不索引助手输出，也不把记忆写入远端请求。",
                 requiredTests = listOf("MemoryRepositoryTest", "MemoryQualityContractTest"),
-                ownerAgent = CapabilityOwnerAgent.Memory,
+                ownerAgent = CapabilityOwnerAgent.Memory
             ),
             CapabilityDescriptor(
                 capabilityId = "shared_file_text_input",
@@ -134,7 +122,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "远程模式保护分享文本和非图片附件；本地模式读取受限文本、PDF 扫描页 OCR 或元数据；已验证视觉本地模型可读取受限图片字节，不支持视觉时不自动 OCR。",
                 requiredTests = listOf("SharedInputTest", "SolinViewModelTest", "MainActivitySharedIntentTest"),
-                ownerAgent = CapabilityOwnerAgent.Multimodal,
+                ownerAgent = CapabilityOwnerAgent.Multimodal
             ),
             CapabilityDescriptor(
                 capabilityId = "local_vision_image_input",
@@ -150,9 +138,9 @@ object CapabilityMatrix {
                     "SolinViewModelTest",
                     "MainActivitySharedInputModeTest",
                     "SharedInputTest",
-                    "LiteRtRuntimeConfigTest",
+                    "LiteRtRuntimeConfigTest"
                 ),
-                ownerAgent = CapabilityOwnerAgent.Multimodal,
+                ownerAgent = CapabilityOwnerAgent.Multimodal
             ),
             CapabilityDescriptor(
                 capabilityId = "remote_vision_image_input",
@@ -168,9 +156,9 @@ object CapabilityMatrix {
                     "RemoteChatRuntimeTest",
                     "SolinViewModelTest",
                     "MainActivitySharedInputModeTest",
-                    "SharedInputTest",
+                    "SharedInputTest"
                 ),
-                ownerAgent = CapabilityOwnerAgent.Multimodal,
+                ownerAgent = CapabilityOwnerAgent.Multimodal
             ),
             CapabilityDescriptor(
                 capabilityId = "remote_vision_gui_automation",
@@ -186,9 +174,9 @@ object CapabilityMatrix {
                     "RemoteVisionObservationReplannerTest",
                     "RemoteVisionScreenshotContractTest",
                     "RoutingAndValidatingToolExecutorTest",
-                    "AgentLoopRuntimeTest",
+                    "AgentLoopRuntimeTest"
                 ),
-                ownerAgent = CapabilityOwnerAgent.Multimodal,
+                ownerAgent = CapabilityOwnerAgent.Multimodal
             ),
             CapabilityDescriptor(
                 capabilityId = "voice_transcript_input",
@@ -204,9 +192,9 @@ object CapabilityMatrix {
                     "SolinViewModelTest",
                     "MainActivitySmokeTest",
                     "SolinVoiceInputConsentUiTest",
-                    "MainActivityVoicePermissionUiTest",
+                    "MainActivityVoicePermissionUiTest"
                 ),
-                ownerAgent = CapabilityOwnerAgent.Multimodal,
+                ownerAgent = CapabilityOwnerAgent.Multimodal
             ),
             CapabilityDescriptor(
                 capabilityId = "confirmed_device_tools",
@@ -219,7 +207,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.Required,
                 failureBehavior = "默认保守确认；开启减少确认后仅低风险手机导航/搜索/点击/滚动可连续执行；发送、删除、支付、发布、敏感输入、权限授权和批量混合风险仍 fail-closed。",
                 requiredTests = listOf("ToolRegistryTest", "SafetyPolicyTest", "AgentLoopRuntimeTest"),
-                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime
             ),
             CapabilityDescriptor(
                 capabilityId = "auditable_agent_trace",
@@ -232,7 +220,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "损坏、过期或越界的 pending/trace 数据在恢复时清理或标记失败，不恢复敏感 payload。",
                 requiredTests = listOf("AgentTraceStoreTest", "RunDataReceiptTraceTest", "ToolAuditRepositoryTest"),
-                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime
             ),
             CapabilityDescriptor(
                 capabilityId = "model_management",
@@ -245,7 +233,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "下载、导入、校验、加载或 fallback 失败时更新 ModelHealth，不把模型已下载误报为所有能力可用。",
                 requiredTests = listOf("ModelCatalogTest", "SolinViewModelTest", "SolinScreenDisplayTest"),
-                ownerAgent = CapabilityOwnerAgent.EdgeModel,
+                ownerAgent = CapabilityOwnerAgent.EdgeModel
             ),
             CapabilityDescriptor(
                 capabilityId = "run_data_receipt",
@@ -258,7 +246,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "回执只记录本地/远端边界、受保护来源和计数，不记录原始 prompt、文件内容或图片数据。",
                 requiredTests = listOf("RunDataReceiptTraceTest", "SolinScreenDisplayTest"),
-                ownerAgent = CapabilityOwnerAgent.TrustPrivacy,
+                ownerAgent = CapabilityOwnerAgent.TrustPrivacy
             ),
             CapabilityDescriptor(
                 capabilityId = "local_private_qa_and_memory",
@@ -271,7 +259,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "本地问答、显式偏好/事实记忆和自动任务状态默认 LocalOnly；本地模型不可用时停止生成，记忆控制命令仍留在本机执行。",
                 requiredTests = listOf("SolinViewModelTest", "MemoryRepositoryTest", "MemoryQualityContractTest"),
-                ownerAgent = CapabilityOwnerAgent.Memory,
+                ownerAgent = CapabilityOwnerAgent.Memory
             ),
             CapabilityDescriptor(
                 capabilityId = "local_screen_clipboard_summary_share",
@@ -284,7 +272,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.Required,
                 failureBehavior = "剪贴板或当前屏幕文本先单次确认读取并保持 LocalOnly，再由本地模型生成摘要；打开分享前必须二次确认，重启到 payload 确认点时 fail-closed。",
                 requiredTests = listOf("AgentLoopRuntimeTest", "BuiltInSkillRuntimeTest", "MainActivitySkillUiTest", "SolinViewModelTest"),
-                ownerAgent = CapabilityOwnerAgent.TrustPrivacy,
+                ownerAgent = CapabilityOwnerAgent.TrustPrivacy
             ),
             CapabilityDescriptor(
                 capabilityId = "low_risk_app_search_control",
@@ -297,7 +285,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.Required,
                 failureBehavior = "打开 App 后只允许低风险 observe/tap/type/search/scroll/back/wait 连续步骤；发送、删除、支付、发布、敏感输入和权限变更仍回到确认或 fail-closed。",
                 requiredTests = listOf("ToolRegistryTest", "ActionExecutorTest", "MainActivitySkillUiTest", "SolinAccessibilityServiceDeviceControlTest"),
-                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime
             ),
             CapabilityDescriptor(
                 capabilityId = "local_reminders_background_tasks",
@@ -310,7 +298,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.Required,
                 failureBehavior = "提醒和周期检查必须由用户确认后写入本地任务表；后台只做本地提醒巡检/通知，取消、过期、重启恢复和失败都以本地状态为准。",
                 requiredTests = listOf("ScheduledTaskRepositoryTest", "ReminderAlarmReceiverTest", "BackgroundSkillSpecTest", "MainActivitySkillUiTest"),
-                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime
             ),
             CapabilityDescriptor(
                 capabilityId = "remote_public_evidence",
@@ -323,7 +311,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "远程模型只能免确认调用公开只读 evidence；多工具批次必须全部 public/read-only/side-effect-free，混入私密读取或动作工具时整批拒绝。",
                 requiredTests = listOf("RemoteChatRuntimeTest", "AgentLoopRuntimeTest", "SolinViewModelTest", "WebSearchProviderTest"),
-                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime
             ),
             CapabilityDescriptor(
                 capabilityId = "trust_center_capability_review",
@@ -336,7 +324,7 @@ object CapabilityMatrix {
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
                 failureBehavior = "能力与信任中心只展示 CapabilityMatrix、脱敏审计摘要、权限边界和人工发布事项；不展示原始 prompt、工具参数、截图、剪贴板或 API Key。",
                 requiredTests = listOf("CapabilityMatrixDocumentationTest", "SolinScreenDisplayTest", "ToolAuditRepositoryTest"),
-                ownerAgent = CapabilityOwnerAgent.TrustPrivacy,
+                ownerAgent = CapabilityOwnerAgent.TrustPrivacy
             ),
             CapabilityDescriptor(
                 capabilityId = "release_gate",
@@ -351,9 +339,9 @@ object CapabilityMatrix {
                 requiredTests = listOf(
                     "CapabilityMatrixDocumentationTest",
                     "AgentCoreDocumentationTest",
-                    "ModelManifestDocumentationTest",
+                    "ModelManifestDocumentationTest"
                 ),
-                ownerAgent = CapabilityOwnerAgent.PerformanceQa,
+                ownerAgent = CapabilityOwnerAgent.PerformanceQa
             ),
             CapabilityDescriptor(
                 capabilityId = "mcp_extension_tools",
@@ -368,10 +356,10 @@ object CapabilityMatrix {
                 requiredTests = listOf(
                     "McpClientTest",
                     "McpToolSpecsTest",
-                    "McpCapabilitySettingsTest",
+                    "McpCapabilitySettingsTest"
                 ),
-                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
-            ),
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime
+            )
         )
 
     val nextStageMvpDescriptors: List<CapabilityDescriptor>
@@ -393,7 +381,7 @@ object CapabilityMatrix {
                 consentBoundary = "切换远程模型并点击发送后展示远程发送预览；确认前不请求远程接口。",
                 remoteBoundary = "远程请求只发往用户配置的 HTTPS 或本机调试 endpoint；图片字节只有在主动附加、配置显式启用图片输入且接口支持 OpenAI image_url 视觉输入时发送。",
                 revokeOrClearControl = "可取消发送预览、清除远程服务地址/模型名/API Key，并删除会话记录。",
-                requiredTests = listOf("SolinViewModelTest", "SolinScreenDisplayTest", "RemoteChatRuntimeTest"),
+                requiredTests = listOf("SolinViewModelTest", "SolinScreenDisplayTest", "RemoteChatRuntimeTest")
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "voice_transcript_input",
@@ -407,8 +395,8 @@ object CapabilityMatrix {
                     "SolinScreenDisplayTest",
                     "MainActivityAdaptiveUiTest",
                     "SolinVoiceInputConsentUiTest",
-                    "MainActivityVoicePermissionUiTest",
-                ),
+                    "MainActivityVoicePermissionUiTest"
+                )
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "share_and_file_picker_input",
@@ -421,8 +409,8 @@ object CapabilityMatrix {
                     "SharedInputTest",
                     "MainActivitySharedIntentTest",
                     "SolinScreenDisplayTest",
-                    "MainActivityAdaptiveUiTest",
-                ),
+                    "MainActivityAdaptiveUiTest"
+                )
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "confirmed_device_actions",
@@ -431,7 +419,7 @@ object CapabilityMatrix {
                 consentBoundary = "默认保守确认；中高风险设备动作、发送、删除、支付、发布、敏感输入、权限授权、后台提醒和批量混合风险都必须先确认；低风险 App 搜索可按设置连续执行。",
                 remoteBoundary = "设备动作结果和私密参数默认 LocalOnly，不作为远程模型自动上下文；只读公共 evidence 工具才可进入远程规划。",
                 revokeOrClearControl = "可取消动作确认、标记外部操作未完成、撤销可撤销提醒，并删除相关会话记录。",
-                requiredTests = listOf("AgentLoopRuntimeTest", "SafetyPolicyTest", "MainActivitySkillUiTest"),
+                requiredTests = listOf("AgentLoopRuntimeTest", "SafetyPolicyTest", "MainActivitySkillUiTest")
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "contacts_calendar_reads",
@@ -444,8 +432,8 @@ object CapabilityMatrix {
                     "AgentRuntimePermissionPolicyTest",
                     "ToolRegistryTest",
                     "CalendarAvailabilityProviderTest",
-                    "MainActivityRuntimePermissionUiTest",
-                ),
+                    "MainActivityRuntimePermissionUiTest"
+                )
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "media_and_recent_ocr",
@@ -458,8 +446,8 @@ object CapabilityMatrix {
                     "AgentRuntimePermissionPolicyTest",
                     "ToolRegistryTest",
                     "AgentLoopRuntimeTest",
-                    "MainActivityRuntimePermissionUiTest",
-                ),
+                    "MainActivityRuntimePermissionUiTest"
+                )
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "usage_stats_foreground_app",
@@ -468,7 +456,7 @@ object CapabilityMatrix {
                 consentBoundary = "用户确认工具并授予系统 Usage Access 后才可读取；结果标注为 UsageStats estimate。",
                 remoteBoundary = "前台应用结果是 LocalOnly 设备上下文，不自动发送到远程模型。",
                 revokeOrClearControl = "可取消工具确认，并通过使用情况访问权限设置撤销授权。",
-                requiredTests = listOf("AgentRuntimePermissionPolicyTest", "ActionPlannerTest", "MainActivitySpecialAccessUiTest"),
+                requiredTests = listOf("AgentRuntimePermissionPolicyTest", "ActionPlannerTest", "MainActivitySpecialAccessUiTest")
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "accessibility_current_screen_text",
@@ -481,8 +469,8 @@ object CapabilityMatrix {
                     "ToolRegistryTest",
                     "AgentLoopRuntimeTest",
                     "MainActivitySkillUiTest",
-                    "MainActivitySpecialAccessUiTest",
-                ),
+                    "MainActivitySpecialAccessUiTest"
+                )
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "media_projection_screenshot_ocr",
@@ -491,7 +479,7 @@ object CapabilityMatrix {
                 consentBoundary = "每次当前屏幕截图 OCR 都需要前台 MediaProjection 同意和工具确认；取消即不执行。",
                 remoteBoundary = "截图 OCR 结果是 LocalOnly，不自动发送给远程模型。",
                 revokeOrClearControl = "可拒绝 MediaProjection 弹窗、取消工具确认，并删除相关会话记录；审计仅保留脱敏摘要并按保留策略裁剪。",
-                requiredTests = listOf("AgentRuntimePermissionPolicyTest", "AgentLoopRuntimeTest", "MainActivitySkillUiTest"),
+                requiredTests = listOf("AgentRuntimePermissionPolicyTest", "AgentLoopRuntimeTest", "MainActivitySkillUiTest")
             ),
             SensitiveCapabilityDisclosure(
                 capabilityId = "remote_vision_gui_automation",
@@ -504,13 +492,12 @@ object CapabilityMatrix {
                     "RemoteVisionObservationReplannerTest",
                     "RemoteVisionScreenshotContractTest",
                     "AgentLoopRuntimeTest",
-                    "RoutingAndValidatingToolExecutorTest",
-                ),
-            ),
+                    "RoutingAndValidatingToolExecutorTest"
+                )
+            )
         )
 
-    fun allDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> =
-        productDescriptors + toolDescriptors(registry)
+    fun allDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> = productDescriptors + toolDescriptors(registry)
 }
 
 private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {
@@ -545,6 +532,6 @@ private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {
         },
         requiredTests = listOf("ToolSchemaContractTest", "SafetyPolicyTest", "AgentLoopRuntimeTest") +
             if (name in PhoneCompositeOperations.TOOL_NAMES) listOf("PhoneCompositeOperationsTest") else emptyList(),
-        ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+        ownerAgent = CapabilityOwnerAgent.AgentRuntime
     )
 }

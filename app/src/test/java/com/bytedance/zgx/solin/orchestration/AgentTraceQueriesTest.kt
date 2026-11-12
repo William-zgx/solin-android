@@ -10,11 +10,11 @@ class AgentTraceQueriesTest {
             summary(
                 position = 0,
                 type = "SkillPlanned",
-                json = """{"skillRequestId":"skill-1","toolRequestIds":["tool-1","tool-2"]}""",
+                json = """{"skillRequestId":"skill-1","toolRequestIds":["tool-1","tool-2"]}"""
             ),
             toolRequested(position = 1, requestId = "tool-1"),
             toolRequested(position = 2, requestId = "tool-2"),
-            toolRequested(position = 3, requestId = "tool-3"),
+            toolRequested(position = 3, requestId = "tool-3")
         )
 
         assertEquals(2, count)
@@ -26,11 +26,11 @@ class AgentTraceQueriesTest {
             summary(
                 position = 0,
                 type = "SkillPlanned",
-                json = """{"skillRequestId":"skill-1","toolStepCount":1,"stepCount":3}""",
+                json = """{"skillRequestId":"skill-1","toolStepCount":1,"stepCount":3}"""
             ),
             toolRequested(position = 1, requestId = "tool-1"),
             toolRequested(position = 2, requestId = "tool-2"),
-            toolRequested(position = 3, requestId = "tool-3"),
+            toolRequested(position = 3, requestId = "tool-3")
         )
 
         assertEquals(3, count)
@@ -42,11 +42,11 @@ class AgentTraceQueriesTest {
             summary(
                 position = 0,
                 type = "SkillPlanned",
-                json = """{"skillRequestId":"skill-1","stepCount":2}""",
+                json = """{"skillRequestId":"skill-1","stepCount":2}"""
             ),
             toolRequested(position = 1, requestId = "tool-1"),
             toolRequested(position = 2, requestId = "tool-2"),
-            toolRequested(position = 3, requestId = "tool-3"),
+            toolRequested(position = 3, requestId = "tool-3")
         )
 
         assertEquals(2, count)
@@ -57,7 +57,7 @@ class AgentTraceQueriesTest {
         val count = plannedSegmentCount(
             summary(position = 0, type = "SkillPlanned", json = "{malformed"),
             toolRequested(position = 1, requestId = "tool-1"),
-            toolRequested(position = 2, requestId = "tool-2"),
+            toolRequested(position = 2, requestId = "tool-2")
         )
 
         assertEquals(2, count)
@@ -71,18 +71,16 @@ class AgentTraceQueriesTest {
         return AgentTraceQueries(store).plannedSequentialSegmentCount(RUN_ID)
     }
 
-    private fun toolRequested(position: Int, requestId: String): AgentTraceStepSummary =
-        summary(position = position, type = "ToolRequested", json = """{"requestId":"$requestId"}""")
+    private fun toolRequested(position: Int, requestId: String): AgentTraceStepSummary = summary(position = position, type = "ToolRequested", json = """{"requestId":"$requestId"}""")
 
-    private fun summary(position: Int, type: String, json: String): AgentTraceStepSummary =
-        AgentTraceStepSummary(
-            runId = RUN_ID,
-            position = position,
-            type = type,
-            summary = type,
-            json = json,
-            createdAtMillis = 1L,
-        )
+    private fun summary(position: Int, type: String, json: String): AgentTraceStepSummary = AgentTraceStepSummary(
+        runId = RUN_ID,
+        position = position,
+        type = type,
+        summary = type,
+        json = json,
+        createdAtMillis = 1L
+    )
 
     private companion object {
         const val RUN_ID = "run-trace-queries"

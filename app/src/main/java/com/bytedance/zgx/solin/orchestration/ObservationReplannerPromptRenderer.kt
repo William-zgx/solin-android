@@ -10,9 +10,9 @@ import com.bytedance.zgx.solin.device.UiTargetResolver
 import com.bytedance.zgx.solin.device.appUiNotesFor
 import com.bytedance.zgx.solin.device.normalizedLookupKey
 import com.bytedance.zgx.solin.device.screenObservationFromJsonStringOrNull
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
-import com.bytedance.zgx.solin.tool.ToolRegistry
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -58,19 +58,19 @@ private val localObservationDiagnosticKeys = listOf(
     "beforeActionableNodeCount",
     "afterActionableNodeCount",
     "beforeTruncated",
-    "afterTruncated",
+    "afterTruncated"
 )
 private val defaultResolverPromptTargetKinds = listOf(
     UiTargetKind.SearchEntry,
     UiTargetKind.EditableField,
     UiTargetKind.SubmitSearch,
     UiTargetKind.FilterEntry,
-    UiTargetKind.ScrollContainer,
+    UiTargetKind.ScrollContainer
 )
 
 private data class LocalObservationPromptSection(
     val text: String,
-    val containsOcrSource: Boolean,
+    val containsOcrSource: Boolean
 )
 
 private data class LocalTargetCandidatePrompt(
@@ -78,18 +78,18 @@ private data class LocalTargetCandidatePrompt(
     val targetValue: String,
     val modeTags: List<String>,
     val role: String,
-    val promptText: String,
+    val promptText: String
 )
 
 private data class ResolverTargetRank(
     val mode: String,
     val targetValue: String,
-    val rank: Int,
+    val rank: Int
 )
 
 internal fun AgentObservationReplanContext.observationModelPrompt(
     toolRegistry: ToolRegistry,
-    parseCache: ObservationJsonParseCache? = null,
+    parseCache: ObservationJsonParseCache? = null
 ): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
         .userIntentPromptText()
@@ -151,7 +151,7 @@ private val targetShortlistPromptPattern = Regex("""targetShortlist\([^)]*\)""")
  */
 private fun String.withAppUiNotesInEvidenceBudget(
     observedResult: ToolResult,
-    parseCache: ObservationJsonParseCache?,
+    parseCache: ObservationJsonParseCache?
 ): String? {
     val lines = lines()
     val evidenceIndex = lines.indexOfFirst { line -> line.startsWith(LOCAL_EVIDENCE_PROMPT_LABEL) }
@@ -189,7 +189,7 @@ private fun String.withAppUiNotesInEvidenceBudget(
  */
 internal fun ToolResult.appUiNotesPromptLine(
     parseCache: ObservationJsonParseCache? = null,
-    maxChars: Int = MAX_APP_UI_NOTES_PROMPT_CHARS,
+    maxChars: Int = MAX_APP_UI_NOTES_PROMPT_CHARS
 ): String? = appUiNotesPromptLine(observedForegroundPackageName(parseCache), maxChars)
 
 /**
@@ -200,7 +200,7 @@ internal fun ToolResult.appUiNotesPromptLine(
  */
 internal fun appUiNotesPromptLine(
     packageName: String?,
-    maxChars: Int = MAX_APP_UI_NOTES_PROMPT_CHARS,
+    maxChars: Int = MAX_APP_UI_NOTES_PROMPT_CHARS
 ): String? {
     val limit = maxChars.coerceAtMost(MAX_APP_UI_NOTES_PROMPT_CHARS)
     val notes = appUiNotesFor(packageName)
@@ -245,7 +245,7 @@ private fun String.withLineAfter(prefix: String, line: String?): String {
 
 internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
     toolRegistry: ToolRegistry,
-    parseCache: ObservationJsonParseCache? = null,
+    parseCache: ObservationJsonParseCache? = null
 ): String {
     val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
         .userIntentPromptText()
@@ -271,7 +271,7 @@ internal fun AgentObservationReplanContext.minimalObservationModelPrompt(
         // the overflow so every other line keeps the budget it had. Otherwise the over-cap fallback,
         // which only keeps English-labelled lines, would drop all of this prompt's Chinese rule lines.
         maxChars = MAX_MINIMAL_OBSERVATION_PROMPT_CHARS +
-            (intentPreview.length - MINIMAL_PROMPT_USER_TEXT_BUDGET).coerceAtLeast(0),
+            (intentPreview.length - MINIMAL_PROMPT_USER_TEXT_BUDGET).coerceAtLeast(0)
     )
 }
 
@@ -296,7 +296,7 @@ private fun ToolResult.observationDiagnosticsPrompt(): String {
 
 internal fun ToolResult.localObservationEvidencePrompt(
     intentPreview: String,
-    parseCache: ObservationJsonParseCache? = null,
+    parseCache: ObservationJsonParseCache? = null
 ): String {
     val intentTargetKind = intentPreview.promptResolverTargetKind()
     val observationSections = localObservationJsonKeys.mapNotNull { key ->
@@ -313,7 +313,7 @@ internal fun ToolResult.localObservationEvidencePrompt(
                 ?.takeIf { value -> value.isNotBlank() }
                 ?.toOcrBlocksPromptSection(
                     includeExecutableTargets = executableStandaloneOcrBlocksJson() != null,
-                    parseCache = parseCache,
+                    parseCache = parseCache
                 )
                 ?.let(::add)
         }
@@ -333,97 +333,93 @@ internal fun ToolResult.localObservationEvidencePrompt(
     return sections.joinToString(separator = " | ")
         .ifBlank { "none" }
         .shortTraceText(maxLength = MAX_LOCAL_EVIDENCE_CHARS)
-    }
+}
 
 /**
  * App-search progress prompt text, reusing the invocation-local typed [ScreenObservation] parse via
  * [parseCache] when present so the stage classification does not re-parse observation JSON. Falls
  * back to the default [AppSearchProgressEvidence.fromData] parser when no cache is threaded.
  */
-internal fun ToolResult.appSearchProgressPromptText(parseCache: ObservationJsonParseCache?): String =
-    if (parseCache == null) {
-        AppSearchProgressEvidence.fromData(data)
-    } else {
-        AppSearchProgressEvidence.fromData(data) { rawJson -> parseCache.screenObservationOrNull(rawJson) }
-    }.toPromptText()
+internal fun ToolResult.appSearchProgressPromptText(parseCache: ObservationJsonParseCache?): String = if (parseCache == null) {
+    AppSearchProgressEvidence.fromData(data)
+} else {
+    AppSearchProgressEvidence.fromData(data) { rawJson -> parseCache.screenObservationOrNull(rawJson) }
+}.toPromptText()
 
-internal fun AgentObservationReplanContext.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String =
-    observationReplanToolSignatures(toolRegistry)
+internal fun AgentObservationReplanContext.localOnlyObservationAllowedToolsPrompt(toolRegistry: ToolRegistry): String = observationReplanToolSignatures(toolRegistry)
 
 /** True when the latest observation carries LocalOnly evidence, so only device-control tools pass. */
-internal fun AgentObservationReplanContext.isLocalOnlyGatedObservation(toolRegistry: ToolRegistry): Boolean =
-    observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))
+internal fun AgentObservationReplanContext.isLocalOnlyGatedObservation(toolRegistry: ToolRegistry): Boolean = observedResult.hasLocalOnlyObservationEvidence(toolRegistry.specFor(previousRequest.toolName))
 
 private fun String.toScreenObservationPromptSection(
     key: String,
     intentTargetKind: UiTargetKind?,
-    parseCache: ObservationJsonParseCache? = null,
-): LocalObservationPromptSection? =
-    runCatching {
-        val json = JSONObject(this)
-        val elements = parseCache?.observationElements(this)
-            ?: (json.optJSONArray("elements") ?: JSONArray())
-        val selectedElements = elements.selectedObservationElementsForPrompt()
-        val elementSummaries = selectedElements
-            .map { element -> element.toObservationElementPromptText() }
-        val fusedTargetCandidates = elements.ocrGroundedAccessibilityTargetCandidates()
-        val resolverTargetRanks = (
-            parseCache?.screenObservationOrNull(this)
-                ?: screenObservationFromJsonStringOrNull(this)
-            )
-            .resolverTargetRanks(intentTargetKind)
-        val targetCandidates = (
-            fusedTargetCandidates +
-                selectedElements.mapNotNull { element -> element.toTargetCandidatePrompt() }
-            )
-            .distinctBy { candidate -> candidate.promptText }
-            .rankedByResolver(resolverTargetRanks)
-            .take(MAX_LOCAL_TARGET_CANDIDATES)
-        val targetSummaries = targetCandidates
-            .map { candidate -> candidate.promptText }
-        val targetShortlist = targetCandidates.targetShortlistPromptText()
-        val targetEvidence = targetCandidates.targetEvidencePromptText()
-        val text = buildString {
-            append(key)
-            append("(id=")
-            append(json.optString("observationId", "unknown"))
-            append(",package=")
-            append(json.optNullableString("packageName") ?: "unknown")
-            append(",sources=")
-            append(json.optJSONArray("sources")?.joinCompact() ?: "none")
-            append(",sourceCounts=")
-            append(json.optJSONObject("sourceCounts")?.joinCompact() ?: "none")
-            append(",elements=")
-            append(json.optInt("elementCount", elements.length()))
-            append(",truncated=")
-            append(json.optBoolean("truncated", false))
-            append(")")
-            targetShortlist?.let { summary ->
-                append(" targetShortlist(")
-                append(summary)
-                append(")")
-            }
-            targetEvidence?.let { summary ->
-                append(" targetEvidence(")
-                append(summary)
-                append(")")
-            }
-            if (elementSummaries.isNotEmpty()) {
-                append(" elements=[")
-                append(elementSummaries.joinToString(separator = "; "))
-                append("]")
-            }
-            if (targetSummaries.isNotEmpty()) {
-                append(" targets=[")
-                append(targetSummaries.joinToString(separator = "; "))
-                append("]")
-            }
-        }
-        LocalObservationPromptSection(
-            text = text,
-            containsOcrSource = json.containsOcrObservation(elements),
+    parseCache: ObservationJsonParseCache? = null
+): LocalObservationPromptSection? = runCatching {
+    val json = JSONObject(this)
+    val elements = parseCache?.observationElements(this)
+        ?: (json.optJSONArray("elements") ?: JSONArray())
+    val selectedElements = elements.selectedObservationElementsForPrompt()
+    val elementSummaries = selectedElements
+        .map { element -> element.toObservationElementPromptText() }
+    val fusedTargetCandidates = elements.ocrGroundedAccessibilityTargetCandidates()
+    val resolverTargetRanks = (
+        parseCache?.screenObservationOrNull(this)
+            ?: screenObservationFromJsonStringOrNull(this)
         )
-    }.getOrNull()
+        .resolverTargetRanks(intentTargetKind)
+    val targetCandidates = (
+        fusedTargetCandidates +
+            selectedElements.mapNotNull { element -> element.toTargetCandidatePrompt() }
+        )
+        .distinctBy { candidate -> candidate.promptText }
+        .rankedByResolver(resolverTargetRanks)
+        .take(MAX_LOCAL_TARGET_CANDIDATES)
+    val targetSummaries = targetCandidates
+        .map { candidate -> candidate.promptText }
+    val targetShortlist = targetCandidates.targetShortlistPromptText()
+    val targetEvidence = targetCandidates.targetEvidencePromptText()
+    val text = buildString {
+        append(key)
+        append("(id=")
+        append(json.optString("observationId", "unknown"))
+        append(",package=")
+        append(json.optNullableString("packageName") ?: "unknown")
+        append(",sources=")
+        append(json.optJSONArray("sources")?.joinCompact() ?: "none")
+        append(",sourceCounts=")
+        append(json.optJSONObject("sourceCounts")?.joinCompact() ?: "none")
+        append(",elements=")
+        append(json.optInt("elementCount", elements.length()))
+        append(",truncated=")
+        append(json.optBoolean("truncated", false))
+        append(")")
+        targetShortlist?.let { summary ->
+            append(" targetShortlist(")
+            append(summary)
+            append(")")
+        }
+        targetEvidence?.let { summary ->
+            append(" targetEvidence(")
+            append(summary)
+            append(")")
+        }
+        if (elementSummaries.isNotEmpty()) {
+            append(" elements=[")
+            append(elementSummaries.joinToString(separator = "; "))
+            append("]")
+        }
+        if (targetSummaries.isNotEmpty()) {
+            append(" targets=[")
+            append(targetSummaries.joinToString(separator = "; "))
+            append("]")
+        }
+    }
+    LocalObservationPromptSection(
+        text = text,
+        containsOcrSource = json.containsOcrObservation(elements)
+    )
+}.getOrNull()
 
 private fun JSONArray.selectedObservationElementsForPrompt(): List<JSONObject> {
     val indexed = indexedObjects()
@@ -445,7 +441,7 @@ private fun JSONArray.selectedObservationElementsForPrompt(): List<JSONObject> {
             .filter { (_, element) -> element.optJSONObject("bounds") != null }
             .sortedWith(
                 compareBy<Pair<Int, JSONObject>> { (_, element) -> element.ocrPromptRolePriority() }
-                    .thenBy { (index, _) -> index },
+                    .thenBy { (index, _) -> index }
             )
             .distinctBy { (_, element) -> element.optString("text").normalizedLookupKey() }
             .take(limit)
@@ -467,13 +463,12 @@ private fun JSONArray.selectedObservationElementsForPrompt(): List<JSONObject> {
         .mapNotNull(::optJSONObject)
 }
 
-private fun JSONObject.ocrPromptRolePriority(): Int =
-    when (optString("role")) {
-        "ocr_element" -> 0
-        "ocr_line" -> 1
-        "ocr_block" -> 2
-        else -> 3
-    }
+private fun JSONObject.ocrPromptRolePriority(): Int = when (optString("role")) {
+    "ocr_element" -> 0
+    "ocr_line" -> 1
+    "ocr_block" -> 2
+    else -> 3
+}
 
 private fun JSONObject.toObservationElementPromptText(): String {
     val clickability = optJSONObject("clickability")
@@ -551,7 +546,7 @@ private fun JSONObject.toTargetCandidatePrompt(): LocalTargetCandidatePrompt? {
         targetValue = targetValue,
         modeTags = modeTags,
         role = role,
-        promptText = promptText,
+        promptText = promptText
     )
 }
 
@@ -589,7 +584,7 @@ private fun JSONArray.ocrGroundedAccessibilityTargetCandidates(): List<LocalTarg
 }
 
 private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
-    ocrElements: List<JSONObject>,
+    ocrElements: List<JSONObject>
 ): LocalTargetCandidatePrompt? {
     val bounds = optJSONObject("bounds") ?: return null
     val ocrText = ocrElements
@@ -631,7 +626,7 @@ private fun JSONObject.toOcrGroundedAccessibilityTargetCandidate(
         targetValue = targetValue,
         modeTags = modeTags,
         role = role,
-        promptText = promptText,
+        promptText = promptText
     )
 }
 
@@ -654,24 +649,23 @@ private fun List<LocalTargetCandidatePrompt>.targetShortlistPromptText(): String
         .takeIf { value -> value.isNotBlank() }
 }
 
-private fun List<LocalTargetCandidatePrompt>.targetEvidencePromptText(): String? =
-    take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
-        .joinToString(separator = "; ") { candidate ->
-            buildString {
-                append("id=")
-                append(candidate.targetValue.shortTraceText(maxLength = 96))
-                append(",text=")
-                append(candidate.label.shortTraceText(maxLength = 48))
-                append(",mode=")
-                append(candidate.modeTags.joinToString(separator = "+"))
-                append(",role=")
-                append(candidate.role.shortTraceText(maxLength = 32))
-            }
+private fun List<LocalTargetCandidatePrompt>.targetEvidencePromptText(): String? = take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
+    .joinToString(separator = "; ") { candidate ->
+        buildString {
+            append("id=")
+            append(candidate.targetValue.shortTraceText(maxLength = 96))
+            append(",text=")
+            append(candidate.label.shortTraceText(maxLength = 48))
+            append(",mode=")
+            append(candidate.modeTags.joinToString(separator = "+"))
+            append(",role=")
+            append(candidate.role.shortTraceText(maxLength = 32))
         }
-        .takeIf { value -> value.isNotBlank() }
+    }
+    .takeIf { value -> value.isNotBlank() }
 
 private fun List<LocalTargetCandidatePrompt>.rankedByResolver(
-    resolverTargetRanks: List<ResolverTargetRank>,
+    resolverTargetRanks: List<ResolverTargetRank>
 ): List<LocalTargetCandidatePrompt> {
     if (resolverTargetRanks.isEmpty()) return this
     val rankByModeAndTarget = mutableMapOf<String, Int>()
@@ -683,17 +677,16 @@ private fun List<LocalTargetCandidatePrompt>.rankedByResolver(
         .sortedWith(
             compareBy<IndexedValue<LocalTargetCandidatePrompt>> { indexed ->
                 indexed.value.bestResolverRank(rankByModeAndTarget)
-            }.thenBy { indexed -> indexed.index },
+            }.thenBy { indexed -> indexed.index }
         )
         .map { indexed -> indexed.value }
 }
 
-private fun LocalTargetCandidatePrompt.bestResolverRank(rankByModeAndTarget: Map<String, Int>): Int =
-    modeTags.minOfOrNull { mode ->
-        rankByModeAndTarget["$mode:${targetValue.normalizedLookupKey()}"]
-            ?: rankByModeAndTarget["$mode:${label.normalizedLookupKey()}"]
-            ?: Int.MAX_VALUE
-    } ?: Int.MAX_VALUE
+private fun LocalTargetCandidatePrompt.bestResolverRank(rankByModeAndTarget: Map<String, Int>): Int = modeTags.minOfOrNull { mode ->
+    rankByModeAndTarget["$mode:${targetValue.normalizedLookupKey()}"]
+        ?: rankByModeAndTarget["$mode:${label.normalizedLookupKey()}"]
+        ?: Int.MAX_VALUE
+} ?: Int.MAX_VALUE
 
 private fun String?.promptResolverTargetKind(): UiTargetKind? {
     val resolverKind = UiTargetResolver.kindForTarget(this)
@@ -711,32 +704,30 @@ private fun String?.promptResolverTargetKind(): UiTargetKind? {
     }
 }
 
-private fun ScreenObservation?.resolverTargetRanks(intentTargetKind: UiTargetKind?): List<ResolverTargetRank> =
-    this?.let { observation ->
-        val rankedKinds = defaultResolverPromptTargetKinds.prioritizing(intentTargetKind)
-        rankedKinds.flatMapIndexed { kindIndex, kind ->
-            UiTargetResolver.explain(observation, kind)
-                .rankedCandidates
-                .take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
-                .flatMapIndexed { candidateIndex, candidate ->
-                    candidate.toResolverTargetRanks(
-                        kind = kind,
-                        rank = (kindIndex * MAX_LOCAL_TARGET_LABELS_PER_MODE) + candidateIndex,
-                    )
-                }
-        }
-    }.orEmpty()
-
-private fun List<UiTargetKind>.prioritizing(kind: UiTargetKind?): List<UiTargetKind> =
-    if (kind == null || kind !in this) {
-        this
-    } else {
-        listOf(kind) + filterNot { candidate -> candidate == kind }
+private fun ScreenObservation?.resolverTargetRanks(intentTargetKind: UiTargetKind?): List<ResolverTargetRank> = this?.let { observation ->
+    val rankedKinds = defaultResolverPromptTargetKinds.prioritizing(intentTargetKind)
+    rankedKinds.flatMapIndexed { kindIndex, kind ->
+        UiTargetResolver.explain(observation, kind)
+            .rankedCandidates
+            .take(MAX_LOCAL_TARGET_LABELS_PER_MODE)
+            .flatMapIndexed { candidateIndex, candidate ->
+                candidate.toResolverTargetRanks(
+                    kind = kind,
+                    rank = (kindIndex * MAX_LOCAL_TARGET_LABELS_PER_MODE) + candidateIndex
+                )
+            }
     }
+}.orEmpty()
+
+private fun List<UiTargetKind>.prioritizing(kind: UiTargetKind?): List<UiTargetKind> = if (kind == null || kind !in this) {
+    this
+} else {
+    listOf(kind) + filterNot { candidate -> candidate == kind }
+}
 
 private fun UiTargetEvidenceCandidate.toResolverTargetRanks(
     kind: UiTargetKind,
-    rank: Int,
+    rank: Int
 ): List<ResolverTargetRank> {
     val targetValue = nodeId?.takeIf { value -> value.isNotBlank() } ?: label
     val modes = when (kind) {
@@ -762,57 +753,55 @@ private fun UiTargetEvidenceCandidate.toResolverTargetRanks(
         .flatMap { mode ->
             listOf(
                 ResolverTargetRank(mode = mode, targetValue = targetValue, rank = rank),
-                ResolverTargetRank(mode = mode, targetValue = label, rank = rank),
+                ResolverTargetRank(mode = mode, targetValue = label, rank = rank)
             )
         }
 }
 
 private fun String.toOcrBlocksPromptSection(
     includeExecutableTargets: Boolean,
-    parseCache: ObservationJsonParseCache? = null,
-): String? =
-    runCatching {
-        val blocks = ocrBlocksArrayOrNull(parseCache) ?: return@runCatching null
-        val selectedBlocks = blocks.indexedObjects(limit = MAX_LOCAL_OCR_BLOCKS)
-        val summaries = selectedBlocks
-            .mapNotNull { (index, block) -> block.toOcrBlockPromptText(index) }
-        val targetCandidates = if (includeExecutableTargets) {
-            selectedBlocks
-                .flatMap { (index, block) -> block.toOcrTargetCandidatePrompts(index) }
-                .distinctBy { candidate -> candidate.promptText }
-                .take(MAX_LOCAL_TARGET_CANDIDATES)
-        } else {
-            emptyList()
-        }
-        buildString {
-            append("ocrBlocks(count=")
-            append(blocks.length())
+    parseCache: ObservationJsonParseCache? = null
+): String? = runCatching {
+    val blocks = ocrBlocksArrayOrNull(parseCache) ?: return@runCatching null
+    val selectedBlocks = blocks.indexedObjects(limit = MAX_LOCAL_OCR_BLOCKS)
+    val summaries = selectedBlocks
+        .mapNotNull { (index, block) -> block.toOcrBlockPromptText(index) }
+    val targetCandidates = if (includeExecutableTargets) {
+        selectedBlocks
+            .flatMap { (index, block) -> block.toOcrTargetCandidatePrompts(index) }
+            .distinctBy { candidate -> candidate.promptText }
+            .take(MAX_LOCAL_TARGET_CANDIDATES)
+    } else {
+        emptyList()
+    }
+    buildString {
+        append("ocrBlocks(count=")
+        append(blocks.length())
+        append(")")
+        targetCandidates.targetShortlistPromptText()?.let { summary ->
+            append(" targetShortlist(")
+            append(summary)
             append(")")
-            targetCandidates.targetShortlistPromptText()?.let { summary ->
-                append(" targetShortlist(")
-                append(summary)
-                append(")")
-            }
-            targetCandidates.targetEvidencePromptText()?.let { summary ->
-                append(" targetEvidence(")
-                append(summary)
-                append(")")
-            }
-            if (summaries.isNotEmpty()) {
-                append("=[")
-                append(summaries.joinToString(separator = "; "))
-                append("]")
-            }
-            if (targetCandidates.isNotEmpty()) {
-                append(" targets=[")
-                append(targetCandidates.joinToString(separator = "; ") { candidate -> candidate.promptText })
-                append("]")
-            }
         }
-    }.getOrNull()
+        targetCandidates.targetEvidencePromptText()?.let { summary ->
+            append(" targetEvidence(")
+            append(summary)
+            append(")")
+        }
+        if (summaries.isNotEmpty()) {
+            append("=[")
+            append(summaries.joinToString(separator = "; "))
+            append("]")
+        }
+        if (targetCandidates.isNotEmpty()) {
+            append(" targets=[")
+            append(targetCandidates.joinToString(separator = "; ") { candidate -> candidate.promptText })
+            append("]")
+        }
+    }
+}.getOrNull()
 
-private fun JSONObject.toOcrTargetCandidatePrompts(blockIndex: Int): List<LocalTargetCandidatePrompt> =
-    toOcrTargetEvidencePrompts(blockIndex).map { evidence -> evidence.toOcrTargetCandidatePrompt() }
+private fun JSONObject.toOcrTargetCandidatePrompts(blockIndex: Int): List<LocalTargetCandidatePrompt> = toOcrTargetEvidencePrompts(blockIndex).map { evidence -> evidence.toOcrTargetCandidatePrompt() }
 
 private fun OcrTargetEvidencePrompt.toOcrTargetCandidatePrompt(): LocalTargetCandidatePrompt {
     val text = text.shortTraceText(maxLength = 72)
@@ -832,7 +821,7 @@ private fun OcrTargetEvidencePrompt.toOcrTargetCandidatePrompt(): LocalTargetCan
         targetValue = targetValue,
         modeTags = listOf("ocrFallback"),
         role = role,
-        promptText = promptText,
+        promptText = promptText
     )
 }
 
@@ -854,13 +843,10 @@ private fun JSONObject.toOcrBlockPromptText(index: Int): String {
     }
 }
 
-private fun JSONObject.containsOcrObservation(elements: JSONArray): Boolean =
-    optJSONObject("sourceCounts")?.optInt("ocr", 0)?.let { count -> count > 0 } == true ||
-        optJSONArray("sources")?.containsString("ocr") == true ||
-        (0 until elements.length()).any { index ->
-            elements.optJSONObject(index)?.optString("source") == "ocr"
-        }
+private fun JSONObject.containsOcrObservation(elements: JSONArray): Boolean = optJSONObject("sourceCounts")?.optInt("ocr", 0)?.let { count -> count > 0 } == true ||
+    optJSONArray("sources")?.containsString("ocr") == true ||
+    (0 until elements.length()).any { index ->
+        elements.optJSONObject(index)?.optString("source") == "ocr"
+    }
 
-private fun Double.formatPromptScore(): String =
-    String.format(java.util.Locale.US, "%.2f", this)
-
+private fun Double.formatPromptScore(): String = String.format(java.util.Locale.US, "%.2f", this)

@@ -38,7 +38,7 @@ class ResearchInitialPlanningDatasetTest {
     fun idsAndInputsAreUniqueAndDisjointFromExistingSets() {
         assertUniqueAndDisjoint(
             InitialPlanningDatasets.research.loadAll(),
-            InitialPlanningCases.loadAll() + HeldOutInitialPlanningCases.loadAll()
+            InitialPlanningCases.loadAll() + InitialPlanningDatasets.heldout.loadAll()
         )
     }
 

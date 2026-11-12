@@ -9,21 +9,27 @@
 
 ---
 
-## 当前核对（2026-11-04，`cb7e4918`）
+## 当前核对（2026-11-12）
 
 本页各 Wave 的行数、方法清单和测试数保留为当时的历史结果，不代表当前重跑证据。
 当前 `SolinViewModel.kt` / `SolinScreen.kt` / `AgentLoopRuntime.kt` 分别为
-852 / 497 / 1952 行；生产 Kotlin 文件 334 个，文件数门禁也是 334。手机能力合入后新增
-输入核验、组合工具、路线复用和后台 helper/session 五个实质模块；这次有限增量由
-[架构目标](architecture_depth.md#bounded-additions-for-phone-capabilities) 记录，不能据此
-继续无限拆分。工具能力矩阵当前有 52 项。
+852 / 497 / 1917 行；生产 Kotlin 文件 **326** 个，文件数门禁也是 326。2026-11-11 的包方向、
+严格 JSON、日志门面和 evidence decorator 收归保持单向依赖；2026-11-12 又删除纯 screenshot
+provider 转发文件，由组装根直接绑定 Accessibility capture。工具能力矩阵当前有 52 项。
+
+本轮增量简化还包括：批量 continuation 复用一次 trace 读取、SkillPlanned summary 单次解析、
+MCP spec/handler 共用一次 catalog snapshot、survival card 单一工厂、memory migration 快照复用与
+query 单次分词；后台任务 UI 发布合并为一个 reducer，scenario IDs 从 canonical title map 派生。
+lab 架构扫描改为一次读文件/词法分析，manifest 的 load→mutate→write 与锁收归一个入口，held-out
+纯转发 facade 已删除。以上均保持现有隐私、确认、持久化和生命周期合同。
 
 - ViewModel 和 Screen 提取已落地，当前归属见 [模块文档](agent_core_modules.md)。
 - 全量 UiState 多流拆分仍不执行；数据层全量 suspend 接口迁移仍未完成。
 - 多模块 Gradle 产品拆分未实施；`releaseSmoke` 是验收辅助模块，不是业务模块化完成。
 - 已合入的手机能力及其设备边界见 [Mika 记录](plans/mika-phone-capabilities.md)。
-- CI `cb7e4918` 成功是构建/脚本/单测证据；HVF 不支持导致远端模拟器回归跳过，不能
-  当作完整设备矩阵通过。当前有效模型的前后任务基准与物理设备验收仍待补。
+- `cb7e4918` 的远端 CI 成功是历史构建/脚本/单测证据；HVF 不支持导致远端模拟器回归跳过，
+  不能当作完整设备矩阵通过。当前本地验证与历史 CI 分开记录于
+  [验证报告](validation_report.md#当前证据索引)。有效模型前后任务基准与物理设备验收仍待补。
 
 以下 §1–§22 是原 Wave 历史，旧“下一步”按当时语境阅读，不自动成为当前待办。
 

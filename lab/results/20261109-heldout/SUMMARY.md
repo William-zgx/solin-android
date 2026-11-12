@@ -42,7 +42,7 @@ Every table below was produced on this host only. Devbox CPU measurements are no
 | litert/gemma-4-e2b | R-gated-e2e | 47/60 (78%) | 24/29 (83%) | 21/29 (72%) | 5/24 (21%) | 0 | 5 | 4 | 1 | 3 | 0/7 (0%) | 12 | 0 | +10 | 10 | 0 |
 | litert/gemma-4-e4b | R-gated-e2e | 47/60 (78%) | 24/29 (83%) | 21/29 (72%) | 5/24 (21%) | 0 | 5 | 4 | 1 | 3 | 0/7 (0%) | 13 | 0 | +10 | 10 | 0 |
 
-Fixed/broken and the score delta are within this held-out set only. An errored call is neither a fix nor a break. Every run-derived cell carries its Decision-L1 error annotation when needed.
+Fixed/broken and the score delta are within this held-out set's shared answered population. An errored record without a scorable final answer is neither a fix nor a break; a valid fallback counts normally. Every run-derived cell carries its Decision-L1 error annotation when needed.
 
 Production `RuleFirstGatedModel` decision stages and gate parse outcomes. The gate parser is the merged production parser, including its one whole-reply fence handling; no lab-only fence transform is used.
 
@@ -147,7 +147,7 @@ Per-category correct results. `no_tool / tool_domain_question` and both negation
 | B | litert/gemma-4-e2b | R-gated-e2e | 43 | 5014 | 5136 | 0 | 0 | 0 | 0 |
 | B | litert/gemma-4-e4b | R-gated-e2e | 44 | 8345 | 9263 | 0 | 0 | 0 | 0 |
 
-Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run has no row at all, because there is nothing to time.
+Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run with no timing records shows an `errored N/N` row instead.
 
 Failure examples for every group are in [`failure_examples.md`](failure_examples.md).
 

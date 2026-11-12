@@ -11,12 +11,15 @@ belongs in [phone acceptance](phone_acceptance.md).
 | --- | --- | --- |
 | Fixture and boundary validation | JSONL schema, tool names, privacy/confirmation/risk expectations, required categories and MVP/boundary coverage | That the runtime produced those outcomes, that a model planned correctly, or that an Android action worked |
 | Runtime actual trace | The deterministic `AgentLoopRuntime` fixture harness produced trace rows matching expectations and current source/fixture metadata | Real model accuracy, real-app compatibility, or physical-device behavior |
+| Desktop model-capability bench | The [local capability lab](../lab/README.md) runs real planning code against named local models and saves per-case JSONL/manifests; [held-out](../lab/datasets/initial_planning_heldout.metadata.json) and [research](../lab/datasets/initial_planning_research.metadata.json) sets are evaluation-only | Deterministic runtime-trace parity, device behavior, latency/memory evidence, or release approval |
 | Device and phone-task evaluation | Actual provider/action outcomes, UI transitions, valid-model tasks and safety stops on a named APK/device | Production signing, legal/privacy approval, complete API/OEM coverage, or release-owner sign-off |
 
 At main `cb7e4918`, CI [run 41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903)
 passed the first level: **40 cases, 7 categories, 6 MVP scenarios**. This is a dated
 fixture result, not a permanent count or public-strict runtime-trace claim. Current
 release status and missing evidence are in [release readiness](release_readiness.md).
+Held-out and research lab datasets prohibit prompt, rule and threshold tuning; desktop scores never
+fill a deterministic runtime-trace or device-evidence slot.
 
 ## Evidence Flow
 

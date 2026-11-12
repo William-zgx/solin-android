@@ -30,7 +30,7 @@ internal class ModelToolRequestCoordinator(
     private val confirmationBypassPolicy: ConfirmationBypassPolicy,
     private val pendingConfirmationSupport: PendingConfirmationSupport,
     private val host: Host,
-    private val auditRecorder: ToolAuditRecorder,
+    private val auditRecorder: ToolAuditRecorder
 ) {
     interface Host {
         fun rejectRemoteToolIfNotExposedInCurrentScope(runId: String, request: ToolRequest): ToolResult?
@@ -60,13 +60,13 @@ internal class ModelToolRequestCoordinator(
             val updatedRun = traceStore.compareAndSetState(
                 runId = runId,
                 expectedState = AgentRunState.GeneratingAnswer,
-                state = AgentRunState.Failed,
+                state = AgentRunState.Failed
             ) ?: return null
             traceStore.appendRejectedRoutingDecision(
                 runId = runId,
                 path = IntentRoutingPath.RemoteToolPlanning,
                 toolName = request.toolName,
-                reason = "remote_tool_not_exposed",
+                reason = "remote_tool_not_exposed"
             )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
@@ -80,7 +80,7 @@ internal class ModelToolRequestCoordinator(
             return AgentModelObservationResult(
                 run = updatedRun,
                 decision = decision,
-                steps = traceStore.steps(runId),
+                steps = traceStore.steps(runId)
             )
         }
         if (traceQueries.toolRequestFor(runId, request.id) != null) {
@@ -88,13 +88,13 @@ internal class ModelToolRequestCoordinator(
             val updatedRun = traceStore.compareAndSetState(
                 runId = runId,
                 expectedState = AgentRunState.GeneratingAnswer,
-                state = AgentRunState.Failed,
+                state = AgentRunState.Failed
             ) ?: return null
             traceStore.appendRejectedRoutingDecision(
                 runId = runId,
                 path = IntentRoutingPath.RemoteToolPlanning,
                 toolName = request.toolName,
-                reason = "duplicate_model_tool_request_id",
+                reason = "duplicate_model_tool_request_id"
             )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
@@ -106,7 +106,7 @@ internal class ModelToolRequestCoordinator(
             return AgentModelObservationResult(
                 run = updatedRun,
                 decision = decision,
-                steps = traceStore.steps(runId),
+                steps = traceStore.steps(runId)
             )
         }
         val draft = initialToolPlanner.draftForRemoteToolRequest(request)
@@ -116,20 +116,20 @@ internal class ModelToolRequestCoordinator(
             draft = draft,
             plannedByModel = true,
             fallbackReason = "remote tool call",
-            skillPlan = skillPlan,
+            skillPlan = skillPlan
         )
         return when (plan) {
             is AgentPlan.UseTool -> {
                 val effectivePlan = confirmationBypassPolicy.withConfirmationBypass(runId, plan)
                 val decision = AgentObservationDecision.PlanNextTool(
                     plan = effectivePlan,
-                    reason = "Remote model requested a tool call.",
+                    reason = "Remote model requested a tool call."
                 )
                 val nextState = effectivePlan.nextExecutionState()
                 val updatedRun = traceStore.compareAndSetState(
                     runId = runId,
                     expectedState = AgentRunState.GeneratingAnswer,
-                    state = nextState,
+                    state = nextState
                 ) ?: return null
                 toolObservationCoordinator.appendToolPlanSteps(runId, effectivePlan)
                 // ask_user interception: park in AwaitingUserAnswer before ExecutingTool.
@@ -141,7 +141,7 @@ internal class ModelToolRequestCoordinator(
                 AgentModelObservationResult(
                     run = updatedRun,
                     decision = decision,
-                    steps = traceStore.steps(runId),
+                    steps = traceStore.steps(runId)
                 )
             }
 
@@ -149,13 +149,13 @@ internal class ModelToolRequestCoordinator(
                 val updatedRun = traceStore.compareAndSetState(
                     runId = runId,
                     expectedState = AgentRunState.GeneratingAnswer,
-                    state = AgentRunState.Failed,
+                    state = AgentRunState.Failed
                 ) ?: return null
                 traceStore.appendRejectedRoutingDecision(
                     runId = runId,
                     path = IntentRoutingPath.RemoteToolPlanning,
                     toolName = request.toolName,
-                    reason = plan.result.summary.toRoutingReasonSlug(),
+                    reason = plan.result.summary.toRoutingReasonSlug()
                 )
                 traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
                 traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
@@ -167,7 +167,7 @@ internal class ModelToolRequestCoordinator(
                 AgentModelObservationResult(
                     run = updatedRun,
                     decision = decision,
-                    steps = traceStore.steps(runId),
+                    steps = traceStore.steps(runId)
                 )
             }
 
@@ -193,8 +193,8 @@ internal class ModelToolRequestCoordinator(
                 result = ToolRequest(
                     id = "remote-tool-batch",
                     toolName = "tool_batch",
-                    reason = "remote tool batch",
-                ).rejected("Remote model returned an empty tool batch."),
+                    reason = "remote tool batch"
+                ).rejected("Remote model returned an empty tool batch.")
             )
         }
         val existingRequests = traceQueries.toolRequestsFor(runId)
@@ -211,15 +211,15 @@ internal class ModelToolRequestCoordinator(
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,
                     result = requests.first().rejected(
-                        "Model tool request id appears multiple times in one batch: $duplicatedRequestId",
-                    ),
+                        "Model tool request id appears multiple times in one batch: $duplicatedRequestId"
+                    )
                 )
             }
         requests.firstOrNull { request -> request.id in existingRequestIds }
             ?.let { existingRequest ->
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,
-                    result = existingRequest.rejected("Model tool request id already exists: ${existingRequest.id}"),
+                    result = existingRequest.rejected("Model tool request id already exists: ${existingRequest.id}")
                 )
             }
 
@@ -228,25 +228,25 @@ internal class ModelToolRequestCoordinator(
             host.rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejection ->
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,
-                    result = rejection.withAttemptedToolNames(requests),
+                    result = rejection.withAttemptedToolNames(requests)
                 )
             }
             toolRegistry.validate(request)?.let { rejection ->
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,
-                    result = rejection.withAttemptedToolNames(requests),
+                    result = rejection.withAttemptedToolNames(requests)
                 )
             }
             val spec = toolRegistry.specFor(request.toolName) ?: return toolObservationCoordinator.rejectModelToolBatch(
                 runId = runId,
-                result = request.rejected("Unknown tool: ${request.toolName}").withAttemptedToolNames(requests),
+                result = request.rejected("Unknown tool: ${request.toolName}").withAttemptedToolNames(requests)
             )
             if (!spec.isEligibleForParallelBatch()) {
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,
                     result = request.rejected(
-                        "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
-                    ).withAttemptedToolNames(requests),
+                        "Tool ${request.toolName} is not eligible for parallel public evidence execution."
+                    ).withAttemptedToolNames(requests)
                 )
             }
             val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
@@ -254,7 +254,7 @@ internal class ModelToolRequestCoordinator(
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,
                     result = request.rejected(safetyDecision.reason).withAttemptedToolNames(requests),
-                    safetyDecision = safetyDecision,
+                    safetyDecision = safetyDecision
                 )
             }
             // Same critical check as the single-request path (e.g. a search after a private read
@@ -264,7 +264,7 @@ internal class ModelToolRequestCoordinator(
                     runId = runId,
                     result = request.rejected("${critical.reason} A parallel tool batch requires confirmation per step.")
                         .withAttemptedToolNames(requests),
-                    safetyDecision = critical,
+                    safetyDecision = critical
                 )
             }
             plans += AgentPlan.UseTool(
@@ -274,18 +274,18 @@ internal class ModelToolRequestCoordinator(
                 fallbackReason = "remote tool batch",
                 skillRequest = null,
                 skillPlan = null,
-                safetyDecision = safetyDecision,
+                safetyDecision = safetyDecision
             )
         }
 
         val decision = AgentObservationDecision.PlanToolBatch(
             plans = plans,
-            reason = "Remote model requested ${plans.size} parallel public evidence tool calls.",
+            reason = "Remote model requested ${plans.size} parallel public evidence tool calls."
         )
         val updatedRun = traceStore.compareAndSetState(
             runId = runId,
             expectedState = AgentRunState.GeneratingAnswer,
-            state = AgentRunState.ExecutingTool,
+            state = AgentRunState.ExecutingTool
         ) ?: return null
         plans.forEach { plan -> toolObservationCoordinator.appendToolPlanSteps(runId, plan) }
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
@@ -293,14 +293,13 @@ internal class ModelToolRequestCoordinator(
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
-            steps = traceStore.steps(runId),
+            steps = traceStore.steps(runId)
         )
     }
 
-    private fun ToolResult.withAttemptedToolNames(requests: List<ToolRequest>): ToolResult =
-        copy(
-            data = data + mapOf(
-                "attemptedToolNames" to requests.joinToString(",") { request -> request.toolName },
-            ),
+    private fun ToolResult.withAttemptedToolNames(requests: List<ToolRequest>): ToolResult = copy(
+        data = data + mapOf(
+            "attemptedToolNames" to requests.joinToString(",") { request -> request.toolName }
         )
+    )
 }

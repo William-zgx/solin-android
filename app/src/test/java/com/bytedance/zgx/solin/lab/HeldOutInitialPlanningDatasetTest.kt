@@ -12,10 +12,10 @@ class HeldOutInitialPlanningDatasetTest {
 
     @Test
     fun heldOutMetadataPinsTheDeclaredDistribution() {
-        val cases = HeldOutInitialPlanningCases.loadAll()
-        val metadata = HeldOutInitialPlanningCases.loadMetadata()
+        val cases = InitialPlanningDatasets.heldout.loadAll()
+        val metadata = InitialPlanningDatasets.heldout.loadMetadata()
 
-        assertEquals(HeldOutInitialPlanningCases.DATASET_FILENAME, metadata.getString("datasetFile"))
+        assertEquals(InitialPlanningDatasets.heldout.datasetFile, metadata.getString("datasetFile"))
         assertTrue(cases.all { it.source == "heldout_evaluation_only" })
         assertEvaluationOnlyMetadata(cases, metadata)
         val toolCategories = cases.filter { it.json.getString("group") == "tool" }
@@ -32,12 +32,12 @@ class HeldOutInitialPlanningDatasetTest {
 
     @Test
     fun heldOutIdsAndNormalizedInputsAreUniqueAndDisjointFromTheTuningSet() {
-        assertUniqueAndDisjoint(HeldOutInitialPlanningCases.loadAll(), InitialPlanningCases.loadAll())
+        assertUniqueAndDisjoint(InitialPlanningDatasets.heldout.loadAll(), InitialPlanningCases.loadAll())
     }
 
     @Test
     fun heldOutRecordsRetainTheirGroupAndClassifyFalsePositives() {
-        val case = HeldOutInitialPlanningCases.loadAll().single { it.id == "heldout_no_tool_014" }
+        val case = InitialPlanningDatasets.heldout.loadAll().single { it.id == "heldout_no_tool_014" }
         val record = InitialPlanningCases.record(
             suite = "initial-planning",
             model = "rules",

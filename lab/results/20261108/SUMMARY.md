@@ -69,7 +69,7 @@ Suite A (final step after the replanner guards, 46 screens) and Suite D (placeme
 | --- | --- |
 | rules | 15/26 (58%) |
 
-`rules` is the production rule path with no model, so it has no host and its row is repeated under each host as the same reference. `-` means not run. `-fix` modes are the lab-only placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful LocalModelFirst shape. `errored n/n` means every call failed (nothing was answered); `(k errored)` counts the failures inside a partly errored cell.
+`rules` is the production rule path with no model, so it has no host and its row is repeated under each host as the same reference. `-` means not run. `-fix` modes are the lab-only placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful LocalModelFirst shape. `errored n/n` means every case had a model-call failure; cells with no scorable final answer show no numeric score, while a valid fallback keeps its score and annotation. `(k errored)` counts failures inside a partly errored cell.
 
 ### Suite A: observation step
 
@@ -124,7 +124,7 @@ Per-argument accuracy, scored only where the tool was right (10 most common gold
 
 `N-full` and `N-topk` use a strict system prompt (always call one tool); `N-topk-free` allows a plain-text answer when no phone action is needed. Arguments are converted to strings the way `RemoteChatRuntime` converts remote tool calls.
 
-Native response kinds (`unknown_tool` and `nested_arguments` would be rejected by the app):
+Native response kinds (`unknown_tool`, `nested_arguments` and `multi_call` are rejected; multiple calls never count as a valid attempt or a deliberate `answer` choice):
 
 | model | mode | kinds |
 | --- | --- | --- |
@@ -231,7 +231,7 @@ Offline composite: `R`, then the action gate, then the native mode in its column
 | E | gemma4:e4b | json-prompt | 151 | 1416 | 1992 | 175 | 187 | 0 | 14 |
 | E | gemma4:e2b | json-prompt | 151 | 1229 | 1426 | 175 | 187 | 0 | 15 |
 
-Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run has no row at all, because there is nothing to time.
+Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run with no timing records shows an `errored N/N` row instead.
 
 ## devbox CPU / LiteRT-LM 0.12.0 (production .litertlm)
 
@@ -274,7 +274,7 @@ Suite A (final step after the replanner guards, 46 screens) and Suite D (placeme
 | litert/gemma-4-e2b | 17/46 (37%) | 15/46 (33%) | - | 25/26 (96%) |
 | litert/gemma-4-e4b | 23/46 (50%) | 22/46 (48%) | - | - |
 
-`rules` is the production rule path with no model, so it has no host and its row is repeated under each host as the same reference. `-` means not run. `-fix` modes are the lab-only placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful LocalModelFirst shape. `errored n/n` means every call failed (nothing was answered); `(k errored)` counts the failures inside a partly errored cell.
+`rules` is the production rule path with no model, so it has no host and its row is repeated under each host as the same reference. `-` means not run. `-fix` modes are the lab-only placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful LocalModelFirst shape. `errored n/n` means every case had a model-call failure; cells with no scorable final answer show no numeric score, while a valid fallback keeps its score and annotation. `(k errored)` counts failures inside a partly errored cell.
 
 ### Suite A: observation step
 
@@ -420,7 +420,7 @@ Per-argument accuracy, scored only where the tool was right (10 most common gold
 
 `N-full` and `N-topk` use a strict system prompt (always call one tool); `N-topk-free` allows a plain-text answer when no phone action is needed. Arguments are converted to strings the way `RemoteChatRuntime` converts remote tool calls.
 
-Native response kinds (`unknown_tool` and `nested_arguments` would be rejected by the app):
+Native response kinds (`unknown_tool`, `nested_arguments` and `multi_call` are rejected; multiple calls never count as a valid attempt or a deliberate `answer` choice):
 
 | model | mode | kinds |
 | --- | --- | --- |
@@ -679,7 +679,7 @@ Offline composite: `R`, then the action gate, then the native mode in its column
 | E | litert/gemma-4-e2b | json-prompt | 151 | 13350 | 14432 | 0 | 0 | 0 | 0 |
 | E | litert/gemma-4-e4b | json-prompt | 151 | 8417 | 8564 | 0 | 0 | 0 | 0 |
 
-Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run has no row at all, because there is nothing to time.
+Per model call, wall time on the desktop host, responses reused from the lab's cache excluded. Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call would not. Use these numbers to compare modes and models with each other, not as phone latency. A failed call adds no timing, so a partly errored run's call count carries its error count; a fully errored run with no timing records shows an `errored N/N` row instead.
 
 ## Tool retriever recall (tuning campaign)
 
@@ -944,21 +944,19 @@ Exceeding the maximum number of tokens allowed: N >= 1024`. Measured N: text `M-
 never truncates: an overflow is recorded as an error, and the JSONL keeps the error string.
 
 **Production consequence.** The default path builds the model call without a tool shortlist:
-`InitialToolPlanner.kt:125` calls `actionPlanningRuntime.plan(input, actionModelPath)`, and the
-two-argument `plan` (`action/ActionPlanningRuntime.kt:79` → `:140`) prompts with the whole registry
-(`actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs())`,
-`action/ActionPlanningRuntime.kt:146`). With the shipped `mobile-actions_q8_ekv1024.litertlm` every such
-call overflows, the model contributes nothing, and the rules decide. The token count depends on the
-model file and tokenizer, not the host, so this transfers to the phone; the exact on-device error is
-**pending device confirmation**.
+`InitialToolPlanner` delegates to `actionPlanningRuntime.plan(input, actionModelPath)`, whose
+`actionPrompt(input, toolSpecs?.takeIf { it.isNotEmpty() } ?: toolRegistry.specs())` prompts with the
+whole registry. With the shipped `mobile-actions_q8_ekv1024.litertlm` every such call overflows, the model
+contributes nothing, and the rules decide. The token count depends on the model file and tokenizer, not
+the host, so this transfers to the phone; the exact on-device error is **pending device confirmation**.
 
 **(b) Native tools vs the text prompt.** Native tools are the only path that runs at all on the 270M,
 because the text prompt overflows. On E2B and E4B the native path parses cleanly on the production
-file: 136/151 (E2B, 3 errored) and 133/151 (E4B) `N-topk` answers arrive as `call`, and the rest are 12–18 plain
-`text` answers plus 3 engine errors (E2B). The model's own `tool_call:name{...}` rendering is converted
+file: E2B has 136 calls, 12 plain `text` answers and 3 engine errors; E4B has 133 calls and 18 plain
+`text` answers with no recorded engine error. The model's own `tool_call:name{...}` rendering is converted
 to a native `tool_calls` array by the shim, exactly as the app reads a native call, so nothing here
-depends on the app's `call:` text parser. Top-8 native accuracy: E2B 75/100 tool requests right,
-E4B 77/100. Full native rows are in the Suite B/C tables above; treat the cross-host comparison as a
+depends on the app's `call:` text parser. Top-8 native accuracy: E2B 75/98 answered tool requests right
+(3 errored), E4B 77/100. Full native rows are in the Suite B/C tables above; treat the cross-host comparison as a
 direction only, since the Ollama native runs used a different runner.
 
 With a retrieved top-8 the text prompt runs, and this is the decisive experiment of Suite F:
@@ -1018,9 +1016,9 @@ prompt fits.
 
 **(e) Production-faithful LocalModelFirst: the `answer` choice is the difference, and the negation
 guard is free accuracy.** The `-topk` modes above are not what production sends. Production
-LocalModelFirst offers the retrieved shortlist **plus** an `answer` no-tool choice
-(`LOCAL_MODEL_NO_TOOL_CHOICE`, title `直接回答`, `orchestration/InitialToolPlanner.kt:43,52-60,136`)
-and reads a chosen `answer` as "no tool" (`:144`). The two `*-lmf` modes add exactly that to the same
+LocalModelFirst offers the retrieved shortlist **plus** an `answer` no-tool choice from
+`LOCAL_MODEL_NO_TOOL_CHOICE` / `noToolChoiceSpec` (title `直接回答`), and `choseNoTool` reads a chosen
+`answer` as "no tool". The two `*-lmf` modes add exactly that to the same
 top-8 shortlist, so they are the first rows in this lab that mirror the candidate production
 configuration. Production `.litertlm` files, devbox CPU, all 151 cases (`answered` excludes errored
 calls; none of these rows has a meaningful error count except where noted):
@@ -1037,9 +1035,11 @@ calls; none of these rows has a meaningful error count except where noted):
 | E4B `N-topk-lmf` (native + `answer`) | 117/151 | 77/100 | 11/51 | 0 |
 
 Adding `answer` moves the candidate configurations a long way: the E2B text mode goes 72→96 overall
-and 49→23 no-tool false positives, and the E2B native mode 82→104 and 39→20, **entirely by declining
-no-tool requests the without-`answer` modes called a tool on**. It does not fix tool selection: E2B
-`M-topk-fix-lmf` is 68/100 tool+args (slightly below `M-topk-fix`'s 70 — the model spends some
+and 49→23 no-tool false positives. On the 148 caseIds scorable in both native runs, E2B goes from 82/148
+to 102/148 (+20), with shared no-tool false positives 39/50→20/50; two additional cases answered only in
+`N-topk-lmf` are also correct, producing the unpaired 104/150 total. One paired gain is a tool-argument
+correction, so these numbers do not isolate a purely causal `answer` effect. It does not fix tool selection:
+E2B `M-topk-fix-lmf` is 68/100 tool+args (slightly below `M-topk-fix`'s 70 — the model spends some
 probability mass on `answer`, and 4 tool-gold cases chose it), and E4B's text mode is 77/100. So
 `answer` is a real, cheap improvement in the intent decision, not in the tool decision. It is also
 exactly what production already does, which means the lab's older `*-topk` rows understated the
@@ -1159,21 +1159,23 @@ None of this is phone evidence. Accuracy is the portable signal; latency is host
 ### Production decisions this run changes
 
 1. **Offer the `answer` no-tool choice — production already does, and it is the single biggest
-   improvement measured here.** On the shipped LiteRT files it takes the E2B native mode from
-   82→104/151 and its no-tool false positives from 39→20, and the E2B text mode from 72→96 and
-   49→23, almost entirely by letting the model decline. It does not improve tool selection (E2B text
-   stays at ~68/100 tool+args), so it is not a substitute for the prompt fix below; it is the intent
-   half of the problem, and production's `LocalModelFirst` path (`InitialToolPlanner.kt:136,144`)
-   already has it. The lab's older `*-topk` numbers understated the production configuration because
+   improvement measured here.** On the 148 caseIds scorable in both native runs, the E2B mode goes from
+   82/148 to 102/148 (+20); two additional LMF-only answered cases are also correct, giving the unpaired
+   104/150 (1 errored) total. Shared no-tool false positives fall from 39/50 to 20/50. The E2B text mode
+   goes from 72→96/151 and 49→23 false positives. One paired native gain is a tool-argument correction,
+   so the comparison does not isolate a purely causal `answer` effect. It does not improve tool selection
+   (E2B text stays at ~68/100 tool+args), so it is not a substitute for the prompt fix below; it is the
+   intent half of the problem, and production's `planLocalModelFirst` / `choseNoTool` path already has it.
+   The lab's older `*-topk` numbers understated the production configuration because
    they omitted it.
 2. **Fix the production `actionPrompt` placeholder and keep the negation guard.** The placeholder
    (`call:function {"arg":"value"}`) is the whole reason the text path scores 0/100 on both LiteRT
    files; rewriting it recovers 77/100 tool selection (`M-topk-fix`). The negation guard is free: it
-   is already in production (`InitialToolPlanner.kt:100`), never fires on a tool-gold case here (18
+   is already in production `InitialToolPlanner`, never fires on a tool-gold case here (18
    guarded, 0 tool-gold), and adds +7 to +16 correct and −9 to −16 false positives across the modes.
    Neither change opens anything that runs without a prompt; the app still gates every device action.
 3. **Native tools remain the better long-run shape, but the `answer` choice narrows the gap.** With
-   `answer`, E2B native (104/151) beats E2B text (96/151) and E4B native (117/151) beats
+   `answer`, E2B native (102/148 on the shared answered population, 104/150 unpaired) beats E2B text (96/151) and E4B native (117/151) beats
    E4B text (112/151) on overall accuracy. The text path's remaining weakness is the format, not the
    model.
 4. **The confidence to ship the local planner alone is still not there.** Even the best raw mode

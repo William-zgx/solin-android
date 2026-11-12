@@ -78,7 +78,7 @@ messages sent in the user's name.
 | T7 | Remote audit leaks prompts | Audit entry stores raw user text | Redacted, summary-only remote audit (AGENTS.md non-negotiable 4) |
 | T8 | Secrets leak | API key in Git or logs | Encrypted secret store, privacy scan, no keys in code |
 | T9 | Model mis-flags or mis-routes | Router sends personal text to the cloud | Router only sees text that passed the sensitivity check and only chooses between already-legal placements |
-| T10 | On-device planning model acts without the user | Small model calls `open_app_by_name` for 别启动微信, or writes a `web_search` query; 34 of 51 no-tool requests in the desktop lab | Negated requests never reach the model; a model-proposed step always asks (`CriticalApprovalReason.LocalModelProposedStep`), whatever the confirmation mode; provenance from the run trace |
+| T10 | On-device planning model acts without the user | Small model calls `open_app_by_name` for 别启动微信, or writes a `web_search` query; 34 of 51 no-tool requests in the desktop lab | Negated requests never reach the model; every accepted initial `LocalModelFirst` proposal asks (`CriticalApprovalReason.LocalModelProposedStep`) in either confirmation mode; observation replans use the ordinary critical-reason policy; provenance comes from the run trace |
 
 Out of scope: a compromised OS, root, or a malicious accessibility service.
 
@@ -112,7 +112,7 @@ capabilities. The integrated tree contained **334** production Kotlin files, up
 from **329**, and the ratchet was set to that measured count. The 2026-11-05
 cleanup (dead seams such as `AgentHooks`, `AgentProfile` and the credential
 resolvers removed; root-package helpers merged into their owners) brought the
-tree to **324**. The 2026-11-07 edge-lab merges (collab, local-agent, runtime, memory and lab) brought it to **327**, and the ratchet sits at 327. The 2026-11-11 package-direction cleanup moved the tool handler and safety-authorization contracts to their owners, moved strict JSON scanning into `common`, and extracted `EvidenceBoundingToolExecutor`; merging the one-port file and adding the substantive evidence decorator kept the count at **327**. The four legacy line watermarks were tightened to their measured values as growth guards, not splitting targets. A follow-up moved `BuiltInToolsModule` into the module owner and extended the source scanner to Android, AndroidX and Solin references while ignoring comments and literal string content but preserving `${...}` template expressions, closing dependency and gate-bypass paths without changing the file count. Do not merge or split
+tree to **324**. The 2026-11-07 edge-lab merges (collab, local-agent, runtime, memory and lab) brought it to **327**. The 2026-11-11 package-direction cleanup moved the tool handler and safety-authorization contracts to their owners, moved strict JSON scanning into `common`, and extracted `EvidenceBoundingToolExecutor`; merging the one-port file and adding the substantive evidence decorator kept the count at **327**. The four legacy line watermarks were tightened to their measured values as growth guards, not splitting targets. A follow-up moved `BuiltInToolsModule` into the module owner and extended the source scanner to Android, AndroidX and Solin references while ignoring comments and literal string content but preserving `${...}` template expressions, closing dependency and gate-bypass paths without changing the file count. On 2026-11-12 the pure screenshot-provider forwarder was removed and its composition binding moved directly to `SolinAccessibilityService`, bringing the ratchet to **326**. Do not merge or split
 unrelated files just to conceal growth. Every added module must keep substantive
 logic behind a smaller interface. Tool registration, per-child authorization and
 route proposals reuse the existing execution boundary; the shell helper does not
@@ -251,7 +251,7 @@ token-subset match against the user's input.
 | Benchmark baseline | Pending: API 36 direct tool/background acceptance exists, but the diagnostic model configuration did not produce a valid paired task baseline; see `validation_report.md` |
 | Gate map (current checkpoints) | Recorded above |
 | Action entry (one injection entry, guarded) | Enforced by `architecture/ActionEntryArchitectureTest` (2026-11-01) |
-| Main Kotlin file count | Done for this pass: 324 (2026-11-05); 327 after the 2026-11-07 edge-lab merges (collab 2, local-agent ToolRetriever 1, runtime net 0), ratcheted in `architecture/PackageBoundaryArchitectureTest` |
+| Main Kotlin file count | Done for this pass: 324 (2026-11-05); 327 after the 2026-11-07 edge-lab merges; **326** after removing the pure screenshot-provider forwarder on 2026-11-12, ratcheted in `architecture/PackageBoundaryArchitectureTest` |
 | Action gate consolidation | Input injection entry is guarded; executor/replan early refusals remain, so full decision consolidation is incomplete |
 | Egress gate consolidation | Started: egress arguments and in-app launch declared on `ToolSpec` (2026-11-05); one `EgressGate` not started |
 | Provenance labels | Not started |

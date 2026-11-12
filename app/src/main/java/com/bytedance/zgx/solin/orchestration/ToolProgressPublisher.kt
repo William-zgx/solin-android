@@ -18,13 +18,13 @@ interface ToolProgressPublisher {
         toolName: String,
         completed: Int,
         total: Int? = null,
-        description: String? = null,
+        description: String? = null
     )
     fun bytes(
         toolCallId: String,
         toolName: String,
         bytesRead: Long,
-        totalBytes: Long? = null,
+        totalBytes: Long? = null
     )
     fun log(toolCallId: String, toolName: String, line: String)
     fun intermediate(toolCallId: String, toolName: String, preview: String)
@@ -71,12 +71,13 @@ interface ToolProgressPublisher {
 class DefaultToolProgressPublisher(
     val runId: String = "",
     private val eventBus: SolinEventBus,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = System::currentTimeMillis
 ) : ToolProgressPublisher {
 
     /** Per-tool-call throttle slot. All mutable state is [@Volatile] or synchronized on the slot. */
     private class Slot {
         @Volatile var lastPublishMillis: Long = 0L
+
         @Volatile var started: Boolean = false
 
         /** CAS [lastPublishMillis] from [expected] to [update]; returns true on success. */
@@ -110,8 +111,8 @@ class DefaultToolProgressPublisher(
                 runId = runId,
                 toolCallId = toolCallId,
                 toolName = toolName,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
         emit(
             toolCallId = toolCallId,
@@ -120,8 +121,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = description,
                 progress = 0f,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
     }
 
@@ -131,39 +132,39 @@ class DefaultToolProgressPublisher(
             is ProgressUpdate.Started -> start(
                 toolCallId = update.toolCallId,
                 toolName = update.toolName,
-                description = update.description,
+                description = update.description
             )
             is ProgressUpdate.Step -> step(
                 toolCallId = update.toolCallId,
                 toolName = update.toolName,
                 completed = update.completed,
                 total = update.total,
-                description = update.description,
+                description = update.description
             )
             is ProgressUpdate.BytesTransferred -> bytes(
                 toolCallId = update.toolCallId,
                 toolName = update.toolName,
                 bytesRead = update.bytesRead,
-                totalBytes = update.totalBytes,
+                totalBytes = update.totalBytes
             )
             is ProgressUpdate.LogLine -> log(
                 toolCallId = update.toolCallId,
                 toolName = update.toolName,
-                line = update.line,
+                line = update.line
             )
             is ProgressUpdate.IntermediateResult -> intermediate(
                 toolCallId = update.toolCallId,
                 toolName = update.toolName,
-                preview = update.preview,
+                preview = update.preview
             )
             is ProgressUpdate.Completed -> complete(
                 toolCallId = update.toolCallId,
-                toolName = update.toolName,
+                toolName = update.toolName
             )
             is ProgressUpdate.Failed -> fail(
                 toolCallId = update.toolCallId,
                 toolName = update.toolName,
-                error = update.error,
+                error = update.error
             )
         }
     }
@@ -173,7 +174,7 @@ class DefaultToolProgressPublisher(
         toolName: String,
         completed: Int,
         total: Int?,
-        description: String?,
+        description: String?
     ) {
         val progress: Float = if (total != null && total > 0) {
             (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
@@ -191,8 +192,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = partial,
                 progress = progress,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
     }
 
@@ -200,7 +201,7 @@ class DefaultToolProgressPublisher(
         toolCallId: String,
         toolName: String,
         bytesRead: Long,
-        totalBytes: Long?,
+        totalBytes: Long?
     ) {
         val progress: Float = if (totalBytes != null && totalBytes > 0L) {
             (bytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -217,8 +218,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = partial,
                 progress = progress,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
     }
 
@@ -229,8 +230,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = line,
                 progress = INDETERMINATE_PROGRESS,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
     }
 
@@ -241,8 +242,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = preview,
                 progress = INDETERMINATE_PROGRESS,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
     }
 
@@ -258,8 +259,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = "completed",
                 progress = 1f,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
         slots.remove(toolCallId)
     }
@@ -276,8 +277,8 @@ class DefaultToolProgressPublisher(
                 toolCallId = toolCallId,
                 partialText = "error: $error",
                 progress = INDETERMINATE_PROGRESS,
-                occurredAtMillis = clock(),
-            ),
+                occurredAtMillis = clock()
+            )
         )
         slots.remove(toolCallId)
     }
@@ -287,7 +288,7 @@ class DefaultToolProgressPublisher(
     /** Publish an unthrottled [event] and restart the call's throttle window when still active. */
     private fun emit(
         toolCallId: String,
-        event: SolinEvent.Agent.ToolProgress,
+        event: SolinEvent.Agent.ToolProgress
     ) {
         eventBus.publish(event)
         val slot = slots[toolCallId] ?: return
@@ -351,7 +352,7 @@ sealed interface ProgressUpdate {
     data class Started(
         override val toolCallId: String,
         override val toolName: String,
-        val description: String? = null,
+        val description: String? = null
     ) : ProgressUpdate
 
     data class Step(
@@ -359,37 +360,37 @@ sealed interface ProgressUpdate {
         override val toolName: String,
         val completed: Int,
         val total: Int? = null,
-        val description: String? = null,
+        val description: String? = null
     ) : ProgressUpdate
 
     data class BytesTransferred(
         override val toolCallId: String,
         override val toolName: String,
         val bytesRead: Long,
-        val totalBytes: Long? = null,
+        val totalBytes: Long? = null
     ) : ProgressUpdate
 
     data class LogLine(
         override val toolCallId: String,
         override val toolName: String,
-        val line: String,
+        val line: String
     ) : ProgressUpdate
 
     data class IntermediateResult(
         override val toolCallId: String,
         override val toolName: String,
-        val preview: String,
+        val preview: String
     ) : ProgressUpdate
 
     data class Completed(
         override val toolCallId: String,
-        override val toolName: String,
+        override val toolName: String
     ) : ProgressUpdate
 
     data class Failed(
         override val toolCallId: String,
         override val toolName: String,
-        val error: String,
+        val error: String
     ) : ProgressUpdate
 }
 
@@ -410,13 +411,13 @@ object NoOpToolProgressPublisher : ToolProgressPublisher {
         toolName: String,
         completed: Int,
         total: Int?,
-        description: String?,
+        description: String?
     ) = Unit
     override fun bytes(
         toolCallId: String,
         toolName: String,
         bytesRead: Long,
-        totalBytes: Long?,
+        totalBytes: Long?
     ) = Unit
     override fun log(toolCallId: String, toolName: String, line: String) = Unit
     override fun intermediate(toolCallId: String, toolName: String, preview: String) = Unit

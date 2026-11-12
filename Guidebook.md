@@ -29,6 +29,7 @@ OpenAI 兼容远程推理，以及受权限、确认和审计约束的手机工�
 | Auto 当前实现与构建开关 | [端云推理状态](docs/specs/20260718-adaptive-edge-inference/status.md) |
 | 设备操作、模型任务与物理设备验收 | [设备验收指南](docs/phone_acceptance.md) |
 | 实际运行过的命令、版本和结果 | [验证报告](docs/validation_report.md) |
+| 离线模型能力评测与结果 | [Lab 指南](lab/README.md) |
 | 发布阻塞与人工审批 | [发布就绪状态](docs/release_readiness.md) |
 
 最少阅读顺序：README 相关产品/构建段 → `docs/index.md` → 本任务的 owner 文档。
@@ -69,6 +70,8 @@ OpenAI 兼容远程推理，以及受权限、确认和审计约束的手机工�
 - 远程视觉需要显式开启、远程模式、支持图片的模型，以及本次运行首个应用内步骤的
   用户确认；两种确认模式都不能跳过截图外发批准。后台显示作用域禁用此路径及主屏 OCR。
 - 后台显示仅为 debug 实验：显式授权、短期会话、丢失绑定后拒绝操作，不回退主屏。
+- 已接受的初始 `LocalModelFirst` 工具提案在两种确认模式下都需要用户确认；普通低风险
+  工具也不例外，observation replan 继续走普通 critical-reason 策略。
 - 远程审计不存 raw prompt；密钥、模型权重、用户数据和发布产物不进 Git。
 
 ## 验证与交付

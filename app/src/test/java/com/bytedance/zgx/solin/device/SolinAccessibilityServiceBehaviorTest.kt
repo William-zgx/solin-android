@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.device
 
+import com.bytedance.zgx.solin.multimodal.RawScreenshotReadResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,6 +15,22 @@ import org.junit.Test
  * and gesture paths themselves need a device (see docs/phone_acceptance.md) and are not covered here.
  */
 class SolinAccessibilityServiceBehaviorTest {
+
+    /** No connected service means raw capture fails closed without throwing or returning pixels. */
+    @Test
+    fun rawScreenshotFailsClosedWhenAccessibilityServiceNotConnected() {
+        val result = SolinAccessibilityService.performTakeScreenshotRaw("obs-1")
+
+        assertTrue(result is RawScreenshotReadResult.Failed)
+    }
+
+    @Test
+    fun takeScreenshotErrorMapsToFailedWithCode() {
+        val result = takeScreenshotErrorToResult(errorCode = 3)
+
+        assertTrue(result is RawScreenshotReadResult.Failed)
+        assertTrue(result.reason.contains("3"))
+    }
 
     // --- node id contract (C2): observe side and click side must agree ---
 
@@ -52,7 +69,7 @@ class SolinAccessibilityServiceBehaviorTest {
 
         assertTrue(
             "hard timeout $hardTimeout must exceed the requested wait $requested",
-            hardTimeout > requested,
+            hardTimeout > requested
         )
     }
 
@@ -66,7 +83,7 @@ class SolinAccessibilityServiceBehaviorTest {
 
         assertTrue(
             "hard timeout ${uiActionHardTimeoutMillis(requested)} must cover $minimumNeeded",
-            uiActionHardTimeoutMillis(requested) >= minimumNeeded,
+            uiActionHardTimeoutMillis(requested) >= minimumNeeded
         )
     }
 

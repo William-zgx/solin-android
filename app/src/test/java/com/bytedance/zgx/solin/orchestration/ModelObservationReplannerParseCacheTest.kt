@@ -41,8 +41,8 @@ class ModelObservationReplannerParseCacheTest {
                 "toolName" to MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 "privacy" to MessagePrivacy.LocalOnly.name,
                 "requiresLocalModel" to true.toString(),
-                "screenObservationJson" to searchInputObservationJson(),
-            ),
+                "screenObservationJson" to searchInputObservationJson()
+            )
         )
         val registry = localOnlyRegistry()
 
@@ -63,8 +63,8 @@ class ModelObservationReplannerParseCacheTest {
                 "privacy" to MessagePrivacy.LocalOnly.name,
                 "requiresLocalModel" to true.toString(),
                 "screenObservationJson" to "{malformed",
-                "ocrBlocksJson" to "[not-json",
-            ),
+                "ocrBlocksJson" to "[not-json"
+            )
         )
         val registry = localOnlyRegistry()
 
@@ -93,14 +93,14 @@ class ModelObservationReplannerParseCacheTest {
                         "lines": []
                       }
                     ]
-                """.trimIndent(),
-            ),
+                """.trimIndent()
+            )
         )
 
         val uncached = result.localObservationEvidencePrompt(intentPreview = "tap")
         val cached = result.localObservationEvidencePrompt(
             intentPreview = "tap",
-            parseCache = ObservationJsonParseCache(),
+            parseCache = ObservationJsonParseCache()
         )
 
         assertEquals(uncached, cached)
@@ -115,15 +115,15 @@ class ModelObservationReplannerParseCacheTest {
         }.toString()
         val runtime = FixedDraftRuntime(
             toolName = MobileActionFunctions.WEB_SEARCH,
-            parameters = mapOf("query" to "continue"),
+            parameters = mapOf("query" to "continue")
         )
         val registry = ToolRegistry(
-            ToolProvider { localOnlyToolSpecs() + specFor(MobileActionFunctions.WEB_SEARCH) },
+            ToolProvider { localOnlyToolSpecs() + specFor(MobileActionFunctions.WEB_SEARCH) }
         )
         val replanner = ModelObservationReplanner(
             actionPlanningRuntime = runtime,
             actionModelPathProvider = { "/tmp/action-model.litertlm" },
-            toolRegistry = registry,
+            toolRegistry = registry
         )
 
         val replan = replanner.planNext(
@@ -133,9 +133,9 @@ class ModelObservationReplannerParseCacheTest {
                     "toolName" to MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     "privacy" to "RemoteEligible",
                     "requiresLocalModel" to false.toString(),
-                    "screenObservationJson" to missingPrivacy,
-                ),
-            ),
+                    "screenObservationJson" to missingPrivacy
+                )
+            )
         )
 
         // Missing privacy still routes as LocalOnly evidence: the non-local web_search draft is rejected.
@@ -147,11 +147,11 @@ class ModelObservationReplannerParseCacheTest {
     fun replannerRejectsTargetedDangerousControlWithCacheActive() {
         val runtime = FixedDraftRuntime(
             toolName = MobileActionFunctions.UI_TAP,
-            parameters = mapOf("target" to "delete-recent"),
+            parameters = mapOf("target" to "delete-recent")
         )
         val replanner = ModelObservationReplanner(
             actionPlanningRuntime = runtime,
-            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+            actionModelPathProvider = { "/tmp/action-model.litertlm" }
         )
 
         val replan = replanner.planNext(
@@ -161,9 +161,9 @@ class ModelObservationReplannerParseCacheTest {
                     "toolName" to MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     "privacy" to MessagePrivacy.LocalOnly.name,
                     "requiresLocalModel" to true.toString(),
-                    "screenObservationJson" to dangerousSiblingObservationJson(),
-                ),
-            ),
+                    "screenObservationJson" to dangerousSiblingObservationJson()
+                )
+            )
         )
 
         assertNull(replan)
@@ -174,11 +174,11 @@ class ModelObservationReplannerParseCacheTest {
     fun replannerAcceptsEditableTargetWithCacheActive() {
         val runtime = FixedDraftRuntime(
             toolName = MobileActionFunctions.UI_TAP,
-            parameters = mapOf("target" to "search-input"),
+            parameters = mapOf("target" to "search-input")
         )
         val replanner = ModelObservationReplanner(
             actionPlanningRuntime = runtime,
-            actionModelPathProvider = { "/tmp/action-model.litertlm" },
+            actionModelPathProvider = { "/tmp/action-model.litertlm" }
         )
 
         val replan = replanner.planNext(
@@ -188,9 +188,9 @@ class ModelObservationReplannerParseCacheTest {
                     "toolName" to MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     "privacy" to MessagePrivacy.LocalOnly.name,
                     "requiresLocalModel" to true.toString(),
-                    "screenObservationJson" to searchInputObservationJson(),
-                ),
-            ),
+                    "screenObservationJson" to searchInputObservationJson()
+                )
+            )
         )
 
         assertNotNull(replan)
@@ -204,7 +204,7 @@ class ModelObservationReplannerParseCacheTest {
         val data = mapOf(
             "actionType" to "tap",
             "status" to "succeeded",
-            "afterScreenObservationJson" to searchInputObservationJson(),
+            "afterScreenObservationJson" to searchInputObservationJson()
         )
         val default = AppSearchProgressEvidence.fromData(data)
 
@@ -239,7 +239,7 @@ class ModelObservationReplannerParseCacheTest {
     private fun observeContext(input: String, data: Map<String, String>): AgentObservationReplanContext {
         val previousRequest = ToolRequest(
             id = "observe-1",
-            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN
         )
         return AgentObservationReplanContext(
             run = AgentRun(
@@ -247,70 +247,66 @@ class ModelObservationReplannerParseCacheTest {
                 input = input,
                 state = AgentRunState.Observing,
                 createdAtMillis = 1L,
-                updatedAtMillis = 1L,
+                updatedAtMillis = 1L
             ),
             previousRequest = previousRequest,
             observedResult = ToolResult(
                 requestId = previousRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已观察当前屏幕。",
-                data = data,
+                data = data
             ),
-            priorRequests = listOf(previousRequest),
+            priorRequests = listOf(previousRequest)
         )
     }
 
-    private fun localOnlyRegistry(): ToolRegistry =
-        ToolRegistry(ToolProvider { localOnlyToolSpecs() })
+    private fun localOnlyRegistry(): ToolRegistry = ToolRegistry(ToolProvider { localOnlyToolSpecs() })
 
-    private fun localOnlyToolSpecs(): List<ToolSpec> =
-        listOf(
-            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-            MobileActionFunctions.UI_TAP,
-            MobileActionFunctions.UI_TYPE_TEXT,
-            MobileActionFunctions.UI_SUBMIT_SEARCH,
-            MobileActionFunctions.UI_SCROLL,
-            MobileActionFunctions.UI_WAIT,
-            MobileActionFunctions.UI_PRESS_BACK,
-        ).map { toolName -> specFor(toolName) }
+    private fun localOnlyToolSpecs(): List<ToolSpec> = listOf(
+        MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        MobileActionFunctions.UI_TAP,
+        MobileActionFunctions.UI_TYPE_TEXT,
+        MobileActionFunctions.UI_SUBMIT_SEARCH,
+        MobileActionFunctions.UI_SCROLL,
+        MobileActionFunctions.UI_WAIT,
+        MobileActionFunctions.UI_PRESS_BACK
+    ).map { toolName -> specFor(toolName) }
 
-    private fun specFor(toolName: String): ToolSpec =
-        ToolSpec(
-            name = toolName,
-            title = "Test tool",
-            description = "Test tool",
-            inputSchemaJson = EMPTY_OBJECT_SCHEMA_JSON,
-            capability = when (toolName) {
-                MobileActionFunctions.WEB_SEARCH -> ToolCapability.WebSearch
-                else -> ToolCapability.DeviceControl
-            },
-            riskLevel = RiskLevel.LowReadOnly,
-            confirmationPolicy = ConfirmationPolicy.Required,
-            privateOutputKeys = emptySet(),
-            resultContinuationPolicy = ToolResultContinuationPolicy.None,
-        )
+    private fun specFor(toolName: String): ToolSpec = ToolSpec(
+        name = toolName,
+        title = "Test tool",
+        description = "Test tool",
+        inputSchemaJson = EMPTY_OBJECT_SCHEMA_JSON,
+        capability = when (toolName) {
+            MobileActionFunctions.WEB_SEARCH -> ToolCapability.WebSearch
+            else -> ToolCapability.DeviceControl
+        },
+        riskLevel = RiskLevel.LowReadOnly,
+        confirmationPolicy = ConfirmationPolicy.Required,
+        privateOutputKeys = emptySet(),
+        resultContinuationPolicy = ToolResultContinuationPolicy.None
+    )
 
     private class FixedDraftRuntime(
         private val toolName: String,
-        private val parameters: Map<String, String>,
+        private val parameters: Map<String, String>
     ) : ActionPlanningRuntime {
         override fun isLikelyAction(input: String): Boolean = true
 
-        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-            ActionPlanningResult(
-                plan = ActionPlan(
-                    kind = ActionPlanKind.Draft,
-                    draft = ActionDraft(
-                        functionName = toolName,
-                        title = "Draft",
-                        summary = "Draft target",
-                        parameters = parameters,
-                        requiresConfirmation = true,
-                    ),
-                ),
-                usedModel = true,
-                fallbackReason = null,
-            )
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult = ActionPlanningResult(
+            plan = ActionPlan(
+                kind = ActionPlanKind.Draft,
+                draft = ActionDraft(
+                    functionName = toolName,
+                    title = "Draft",
+                    summary = "Draft target",
+                    parameters = parameters,
+                    requiresConfirmation = true
+                )
+            ),
+            usedModel = true,
+            fallbackReason = null
+        )
     }
 
     private fun searchInputObservationJson(): String =

@@ -47,10 +47,10 @@ every historical phase. Current owner requirements are listed below and in
 Run these preflight checks from the repository root. Pending owner approvals
 are expected to fail closed; a documentation refresh does not approve them.
 
-- `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`
-- `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`
-- `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`
-- `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`
+- `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`
+- `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`
+- `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`
+- `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`
 - `scripts/check_emulator_api_matrix.sh`
 
 For operations requiring device selection, signing or measured inputs, use the

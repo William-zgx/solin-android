@@ -14,27 +14,26 @@ import org.junit.Test
 
 class SystemPromptBuilderTest {
 
-    private fun fakeRun(id: String = "run-1", input: String = "hi"): AgentRun =
-        AgentRun(
-            id = id,
-            input = input,
-            state = AgentRunState.Created,
-            createdAtMillis = 0L,
-            updatedAtMillis = 0L,
-        )
+    private fun fakeRun(id: String = "run-1", input: String = "hi"): AgentRun = AgentRun(
+        id = id,
+        input = input,
+        state = AgentRunState.Created,
+        createdAtMillis = 0L,
+        updatedAtMillis = 0L
+    )
 
     private fun card(
         id: String,
         sourceType: EvidenceSourceType = EvidenceSourceType.Memory,
         text: String = "evidence-$id",
-        requiresLocalModel: Boolean = false,
+        requiresLocalModel: Boolean = false
     ): EvidenceCard = EvidenceCard(
         id = id,
         sourceType = sourceType,
         privacy = MessagePrivacy.RemoteEligible,
         requiresLocalModel = requiresLocalModel,
         text = text,
-        quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
+        quality = EvidenceQuality(EvidenceQualityLevel.Unknown)
     )
 
     private class FakeContributor(
@@ -43,7 +42,7 @@ class SystemPromptBuilderTest {
         private val throwOnCall: Boolean = false,
         var callCount: Int = 0,
         var lastUserInput: String? = null,
-        var lastRunId: String? = null,
+        var lastRunId: String? = null
     ) : SystemContextContributor {
         override suspend fun contribute(userInput: String, run: AgentRun): EvidenceCard? {
             callCount++
@@ -68,7 +67,7 @@ class SystemPromptBuilderTest {
     fun contributorReturningCardIsIncluded() = runTest {
         val contributor = FakeContributor(
             sourceType = EvidenceSourceType.Memory,
-            card = card("mem-1", sourceType = EvidenceSourceType.Memory, text = "remember me"),
+            card = card("mem-1", sourceType = EvidenceSourceType.Memory, text = "remember me")
         )
         val builder = SystemPromptBuilder(contributors = listOf(contributor))
         val prompt = builder.buildSystemPrompt("recall", fakeRun(id = "r-9"))
@@ -86,11 +85,11 @@ class SystemPromptBuilderTest {
     fun throwingContributorDoesNotCrashAndReturnsDefault() = runTest {
         val throwing = FakeContributor(
             sourceType = EvidenceSourceType.DeviceContext,
-            throwOnCall = true,
+            throwOnCall = true
         )
         val good = FakeContributor(
             sourceType = EvidenceSourceType.Memory,
-            card = card("ok-1"),
+            card = card("ok-1")
         )
         val builder = SystemPromptBuilder(contributors = listOf(throwing, good))
 
@@ -121,7 +120,7 @@ class SystemPromptBuilderTest {
         assertEquals(listOf("a", "b"), prompt.evidenceCards.map { it.id })
         assertEquals(
             listOf(EvidenceSourceType.Memory.name, EvidenceSourceType.DeviceContext.name),
-            prompt.contributorAttributions,
+            prompt.contributorAttributions
         )
     }
 
@@ -140,12 +139,11 @@ class SystemPromptBuilderTest {
             requiresLocalModel = true,
             text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
             quality = EvidenceQuality(EvidenceQualityLevel.High),
-            tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
+            tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES)
         )
         assertEquals(suspendPrompt, blockingPrompt)
         assertEquals(DEFAULT_CHAT_SYSTEM_INSTRUCTION, suspendPrompt.baseInstruction)
         assertEquals(listOf(expectedCard), suspendPrompt.evidenceCards)
         assertEquals(listOf("SurvivalRules"), suspendPrompt.contributorAttributions)
     }
-
 }

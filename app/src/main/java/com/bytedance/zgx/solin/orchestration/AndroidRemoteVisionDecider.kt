@@ -38,7 +38,7 @@ private const val REMOTE_VISION_UNTIL_MAX_TIMEOUT_MILLIS = 20_000L
  */
 data class RemoteVisionScreenContext(
     val screenTree: String? = null,
-    val foregroundPackage: String? = null,
+    val foregroundPackage: String? = null
 )
 
 /**
@@ -56,7 +56,7 @@ internal fun remoteVisionDecisionPrompt(
     intent: String,
     screenTree: String? = null,
     priorSteps: List<String> = emptyList(),
-    foregroundPackage: String? = null,
+    foregroundPackage: String? = null
 ): String =
     """
     你在帮助用户完成手机操作（已获用户授权）。下面附带的是当前手机屏幕的截图。
@@ -108,7 +108,7 @@ class AndroidRemoteVisionDecider(
     private val auditSink: RemoteSendAuditSink? = null,
     private val screenContextProvider: () -> RemoteVisionScreenContext? = { null },
     private val timeoutMillis: Long = REMOTE_VISION_DECISION_TIMEOUT_MILLIS,
-    private val logger: (String) -> Unit = { message -> solinD(TAG_REMOTE, message) },
+    private val logger: (String) -> Unit = { message -> solinD(TAG_REMOTE, message) }
 ) : RemoteVisionDecider {
     override fun decide(intent: String, requestId: String, priorSteps: List<String>): RemoteVisionDecision {
         if (inferenceModeProvider() != InferenceMode.Remote) {
@@ -118,7 +118,7 @@ class AndroidRemoteVisionDecider(
         if (!config.supportsVisionInput) return RemoteVisionDecision.Unavailable("vision_unsupported")
         if (!config.isConfigured) return RemoteVisionDecision.Unavailable("remote_not_configured")
 
-        val capture = rawScreenshotProvider.captureCurrentScreenshotRaw(requestId)
+        val capture = rawScreenshotProvider(requestId)
         val attachment = when (capture) {
             RawScreenshotReadResult.MissingConsent -> return RemoteVisionDecision.Unavailable("missing_consent")
             is RawScreenshotReadResult.Failed -> {
@@ -143,8 +143,8 @@ class AndroidRemoteVisionDecider(
                 decision = RemoteSendDecision.Confirmed,
                 modelName = config.modelName,
                 imageCount = 1,
-                summary = "远程视觉 GUI 操作：当前屏幕截图和屏幕控件文字外发给远程视觉模型以规划下一步操作。",
-            ),
+                summary = "远程视觉 GUI 操作：当前屏幕截图和屏幕控件文字外发给远程视觉模型以规划下一步操作。"
+            )
         )
 
         val response = runCatching {
@@ -155,12 +155,12 @@ class AndroidRemoteVisionDecider(
                             intent = intent,
                             screenTree = screenContext?.screenTree,
                             priorSteps = priorSteps,
-                            foregroundPackage = screenContext?.foregroundPackage,
+                            foregroundPackage = screenContext?.foregroundPackage
                         ),
                         history = emptyList(),
                         parameters = generationParametersProvider(),
                         config = config,
-                        imageAttachments = listOf(attachment),
+                        imageAttachments = listOf(attachment)
                     ).toList().joinToString(separator = "")
                 }
             }
@@ -208,12 +208,11 @@ internal fun parseRemoteVisionDecision(raw: String): RemoteVisionDecision {
     return expanded.singleOrNull() ?: RemoteVisionDecision.Plan(expanded)
 }
 
-private fun RemoteVisionDecision.withUntil(until: RemoteVisionUntil?): List<RemoteVisionDecision> =
-    when {
-        until == null -> listOf(this)
-        this == RemoteVisionDecision.Wait -> listOf(RemoteVisionDecision.WaitUntil(until))
-        else -> listOf(this, RemoteVisionDecision.WaitUntil(until))
-    }
+private fun RemoteVisionDecision.withUntil(until: RemoteVisionUntil?): List<RemoteVisionDecision> = when {
+    until == null -> listOf(this)
+    this == RemoteVisionDecision.Wait -> listOf(RemoteVisionDecision.WaitUntil(until))
+    else -> listOf(this, RemoteVisionDecision.WaitUntil(until))
+}
 
 private sealed interface UntilParse {
     data object Absent : UntilParse
@@ -291,7 +290,7 @@ private fun JSONObject.toRemoteVisionStep(): RemoteVisionDecision {
  * Password fields never reach a snapshot. Null when there is nothing to list.
  */
 internal fun ScreenStateSnapshot.toRemoteVisionScreenTree(
-    maxChars: Int = REMOTE_VISION_SCREEN_TREE_MAX_CHARS,
+    maxChars: Int = REMOTE_VISION_SCREEN_TREE_MAX_CHARS
 ): String? {
     val (actionable, plain) = nodes.partition { node -> node.clickable || node.editable || node.scrollable }
     val lines = (actionable + plain).mapNotNull { node -> node.toRemoteVisionLine(widthPx, heightPx) }
@@ -307,11 +306,10 @@ internal fun ScreenStateSnapshot.toRemoteVisionScreenTree(
  * The decision-prompt screen context read from this one snapshot: the control list plus the
  * foreground package whose public UI notes the prompt may carry.
  */
-internal fun ScreenStateSnapshot.toRemoteVisionScreenContext(): RemoteVisionScreenContext =
-    RemoteVisionScreenContext(
-        screenTree = toRemoteVisionScreenTree(),
-        foregroundPackage = packageName?.takeIf { value -> value.isNotBlank() },
-    )
+internal fun ScreenStateSnapshot.toRemoteVisionScreenContext(): RemoteVisionScreenContext = RemoteVisionScreenContext(
+    screenTree = toRemoteVisionScreenTree(),
+    foregroundPackage = packageName?.takeIf { value -> value.isNotBlank() }
+)
 
 private fun ScreenNode.toRemoteVisionLine(widthPx: Int?, heightPx: Int?): String? {
     val label = tapLabel().take(REMOTE_VISION_SCREEN_TREE_LABEL_MAX_CHARS)

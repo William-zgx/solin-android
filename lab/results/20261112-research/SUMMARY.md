@@ -41,7 +41,7 @@ Suites B and C, requests measured per model (no shared population is inferred).
 | --- | --- |
 | rules | 6/18 (33%) |
 
-`rules` is the production rule path with no model, so it has no host and its row is repeated under each host as the same reference. `-` means not run. `-fix` modes are the lab-only placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful LocalModelFirst shape. `errored n/n` means every call failed (nothing was answered); `(k errored)` counts the failures inside a partly errored cell.
+`rules` is the production rule path with no model, so it has no host and its row is repeated under each host as the same reference. `-` means not run. `-fix` modes are the lab-only placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful LocalModelFirst shape. `errored n/n` means every case had a model-call failure; cells with no scorable final answer show no numeric score, while a valid fallback keeps its score and annotation. `(k errored)` counts failures inside a partly errored cell.
 
 ### Suite A: observation step
 
@@ -156,4 +156,8 @@ Failure examples for every group are in [`failure_examples.md`](failure_examples
 
 ## What this means for the phone
 
-_Not written yet._
+This is an **evaluation-only, rules-only** check of 18 research-derived cases: six optional-boolean,
+six argument-shape and six irrelevant-tool requests. It validates negative-argument constraints and
+strict registry/shortlist scoring, with 6/18 overall correct, 0/12 exact tool+argument plans, 0/6
+no-tool false positives and no model calls. It is not a model-quality result, a tuning set, or phone,
+OEM, thermal, latency or release evidence.

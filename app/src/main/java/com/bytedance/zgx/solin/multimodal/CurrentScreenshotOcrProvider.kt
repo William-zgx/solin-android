@@ -26,19 +26,19 @@ interface CurrentScreenshotOcrProvider {
         requestId: String,
         resultCode: Int,
         data: Intent?,
-        issuedAtMillis: Long = System.currentTimeMillis(),
+        issuedAtMillis: Long = System.currentTimeMillis()
     )
 
     fun clearOneShotConsent(requestId: String)
 
     fun hasOneShotConsent(
         requestId: String,
-        nowMillis: Long = System.currentTimeMillis(),
+        nowMillis: Long = System.currentTimeMillis()
     ): Boolean
 
     fun captureCurrentScreenshotOcr(
         requestId: String,
-        nowMillis: Long = System.currentTimeMillis(),
+        nowMillis: Long = System.currentTimeMillis()
     ): CurrentScreenshotOcrReadResult
 }
 
@@ -47,7 +47,7 @@ sealed interface CurrentScreenshotOcrReadResult {
     data class Available(
         val text: String?,
         val truncated: Boolean,
-        val ocrBlocks: List<OcrTextBlock> = emptyList(),
+        val ocrBlocks: List<OcrTextBlock> = emptyList()
     ) : CurrentScreenshotOcrReadResult
 
     data class Failed(val reason: String) : CurrentScreenshotOcrReadResult
@@ -61,15 +61,10 @@ sealed interface CurrentScreenshotOcrReadResult {
  * recycled on-device, this provider returns the compacted JPEG bytes so they can cross the
  * remote boundary AFTER user consent. The bytes are never persisted — the caller must send
  * them and drop the reference. Consent, one-shot capture, and the remote-vision opt-in gate
- * live upstream in the replanner ([com.bytedance.zgx.solin.orchestration]); this interface
+ * live upstream in the replanner ([com.bytedance.zgx.solin.orchestration]); this function contract
  * only performs the capture. See [RemoteVisionScreenshotContract] for the boundary invariants.
  */
-interface RawScreenshotProvider {
-    fun captureCurrentScreenshotRaw(
-        requestId: String,
-        nowMillis: Long = System.currentTimeMillis(),
-    ): RawScreenshotReadResult
-}
+typealias RawScreenshotProvider = (requestId: String) -> RawScreenshotReadResult
 
 sealed interface RawScreenshotReadResult {
     data object MissingConsent : RawScreenshotReadResult
@@ -84,7 +79,7 @@ sealed interface RawScreenshotReadResult {
     class Available(
         val jpegBytes: ByteArray,
         val widthPx: Int,
-        val heightPx: Int,
+        val heightPx: Int
     ) : RawScreenshotReadResult
 
     data class Failed(val reason: String) : RawScreenshotReadResult
@@ -93,18 +88,18 @@ sealed interface RawScreenshotReadResult {
 class AndroidCurrentScreenshotOcrProvider(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
-    private val foregroundGate: ScreenCaptureForegroundGate = AndroidScreenCaptureForegroundGate(context),
+    private val foregroundGate: ScreenCaptureForegroundGate = AndroidScreenCaptureForegroundGate(context)
 ) : CurrentScreenshotOcrProvider {
     private val pendingConsent =
         RequestBoundOneShotConsentStore<CurrentScreenshotOcrConsent>(
-            ttlMillis = CURRENT_SCREENSHOT_OCR_CONSENT_TTL_MILLIS,
+            ttlMillis = CURRENT_SCREENSHOT_OCR_CONSENT_TTL_MILLIS
         )
 
     override fun setOneShotConsent(
         requestId: String,
         resultCode: Int,
         data: Intent?,
-        issuedAtMillis: Long,
+        issuedAtMillis: Long
     ) {
         if (resultCode != Activity.RESULT_OK || data == null) {
             clearOneShotConsent(requestId)
@@ -113,7 +108,7 @@ class AndroidCurrentScreenshotOcrProvider(
         pendingConsent.set(
             requestId = requestId,
             issuedAtMillis = issuedAtMillis,
-            data = CurrentScreenshotOcrConsent(resultCode = resultCode, data = Intent(data)),
+            data = CurrentScreenshotOcrConsent(resultCode = resultCode, data = Intent(data))
         )
         // Called from the MediaProjection consent callback while the activity is in the
         // foreground: Android 14 requires the mediaProjection-type foreground service to be
@@ -126,12 +121,11 @@ class AndroidCurrentScreenshotOcrProvider(
         foregroundGate.stop(requestId)
     }
 
-    override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean =
-        pendingConsent.has(requestId, nowMillis)
+    override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean = pendingConsent.has(requestId, nowMillis)
 
     override fun captureCurrentScreenshotOcr(
         requestId: String,
-        nowMillis: Long,
+        nowMillis: Long
     ): CurrentScreenshotOcrReadResult {
         val consent = pendingConsent.consume(requestId, nowMillis)
             ?: return CurrentScreenshotOcrReadResult.MissingConsent
@@ -140,7 +134,7 @@ class AndroidCurrentScreenshotOcrProvider(
             consent = consent,
             onMissingConsent = { CurrentScreenshotOcrReadResult.MissingConsent },
             onFailed = { reason -> CurrentScreenshotOcrReadResult.Failed(reason) },
-            serviceUnavailableReason = "当前屏幕 OCR 服务不可用",
+            serviceUnavailableReason = "当前屏幕 OCR 服务不可用"
         ) { bitmap ->
             val ocrBitmap = bitmap.scaledForOcr()
             try {
@@ -158,8 +152,8 @@ class AndroidCurrentScreenshotOcrProvider(
                         sourceWidth = bitmap.width,
                         sourceHeight = bitmap.height,
                         ocrWidth = ocrBitmap.width,
-                        ocrHeight = ocrBitmap.height,
-                    ),
+                        ocrHeight = ocrBitmap.height
+                    )
                 )
             } finally {
                 if (ocrBitmap !== bitmap) ocrBitmap.recycle()
@@ -178,24 +172,23 @@ class AndroidCurrentScreenshotOcrProvider(
         onMissingConsent: () -> R,
         onFailed: (String) -> R,
         serviceUnavailableReason: String,
-        block: (Bitmap) -> R,
-    ): R =
-        withScreenCaptureForegroundSession(
-            gate = foregroundGate,
-            requestId = requestId,
-            timeoutMillis = FOREGROUND_SERVICE_START_TIMEOUT_MILLIS,
-            onMissingConsent = onMissingConsent,
-            onFailed = onFailed,
-            unexpectedFailureReason = serviceUnavailableReason,
-        ) {
-            captureWithProjection(consent, onMissingConsent, onFailed, block)
-        }
+        block: (Bitmap) -> R
+    ): R = withScreenCaptureForegroundSession(
+        gate = foregroundGate,
+        requestId = requestId,
+        timeoutMillis = FOREGROUND_SERVICE_START_TIMEOUT_MILLIS,
+        onMissingConsent = onMissingConsent,
+        onFailed = onFailed,
+        unexpectedFailureReason = serviceUnavailableReason
+    ) {
+        captureWithProjection(consent, onMissingConsent, onFailed, block)
+    }
 
     private fun <R> captureWithProjection(
         consent: CurrentScreenshotOcrConsent,
         onMissingConsent: () -> R,
         onFailed: (String) -> R,
-        block: (Bitmap) -> R,
+        block: (Bitmap) -> R
     ): R {
         // SecurityException from here (stale token or missing foreground service) is mapped by
         // withScreenCaptureForegroundSession.
@@ -222,7 +215,7 @@ class AndroidCurrentScreenshotOcrProvider(
                     previous?.close()
                     imageLatch.countDown()
                 },
-                handler,
+                handler
             )
             virtualDisplay = projection.createVirtualDisplay(
                 VIRTUAL_DISPLAY_NAME,
@@ -232,7 +225,7 @@ class AndroidCurrentScreenshotOcrProvider(
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader.surface,
                 null,
-                handler,
+                handler
             )
             if (!imageLatch.await(CAPTURE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 return onFailed("当前屏幕截图超时")
@@ -249,12 +242,11 @@ class AndroidCurrentScreenshotOcrProvider(
         }
     }
 
-    private fun mediaProjectionManager(): MediaProjectionManager =
-        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    private fun mediaProjectionManager(): MediaProjectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
     private data class CurrentScreenshotOcrConsent(
         val resultCode: Int,
-        val data: Intent,
+        val data: Intent
     )
 
     private companion object {
@@ -266,7 +258,7 @@ class AndroidCurrentScreenshotOcrProvider(
 }
 
 internal class RequestBoundOneShotConsentStore<T>(
-    private val ttlMillis: Long,
+    private val ttlMillis: Long
 ) {
     private val pending = AtomicReference<RequestBoundOneShotConsent<T>?>()
 
@@ -275,8 +267,8 @@ internal class RequestBoundOneShotConsentStore<T>(
             RequestBoundOneShotConsent(
                 requestId = requestId,
                 issuedAtMillis = issuedAtMillis,
-                data = data,
-            ),
+                data = data
+            )
         )
     }
 
@@ -312,25 +304,23 @@ internal class RequestBoundOneShotConsentStore<T>(
         }
     }
 
-    private fun RequestBoundOneShotConsent<T>.isFresh(nowMillis: Long): Boolean =
-        nowMillis >= issuedAtMillis && nowMillis - issuedAtMillis <= ttlMillis
+    private fun RequestBoundOneShotConsent<T>.isFresh(nowMillis: Long): Boolean = nowMillis >= issuedAtMillis && nowMillis - issuedAtMillis <= ttlMillis
 }
 
 private data class RequestBoundOneShotConsent<T>(
     val requestId: String,
     val issuedAtMillis: Long,
-    val data: T,
+    val data: T
 )
 
-private inline fun <R> Image.useToBitmap(block: (Bitmap) -> R): R =
-    use { image ->
-        val bitmap = image.toBitmap()
-        try {
-            block(bitmap)
-        } finally {
-            bitmap.recycle()
-        }
+private inline fun <R> Image.useToBitmap(block: (Bitmap) -> R): R = use { image ->
+    val bitmap = image.toBitmap()
+    try {
+        block(bitmap)
+    } finally {
+        bitmap.recycle()
     }
+}
 
 private fun Image.toBitmap(): Bitmap {
     val plane = planes.first()
@@ -375,7 +365,7 @@ internal fun List<OcrTextBlock>.mappedToSourcePixels(
     sourceWidth: Int,
     sourceHeight: Int,
     ocrWidth: Int,
-    ocrHeight: Int,
+    ocrHeight: Int
 ): List<OcrTextBlock> {
     if (isEmpty()) return this
     if (ocrWidth <= 0 || ocrHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0) return this
@@ -391,11 +381,11 @@ internal fun List<OcrTextBlock>.mappedToSourcePixels(
                     elements = line.elements.map { element ->
                         element.copy(
                             bounds = element.bounds
-                                ?.mappedToSourcePixels(scaleX, scaleY, sourceWidth, sourceHeight),
+                                ?.mappedToSourcePixels(scaleX, scaleY, sourceWidth, sourceHeight)
                         )
-                    },
+                    }
                 )
-            },
+            }
         )
     }
 }
@@ -404,11 +394,10 @@ private fun OcrTextBounds.mappedToSourcePixels(
     scaleX: Float,
     scaleY: Float,
     sourceWidth: Int,
-    sourceHeight: Int,
-): OcrTextBounds =
-    OcrTextBounds(
-        left = (left * scaleX).roundToInt().coerceIn(0, sourceWidth),
-        top = (top * scaleY).roundToInt().coerceIn(0, sourceHeight),
-        right = (right * scaleX).roundToInt().coerceIn(0, sourceWidth),
-        bottom = (bottom * scaleY).roundToInt().coerceIn(0, sourceHeight),
-    )
+    sourceHeight: Int
+): OcrTextBounds = OcrTextBounds(
+    left = (left * scaleX).roundToInt().coerceIn(0, sourceWidth),
+    top = (top * scaleY).roundToInt().coerceIn(0, sourceHeight),
+    right = (right * scaleX).roundToInt().coerceIn(0, sourceWidth),
+    bottom = (bottom * scaleY).roundToInt().coerceIn(0, sourceHeight)
+)

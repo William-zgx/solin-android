@@ -54,7 +54,8 @@ checkpoint budget rather than on search verification.
 
 These supporting improvements have been merged and are available for use by the model-driven app control system:
 
-- **SolinConstants** — all timeout, retry, and UI tuning values in one place (`SolinConstants.kt`)
+- **SolinConstants** — shared timeout, retry and UI defaults in one place (`SolinConstants.kt`);
+  composition-root overrides and feature-specific file-local limits remain explicit where applicable
 - **SolinLog** — structured logging with standard tags including `TAG_MODEL`, `TAG_TOOL`, `TAG_REMOTE`
 - **Network security config** — HTTPS-by-default with loopback exceptions for local model endpoints
 
@@ -110,7 +111,8 @@ For the local model-driven app-search path, these conditions hold:
 - The previous result includes local-only screen evidence or a validated UI
   action result.
 - The requested tool is in the low-risk app-search tool allowlist.
-- Step and replan budgets (now centralized in `SolinConstants.AgentLoop`) are still available.
+- Step and replan budgets remain available. Shared defaults live in `SolinConstants.AgentLoop`;
+  the composition root can override them, and some feature-specific limits remain file-local.
 
 The model receives redacted local observation evidence, not screenshot pixels.
 The executor still validates arguments and output schemas before the run can

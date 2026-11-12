@@ -22,7 +22,7 @@ import kotlinx.coroutines.runBlocking
 data class SystemPrompt(
     val baseInstruction: String,
     val evidenceCards: List<EvidenceCard>,
-    val contributorAttributions: List<String> = emptyList(),
+    val contributorAttributions: List<String> = emptyList()
 )
 
 /**
@@ -34,7 +34,7 @@ data class SystemPrompt(
 class SystemPromptBuilder(
     private val defaultSystemInstruction: String = DEFAULT_CHAT_SYSTEM_INSTRUCTION,
     private val contributors: List<SystemContextContributor> = emptyList(),
-    private val includeDeviceControlSurvivalRules: Boolean = false,
+    private val includeDeviceControlSurvivalRules: Boolean = false
 ) {
     /**
      * Compute the [SystemPrompt] for a given [userInput] and [run]. Suspends so that contributors may
@@ -43,7 +43,7 @@ class SystemPromptBuilder(
      */
     suspend fun buildSystemPrompt(
         userInput: String,
-        run: AgentRun,
+        run: AgentRun
     ): SystemPrompt {
         val collected = mutableListOf<EvidenceCard>()
         val attributions = mutableListOf<String>()
@@ -66,7 +66,7 @@ class SystemPromptBuilder(
         return SystemPrompt(
             baseInstruction = defaultSystemInstruction,
             evidenceCards = collected,
-            contributorAttributions = attributions,
+            contributorAttributions = attributions
         )
     }
 
@@ -84,7 +84,7 @@ class SystemPromptBuilder(
      */
     fun buildSystemPromptBlocking(
         userInput: String,
-        run: AgentRun,
+        run: AgentRun
     ): SystemPrompt {
         if (contributors.isEmpty()) {
             // Fast path: no contributors means no suspend calls needed.
@@ -103,7 +103,7 @@ class SystemPromptBuilder(
             return SystemPrompt(
                 baseInstruction = defaultSystemInstruction,
                 evidenceCards = cards,
-                contributorAttributions = attributions,
+                contributorAttributions = attributions
             )
         }
         // Slow path: contributors may use suspend APIs; fall back to runBlocking.
@@ -119,7 +119,7 @@ class SystemPromptBuilder(
         requiresLocalModel = true,
         text = AgentSurvivalRules.SYSTEM_PROMPT_RULES,
         quality = EvidenceQuality(EvidenceQualityLevel.High),
-        tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES),
+        tokenEstimate = estimateLocalRuntimeTokens(AgentSurvivalRules.SYSTEM_PROMPT_RULES)
     )
 
     private companion object {

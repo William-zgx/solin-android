@@ -10,14 +10,14 @@ import org.json.JSONObject
 internal val localObservationJsonKeys = listOf(
     "screenObservationJson",
     "beforeScreenObservationJson",
-    "afterScreenObservationJson",
+    "afterScreenObservationJson"
 )
 
 internal data class OcrTargetEvidencePrompt(
     val id: String,
     val text: String,
     val role: String,
-    val bounds: String,
+    val bounds: String
 )
 
 internal fun JSONObject.toOcrTargetEvidencePrompts(blockIndex: Int): List<OcrTargetEvidencePrompt> {
@@ -27,7 +27,7 @@ internal fun JSONObject.toOcrTargetEvidencePrompts(blockIndex: Int): List<OcrTar
         val elementTargets = line.optJSONArray("elements").orEmptyJsonObjects().mapNotNull { (elementIndex, element) ->
             element.toOcrTargetEvidencePrompt(
                 id = "$lineId:element:$elementIndex",
-                role = "ocr_element",
+                role = "ocr_element"
             )
         }
         elementTargets + listOfNotNull(line.toOcrTargetEvidencePrompt(id = lineId, role = "ocr_line"))
@@ -37,42 +37,38 @@ internal fun JSONObject.toOcrTargetEvidencePrompts(blockIndex: Int): List<OcrTar
 
 internal inline fun String?.withObservationElements(
     cache: ObservationJsonParseCache? = null,
-    predicate: (JSONArray) -> Boolean,
-): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            predicate(rawJson.observationElements(cache))
-        }.getOrDefault(false)
-    } ?: false
+    predicate: (JSONArray) -> Boolean
+): Boolean = this?.let { rawJson ->
+    runCatching {
+        predicate(rawJson.observationElements(cache))
+    }.getOrDefault(false)
+} ?: false
 
 internal inline fun String?.withOcrBlocks(
     cache: ObservationJsonParseCache? = null,
-    predicate: (JSONArray) -> Boolean,
-): Boolean =
-    this?.let { rawJson ->
-        runCatching {
-            rawJson.ocrBlocksArrayOrNull(cache)?.let(predicate)
-        }.getOrNull() ?: false
-    } ?: false
+    predicate: (JSONArray) -> Boolean
+): Boolean = this?.let { rawJson ->
+    runCatching {
+        rawJson.ocrBlocksArrayOrNull(cache)?.let(predicate)
+    }.getOrNull() ?: false
+} ?: false
 
 /**
  * Resolves the observation `elements` [JSONArray] for [this] raw JSON, reusing [cache] when present
  * (throws on malformed JSON so callers keep the prior permissive [runCatching] fall-through).
  */
-private fun String.observationElements(cache: ObservationJsonParseCache?): JSONArray =
-    cache?.observationElements(this)
-        ?: (JSONObject(this).optJSONArray("elements") ?: JSONArray())
+private fun String.observationElements(cache: ObservationJsonParseCache?): JSONArray = cache?.observationElements(this)
+    ?: (JSONObject(this).optJSONArray("elements") ?: JSONArray())
 
 /**
  * Resolves the OCR-blocks [JSONArray] for [this] raw JSON, reusing [cache] when present. Returns
  * null on malformed JSON so callers keep the prior permissive fall-through.
  */
-internal fun String.ocrBlocksArrayOrNull(cache: ObservationJsonParseCache?): JSONArray? =
-    if (cache != null) {
-        cache.ocrBlocksArrayOrNull(this)
-    } else {
-        runCatching { JSONArray(this) }.getOrNull()
-    }
+internal fun String.ocrBlocksArrayOrNull(cache: ObservationJsonParseCache?): JSONArray? = if (cache != null) {
+    cache.ocrBlocksArrayOrNull(this)
+} else {
+    runCatching { JSONArray(this) }.getOrNull()
+}
 
 /**
  * Lazy, invocation-local cache of parsed current-observation JSON. Memoizes the three expensive
@@ -91,11 +87,10 @@ internal class ObservationJsonParseCache {
     private val ocrArrays = HashMap<String, JSONArray?>()
     private val screenObservations = HashMap<String, ScreenObservation?>()
 
-    fun observationElements(rawJson: String): JSONArray =
-        elementArrays.getOrPut(rawJson) {
-            runCatching { JSONObject(rawJson).optJSONArray("elements") ?: JSONArray() }
-                .getOrDefault(JSONArray())
-        }
+    fun observationElements(rawJson: String): JSONArray = elementArrays.getOrPut(rawJson) {
+        runCatching { JSONObject(rawJson).optJSONArray("elements") ?: JSONArray() }
+            .getOrDefault(JSONArray())
+    }
 
     // computeIfAbsent-style memoization that also caches null results, so malformed JSON is not
     // re-parsed on each read within the invocation (getOrPut would re-run its lambda for null values).
@@ -114,17 +109,15 @@ internal class ObservationJsonParseCache {
     }
 }
 
-internal fun JSONArray.indexedObjects(limit: Int = length()): List<Pair<Int, JSONObject>> =
-    (0 until minOf(length(), limit)).mapNotNull { index ->
-        optJSONObject(index)?.let { element -> index to element }
-    }
+internal fun JSONArray.indexedObjects(limit: Int = length()): List<Pair<Int, JSONObject>> = (0 until minOf(length(), limit)).mapNotNull { index ->
+    optJSONObject(index)?.let { element -> index to element }
+}
 
-private fun JSONArray?.orEmptyJsonObjects(): List<Pair<Int, JSONObject>> =
-    this?.indexedObjects().orEmpty()
+private fun JSONArray?.orEmptyJsonObjects(): List<Pair<Int, JSONObject>> = this?.indexedObjects().orEmpty()
 
 private fun JSONObject.toOcrTargetEvidencePrompt(
     id: String,
-    role: String,
+    role: String
 ): OcrTargetEvidencePrompt? {
     val text = optString("text").takeIf { value -> value.isNotBlank() } ?: return null
     val bounds = optJSONObject("bounds")?.boundsPromptText() ?: return null
@@ -132,15 +125,13 @@ private fun JSONObject.toOcrTargetEvidencePrompt(
         id = id,
         text = text,
         role = role,
-        bounds = bounds,
+        bounds = bounds
     )
 }
 
-internal fun JSONArray.containsString(value: String): Boolean =
-    (0 until length()).any { index -> optString(index) == value }
+internal fun JSONArray.containsString(value: String): Boolean = (0 until length()).any { index -> optString(index) == value }
 
-internal fun JSONObject.boundsPromptText(): String =
-    "[${optInt("left")},${optInt("top")},${optInt("right")},${optInt("bottom")}]"
+internal fun JSONObject.boundsPromptText(): String = "[${optInt("left")},${optInt("top")},${optInt("right")},${optInt("bottom")}]"
 
 internal fun JSONObject.containsOcrGroundingElementBounds(ocrBounds: JSONObject?): Boolean {
     val container = toScreenBoundsOrNull() ?: return false
@@ -148,14 +139,12 @@ internal fun JSONObject.containsOcrGroundingElementBounds(ocrBounds: JSONObject?
     return container.containsOcrGroundingBounds(ocr)
 }
 
-internal fun JSONArray.joinCompact(): String =
-    (0 until length())
-        .joinToString(separator = ",") { index -> optString(index) }
-        .ifBlank { "none" }
+internal fun JSONArray.joinCompact(): String = (0 until length())
+    .joinToString(separator = ",") { index -> optString(index) }
+    .ifBlank { "none" }
 
-internal fun JSONObject.joinCompact(): String =
-    keys().asSequence()
-        .toList()
-        .sorted()
-        .joinToString(separator = ",") { key -> "$key=${opt(key)}" }
-        .ifBlank { "none" }
+internal fun JSONObject.joinCompact(): String = keys().asSequence()
+    .toList()
+    .sorted()
+    .joinToString(separator = ",") { key -> "$key=${opt(key)}" }
+    .ifBlank { "none" }

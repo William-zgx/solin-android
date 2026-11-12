@@ -8,7 +8,7 @@ Note: `python3 -I -m unittest lab/scripts/test_summarize.py` cannot work on this
 `-E -s`: it drops the cwd from `sys.path` and ignores `PYTHONPATH`, so unittest cannot import a
 path-qualified module, and the run fails with `No module named 'lab'` before any test executes.
 Running the file as a script keeps the isolation (`-I` still blocks cwd imports by the test) and
-runs all four tests.
+runs all 47 tests.
 
 Decision L1: every number in SUMMARY.md derived from a run with at least one errored case carries
 that run's error count in the same cell or sentence; a fully errored run shows `errored N/N` and no
@@ -302,9 +302,9 @@ class DecisionL1Test(unittest.TestCase):
         for line in partly:
             self.assertIn("2 errored", line, f"partly errored row lacks its count: {line}")
 
-    def test_fully_errored_run_shows_no_score(self):
-        # No row of the fully errored run may carry a `k/n (pct%)` score: a failed call answered
-        # nothing, so there is nothing to score (the 270M overflow once read `51/151`).
+    def test_fully_errored_run_without_fallback_shows_no_score(self):
+        # This fixture has no scorable fallback. Its rows may not carry a `k/n (pct%)` score (the
+        # 270M overflow once read `51/151`); valid fallback outcomes are covered separately.
         fully = [line for line in self.rows if "N-topk" in line and "M-topk-fix" not in line]
         self.assertTrue(fully, "no N-topk rows generated")
         for line in fully:
@@ -785,6 +785,37 @@ class ResearchScoringTest(unittest.TestCase):
         self.assertIn("0/1 (0%)", "\n".join(out))
         self.assertNotIn("0/2", "\n".join(out))
 
+    def test_legacy_mlx_host_uses_manifest_provenance(self):
+        manifest = {
+            "ollamaVersion": "0.40.3",
+            "hostNote": "Apple M3 Pro 36 GB, Ollama MLX runner; desktop only",
+            "models": {"m": {"host": "", "details": {"runner": "mlx"}}},
+        }
+
+        label = self.summarize.host_label("m", manifest)
+
+        self.assertIn("Apple M3 Pro 36 GB", label)
+        self.assertIn("0.40.3", label)
+        self.assertNotIn("devbox", label)
+        self.assertNotIn("unknown", label)
+
+    def test_latency_without_uncached_success_keeps_partial_error(self):
+        key = (self.summarize.SUITE_B, "m", "R+M")
+        records = {key: [
+            {"rawKind": "use_tool", "metrics": {},
+             "modelOutputs": [{"cached": True, "metrics": {"wallMs": 5}}]},
+            {"rawKind": "error", "metrics": {},
+             "modelOutputs": [{"cached": False, "metrics": {"error": "boom"}}]},
+        ]}
+        self.summarize.set_run_errors(records)
+        out = []
+        self.summarize.latency(records, ["m"], out)
+        text = "\n".join(out)
+
+        self.assertIn("0 (1 errored)", text)
+        self.assertIn("n/a (1 errored)", text)
+        self.assertNotIn("errored 2/2", text)
+
     def test_native_multi_call_is_not_a_valid_attempted_call(self):
         key = (self.summarize.SUITE_C, "m", "N-topk")
         records = {key: [
@@ -869,6 +900,27 @@ class HeldOutSummaryTest(unittest.TestCase):
         self.assertEqual("errored 2/2", cells[3])
         self.assertEqual("errored 2/2", cells[4])
         self.assertFalse(any(cell.startswith("0/") for cell in cells))
+
+    def test_fully_errored_fallback_run_keeps_comparative_outcomes(self):
+        target = self.folder / "initial-planning__litert-gemma-4-e2b__R-gated-e2e.jsonl"
+        records = []
+        for record in read_jsonl(target):
+            record["rawKind"] = "use_tool" if (record.get("answer") or {}).get("tool") else "no_tool"
+            record["metrics"] = {}
+            record["modelOutputs"] = [{"metrics": {"error": "boom"}}]
+            records.append(record)
+        target.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        result = run(self.folder)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = (self.folder / "SUMMARY.md").read_text(encoding="utf-8").splitlines()
+        row = next(line for line in lines
+                   if line.startswith("| litert/gemma-4-e2b | R-gated-e2e |"))
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+
+        self.assertEqual("2/4 (50%) (errored 4/4)", cells[2])
+        self.assertEqual("-1 (errored 4/4)", cells[14])
+        self.assertEqual("1 (errored 4/4)", cells[15])
+        self.assertEqual("2 (errored 4/4)", cells[16])
 
     def test_heldout_generated_cell_drift_is_rejected(self):
         self.target.write_text(self.summary.replace("2/4 (50%)", "3/4 (75%)", 1), encoding="utf-8")

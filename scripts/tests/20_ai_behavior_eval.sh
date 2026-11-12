@@ -29,11 +29,15 @@ def extract_quoted(pattern, source, label):
         sys.exit(1)
     return re.findall(r'"([^"]+)"', match.group(1))
 
-kotlin_ids = extract_quoted(
-    r"nextStageMvpScenarioIds:\s*List<String>\s*=\s*listOf\((.*?)\)",
+titles_match = re.search(
+    r"nextStageMvpScenarioTitles:\s*Map<String, String>\s*=\s*linkedMapOf\((.*?)\)\.also",
     kotlin,
-    "CapabilityMatrix.nextStageMvpScenarioIds",
+    re.S,
 )
+if not titles_match:
+    print("missing CapabilityMatrix.nextStageMvpScenarioTitles", file=sys.stderr)
+    sys.exit(1)
+kotlin_ids = re.findall(r'"([^"]+)"\s+to\s+"', titles_match.group(1))
 json_ids = [scenario.get("capabilityId", "") for scenario in capability_matrix.get("nextStageMvpScenarios", [])]
 json_titles = [scenario.get("title", "") for scenario in capability_matrix.get("nextStageMvpScenarios", [])]
 if kotlin_ids != json_ids:

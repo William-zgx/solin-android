@@ -21,7 +21,7 @@ class SessionPlanStore {
         val snap = PlanSnapshot(
             runId = runId,
             items = sorted,
-            updatedAtMillis = System.currentTimeMillis(),
+            updatedAtMillis = System.currentTimeMillis()
         )
         plans[runId] = snap
         _updates.tryEmit(snap)

@@ -9,8 +9,8 @@ import org.json.JSONObject
 import org.junit.Assume
 
 /**
- * Shared plumbing for the opt-in capability bench. Every lab test calls [requireLabOptIn] first, so a
- * normal `testDebugUnitTest` run skips the whole package and never talks to Ollama.
+ * Shared plumbing for the opt-in capability bench. Model-backed suites call [requireLabOptIn] first;
+ * deterministic dataset, scorer and native multi-call tests run without the opt-in or Ollama.
  *
  * Opt-in: environment variable `SOLIN_LAB=1` (Gradle forwards the client environment to the test JVM).
  * Because the env var is not a task input, re-running after a skipped run needs `--rerun`.
@@ -126,7 +126,6 @@ fun requireLabOptIn(suite: String? = null) {
 object LabLog {
     private val file: File by lazy { File(LabEnv.resultsDir, "run.log") }
 
-    @Synchronized
     fun info(message: String) {
         val line = "${Instant.now()} $message"
         println(line)
@@ -173,10 +172,7 @@ fun Map<String, String>.toJson(): JSONObject = JSONObject().also { json -> forEa
  * with an existing manifest so suites run in separate Gradle invocations share one file.
  */
 object LabManifest {
-    @Synchronized
-    fun recordModels(client: OllamaClient, models: List<String>) {
-        val file = File(LabEnv.resultsDir, "manifest.json")
-        val manifest = if (file.isFile) JSONObject(file.readText()) else JSONObject()
+    fun recordModels(client: OllamaClient, models: List<String>) = mutateManifest { manifest ->
         manifest.put("runDate", LabEnv.runDate)
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
         val head = gitHead()
@@ -203,31 +199,30 @@ object LabManifest {
             )
         }
         manifest.put("models", modelsJson)
-        file.writeText(manifest.toString(2))
     }
 
-    @Synchronized
-    fun recordSuite(suite: String, info: JSONObject) {
-        val file = File(LabEnv.resultsDir, "manifest.json")
-        val manifest = if (file.isFile) JSONObject(file.readText()) else JSONObject()
+    fun recordSuite(suite: String, info: JSONObject) = mutateManifest { manifest ->
         val suites = manifest.optJSONObject("suites") ?: JSONObject()
         suites.put(suite, info)
         manifest.put("suites", suites)
         if (manifest.optString("runDate").isBlank()) manifest.put("runDate", LabEnv.runDate)
         manifest.put("latestSuiteGitHead", gitHead())
-        file.writeText(manifest.toString(2))
     }
 
     /** Marks a (suite, model) pair that cannot run, so the summary reports it instead of a missing row. */
-    @Synchronized
-    fun recordUnsupported(suite: String, model: String, reason: String) {
-        val file = File(LabEnv.resultsDir, "manifest.json")
-        val manifest = if (file.isFile) JSONObject(file.readText()) else JSONObject()
+    fun recordUnsupported(suite: String, model: String, reason: String) = mutateManifest { manifest ->
         val unsupported = manifest.optJSONObject("unsupported") ?: JSONObject()
         val bySuite = unsupported.optJSONObject(suite) ?: JSONObject()
         bySuite.put(model, reason)
         unsupported.put(suite, bySuite)
         manifest.put("unsupported", unsupported)
+    }
+
+    @Synchronized
+    private fun mutateManifest(mutate: (JSONObject) -> Unit) {
+        val file = File(LabEnv.resultsDir, "manifest.json")
+        val manifest = if (file.isFile) JSONObject(file.readText()) else JSONObject()
+        mutate(manifest)
         file.writeText(manifest.toString(2))
     }
 

@@ -25,7 +25,7 @@ class BackgroundTaskController(
     private val longTermMemoryControls: LongTermMemoryControls,
     private val backgroundTaskUseCases: BackgroundTaskUseCases,
     private val syncTaskStateMemories: () -> Unit,
-    private val loadLongTermMemories: () -> List<LongTermMemorySummary>,
+    private val loadLongTermMemories: () -> List<LongTermMemorySummary>
 ) {
     private var uiState: MutableStateFlow<ChatUiState>? = null
 
@@ -54,13 +54,7 @@ class BackgroundTaskController(
         val state = uiState ?: return
         if (state.value.isBusy) return
         val result = backgroundTaskUseCases.cancelScheduledTask(taskId)
-        syncTaskStateMemories()
-        state.update { current ->
-            current.withBackgroundTasks(result.snapshot).copy(
-                longTermMemories = loadLongTermMemories(),
-                statusText = result.statusText,
-            )
-        }
+        publishMutation(state, result.snapshot, result.statusText)
     }
 
     fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest) {
@@ -74,35 +68,36 @@ class BackgroundTaskController(
             !previousPolicy.isActivePeriodicCheck()
         ) {
             longTermMemoryControls.unsuppressAutoManagedTaskState(
-                taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID),
+                taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID)
             )
         }
-        syncTaskStateMemories()
-        state.update { current ->
-            current.withBackgroundTasks(result.snapshot).copy(
-                longTermMemories = loadLongTermMemories(),
-                statusText = result.statusText,
-            )
-        }
+        publishMutation(state, result.snapshot, result.statusText)
     }
 
     fun disablePeriodicCheckPolicy() {
         val state = uiState ?: return
         if (state.value.isBusy) return
         val result = backgroundTaskUseCases.disablePeriodicCheckPolicy()
+        publishMutation(state, result.snapshot, result.statusText)
+    }
+
+    private fun publishMutation(
+        state: MutableStateFlow<ChatUiState>,
+        snapshot: BackgroundTaskSnapshot,
+        statusText: String
+    ) {
         syncTaskStateMemories()
-        state.update { current ->
-            current.withBackgroundTasks(result.snapshot).copy(
+        state.update {
+            it.withBackgroundTasks(snapshot).copy(
                 longTermMemories = loadLongTermMemories(),
-                statusText = result.statusText,
+                statusText = statusText
             )
         }
     }
 }
 
-internal fun ChatUiState.withBackgroundTasks(snapshot: BackgroundTaskSnapshot): ChatUiState =
-    copy(
-        backgroundTasks = snapshot.activeTasks,
-        backgroundTaskHistory = snapshot.history,
-        periodicCheckPolicy = snapshot.periodicCheckPolicy,
-    )
+internal fun ChatUiState.withBackgroundTasks(snapshot: BackgroundTaskSnapshot): ChatUiState = copy(
+    backgroundTasks = snapshot.activeTasks,
+    backgroundTaskHistory = snapshot.history,
+    periodicCheckPolicy = snapshot.periodicCheckPolicy
+)

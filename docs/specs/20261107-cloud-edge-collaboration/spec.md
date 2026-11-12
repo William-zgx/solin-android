@@ -15,7 +15,7 @@ The pure core is in `app/src/main/java/com/bytedance/zgx/solin/orchestration/col
 - `MilestonePlan.kt`: `MilestonePlanParser` with its strict JSON scan
   (`StrictJsonScan`), the per-run `RunProgressGate`, and `CloudPlannerRequest`.
 
-There are 47 JVM tests, plus one instrumented test class
+There are 48 JVM tests across six classes, plus one instrumented test class
 (`MilestonePlanParserDeviceTest`) that compiles but has not yet run on a device.
 **No runtime path calls any of it.** It touches no Room table and no network.
 `DerivedProgressEgress.DEFAULT` is `Off`, and no build type or setting can change
@@ -268,8 +268,9 @@ One `RunProgressGate` is created per run. A replan request is built with
 `CloudPlannerRequest.render(request, gate, planner, plan, record)`, which asks the
 gate for this step's progress; no caller can hand `render` progress of its own.
 `MilestonePlan`, `MilestoneVocabulary`, `RunProgress`, `ProgressExport.Released`
-and `RolePlacementDecision` have internal constructors, and a source scan in the
-tests fails if production code outside their owning file constructs them.
+and `RolePlacementDecision` have private constructors. Their owners expose internal factories
+such as `fromValidated`, `fromGate` and `fromPolicy`; a source scan in the tests fails if
+production code bypasses those factories or constrained copies.
 
 The gate releases progress only when all of these hold, checked in this order:
 
@@ -619,7 +620,7 @@ and T11 are new. T11 must be added to that table when the cloud planner is wired
 | A bad milestone rejects the whole plan, with an enum reason | T1, T7 | `MilestonePlanParser` |
 | Plan JSON is strict whichever org.json is on the classpath (no comments, odd separators, non-decimal numbers, duplicate keys or trailing text) | T1, T11 | `StrictJsonScan` before org.json; `StrictJsonScanTest` on the JVM and `MilestonePlanParserDeviceTest` on a device |
 | Progress is enums only; the package name becomes a relation | T4, T6, T7 | `RunProgressGate` and the reflection test on `RunProgress` |
-| Progress needs the flag and a Planner already placed Remote on the request alone; callers cannot build progress, plans or vocabularies | T9 | `RunProgressGate` gate steps 1–3, `render` calling the gate, internal constructors with a source scan |
+| Progress needs the flag and a Planner already placed Remote on the request alone; callers cannot build progress, plans or vocabularies | T9 | `RunProgressGate` gate steps 1–3, `render` calling the gate, private constructors with validated factories and a source scan |
 | Progress is bounded: 1–8 milestones, 32 steps, 3 reports per run counted by the run's own gate, 12 pinned failure codes | T10 | `RunProgressGate` gate steps 4–7, `RELEASABLE_FAILURE_CODES` |
 | Escalation is Answerer-only and requires Auto, a failed Local call that read only RemoteEligible content, at most once, a calibrated signal, RemoteEligible retry inputs, and the existing preflight | T9, T4 | `EscalationPolicy` |
 | A sensitive payload always needs approval; pre-approval approves the mechanism only | T4 | `EscalationPolicy` |
@@ -628,7 +629,7 @@ and T11 are new. T11 must be added to that table when the cloud planner is wired
 
 ## 9. Acceptance tests
 
-**Present now** (JVM, `orchestration.collab.*`, 47 tests):
+**Present now** (JVM, `orchestration.collab.*`, 48 tests across six classes):
 
 | Test class | Tests | Covers |
 | --- | --- | --- |
@@ -636,7 +637,8 @@ and T11 are new. T11 must be added to that table when the cloud planner is wired
 | `EscalationPolicyTest` | 10 | Answerer-only, failed-call privacy, escalation tiers and the pre-approval sweep |
 | `MilestonePlanParserTest` | 12 | Injection, hidden or padded queries, vocabulary, exact shape, duplicate keys, whole-plan rejection, no critical intent, public tools |
 | `StrictJsonScanTest` | 3 | Syntax Android's org.json tolerates, tested on the scan directly; strict JSON still accepted |
-| `RunProgressGateTest` | 12 | Flag defaults Off, byte-identical and pinned output when Off, no secrets in output, failure-code smuggling and the pinned code list, OCR in element names, package spoofing, gate order, per-run budget, closed rendering, reflection, constructor source scan |
+| `RunProgressGateTest` | 11 | Flag defaults Off, byte-identical and pinned output when Off, no secrets in output, failure-code smuggling and the pinned code list, OCR in element names, package spoofing, gate order, per-run budget, closed rendering and reflection |
+| `GatedTypeSourceScanTest` | 2 | Private-constructor factory/copy bypass source scanning |
 
 **Present, pending device evidence:** `MilestonePlanParserDeviceTest`
 (androidTest, 2 tests) runs the `StrictJsonScanTest` cases on the phone's lenient
@@ -705,7 +707,7 @@ Owner documents to update when facts move:
 | `RunPlacementBinding` (per run) | Replaced by per (run, role, step) bindings (§7.1–7.3); old rows become `(run, Answerer, 0)` |
 | `classifyQualityEscalation` (`4b9c1eb2`, unmerged) | Replaced by `EscalationPolicy`, with the same three tiers plus Answerer-only, failed-call privacy, calibrated-signal and once-per-run checks. Do not merge `4b9c1eb2`'s classifier; reuse its opt-in store design |
 | `InitialToolPlanner` / skill runtime | Extended. They consume `MilestonePlan`, and the same parser serves a local planner |
-| `InitialPlanningMode.ModelFirstRemoteTools` (`AgentLoopRuntime.kt:569`; chosen by `initialAgentRunOptions` for Remote runs) | **Coexists** with `MilestonePlanner`; one run uses one mode. A Remote preference keeps `ModelFirstRemoteTools` exactly as today: the whole run is remote, the remote model calls public tools itself (`RemoteToolScope.ModelPlanning`), and it stops at the first LocalOnly observation (FR-1.10). Auto and Local may use `MilestonePlanner`, where the remote side only plans and the device loop reads the screen. They solve different contracts, so neither replaces the other now. Whether `ModelFirstRemoteTools` should stop taking phone-operation requests is for the owner to decide on the Phase 4 benchmark |
+| `InitialPlanningMode.ModelFirstRemoteTools` (chosen by `initialAgentRunOptions` for Remote runs) | **Coexists** with `MilestonePlanner`; one run uses one mode. A Remote preference first attempts `planLocalOnlySkillBeforeRemote`: a direct local Skill match can enter normal local confirmation/tool execution before any remote model call; unmatched requests fall through to remote answer/model planning (`RemoteToolScope.ModelPlanning`). Remote still controls model placement, and the first LocalOnly observation stops the remote continuation (FR-1.10). Auto and Local may use `MilestonePlanner`, where the remote side only plans and the device loop reads the screen. They solve different contracts, so neither replaces the other now. Whether `ModelFirstRemoteTools` should stop taking phone-operation requests is for the owner to decide on the Phase 4 benchmark |
 | `ModelObservationReplanner` | Kept as the Executor's local recovery inside a milestone |
 | `DecisionModelPlacementPolicy` / `CodivDecisionModelRouter` | Candidate for removal (D5). It is a second router and egress path; role placement does not use it. While it is live, Phase 3a must prove Answerer equivalence against it (§3) |
 | `RemoteVisionObservationReplanner` | Kept as a separately consented exception (manual Remote, opt-in, confirmed first step). Candidate to route through the dispatcher as its own consented role-step so success criterion 2 covers it (D6) |

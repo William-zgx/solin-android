@@ -6,7 +6,8 @@ question before any cloud-edge work: where is the capability boundary of a 2B–
 Solin's planning tasks?
 
 Nothing here ships in the APK. The harness lives in the JVM unit-test source set
-(`app/src/test/java/com/bytedance/zgx/solin/lab/`) and is skipped unless you opt in.
+(`app/src/test/java/com/bytedance/zgx/solin/lab/`). Model-backed suites require an explicit opt-in;
+deterministic dataset, scorer, shim and native multi-call tests run without it.
 
 ## Layout
 
@@ -30,12 +31,20 @@ Prerequisites: Ollama on `http://127.0.0.1:11434` with the models pulled, JDK 21
 (`local.properties` with `sdk.dir`).
 
 ```bash
-export SOLIN_LAB=1                                  # opt in; without it every lab test is skipped
+export SOLIN_LAB=1                                  # required for model-backed suites
 export SOLIN_LAB_MODELS=qwen3.5:2b,qwen3.5:4b,gemma4:e2b,gemma4:e4b   # optional, this is the default
 export SOLIN_LAB_SUITES=A,B,C,D                     # optional, this is the default
 export SOLIN_LAB_LIMIT=5                            # optional smoke run: first N cases per suite
 ./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.lab.*" --rerun --console=plain
 python3 -I lab/scripts/summarize.py lab/results/$(date +%Y%m%d)
+```
+
+Deterministic checks need no model or `SOLIN_LAB` opt-in:
+
+```bash
+python3 -I lab/scripts/test_summarize.py
+python3 -I lab/scripts/test_litert_shim.py
+./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.lab.NativeMultiCallTest"
 ```
 
 `--rerun` matters. The opt-in variable is not a Gradle task input, so without it Gradle can report
@@ -124,7 +133,7 @@ To regenerate the datasets after changing a label table: `python3 -I lab/scripts
 
 `initial_planning_heldout.jsonl` is **for evaluation only and must not be used for prompt, rule or
 threshold tuning**. It was authored independently of the 151 labeled cases and is loaded separately
-through `HeldOutInitialPlanningCases`; it is not part of the historical campaign's default case source.
+through `InitialPlanningDatasets.heldout`; it is not part of the historical campaign's default case source.
 Its sidecar metadata pins 24 ordinary tool cases across 15 categories, 24 ordinary no-tool cases and
 12 adversarial cases, plus every category count. The adversarial group covers explicit negations,
 polite indirect requests, mixed Chinese/English, typos, a long request and manual how-to questions.
@@ -183,10 +192,8 @@ The scoring contract also supports `forbiddenArgs` (the field must be absent),
 `forbiddenNonEmptyArgs` (absent or blank is accepted, but nonblank is rejected), and
 `forbiddenArgValues` (only the named value is rejected). Constraints are saved under the gold record's
 `constraints` object, so the strict Kotlin scorer and the lenient Python scorer apply the same rules.
-`schemaValid` records registry/schema validation only; `executionValid` also requires shortlist
-membership. For tool-gold cases, `executionValid=false` is never scored as correct. On no-tool cases,
-a rejected or outside-shortlist call executes nothing and is not an executed false positive. The lenient
-reader is a diagnostic text match and does not apply that strict gate.
+The execution-validity gate described under Suites B/C applies here too. The lenient reader is a
+diagnostic text match and does not apply that strict gate.
 Research records use `research_evaluation_only` and the generic summary path, not the original
 60-case held-out renderer. For example, an optional `subject` must stay
 absent when the user explicitly omits it, while `requiresCharging=false` remains valid when only
@@ -238,16 +245,20 @@ The `-fix` modes (and Suite A's `replanner-fix`) exist because small models copy
 `function` as the tool name. They change only that text (`PlaceholderAblation`); they are not what
 the app sends.
 
-The `-lmf` mode is what production LocalModelFirst actually sends: the retrieved shortlist plus a
-`answer` tool declaration (`LOCAL_MODEL_NO_TOOL_CHOICE`, title `直接回答`,
-`orchestration/InitialToolPlanner.kt:43,52-60,136`). Choosing `answer` scores as **no tool**
-(`rawKind no_tool_choice`), the way production reads it (`:144`); it is never registered, so nothing
-can execute it. Here it is built on the placeholder fix because the production prompt text still
-copies `function` on both files that can run it (see SUMMARY Suite F).
+The `-lmf` mode is what production LocalModelFirst actually sends: the retrieved shortlist plus the
+`answer` declaration from `LOCAL_MODEL_NO_TOOL_CHOICE` / `noToolChoiceSpec` in
+`orchestration/InitialToolPlanner.kt` (title `直接回答`). Choosing `answer` scores as **no tool**
+(`rawKind no_tool_choice`), matching production `planLocalModelFirst` / `choseNoTool`; it is never
+registered, so nothing can execute it. Here it is built on the placeholder fix because the production
+prompt text still copies `function` on both files that can run it (see SUMMARY Suite F).
 
 Metrics: tool-name accuracy, argument accuracy (all gold keys, and per key), false-positive tool rate
-on no-tool cases, parse/format validity (a known tool in the `call:` format) and schema validity
-(`ToolRegistry.validate`), latency, prompt tokens. `M-topk` also reports retriever recall@8;
+on no-tool cases, parse/format validity (a known tool in the `call:` format), schema validity, latency
+and prompt tokens. `schemaValid` records `ToolRegistry.validate` only; `executionValid` additionally
+requires shortlist membership. For tool-gold cases, `executionValid=false` forces overall `correct`
+and `argsExact` false, while `toolCorrect` can remain a name-match diagnostic. On no-tool cases, a
+rejected or outside-shortlist call executes nothing and is not an executed false positive. The summary's
+`schema-valid` column reports only `schemaValid`, not shortlist admission. `M-topk` also reports retriever recall@8;
 `LabDatasetValidationTest` (no model) records recall@k for k in 4, 8, 12, 16 with the misses and
 the mean `actionPrompt` size at each k.
 
@@ -281,14 +292,18 @@ The Suite B cases with the tools passed through Ollama's native `tools` field (J
 | `N-topk-lmf` | Production-faithful LocalModelFirst native shape: top 8 retrieved tools plus the `answer` no-tool choice (`N-topk` + `LOCAL_MODEL_NO_TOOL_CHOICE`) |
 
 The `-lmf` modes are the candidate production configurations: they are the only ones that offer the
-model the same choice the app does. `answer` scores as no tool.
+model the same choice the app does. `answer` scores as no tool. More than one native call produces an
+invalid `multi_call`: it is not a valid attempted call and never becomes a deliberate no-tool choice,
+including `answer` plus an executable call or repeated `answer` calls. `unknown_tool` and nested
+arguments are likewise rejected.
 
 ### Production-faithful composite (`production-fidelity`, no model calls)
 
-`ProductionFidelitySuiteTest` reads the saved Suite B/C JSONL and calls the production
-`String.startsWithActionNegation()` (`action/BasicDraftActionParsers.kt:199`) on every case input.
-Production never shows a negated request to the model (`orchestration/InitialToolPlanner.kt:100`
-takes `planRuleFirst()`), so a guarded case is scored with the rules' `R` answer. It emits
+`ProductionFidelitySuiteTest` reads the saved Suite B/C JSONL and calls production
+`String.startsWithActionNegation()` on every case input. Production never shows a negated request to
+the model: the gated strategy returns no tool after its rule-first pass, while other strategies may
+fall back to `planRuleFirst()` in `orchestration/InitialToolPlanner.kt`. A guarded case is therefore
+scored with the rules' `R` answer. It emits
 `production-fidelity__negation-guard.jsonl` with raw vs guarded counting per mode, and splits each
 no-tool false positive into orchestration-only (`ToolCapability.Orchestration` / unregistered name /
 `answer`) versus a device, network or external-app action, naming private reads and network egress.

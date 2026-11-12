@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCapabilityProfile
-import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionPlanningRuntime
 import com.bytedance.zgx.solin.audit.NoOpToolAuditSink
@@ -16,9 +15,10 @@ import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.plan.SessionPlanStore
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRuntime
-import com.bytedance.zgx.solin.tool.ToolResult
-import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.isEligibleForParallelBatch
 import com.bytedance.zgx.solin.tool.isRemoteModelPlanningEligible
@@ -28,7 +28,7 @@ sealed class AssistantRoute {
         val runId: String?,
         val promptForModel: String,
         val memoryHits: List<MemoryHit>,
-        val deviceContext: DeviceContextSnapshot? = null,
+        val deviceContext: DeviceContextSnapshot? = null
     ) : AssistantRoute()
 
     data class Action(
@@ -38,15 +38,15 @@ sealed class AssistantRoute {
         val runId: String? = null,
         val toolRequest: ToolRequest? = null,
         val skillId: String? = null,
-        val requiresUserConfirmation: Boolean = true,
+        val requiresUserConfirmation: Boolean = true
     ) : AssistantRoute()
 
     data class ToolRejected(
-        val summary: String,
+        val summary: String
     ) : AssistantRoute()
 
     data class MissingModel(
-        val capability: ModelCapability,
+        val capability: ModelCapability
     ) : AssistantRoute()
 
     /** The initial route terminalized itself after cooperative Stop; there is no outcome to apply. */
@@ -62,7 +62,7 @@ interface AssistantRouter : AutoCloseable {
         deviceContext: DeviceContextSnapshot? = null,
         sessionId: String? = null,
         options: AgentRunOptions = AgentRunOptions(),
-        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList()
     ): AssistantRoute
 
     fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String? = null): AssistantRoute
@@ -73,8 +73,7 @@ interface AssistantRouter : AutoCloseable {
 
     fun cancelRun(runId: String, reason: String): AgentModelObservationResult?
 
-    fun terminateRun(runId: String, reason: String): AgentModelObservationResult? =
-        cancelRun(runId, reason)
+    fun terminateRun(runId: String, reason: String): AgentModelObservationResult? = cancelRun(runId, reason)
 
     /**
      * High-priority mid-run steering for [runId]. When the run is mid-model-stream, the in-flight
@@ -132,19 +131,19 @@ interface AssistantRouter : AutoCloseable {
     fun recordExternalOutcome(
         runId: String,
         requestId: String,
-        outcome: AgentExternalOutcome,
+        outcome: AgentExternalOutcome
     ): AgentExternalOutcomeResult?
 
     fun observeModelResult(
         runId: String,
         text: String,
-        allowInlineToolCalls: Boolean = true,
+        allowInlineToolCalls: Boolean = true
     ): AgentModelObservationResult?
 
     fun recordRemoteToolsExposed(
         runId: String,
         scope: RemoteToolScope,
-        toolNames: Set<String>,
+        toolNames: Set<String>
     )
 
     fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) = Unit
@@ -162,16 +161,15 @@ interface AssistantRouter : AutoCloseable {
         tokenBudget: Int,
         runId: String? = null,
         force: Boolean = false,
-        estimatedTokens: ((List<ChatMessage>) -> Int)? = null,
+        estimatedTokens: ((List<ChatMessage>) -> Int)? = null
     ): List<ChatMessage> = messages
 
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult?
 
-    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? =
-        when (requests.size) {
-            1 -> observeModelToolRequest(runId, requests.single())
-            else -> null
-        }
+    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? = when (requests.size) {
+        1 -> observeModelToolRequest(runId, requests.single())
+        else -> null
+    }
 
     fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? = null
 
@@ -189,13 +187,12 @@ interface AssistantRouter : AutoCloseable {
 
     fun availableToolSpecs(): List<ToolSpec> = emptyList()
 
-    fun availableRemoteToolSpecs(scope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly): List<ToolSpec> =
-        availableToolSpecs().filter { spec ->
-            when (scope) {
-                RemoteToolScope.PublicEvidenceOnly -> spec.isEligibleForParallelBatch()
-                RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
-            }
+    fun availableRemoteToolSpecs(scope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly): List<ToolSpec> = availableToolSpecs().filter { spec ->
+        when (scope) {
+            RemoteToolScope.PublicEvidenceOnly -> spec.isEligibleForParallelBatch()
+            RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
         }
+    }
 }
 
 class AssistantOrchestrator(
@@ -211,12 +208,12 @@ class AssistantOrchestrator(
         ModelObservationReplanner(
             actionPlanningRuntime = actionPlanningRuntime,
             actionModelPathProvider = actionModelPathProvider,
-            toolRegistry = toolRegistry,
+            toolRegistry = toolRegistry
         ),
         SequentialActionObservationReplanner(
             actionPlanningRuntime = actionPlanningRuntime,
-            toolRegistry = toolRegistry,
-        ),
+            toolRegistry = toolRegistry
+        )
     ),
     deviceControlSessionFinisher: () -> Unit = {},
     private val eventBus: SolinEventBus = NoOpSolinEventBus,
@@ -225,7 +222,7 @@ class AssistantOrchestrator(
     systemPromptBuilder: SystemPromptBuilder? = null,
     private val evidenceBlobStore: EvidenceBlobStore = NoOpEvidenceBlobStore,
     private val sessionPlanStore: SessionPlanStore? = null,
-    private val contextCompactor: ContextCompactor = NoOpContextCompactor,
+    private val contextCompactor: ContextCompactor = NoOpContextCompactor
 ) : AssistantRouter {
     private val memoryRetrieval = MemoryRetrieval(memoryIndex)
 
@@ -251,7 +248,7 @@ class AssistantOrchestrator(
         evidenceBlobStore = evidenceBlobStore,
         sessionPlanStore = sessionPlanStore,
         contextCompactor = contextCompactor,
-        memoryRetrieval = memoryRetrieval,
+        memoryRetrieval = memoryRetrieval
     )
 
     override fun route(
@@ -262,37 +259,30 @@ class AssistantOrchestrator(
         deviceContext: DeviceContextSnapshot?,
         sessionId: String?,
         options: AgentRunOptions,
-        installedCapabilityProfiles: List<ModelCapabilityProfile>,
-    ): AssistantRoute =
-        agentLoopRuntime.runOnce(
-            input = input,
-            installedCapabilities = installedCapabilities,
-            memoryEnabled = memoryEnabled,
-            actionModelPath = actionModelPath,
-            deviceContext = deviceContext,
-            sessionId = sessionId,
-            options = options,
-            installedCapabilityProfiles = installedCapabilityProfiles,
-        ).toAssistantRoute()
+        installedCapabilityProfiles: List<ModelCapabilityProfile>
+    ): AssistantRoute = agentLoopRuntime.runOnce(
+        input = input,
+        installedCapabilities = installedCapabilities,
+        memoryEnabled = memoryEnabled,
+        actionModelPath = actionModelPath,
+        deviceContext = deviceContext,
+        sessionId = sessionId,
+        options = options,
+        installedCapabilityProfiles = installedCapabilityProfiles
+    ).toAssistantRoute()
 
-    override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute =
-        agentLoopRuntime.requestRecoveryAction(action, sessionId)?.toAssistantRoute()
-            ?: AssistantRoute.ToolRejected("撤销动作不可用")
+    override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute = agentLoopRuntime.requestRecoveryAction(action, sessionId)?.toAssistantRoute()
+        ?: AssistantRoute.ToolRejected("撤销动作不可用")
 
-    override fun failStaleInFlightRuns(reason: String): Int =
-        agentLoopRuntime.failStaleInFlightRuns(reason)
+    override fun failStaleInFlightRuns(reason: String): Int = agentLoopRuntime.failStaleInFlightRuns(reason)
 
-    override fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? =
-        agentLoopRuntime.failModelGeneration(runId, reason)
+    override fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? = agentLoopRuntime.failModelGeneration(runId, reason)
 
-    override fun cancelRun(runId: String, reason: String): AgentModelObservationResult? =
-        agentLoopRuntime.cancelRun(runId, reason)
+    override fun cancelRun(runId: String, reason: String): AgentModelObservationResult? = agentLoopRuntime.cancelRun(runId, reason)
 
-    override fun terminateRun(runId: String, reason: String): AgentModelObservationResult? =
-        agentLoopRuntime.terminateRun(runId, reason)
+    override fun terminateRun(runId: String, reason: String): AgentModelObservationResult? = agentLoopRuntime.terminateRun(runId, reason)
 
-    override fun steer(runId: String, messages: List<ChatMessage>): Boolean =
-        agentLoopRuntime.steer(messages = messages, runId = runId)
+    override fun steer(runId: String, messages: List<ChatMessage>): Boolean = agentLoopRuntime.steer(messages = messages, runId = runId)
 
     override fun runState(runId: String): AgentRunState? = traceStore.run(runId)?.state
 
@@ -302,8 +292,7 @@ class AssistantOrchestrator(
      * anything. Returns true if the run was active and the batch was accepted; false if unknown
      * or terminal (messages dropped).
      */
-    override fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean =
-        agentLoopRuntime.queue(messages = messages, runId = runId)
+    override fun queueUserInput(runId: String, messages: List<ChatMessage>): Boolean = agentLoopRuntime.queue(messages = messages, runId = runId)
 
     /**
      * Register/unregister the currently in-flight model streaming Job for [runId] so the runtime
@@ -322,68 +311,57 @@ class AssistantOrchestrator(
         agentLoopRuntime.unregisterModelCallJob(runId, job)
     }
 
-    override fun drainPendingMessages(runId: String): PendingMessagesDrain =
-        agentLoopRuntime.drainPendingMessages(runId)
+    override fun drainPendingMessages(runId: String): PendingMessagesDrain = agentLoopRuntime.drainPendingMessages(runId)
 
-    override fun confirmToolRequest(runId: String, requestId: String): AgentRun? =
-        agentLoopRuntime.confirmToolRequest(runId, requestId)
+    override fun confirmToolRequest(runId: String, requestId: String): AgentRun? = agentLoopRuntime.confirmToolRequest(runId, requestId)
 
-    override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? =
-        agentLoopRuntime.cancelToolRequest(runId, requestId)
+    override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? = agentLoopRuntime.cancelToolRequest(runId, requestId)
 
     override fun failPendingToolRequest(
         runId: String,
         requestId: String,
-        result: ToolResult,
-    ): AgentObservationResult? =
-        agentLoopRuntime.failPendingToolRequest(runId, requestId, result)
+        result: ToolResult
+    ): AgentObservationResult? = agentLoopRuntime.failPendingToolRequest(runId, requestId, result)
 
     override fun answerUserQuestion(
         runId: String,
         questionId: String,
-        answer: String,
-    ): AgentObservationResult? =
-        agentLoopRuntime.answerUserQuestion(runId, questionId, answer)
+        answer: String
+    ): AgentObservationResult? = agentLoopRuntime.answerUserQuestion(runId, questionId, answer)
 
-    override fun cancelUserQuestion(runId: String, questionId: String): AgentObservationResult? =
-        agentLoopRuntime.cancelUserQuestion(runId, questionId)
+    override fun cancelUserQuestion(runId: String, questionId: String): AgentObservationResult? = agentLoopRuntime.cancelUserQuestion(runId, questionId)
 
-    override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =
-        agentLoopRuntime.observeToolResult(runId, result)
+    override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? = agentLoopRuntime.observeToolResult(runId, result)
 
-    override fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean =
-        agentLoopRuntime.authorizeCompositeChild(runId, parent, child)
+    override fun authorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean = agentLoopRuntime.authorizeCompositeChild(runId, parent, child)
 
-    override fun observeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest, result: ToolResult) =
-        agentLoopRuntime.observeCompositeChild(runId, parent, child, result)
+    override fun observeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest, result: ToolResult) = agentLoopRuntime.observeCompositeChild(runId, parent, child, result)
 
     override fun recordExternalOutcome(
         runId: String,
         requestId: String,
-        outcome: AgentExternalOutcome,
-    ): AgentExternalOutcomeResult? =
-        agentLoopRuntime.recordExternalOutcome(runId, requestId, outcome)
+        outcome: AgentExternalOutcome
+    ): AgentExternalOutcomeResult? = agentLoopRuntime.recordExternalOutcome(runId, requestId, outcome)
 
     override fun observeModelResult(
         runId: String,
         text: String,
-        allowInlineToolCalls: Boolean,
-    ): AgentModelObservationResult? =
-        agentLoopRuntime.observeModelResult(
-            runId = runId,
-            text = text,
-            allowInlineToolCalls = allowInlineToolCalls,
-        )
+        allowInlineToolCalls: Boolean
+    ): AgentModelObservationResult? = agentLoopRuntime.observeModelResult(
+        runId = runId,
+        text = text,
+        allowInlineToolCalls = allowInlineToolCalls
+    )
 
     override fun recordRemoteToolsExposed(
         runId: String,
         scope: RemoteToolScope,
-        toolNames: Set<String>,
+        toolNames: Set<String>
     ) {
         agentLoopRuntime.recordRemoteToolsExposed(
             runId = runId,
             scope = scope,
-            toolNames = toolNames,
+            toolNames = toolNames
         )
     }
 
@@ -395,38 +373,28 @@ class AssistantOrchestrator(
         agentLoopRuntime.recordModelOutputQualityGuardTriggered(runId, trace)
     }
 
-    override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =
-        agentLoopRuntime.observeModelToolRequest(runId, request)
+    override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? = agentLoopRuntime.observeModelToolRequest(runId, request)
 
     override fun observeModelToolRequests(
         runId: String,
-        requests: List<ToolRequest>,
-    ): AgentModelObservationResult? =
-        agentLoopRuntime.observeModelToolRequests(runId, requests)
+        requests: List<ToolRequest>
+    ): AgentModelObservationResult? = agentLoopRuntime.observeModelToolRequests(runId, requests)
 
-    override fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? =
-        agentLoopRuntime.observeToolResults(runId, results)
+    override fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? = agentLoopRuntime.observeToolResults(runId, results)
 
-    override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? =
-        agentLoopRuntime.latestPendingConfirmation(sessionId)?.toAssistantRoute()
+    override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? = agentLoopRuntime.latestPendingConfirmation(sessionId)?.toAssistantRoute()
 
-    override fun restorePendingExternalOutcome(sessionId: String?): PendingExternalOutcomeSnapshot? =
-        agentLoopRuntime.latestPendingExternalOutcome(sessionId)
+    override fun restorePendingExternalOutcome(sessionId: String?): PendingExternalOutcomeSnapshot? = agentLoopRuntime.latestPendingExternalOutcome(sessionId)
 
-    override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> =
-        traceStore.recentRunSummaries(limit = limit, stepLimit = stepLimit)
+    override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> = traceStore.recentRunSummaries(limit = limit, stepLimit = stepLimit)
 
-    override fun runEvents(runId: String): List<AgentRunEvent> =
-        agentLoopRuntime.runEvents(runId)
+    override fun runEvents(runId: String): List<AgentRunEvent> = agentLoopRuntime.runEvents(runId)
 
-    override fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> =
-        agentLoopRuntime.publicWebEvidence(runId)
+    override fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> = agentLoopRuntime.publicWebEvidence(runId)
 
-    override fun deleteRunsForSession(sessionId: String): Int =
-        agentLoopRuntime.deleteRunsForSession(sessionId)
+    override fun deleteRunsForSession(sessionId: String): Int = agentLoopRuntime.deleteRunsForSession(sessionId)
 
-    override fun availableToolSpecs(): List<ToolSpec> =
-        toolRegistry.specs()
+    override fun availableToolSpecs(): List<ToolSpec> = toolRegistry.specs()
 
     override fun close() {
         agentLoopRuntime.close()
@@ -447,23 +415,22 @@ class AssistantOrchestrator(
         tokenBudget: Int,
         runId: String?,
         force: Boolean,
-        estimatedTokens: ((List<ChatMessage>) -> Int)?,
+        estimatedTokens: ((List<ChatMessage>) -> Int)?
     ): List<ChatMessage> = agentLoopRuntime.compactHistory(
         messages = messages,
         tokenBudget = tokenBudget,
         runId = runId,
         force = force,
-        estimatedTokens = estimatedTokens ?: ::estimateTokensApproximate,
+        estimatedTokens = estimatedTokens ?: ::estimateTokensApproximate
     )
 }
 
-private fun PendingToolConfirmationSnapshot.toAssistantRoute(): AssistantRoute.Action =
-    AssistantRoute.Action(
-        runId = run.id,
-        draft = draft,
-        plannedByModel = plannedByModel,
-        fallbackReason = fallbackReason,
-        toolRequest = request,
-        skillId = skillId,
-        requiresUserConfirmation = true,
-    )
+private fun PendingToolConfirmationSnapshot.toAssistantRoute(): AssistantRoute.Action = AssistantRoute.Action(
+    runId = run.id,
+    draft = draft,
+    plannedByModel = plannedByModel,
+    fallbackReason = fallbackReason,
+    toolRequest = request,
+    skillId = skillId,
+    requiresUserConfirmation = true
+)

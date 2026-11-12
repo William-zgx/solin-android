@@ -4,7 +4,7 @@ Use this checklist for every release candidate. Its job is to decide whether a b
 
 Every checked item needs an owner, date, artifact path, and SHA-256 in the release ticket or PR. Code gates verify records and evidence shape; they do not replace release-owner, legal, privacy, store, or production-signing approval.
 
-For the current commit and observed CI/device results, read
+For the readiness baseline and latest recorded CI/device results, which may belong to earlier commits, read
 [release readiness](release_readiness.md#current-evidence). This is a reusable
 checklist: an unchecked row is not made complete by a previous build's result,
 and a green workflow with a skipped emulator job is not device acceptance.
@@ -74,10 +74,10 @@ flowchart TD
 - [ ] Data safety distinguishes local image processing, per-send attachment preview, and opt-in remote GUI automation. Remote GUI screenshots require the run's first user-confirmed action in both confirmation modes; opt-in alone is insufficient. The background-display scope cannot use remote vision or main-screen MediaProjection OCR.
 - [ ] Third-party source attribution ships with the artifact as required: retain Mika-derived Apache-2.0 notices and `NOTICE`, separately from model-license review.
 - [ ] Required Android permissions and special-access flows are explained in user-facing language, including microphone, calendar, contacts, media, notifications, foreground service, Usage Access, Accessibility, Accessibility gestures, and one-shot MediaProjection consent.
-- [ ] `docs/store_policy_record.json` is approved and `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes.
-- [ ] `docs/privacy_review.json` records release, security, and legal approvals for the current privacy notice and capability matrix; `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh` passes.
+- [ ] `docs/store_policy_record.json` is approved and `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes.
+- [ ] `docs/privacy_review.json` records release, security, and legal approvals for the current privacy notice and capability matrix; `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh` passes.
 - [ ] `docs/model_license_metadata.json` is freshly collected before review, and `docs/model_license_review.json` approves every recommended model with concrete license source, reviewer, review date, redistribution decision, attribution/notice requirements, evidence path, and SHA-256.
-- [ ] `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh` passes for the focused model-license check; the final public gate still requires perf evidence.
+- [ ] `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh` passes for the focused model-license check; the final public gate still requires perf evidence.
 - [ ] `scripts/privacy_scan.sh` passes. No API keys, bearer tokens, private endpoints, raw prompts, private device-context payloads, contacts, notifications, clipboard text, or sensitive screenshots are present in release docs, logs, screenshots, or notes.
 - [ ] Evidence blobs use the authenticated AES-GCM envelope and AndroidKeyStore key `solin_evidence_aes_gcm_v1`, generated on first evidence use. Test tamper/read failure and verified legacy migration; metadata `encrypted=true` alone is insufficient proof.
 - [ ] Network security config is active in the manifest; non-loopback cleartext is rejected. The explicitly provisioned debug helper listens only on loopback and does not turn into an external network endpoint.
@@ -110,7 +110,7 @@ flowchart TD
 - [ ] If distributing the debug background experiment to testers, record display identity, positive operations, negative critical-control fixtures, expiry/loss/lock behavior and cleanup separately. Positive emulator Settings navigation does not prove negative guards, all-OEM focus isolation, or a complete model task.
 - [ ] When model-driven app-search eval is included, mock and real app modes record `RUN_MODEL_DRIVEN_APP_SEARCH_EVAL=1`, pass `verifySearchQuery`, `expectedPackageName`, and `expectedAppName` into the debug receiver, and require `searchVerificationStatus=verified` plus `modelPlannedStepCount >= 1`.
 - [ ] The real-app search physical benchmark includes the required 50 task evidence when the release target requires `REQUIRE_50_TASK_BENCHMARK=1`.
-- [ ] `docs/release_validation_record.json` is approved and `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh` passes.
+- [ ] `docs/release_validation_record.json` is approved and `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh` passes.
 
 ## Operations And Rollback
 
@@ -121,19 +121,19 @@ flowchart TD
 - [ ] Rollback criteria include install failure, crash loop, model download verification failure, privacy boundary failure, and critical tool execution regression.
 - [ ] Rollback plan accounts for Play version-code policy: a replacement build must use a higher `versionCode`.
 - [ ] Model manifest rollback path and data compatibility are reviewed. Room migrations are forward-only, so downgrade is tested or explicitly unsupported.
-- [ ] `docs/release_operations_record.json` is approved and `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh` passes.
+- [ ] `docs/release_operations_record.json` is approved and `VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh` passes.
 
 ## Release Gate
 
 Run focused gates as records become ready:
 
 ```bash
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
-VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
+VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
+VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
+VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
+VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
+VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
+VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
 ```
 
 Run the final public gate with the production artifact, signing fingerprint, physical perf baseline, and AI behavior actual trace:

@@ -109,10 +109,10 @@ physical_rows = [
     if "Physical hardware required" in row["status"]
 ]
 next_commands = [
-    "VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh",
-    "VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh",
-    "VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh",
-    "VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh",
+    "VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh",
+    "VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh",
+    "VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh",
+    "VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh",
     "scripts/check_emulator_api_matrix.sh",
 ]
 

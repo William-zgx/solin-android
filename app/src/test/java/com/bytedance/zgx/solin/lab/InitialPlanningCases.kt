@@ -208,17 +208,4 @@ fun addFalsePositiveSplit(record: JSONObject, registry: ToolRegistry) {
         .put("fpTool", tool)
 }
 
-/** Backward-compatible accessors for the original independent 60-case held-out descriptor. */
-object HeldOutInitialPlanningCases {
-    val DATASET_FILENAME = InitialPlanningDatasets.heldout.datasetFile
-    val METADATA_FILENAME: String = requireNotNull(InitialPlanningDatasets.heldout.metadataFile)
-
-    fun loadAll(): List<InitialCase> = InitialPlanningDatasets.heldout.loadAll()
-
-    fun loadMetadata(): JSONObject = InitialPlanningDatasets.heldout.loadMetadata()
-
-    /** Held-out cases, optionally cut to explicit smoke ids and then `SOLIN_LAB_LIMIT`. */
-    fun benchCases(): List<InitialCase> = InitialPlanningDatasets.heldout.benchCases()
-}
-
 fun List<String>.toJsonStringArray(): JSONArray = JSONArray().also { array -> forEach(array::put) }

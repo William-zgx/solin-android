@@ -139,10 +139,10 @@ def pct(k, n):
 def errored(record):
     """True when a model call behind this record failed.
 
-    A failed call answered nothing, so it must never be counted as a score. Read from
-    `metrics.error` on every recorded call (`calls` for Suite A, `modelOutputs` and the flat
-    `metrics` for the other suites), with `rawKind` as the fallback for record shapes that carry
-    no metrics.
+    This records failure evidence, not score eligibility: a valid fallback can coexist with an
+    earlier failure. Read `metrics.error` on every recorded call (`calls` for Suite A,
+    `modelOutputs` and the flat `metrics` for the other suites), with `rawKind` as the fallback
+    for record shapes that carry no metrics. Use [has_scorable_answer] for final-answer scoring.
     """
     metrics = [record.get("metrics") or {}]
     metrics += [output.get("metrics") or {} for output in (record.get("modelOutputs") or [])]
@@ -210,9 +210,9 @@ def run_cell(key, text):
     """The one formatting path for a number derived from a run (Decision L1).
 
     A run is `(suite, model, mode)`. Any number from a run with at least one errored case carries
-    that run's error count in the same cell. A run that errored on every case has no score at all:
-    the cell reads `errored N/N`, because a failed call answered nothing, and a refusal is shaped
-    exactly like a correct no-tool answer (that is how a 151/151-overflow run once read 51/151).
+    that run's error count in the same cell. For direct run-level values with no explicit answered
+    population, a fully errored run reads `errored N/N`. Final-plan scores use [score_cell], which
+    can retain a valid fallback outcome with the same error annotation.
     """
     n, e = RUN_ERRORS.get(key, (0, 0))
     text = f"errored {n}/{n}" if (e and e == n) else str(text) + run_annotation(key)
@@ -557,9 +557,16 @@ def host_label(model, manifest=None):
     """
     if model.startswith("litert/"):
         return LITERT_HOST_LABEL
-    recorded = ((manifest or {}).get("models") or {}).get(model, {}).get("host") or ""
-    match = re.search(r"Ollama\s+(\S+)", recorded)
-    return f"devbox CPU / Ollama {match.group(1)}" if match else "devbox CPU / Ollama (version unknown)"
+    models = (manifest or {}).get("models") or {}
+    info = models.get(model) or {}
+    recorded = info.get("host") or (manifest or {}).get("hostNote") or ""
+    match = re.search(r"Ollama\s+([0-9][^\s,;]*)", recorded)
+    version = match.group(1) if match else (manifest or {}).get("ollamaVersion")
+    runner = (info.get("details") or {}).get("runner") or ""
+    if runner == "mlx" or "MLX" in recorded:
+        host = re.split(r"[,;]", recorded, maxsplit=1)[0].strip() or "Apple M3 Pro"
+        return f"{host} / Ollama {version or 'unknown'} (MLX)"
+    return f"devbox CPU / Ollama {version}" if version else "devbox CPU / Ollama (version unknown)"
 
 
 def host_groups(manifest, records, models):
@@ -600,8 +607,9 @@ def headline(records, models, manifest, out):
     out.append("`rules` is the production rule path with no model, so it has no host and its row is repeated "
                "under each host as the same reference. `-` means not run. `-fix` modes are the lab-only "
                "placeholder ablation, not what the app sends. `*-lmf` modes are the production-faithful "
-               "LocalModelFirst shape. `errored n/n` means every call failed (nothing was answered); "
-               "`(k errored)` counts the failures inside a partly errored cell.\n")
+               "LocalModelFirst shape. `errored n/n` means every case had a model-call failure; cells "
+               "with no scorable final answer show no numeric score, while a valid fallback keeps its "
+               "score and annotation. `(k errored)` counts failures inside a partly errored cell.\n")
 
 
 # ---- Suite A -------------------------------------------------------------------------------------
@@ -840,7 +848,8 @@ def suite_c(records, models, manifest, out):
         kinds = Counter(r["rawKind"] for r in records[key])
         rows.append([key[1], key[2],
                      run_cell(key, ", ".join(f"{k} {v}" for k, v in kinds.most_common()))])
-    out.append("Native response kinds (`unknown_tool` and `nested_arguments` would be rejected by the app):\n")
+    out.append("Native response kinds (`unknown_tool`, `nested_arguments` and `multi_call` are rejected; "
+               "multiple calls never count as a valid attempt or a deliberate `answer` choice):\n")
     out.append(table(["model", "mode", "kinds"], rows))
     out.append("")
     model_vs_rules(records, models, [(SUITE_C, mode) for mode in MODE_ORDER[SUITE_C]], out)
@@ -1049,9 +1058,12 @@ def latency(records, models, out):
                 # Every call in this run failed (`model_calls` drops failed calls), so there is no
                 # timing to report. Say the run errored rather than leaving it out of the table.
                 n, e = RUN_ERRORS.get(key, (0, 0))
-                if e:
+                if e == n:
                     rows.append([SUITE_LETTER[suite], key[1], key[2], f"errored {n}/{n}"]
                                 + [f"errored {n}/{n}"] * 6)
+                elif e:
+                    rows.append([SUITE_LETTER[suite], key[1], key[2], run_cell(key, 0)]
+                                + [run_cell(key, "n/a")] * 6)
                 continue
             walls = [m.get("wallMs") for m in calls]
             prompt = [m.get("promptTokens") for m in calls]
@@ -1071,7 +1083,7 @@ def latency(records, models, out):
                "Ollama reuses the KV cache for a shared prompt prefix (cached tokens), which a cold phone call "
                "would not. Use these numbers to compare modes and models with each other, not as phone latency. "
                "A failed call adds no timing, so a partly errored run's call count carries its error count; a "
-               "fully errored run has no row at all, because there is nothing to time.\n")
+               "fully errored run with no timing records shows an `errored N/N` row instead.\n")
 
 
 def retriever(manifest, out):
@@ -1862,7 +1874,7 @@ def heldout_initial_planning(records, models, out):
             run_cell(key, sum(bool(r.get("gateOpen")) for r in rs))
             if key[2] == "R-gated-e2e" else "-",
             run_cell(key, sum(errored(r) for r in rs)),
-            run_cell(key, delta), run_cell(key, len(fixed)), run_cell(key, len(broken)),
+            cell_for_runs([key], delta), cell_for_runs([key], len(fixed)), cell_for_runs([key], len(broken)),
         ])
     out.append(table([
         "model", "mode", "correct", "tool correct", "args exact", "ordinary no-tool FP",
@@ -1871,9 +1883,10 @@ def heldout_initial_planning(records, models, out):
         "gate open", "errors", "correct delta vs R", "fixed vs R", "broken vs R",
     ], rows))
     out.append("")
-    out.append("Fixed/broken and the score delta are within this held-out set only. An errored call is "
-               "neither a fix nor a break. Every run-derived cell carries its Decision-L1 error "
-               "annotation when needed.\n")
+    out.append("Fixed/broken and the score delta are within this held-out set's shared answered population. "
+               "An errored record without a scorable final answer is neither a fix nor a break; a valid "
+               "fallback counts normally. Every run-derived cell carries its Decision-L1 error annotation "
+               "when needed.\n")
 
     stages = ["rule", "negation guard", "gate closed", "gate open → accepted", "gate open → answer",
               "gate open → failed"]

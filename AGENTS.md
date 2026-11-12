@@ -101,6 +101,8 @@ Tests: `app/src/test/`, `app/src/androidTest/`.
    permission, disclosure, and audit. In the default critical-only mode
    (`orchestration/ConfirmationBypassPolicy.kt`) reversible steps run without a
    prompt; external sends, payments, unknown tools, model-flagged sensitive steps,
+   every accepted initial `LocalModelFirst` tool proposal
+   (`CriticalApprovalReason.LocalModelProposedStep`, in either confirmation mode),
    network steps (web search, maps search, deep link) that carry sensitive text
    or follow a private read in the same run, typed text the user did not ask
    for after a private read, text handed to another app (`share_text`,

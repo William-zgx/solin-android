@@ -36,7 +36,8 @@ controls stay in your hands.
   After a private read, typing words the user did not supply also asks. Sensitive
   or newly composed text handed to another app is checked too; a draft made only
   from the user's words can be auto-approved when it is non-sensitive and triggers
-  no other critical rule.
+  no other critical rule. Every accepted initial `LocalModelFirst` tool proposal also
+  requires confirmation in either confirmation mode, including low-risk tools.
 - **Critical controls stay with the user.** The agent does not tap pay, send,
   delete, publish, order, transfer, or authorize controls; those are
   always tapped by the user. A Trust-Center option restores per-step
@@ -216,7 +217,7 @@ A complete emulator pass requires `regression-emulator.properties` with
 unavailable HVF, is not executed device coverage. Model-driven app-search checks
 also require the intended model and verified query/package/app guards.
 
-See [recorded validation](docs/validation_report.md#2026-11-04--main-ci-convergence)
+See the [current validation evidence index](docs/validation_report.md#当前证据索引)
 for commit-specific results.
 Scripted regression and manual acceptance must be recorded separately. Voice
 input, the Android system document picker, foreground prompts, the
@@ -244,6 +245,7 @@ need separate evidence.
 | Setup and device testing | [Phone acceptance](docs/phone_acceptance.md) |
 | Model provenance and packaging | [Manifest](docs/model_manifest.md) · [bundled models](docs/bundled_model_package.md) |
 | Release status and evidence | [Readiness](docs/release_readiness.md) · [validation report](docs/validation_report.md) |
+| Offline model-capability evaluation | [Lab guide](lab/README.md) · [Recorded benches](docs/index.md#architecture-and-implementation) |
 | All owner documents | [Documentation index](docs/index.md) |
 
 ## Contributing

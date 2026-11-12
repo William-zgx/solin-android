@@ -26,7 +26,7 @@ class ModelToolRequestDeadlineTest {
         id = "call-remote",
         toolName = MobileActionFunctions.WEB_SEARCH,
         arguments = mapOf("query" to "天气"),
-        reason = "remote tool call",
+        reason = "remote tool call"
     )
 
     @Test
@@ -44,7 +44,7 @@ class ModelToolRequestDeadlineTest {
 
         fixture.coordinator.observeModelToolRequests(
             fixture.runId,
-            listOf(request, request.copy(id = "call-remote-b")),
+            listOf(request, request.copy(id = "call-remote-b"))
         )
 
         assertEquals(listOf(RUN_WALL_CLOCK_DEADLINE_EXCEEDED_REASON), fixture.failedBudgetReasons)
@@ -69,13 +69,13 @@ class ModelToolRequestDeadlineTest {
 
         val observed = fixture.coordinator.observeModelToolRequests(
             fixture.runId,
-            listOf(request.copy(id = "existing"), request.copy(id = "existing")),
+            listOf(request.copy(id = "existing"), request.copy(id = "existing"))
         )
 
         assertEquals(AgentRunState.Failed, observed?.run?.state)
         assertEquals(
             "Model tool request id appears multiple times in one batch: existing",
-            (observed?.decision as? AgentObservationDecision.Fail)?.reason,
+            (observed?.decision as? AgentObservationDecision.Fail)?.reason
         )
     }
 
@@ -86,18 +86,18 @@ class ModelToolRequestDeadlineTest {
 
         val observed = fixture.coordinator.observeModelToolRequests(
             fixture.runId,
-            listOf(request, request.copy(id = "call-remote-b")),
+            listOf(request, request.copy(id = "call-remote-b"))
         )
 
         assertEquals(AgentRunState.Failed, observed?.run?.state)
         assertEquals(
             "Model tool request id already exists: ${request.id}",
-            (observed?.decision as? AgentObservationDecision.Fail)?.reason,
+            (observed?.decision as? AgentObservationDecision.Fail)?.reason
         )
     }
 
     private class Fixture(
-        nowMillis: () -> Long = { START_MILLIS + SolinConstants.AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS },
+        nowMillis: () -> Long = { START_MILLIS + SolinConstants.AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS }
     ) {
         val failedBudgetReasons = mutableListOf<String>()
         private val eventBus = RecordingSolinEventBus()
@@ -114,7 +114,7 @@ class ModelToolRequestDeadlineTest {
             toolRegistry = toolRegistry,
             traceStore = traceStore,
             traceQueries = traceQueries,
-            evidenceBlobStore = NoOpEvidenceBlobStore,
+            evidenceBlobStore = NoOpEvidenceBlobStore
         )
         private val budget = AgentRunBudget(
             maxRunToolSteps = 4,
@@ -124,20 +124,20 @@ class ModelToolRequestDeadlineTest {
             sessionPlanStore = null,
             // A run whose start time is known and whose working time has crossed the deadline.
             runStartedAtMillis = { START_MILLIS },
-            nowMillis = nowMillis,
+            nowMillis = nowMillis
         )
         private val initialToolPlanner = InitialToolPlanner(
             toolRegistry = toolRegistry,
             skillRuntime = skillRuntime,
             safetyPolicy = safetyPolicy,
             actionPlanningRuntime = ScriptedActionRuntime(),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         private val confirmationBypassPolicy = ConfirmationBypassPolicy(
             toolRegistry = toolRegistry,
             traceQueries = traceQueries,
             traceStore = traceStore,
-            isCriticalOnlyConfirmationEnabled = { false },
+            isCriticalOnlyConfirmationEnabled = { false }
         )
         private val pendingConfirmationSupport = PendingConfirmationSupport(
             toolRegistry = toolRegistry,
@@ -148,7 +148,7 @@ class ModelToolRequestDeadlineTest {
             host = object : PendingConfirmationSupport.Host {
                 override fun clearEphemeralRunState(runId: String) = Unit
             },
-            auditRecorder = auditRecorder,
+            auditRecorder = auditRecorder
         )
         private val toolPlanCoordinator = ToolPlanCoordinator(
             toolRegistry = toolRegistry,
@@ -171,7 +171,7 @@ class ModelToolRequestDeadlineTest {
 
                 override fun valueFreeCompletedStepFrontiers(runId: String): Set<String> = emptySet()
             },
-            auditRecorder = auditRecorder,
+            auditRecorder = auditRecorder
         )
         private val toolObservationCoordinator = ToolObservationCoordinator(
             toolRegistry = toolRegistry,
@@ -194,14 +194,14 @@ class ModelToolRequestDeadlineTest {
                 traceQueries = traceQueries,
                 publicEvidenceContinuation = publicEvidenceContinuation,
                 scratchpad = scratchpad,
-                evidenceBlobStore = NoOpEvidenceBlobStore,
+                evidenceBlobStore = NoOpEvidenceBlobStore
             ),
             host = object : ToolObservationCoordinator.Host {
                 override fun failObservationBudget(
                     runId: String,
                     result: ToolResult,
                     assistantMessage: String,
-                    reason: String,
+                    reason: String
                 ): AgentObservationResult? = null
 
                 override fun parkForAskUserIfNeeded(runId: String, plan: AgentPlan.UseTool): Boolean = false
@@ -211,7 +211,7 @@ class ModelToolRequestDeadlineTest {
                 override fun shouldAwaitExternalOutcomeConfirmation(
                     runId: String,
                     request: ToolRequest,
-                    result: ToolResult,
+                    result: ToolResult
                 ): Boolean = false
 
                 override fun clearEphemeralRunState(runId: String) = Unit
@@ -220,8 +220,7 @@ class ModelToolRequestDeadlineTest {
 
                 override fun recordStepLatency(stepType: String, runId: String?) = Unit
 
-                override fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult =
-                    error("the initial-plan budget is not reached on the remote tool-request path")
+                override fun failInitialPlanBudget(run: AgentRun, request: ToolRequest): AgentLoopResult = error("the initial-plan budget is not reached on the remote tool-request path")
 
                 override fun addScratchpadNote(runId: String, noteContent: String) = Unit
 
@@ -230,7 +229,7 @@ class ModelToolRequestDeadlineTest {
                 override fun consumeToolDispatchLatencyMs(requestId: String): Long = 0L
 
                 override fun setRemoteToolScope(runId: String, scope: RemoteToolScope) = Unit
-            },
+            }
         )
 
         val runId: String = traceStore.createRun("普通问题").let { run ->
@@ -241,7 +240,7 @@ class ModelToolRequestDeadlineTest {
         fun addExistingRequest(request: ToolRequest) {
             traceStore.appendStep(
                 runId,
-                AgentStep.ToolRequested(request, initialToolPlanner.draftForRemoteToolRequest(request)),
+                AgentStep.ToolRequested(request, initialToolPlanner.draftForRemoteToolRequest(request))
             )
         }
 
@@ -259,7 +258,7 @@ class ModelToolRequestDeadlineTest {
             host = object : ModelToolRequestCoordinator.Host {
                 override fun rejectRemoteToolIfNotExposedInCurrentScope(
                     runId: String,
-                    request: ToolRequest,
+                    request: ToolRequest
                 ): ToolResult? = null
 
                 override fun failRunBudget(runId: String, reason: String): AgentModelObservationResult? {
@@ -275,7 +274,7 @@ class ModelToolRequestDeadlineTest {
 
                 override fun markStepStart(runId: String, stepType: String) = Unit
             },
-            auditRecorder = auditRecorder,
+            auditRecorder = auditRecorder
         )
     }
 }

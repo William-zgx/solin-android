@@ -16,62 +16,58 @@ import com.bytedance.zgx.solin.tool.isUnverifiedExternalLaunch
  * working for runs restored after a process restart. Nothing here writes to the trace store.
  */
 internal class AgentTraceQueries(
-    private val traceStore: AgentTraceStore,
+    private val traceStore: AgentTraceStore
 ) {
-    fun toolRequestFor(runId: String, requestId: String): ToolRequest? =
-        toolRequestsFor(runId).firstOrNull { request -> request.id == requestId }
+    fun toolRequestFor(runId: String, requestId: String): ToolRequest? = toolRequestsFor(runId).firstOrNull { request -> request.id == requestId }
 
-    fun latestUnverifiedExternalResult(runId: String, requestId: String): ToolResult? =
-        traceStore.steps(runId)
-            .asReversed()
-            .asSequence()
-            .mapNotNull { step -> (step as? AgentStep.ToolObserved)?.result }
-            .firstOrNull { result ->
-                result.requestId == requestId && result.isUnverifiedExternalLaunch()
-            } ?: traceStore.stepSummaries(runId)
-            .asReversed()
-            .asSequence()
-            .filter { step -> step.type == "ToolObserved" }
-            .mapNotNull { step -> step.restoredUnverifiedExternalResultOrNull() }
-            .firstOrNull { result -> result.requestId == requestId }
+    fun latestUnverifiedExternalResult(runId: String, requestId: String): ToolResult? = traceStore.steps(runId)
+        .asReversed()
+        .asSequence()
+        .mapNotNull { step -> (step as? AgentStep.ToolObserved)?.result }
+        .firstOrNull { result ->
+            result.requestId == requestId && result.isUnverifiedExternalLaunch()
+        } ?: traceStore.stepSummaries(runId)
+        .asReversed()
+        .asSequence()
+        .filter { step -> step.type == "ToolObserved" }
+        .mapNotNull { step -> step.restoredUnverifiedExternalResultOrNull() }
+        .firstOrNull { result -> result.requestId == requestId }
 
-    fun latestExternalOutcomeConfirmation(runId: String, requestId: String): AgentStep.ExternalOutcomeConfirmed? =
-        traceStore.steps(runId)
+    fun latestExternalOutcomeConfirmation(runId: String, requestId: String): AgentStep.ExternalOutcomeConfirmed? = traceStore.steps(runId)
+        .asReversed()
+        .asSequence()
+        .mapNotNull { step -> step as? AgentStep.ExternalOutcomeConfirmed }
+        .firstOrNull { step -> step.requestId == requestId }
+        ?: traceStore.stepSummaries(runId)
             .asReversed()
             .asSequence()
-            .mapNotNull { step -> step as? AgentStep.ExternalOutcomeConfirmed }
-            .firstOrNull { step -> step.requestId == requestId }
-            ?: traceStore.stepSummaries(runId)
-                .asReversed()
-                .asSequence()
-                .filter { step -> step.type == "ExternalOutcomeConfirmed" }
-                .firstOrNull { step -> step.requestIdFromJson() == requestId }
-                ?.let { step ->
-                    AgentStep.ExternalOutcomeConfirmed(
+            .filter { step -> step.type == "ExternalOutcomeConfirmed" }
+            .firstOrNull { step -> step.requestIdFromJson() == requestId }
+            ?.let { step ->
+                AgentStep.ExternalOutcomeConfirmed(
+                    requestId = requestId,
+                    outcome = AgentExternalOutcome.OpenedOnly,
+                    result = ToolResult(
                         requestId = requestId,
-                        outcome = AgentExternalOutcome.OpenedOnly,
-                        result = ToolResult(
-                            requestId = requestId,
-                            status = ToolStatus.Succeeded,
-                            summary = step.summary,
-                        ),
+                        status = ToolStatus.Succeeded,
+                        summary = step.summary
                     )
-                }
-
-    fun toolRequestsFor(runId: String): List<ToolRequest> =
-        traceStore.steps(runId)
-            .asSequence()
-            .mapNotNull { step -> (step as? AgentStep.ToolRequested)?.request }
-            .toList()
-            .let { liveRequests ->
-                val liveIds = liveRequests.mapTo(mutableSetOf()) { request -> request.id }
-                liveRequests + traceStore.stepSummaries(runId)
-                    .asSequence()
-                    .filter { step -> step.type == "ToolRequested" }
-                    .mapNotNull { step -> step.restoredToolRequestOrNull() }
-                    .filterNot { request -> request.id in liveIds }
-                    .toList()
+                )
             }
+
+    fun toolRequestsFor(runId: String): List<ToolRequest> = traceStore.steps(runId)
+        .asSequence()
+        .mapNotNull { step -> (step as? AgentStep.ToolRequested)?.request }
+        .toList()
+        .let { liveRequests ->
+            val liveIds = liveRequests.mapTo(mutableSetOf()) { request -> request.id }
+            liveRequests + traceStore.stepSummaries(runId)
+                .asSequence()
+                .filter { step -> step.type == "ToolRequested" }
+                .mapNotNull { step -> step.restoredToolRequestOrNull() }
+                .filterNot { request -> request.id in liveIds }
+                .toList()
+        }
 
     /**
      * Whether [requestId] is the tool a local planning model proposed in [runId]: the accepted
@@ -89,8 +85,7 @@ internal class AgentTraceQueries(
         }
     }
 
-    private fun IntentRoutingDecision.namesLocalModelProposal(tag: String): Boolean =
-        accepted && selectedPath == IntentRoutingPath.ModelToolCall && tag in rejectionReasons
+    private fun IntentRoutingDecision.namesLocalModelProposal(tag: String): Boolean = accepted && selectedPath == IntentRoutingPath.ModelToolCall && tag in rejectionReasons
 
     private fun AgentTraceStepSummary.namesLocalModelProposal(tag: String): Boolean {
         val json = jsonObjectOrNull() ?: return false
@@ -141,7 +136,7 @@ internal class AgentTraceQueries(
                     } else if (skillPlan.toolRequestIds.isEmpty()) {
                         adjacentSummarySkillSegment = SummarySkillSegment(
                             key = skillKey,
-                            remainingToolSteps = (skillPlan.toolStepCount ?: 1).coerceAtLeast(1),
+                            remainingToolSteps = (skillPlan.toolStepCount ?: 1).coerceAtLeast(1)
                         )
                     } else {
                         skillPlan.toolRequestIds.forEach { requestId ->
@@ -167,32 +162,28 @@ internal class AgentTraceQueries(
         return segmentKeys.size
     }
 
-    fun latestPendingToolRequest(runId: String): ToolRequest? =
-        traceStore.steps(runId).asReversed().asSequence()
-            .mapNotNull { step -> (step as? AgentStep.UserConfirmationRequested)?.request }
-            .firstOrNull()
+    fun latestPendingToolRequest(runId: String): ToolRequest? = traceStore.steps(runId).asReversed().asSequence()
+        .mapNotNull { step -> (step as? AgentStep.UserConfirmationRequested)?.request }
+        .firstOrNull()
 
-    fun latestExecutableRequestId(runId: String): String? =
-        traceStore.steps(runId)
-            .asReversed()
-            .asSequence()
-            .mapNotNull { step ->
-                when (step) {
-                    is AgentStep.UserConfirmed -> step.requestId
-                    is AgentStep.ToolRetryScheduled -> step.request.id
-                    is AgentStep.ToolRequested -> step.request.id
-                    else -> null
-                }
+    fun latestExecutableRequestId(runId: String): String? = traceStore.steps(runId)
+        .asReversed()
+        .asSequence()
+        .mapNotNull { step ->
+            when (step) {
+                is AgentStep.UserConfirmed -> step.requestId
+                is AgentStep.ToolRetryScheduled -> step.request.id
+                is AgentStep.ToolRequested -> step.request.id
+                else -> null
             }
-            .firstOrNull()
+        }
+        .firstOrNull()
 
-    fun latestObservationDecision(runId: String): AgentObservationDecision? =
-        traceStore.steps(runId).asReversed().asSequence()
-            .mapNotNull { step -> (step as? AgentStep.ObservationDecided)?.decision }
-            .firstOrNull()
+    fun latestObservationDecision(runId: String): AgentObservationDecision? = traceStore.steps(runId).asReversed().asSequence()
+        .mapNotNull { step -> (step as? AgentStep.ObservationDecided)?.decision }
+        .firstOrNull()
 
-    fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? =
-        latestObservationDecision(runId) as? AgentObservationDecision.PlanToolBatch
+    fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? = latestObservationDecision(runId) as? AgentObservationDecision.PlanToolBatch
 
     fun skillIdForRequest(runId: String, requestId: String): String? {
         val steps = traceStore.steps(runId)
@@ -211,11 +202,10 @@ internal class AgentTraceQueries(
     }
 
     /** Latest live skill plan for [runId], optionally the latest one that [matching] accepts. */
-    fun latestSkillPlan(runId: String, matching: (SkillPlan) -> Boolean = { true }): SkillPlan? =
-        traceStore.steps(runId).asSequence()
-            .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
-            .filter(matching)
-            .lastOrNull()
+    fun latestSkillPlan(runId: String, matching: (SkillPlan) -> Boolean = { true }): SkillPlan? = traceStore.steps(runId).asSequence()
+        .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
+        .filter(matching)
+        .lastOrNull()
 
     private fun AgentTraceStepSummary.skillPlanSummaryFromJson(): SkillPlanSummary {
         val json = jsonObjectOrNull()
@@ -230,22 +220,20 @@ internal class AgentTraceQueries(
             requestId = json?.optString("skillRequestId")?.takeIf { it.isNotBlank() },
             toolRequestIds = toolRequestIds,
             toolStepCount = json?.optInt("toolStepCount", -1)?.takeIf { it >= 0 }
-                ?: json?.optInt("stepCount", -1)?.takeIf { it >= 0 },
+                ?: json?.optInt("stepCount", -1)?.takeIf { it >= 0 }
         )
     }
 
     private data class SkillPlanSummary(
         val requestId: String?,
         val toolRequestIds: List<String>,
-        val toolStepCount: Int?,
+        val toolStepCount: Int?
     )
 
     private data class SummarySkillSegment(val key: String, val remainingToolSteps: Int) {
-        fun afterTool(): SummarySkillSegment? =
-            if (remainingToolSteps <= 1) null else copy(remainingToolSteps = remainingToolSteps - 1)
+        fun afterTool(): SummarySkillSegment? = if (remainingToolSteps <= 1) null else copy(remainingToolSteps = remainingToolSteps - 1)
     }
 }
 
-internal fun SkillPlan.toolStepRequestIds(): Set<String> =
-    steps.filterIsInstance<SkillStep.ToolStep>()
-        .mapTo(mutableSetOf()) { step -> step.request.id }
+internal fun SkillPlan.toolStepRequestIds(): Set<String> = steps.filterIsInstance<SkillStep.ToolStep>()
+    .mapTo(mutableSetOf()) { step -> step.request.id }
