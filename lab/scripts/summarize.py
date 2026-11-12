@@ -1382,13 +1382,14 @@ def production_faithful(fidelity, models, out, initial_info=None):
     guarded_dataset_total = next((r["guardedDatasetCases"] for r in rows if "guardedDatasetCases" in r), None)
     answered_total = (initial_info or {}).get("cases") or max(r["answered"] for r in rows)
     if guarded_dataset_total is None and answered_total == 151 and (
-        initial_info is None or initial_info.get("datasetFile") == "initial_planning.jsonl"
+        initial_info is None
+        or initial_info.get("datasetFile") == "initial_planning.jsonl"
+        or ("datasetFile" not in initial_info and initial_info.get("cases") == 151)
     ):
         guarded_dataset_total = 18
-    answered_total = (initial_info or {}).get("cases") or max(r["answered"] for r in rows)
     guard_summary = (
         f"The guard fires on {guarded_dataset_total} of the {answered_total} requests (none tool-gold); "
-        if guarded_dataset_total is not None
+        if guarded_dataset_total is not None and answered_total is not None
         else "The dataset-wide negation count is unavailable for legacy records; "
     )
     out.append("Production's negation guard, offline: a guarded request never reaches the model "

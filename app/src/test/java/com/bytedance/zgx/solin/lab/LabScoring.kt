@@ -114,7 +114,7 @@ object LabScoring {
         val toolCorrect = if (expectsTool) {
             executedTool != null && executedTool in case.goldTools
         } else {
-            rawKind != "error" && (executedTool == null || schemaValid == false || answer.invalid)
+            rawKind !in setOf("error", "missing_model") && (executedTool == null || schemaValid == false || answer.invalid)
         }
         val validityAllowsScore = schemaValid != false
         val perKey = JSONObject()

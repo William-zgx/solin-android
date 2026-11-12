@@ -84,6 +84,13 @@ internal fun declaredToolArguments(case: InitialCase, registry: ToolRegistry): S
     JSONObject(spec.inputSchemaJson).optJSONObject("properties")?.keys()?.asSequence()?.toList().orEmpty()
 }.toSet()
 
+internal fun argumentPatternsOverlap(key: String, left: String, right: String): Boolean = left.split('|').any { leftAlternative ->
+    right.split('|').any { rightAlternative ->
+        LabScoring.argValueMatches(key, leftAlternative, rightAlternative) ||
+            LabScoring.argValueMatches(key, rightAlternative, leftAlternative)
+    }
+}
+
 internal fun initialPlanningLabelProblems(cases: List<InitialCase>, registry: ToolRegistry): List<String> {
     val problems = mutableListOf<String>()
     cases.forEach { case ->
@@ -104,7 +111,7 @@ internal fun initialPlanningLabelProblems(cases: List<InitialCase>, registry: To
         }
         case.forbiddenArgValues.forEach { (key, forbidden) ->
             val gold = case.goldArgs[key]
-            if (gold != null && LabScoring.argValueMatches(key, forbidden, gold)) {
+            if (gold != null && argumentPatternsOverlap(key, forbidden, gold)) {
                 problems += "${case.id}: gold and forbidden values agree for $key"
             }
         }

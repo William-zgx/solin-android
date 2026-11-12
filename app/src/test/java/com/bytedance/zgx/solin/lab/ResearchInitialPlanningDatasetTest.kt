@@ -109,6 +109,13 @@ class ResearchInitialPlanningDatasetTest {
     }
 
     @Test
+    fun forbiddenAndGoldAlternativePatternsCannotOverlap() {
+        assertTrue(argumentPatternsOverlap("query", "foo|bar", "foo|bar"))
+        assertTrue(argumentPatternsOverlap("query", "foo|bar", "foo"))
+        assertFalse(argumentPatternsOverlap("query", "foo|bar", "baz"))
+    }
+
+    @Test
     fun overlappingConstraintsDoNotOverwriteTheAbsenceFailure() {
         val case = InitialCase(
             org.json.JSONObject(
@@ -165,9 +172,12 @@ class ResearchInitialPlanningDatasetTest {
     fun transportErrorIsNotACorrectNoToolAnswer() {
         val case = InitialPlanningDatasets.research.loadAll().single { it.id == "research_no_tool_001" }
         val score = LabScoring.scoreInitial(case, LabAnswer.INVALID, rawKind = "error")
+        val missingModel = LabScoring.scoreInitial(case, LabAnswer.INVALID, rawKind = "missing_model")
 
         assertFalse(score.getBoolean("correct"))
         assertFalse(score.getBoolean("toolCorrect"))
+        assertFalse(missingModel.getBoolean("correct"))
+        assertFalse(missingModel.getBoolean("toolCorrect"))
     }
 
     @Test

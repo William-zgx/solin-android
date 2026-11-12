@@ -29,12 +29,15 @@ class NativeToolsSuiteTest {
             SUITE,
             JSONObject()
                 .put("cases", cases.size)
+                .put("datasetCases", InitialPlanningCases.loadSelected().size)
+                .put("caseSource", LabEnv.initialPlanningCaseSource)
+                .put("datasetFile", InitialPlanningCases.selectedDatasetFilename())
                 .put("registryTools", registry.specs().size)
                 .put("topK", TOP_K)
                 .put("strictSystem", STRICT_SYSTEM)
                 .put("freeSystem", FREE_SYSTEM)
                 .put("numCtxFull", FULL_OPTIONS.numCtx)
-                .put("numCtxTopK", TOPK_OPTIONS.numCtx),
+                .put("numCtxTopK", TOPK_OPTIONS.numCtx)
         )
         models.forEach { model ->
             if (OllamaClient.CAPABILITY_TOOLS !in client.capabilities(model)) {
@@ -54,8 +57,13 @@ class NativeToolsSuiteTest {
             // offered as a declaration like any other, and choosing it scores as no tool.
             if (LabEnv.modeSelected("N-topk-lmf")) {
                 run(
-                    client, model, "N-topk-lmf", cases, STRICT_SYSTEM, TOPK_OPTIONS,
-                    specsFor = { case -> retriever.topK(case.input, TOP_K) + NO_TOOL_CHOICE_SPEC },
+                    client,
+                    model,
+                    "N-topk-lmf",
+                    cases,
+                    STRICT_SYSTEM,
+                    TOPK_OPTIONS,
+                    specsFor = { case -> retriever.topK(case.input, TOP_K) + NO_TOOL_CHOICE_SPEC }
                 )
             }
             if (LabEnv.modeSelected("N-topk-free")) {
@@ -73,7 +81,7 @@ class NativeToolsSuiteTest {
         cases: List<InitialCase>,
         system: String,
         options: OllamaClient.Options,
-        specsFor: (InitialCase) -> List<ToolSpec>,
+        specsFor: (InitialCase) -> List<ToolSpec>
     ) {
         var correct = 0
         JsonlWriter(SUITE, model, mode).use { writer ->
@@ -83,7 +91,7 @@ class NativeToolsSuiteTest {
                     model = model,
                     messages = listOf(OllamaClient.Message("system", system), OllamaClient.Message("user", case.input)),
                     options = options,
-                    tools = JSONArray(specs.map(::nativeTool)),
+                    tools = JSONArray(specs.map(::nativeTool))
                 )
                 val noToolChoice = mode.endsWith("-lmf")
                 val (answer, kind) = answerFromNative(result, noToolChoice)
@@ -107,16 +115,15 @@ class NativeToolsSuiteTest {
         LabLog.info("suite C model=$model mode=$mode cases=${cases.size} correct=$correct")
     }
 
-    private fun nativeTool(spec: ToolSpec): JSONObject =
-        JSONObject()
-            .put("type", "function")
-            .put(
-                "function",
-                JSONObject()
-                    .put("name", spec.name)
-                    .put("description", listOf(spec.title, spec.description).filter(String::isNotBlank).joinToString("。"))
-                    .put("parameters", JSONObject(spec.inputSchemaJson)),
-            )
+    private fun nativeTool(spec: ToolSpec): JSONObject = JSONObject()
+        .put("type", "function")
+        .put(
+            "function",
+            JSONObject()
+                .put("name", spec.name)
+                .put("description", listOf(spec.title, spec.description).filter(String::isNotBlank).joinToString("。"))
+                .put("parameters", JSONObject(spec.inputSchemaJson))
+        )
 
     private fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
         if (result.error != null) return LabAnswer.INVALID to "error"
