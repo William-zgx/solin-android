@@ -209,6 +209,7 @@ def score_cell(key, rs, hits, total=None):
     run_n, run_e = RUN_ERRORS.get(key, (0, 0))
     population = len(rs) if total is None else total
     if run_e and run_e == run_n:
+        population = population if population > 0 else run_n
         return record_cell([key], f"errored {population}/{population}")
     if not rs:
         return "n/a" if not run_e else run_cell(key, "n/a")
@@ -470,6 +471,8 @@ def lenient_scores(record):
 
 
 def observation_failure(record):
+    if errored(record):
+        return "error"
     if record["finalCorrect"]:
         return None
     final = record["finalAnswer"]
@@ -992,7 +995,7 @@ def suite_d(records, models, out):
             key[1],
             key[2],
             score_cell(key, rs, sum(r["valid"] for r in rs)),
-            score_cell(key, rs, sum(r["correct"] for r in rs)),
+            score_cell(key, rs, sum(r["correct"] and not errored(r) for r in rs)),
             run_cell(key, frac(sum(r["correct"] and not errored(r) for r in local), len(local))),
             run_cell(key, frac(sum(r["correct"] and not errored(r) for r in remote), len(remote))),
             "-" if is_rule else run_cell(key, frac(len(confident), n)),
@@ -1170,7 +1173,7 @@ def suite_e(records, models, out):
             run_cell(key, f"{precision} ({pct(true_pos, true_pos + false_pos)})"),
             run_cell(key, frac(true_pos, len(acted))),
             run_cell(key, frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle))),
-            score_cell(key, gap_rs, len(gap_rs)),
+            run_cell(key, len(gap_rs)),
             score_cell(key, gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect"))) if gap_rs else "-",
             run_cell(key, frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)))
             if gap_acted else "-",
@@ -1375,7 +1378,7 @@ def production_faithful(fidelity, models, out, initial_info=None):
     guarded_dataset_total = next((r["guardedDatasetCases"] for r in rows if "guardedDatasetCases" in r), None)
     answered_total = (initial_info or {}).get("cases") or max(r["answered"] for r in rows)
     if guarded_dataset_total is None and answered_total == 151 and (
-        initial_info is None
+        not initial_info
         or initial_info.get("datasetFile") == "initial_planning.jsonl"
         or ("datasetFile" not in initial_info and initial_info.get("cases") == 151)
     ):
@@ -1463,7 +1466,7 @@ def gated_e2e(records, models, out, initial_info=None):
         valid = sum(1 for r in rs if r.get("gateRawJsonValid") is True)
         invalid = sum(1 for r in rs if r.get("gateRawJsonValid") is False)
         unavailable = sum(1 for r in rs if r.get("modelCalls") and r.get("gateRawJsonValid") is None)
-        rows.append([key[1], key[2], run_cell(key, f"{sum(r['correct'] for r in rs)}/{len(rs)}")]
+        rows.append([key[1], key[2], run_cell(key, f"{sum(r['correct'] and not errored(r) for r in rs)}/{len(rs)}")]
                     + [run_cell(key, counter.get(stage, 0)) for stage in stages]
                     + [run_cell(key, valid), run_cell(key, invalid), run_cell(key, unavailable)])
     out.append(table(["model", "mode", "overall correct"] + stages
@@ -1530,15 +1533,15 @@ def gated_e2e_fence(records, models, out):
         no_tool_rs = [r for r in rs if not r.get("expectsTool")]
         score_rows.append([
             key[1],
-            run_cell(key, f"{sum(bool(r['correct']) for r in rs)}/{len(rs)}"),
-            run_cell(key, f"{sum(bool(r['toolCorrect']) for r in tool_rs)}/{len(tool_rs)}"),
-            run_cell(key, f"{sum(bool(r['argsExact']) for r in tool_rs)}/{len(tool_rs)}"),
-            run_cell(key, f"{sum(bool(r.get('falsePositive')) for r in no_tool_rs)}/{len(no_tool_rs)}"),
-            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("privacyRelevant")) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("fpPrivateRead")) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("fpNetworkEgress")) for r in no_tool_rs)),
+            run_cell(key, f"{sum(bool(r['correct']) and not errored(r) for r in rs)}/{len(rs)}"),
+            run_cell(key, f"{sum(bool(r['toolCorrect']) and not errored(r) for r in tool_rs)}/{len(tool_rs)}"),
+            run_cell(key, f"{sum(bool(r['argsExact']) and not errored(r) for r in tool_rs)}/{len(tool_rs)}"),
+            run_cell(key, f"{sum(bool(r.get('falsePositive')) and not errored(r) for r in no_tool_rs)}/{len(no_tool_rs)}"),
+            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) and not errored(r) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) and not errored(r) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("privacyRelevant")) and not errored(r) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("fpPrivateRead")) and not errored(r) for r in no_tool_rs)),
+            run_cell(key, sum(bool(r.get("fpNetworkEgress")) and not errored(r) for r in no_tool_rs)),
         ])
         counter = Counter(r.get("decisionStage") for r in rs)
         stage_rows.append(
@@ -1828,7 +1831,7 @@ def heldout_initial_planning(records, models, out):
             run_cell(key, sum(bool(r.get("fpPrivateRead")) and not errored(r) for r in ordinary_none)),
             run_cell(key, sum(bool(r.get("fpNetworkEgress")) and not errored(r) for r in ordinary_none)),
             score_cell(key, adversarial_none,
-                       sum(bool(r.get("falsePositive")) for r in adversarial_none)),
+                       sum(bool(r.get("falsePositive")) and not errored(r) for r in adversarial_none)),
             run_cell(key, sum(bool(r.get("gateOpen")) for r in rs))
             if key[2] == "R-gated-e2e" else "-",
             run_cell(key, sum(errored(r) for r in rs)),

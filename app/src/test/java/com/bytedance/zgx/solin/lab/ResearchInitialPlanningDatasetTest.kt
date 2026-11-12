@@ -208,6 +208,18 @@ class ResearchInitialPlanningDatasetTest {
     }
 
     @Test
+    fun multipleCallsOnOneLineAreNotDeliberateNoTool() {
+        val (answer, kind) = LabScoring.answerFromCallOutput(
+            "call:answer {} call:web_search {\"query\":\"x\"}",
+            MobileActionPlanner(toolRegistry = registry),
+            noToolChoice = true
+        )
+
+        assertNotEquals("no_tool_choice", kind)
+        assertTrue(answer.invalid)
+    }
+
+    @Test
     fun registryRejectedNoToolCallIsNotAnExecutedFalsePositive() {
         val case = InitialPlanningDatasets.research.loadAll().single { it.id == "research_no_tool_001" }
         val score = LabScoring.scoreInitial(

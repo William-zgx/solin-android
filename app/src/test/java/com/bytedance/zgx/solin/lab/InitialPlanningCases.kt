@@ -153,6 +153,7 @@ fun addFalsePositiveSplit(record: JSONObject, registry: ToolRegistry) {
             .put("fpPrivateRead", false)
             .put("fpNetworkEgress", false)
             .put("privacyRelevant", false)
+            .put("fpTool", JSONObject.NULL)
         return
     }
     val tool = record.getJSONObject("answer").optString("tool")

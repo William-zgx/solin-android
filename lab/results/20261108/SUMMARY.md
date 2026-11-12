@@ -181,8 +181,8 @@ App outcome applies the app's gate: a valid verdict with confidence >= 0.9 decid
 
 | model | n | valid JSON | gate decision correct | gate precision (true/false open) | recall on action cases | no-action cases kept closed | rule-gap n | correct on rule-gap cases | gate opens on tool cases in the gap |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| gemma4:e4b | 151 | 151/151 (100%) | 132/151 (87%) | 86/91 (95%) | 86/100 (86%) | 46/51 (90%) | 74/74 (100%) | 69/74 (93%) | 23/23 (100%) |
-| gemma4:e2b | 151 | 151/151 (100%) | 134/151 (89%) | 86/89 (97%) | 86/100 (86%) | 48/51 (94%) | 74/74 (100%) | 70/74 (95%) | 22/23 (96%) |
+| gemma4:e4b | 151 | 151/151 (100%) | 132/151 (87%) | 86/91 (95%) | 86/100 (86%) | 46/51 (90%) | 74 | 69/74 (93%) | 23/23 (100%) |
+| gemma4:e2b | 151 | 151/151 (100%) | 134/151 (89%) | 86/89 (97%) | 86/100 (86%) | 48/51 (94%) | 74 | 70/74 (95%) | 22/23 (96%) |
 
 The gate opens on `action = true` with confidence >= the app's routing gate (`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid JSON) keeps it closed, so a broken gate fails closed to no tool. The 74 rule-gap cases are the Suite B requests where the production rules return no tool (51 no-tool, 23 tool). Explicit negations are labelled no-action. Lab-only experiment: the app has no such gate today.
 
@@ -246,7 +246,7 @@ Suites B and C, requests that need a tool: right first tool with every pinned ar
 | rules | 76/100 (76%) | - | - | - | - | - | - | - | - | - | - |
 | litert/gemma-4-e2b | - | - | - | 0/100 (0%) | 70/100 (70%) | 68/100 (68%) | 78/100 (78%) | 83/100 (83%) | - | 71/100 (71%) (3 errored) | 73/100 (73%) (1 errored) |
 | litert/gemma-4-e4b | - | - | - | 0/100 (0%) | - | 77/100 (77%) | 84/100 (84%) | - | - | 77/100 (77%) | 77/100 (77%) |
-| litert/mobile-actions-270m | - | errored 0/0 | errored 0/0 | 0/100 (0%) | 0/100 (0%) | - | - | - | errored 0/0 | 16/100 (16%) (112 errored) | - |
+| litert/mobile-actions-270m | - | errored 151/151 | errored 151/151 | 0/100 (0%) | 0/100 (0%) | - | - | - | errored 151/151 | 16/100 (16%) (112 errored) | - |
 
 Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing executed. An invalid call executes nothing and counts as correct here.
 
@@ -506,8 +506,8 @@ App outcome applies the app's gate: a valid verdict with confidence >= 0.9 decid
 
 | model | n | valid JSON | gate decision correct | gate precision (true/false open) | recall on action cases | no-action cases kept closed | rule-gap n | correct on rule-gap cases | gate opens on tool cases in the gap |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| litert/gemma-4-e2b | 151 | 151/151 (100%) | 126/151 (83%) | 80/85 (94%) | 80/100 (80%) | 46/51 (90%) | 74/74 (100%) | 68/74 (92%) | 22/23 (96%) |
-| litert/gemma-4-e4b | 151 | 151/151 (100%) | 136/151 (90%) | 87/89 (98%) | 87/100 (87%) | 49/51 (96%) | 74/74 (100%) | 72/74 (97%) | 23/23 (100%) |
+| litert/gemma-4-e2b | 151 | 151/151 (100%) | 126/151 (83%) | 80/85 (94%) | 80/100 (80%) | 46/51 (90%) | 74 | 68/74 (92%) | 22/23 (96%) |
+| litert/gemma-4-e4b | 151 | 151/151 (100%) | 136/151 (90%) | 87/89 (98%) | 87/100 (87%) | 49/51 (96%) | 74 | 72/74 (97%) | 23/23 (100%) |
 
 The gate opens on `action = true` with confidence >= the app's routing gate (`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid JSON) keeps it closed, so a broken gate fails closed to no tool. The 74 rule-gap cases are the Suite B requests where the production rules return no tool (51 no-tool, 23 tool). Explicit negations are labelled no-action. Lab-only experiment: the app has no such gate today.
 
