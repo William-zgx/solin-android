@@ -35,13 +35,26 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前 main 本地门禁 | `afe221e3` 的完整本地验证、隐私扫描、47 个 summarizer 测试及四个 lab summary drift 检查通过；不是 hosted CI 或设备证据。 | [2026-11-12 — Main simplification and documentation convergence](#2026-11-12--main-simplification-and-documentation-convergence) |
+| 当前 main 本地门禁 | `badc8624` 的完整本地验证、隐私扫描、47 个 summarizer 测试及四个 lab summary drift 检查通过；不是 hosted CI 或设备证据。 | [2026-11-12 — Final polish convergence](#2026-11-12--final-polish-convergence) |
 | 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查。二者均不是设备、延迟或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-12 — Final polish convergence
+
+本轮覆盖项：收尾审计收归 draft prefix 清理、first-choice JSON lookup、媒体权限、后台 scope 判断和
+生产源码发现；删除恒常 pending state、冗余 cast/assertion，并避免无收益的整文件格式变更。
+远程视觉显式保留 `List<JSONObject?>` 和 `plan_step_not_object` fail-closed 分支，新增 `steps:[null]` 与
+`steps:[42]` 回归，未把平台类型误当成运行时非空保证。
+
+代码提交为 `badc8624d660786762194d4d284be3110e3b956d`。在该集成树实际执行并通过
+`scripts/verify_local.sh` 与 `scripts/privacy_scan.sh`；focused correctness 与 simplify 复核无未解决项。
+前一条 `afe221e3` 的 47 个 summarizer 测试、3 个 shim 测试和四个 summary drift 检查仍适用于未改变的
+lab 文件。未新增 emulator、物理设备、OEM、热态或发布审批证据；deprecated Android/Compose API 的
+迁移、数据层 suspend 改造、统一 provenance/taint 和 mutation testing 保持为独立后续工作。
 
 ## 2026-11-12 — Main simplification and documentation convergence
 
