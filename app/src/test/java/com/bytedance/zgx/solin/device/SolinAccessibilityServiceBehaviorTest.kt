@@ -28,7 +28,6 @@ class SolinAccessibilityServiceBehaviorTest {
     fun takeScreenshotErrorMapsToFailedWithCode() {
         val result = takeScreenshotErrorToResult(errorCode = 3)
 
-        assertTrue(result is RawScreenshotReadResult.Failed)
         assertTrue(result.reason.contains("3"))
     }
 

@@ -39,6 +39,17 @@ class ProductionSourceScannerTest {
         assertTrue("android.app.Activity" in ProductionSourceScanner.importStatements(file))
     }
 
+    @Test
+    fun productionSourceDiscoveryUsesOneSortedAppSrcTree() {
+        val sources = ProductionSourceScanner.productionSourceFiles()
+        val paths = sources.map { it.first }
+
+        assertTrue("main/java/com/bytedance/zgx/solin/MainActivity.kt" in paths)
+        assertEquals(paths.sorted(), paths)
+        assertTrue(paths.none { it.startsWith("test/") || it.startsWith("androidTest/") })
+        assertTrue(sources.all { (_, file) -> file.isFile && (file.extension == "kt" || file.extension == "java") })
+    }
+
     private fun withSource(lines: List<String>, block: (File) -> Unit) {
         val file = File.createTempFile("production-source-scanner", ".kt")
         try {

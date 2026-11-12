@@ -381,8 +381,7 @@ class ToolExecutionController(
         )
         val continuing = continuationResolution !is BoundRunContinuationResolution.Blocked
         val privacyBlocked = !continuing &&
-            (continuationResolution as BoundRunContinuationResolution.Blocked).reason ==
-            PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
+            continuationResolution.reason == PlacementReasonCode.PLACEMENT_LOCAL_CONTINUATION_REQUIRED
         if (!continuing) {
             assistantOrchestrator.failModelGeneration(
                 observation.run.id,

@@ -1,25 +1,24 @@
 package com.bytedance.zgx.solin.runtime
 
-import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatImageAttachment
+import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.SolinConstants
-import com.bytedance.zgx.solin.tool.ToolRequest
-import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_REMOTE
 import com.bytedance.zgx.solin.logging.solinW
+import com.bytedance.zgx.solin.tool.ToolRequest
+import com.bytedance.zgx.solin.tool.ToolSpec
 import java.io.BufferedReader
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.currentCoroutineContext
@@ -27,8 +26,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -55,7 +54,7 @@ interface RemoteChatRuntime {
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
-        imageAttachments: List<ChatImageAttachment> = emptyList(),
+        imageAttachments: List<ChatImageAttachment> = emptyList()
     ): Flow<String>
 
     fun sendWithTools(
@@ -64,9 +63,8 @@ interface RemoteChatRuntime {
         parameters: GenerationParameters,
         config: RemoteModelConfig,
         tools: List<ToolSpec>,
-        imageAttachments: List<ChatImageAttachment> = emptyList(),
-    ): Flow<RemoteChatEvent> =
-        send(prompt, history, parameters, config, imageAttachments).map { chunk -> RemoteChatEvent.TextDelta(chunk) }
+        imageAttachments: List<ChatImageAttachment> = emptyList()
+    ): Flow<RemoteChatEvent> = send(prompt, history, parameters, config, imageAttachments).map { chunk -> RemoteChatEvent.TextDelta(chunk) }
 
     fun stop()
 }
@@ -88,7 +86,7 @@ class OkHttpRemoteChatRuntime(
      * Optional override for the remote `max_tokens` cap. `null` uses the per-model default from
      * [RemoteOutputTokenLimits]; any value is still clamped to the sane bounds there.
      */
-    private val maxOutputTokens: Int? = null,
+    private val maxOutputTokens: Int? = null
 ) : RemoteChatRuntime {
     private val activeCalls = ConcurrentHashMap.newKeySet<Call>()
 
@@ -121,7 +119,7 @@ class OkHttpRemoteChatRuntime(
         currentCall: AtomicReference<Call?> = AtomicReference(null),
         /** [stopGeneration] observed when collection started; a later stop() ends this run. */
         generation: Long = stopGeneration.value,
-        attemptBlock: suspend (call: Call, markEmitted: () -> Unit) -> Unit,
+        attemptBlock: suspend (call: Call, markEmitted: () -> Unit) -> Unit
     ) {
         var attempt = 1
         var hasEmittedOutput = false
@@ -154,12 +152,12 @@ class OkHttpRemoteChatRuntime(
                     failureClass = failureClass,
                     attempt = attempt,
                     hasEmittedOutput = hasEmittedOutput,
-                    retryAfterMillis = (throwable as? RemoteHttpStatusFailure)?.retryAfterMillis,
+                    retryAfterMillis = (throwable as? RemoteHttpStatusFailure)?.retryAfterMillis
                 )
                 if (decision !is RemoteRetryDecision.Retry) throw throwable
                 solinW(
                     TAG_REMOTE,
-                    "remote attempt $attempt failed (${failureClass.name}); retrying in ${decision.delayMillis}ms",
+                    "remote attempt $attempt failed (${failureClass.name}); retrying in ${decision.delayMillis}ms"
                 )
                 // Only the in-flight call is tracked in activeCalls; release it before backing off
                 // and wake early when stop() bumps the generation during the wait.
@@ -180,37 +178,36 @@ class OkHttpRemoteChatRuntime(
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
-        imageAttachments: List<ChatImageAttachment>,
-    ): Flow<String> =
-        streamChatCompletion(
-            config = config,
-            imageAttachments = imageAttachments,
-            body = { normalized ->
-                buildChatCompletionBody(
-                    prompt,
-                    history,
-                    parameters,
-                    normalized,
-                    imageAttachments = imageAttachments,
-                    maxOutputTokens = RemoteOutputTokenLimits.resolve(normalized, maxOutputTokens),
-                )
-            },
-        ) { response, markEmitted ->
-            if (response.isEventStream()) {
-                response.body.charStream().buffered().use { reader ->
-                    reader.forEachSsePayload { payload ->
-                        val chunk = parseChatCompletionChunkText(payload)
-                        if (chunk.isNotEmpty()) {
-                            markEmitted()
-                            send(chunk)
-                        }
+        imageAttachments: List<ChatImageAttachment>
+    ): Flow<String> = streamChatCompletion(
+        config = config,
+        imageAttachments = imageAttachments,
+        body = { normalized ->
+            buildChatCompletionBody(
+                prompt,
+                history,
+                parameters,
+                normalized,
+                imageAttachments = imageAttachments,
+                maxOutputTokens = RemoteOutputTokenLimits.resolve(normalized, maxOutputTokens)
+            )
+        }
+    ) { response, markEmitted ->
+        if (response.isEventStream()) {
+            response.body.charStream().buffered().use { reader ->
+                reader.forEachSsePayload { payload ->
+                    val chunk = parseChatCompletionChunkText(payload)
+                    if (chunk.isNotEmpty()) {
+                        markEmitted()
+                        send(chunk)
                     }
                 }
-            } else {
-                markEmitted()
-                send(parseChatCompletionText(response.body.string()))
             }
+        } else {
+            markEmitted()
+            send(parseChatCompletionText(response.body.string()))
         }
+    }
 
     override fun sendWithTools(
         prompt: String,
@@ -218,44 +215,43 @@ class OkHttpRemoteChatRuntime(
         parameters: GenerationParameters,
         config: RemoteModelConfig,
         tools: List<ToolSpec>,
-        imageAttachments: List<ChatImageAttachment>,
-    ): Flow<RemoteChatEvent> =
-        streamChatCompletion(
-            config = config,
-            imageAttachments = imageAttachments,
-            body = { normalized ->
-                buildChatCompletionBody(
-                    prompt,
-                    history,
-                    parameters,
-                    normalized,
-                    tools,
-                    imageAttachments,
-                    maxOutputTokens = RemoteOutputTokenLimits.resolve(normalized, maxOutputTokens),
-                )
-            },
-        ) { response, markEmitted ->
-            if (response.isEventStream()) {
-                val accumulator = RemoteToolCallAccumulator()
-                response.body.charStream().buffered().use { reader ->
-                    reader.forEachSsePayload { payload ->
-                        accumulator.absorb(payload).forEach { event ->
-                            markEmitted()
-                            send(event)
-                        }
+        imageAttachments: List<ChatImageAttachment>
+    ): Flow<RemoteChatEvent> = streamChatCompletion(
+        config = config,
+        imageAttachments = imageAttachments,
+        body = { normalized ->
+            buildChatCompletionBody(
+                prompt,
+                history,
+                parameters,
+                normalized,
+                tools,
+                imageAttachments,
+                maxOutputTokens = RemoteOutputTokenLimits.resolve(normalized, maxOutputTokens)
+            )
+        }
+    ) { response, markEmitted ->
+        if (response.isEventStream()) {
+            val accumulator = RemoteToolCallAccumulator()
+            response.body.charStream().buffered().use { reader ->
+                reader.forEachSsePayload { payload ->
+                    accumulator.absorb(payload).forEach { event ->
+                        markEmitted()
+                        send(event)
                     }
                 }
-                accumulator.finish().forEach { event ->
-                    markEmitted()
-                    send(event)
-                }
-            } else {
-                parseChatCompletionEvents(response.body.string()).forEach { event ->
-                    markEmitted()
-                    send(event)
-                }
+            }
+            accumulator.finish().forEach { event ->
+                markEmitted()
+                send(event)
+            }
+        } else {
+            parseChatCompletionEvents(response.body.string()).forEach { event ->
+                markEmitted()
+                send(event)
             }
         }
+    }
 
     /**
      * Shared plumbing for both chat paths: config validation, request building, the retrying
@@ -266,7 +262,7 @@ class OkHttpRemoteChatRuntime(
         config: RemoteModelConfig,
         imageAttachments: List<ChatImageAttachment>,
         body: (normalized: RemoteModelConfig) -> JSONObject,
-        handleResponse: suspend ProducerScope<T>.(response: Response, markEmitted: () -> Unit) -> Unit,
+        handleResponse: suspend ProducerScope<T>.(response: Response, markEmitted: () -> Unit) -> Unit
     ): Flow<T> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
@@ -309,20 +305,18 @@ class OkHttpRemoteChatRuntime(
 
 private fun buildChatCompletionRequest(
     normalized: RemoteModelConfig,
-    body: JSONObject,
-): Request =
-    Request.Builder()
-        .url(normalized.chatCompletionsUrl())
-        .post(body.toString().toRequestBody(JSON))
-        .header("Accept", "text/event-stream, application/json")
-        .header("Content-Type", "application/json")
-        .apply {
-            if (normalized.apiKey.isNotBlank()) header("Authorization", "Bearer ${normalized.apiKey}")
-        }
-        .build()
+    body: JSONObject
+): Request = Request.Builder()
+    .url(normalized.chatCompletionsUrl())
+    .post(body.toString().toRequestBody(JSON))
+    .header("Accept", "text/event-stream, application/json")
+    .header("Content-Type", "application/json")
+    .apply {
+        if (normalized.apiKey.isNotBlank()) header("Authorization", "Bearer ${normalized.apiKey}")
+    }
+    .build()
 
-private fun Response.isEventStream(): Boolean =
-    header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)
+private fun Response.isEventStream(): Boolean = header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)
 
 /**
  * Reads server-sent-event `data:` payloads until `[DONE]`, end of stream, or cancellation of the
@@ -340,7 +334,7 @@ private suspend inline fun BufferedReader.forEachSsePayload(onPayload: (String) 
 
 /** Raised when [OkHttpRemoteChatRuntime.stop] interrupts a generation between retry attempts. */
 private class RemoteGenerationStoppedException(
-    cause: Throwable? = null,
+    cause: Throwable? = null
 ) : CancellationException("远程生成已取消") {
     init {
         cause?.let(::initCause)
@@ -373,19 +367,16 @@ object RemoteOutputTokenLimits {
         return minOf(bounded, maxOf(MIN_MAX_OUTPUT_TOKENS, window / 2))
     }
 
-    private fun defaultFor(modelName: String): Int =
-        when {
-            usesMaxReasoningEffort(modelName) -> MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS
-            isRemoteThinkingModel(modelName) -> THINKING_MODEL_MAX_OUTPUT_TOKENS
-            else -> DEFAULT_MAX_OUTPUT_TOKENS
-        }
+    private fun defaultFor(modelName: String): Int = when {
+        usesMaxReasoningEffort(modelName) -> MAX_EFFORT_THINKING_MODEL_MAX_OUTPUT_TOKENS
+        isRemoteThinkingModel(modelName) -> THINKING_MODEL_MAX_OUTPUT_TOKENS
+        else -> DEFAULT_MAX_OUTPUT_TOKENS
+    }
 }
 
-private fun isRemoteThinkingModel(modelName: String): Boolean =
-    modelName.startsWith("kimi-", ignoreCase = true)
+private fun isRemoteThinkingModel(modelName: String): Boolean = modelName.startsWith("kimi-", ignoreCase = true)
 
-private fun usesMaxReasoningEffort(modelName: String): Boolean =
-    modelName.equals("kimi-k3", ignoreCase = true)
+private fun usesMaxReasoningEffort(modelName: String): Boolean = modelName.equals("kimi-k3", ignoreCase = true)
 
 internal fun buildChatCompletionBody(
     prompt: String,
@@ -394,7 +385,7 @@ internal fun buildChatCompletionBody(
     config: RemoteModelConfig,
     tools: List<ToolSpec> = emptyList(),
     imageAttachments: List<ChatImageAttachment> = emptyList(),
-    maxOutputTokens: Int = RemoteOutputTokenLimits.resolve(config),
+    maxOutputTokens: Int = RemoteOutputTokenLimits.resolve(config)
 ): JSONObject {
     require(imageAttachments.isEmpty() || config.supportsVisionInput) {
         "当前远程模型未启用图片输入能力，未读取、OCR 或发送图片；请切换支持视觉的远程模型后重新选择图片。"
@@ -408,17 +399,17 @@ internal fun buildChatCompletionBody(
                 .put(
                     JSONObject()
                         .put("role", "system")
-                        .put("content", DEFAULT_CHAT_SYSTEM_INSTRUCTION),
+                        .put("content", DEFAULT_CHAT_SYSTEM_INSTRUCTION)
                 )
                 .appendHistory(history)
-                .put(userMessageJson(prompt, imageAttachments)),
+                .put(userMessageJson(prompt, imageAttachments))
         ).apply {
             put(
                 "max_tokens",
                 maxOutputTokens.coerceIn(
                     RemoteOutputTokenLimits.MIN_MAX_OUTPUT_TOKENS,
-                    RemoteOutputTokenLimits.MAX_MAX_OUTPUT_TOKENS,
-                ),
+                    RemoteOutputTokenLimits.MAX_MAX_OUTPUT_TOKENS
+                )
             )
             if (usesMaxReasoningEffort(config.modelName)) {
                 put("reasoning_effort", "max")
@@ -448,8 +439,8 @@ private fun userMessageJson(prompt: String, imageAttachments: List<ChatImageAtta
                 .put(
                     "image_url",
                     JSONObject()
-                        .put("url", image.dataUrl),
-                ),
+                        .put("url", image.dataUrl)
+                )
         )
     }
     return message.put("content", content)
@@ -464,7 +455,7 @@ private fun userMessageJson(prompt: String, imageAttachments: List<ChatImageAtta
  * so the retry policy can classify the failure without re-reading a closed body.
  */
 private fun Response.toStatusFailure(
-    imageAttachments: List<ChatImageAttachment>,
+    imageAttachments: List<ChatImageAttachment>
 ): RemoteHttpStatusFailure {
     val failureMarker = if (imageAttachments.isEmpty() && code != 401 && code != 403) {
         runCatching {
@@ -482,14 +473,14 @@ private fun Response.toStatusFailure(
     return RemoteHttpStatusFailure(
         statusCode = code,
         retryAfterMillis = retryAfterMillis,
-        message = remoteFailureMessage(code, imageAttachments, failureMarker),
+        message = remoteFailureMessage(code, imageAttachments, failureMarker)
     )
 }
 
 private fun remoteFailureMessage(
     code: Int,
     imageAttachments: List<ChatImageAttachment>,
-    failureMarker: String = "",
+    failureMarker: String = ""
 ): String {
     val base = if (imageAttachments.isNotEmpty()) {
         when (code) {
@@ -514,28 +505,27 @@ private fun remoteFailureMessage(
     return if (failureMarker.isBlank()) base else "$base: $failureMarker"
 }
 
-private fun safeRemoteFailureMarker(body: String): String =
-    when {
-        CONTEXT_LENGTH_ERROR_MARKERS.any { marker -> body.contains(marker, ignoreCase = true) } ->
-            "context_length_exceeded"
-        else -> ""
-    }
+private fun safeRemoteFailureMarker(body: String): String = when {
+    CONTEXT_LENGTH_ERROR_MARKERS.any { marker -> body.contains(marker, ignoreCase = true) } ->
+        "context_length_exceeded"
+    else -> ""
+}
 
 private val CONTEXT_LENGTH_ERROR_MARKERS = listOf(
     "context_length_exceeded",
     "context length",
     "maximum context",
     "prompt is too long",
-    "prompt too long",
+    "prompt too long"
 )
 
 private val JSON = "application/json; charset=utf-8".toMediaType()
 
+private fun JSONObject.firstChoiceOrNull(): JSONObject? = optJSONArray("choices")?.optJSONObject(0)
+
 internal fun parseChatCompletionChunkText(raw: String): String {
     val json = runCatching { JSONObject(raw) }.getOrNull() ?: return ""
-    val choice = json.optJSONArray("choices")
-        ?.optJSONObject(0)
-        ?: return ""
+    val choice = json.firstChoiceOrNull() ?: return ""
     val deltaText = choice.optJSONObject("delta")
         ?.optNonNullString("content")
         .orEmpty()
@@ -551,9 +541,7 @@ internal fun parseChatCompletionChunkText(raw: String): String {
 
 internal fun parseChatCompletionText(raw: String): String {
     val json = JSONObject(raw)
-    val choice = json.optJSONArray("choices")
-        ?.optJSONObject(0)
-        ?: error("远程模型响应为空")
+    val choice = json.firstChoiceOrNull() ?: error("远程模型响应为空")
     val messageText = choice.optJSONObject("message")
         ?.optNonNullString("content")
         .orEmpty()
@@ -570,9 +558,7 @@ internal fun parseChatCompletionEvents(raw: String): List<RemoteChatEvent> {
     val json = runCatching { JSONObject(raw) }.getOrElse {
         return listOf(RemoteChatEvent.ParseError("远程模型响应不是有效 JSON"))
     }
-    val choice = json.optJSONArray("choices")
-        ?.optJSONObject(0)
-        ?: return listOf(RemoteChatEvent.ParseError("远程模型响应为空"))
+    val choice = json.firstChoiceOrNull() ?: return listOf(RemoteChatEvent.ParseError("远程模型响应为空"))
     val events = mutableListOf<RemoteChatEvent>()
     val message = choice.optJSONObject("message")
     val messageText = message
@@ -622,9 +608,7 @@ internal class RemoteToolCallAccumulator {
         val json = runCatching { JSONObject(raw) }.getOrElse {
             return listOf(RemoteChatEvent.ParseError("远程模型流式片段不是有效 JSON"))
         }
-        val choice = json.optJSONArray("choices")
-            ?.optJSONObject(0)
-            ?: return emptyList()
+        val choice = json.firstChoiceOrNull() ?: return emptyList()
         val delta = choice.optJSONObject("delta")
             ?: choice.optJSONObject("message")
             ?: return emptyList()
@@ -714,7 +698,7 @@ internal class RemoteToolCallAccumulator {
                 id = builder.id.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
                 toolName = name,
                 arguments = arguments,
-                reason = "remote tool call",
+                reason = "remote tool call"
             )
         }
         return listOf(
@@ -722,7 +706,7 @@ internal class RemoteToolCallAccumulator {
                 RemoteChatEvent.ToolCall(requests.single())
             } else {
                 RemoteChatEvent.ToolCalls(requests)
-            },
+            }
         )
     }
 }
@@ -730,25 +714,24 @@ internal class RemoteToolCallAccumulator {
 private data class ToolCallBuilder(
     var id: String = "",
     var name: String = "",
-    val arguments: StringBuilder = StringBuilder(),
+    val arguments: StringBuilder = StringBuilder()
 )
 
-private fun List<ToolSpec>.toOpenAiToolsJson(): JSONArray =
-    JSONArray().also { array ->
-        forEach { spec ->
-            array.put(
-                JSONObject()
-                    .put("type", "function")
-                    .put(
-                        "function",
-                        JSONObject()
-                            .put("name", spec.name)
-                            .put("description", spec.description)
-                            .put("parameters", JSONObject(spec.inputSchemaJson)),
-                    ),
-            )
-        }
+private fun List<ToolSpec>.toOpenAiToolsJson(): JSONArray = JSONArray().also { array ->
+    forEach { spec ->
+        array.put(
+            JSONObject()
+                .put("type", "function")
+                .put(
+                    "function",
+                    JSONObject()
+                        .put("name", spec.name)
+                        .put("description", spec.description)
+                        .put("parameters", JSONObject(spec.inputSchemaJson))
+                )
+        )
     }
+}
 
 private fun String.toToolArgumentMapOrNull(): Map<String, String>? {
     val json = runCatching { JSONObject(this) }.getOrNull() ?: return null
@@ -769,8 +752,7 @@ private fun String.toToolArgumentMapOrNull(): Map<String, String>? {
     return result
 }
 
-private fun JSONObject.optNonNullString(name: String): String =
-    if (has(name) && !isNull(name)) optString(name) else ""
+private fun JSONObject.optNonNullString(name: String): String = if (has(name) && !isNull(name)) optString(name) else ""
 
 private fun JSONArray.appendHistory(history: List<ChatMessage>): JSONArray {
     history

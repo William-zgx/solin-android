@@ -37,7 +37,14 @@ private const val KIND_DOCUMENTS = "documents"
 private const val KIND_DOWNLOADS = "downloads"
 private const val KIND_OTHERS = "others"
 private val RECENT_FILE_KINDS = setOf(
-    KIND_ALL, KIND_SCREENSHOTS, KIND_IMAGES, KIND_VIDEOS, KIND_AUDIO, KIND_DOCUMENTS, KIND_DOWNLOADS, KIND_OTHERS,
+    KIND_ALL,
+    KIND_SCREENSHOTS,
+    KIND_IMAGES,
+    KIND_VIDEOS,
+    KIND_AUDIO,
+    KIND_DOCUMENTS,
+    KIND_DOWNLOADS,
+    KIND_OTHERS
 )
 
 const val FOREGROUND_APP_SOURCE_USAGE_STATS_ESTIMATE = "usage_stats_estimate"
@@ -66,7 +73,7 @@ interface RecentFileProvider {
 interface RecentImageTextProvider {
     fun extractRecentImageText(
         kind: String = KIND_SCREENSHOTS,
-        maxCount: Int = DEFAULT_MAX_RECENT_IMAGE_TEXT_SCAN_COUNT,
+        maxCount: Int = DEFAULT_MAX_RECENT_IMAGE_TEXT_SCAN_COUNT
     ): RecentImageTextReadResult
 }
 
@@ -79,7 +86,7 @@ data class ForegroundAppInfo(
     val appLabel: String,
     val lastTimeUsedMillis: Long,
     val source: String = FOREGROUND_APP_SOURCE_USAGE_STATS_ESTIMATE,
-    val confidence: String = FOREGROUND_APP_CONFIDENCE_ESTIMATE,
+    val confidence: String = FOREGROUND_APP_CONFIDENCE_ESTIMATE
 )
 
 sealed class ForegroundAppReadResult {
@@ -92,7 +99,7 @@ data class NotificationSummaryItem(
     val id: Int,
     val title: String,
     val isOngoing: Boolean,
-    val postTimeMillis: Long,
+    val postTimeMillis: Long
 )
 
 sealed class NotificationSummaryReadResult {
@@ -103,7 +110,7 @@ sealed class NotificationSummaryReadResult {
 
 data class ContactSummaryItem(
     val name: String,
-    val phone: String,
+    val phone: String
 )
 
 sealed class ContactSummaryReadResult {
@@ -118,17 +125,17 @@ data class RecentFileItem(
     val mimeType: String,
     val kind: String,
     val sizeBytes: Long,
-    val lastModifiedMillis: Long,
+    val lastModifiedMillis: Long
 )
 
 sealed class RecentFileReadResult {
     data class Available(
         val items: List<RecentFileItem>,
-        val mediaAccessScope: String = MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY,
+        val mediaAccessScope: String = MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY
     ) : RecentFileReadResult()
     data class PermissionDenied(
         val reason: String,
-        val retryable: Boolean = true,
+        val retryable: Boolean = true
     ) : RecentFileReadResult()
     data class Failed(val reason: String) : RecentFileReadResult()
 }
@@ -138,28 +145,27 @@ internal data class RecentFileRow(
     val name: String?,
     val mimeType: String?,
     val sizeBytes: Long,
-    val lastModifiedSeconds: Long,
+    val lastModifiedSeconds: Long
 )
 
 internal data class RecentFileKindFilter(
     val allowedKind: String,
     val outputKind: String? = null,
     val selection: String? = null,
-    val selectionArgs: Array<String>? = null,
+    val selectionArgs: Array<String>? = null
 )
 
 /** MIME_TYPE LIKE any of [mimePatterns], OR-joined (empty selection when no patterns). */
-private fun mimeLikeFilter(kind: String, vararg mimePatterns: String): RecentFileKindFilter =
-    RecentFileKindFilter(
-        allowedKind = kind,
-        selection = mimePatterns.joinToString(separator = " OR ") { "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?" },
-        selectionArgs = arrayOf(*mimePatterns),
-    )
+private fun mimeLikeFilter(kind: String, vararg mimePatterns: String): RecentFileKindFilter = RecentFileKindFilter(
+    allowedKind = kind,
+    selection = mimePatterns.joinToString(separator = " OR ") { "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?" },
+    selectionArgs = arrayOf(*mimePatterns)
+)
 
 internal fun collectRecentFileItems(
     rows: Sequence<RecentFileRow>,
     filter: RecentFileKindFilter,
-    maxCount: Int,
+    maxCount: Int
 ): List<RecentFileItem> {
     val files = mutableListOf<RecentFileItem>()
     val iterator = rows.iterator()
@@ -175,7 +181,7 @@ internal fun collectRecentFileItems(
             mimeType = mimeType.ifBlank { "application/octet-stream" },
             kind = filter.outputKind ?: kindFromMime,
             sizeBytes = row.sizeBytes.coerceAtLeast(0L),
-            lastModifiedMillis = row.lastModifiedSeconds.coerceAtLeast(0L) * 1000L,
+            lastModifiedMillis = row.lastModifiedSeconds.coerceAtLeast(0L) * 1000L
         )
     }
     return files
@@ -199,14 +205,14 @@ data class RecentImageTextItem(
     val sizeBytes: Long,
     val lastModifiedMillis: Long,
     val text: String,
-    val truncated: Boolean,
+    val truncated: Boolean
 )
 
 sealed class RecentImageTextReadResult {
     data class Available(
         val item: RecentImageTextItem?,
         val scannedCount: Int,
-        val mediaAccessScope: String = MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY,
+        val mediaAccessScope: String = MEDIA_ACCESS_SCOPE_GRANTED_MEDIA_ONLY
     ) : RecentImageTextReadResult()
 
     data class PermissionDenied(val reason: String) : RecentImageTextReadResult()
@@ -220,7 +226,7 @@ data class CurrentScreenTextSnapshot(
     val nodeCount: Int,
     val truncated: Boolean,
     val structureSummary: String = "",
-    val structureSummaryIncluded: Boolean = structureSummary.isNotBlank(),
+    val structureSummaryIncluded: Boolean = structureSummary.isNotBlank()
 )
 
 sealed class CurrentScreenTextReadResult {
@@ -230,14 +236,13 @@ sealed class CurrentScreenTextReadResult {
 }
 
 class AndroidCurrentScreenTextProvider : CurrentScreenTextProvider {
-    override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult =
-        SolinAccessibilityService.readCurrentScreenText(
-            maxChars = maxChars.coerceIn(1, MAX_CURRENT_SCREEN_TEXT_CHARS),
-        )
+    override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult = SolinAccessibilityService.readCurrentScreenText(
+        maxChars = maxChars.coerceIn(1, MAX_CURRENT_SCREEN_TEXT_CHARS)
+    )
 }
 
 class AndroidContactSummaryProvider(
-    private val context: Context,
+    private val context: Context
 ) : ContactSummaryProvider {
     override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult {
         val trimmedQuery = query.trim()
@@ -262,7 +267,7 @@ class AndroidContactSummaryProvider(
                 CONTACT_PROJECTION,
                 selection,
                 arrayOf(likeArg, likeArg),
-                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC",
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC"
             ) ?: return ContactSummaryReadResult.Failed("通讯录数据源不可用")
 
             val results = linkedMapOf<String, ContactSummaryItem>()
@@ -278,7 +283,7 @@ class AndroidContactSummaryProvider(
                     if (!results.containsKey(key)) {
                         results[key] = ContactSummaryItem(
                             name = name,
-                            phone = phone,
+                            phone = phone
                         )
                         if (results.size >= normalizedMax) break
                     }
@@ -289,7 +294,7 @@ class AndroidContactSummaryProvider(
             ContactSummaryReadResult.PermissionDenied("未授权“读取联系人”权限")
         } catch (throwable: Throwable) {
             ContactSummaryReadResult.Failed(
-                throwable.cleanMessage(),
+                throwable.cleanMessage()
             )
         }
     }
@@ -297,7 +302,7 @@ class AndroidContactSummaryProvider(
     private companion object {
         val CONTACT_PROJECTION = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
-            ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
         )
     }
 }
@@ -307,19 +312,19 @@ class AndroidForegroundAppProvider internal constructor(
     private val hasUsageStatsPermission: () -> Boolean,
     private val queryUsageStats: (startTimeMillis: Long, endTimeMillis: Long) -> List<ForegroundUsageSnapshot>,
     private val resolveAppLabel: (packageName: String) -> String?,
-    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val clockMillis: () -> Long = { System.currentTimeMillis() }
 ) : ForegroundAppProvider {
     constructor(context: Context) : this(
         isUsageStatsSupported = usageStatsSupportChecker(context.foregroundUsageStatsManager()),
         hasUsageStatsPermission = usageStatsPermissionChecker(context),
         queryUsageStats = usageStatsQuerier(context.foregroundUsageStatsManager()),
-        resolveAppLabel = appLabelResolver(context),
+        resolveAppLabel = appLabelResolver(context)
     )
 
     override fun currentForegroundApp(): ForegroundAppReadResult {
         if (!isUsageStatsSupported()) {
             return ForegroundAppReadResult.Failed(
-                "当前系统版本不支持查询前台应用",
+                "当前系统版本不支持查询前台应用"
             )
         }
         if (!hasUsageStatsPermission()) {
@@ -329,7 +334,7 @@ class AndroidForegroundAppProvider internal constructor(
         val usages = try {
             queryUsageStats(
                 now - DEFAULT_FOREGROUND_USAGE_LOOKBACK_MS,
-                now,
+                now
             )
         } catch (securityException: SecurityException) {
             return ForegroundAppReadResult.PermissionDenied("未授权“查看应用使用情况”权限")
@@ -338,7 +343,7 @@ class AndroidForegroundAppProvider internal constructor(
             return ForegroundAppReadResult.Failed("未能查询到应用使用统计")
         }
         val current = usages.maxByOrNull { it.lastTimeUsed } ?: return ForegroundAppReadResult.Failed(
-            "未能识别当前应用",
+            "未能识别当前应用"
         )
         if (current.packageName.isBlank()) {
             return ForegroundAppReadResult.Failed("当前前台应用包名为空")
@@ -348,55 +353,51 @@ class AndroidForegroundAppProvider internal constructor(
             ForegroundAppInfo(
                 packageName = current.packageName,
                 appLabel = appLabel,
-                lastTimeUsedMillis = current.lastTimeUsed,
-            ),
+                lastTimeUsedMillis = current.lastTimeUsed
+            )
         )
     }
 }
 
 internal data class ForegroundUsageSnapshot(
     val packageName: String,
-    val lastTimeUsed: Long,
+    val lastTimeUsed: Long
 )
 
-private fun Context.foregroundUsageStatsManager(): UsageStatsManager? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-    } else {
-        null
-    }
+private fun Context.foregroundUsageStatsManager(): UsageStatsManager? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+    getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+} else {
+    null
+}
 
-private fun usageStatsSupportChecker(usageStatsManager: UsageStatsManager?): () -> Boolean =
-    { Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && usageStatsManager != null }
+private fun usageStatsSupportChecker(usageStatsManager: UsageStatsManager?): () -> Boolean = { Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && usageStatsManager != null }
 
-private fun usageStatsPermissionChecker(context: Context): () -> Boolean =
-    { context.hasUsageStatsPermission() }
+private fun usageStatsPermissionChecker(context: Context): () -> Boolean = { context.hasUsageStatsPermission() }
 
 private fun usageStatsQuerier(
-    usageStatsManager: UsageStatsManager?,
-): (startTimeMillis: Long, endTimeMillis: Long) -> List<ForegroundUsageSnapshot> =
-    { startTimeMillis, endTimeMillis ->
-        usageStatsManager
-            ?.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                startTimeMillis,
-                endTimeMillis,
+    usageStatsManager: UsageStatsManager?
+): (startTimeMillis: Long, endTimeMillis: Long) -> List<ForegroundUsageSnapshot> = { startTimeMillis, endTimeMillis ->
+    usageStatsManager
+        ?.queryUsageStats(
+            UsageStatsManager.INTERVAL_DAILY,
+            startTimeMillis,
+            endTimeMillis
+        )
+        .orEmpty()
+        .map { usage ->
+            ForegroundUsageSnapshot(
+                packageName = usage.packageName.orEmpty(),
+                lastTimeUsed = usage.lastTimeUsed
             )
-            .orEmpty()
-            .map { usage ->
-                ForegroundUsageSnapshot(
-                    packageName = usage.packageName.orEmpty(),
-                    lastTimeUsed = usage.lastTimeUsed,
-                )
-            }
-    }
+        }
+}
 
 private fun appLabelResolver(context: Context): (packageName: String) -> String? {
     val packageManager = context.packageManager
     return { packageName ->
         runCatching {
             packageManager.getApplicationLabel(
-                packageManager.getApplicationInfo(packageName, 0),
+                packageManager.getApplicationInfo(packageName, 0)
             ).toString()
         }.getOrNull()
     }
@@ -408,20 +409,20 @@ private fun Context.hasUsageStatsPermission(): Boolean {
         appOps.unsafeCheckOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS,
             Process.myUid(),
-            packageName,
+            packageName
         )
     } else {
         appOps.checkOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS,
             Process.myUid(),
-            packageName,
+            packageName
         )
     }
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
 class AndroidNotificationSummaryProvider(
-    private val context: Context,
+    private val context: Context
 ) : NotificationSummaryProvider {
     override fun recentNotifications(maxCount: Int): NotificationSummaryReadResult {
         val normalized = maxCount.coerceIn(1, 20)
@@ -447,7 +448,7 @@ class AndroidNotificationSummaryProvider(
                     id = statusBarNotification.id,
                     title = title.ifBlank { "(无标题)" },
                     isOngoing = statusBarNotification.isOngoing,
-                    postTimeMillis = statusBarNotification.postTime,
+                    postTimeMillis = statusBarNotification.postTime
                 )
             }
             .toList()
@@ -468,7 +469,7 @@ private val SCREENSHOT_MARKERS = listOf(
     "screencap",
     "screen capture",
     "截屏",
-    "截图",
+    "截图"
 )
 
 /**
@@ -483,7 +484,7 @@ private val MEDIA_FILE_PROJECTION = arrayOf(
     MediaStore.Files.FileColumns.DISPLAY_NAME,
     MediaStore.Files.FileColumns.MIME_TYPE,
     MediaStore.Files.FileColumns.SIZE,
-    MediaStore.Files.FileColumns.DATE_MODIFIED,
+    MediaStore.Files.FileColumns.DATE_MODIFIED
 )
 
 /**
@@ -519,17 +520,19 @@ private fun screenshotSelectionArgs(): Array<String> {
     return args.toTypedArray()
 }
 
+private fun Context.hasPermission(permission: String): Boolean = ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
 class AndroidRecentFileProvider(
-    private val context: Context,
+    private val context: Context
 ) : RecentFileProvider {
-    private val mediaPolicy = MediaReadAccessPolicy(hasPermission = ::hasPermission)
+    private val mediaPolicy = MediaReadAccessPolicy(hasPermission = context::hasPermission)
 
     override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult {
         val normalizedKind = normalizeKind(kind)
         if (!mediaPolicy.hasReadPermissionForKind(normalizedKind)) {
             return RecentFileReadResult.PermissionDenied(
                 reason = mediaPolicy.permissionMessageForKind(normalizedKind),
-                retryable = mediaPolicy.isRuntimePermissionRetryableKind(normalizedKind),
+                retryable = mediaPolicy.isRuntimePermissionRetryableKind(normalizedKind)
             )
         }
         val normalizedMaxCount = maxCount.coerceIn(1, MAX_RECENT_FILE_COUNT)
@@ -541,7 +544,7 @@ class AndroidRecentFileProvider(
                 MEDIA_FILE_PROJECTION,
                 filter.selection,
                 filter.selectionArgs,
-                "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
+                "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
             ) ?: return RecentFileReadResult.Failed("文件服务不可用")
 
             val files = cursor.use {
@@ -560,7 +563,7 @@ class AndroidRecentFileProvider(
                             name = it.getString(nameIndex),
                             mimeType = it.getString(mimeTypeIndex),
                             sizeBytes = it.getLong(sizeIndex),
-                            lastModifiedSeconds = it.getLong(modifiedIndex),
+                            lastModifiedSeconds = it.getLong(modifiedIndex)
                         )
                     }
                 }
@@ -569,83 +572,77 @@ class AndroidRecentFileProvider(
 
             RecentFileReadResult.Available(
                 items = files,
-                mediaAccessScope = mediaPolicy.mediaAccessScopeForKind(normalizedKind),
+                mediaAccessScope = mediaPolicy.mediaAccessScopeForKind(normalizedKind)
             )
         } catch (_: SecurityException) {
             RecentFileReadResult.PermissionDenied("未授权“读取文件”权限")
         } catch (throwable: Throwable) {
             RecentFileReadResult.Failed(
-                throwable.cleanMessage(),
+                throwable.cleanMessage()
             )
         }
     }
 
-    private fun buildKindFilter(kind: String): RecentFileKindFilter =
-        when (kind) {
-            KIND_ALL ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    mediaFilterForGrantedPermissions()
-                } else {
-                    RecentFileKindFilter(allowedKind = KIND_ALL)
-                }
+    private fun buildKindFilter(kind: String): RecentFileKindFilter = when (kind) {
+        KIND_ALL ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                mediaFilterForGrantedPermissions()
+            } else {
+                RecentFileKindFilter(allowedKind = KIND_ALL)
+            }
 
-            KIND_IMAGES -> mimeLikeFilter(KIND_IMAGES, "image/%")
+        KIND_IMAGES -> mimeLikeFilter(KIND_IMAGES, "image/%")
 
-            KIND_SCREENSHOTS -> RecentFileKindFilter(
-                allowedKind = KIND_IMAGES,
-                outputKind = KIND_SCREENSHOTS,
-                selection = screenshotSelection(),
-                selectionArgs = screenshotSelectionArgs(),
-            )
-
-            KIND_VIDEOS -> mimeLikeFilter(KIND_VIDEOS, "video/%")
-
-            KIND_AUDIO -> mimeLikeFilter(KIND_AUDIO, "audio/%")
-
-            KIND_DOCUMENTS -> mimeLikeFilter(KIND_DOCUMENTS, "application/%", "text/%", "application/x-%")
-
-            KIND_DOWNLOADS ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    RecentFileKindFilter(
-                        allowedKind = KIND_ALL,
-                        selection = "LOWER(${MediaStore.Files.FileColumns.RELATIVE_PATH}) LIKE ?",
-                        selectionArgs = arrayOf("%download%"),
-                    )
-                } else {
-                    RecentFileKindFilter(allowedKind = KIND_ALL)
-                }
-
-            KIND_OTHERS -> RecentFileKindFilter(
-                allowedKind = KIND_OTHERS,
-                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} IS NULL",
-            )
-
-            else -> RecentFileKindFilter(allowedKind = KIND_ALL)
-        }
-
-    /** On Android 13+ "all" only covers the media kinds whose permission was granted. */
-    private fun mediaFilterForGrantedPermissions(): RecentFileKindFilter =
-        mimeLikeFilter(
-            KIND_ALL,
-            *listOfNotNull(
-                "image/%".takeIf { mediaPolicy.hasVisualMediaAccessForKind(KIND_IMAGES) },
-                "video/%".takeIf { mediaPolicy.hasVisualMediaAccessForKind(KIND_VIDEOS) },
-                "audio/%".takeIf { mediaPolicy.hasAudioPermission() },
-            ).toTypedArray(),
+        KIND_SCREENSHOTS -> RecentFileKindFilter(
+            allowedKind = KIND_IMAGES,
+            outputKind = KIND_SCREENSHOTS,
+            selection = screenshotSelection(),
+            selectionArgs = screenshotSelectionArgs()
         )
 
-    private fun normalizeKind(input: String): String =
-        input.lowercase().takeIf { it in RECENT_FILE_KINDS } ?: KIND_ALL
+        KIND_VIDEOS -> mimeLikeFilter(KIND_VIDEOS, "video/%")
 
-    private fun hasPermission(permission: String): Boolean =
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        KIND_AUDIO -> mimeLikeFilter(KIND_AUDIO, "audio/%")
+
+        KIND_DOCUMENTS -> mimeLikeFilter(KIND_DOCUMENTS, "application/%", "text/%", "application/x-%")
+
+        KIND_DOWNLOADS ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                RecentFileKindFilter(
+                    allowedKind = KIND_ALL,
+                    selection = "LOWER(${MediaStore.Files.FileColumns.RELATIVE_PATH}) LIKE ?",
+                    selectionArgs = arrayOf("%download%")
+                )
+            } else {
+                RecentFileKindFilter(allowedKind = KIND_ALL)
+            }
+
+        KIND_OTHERS -> RecentFileKindFilter(
+            allowedKind = KIND_OTHERS,
+            selection = "${MediaStore.Files.FileColumns.MIME_TYPE} IS NULL"
+        )
+
+        else -> RecentFileKindFilter(allowedKind = KIND_ALL)
+    }
+
+    /** On Android 13+ "all" only covers the media kinds whose permission was granted. */
+    private fun mediaFilterForGrantedPermissions(): RecentFileKindFilter = mimeLikeFilter(
+        KIND_ALL,
+        *listOfNotNull(
+            "image/%".takeIf { mediaPolicy.hasVisualMediaAccessForKind(KIND_IMAGES) },
+            "video/%".takeIf { mediaPolicy.hasVisualMediaAccessForKind(KIND_VIDEOS) },
+            "audio/%".takeIf { mediaPolicy.hasAudioPermission() }
+        ).toTypedArray()
+    )
+
+    private fun normalizeKind(input: String): String = input.lowercase().takeIf { it in RECENT_FILE_KINDS } ?: KIND_ALL
 }
 
 class AndroidRecentImageTextProvider(
     private val context: Context,
-    private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
+    private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context)
 ) : RecentImageTextProvider {
-    private val mediaPolicy = MediaReadAccessPolicy(hasPermission = ::hasPermission)
+    private val mediaPolicy = MediaReadAccessPolicy(hasPermission = context::hasPermission)
 
     override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult {
         val normalizedKind = normalizeImageTextKind(kind)
@@ -665,7 +662,7 @@ class AndroidRecentImageTextProvider(
                 MEDIA_FILE_PROJECTION,
                 filter.selection,
                 filter.selectionArgs,
-                "${MediaStore.Files.FileColumns.DATE_ADDED} DESC, ${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
+                "${MediaStore.Files.FileColumns.DATE_ADDED} DESC, ${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
             ) ?: return RecentImageTextReadResult.Failed("图片服务不可用")
 
             var scannedCount = 0
@@ -680,7 +677,7 @@ class AndroidRecentImageTextProvider(
                     scannedCount += 1
                     val uri = ContentUris.withAppendedId(
                         MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
-                        it.getLong(idIndex),
+                        it.getLong(idIndex)
                     )
                     val preview = imageTextExtractor.extract(uri) ?: continue
                     return RecentImageTextReadResult.Available(
@@ -689,10 +686,10 @@ class AndroidRecentImageTextProvider(
                             mimeType = it.getString(mimeTypeIndex).orEmpty().ifBlank { "image/*" },
                             kind = normalizedKind,
                             sizeBytes = it.getLong(sizeIndex).coerceAtLeast(0L),
-                            lastModifiedMillis = it.getLong(modifiedIndex).coerceAtLeast(0L) * 1000L,
+                            lastModifiedMillis = it.getLong(modifiedIndex).coerceAtLeast(0L) * 1000L
                         ),
                         scannedCount = scannedCount,
-                        mediaAccessScope = mediaPolicy.mediaAccessScopeForImages(),
+                        mediaAccessScope = mediaPolicy.mediaAccessScopeForImages()
                     )
                 }
             }
@@ -700,7 +697,7 @@ class AndroidRecentImageTextProvider(
             RecentImageTextReadResult.Available(
                 item = null,
                 scannedCount = scannedCount,
-                mediaAccessScope = mediaPolicy.mediaAccessScopeForImages(),
+                mediaAccessScope = mediaPolicy.mediaAccessScopeForImages()
             )
         } catch (_: SecurityException) {
             RecentImageTextReadResult.PermissionDenied("未授权“读取图片”权限")
@@ -709,26 +706,21 @@ class AndroidRecentImageTextProvider(
         }
     }
 
-    private fun normalizeImageTextKind(input: String): String =
-        if (input.lowercase() == KIND_IMAGES) KIND_IMAGES else KIND_SCREENSHOTS
-
-    private fun hasPermission(permission: String): Boolean =
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    private fun normalizeImageTextKind(input: String): String = if (input.lowercase() == KIND_IMAGES) KIND_IMAGES else KIND_SCREENSHOTS
 
     private fun SharedTextPreview.toRecentImageTextItem(
         name: String,
         mimeType: String,
         kind: String,
         sizeBytes: Long,
-        lastModifiedMillis: Long,
-    ): RecentImageTextItem =
-        RecentImageTextItem(
-            name = name,
-            mimeType = mimeType,
-            kind = kind,
-            sizeBytes = sizeBytes,
-            lastModifiedMillis = lastModifiedMillis,
-            text = text,
-            truncated = truncated,
-        )
+        lastModifiedMillis: Long
+    ): RecentImageTextItem = RecentImageTextItem(
+        name = name,
+        mimeType = mimeType,
+        kind = kind,
+        sizeBytes = sizeBytes,
+        lastModifiedMillis = lastModifiedMillis,
+        text = text,
+        truncated = truncated
+    )
 }

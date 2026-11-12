@@ -8,16 +8,16 @@
 package com.bytedance.zgx.solin.tool
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import kotlin.math.abs
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.abs
 
 /** Bounded composition of existing tools, never an alternative device execution entry. */
 internal class PhoneCompositeOperations(
     private val request: ToolRequest,
-    private val executeChild: suspend (ToolRequest) -> ToolResult,
+    private val executeChild: suspend (ToolRequest) -> ToolResult
 ) {
     private var sequence = 0
     private var writes = 0
@@ -58,7 +58,7 @@ internal class PhoneCompositeOperations(
                 mapOf("expectedPackageName" to packageName, "timeoutMillis" to "1500")
             },
             reason = "Bounded phone operation",
-            sensitivityReason = request.sensitivityReason,
+            sensitivityReason = request.sensitivityReason
         )
         return executeChild(child)
     }
@@ -96,7 +96,10 @@ internal class PhoneCompositeOperations(
     }
 
     private suspend fun scroll(direction: String, target: String? = null): Boolean {
-        if (writes >= MAX_WRITES) { stopped = "write_limit"; return false }
+        if (writes >= MAX_WRITES) {
+            stopped = "write_limit"
+            return false
+        }
         val args = mapOf("direction" to direction) + target?.let { mapOf("target" to it) }.orEmpty()
         val out = call(MobileActionFunctions.UI_SCROLL, args)
         if (out.status != ToolStatus.Succeeded) {
@@ -180,7 +183,7 @@ internal class PhoneCompositeOperations(
             if (min != null && max != null && current !in min..max) return result(false, "invalid_range")
             val distance = wheelDistance(current, desired, modulus)
             if (previousValue == current) return result(false, "no_change")
-            if (previousDistance != null && abs(distance) >= abs(previousDistance!!)) return result(false, "wheel_not_converging")
+            if (previousDistance != null && abs(distance) >= abs(previousDistance)) return result(false, "wheel_not_converging")
             if (writes >= MAX_WRITES) return result(false, "write_limit")
             previousValue = current
             previousDistance = distance
@@ -211,24 +214,45 @@ internal class PhoneCompositeOperations(
             "text" to rawText.take(MAX_TEXT),
             "candidateIds" to JSONArray(candidateIds).toString(),
             "actualValue" to actualValue,
-            "truncated" to (truncation || rawText.length > MAX_TEXT || reason in setOf("page_limit", "item_limit")).toString(),
+            "truncated" to (truncation || rawText.length > MAX_TEXT || reason in setOf("page_limit", "item_limit")).toString()
         )
         // A bounded collection can deliver useful evidence without claiming the entire list was read.
-        val deliveredCollection = request.toolName == MobileActionFunctions.UI_COLLECT && pages > 0 &&
+        val deliveredCollection = request.toolName == MobileActionFunctions.UI_COLLECT &&
+            pages > 0 &&
             reason in setOf("page_limit", "item_limit", "no_new_content")
-        return if (completed || deliveredCollection) request.succeeded(
-            if (completed) "已核对组合操作结果" else "已采集有限页面，完整性未确认", data,
-        ) else request.failed(
-            ToolErrorCode.ExecutionFailed, "组合操作未完成：$reason", retryable = false, data = data,
-        )
+        return if (completed || deliveredCollection) {
+            request.succeeded(
+                if (completed) "已核对组合操作结果" else "已采集有限页面，完整性未确认",
+                data
+            )
+        } else {
+            request.failed(
+                ToolErrorCode.ExecutionFailed,
+                "组合操作未完成：$reason",
+                retryable = false,
+                data = data
+            )
+        }
     }
 
     private data class Node(
-        val id: String, val text: String, val className: String, val editable: Boolean,
-        val scrollable: Boolean, val enabled: Boolean, val left: Int, val top: Int, val right: Int, val bottom: Int,
+        val id: String,
+        val text: String,
+        val className: String,
+        val editable: Boolean,
+        val scrollable: Boolean,
+        val enabled: Boolean,
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int
     ) {
         val bounds get() = listOf(left, top, right, bottom)
-        val role get() = when { editable -> "editable"; scrollable -> "scrollable"; else -> "text" }
+        val role get() = when {
+            editable -> "editable"
+            scrollable -> "scrollable"
+            else -> "text"
+        }
         fun inside(other: Node) = left >= other.left && top >= other.top && right <= other.right && bottom <= other.bottom
     }
 
@@ -243,13 +267,17 @@ internal class PhoneCompositeOperations(
             fun parse(json: String): Page {
                 val array = JSONArray(json)
                 require(array.length() <= 200)
-                return Page((0 until array.length()).map { index ->
-                    val n = array.getJSONObject(index)
-                    val b = n.optJSONObject("bounds") ?: JSONObject()
-                    Node(n.getString("id"), n.optString("text").ifBlank { n.optString("contentDescription") },
-                        n.optString("className"), n.optBoolean("editable"), n.optBoolean("scrollable"),
-                        n.optBoolean("enabled"), b.optInt("left"), b.optInt("top"), b.optInt("right"), b.optInt("bottom"))
-                })
+                return Page(
+                    (0 until array.length()).map { index ->
+                        val n = array.getJSONObject(index)
+                        val b = n.optJSONObject("bounds") ?: JSONObject()
+                        Node(
+                            n.getString("id"), n.optString("text").ifBlank { n.optString("contentDescription") },
+                            n.optString("className"), n.optBoolean("editable"), n.optBoolean("scrollable"),
+                            n.optBoolean("enabled"), b.optInt("left"), b.optInt("top"), b.optInt("right"), b.optInt("bottom")
+                        )
+                    }
+                )
             }
         }
     }

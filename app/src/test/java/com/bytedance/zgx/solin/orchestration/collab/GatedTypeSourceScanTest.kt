@@ -57,7 +57,7 @@ class GatedTypeSourceScanTest {
             UI to "val text = \"\"\"plan: \${listOf(1).map { MilestonePlan.fromValidated(it) }}\"\"\"",
             UI to "val quote = \"a\\\"b\"; val plan = MilestonePlan.fromValidated(milestones)",
             UI to "val quote = '\"'; val plan = MilestonePlan.fromValidated(milestones)",
-            UI to "/* a /* nested */ comment */ val plan = MilestonePlan.fromValidated(milestones)",
+            UI to "/* a /* nested */ comment */ val plan = MilestonePlan.fromValidated(milestones)"
         )
         val clean = listOf(
             UI to "// MilestonePlan.fromValidated(milestones) is for the parser only",
@@ -74,7 +74,7 @@ class GatedTypeSourceScanTest {
             GatedTypeScan.PLAN_OWNER to "return ProgressExport.Released.fromGate(RunProgress.fromGate(statuses))",
             UI to "val plan: MilestonePlan = parsed; val vocabulary = MilestoneVocabulary.DEFAULT",
             GatedTypeScan.POLICY_OWNER to "return RolePlacementDecision.fromPolicy(role, constraint, privacy, decision)",
-            COLLAB_OTHER to "if (flag != DerivedProgressEgress.ClosedVocabulary) return",
+            COLLAB_OTHER to "if (flag != DerivedProgressEgress.ClosedVocabulary) return"
         )
         flagged.forEach { (path, snippet) ->
             assertTrue("not flagged in $path: $snippet", GatedTypeScan.violations(path, snippet).isNotEmpty())
@@ -84,22 +84,13 @@ class GatedTypeSourceScanTest {
         }
         assertEquals(
             listOf("$UI:6: factory fromValidated: val plan = MilestonePlan.fromValidated(x)"),
-            GatedTypeScan.violations(UI, "/* one\r\n two */\nval s = \"\"\"\nline\n\"\"\"\nval plan = MilestonePlan.fromValidated(x)\n"),
+            GatedTypeScan.violations(UI, "/* one\r\n two */\nval s = \"\"\"\nline\n\"\"\"\nval plan = MilestonePlan.fromValidated(x)\n")
         )
     }
 
-    private fun productionSourceFiles(): List<Pair<String, File>> {
-        val appSrc = ProductionSourceScanner.mainJavaRoot().absoluteFile.parentFile.parentFile
-        return appSrc.listFiles().orEmpty()
-            .filter { set -> set.isDirectory && !set.name.startsWith("test") && !set.name.startsWith("androidTest") }
-            .flatMap { set -> listOf(File(set, "java"), File(set, "kotlin")).filter(File::isDirectory) }
-            .flatMap { root -> root.walkTopDown().filter { it.isFile && it.extension in SOURCE_EXTENSIONS }.toList() }
-            .map { file -> file.relativeTo(appSrc).invariantSeparatorsPath to file }
-            .sortedBy { (path, _) -> path }
-    }
+    private fun productionSourceFiles(): List<Pair<String, File>> = ProductionSourceScanner.productionSourceFiles()
 
     private companion object {
-        val SOURCE_EXTENSIONS = setOf("kt", "java")
         const val UI = "main/java/com/bytedance/zgx/solin/ui/Bypass.kt"
         const val DEBUG = "debug/java/com/bytedance/zgx/solin/debug/Bypass.kt"
         const val COLLAB_OTHER = "main/java/com/bytedance/zgx/solin/orchestration/collab/Other.kt"
@@ -119,12 +110,12 @@ private object GatedTypeScan {
         "RunProgress" to PLAN_OWNER,
         "ProgressExport" to PLAN_OWNER,
         "Released" to PLAN_OWNER,
-        "RolePlacementDecision" to POLICY_OWNER,
+        "RolePlacementDecision" to POLICY_OWNER
     )
     private val FACTORY_OWNERS = mapOf(
         "fromValidated" to PLAN_OWNER,
         "fromGate" to PLAN_OWNER,
-        "fromPolicy" to POLICY_OWNER,
+        "fromPolicy" to POLICY_OWNER
     )
 
     fun violations(path: String, source: String): List<String> {
@@ -151,7 +142,7 @@ private object GatedTypeScan {
     }
 
     private val GATED_VALUE_DECLARATION = Regex(
-        """\b(\w+)\s*:\s*(MilestonePlan|MilestoneVocabulary|RunProgress|ProgressExport\.Released|RolePlacementDecision)\b""",
+        """\b(\w+)\s*:\s*(MilestonePlan|MilestoneVocabulary|RunProgress|ProgressExport\.Released|RolePlacementDecision)\b"""
     )
 
     private fun rulesFor(path: String): List<Pair<String, Regex>> = buildList {

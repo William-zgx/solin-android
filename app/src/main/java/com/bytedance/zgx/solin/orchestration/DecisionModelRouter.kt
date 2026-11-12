@@ -34,12 +34,11 @@ enum class DecisionModelRouting {
     Shadow,
 
     /** A confident verdict replaces the rule's complexity guess. */
-    Active,
+    Active
     ;
 
     companion object {
-        fun parse(raw: String?): DecisionModelRouting =
-            entries.firstOrNull { it.name.equals(raw?.trim(), ignoreCase = true) } ?: Off
+        fun parse(raw: String?): DecisionModelRouting = entries.firstOrNull { it.name.equals(raw?.trim(), ignoreCase = true) } ?: Off
     }
 }
 
@@ -48,7 +47,7 @@ data class DecisionModelRoutingSample(
     val mode: DecisionModelRouting,
     val ruleReason: PlacementReasonCode,
     val verdict: DecisionModelVerdict,
-    val applied: Boolean,
+    val applied: Boolean
 )
 
 /**
@@ -64,7 +63,7 @@ const val DECISION_MODEL_PLACEMENT_INSTRUCTIONS =
 
 val DECISION_MODEL_PLACEMENT_CRITERIA: Map<String, String> = linkedMapOf(
     "local" to "The on-device model can answer this request well.",
-    "remote" to "This request needs a large cloud model.",
+    "remote" to "This request needs a large cloud model."
 )
 
 /** Below this the rule decision stands, as in Focus Agent's System One gate. */
@@ -97,7 +96,7 @@ internal class DecisionModelPlacementPolicy(
     private val onSample: (DecisionModelRoutingSample) -> Unit = {},
     private val rules: (ModelPlacementInput) -> PlacementDecision = ModelPlacementPolicy::decide,
     /** Runs Shadow calls off the reply path. The default shares one daemon thread. */
-    private val shadowExecutor: Executor = defaultShadowExecutor,
+    private val shadowExecutor: Executor = defaultShadowExecutor
 ) {
     private val shadowInFlight = AtomicBoolean(false)
 
@@ -116,7 +115,7 @@ internal class DecisionModelPlacementPolicy(
         val apply = confident != null && confident.confidence >= DECISION_MODEL_MIN_CONFIDENCE
         onSample(DecisionModelRoutingSample(mode, ruled.primaryReason, verdict, applied = apply))
         if (!apply) return ruled
-        val placement = confident!!.placement
+        val placement = confident.placement
         val reason = if (placement == RunPlacement.Remote) {
             PlacementReasonCode.AUTO_DECISION_MODEL_REMOTE
         } else {
@@ -126,8 +125,8 @@ internal class DecisionModelPlacementPolicy(
             placement = placement,
             primaryReason = reason,
             diagnostics = ruled.diagnostics.copy(
-                secondaryReasons = (listOf(ruled.primaryReason) + ruled.diagnostics.secondaryReasons).distinct(),
-            ),
+                secondaryReasons = (listOf(ruled.primaryReason) + ruled.diagnostics.secondaryReasons).distinct()
+            )
         )
     }
 
@@ -148,9 +147,8 @@ internal class DecisionModelPlacementPolicy(
         }
     }
 
-    private fun classifySafely(requestText: String): DecisionModelVerdict =
-        runCatching { router.classify(requestText) }
-            .getOrElse { DecisionModelVerdict.Unavailable("router_threw") }
+    private fun classifySafely(requestText: String): DecisionModelVerdict = runCatching { router.classify(requestText) }
+        .getOrElse { DecisionModelVerdict.Unavailable("router_threw") }
 
     private companion object {
         val defaultShadowExecutor: Executor by lazy {
@@ -161,7 +159,7 @@ internal class DecisionModelPlacementPolicy(
 
         val COMPLEXITY_REASONS = setOf(
             PlacementReasonCode.AUTO_SIMPLE_LOCAL,
-            PlacementReasonCode.AUTO_COMPLEX_REMOTE,
+            PlacementReasonCode.AUTO_COMPLEX_REMOTE
         )
     }
 }

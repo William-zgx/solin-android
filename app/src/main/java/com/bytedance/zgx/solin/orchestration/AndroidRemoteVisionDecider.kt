@@ -186,7 +186,7 @@ internal fun parseRemoteVisionDecision(raw: String): RemoteVisionDecision {
     if (jsonText.isBlank()) return RemoteVisionDecision.Unavailable("unparseable_no_json")
     val json = runCatching { JSONObject(jsonText) }.getOrNull()
         ?: return RemoteVisionDecision.Unavailable("unparseable_json")
-    val stepObjects = json.optJSONArray("steps")
+    val stepObjects: List<JSONObject?> = json.optJSONArray("steps")
         ?.let { steps -> (0 until steps.length()).map { index -> steps.optJSONObject(index) } }
         ?: listOf(json)
     // Checked on every step before any truncation, so one bad `until` drops the whole plan.

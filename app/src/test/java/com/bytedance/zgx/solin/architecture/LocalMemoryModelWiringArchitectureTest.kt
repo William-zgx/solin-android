@@ -1,6 +1,5 @@
 package com.bytedance.zgx.solin.architecture
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,7 +22,7 @@ class LocalMemoryModelWiringArchitectureTest {
         val sources = productionSources()
         assertTrue(
             "the on-device adapter is present and scanned",
-            sources.map { it.first }.containsAll(LOCAL_MODEL_ADAPTER_ALLOWLIST),
+            sources.map { it.first }.containsAll(LOCAL_MODEL_ADAPTER_ALLOWLIST)
         )
         val violations = sources.flatMap { (path, text) ->
             wiringViolations(path, text, LOCAL_MODEL_ADAPTER_ALLOWLIST)
@@ -60,7 +59,7 @@ class LocalMemoryModelWiringArchitectureTest {
             "typealias Local = com.bytedance.zgx.solin.memory.LocalMemoryModel\nclass Http : Local { }" to "implemented",
             "val c = DefaultContextCompactor(CompactionConfig(), model)" to "constructed",
             "val c = DefaultContextCompactor(config = cfg, summaryModel = m)" to "constructed",
-            "val e = LocalModelMemoryFactExtractor(model, config)" to "constructed",
+            "val e = LocalModelMemoryFactExtractor(model, config)" to "constructed"
         )
         planted.forEach { (text, marker) ->
             val found = wiringViolations("main/java/com/bytedance/zgx/solin/planted/Planted.kt", text, emptySet())
@@ -75,7 +74,7 @@ class LocalMemoryModelWiringArchitectureTest {
             "import com.bytedance.zgx.solin.runtime.RemoteChatRuntime\nval x = 1",
             "val client = okhttp3.OkHttpClient()",
             "val runtime = OkHttpRemoteChatRuntime()",
-            "val runtime = com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime()",
+            "val runtime = com.bytedance.zgx.solin.runtime.OkHttpRemoteChatRuntime()"
         ).forEach { text ->
             val found = wiringViolations(allowlisted, text, setOf(allowlisted))
             assertTrue("allowlisted remote import must be flagged: $text", found.any { "remote runtime" in it })
@@ -86,32 +85,20 @@ class LocalMemoryModelWiringArchitectureTest {
             "fun interface LocalMemoryModel {\n    suspend fun generate(systemInstruction: String, prompt: String): String?\n}",
             "class Consumer(private val model: LocalMemoryModel?) { val c = DefaultContextCompactor(CompactionConfig()) }",
             "class DefaultContextCompactor(private val config: CompactionConfig = CompactionConfig(), private val summaryModel: LocalMemoryModel? = null)",
-            "val doc = \"\"\"LocalMemoryModel { x }\"\"\"",
+            "val doc = \"\"\"LocalMemoryModel { x }\"\"\""
         )
         benign.forEach { text ->
             assertEquals("benign text must not be flagged: $text", emptyList<String>(), wiringViolations("main/java/com/bytedance/zgx/solin/Benign.kt", text, emptySet()))
         }
     }
 
-    private fun productionSources(): List<Pair<String, String>> {
-        // mainJavaRoot() is <app>/src/main/java, so two levels up is <app>/src, the parent of every source set.
-        val srcRoot = ProductionSourceScanner.mainJavaRoot().absoluteFile.parentFile.parentFile
-        val sets = srcRoot.listFiles().orEmpty()
-            .filter { it.isDirectory && !it.name.startsWith("test") && !it.name.startsWith("androidTest") }
-        return sets.flatMap { set ->
-            listOf("java", "kotlin").map { File(set, it) }.filter { it.isDirectory }.flatMap { root ->
-                root.walkTopDown()
-                    .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
-                    .map { file -> file.absoluteFile.relativeTo(srcRoot).invariantSeparatorsPath to file.readText(Charsets.UTF_8) }
-                    .toList()
-            }
-        }.sortedBy { it.first }
-    }
+    private fun productionSources(): List<Pair<String, String>> = ProductionSourceScanner.productionSourceFiles()
+        .map { (path, file) -> path to file.readText(Charsets.UTF_8) }
 
     private companion object {
         /** The only production on-device adapter; relative to `app/src`. */
         val LOCAL_MODEL_ADAPTER_ALLOWLIST: Set<String> = setOf(
-            "main/java/com/bytedance/zgx/solin/runtime/LocalEngine.kt",
+            "main/java/com/bytedance/zgx/solin/runtime/LocalEngine.kt"
         )
     }
 }
@@ -169,15 +156,15 @@ private val IMPLEMENTATION_PATTERNS = listOf(
     // The `fun interface` declaration is not an implementation; a SAM lambda or `LocalMemoryModel {` is.
     Regex("""(?<!interface )\bLocalMemoryModel\s*\{"""),
     Regex("""\b(?:class|object)\s+\w+(?:<[^>{]*>)?\s*(?:\([^{)]*\))?\s*:\s*(?:[\w.<>]+(?:\([^)]*\))?\s*,\s*)*LocalMemoryModel\b"""),
-    Regex("""\bnew\s+LocalMemoryModel\s*\("""),
+    Regex("""\bnew\s+LocalMemoryModel\s*\(""")
 )
 
 private val DEFAULT_CONTEXT_COMPACTOR_CALL = Regex("""(?<!class )\bDefaultContextCompactor\s*\(""")
 private val LOCAL_MEMORY_MODEL_ALIAS = Regex(
-    """(?m)^\s*(?:import\s+[\w.]*LocalMemoryModel\s+as\b|typealias\s+\w+\s*=\s*[\w.]*LocalMemoryModel\b)""",
+    """(?m)^\s*(?:import\s+[\w.]*LocalMemoryModel\s+as\b|typealias\s+\w+\s*=\s*[\w.]*LocalMemoryModel\b)"""
 )
 private val REMOTE_RUNTIME_REFERENCE = Regex(
-    """\b(?:okhttp3\s*\.|(?:[\w.]*\.)?(?:OkHttpRemote\w*|RemoteChatRuntime)\b)""",
+    """\b(?:okhttp3\s*\.|(?:[\w.]*\.)?(?:OkHttpRemote\w*|RemoteChatRuntime)\b)"""
 )
 
 private val LOCAL_MODEL_EXTRACTOR_CALL = Regex("""(?<!class )\bLocalModelMemoryFactExtractor\s*\(""")

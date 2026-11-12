@@ -54,6 +54,24 @@ internal object ProductionSourceScanner {
 
     fun packageDirExists(relativePackageDir: String): Boolean = File(solinPackageRoot(), relativePackageDir).isDirectory
 
+    /** All Java/Kotlin production source files, with paths relative to app/src, sorted by path. */
+    fun productionSourceFiles(): List<Pair<String, File>> {
+        val srcRoot = requireNotNull(mainJavaRoot().absoluteFile.parentFile?.parentFile) {
+            "mainJavaRoot must have an app/src parent"
+        }
+        return srcRoot.listFiles().orEmpty()
+            .filter { it.isDirectory && !it.name.startsWith("test") && !it.name.startsWith("androidTest") }
+            .flatMap { set ->
+                listOf("java", "kotlin").map { File(set, it) }.filter { it.isDirectory }.flatMap { root ->
+                    root.walkTopDown()
+                        .filter { it.isFile && (it.extension == "kt" || it.extension == "java") }
+                        .map { file -> file.absoluteFile.relativeTo(srcRoot).invariantSeparatorsPath to file }
+                        .toList()
+                }
+            }
+            .sortedBy { it.first }
+    }
+
     /** Returns import statements without the leading `import `, one per line. */
     fun importStatements(file: File): List<String> = importStatements(codeLines(file))
 

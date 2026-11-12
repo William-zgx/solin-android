@@ -36,20 +36,18 @@ internal object MapSearchActionParser {
             title = "地图搜索",
             summary = "将在地图中搜索：$query",
             parameters = mapOf("query" to query),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
     }
 
-    private fun cleanedSearchQuery(input: String): String {
-        val cleaned = cleanedObject(input)
-            .replace(CLEANED_SEARCH_QUERY_MAPS_REGEX, "")
-            .replace(CLEANED_SEARCH_QUERY_ZH1_REGEX, "")
-            .replace(CLEANED_SEARCH_QUERY_ZH2_REGEX, "")
-            .replace(CLEANED_SEARCH_QUERY_ZH3_REGEX, "")
-            .replace(CLEANED_SEARCH_QUERY_SEARCH_MAPS_REGEX, "")
-            .trim()
-        return cleaned.ifBlank { cleanedObject(input) }
-    }
+    private fun cleanedSearchQuery(input: String): String = cleanedDraftValue(
+        input,
+        CLEANED_SEARCH_QUERY_MAPS_REGEX,
+        CLEANED_SEARCH_QUERY_ZH1_REGEX,
+        CLEANED_SEARCH_QUERY_ZH2_REGEX,
+        CLEANED_SEARCH_QUERY_ZH3_REGEX,
+        CLEANED_SEARCH_QUERY_SEARCH_MAPS_REGEX
+    )
 }
 
 private val EMAIL_DRAFT_NEGATION_REGEX =
@@ -70,7 +68,8 @@ internal object EmailDraftActionParser {
         val normalized = input.lowercase()
         if (input.startsWithActionNegation() || input.looksLikeDiscussion()) return false
         if (normalized.contains(EMAIL_DRAFT_NEGATION_REGEX) ||
-            "不要发邮件" in input || "不要写邮件" in input
+            "不要发邮件" in input ||
+            "不要写邮件" in input
         ) {
             return false
         }
@@ -86,18 +85,16 @@ internal object EmailDraftActionParser {
             title = "邮件草稿",
             summary = "将打开邮件 App 并填入草稿内容。",
             parameters = mapOf("body" to body),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
     }
 
-    private fun cleanedEmailBody(input: String): String {
-        val cleaned = cleanedObject(input)
-            .replace(CLEANED_EMAIL_BODY_ZH1_REGEX, "")
-            .replace(CLEANED_EMAIL_BODY_ZH2_REGEX, "")
-            .replace(CLEANED_EMAIL_BODY_DRAFT_WRITE_REGEX, "")
-            .trim()
-        return cleaned.ifBlank { cleanedObject(input) }
-    }
+    private fun cleanedEmailBody(input: String): String = cleanedDraftValue(
+        input,
+        CLEANED_EMAIL_BODY_ZH1_REGEX,
+        CLEANED_EMAIL_BODY_ZH2_REGEX,
+        CLEANED_EMAIL_BODY_DRAFT_WRITE_REGEX
+    )
 }
 
 private val CLEANED_CALENDAR_TITLE_ZH1_REGEX = Regex("""^(新建|创建|添加|安排|加|建)(一?个)?日程\s*[:：]?\s*""")
@@ -140,17 +137,20 @@ internal object CalendarDraftActionParser {
             summary = timing?.let { "将打开日历新建事件页面，时间：${it.displayText(zoneId)}。" }
                 ?: "将打开日历新建事件页面。",
             parameters = parameters,
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
     }
 
-    private fun cleanedCalendarTitle(input: String): String {
-        val cleaned = cleanedObject(input)
-            .replace(CLEANED_CALENDAR_TITLE_ZH1_REGEX, "")
-            .replace(CLEANED_CALENDAR_TITLE_ADD_CREATE_REGEX, "")
-            .trim()
-        return cleaned.ifBlank { cleanedObject(input) }
-    }
+    private fun cleanedCalendarTitle(input: String): String = cleanedDraftValue(
+        input,
+        CLEANED_CALENDAR_TITLE_ZH1_REGEX,
+        CLEANED_CALENDAR_TITLE_ADD_CREATE_REGEX
+    )
+}
+
+private fun cleanedDraftValue(input: String, vararg prefixes: Regex): String {
+    val cleaned = prefixes.fold(cleanedObject(input)) { value, prefix -> value.replace(prefix, "") }.trim()
+    return cleaned.ifBlank { cleanedObject(input) }
 }
 
 private val DISCUSSION_REGEX =
@@ -169,7 +169,7 @@ internal fun String.looksLikeDiscussion(): Boolean {
         "怎么实现",
         "如何实现",
         "怎么设计",
-        "是什么",
+        "是什么"
     )
         .any { it in this } ||
         listOf("错误原因", "日志", "算法", "数据结构", "功能测试", "路线图", "导航栏").any { it in this } ||
@@ -186,7 +186,7 @@ internal fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
     return SEQUENTIAL_ACTION_ZH1_REGEX.containsMatchIn(this) ||
         normalized.contains(
-            SEQUENTIAL_ACTION_AND_THEN_REGEX,
+            SEQUENTIAL_ACTION_AND_THEN_REGEX
         )
 }
 
@@ -202,9 +202,8 @@ internal fun String.startsWithActionNegation(): Boolean {
         normalized.contains(STARTS_WITH_ACTION_NEGATION_PLEASE_DO_REGEX)
 }
 
-internal fun cleanedObject(input: String): String =
-    input.trim()
-        .removePrefix("请")
-        .removePrefix("帮我")
-        .trim()
-        .ifBlank { input.trim() }
+internal fun cleanedObject(input: String): String = input.trim()
+    .removePrefix("请")
+    .removePrefix("帮我")
+    .trim()
+    .ifBlank { input.trim() }
