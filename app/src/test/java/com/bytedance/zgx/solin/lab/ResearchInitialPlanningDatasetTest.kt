@@ -21,7 +21,7 @@ class ResearchInitialPlanningDatasetTest {
         assertEquals(InitialPlanningDatasets.research.datasetFile, metadata.getString("datasetFile"))
         assertEvaluationOnlyMetadata(cases, metadata)
         val toolFamilies = cases.flatMap { it.goldTools }.toSet()
-        assertTrue(toolFamilies.size >= metadata.getInt("minimumToolFamilyCount"))
+        assertTrue(toolFamilies.size >= metadata.getInt("minimumDistinctToolCount"))
         val negativeConstraintCases = cases.count {
             it.forbiddenArgs.isNotEmpty() || it.forbiddenNonEmptyArgs.isNotEmpty() || it.forbiddenArgValues.isNotEmpty()
         }

@@ -147,7 +147,7 @@ def errored(record):
     metrics = [record.get("metrics") or {}]
     metrics += [output.get("metrics") or {} for output in (record.get("modelOutputs") or [])]
     metrics += [call.get("metrics") or {} for call in (record.get("calls") or [])]
-    return any(m.get("error") for m in metrics) or record.get("rawKind") == "error"
+    return any(m.get("error") for m in metrics) or record.get("rawKind") in ("error", "missing_model")
 
 
 # Per-run error counts, computed once from the loaded records (Decision L1). Every renderer that
@@ -371,7 +371,7 @@ def initial_failure(record):
     """Failure class of one Suites B/C record, or None when it is correct."""
     if record["correct"]:
         return None
-    if record["rawKind"] == "error":
+    if errored(record):
         return "error"
     if not record["expectsTool"]:
         return "tool on no-tool request"

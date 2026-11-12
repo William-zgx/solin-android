@@ -187,7 +187,9 @@ class InitialPlanningSuiteTest {
                             }
                         )
                     )
-                if (calls.any { it.result.error != null }) record.put("correct", false)
+                if (calls.any { it.result.error != null }) {
+                    record.put("correct", false).put("argsExact", false)
+                }
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)
             }

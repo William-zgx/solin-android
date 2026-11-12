@@ -23,7 +23,7 @@
       "irrelevant_tool": 6
     }
   },
-  "minimumToolFamilyCount": 4,
+  "minimumDistinctToolCount": 5,
   "minimumNegativeConstraintCases": 6,
   "disjointFrom": [
     "initial_planning.jsonl",

@@ -127,16 +127,11 @@ class NativeToolsSuiteTest {
 
     internal fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
         if (result.error != null) return LabAnswer.INVALID to "error"
-        if (noToolChoice && result.toolCalls.all { it.name == LOCAL_MODEL_NO_TOOL_CHOICE }) {
+        if (noToolChoice && result.toolCalls.isNotEmpty() && result.toolCalls.all { it.name == LOCAL_MODEL_NO_TOOL_CHOICE }) {
             return LabAnswer.STOP to "no_tool_choice"
         }
         val call = result.toolCalls.firstOrNull { !noToolChoice || it.name != LOCAL_MODEL_NO_TOOL_CHOICE }
             ?: return LabAnswer.STOP to if (result.text.isBlank()) "blank" else "text"
-        // Production reads `answer` as a deliberate no-tool decision, not an unknown tool
-        // (InitialToolPlanner.kt:144). The choice is never a registry tool.
-        if (noToolChoice && call.name == LOCAL_MODEL_NO_TOOL_CHOICE) {
-            return LabAnswer.STOP to "no_tool_choice"
-        }
         if (!registry.isKnownTool(call.name)) return LabAnswer(call.name, invalid = true) to "unknown_tool"
         val arguments = call.arguments.toToolArgumentMapOrNull()
             ?: return LabAnswer(call.name, invalid = true) to "nested_arguments"

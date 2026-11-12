@@ -28,6 +28,16 @@ class NativeMultiCallTest {
         assertEquals("no_tool_choice", kind)
     }
 
+    @Test
+    fun emptyCallsRemainPlainTextRatherThanAnswerChoice() {
+        val result = chatResult().copy(text = "An explanation")
+
+        val (answer, kind) = NativeToolsSuiteTest().answerFromNative(result, noToolChoice = true)
+
+        assertEquals(null, answer.tool)
+        assertEquals("text", kind)
+    }
+
     private fun chatResult(vararg calls: OllamaClient.ToolCall): OllamaClient.ChatResult = OllamaClient.ChatResult(
         text = "",
         toolCalls = calls.toList(),

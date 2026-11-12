@@ -642,6 +642,8 @@ class ResearchScoringTest(unittest.TestCase):
         self.summarize.production_faithful([], ["m"], out)
         self.assertIn("file exists but has no eligible model rows", "\n".join(out))
         self.assertNotIn("Not run in this folder", "\n".join(out))
+    def test_missing_model_is_an_error_not_a_score(self):
+        self.assertTrue(self.summarize.errored({"rawKind": "missing_model", "metrics": {}}))
 
 
 class HeldOutSummaryTest(unittest.TestCase):
