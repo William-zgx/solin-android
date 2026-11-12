@@ -287,7 +287,4 @@ internal class ToolObservationContinuationBuilder(
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图"
             else -> "最近截图"
         }
-
-    private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
-        boundedPromptValue(evidenceBlobStore, maxLength)
 }

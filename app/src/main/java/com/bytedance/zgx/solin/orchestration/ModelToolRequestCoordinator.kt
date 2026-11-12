@@ -197,7 +197,9 @@ internal class ModelToolRequestCoordinator(
                 ).rejected("Remote model returned an empty tool batch."),
             )
         }
-        if (traceQueries.toolRequestsFor(runId).size + requests.size > runBudget.maxRunToolSteps) {
+        val existingRequests = traceQueries.toolRequestsFor(runId)
+        val existingRequestIds = existingRequests.mapTo(mutableSetOf()) { request -> request.id }
+        if (existingRequests.size + requests.size > runBudget.maxRunToolSteps) {
             return host.failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         requests.groupingBy { request -> request.id }
@@ -213,7 +215,7 @@ internal class ModelToolRequestCoordinator(
                     ),
                 )
             }
-        requests.firstOrNull { request -> traceQueries.toolRequestFor(runId, request.id) != null }
+        requests.firstOrNull { request -> request.id in existingRequestIds }
             ?.let { existingRequest ->
                 return toolObservationCoordinator.rejectModelToolBatch(
                     runId = runId,

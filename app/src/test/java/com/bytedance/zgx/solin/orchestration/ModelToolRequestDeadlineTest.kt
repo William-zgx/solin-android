@@ -62,6 +62,40 @@ class ModelToolRequestDeadlineTest {
         assertEquals(AgentRunState.ExecutingTool, observed.run.state)
     }
 
+    @Test
+    fun intraBatchDuplicateIdsAreRejectedBeforeExistingRequestIds() {
+        val fixture = Fixture(nowMillis = { START_MILLIS + 1_000L })
+        fixture.addExistingRequest(request.copy(id = "existing"))
+
+        val observed = fixture.coordinator.observeModelToolRequests(
+            fixture.runId,
+            listOf(request.copy(id = "existing"), request.copy(id = "existing")),
+        )
+
+        assertEquals(AgentRunState.Failed, observed?.run?.state)
+        assertEquals(
+            "Model tool request id appears multiple times in one batch: existing",
+            (observed?.decision as? AgentObservationDecision.Fail)?.reason,
+        )
+    }
+
+    @Test
+    fun batchRequestIdMatchingExistingTraceIsRejected() {
+        val fixture = Fixture(nowMillis = { START_MILLIS + 1_000L })
+        fixture.addExistingRequest(request)
+
+        val observed = fixture.coordinator.observeModelToolRequests(
+            fixture.runId,
+            listOf(request, request.copy(id = "call-remote-b")),
+        )
+
+        assertEquals(AgentRunState.Failed, observed?.run?.state)
+        assertEquals(
+            "Model tool request id already exists: ${request.id}",
+            (observed?.decision as? AgentObservationDecision.Fail)?.reason,
+        )
+    }
+
     private class Fixture(
         nowMillis: () -> Long = { START_MILLIS + SolinConstants.AgentLoop.MAX_RUN_WALL_CLOCK_MILLIS },
     ) {
@@ -202,6 +236,13 @@ class ModelToolRequestDeadlineTest {
         val runId: String = traceStore.createRun("普通问题").let { run ->
             traceStore.updateState(run.id, AgentRunState.GeneratingAnswer)
             run.id
+        }
+
+        fun addExistingRequest(request: ToolRequest) {
+            traceStore.appendStep(
+                runId,
+                AgentStep.ToolRequested(request, initialToolPlanner.draftForRemoteToolRequest(request)),
+            )
         }
 
         val coordinator = ModelToolRequestCoordinator(

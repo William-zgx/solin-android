@@ -772,7 +772,7 @@ private fun String.toOcrBlocksPromptSection(
     parseCache: ObservationJsonParseCache? = null,
 ): String? =
     runCatching {
-        val blocks = parseCache?.ocrBlocksArrayOrNull(this) ?: JSONArray(this)
+        val blocks = ocrBlocksArrayOrNull(parseCache) ?: return@runCatching null
         val selectedBlocks = blocks.indexedObjects(limit = MAX_LOCAL_OCR_BLOCKS)
         val summaries = selectedBlocks
             .mapNotNull { (index, block) -> block.toOcrBlockPromptText(index) }

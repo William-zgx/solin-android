@@ -67,7 +67,7 @@ private fun String.observationElements(cache: ObservationJsonParseCache?): JSONA
  * Resolves the OCR-blocks [JSONArray] for [this] raw JSON, reusing [cache] when present. Returns
  * null on malformed JSON so callers keep the prior permissive fall-through.
  */
-private fun String.ocrBlocksArrayOrNull(cache: ObservationJsonParseCache?): JSONArray? =
+internal fun String.ocrBlocksArrayOrNull(cache: ObservationJsonParseCache?): JSONArray? =
     if (cache != null) {
         cache.ocrBlocksArrayOrNull(this)
     } else {

@@ -428,14 +428,6 @@ class AssistantOrchestrator(
     override fun availableToolSpecs(): List<ToolSpec> =
         toolRegistry.specs()
 
-    override fun availableRemoteToolSpecs(scope: RemoteToolScope): List<ToolSpec> =
-        availableToolSpecs().filter { spec ->
-            when (scope) {
-                RemoteToolScope.PublicEvidenceOnly -> spec.isEligibleForParallelBatch()
-                RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
-            }
-        }
-
     override fun close() {
         agentLoopRuntime.close()
         (actionPlanningRuntime as? AutoCloseable)?.close()

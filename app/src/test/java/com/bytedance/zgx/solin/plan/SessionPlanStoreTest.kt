@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionPlanStoreTest {
@@ -27,6 +28,27 @@ class SessionPlanStoreTest {
         assertEquals(0, snap.items[0].position)
         assertEquals(1, snap.items[1].position)
         assertEquals(2, snap.items[2].position)
+    }
+
+    @Test
+    fun replaceAllRefreshesTimestampsWhenPositionIsAlreadyNormalized() {
+        val store = SessionPlanStore()
+        val original = PlanItem(
+            planItemId = "a",
+            runId = "r",
+            position = 0,
+            title = "A",
+            updatedAtMillis = 1L,
+        )
+        val before = System.currentTimeMillis()
+
+        val snap = store.replaceAll("r", listOf(original))
+
+        val after = System.currentTimeMillis()
+        assertEquals(0, snap.items.single().position)
+        assertTrue(snap.items.single().updatedAtMillis in before..after)
+        assertTrue(snap.updatedAtMillis in before..after)
+        assertEquals(1L, original.updatedAtMillis)
     }
 
     @Test

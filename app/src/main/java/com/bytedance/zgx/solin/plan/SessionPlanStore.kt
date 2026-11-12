@@ -16,11 +16,7 @@ class SessionPlanStore {
 
     fun replaceAll(runId: String, items: List<PlanItem>): PlanSnapshot {
         val sorted = items.sortedBy { it.position }.mapIndexed { idx, item ->
-            if (item.position != idx) {
-                item.copy(position = idx, updatedAtMillis = System.currentTimeMillis())
-            } else {
-                item.copy(updatedAtMillis = System.currentTimeMillis())
-            }
+            item.copy(position = idx, updatedAtMillis = System.currentTimeMillis())
         }
         val snap = PlanSnapshot(
             runId = runId,

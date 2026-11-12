@@ -134,23 +134,20 @@ internal class AgentTraceQueries(
         traceStore.stepSummaries(runId).forEach { step ->
             when (step.type) {
                 "SkillPlanned" -> {
-                    val skillKey = step.skillRequestIdFromJson()?.let { requestId -> "skill:$requestId" }
+                    val skillPlan = step.skillPlanSummaryFromJson()
+                    val skillKey = skillPlan.requestId?.let { requestId -> "skill:$requestId" }
                     if (skillKey == null) {
                         adjacentSummarySkillSegment = null
+                    } else if (skillPlan.toolRequestIds.isEmpty()) {
+                        adjacentSummarySkillSegment = SummarySkillSegment(
+                            key = skillKey,
+                            remainingToolSteps = (skillPlan.toolStepCount ?: 1).coerceAtLeast(1),
+                        )
                     } else {
-                        val toolRequestIds = step.skillToolRequestIdsFromJson()
-                        if (toolRequestIds.isEmpty()) {
-                            val fallbackToolStepCount = step.skillToolStepCountFromJson() ?: 1
-                            adjacentSummarySkillSegment = SummarySkillSegment(
-                                key = skillKey,
-                                remainingToolSteps = fallbackToolStepCount.coerceAtLeast(1),
-                            )
-                        } else {
-                            toolRequestIds.forEach { requestId ->
-                                summarySkillKeysByToolRequestId[requestId] = skillKey
-                            }
-                            adjacentSummarySkillSegment = null
+                        skillPlan.toolRequestIds.forEach { requestId ->
+                            summarySkillKeysByToolRequestId[requestId] = skillKey
                         }
+                        adjacentSummarySkillSegment = null
                     }
                 }
 
@@ -220,23 +217,28 @@ internal class AgentTraceQueries(
             .filter(matching)
             .lastOrNull()
 
-    private fun AgentTraceStepSummary.skillRequestIdFromJson(): String? =
-        jsonObjectOrNull()?.optString("skillRequestId")?.takeIf { it.isNotBlank() }
-
-    private fun AgentTraceStepSummary.skillToolRequestIdsFromJson(): List<String> {
-        val array = jsonObjectOrNull()?.optJSONArray("toolRequestIds") ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                array.optString(index).takeIf { value -> value.isNotBlank() }?.let(::add)
+    private fun AgentTraceStepSummary.skillPlanSummaryFromJson(): SkillPlanSummary {
+        val json = jsonObjectOrNull()
+        val toolRequestIds = json?.optJSONArray("toolRequestIds")?.let { array ->
+            buildList {
+                for (index in 0 until array.length()) {
+                    array.optString(index).takeIf { value -> value.isNotBlank() }?.let(::add)
+                }
             }
-        }
+        }.orEmpty()
+        return SkillPlanSummary(
+            requestId = json?.optString("skillRequestId")?.takeIf { it.isNotBlank() },
+            toolRequestIds = toolRequestIds,
+            toolStepCount = json?.optInt("toolStepCount", -1)?.takeIf { it >= 0 }
+                ?: json?.optInt("stepCount", -1)?.takeIf { it >= 0 },
+        )
     }
 
-    private fun AgentTraceStepSummary.skillToolStepCountFromJson(): Int? {
-        val json = jsonObjectOrNull() ?: return null
-        return json.optInt("toolStepCount", -1).takeIf { it >= 0 }
-            ?: json.optInt("stepCount", -1).takeIf { it >= 0 }
-    }
+    private data class SkillPlanSummary(
+        val requestId: String?,
+        val toolRequestIds: List<String>,
+        val toolStepCount: Int?,
+    )
 
     private data class SummarySkillSegment(val key: String, val remainingToolSteps: Int) {
         fun afterTool(): SummarySkillSegment? =

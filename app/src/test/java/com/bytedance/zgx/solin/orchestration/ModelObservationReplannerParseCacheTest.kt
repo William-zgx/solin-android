@@ -77,6 +77,38 @@ class ModelObservationReplannerParseCacheTest {
     }
 
     @Test
+    fun cachedAndUncachedStandaloneOcrEvidencePromptsAreIdentical() {
+        val result = ToolResult(
+            requestId = "ocr-standalone",
+            status = ToolStatus.Succeeded,
+            summary = "OCR",
+            data = mapOf(
+                "screenObservationJson" to "{malformed",
+                "screenObservationIncluded" to true.toString(),
+                "ocrBlocksJson" to """
+                    [
+                      {
+                        "text": "继续",
+                        "bounds": {"left": 10, "top": 20, "right": 110, "bottom": 70},
+                        "lines": []
+                      }
+                    ]
+                """.trimIndent(),
+            ),
+        )
+
+        val uncached = result.localObservationEvidencePrompt(intentPreview = "tap")
+        val cached = result.localObservationEvidencePrompt(
+            intentPreview = "tap",
+            parseCache = ObservationJsonParseCache(),
+        )
+
+        assertEquals(uncached, cached)
+        assertTrue(cached.contains("ocrBlocks(count=1)"))
+        assertTrue(cached.contains("target=ocr:block:0"))
+    }
+
+    @Test
     fun replannerRejectsWebSearchFromMissingPrivacyObservationWithCacheActive() {
         val missingPrivacy = JSONObject(searchInputObservationJson()).apply {
             remove("privacyLevel")

@@ -38,15 +38,13 @@ interface ToolProgressPublisher {
  * Tools call [start]/[step]/[bytes]/[log]/[intermediate]/[complete]/[fail] (or the generic
  * [update]) from any thread or coroutine; this class collapses those calls into throttled
  * [SolinEvent.Agent.ToolProgress] events on [eventBus]. The publish rate is capped at
- * [THROTTLE_WINDOW_MS] per `toolCallId`; when throttled, only the most recent state for
- * that call is retained (coalesced "latest wins"). Terminal events ([ProgressUpdate.Completed],
- * [ProgressUpdate.Failed]) always bypass the throttle and are emitted immediately, as does
- * the initial [start] event.
+ * [THROTTLE_WINDOW_MS] per `toolCallId`; non-terminal events inside that window are suppressed.
+ * Terminal events ([ProgressUpdate.Completed], [ProgressUpdate.Failed]) always bypass the throttle
+ * and are emitted immediately, as does the initial [start] event.
  *
  * The publisher owns no coroutine scope and does not register as a bus subscriber; it is a
- * publisher-only helper. Throttling is implemented with a plain [ConcurrentHashMap] of
- * per-call slots tracking last-publish wall-clock time plus a coalesced "latest pending"
- * event — no channel / dispatcher loop is used for Wave 2.
+ * publisher-only helper. Throttling uses a plain [ConcurrentHashMap] of per-call last-publish
+ * wall-clock times — no channel / dispatcher loop is used for Wave 2.
  *
  * Mapping from [ProgressUpdate] to [SolinEvent.Agent.ToolProgress] fields:
  *  - [ProgressUpdate.Step]               -> progress = completed/total (0f..1f) when total is
@@ -80,7 +78,6 @@ class DefaultToolProgressPublisher(
     private class Slot {
         @Volatile var lastPublishMillis: Long = 0L
         @Volatile var started: Boolean = false
-        @Volatile var latest: SolinEvent.Agent.ToolProgress? = null
 
         /** CAS [lastPublishMillis] from [expected] to [update]; returns true on success. */
         fun casLastPublish(expected: Long, update: Long): Boolean = synchronized(this) {
@@ -125,7 +122,6 @@ class DefaultToolProgressPublisher(
                 progress = 0f,
                 occurredAtMillis = clock(),
             ),
-            force = true,
         )
     }
 
@@ -264,7 +260,6 @@ class DefaultToolProgressPublisher(
                 progress = 1f,
                 occurredAtMillis = clock(),
             ),
-            force = true,
         )
         slots.remove(toolCallId)
     }
@@ -283,62 +278,39 @@ class DefaultToolProgressPublisher(
                 progress = INDETERMINATE_PROGRESS,
                 occurredAtMillis = clock(),
             ),
-            force = true,
         )
         slots.remove(toolCallId)
     }
 
     // -------- Internals --------
 
-    /**
-     * Publish [event] to [eventBus] and update the slot's last-published state. Called for
-     * forced publishes (start / throttle winner / complete / fail). When [force] is true the
-     * slot's [Slot.lastPublishMillis] is refreshed so the throttle window resets after the
-     * forced publish.
-     */
+    /** Publish an unthrottled [event] and restart the call's throttle window when still active. */
     private fun emit(
         toolCallId: String,
         event: SolinEvent.Agent.ToolProgress,
-        force: Boolean,
     ) {
         eventBus.publish(event)
         val slot = slots[toolCallId] ?: return
         synchronized(slot) {
-            if (force) {
-                slot.lastPublishMillis = event.occurredAtMillis
-            }
-            // The event we just published is at least as new as anything coalesced: clear.
-            slot.latest = null
+            slot.lastPublishMillis = event.occurredAtMillis
         }
     }
 
     /**
-     * Publish a non-terminal progress event subject to the per-call throttle window.
+     * Publish a non-terminal progress event when [THROTTLE_WINDOW_MS] has elapsed since the last
+     * publish for this call. Events inside the window are suppressed; terminal events still bypass
+     * the throttle through [complete] and [fail].
      *
-     * If at least [THROTTLE_WINDOW_MS] has elapsed since the last publish for this
-     * [toolCallId] (read from the event), the calling thread wins a CAS on the slot and
-     * publishes immediately. Otherwise — or if the CAS is lost to a concurrent winner —
-     * the event is stored as the latest coalesced state (overwriting any previously-pending
-     * update) and publish is deferred. Wave 2 deliberately avoids a scheduled drain loop:
-     * the next call arriving outside the window, or the terminal [complete]/[fail], will
-     * carry the freshest value forward.
-     *
-     * Races at the throttle boundary are resolved by [Slot.casLastPublish] so exactly one
-     * thread publishes; losers coalesce.
+     * Races at the throttle boundary are resolved by [Slot.casLastPublish] so exactly one thread
+     * publishes. No scheduled drain loop is used.
      */
     private fun publishThrottled(event: SolinEvent.Agent.ToolProgress) {
         val slot = slotFor(event.toolCallId)
         val now = event.occurredAtMillis
         val last = slot.lastPublishMillis
-        if (now - last >= THROTTLE_WINDOW_MS) {
-            if (slot.casLastPublish(last, now)) {
-                eventBus.publish(event)
-                synchronized(slot) { slot.latest = null }
-                return
-            }
+        if (now - last >= THROTTLE_WINDOW_MS && slot.casLastPublish(last, now)) {
+            eventBus.publish(event)
         }
-        // Within throttle window or lost CAS race: record latest coalesced state.
-        synchronized(slot) { slot.latest = event }
     }
 
     private fun slotFor(toolCallId: String): Slot = slots.computeIfAbsent(toolCallId) { Slot() }
