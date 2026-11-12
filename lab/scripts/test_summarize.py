@@ -488,6 +488,162 @@ class DecisionL1Test(unittest.TestCase):
         self.assertIn("without its own error count", result.stdout)
 
 
+class ResearchScoringTest(unittest.TestCase):
+    def setUp(self):
+        self.summarize = load_summarize()
+
+    def test_research_source_uses_generic_summary_not_original_heldout_renderer(self):
+        research_records = {"research": [{"source": "research_evaluation_only"}]}
+        heldout_records = {"heldout": [{"source": "heldout_evaluation_only"}]}
+        self.assertFalse(self.summarize.is_heldout_initial_planning({}, research_records))
+        self.assertTrue(self.summarize.is_heldout_initial_planning({}, heldout_records))
+
+    def test_lenient_scores_honor_forbidden_argument_presence(self):
+        record = {
+            "rawPreview": 'call:compose_email {"body":"请查收","subject":"不应出现"}',
+            "gold": {
+                "tools": ["compose_email"],
+                "args": {"body": "请查收"},
+                "constraints": {"forbiddenArgs": ["subject"], "forbiddenArgValues": {}},
+            },
+        }
+        self.assertEqual((True, False), self.summarize.lenient_scores(record))
+        record["rawPreview"] = 'call:compose_email {"body":"请查收"}'
+        self.assertEqual((True, True), self.summarize.lenient_scores(record))
+
+    def test_lenient_scores_reject_only_the_forbidden_value(self):
+        record = {
+            "rawPreview": 'call:configure_periodic_check {"enabled":true,"intervalMinutes":120,"requiresBatteryNotLow":true,"requiresCharging":false}',
+            "gold": {
+                "tools": ["configure_periodic_check"],
+                "args": {"enabled": "true", "intervalMinutes": "120", "requiresBatteryNotLow": "true"},
+                "constraints": {"forbiddenArgs": [], "forbiddenArgValues": {"requiresCharging": "true"}},
+            },
+        }
+        self.assertEqual((True, True), self.summarize.lenient_scores(record))
+        record["rawPreview"] = record["rawPreview"].replace('"requiresCharging":false', '"requiresCharging":true')
+        self.assertEqual((True, False), self.summarize.lenient_scores(record))
+    def test_headline_uses_actual_dataset_case_count(self):
+        records = {
+            ("initial-planning", "rules", "R"): [
+                {"caseId": "research_only", "expectsTool": False, "correct": True, "argsExact": False}
+            ],
+            ("initial-planning", "other-host", "R"): [
+                {"caseId": "other_host_only", "expectsTool": False, "correct": True, "argsExact": False}
+            ],
+            ("initial-planning", "rules", "custom-mode"): [
+                {"caseId": "custom_mode_only", "expectsTool": False, "correct": True, "argsExact": False}
+            ]
+        }
+        out = []
+        self.summarize.headline(records, ["rules"], {}, out)
+        text = "\n".join(out)
+        self.assertIn("all 1 requests", text)
+        self.assertNotIn("all 151 requests", text)
+    def test_non_empty_constraint_allows_blank_but_rejects_nonblank(self):
+        record = {
+            "rawPreview": 'call:compose_email {"body":"请查收","subject":""}',
+            "gold": {
+                "tools": ["compose_email"],
+                "args": {"body": "请查收"},
+                "constraints": {"forbiddenNonEmptyArgs": ["subject"]},
+            },
+        }
+        self.assertEqual((True, True), self.summarize.lenient_scores(record))
+        record["rawPreview"] = record["rawPreview"].replace('"subject":""', '"subject":"unexpected"')
+        self.assertEqual((True, False), self.summarize.lenient_scores(record))
+
+    def test_rule_gap_population_comes_from_records(self):
+        records = {
+            (self.summarize.SUITE_B, "rules", "R"): [
+                {"rawKind": "no_tool", "expectsTool": False},
+                {"rawKind": "no_tool", "expectsTool": True},
+                {"rawKind": "use_tool", "expectsTool": False},
+            ]
+        }
+        self.assertEqual((2, 1, 1), self.summarize.rule_gap_population(records))
+
+    def test_gated_e2e_no_tool_population_is_dynamic(self):
+        key = (self.summarize.SUITE_B, "m", "R-gated-e2e")
+        records = {
+            key: [
+                {"caseId": "n1", "expectsTool": False, "correct": True, "decisionStage": "answer",
+                 "gateRawJsonValid": True, "modelCalls": 1},
+                {"caseId": "n2", "expectsTool": False, "correct": True, "decisionStage": "answer",
+                 "gateRawJsonValid": True, "modelCalls": 1},
+            ]
+        }
+        out = []
+        self.summarize.gated_e2e(records, ["m"], out)
+        self.assertIn("no-tool n", "\n".join(out))
+        self.assertIn("per-model denominators", "\n".join(out))
+        self.assertNotIn("51 no-tool requests", "\n".join(out))
+
+    def test_production_fidelity_population_is_dynamic(self):
+        fidelity = [{
+            "suite": self.summarize.SUITE_B,
+            "model": "m",
+            "mode": "M",
+            "answered": 18,
+            "guardedDatasetCases": 2,
+            "guardedCases": 1,
+            "rawCorrect": 10,
+            "guardedCorrect": 12,
+            "rawFalsePositive": 0,
+            "guardedFalsePositive": 0,
+        }]
+        out = []
+        self.summarize.production_faithful(fidelity, ["m"], out)
+        self.assertIn("2 of the 18 requests", "\n".join(out))
+        self.assertNotIn("18 of the 151 requests", "\n".join(out))
+    def test_gated_comparison_is_scoped_to_the_tuning_campaign(self):
+        out = []
+        self.summarize.gated_e2e_comparison({}, [], out, {"datasetFile": "initial_planning_research.jsonl"})
+        self.assertEqual([], out)
+    def test_lenient_reader_stays_a_diagnostic_not_the_strict_registry_gate(self):
+        record = {
+            "rawPreview": 'call:compose_email {"body":"请查收"}',
+            "schemaValid": False,
+            "gold": {"tools": ["compose_email"], "args": {"body": "请查收"}},
+        }
+        self.assertEqual((True, True), self.summarize.lenient_scores(record))
+    def test_failure_examples_explain_negative_constraints(self):
+        answer = {
+            "kind": "tool",
+            "tool": "compose_email",
+            "args": {"body": "请查收", "subject": "weekly"},
+            "constraintResults": {"subject": False},
+        }
+        self.assertIn("failed constraints: subject", self.summarize.answer_text(answer, answer))
+        gold = {
+            "tools": ["compose_email"],
+            "args": {"body": "请查收"},
+            "constraints": {"forbiddenArgValues": {"subject": "weekly"}},
+        }
+        self.assertIn("forbiddenArgValues", self.summarize.gold_initial_text(gold))
+    def test_legacy_tuning_fidelity_keeps_historical_guard_population(self):
+        fidelity = [{
+            "suite": self.summarize.SUITE_B,
+            "model": "m",
+            "mode": "M",
+            "answered": 151,
+            "guardedCases": 5,
+            "rawCorrect": 100,
+            "guardedCorrect": 110,
+            "rawFalsePositive": 0,
+            "guardedFalsePositive": 0,
+        }]
+        out = []
+        self.summarize.production_faithful(fidelity, ["m"], out, {"datasetFile": "initial_planning.jsonl"})
+        self.assertIn("18 of the 151 requests", "\n".join(out))
+
+    def test_empty_fidelity_file_is_not_reported_as_missing(self):
+        out = []
+        self.summarize.production_faithful([], ["m"], out)
+        self.assertIn("file exists but has no eligible model rows", "\n".join(out))
+        self.assertNotIn("Not run in this folder", "\n".join(out))
+
+
 class HeldOutSummaryTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="heldout-summary-"))

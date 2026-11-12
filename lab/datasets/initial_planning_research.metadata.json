@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "datasetFile": "initial_planning_research.jsonl",
+  "status": "HELD_OUT_EVALUATION_ONLY",
+  "heldOut": true,
+  "evaluationOnly": true,
+  "tuningProhibited": true,
+  "warning": "RESEARCH EVALUATION ONLY — DO NOT USE FOR PROMPT, RULE, OR THRESHOLD TUNING.",
+  "prohibitedUses": [
+    "prompt tuning",
+    "rule tuning",
+    "threshold tuning"
+  ],
+  "authoredDate": "2026-11-12",
+  "deriveDistribution": true,
+  "recordSource": "research_evaluation_only",
+  "categoryCountsByGroup": {
+    "tool": {
+      "optional_boolean": 6,
+      "argument_shape": 6
+    },
+    "no_tool": {
+      "irrelevant_tool": 6
+    }
+  },
+  "minimumToolFamilyCount": 4,
+  "minimumNegativeConstraintCases": 6,
+  "disjointFrom": [
+    "initial_planning.jsonl",
+    "initial_planning_heldout.jsonl"
+  ],
+  "normalization": "LabScoring.normalized: lowercase and remove all whitespace",
+  "negativeConstraints": "forbiddenArgs requires absence; forbiddenNonEmptyArgs allows absent or blank but rejects nonblank; forbiddenArgValues rejects only the named value, allowing other explicit values.",
+  "labelingNotes": "research_evaluation_only records use the generic summary path, not the original 60-case held-out report. Inspired by argument-level errors in FunctionGemma, DroidCall and HammerBench research; independent of the tuned 151-case campaign and original 60-case held-out set."
+}

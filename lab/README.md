@@ -16,6 +16,8 @@ Nothing here ships in the APK. The harness lives in the JVM unit-test source set
 | `lab/datasets/initial_planning.jsonl` | Suites B and C cases: user request, gold first tool and arguments |
 | `lab/datasets/initial_planning_heldout.jsonl` | **Held-out evaluation only:** 60 independent requests; never for prompt, rule or threshold tuning |
 | `lab/datasets/initial_planning_heldout.metadata.json` | Held-out warning, declared group/category distribution and disjointness contract |
+| `lab/datasets/initial_planning_research.jsonl` | **Research evaluation only:** 18 optional-argument and irrelevant-tool cases |
+| `lab/datasets/initial_planning_research.metadata.json` | Research-set distribution, negative-argument constraints and disjointness contract |
 | `lab/scripts/build_datasets.py` | Generates the tuned Suite A/B/C datasets from the label tables in the script |
 | `lab/scripts/summarize.py` | Turns `lab/results/<date>/*.jsonl` into `SUMMARY.md` and `failure_examples.md` |
 | `lab/results/<YYYYMMDD>/` | One JSONL per (suite, model, mode), `manifest.json`, `run.log`, `SUMMARY.md`, `failure_examples.md` |
@@ -39,11 +41,12 @@ python3 -I lab/scripts/summarize.py lab/results/$(date +%Y%m%d)
 `--rerun` matters. The opt-in variable is not a Gradle task input, so without it Gradle can report
 the task up to date or serve a previous (skipped) result from the build cache. Other knobs:
 `SOLIN_LAB_OLLAMA_URL`, `SOLIN_LAB_DATE` (overrides the results folder name, 8 digits plus the optional
-`-heldout` suffix), `SOLIN_LAB_HOST_NOTE` (names the machine that produced the numbers; the default is the Mac bench
+`-heldout` or `-research` suffix), `SOLIN_LAB_HOST_NOTE` (names the machine that produced the numbers; the default is the Mac bench
 host) and `SOLIN_LAB_MODES` (comma-separated model modes to run, for example `N-topk,json-schema`;
 rule baselines always run). `SOLIN_LAB_CASE_IDS` optionally selects explicit dataset ids for a small
 smoke run; leave it unset for every scored run. `SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE=heldout` selects
-the independent 60-case source for Suite B/C; its default `tuning` preserves the historical 151-case campaign.
+the independent 60-case source for Suite B/C; `research` selects the 18-case argument-research source;
+its default `tuning` preserves the historical 151-case campaign.
 
 For `R-gated-e2e` on the production `.litertlm` files, provide their directory explicitly and start the
 local LiteRT shim. The suite and shim both read `SOLIN_LAB_LITERT_MODEL_ROOT`; neither has a host-specific
@@ -164,6 +167,30 @@ The held-out summary reports overall correct `/60`, tool and exact-argument accu
 cases (24 ordinary + 5 adversarial), ordinary no-tool FP `/24` with the production class split, adversarial
 no-tool FP `/7`, gate-open and Decision-L1 error counts, a within-set gated-vs-rules delta, and every
 group/category. Do not compare its absolute numbers with the 151-case campaign.
+
+## Research-derived argument set
+
+`initial_planning_research.jsonl` adds six optional-boolean cases, six argument-shape cases and six
+irrelevant-tool cases, independently of both earlier sets. It is also evaluation-only. Use
+`SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE=research` with the same Suite B harness and a separate
+`SOLIN_LAB_DATE` results folder. No model result is claimed merely because the labels exist.
+
+The scoring contract also supports `forbiddenArgs` (the field must be absent),
+`forbiddenNonEmptyArgs` (absent or blank is accepted, but nonblank is rejected), and
+`forbiddenArgValues` (only the named value is rejected). Constraints are saved under the gold record's
+`constraints` object, so the strict Kotlin scorer and the lenient Python scorer apply the same rules.
+For tool-gold cases, a registry `schemaValid=false` result is never scored as correct. On no-tool cases,
+a rejected call executes nothing and is not an executed false positive. The lenient reader is a diagnostic text match and does not apply that strict gate.
+Research records use `research_evaluation_only` and the generic summary path, not the original
+60-case held-out renderer. For example, an optional `subject` must stay
+absent when the user explicitly omits it, while `requiresCharging=false` remains valid when only
+`requiresCharging=true` is forbidden. This catches optional-boolean inversion and unwanted defaults
+without rejecting semantically equivalent answers. The test needs no model or lab opt-in:
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.lab.ResearchInitialPlanningDatasetTest"
+```
 
 ## What each suite measures
 
@@ -286,15 +313,16 @@ call per Suite B request asks only whether the request needs a phone action at a
 `action = true` with confidence >= the app's routing gate (`DECISION_MODEL_MIN_CONFIDENCE`, 0.9); false,
 low confidence or invalid JSON keeps it closed, so a broken gate fails closed to no tool. This suite's
 reader is deliberately the older lenient diagnostic (it strips fences); production's strict parser does
-not. Metrics: precision and recall of the gate decision, and the same over the 74 rule-gap cases.
-Explicit negations are labelled no-action.
+not. Metrics: precision and recall of the gate decision, and the same over the tuned campaign's 74 rule-gap cases;
+selected datasets report their actual rule-gap population instead. Explicit negations are labelled no-action.
 
 ### Offline composites
 
 `summarize.py` also prints composites computed from the saved JSONL with no model calls:
 
 - **R, then the model on the rule gap.** `R` keeps every plan it makes; the model mode answers only
-  the 74 requests where `R` returned no tool (51 no-tool + 23 tool). Reported for every B and C mode,
+  the tuned campaign's 74 requests where `R` returned no tool (51 no-tool + 23 tool). Selected datasets use
+  their actual rule-gap population instead of these tuned-campaign counts. Reported for every B and C mode,
   with the count of cases fixed and broken against `R` alone.
 - **R, then the gate, then `N-full`.** `R` keeps its plans; where `R` returned no tool the gate
   decides, and only an open gate lets `N-full` answer. A closed gate yields no tool. A model that only
@@ -306,7 +334,8 @@ Explicit negations are labelled no-action.
 Labels for `observation_step.jsonl` and `initial_planning.jsonl` are written in
 `lab/scripts/build_datasets.py`, generated to `lab/datasets/`, and committed before any model run. The
 held-out file is independently hand-authored instead, with its distribution and evaluation-only contract
-in `initial_planning_heldout.metadata.json`; the generator never creates it. A label is never edited to
+in `initial_planning_heldout.metadata.json`; the research set is likewise independent, with its contract
+in `initial_planning_research.metadata.json`. The generator never creates either evaluation-only set. A label is never edited to
 match model output. If a non-held-out label turns out wrong, fix it in a separate commit that says why,
 and rerun. A held-out label correction must likewise be separate and must not become a tuning loop.
 

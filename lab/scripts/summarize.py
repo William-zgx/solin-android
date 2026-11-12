@@ -97,7 +97,7 @@ def load_fidelity(folder):
     """
     path = folder / "production-fidelity__negation-guard.jsonl"
     if not path.is_file():
-        return []
+        return None
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
@@ -291,7 +291,12 @@ def model_calls(record):
     return [m for m in calls if m and not m.get("error")]
 
 
-def answer_text(answer):
+def failed_constraint_keys(record):
+    """Sorted constraint keys whose negative check failed, for failure examples."""
+    return sorted(key for key, passed in (record.get("constraintResults") or {}).items() if not passed)
+
+
+def answer_text(answer, record=None):
     if not answer:
         return "?"
     if answer.get("kind") == "stop":
@@ -300,7 +305,9 @@ def answer_text(answer):
     args = answer.get("args") or {}
     shown = ", ".join(f"{k}={preview(str(v), 40)}" for k, v in args.items())
     prefix = "invalid " if answer.get("kind") == "invalid" else ""
-    return f"{prefix}{tool}({shown})"
+    failed = failed_constraint_keys(record or answer)
+    suffix = f"; failed constraints: {', '.join(failed)}" if failed else ""
+    return f"{prefix}{tool}({shown}){suffix}"
 
 
 def gold_initial_text(gold):
@@ -309,7 +316,9 @@ def gold_initial_text(gold):
         return "no tool"
     args = gold.get("args") or {}
     shown = ", ".join(f"{k}={v}" for k, v in args.items())
-    return "|".join(tools) + (f"({shown})" if shown else "")
+    constraint_text = gold.get("constraints")
+    suffix = f"; constraints {json.dumps(constraint_text, ensure_ascii=False, sort_keys=True)}" if constraint_text else ""
+    return "|".join(tools) + (f"({shown})" if shown else "") + suffix
 
 
 def gold_observation_text(gold):
@@ -434,14 +443,30 @@ def arg_value_matches(key, expected, actual):
 
 
 def lenient_scores(record):
-    """(tool right, tool and pinned args right) under the lenient reader, for a tool-gold record."""
+    """(tool right, tool and pinned args right) under the lenient reader, for a tool-gold record.
+
+    This is a diagnostic text match, not an executable-correctness claim; schemaValid is enforced only
+    by the strict scorer used for newly written records.
+    """
     gold = record.get("gold") or {}
     name, args = lenient_answer(record.get("rawPreview"))
     if name is None or name not in (gold.get("tools") or []):
         return False, False
     if args is None:
         return True, False
-    return True, all(arg_value_matches(k, v, args.get(k)) for k, v in (gold.get("args") or {}).items())
+    constraints = gold.get("constraints") or {}
+    forbidden_args = set(constraints.get("forbiddenArgs") or [])
+    forbidden_non_empty = set(constraints.get("forbiddenNonEmptyArgs") or [])
+    forbidden_values = constraints.get("forbiddenArgValues") or {}
+    constraints_ok = (
+        not forbidden_args.intersection(args)
+        and all(not (args.get(key) or "").strip() for key in forbidden_non_empty)
+        and all(not arg_value_matches(key, value, args.get(key)) for key, value in forbidden_values.items())
+    )
+    return True, (
+        all(arg_value_matches(k, v, args.get(k)) for k, v in (gold.get("args") or {}).items())
+        and constraints_ok
+    )
 
 
 def observation_failure(record):
@@ -534,7 +559,13 @@ def headline(records, models, manifest, out):
             [r for r in rs if not r["expectsTool"]],
             sum(r["correct"] for r in rs if not r["expectsTool"]))))
         out.append("")
-        out.append("Suites B and C, all 151 requests together:\n")
+        initial_case_ids = {
+            r["caseId"]
+            for key, rs in records.items()
+            if key[0] in (SUITE_B, SUITE_C) and key[1] in models and (key[0], key[2]) in initial
+            for r in rs
+        }
+        out.append(f"Suites B and C, all {len(initial_case_ids)} requests together:\n")
         out.append(headline_table(records, models, manifest, initial,
                                   lambda k, rs: score_cell(k, rs, score_of(k[0], rs)[0])))
         out.append("")
@@ -1095,7 +1126,7 @@ def failure_examples(records, models, out):
                 out.append(f"- {name}: {len(rs)}")
                 for r in rs[:EXAMPLES_PER_GROUP]:
                     out.append(f"  - `{r['caseId']}` 「{preview(r['input'], 60)}」: gold {gold_initial_text(r['gold'])}; "
-                               f"got {answer_text(r['answer'])}; raw `{preview(r.get('rawPreview'))}`")
+                               f"got {answer_text(r['answer'], r)}; raw `{preview(r.get('rawPreview'))}`")
             out.append("")
     out.append("## Suite D: wrong placement\n")
     for key in keys_for(SUITE_D, records, models):
@@ -1149,30 +1180,54 @@ def suite_e(records, models, out):
             run_cell(key, frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)))
             if gap_acted else "-",
         ])
+    population = rule_gap_population(records)
+    gap_in_run = {r["caseId"] for key in keys for r in records[key] if r["caseId"] in gap}
+    gap_label = f"{len(gap_in_run)} rule-gap cases in this run" if population else "rule-gap population unavailable"
     out.append(table(
         ["model", "n", "valid JSON", "gate decision correct", "gate precision (true/false open)",
-         "recall on action cases", "no-action cases kept closed", "correct on the 74 rule-gap cases",
+         "recall on action cases", "no-action cases kept closed", f"correct on the {gap_label}",
          "gate opens on tool cases in the gap"],
         rows,
     ))
     out.append("")
-    out.append("The gate opens on `action = true` with confidence >= the app's routing gate "
-               "(`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid "
-               "JSON) keeps it closed, so a broken gate fails closed to no tool. The 74 rule-gap "
-               "cases are the Suite B requests where the production rules return no tool (51 "
-               "no-tool, 23 tool). Explicit negations are labelled no-action. Lab-only experiment: "
-               "the app has no such gate today.\n")
+    if population is None:
+        out.append("No Suite B rules baseline is available, so gap-specific metrics are not shown.\n")
+    else:
+        gap_total, gap_no_tool, gap_tool = population
+        out.append("The gate opens on `action = true` with confidence >= the app's routing gate "
+                   "(`DECISION_MODEL_MIN_CONFIDENCE`); anything else (false, low confidence, invalid "
+                   "JSON) keeps it closed, so a broken gate fails closed to no tool. "
+                   f"The {gap_total} rule-gap cases are the Suite B requests where the production rules "
+                   f"return no tool ({gap_no_tool} no-tool, {gap_tool} tool). Explicit negations are "
+                   "labelled no-action. Lab-only experiment: the app has no such gate today.\n")
 
 
 # ---- Offline composites --------------------------------------------------------------------------
 
 
-def rule_gap(records):
-    """Ids of the Suite B requests where the production rules return no tool (the 74 gap cases)."""
+def rule_gap_records(records):
+    """Suite B rule records with no tool, or None when the baseline is absent."""
     rules = records.get((SUITE_B, "rules", "R"))
     if not rules:
         return None
-    return {r["caseId"] for r in rules if r["rawKind"] != "use_tool"}
+    return [r for r in rules if r["rawKind"] != "use_tool"]
+
+
+def gap_population(gap_records):
+    """(total, no-tool, tool) counts for an already filtered gap population."""
+    return (
+        len(gap_records),
+        sum(1 for r in gap_records if not r["expectsTool"]),
+        sum(1 for r in gap_records if r["expectsTool"]),
+    )
+
+
+def rule_gap_population(records):
+    """Population counts for the current Suite B rule-gap requests, or None without a baseline."""
+    gap_records = rule_gap_records(records)
+    if gap_records is None:
+        return None
+    return gap_population(gap_records)
 
 
 def composite_r_then_model(records, models, out):
@@ -1181,9 +1236,10 @@ def composite_r_then_model(records, models, out):
     Pure post-processing of saved JSONL: no model is called here, so the numbers describe what an
     R-plus-model hand-off would have scored on the same run.
     """
-    gap = rule_gap(records)
-    if gap is None:
+    gap_records = rule_gap_records(records)
+    if gap_records is None:
         return
+    gap = {r["caseId"] for r in gap_records}
     base = {r["caseId"]: r for r in records[(SUITE_B, "rules", "R")]}
     rows = []
     for suite in (SUITE_B, SUITE_C):
@@ -1223,9 +1279,11 @@ def composite_r_then_model(records, models, out):
                 ])
     if not rows:
         return
+    gap_total, gap_no_tool, gap_tool = gap_population(gap_records)
     out.append("Offline composite: `R` keeps every plan it makes, and the model answers only the "
-               "frames where `R` returned no tool (51 no-tool + 23 tool requests = the 74 rule-gap "
-               "cases). Fixed = the model gets right a gap case `R` missed; broken = the model loses "
+               "frames where `R` returned no tool "
+               f"({gap_no_tool} no-tool + {gap_tool} tool requests = the {gap_total} rule-gap cases). "
+               "Fixed = the model gets right a gap case `R` missed; broken = the model loses "
                "a gap case `R` got right; errored = the call failed, so `R`'s plan stays. No model was "
                "called for this table:\n")
     out.append(table(["suite", "model", "mode", "R+model correct", "fixed", "broken", "errored",
@@ -1241,9 +1299,10 @@ def composite_gate(records, models, out):
     the row says which one it used; the two are never mixed inside a row or presented as the same
     number.
     """
-    gap = rule_gap(records)
-    if gap is None:
+    gap_records = rule_gap_records(records)
+    if gap_records is None:
         return
+    gap = {r["caseId"] for r in gap_records}
     base = {r["caseId"]: r for r in records[(SUITE_B, "rules", "R")]}
     rows = []
     for model in models:
@@ -1304,31 +1363,41 @@ def composite_gate(records, models, out):
 # ---- Production-faithful LocalModelFirst --------------------------------------------------------
 
 
-def production_faithful(fidelity, models, out):
+def production_faithful(fidelity, models, out, initial_info=None):
     """Raw vs guard-corrected scores and the false-positive split, per B/C mode and model.
 
     Written by `ProductionFidelitySuiteTest` from the saved JSONL; no model is called here. A
     guarded case is one whose input starts with an action negation: production does not show it to
     the model and takes the rule plan (`orchestration/InitialToolPlanner.kt:100`).
     """
+    if fidelity is None:
+        out.append("Not run in this folder: the production-faithful table needs "
+                   "`production-fidelity__negation-guard.jsonl` (produced by "
+                   "`ProductionFidelitySuiteTest`, offline over the saved JSONL).\n")
+        return
     rows = [r for r in fidelity if r.get("model") in models]
     if not rows:
-        if fidelity:
-            out.append("No production-fidelity rows for this host: the composite covers the B/C modes "
-                       "that ran, and none of them are on this host.\n")
-        else:
-            out.append("Not run in this folder: the production-faithful table needs "
-                       "`production-fidelity__negation-guard.jsonl` (produced by "
-                       "`ProductionFidelitySuiteTest`, offline over the saved JSONL).\n")
+        out.append("No production-fidelity rows for this host: the file exists but has no eligible model rows for the selected dataset/models.\n")
         return
-    guarded = sorted({r["guardedCases"] for r in rows})
+    guarded_dataset_total = next((r["guardedDatasetCases"] for r in rows if "guardedDatasetCases" in r), None)
+    answered_total = (initial_info or {}).get("cases") or max(r["answered"] for r in rows)
+    if guarded_dataset_total is None and answered_total == 151 and (
+        initial_info is None or initial_info.get("datasetFile") == "initial_planning.jsonl"
+    ):
+        guarded_dataset_total = 18
+    answered_total = (initial_info or {}).get("cases") or max(r["answered"] for r in rows)
+    guard_summary = (
+        f"The guard fires on {guarded_dataset_total} of the {answered_total} requests (none tool-gold); "
+        if guarded_dataset_total is not None
+        else "The dataset-wide negation count is unavailable for legacy records; "
+    )
     out.append("Production's negation guard, offline: a guarded request never reaches the model "
                "(`orchestration/InitialToolPlanner.kt:100` calls `String.startsWithActionNegation()` "
                "at `action/BasicDraftActionParsers.kt:199` and takes the rule plan), so a guarded "
                "case is scored with the rules' `R` answer. Raw is the mode as it ran; guarded is what "
                "production would have done on the same model outputs. No model was called for this "
-               "table. The guard fires on 18 of the 151 requests (none tool-gold); a mode that "
-               "answered fewer cases shows a smaller count, because only answered calls are scored.\n")
+               "table. " + guard_summary +
+               "a mode that answered fewer cases shows a smaller count, because only answered calls are scored.\n")
     table_rows = []
     for r in sorted(rows, key=lambda x: (x["model"], SUITE_LETTER.get(x["suite"], x["suite"]), x["mode"])):
         answered = r["answered"]
@@ -1378,7 +1447,7 @@ def production_faithful(fidelity, models, out):
 # ---- Production RuleFirstGatedModel, measured end to end -----------------------------------------
 
 
-def gated_e2e(records, models, out):
+def gated_e2e(records, models, out, initial_info=None):
     """Decision stages and false-positive classes from the real production planner, not a composite."""
     keys = [key for key in keys_for(SUITE_B, records, models) if key[2] == "R-gated-e2e"]
     if not keys:
@@ -1409,21 +1478,23 @@ def gated_e2e(records, models, out):
     rows = []
     for key in keys:
         rs = records[key]
+        no_tool_rs = [r for r in rs if not r["expectsTool"]]
         rows.append([
             key[1], key[2],
+            run_cell(key, len(no_tool_rs)),
             run_cell(key, sum(1 for r in rs if r.get("falsePositive"))),
             run_cell(key, sum(1 for r in rs if r.get("fpOrchestrationOnly"))),
             run_cell(key, sum(1 for r in rs if r.get("fpDeviceNetworkExternal"))),
             run_cell(key, sum(1 for r in rs if r.get("fpPrivateRead"))),
             run_cell(key, sum(1 for r in rs if r.get("fpNetworkEgress"))),
         ])
-    out.append("No-tool false positives in the final accepted plan (51 no-tool requests). Orchestration-only "
-               "choices have no device, network or external-app effect; private reads and network egress "
+    out.append("No-tool false positives in the final accepted plan (per-model denominators). "
+               "Orchestration-only choices have no device, network or external-app effect; private reads and network egress "
                "are the privacy-relevant subsets of the executable-action column:\n")
-    out.append(table(["model", "mode", "false positives", "orchestration only",
+    out.append(table(["model", "mode", "no-tool n", "false positives", "orchestration only",
                       "device/network/external", "of which private reads", "of which network egress"], rows))
     out.append("")
-    gated_e2e_comparison(records, keys, out)
+    gated_e2e_comparison(records, keys, out, initial_info)
 
 
 def e2e_proposed_tool(record):
@@ -1557,8 +1628,11 @@ def e2e_case_explanation(record):
     return f"gate open; proposal failed closed: {outcome}"
 
 
-def gated_e2e_comparison(records, e2e_keys, out):
+def gated_e2e_comparison(records, e2e_keys, out, initial_info=None):
     """Case-level delta against R and the coordinator's exact saved text-fixed offline estimate."""
+    if (initial_info is not None and initial_info.get("datasetFile")
+            and initial_info["datasetFile"] != "initial_planning.jsonl"):
+        return
     rules_list = records.get((SUITE_B, "rules", "R"), [])
     if len(rules_list) != 151:
         return
@@ -1666,7 +1740,8 @@ def run_facts(folder, manifest, out):
         hosts.setdefault(host_label(name, manifest), None)
     rows = [
         ["models in this folder, by host", "; ".join(hosts) or "?"],
-        ["git HEAD at the last model run", manifest.get("gitHead", "?")],
+        ["git HEAD at the last model run" if models else "git HEAD at the last recorded suite run",
+         (manifest.get("gitHead") or "?") if models else (manifest.get("latestSuiteGitHead") or manifest.get("gitHead") or "?")],
         ["sampling (older lab modes)", json.dumps(manifest.get("samplingOptions", {}), ensure_ascii=False)],
     ]
     initial_info = (manifest.get("suites") or {}).get(SUITE_B) or {}
@@ -1812,6 +1887,7 @@ def heldout_initial_planning(records, models, out):
 
 
 def generated(folder, manifest, records, models):
+    initial_info = (manifest.get("suites") or {}).get(SUITE_B) or {}
     out = []
     out.append("## Run facts\n")
     run_facts(folder, manifest, out)
@@ -1861,9 +1937,9 @@ def generated(folder, manifest, records, models):
         out.append("### Suite E: local model as an action gate\n")
         suite_e(records, host_models, out)
         out.append("### Production-faithful LocalModelFirst\n")
-        production_faithful(fidelity, host_models, out)
+        production_faithful(fidelity, host_models, out, initial_info)
         out.append("### Production RuleFirstGatedModel end-to-end\n")
-        gated_e2e(records, host_models, out)
+        gated_e2e(records, host_models, out, initial_info)
         out.append("### R-gated-e2e-fence: lab-only single-fence gate\n")
         gated_e2e_fence(records, host_models, out)
         out.append("### Offline composites\n")
@@ -1871,9 +1947,9 @@ def generated(folder, manifest, records, models):
         composite_gate(records, host_models, out)
         out.append("### Latency and prompt size\n")
         latency(records, host_models, out)
-    out.append("## Tool retriever recall\n")
-    out.append("Host-independent: the lexical retriever and the prompt it builds are the same on every "
-               "host.\n")
+    out.append("## Tool retriever recall (tuning campaign)\n")
+    out.append("Host-independent: computed once from the tuned 151-case campaign, not from the selected evaluation dataset. "
+               "The lexical retriever and the prompt it builds are the same on every host.\n")
     retriever(manifest, out)
     out.append("Failure examples for every group are in [`failure_examples.md`](failure_examples.md).\n")
     return "\n".join(out).rstrip() + "\n"

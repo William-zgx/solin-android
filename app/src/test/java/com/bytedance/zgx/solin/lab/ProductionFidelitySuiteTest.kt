@@ -25,6 +25,7 @@ class ProductionFidelitySuiteTest {
 
     /** Private reads whose output is screen/user data; naming one leaks nothing but is worth a flag. */
     private val privateReadTools = setOf("read_clipboard", "read_current_screen_text", "read_notifications")
+
     /** Tools that egress to the network. */
     private val networkTools = setOf("web_search", "search_maps", "open_deep_link")
 
@@ -105,6 +106,7 @@ class ProductionFidelitySuiteTest {
                     .put("answered", answered)
                     .put("errored", errored)
                     .put("guardedCases", fired)
+                    .put("guardedDatasetCases", guarded.size)
                     .put("rawCorrect", rawOverall)
                     .put("guardedCorrect", guardedOverall)
                     .put("rawFalsePositive", rawFp)
@@ -112,7 +114,7 @@ class ProductionFidelitySuiteTest {
                     .put("fpOrchestrationOnly", fpOrchestration)
                     .put("fpDeviceNetworkExternal", fpDevice)
                     .put("fpPrivateRead", fpPrivateRead)
-                    .put("fpNetworkEgress", fpNetwork),
+                    .put("fpNetworkEgress", fpNetwork)
             )
         }
         val file = File(LabEnv.resultsDir, "production-fidelity__negation-guard.jsonl")
@@ -124,7 +126,7 @@ class ProductionFidelitySuiteTest {
         }
         LabLog.info(
             "production-fidelity negation guard: guarded=${guarded.size} toolGoldGuarded=$toolGoldGuarded " +
-                "rows=${rows.size} -> ${file.name}",
+                "rows=${rows.size} -> ${file.name}"
         )
         check(toolGoldGuarded == 0) { "negation guard fires on $toolGoldGuarded tool-gold cases" }
     }
@@ -138,8 +140,7 @@ class ProductionFidelitySuiteTest {
         return flat.isNotEmpty() || nested
     }
 
-    private fun rulesByCase(): Map<String, JSONObject> =
-        runCatching { readJsonl(File(LabEnv.resultsDir, "initial-planning__rules__R.jsonl")) }
-            .getOrDefault(emptyList())
-            .associateBy { it.getString("caseId") }
+    private fun rulesByCase(): Map<String, JSONObject> = runCatching { readJsonl(File(LabEnv.resultsDir, "initial-planning__rules__R.jsonl")) }
+        .getOrDefault(emptyList())
+        .associateBy { it.getString("caseId") }
 }

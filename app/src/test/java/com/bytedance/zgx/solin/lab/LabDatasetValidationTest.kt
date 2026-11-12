@@ -20,7 +20,7 @@ import org.junit.Test
 class LabDatasetValidationTest {
     private val registry: ToolRegistry = defaultBuiltInToolRegistry
     private val observationRegistry = ToolRegistry.fromSupportedActions(
-        MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES + MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES,
+        MODEL_OBSERVATION_REPLAN_ACTION_TOOL_NAMES + MODEL_OBSERVATION_REPLAN_COMPOSITE_TOOL_NAMES
     )
 
     @Test
@@ -28,16 +28,7 @@ class LabDatasetValidationTest {
         requireLabOptIn()
         val cases = InitialPlanningCases.loadAll()
         assertEquals("duplicate ids", cases.size, cases.map(InitialCase::id).toSet().size)
-        val problems = mutableListOf<String>()
-        cases.filter(InitialCase::labeled).forEach { case ->
-            case.goldTools.filterNot(registry::isKnownTool).forEach { problems += "${case.id}: unknown tool $it" }
-            val declared = case.goldTools.mapNotNull(registry::specFor).flatMap { spec ->
-                JSONObject(spec.inputSchemaJson).optJSONObject("properties")?.keys()?.asSequence()?.toList().orEmpty()
-            }.toSet()
-            (case.goldArgs.keys - declared).forEach { problems += "${case.id}: argument $it not in gold tool schemas" }
-            if (case.goldTools.isEmpty() && case.goldArgs.isNotEmpty()) problems += "${case.id}: args on a no-tool case"
-        }
-        assertTrue(problems.joinToString("\n"), problems.isEmpty())
+        assertInitialPlanningLabelsValid(cases, registry)
     }
 
     @Test
@@ -80,7 +71,7 @@ class LabDatasetValidationTest {
             missesAtK.put(k.toString(), JSONArray(misses.map { "${it.id}:${it.goldTools}:${it.input}" }))
             promptCharsAtK.put(
                 k.toString(),
-                labeled.map { case -> actionPrompt(case.input, retriever.topK(case.input, k)).length }.average().roundToInt(),
+                labeled.map { case -> actionPrompt(case.input, retriever.topK(case.input, k)).length }.average().roundToInt()
             )
         }
         val misses8 = toolCases.filter { goldRank.getValue(it) > 8 }
@@ -98,11 +89,11 @@ class LabDatasetValidationTest {
                 .put("retrieverRecallAtK", recallAtK)
                 .put("retrieverMissesAtK", missesAtK)
                 .put("retrieverGoldRank", JSONObject(goldRank.mapKeys { it.key.id }))
-                .put("actionPromptCharsMeanAtK", promptCharsAtK),
+                .put("actionPromptCharsMeanAtK", promptCharsAtK)
         )
         LabLog.info(
             "static: registry=${registry.specs().size} " +
-                RECALL_KS.joinToString(" ") { k -> "recall@$k=${toolCases.count { goldRank.getValue(it) <= k }}/${toolCases.size}" },
+                RECALL_KS.joinToString(" ") { k -> "recall@$k=${toolCases.count { goldRank.getValue(it) <= k }}/${toolCases.size}" }
         )
     }
 

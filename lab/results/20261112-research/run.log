@@ -1,0 +1,11 @@
+2026-11-12T04:23:32.903947744Z suite B mode=R cases=18 correct=6
+2026-11-12T04:27:50.737546Z suite B mode=R cases=18 correct=6
+2026-11-12T04:55:01.255821395Z suite B mode=R cases=18 correct=6
+2026-11-12T05:12:34.809298832Z suite B mode=R cases=18 correct=6
+2026-11-12T05:34:29.471414080Z suite B mode=R cases=18 correct=6
+2026-11-12T06:24:57.250560076Z suite B mode=R cases=18 correct=6
+2026-11-12T06:25:06.043070267Z suite B mode=R cases=18 correct=6
+2026-11-12T06:25:06.191469723Z static: registry=52 recall@4=74/100 recall@8=79/100 recall@12=84/100 recall@16=84/100
+2026-11-12T06:25:06.647671288Z production-fidelity negation guard: guarded=5 toolGoldGuarded=0 rows=0 -> production-fidelity__negation-guard.jsonl
+2026-11-12T06:50:49.323954519Z suite B mode=R cases=18 correct=6
+2026-11-12T08:38:31.000296495Z suite B mode=R cases=18 correct=6

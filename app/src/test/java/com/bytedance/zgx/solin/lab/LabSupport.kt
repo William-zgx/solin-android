@@ -36,8 +36,8 @@ object LabEnv {
             val source = System.getenv("SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE")
                 ?.takeIf { it.isNotBlank() }
                 ?: "tuning"
-            require(source in setOf("tuning", "heldout")) {
-                "SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE must be tuning or heldout, not $source"
+            require(source in InitialPlanningDatasets.sources) {
+                "SOLIN_LAB_INITIAL_PLANNING_CASE_SOURCE must be one of ${InitialPlanningDatasets.sources}, not $source"
             }
             return source
         }
@@ -83,7 +83,8 @@ object LabEnv {
 
     val runDate: String
         get() = System.getenv("SOLIN_LAB_DATE")
-            ?.takeIf { it.matches(Regex("\\d{8}(?:-heldout)?")) }
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::validateLabRunDate)
             ?: LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
 
     /**
@@ -106,6 +107,13 @@ object LabEnv {
     val resultsDir: File get() = File(File(labDir, "results"), runDate).apply { mkdirs() }
 
     val DEFAULT_MODELS = listOf("qwen3.5:2b", "qwen3.5:4b", "gemma4:e2b", "gemma4:e4b")
+}
+
+internal fun validateLabRunDate(value: String): String {
+    require(value.matches(Regex("\\d{8}(?:-(?:heldout|research))?"))) {
+        "SOLIN_LAB_DATE must be yyyyMMdd, optionally followed by -heldout or -research, not $value"
+    }
+    return value
 }
 
 fun requireLabOptIn(suite: String? = null) {
@@ -142,17 +150,14 @@ class JsonlWriter(suite: String, model: String, mode: String) : AutoCloseable {
 
 fun String.sanitizedForFileName(): String = replace(Regex("[^A-Za-z0-9._-]"), "-")
 
-fun String.previewForLab(maxChars: Int = 400): String =
-    replace(Regex("\\s+"), " ").trim().take(maxChars)
+fun String.previewForLab(maxChars: Int = 400): String = replace(Regex("\\s+"), " ").trim().take(maxChars)
 
-fun readJsonl(file: File): List<JSONObject> =
-    file.readLines(Charsets.UTF_8)
-        .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("//") }
-        .map { JSONObject(it) }
+fun readJsonl(file: File): List<JSONObject> = file.readLines(Charsets.UTF_8)
+    .map { it.trim() }
+    .filter { it.isNotEmpty() && !it.startsWith("//") }
+    .map { JSONObject(it) }
 
-fun JSONArray?.stringList(): List<String> =
-    if (this == null) emptyList() else (0 until length()).map { getString(it) }
+fun JSONArray?.stringList(): List<String> = if (this == null) emptyList() else (0 until length()).map { getString(it) }
 
 fun JSONObject?.stringMap(): Map<String, String> {
     if (this == null) return emptyMap()
@@ -174,7 +179,9 @@ object LabManifest {
         val manifest = if (file.isFile) JSONObject(file.readText()) else JSONObject()
         manifest.put("runDate", LabEnv.runDate)
         manifest.put("ollamaVersion", runCatching { client.version() }.getOrDefault("unknown"))
-        manifest.put("gitHead", gitHead())
+        val head = gitHead()
+        manifest.put("gitHead", head)
+        manifest.put("latestSuiteGitHead", head)
         // The host is part of the result: a devbox CPU run and a Mac MLX run must never share a column.
         // It is recorded per model as well, because one folder can hold an Ollama run and a LiteRT
         // run on the same day and the top-level note only names the last host that wrote here.
@@ -192,7 +199,7 @@ object LabManifest {
                     .put("digest", tag?.optString("digest"))
                     .put("sizeBytes", tag?.optLong("size"))
                     .put("host", LabEnv.hostNote)
-                    .put("details", tag?.optJSONObject("details")),
+                    .put("details", tag?.optJSONObject("details"))
             )
         }
         manifest.put("models", modelsJson)
@@ -206,6 +213,8 @@ object LabManifest {
         val suites = manifest.optJSONObject("suites") ?: JSONObject()
         suites.put(suite, info)
         manifest.put("suites", suites)
+        if (manifest.optString("runDate").isBlank()) manifest.put("runDate", LabEnv.runDate)
+        manifest.put("latestSuiteGitHead", gitHead())
         file.writeText(manifest.toString(2))
     }
 
@@ -222,14 +231,14 @@ object LabManifest {
         file.writeText(manifest.toString(2))
     }
 
-    private fun gitHead(): String =
-        runCatching {
-            val process = ProcessBuilder("git", "rev-parse", "HEAD")
-                .directory(LabEnv.repoRoot)
-                .redirectErrorStream(true)
-                .start()
-            process.inputStream.bufferedReader().readText().trim().also { process.waitFor() }
-        }.getOrDefault("unknown")
+    private fun gitHead(): String = runCatching {
+        val process = ProcessBuilder("git", "rev-parse", "HEAD")
+            .directory(LabEnv.repoRoot)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        if (process.waitFor() != 0 || output.isBlank()) "unknown" else output
+    }.getOrDefault("unknown")
 }
 
 /** Models from [LabEnv.requestedModels] that Ollama actually has; the rest are logged as pending. */

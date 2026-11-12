@@ -8,13 +8,21 @@ import org.json.JSONObject
 data class LabAnswer(
     val tool: String?,
     val args: Map<String, String> = emptyMap(),
-    val invalid: Boolean = false,
+    val invalid: Boolean = false
 ) {
-    fun toJson(): JSONObject =
-        JSONObject()
-            .put("kind", if (invalid) "invalid" else if (tool == null) "stop" else "tool")
-            .put("tool", tool ?: JSONObject.NULL)
-            .put("args", args.toJson())
+    fun toJson(): JSONObject = JSONObject()
+        .put(
+            "kind",
+            if (invalid) {
+                "invalid"
+            } else if (tool == null) {
+                "stop"
+            } else {
+                "tool"
+            }
+        )
+        .put("tool", tool ?: JSONObject.NULL)
+        .put("args", args.toJson())
 
     companion object {
         val STOP = LabAnswer(tool = null)
@@ -34,13 +42,13 @@ object LabScoring {
     fun observationAnswerMatches(
         answer: LabAnswer,
         accepts: List<JSONObject>,
-        nodeLabels: Map<String, List<String>>,
+        nodeLabels: Map<String, List<String>>
     ): Boolean = !answer.invalid && accepts.any { accept -> observationAcceptMatches(answer, accept, nodeLabels) }
 
     private fun observationAcceptMatches(
         answer: LabAnswer,
         accept: JSONObject,
-        nodeLabels: Map<String, List<String>>,
+        nodeLabels: Map<String, List<String>>
     ): Boolean {
         if (accept.optBoolean("stop")) return answer.tool == null
         if (answer.tool == null || answer.tool != accept.optString("tool")) return false
@@ -100,11 +108,17 @@ object LabScoring {
      * (a call that failed to parse or was rejected) executes nothing, so it is never a correct tool,
      * but it is also not a false positive; `callAttempted` records the intent.
      */
-    fun scoreInitial(case: InitialCase, answer: LabAnswer): JSONObject {
+    fun scoreInitial(case: InitialCase, answer: LabAnswer, schemaValid: Boolean? = null, rawKind: String? = null): JSONObject {
         val expectsTool = case.goldTools.isNotEmpty()
         val executedTool = answer.tool?.takeUnless { answer.invalid }
-        val toolCorrect = if (expectsTool) executedTool != null && executedTool in case.goldTools else executedTool == null
+        val toolCorrect = if (expectsTool) {
+            executedTool != null && executedTool in case.goldTools
+        } else {
+            rawKind != "error" && (executedTool == null || schemaValid == false || answer.invalid)
+        }
+        val validityAllowsScore = schemaValid != false
         val perKey = JSONObject()
+        val constraintResults = JSONObject()
         var allArgs = toolCorrect
         if (expectsTool && toolCorrect) {
             case.goldArgs.forEach { (key, expected) ->
@@ -112,16 +126,28 @@ object LabScoring {
                 perKey.put(key, ok)
                 allArgs = allArgs && ok
             }
+            case.forbiddenArgs.forEach { key -> constraintResults.put(key, !answer.args.containsKey(key)) }
+            case.forbiddenNonEmptyArgs.forEach { key ->
+                val allowed = answer.args[key].isNullOrBlank()
+                constraintResults.put(key, constraintResults.optBoolean(key, true) && allowed)
+            }
+            case.forbiddenArgValues.forEach { (key, forbidden) ->
+                val actual = answer.args[key]
+                val allowed = actual == null || !argValueMatches(key, forbidden, actual)
+                constraintResults.put(key, constraintResults.optBoolean(key, true) && allowed)
+            }
+            allArgs = allArgs && constraintResults.keys().asSequence().all { constraintResults.getBoolean(it) }
         }
         return JSONObject()
             .put("expectsTool", expectsTool)
             .put("toolCorrect", toolCorrect)
-            .put("argsExact", expectsTool && toolCorrect && allArgs)
+            .put("argsExact", expectsTool && toolCorrect && allArgs && validityAllowsScore)
             .put("argKeys", perKey)
-            .put("falsePositive", !expectsTool && executedTool != null)
+            .put("constraintResults", constraintResults)
+            .put("falsePositive", !expectsTool && executedTool != null && validityAllowsScore)
             .put("callAttempted", answer.tool != null || answer.invalid)
-            .put("missedTool", expectsTool && executedTool == null)
-            .put("correct", if (expectsTool) toolCorrect && allArgs else toolCorrect)
+            .put("missedTool", expectsTool && answer.tool == null)
+            .put("correct", if (expectsTool) toolCorrect && allArgs && validityAllowsScore else toolCorrect)
     }
 
     /**
@@ -136,7 +162,7 @@ object LabScoring {
     fun answerFromCallOutput(
         raw: String,
         parser: MobileActionPlanner,
-        noToolChoice: Boolean = false,
+        noToolChoice: Boolean = false
     ): Pair<LabAnswer, String> {
         parser.parseModelOutput(raw)?.let { draft -> return LabAnswer(draft.functionName, draft.parameters) to "call" }
         if (noToolChoice && normalizedChoice(raw) == LOCAL_MODEL_NO_TOOL_CHOICE) {

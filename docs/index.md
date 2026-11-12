@@ -56,7 +56,7 @@ pending approval records remain pending until their owners complete the review.
 | [Local engine](specs/20261107-local-engine/litert-lm-api-report.md) | One shared on-device LiteRT-LM engine for chat and planning; 0.12.0 API report |
 | [Local model first planning](specs/20261107-local-model-first/spec.md) | Debug-only model-proposed first tool; fails closed to RuleFirst, every proposal asks |
 | [Cloud-edge collaboration](specs/20261107-cloud-edge-collaboration/spec.md) | Role placement, closed-vocabulary milestone plan and flag-gated progress egress; unwired, default Off |
-| Capability benches | [Held-out 20261109](../lab/results/20261109-heldout/SUMMARY.md) · [20261107 campaign](../lab/results/20261107/SUMMARY.md) | Held-out devbox LiteRT results and earlier desktop proxy results; neither is device evidence |
+| Capability benches | [Held-out 20261109](../lab/results/20261109-heldout/SUMMARY.md) · [20261107 campaign](../lab/results/20261107/SUMMARY.md) · [Argument research 20261112](../lab/results/20261112-research/SUMMARY.md) | Held-out devbox LiteRT results, earlier desktop proxy results, and rules-only argument/constraint validation; none is device evidence |
 | Memory benches | [LiteRT 20261108](../lab/memory/results/20261108/SUMMARY.md) · [Desktop 20261107](../lab/memory/results/20261107/SUMMARY.md) | Model-backed fact extraction and compaction; off by default, not device evidence |
 
 Read [architecture_depth.md](architecture_depth.md) before structural changes.
