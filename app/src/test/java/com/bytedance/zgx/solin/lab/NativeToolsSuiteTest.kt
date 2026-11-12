@@ -128,6 +128,9 @@ class NativeToolsSuiteTest {
     internal fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
         if (result.error != null) return LabAnswer.INVALID to "error"
         if (noToolChoice && result.toolCalls.isNotEmpty() && result.toolCalls.all { it.name == LOCAL_MODEL_NO_TOOL_CHOICE }) {
+            if (result.toolCalls.size > 1) {
+                return LabAnswer(LOCAL_MODEL_NO_TOOL_CHOICE, invalid = true) to "multi_call"
+            }
             return LabAnswer.STOP to "no_tool_choice"
         }
         val call = result.toolCalls.firstOrNull { !noToolChoice || it.name != LOCAL_MODEL_NO_TOOL_CHOICE }

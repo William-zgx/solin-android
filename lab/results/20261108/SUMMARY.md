@@ -992,7 +992,8 @@ they avoid the text format entirely.** Either way the gain is tool *selection*, 
 false-positive rate says the model still needs a gate in front of it (see the composite table).
 
 **(c) False positives on the 51 no-tool cases — the reason no ungated mode beats `R`.** Every model mode
-executes a tool on requests that want none:
+executes a tool on requests that want none. The hand-written table below preserves the **pre-fix scoring
+snapshot** as historical evidence; it is not the current error-filtered score.
 
 | mode | false positives on 51 no-tool cases | overall (151) |
 | --- | --- | --- |

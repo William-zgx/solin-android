@@ -488,7 +488,7 @@ def observation_failure(record):
 
 def score_of(suite, rs):
     if suite == SUITE_A:
-        return sum(r["finalCorrect"] for r in rs), len(rs)
+        return sum(r["finalCorrect"] and not errored(r) for r in rs), len(rs)
     return sum(r["correct"] and not errored(r) for r in rs), len(rs)
 
 
@@ -550,22 +550,17 @@ def headline(records, models, manifest, out):
         out.append(headline_table(records, models, manifest, initial, lambda k, rs: score_cell(
             k,
             [r for r in rs if r["expectsTool"]],
-            sum(r["argsExact"] for r in rs if r["expectsTool"]))))
+            sum(r["correct"] and not errored(r) for r in rs if r["expectsTool"]),
+            sum(r["argsExact"] and not errored(r) for r in rs if r["expectsTool"]))))
         out.append("")
         out.append("Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing "
                    "executed. An invalid call executes nothing and counts as correct here.\n")
         out.append(headline_table(records, models, manifest, initial, lambda k, rs: score_cell(
             k,
             [r for r in rs if not r["expectsTool"]],
-            sum(r["correct"] for r in rs if not r["expectsTool"]))))
+            sum(r["correct"] and not errored(r) for r in rs if not r["expectsTool"]))))
         out.append("")
-        initial_case_ids = {
-            r["caseId"]
-            for key, rs in records.items()
-            if key[0] in (SUITE_B, SUITE_C) and key[1] in models and (key[0], key[2]) in initial
-            for r in rs
-        }
-        out.append(f"Suites B and C, all {len(initial_case_ids)} requests together:\n")
+        out.append("Suites B and C, requests measured per model (no shared population is inferred).\n")
         out.append(headline_table(records, models, manifest, initial,
                                   lambda k, rs: score_cell(k, rs, score_of(k[0], rs)[0])))
         out.append("")
@@ -1114,7 +1109,7 @@ def failure_examples(records, models, out):
     for suite, title in ((SUITE_B, "Suite B"), (SUITE_C, "Suite C")):
         out.append(f"## {title}: wrong first tool\n")
         for key in keys_for(suite, records, models):
-            wrong = [r for r in records[key] if not r["correct"]]
+            wrong = [r for r in records[key] if errored(r) or not r["correct"]]
             if not wrong:
                 continue
             groups = defaultdict(list)
@@ -1129,7 +1124,7 @@ def failure_examples(records, models, out):
             out.append("")
     out.append("## Suite D: wrong placement\n")
     for key in keys_for(SUITE_D, records, models):
-        wrong = [r for r in records[key] if not r["correct"]]
+        wrong = [r for r in records[key] if errored(r) or not r["correct"]]
         if not wrong:
             continue
         out.append(f"**{key[1]} {key[2]}** ({len(wrong)} wrong): " + "; ".join(

@@ -194,6 +194,7 @@ class InitialPlanningSuiteTest {
                         .put("argKeys", JSONObject())
                         .put("constraintResults", JSONObject())
                         .put("falsePositive", false)
+                    addFalsePositiveSplit(record, registry)
                 }
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)

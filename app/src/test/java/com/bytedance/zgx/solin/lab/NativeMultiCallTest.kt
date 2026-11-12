@@ -2,6 +2,7 @@ package com.bytedance.zgx.solin.lab
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NativeMultiCallTest {
@@ -26,6 +27,19 @@ class NativeMultiCallTest {
 
         assertEquals(null, answer.tool)
         assertEquals("no_tool_choice", kind)
+    }
+
+    @Test
+    fun repeatedAnswerCallsAreInvalidMultiCallNotDeliberateNoTool() {
+        val result = chatResult(
+            OllamaClient.ToolCall(LOCAL_MODEL_NO_TOOL_CHOICE, JSONObject()),
+            OllamaClient.ToolCall(LOCAL_MODEL_NO_TOOL_CHOICE, JSONObject())
+        )
+
+        val (answer, kind) = NativeToolsSuiteTest().answerFromNative(result, noToolChoice = true)
+
+        assertTrue(answer.invalid)
+        assertEquals("multi_call", kind)
     }
 
     @Test

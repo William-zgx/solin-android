@@ -538,7 +538,7 @@ class ResearchScoringTest(unittest.TestCase):
         out = []
         self.summarize.headline(records, ["rules"], {}, out)
         text = "\n".join(out)
-        self.assertIn("all 1 requests", text)
+        self.assertIn("no shared population is inferred", text)
         self.assertNotIn("all 151 requests", text)
     def test_non_empty_constraint_allows_blank_but_rejects_nonblank(self):
         record = {

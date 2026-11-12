@@ -117,6 +117,7 @@ class ProductionFidelitySuiteTest {
                     .put("fpNetworkEgress", fpNetwork)
             )
         }
+        check(toolGoldGuarded == 0) { "negation guard fires on $toolGoldGuarded tool-gold cases" }
         val file = File(LabEnv.resultsDir, "production-fidelity__negation-guard.jsonl")
         file.bufferedWriter(Charsets.UTF_8).use { writer ->
             rows.forEach { row ->
@@ -128,7 +129,6 @@ class ProductionFidelitySuiteTest {
             "production-fidelity negation guard: guarded=${guarded.size} toolGoldGuarded=$toolGoldGuarded " +
                 "rows=${rows.size} -> ${file.name}"
         )
-        check(toolGoldGuarded == 0) { "negation guard fires on $toolGoldGuarded tool-gold cases" }
     }
 
     private fun JSONObject.isErrored(): Boolean {
