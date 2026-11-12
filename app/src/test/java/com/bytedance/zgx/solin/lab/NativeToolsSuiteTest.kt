@@ -125,9 +125,12 @@ class NativeToolsSuiteTest {
                 .put("parameters", JSONObject(spec.inputSchemaJson))
         )
 
-    private fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
+    internal fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
         if (result.error != null) return LabAnswer.INVALID to "error"
-        val call = result.toolCalls.firstOrNull()
+        if (noToolChoice && result.toolCalls.all { it.name == LOCAL_MODEL_NO_TOOL_CHOICE }) {
+            return LabAnswer.STOP to "no_tool_choice"
+        }
+        val call = result.toolCalls.firstOrNull { !noToolChoice || it.name != LOCAL_MODEL_NO_TOOL_CHOICE }
             ?: return LabAnswer.STOP to if (result.text.isBlank()) "blank" else "text"
         // Production reads `answer` as a deliberate no-tool decision, not an unknown tool
         // (InitialToolPlanner.kt:144). The choice is never a registry tool.

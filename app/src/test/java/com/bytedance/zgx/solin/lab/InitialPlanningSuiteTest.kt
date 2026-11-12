@@ -46,7 +46,7 @@ class InitialPlanningSuiteTest {
                 .put("fixedClock", FIXED_NOW.toString())
                 .put("skillModeR", AppSearchPlanningMode.StaticSkill.name)
                 .put("skillModeRM", AppSearchPlanningMode.ModelDrivenBootstrap.name)
-                .put("rmInstalledProfile", MOBILE_ACTION_PROFILE.id),
+                .put("rmInstalledProfile", MOBILE_ACTION_PROFILE.id)
         )
         runRules(cases)
         Assume.assumeTrue("no lab models installed", models.isNotEmpty())
@@ -69,7 +69,11 @@ class InitialPlanningSuiteTest {
             // no-tool choice, with the lab's placeholder fix (the production prompt still overflows
             // or copies `function`; see SUMMARY Suite F).
             val productionText = OllamaActionPlanningRuntime(
-                client, model, toolRegistry = registry, placeholderAblation = true, noToolChoice = true,
+                client,
+                model,
+                toolRegistry = registry,
+                placeholderAblation = true,
+                noToolChoice = true
             )
             if (LabEnv.modeSelected("M-topk-fix-lmf")) {
                 runModelOnly(model, "M-topk-fix-lmf", cases, productionText) { case ->
@@ -105,7 +109,7 @@ class InitialPlanningSuiteTest {
         mode: String,
         cases: List<InitialCase>,
         runtime: OllamaActionPlanningRuntime,
-        specsFor: (InitialCase) -> List<ToolSpec>,
+        specsFor: (InitialCase) -> List<ToolSpec>
     ) {
         val noToolChoice = mode.endsWith("-lmf")
         var correct = 0
@@ -151,13 +155,20 @@ class InitialPlanningSuiteTest {
                 val plan = planner.planToolIfSupported(
                     case.input,
                     listOf(MOBILE_ACTION_PROFILE),
-                    actionModelPath = "ollama:$model",
+                    actionModelPath = "ollama:$model"
                 )
                 val wallMs = (System.nanoTime() - started) / 1_000_000
                 val calls = runtime.calls
                 val (answer, kind) = plan.toLabAnswer()
                 val record = InitialPlanningCases.record(
-                    SUITE, model, "R+M", case, answer, kind, calls.lastOrNull()?.rawOutput.orEmpty(), registry,
+                    SUITE,
+                    model,
+                    "R+M",
+                    case,
+                    answer,
+                    kind,
+                    calls.lastOrNull()?.rawOutput.orEmpty(),
+                    registry
                 )
                     .put("planSource", plan.planSource())
                     .put("wallMs", wallMs)
@@ -173,9 +184,10 @@ class InitialPlanningSuiteTest {
                                     .put("parseFailure", call.failureReason ?: JSONObject.NULL)
                                     .put("cached", call.cached)
                                     .put("metrics", call.result.metricsJson())
-                            },
-                        ),
+                            }
+                        )
                     )
+                if (calls.any { it.result.error != null }) record.put("correct", false)
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)
             }
@@ -183,39 +195,36 @@ class InitialPlanningSuiteTest {
         LabLog.info("suite B model=$model mode=R+M cases=${cases.size} correct=$correct")
     }
 
-    private fun planner(runtime: OllamaActionPlanningRuntime, mode: AppSearchPlanningMode): InitialToolPlanner =
-        InitialToolPlanner(
-            toolRegistry = registry,
-            skillRuntime = BuiltInSkillRuntime(
-                clockMillis = { FIXED_NOW.toEpochMilli() },
-                zoneId = ZoneOffset.UTC,
-                appSearchPlanningModeProvider = { mode },
-            ),
-            safetyPolicy = SafetyPolicy(),
-            actionPlanningRuntime = runtime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { FIXED_NOW.toEpochMilli() }),
-        )
+    private fun planner(runtime: OllamaActionPlanningRuntime, mode: AppSearchPlanningMode): InitialToolPlanner = InitialToolPlanner(
+        toolRegistry = registry,
+        skillRuntime = BuiltInSkillRuntime(
+            clockMillis = { FIXED_NOW.toEpochMilli() },
+            zoneId = ZoneOffset.UTC,
+            appSearchPlanningModeProvider = { mode }
+        ),
+        safetyPolicy = SafetyPolicy(),
+        actionPlanningRuntime = runtime,
+        traceStore = InMemoryAgentTraceStore(clockMillis = { FIXED_NOW.toEpochMilli() })
+    )
 
-    private fun AgentPlan?.toLabAnswer(): Pair<LabAnswer, String> =
-        when (this) {
-            null -> LabAnswer.STOP to "no_tool"
-            is AgentPlan.UseTool -> LabAnswer(request.toolName, request.arguments) to "use_tool"
-            is AgentPlan.RejectedTool -> LabAnswer(result.data["toolName"], invalid = true) to "rejected_tool"
-            is AgentPlan.MissingModel -> LabAnswer.INVALID to "missing_model"
-            is AgentPlan.Answer -> LabAnswer.STOP to "answer"
-        }
+    private fun AgentPlan?.toLabAnswer(): Pair<LabAnswer, String> = when (this) {
+        null -> LabAnswer.STOP to "no_tool"
+        is AgentPlan.UseTool -> LabAnswer(request.toolName, request.arguments) to "use_tool"
+        is AgentPlan.RejectedTool -> LabAnswer(result.data["toolName"], invalid = true) to "rejected_tool"
+        is AgentPlan.MissingModel -> LabAnswer.INVALID to "missing_model"
+        is AgentPlan.Answer -> LabAnswer.STOP to "answer"
+    }
 
-    private fun AgentPlan?.planSource(): String =
-        when (this) {
-            is AgentPlan.UseTool -> when {
-                skillPlan != null && fallbackReason == "skill-first" -> "skill"
-                plannedByModel -> "model"
-                else -> "rules"
-            }
-            is AgentPlan.RejectedTool -> "rejected"
-            is AgentPlan.MissingModel -> "missing_model"
-            else -> "none"
+    private fun AgentPlan?.planSource(): String = when (this) {
+        is AgentPlan.UseTool -> when {
+            skillPlan != null && fallbackReason == "skill-first" -> "skill"
+            plannedByModel -> "model"
+            else -> "rules"
         }
+        is AgentPlan.RejectedTool -> "rejected"
+        is AgentPlan.MissingModel -> "missing_model"
+        else -> "none"
+    }
 
     private companion object {
         const val SUITE = "initial-planning"

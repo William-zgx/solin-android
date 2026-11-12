@@ -84,10 +84,13 @@ internal fun declaredToolArguments(case: InitialCase, registry: ToolRegistry): S
     JSONObject(spec.inputSchemaJson).optJSONObject("properties")?.keys()?.asSequence()?.toList().orEmpty()
 }.toSet()
 
-internal fun argumentPatternsOverlap(key: String, left: String, right: String): Boolean = left.split('|').any { leftAlternative ->
-    right.split('|').any { rightAlternative ->
-        LabScoring.argValueMatches(key, leftAlternative, rightAlternative) ||
-            LabScoring.argValueMatches(key, rightAlternative, leftAlternative)
+internal fun argumentPatternsOverlap(key: String, left: String, right: String): Boolean {
+    if (left.startsWith("~") && right.startsWith("~")) return true
+    return left.split('|').any { leftAlternative ->
+        right.split('|').any { rightAlternative ->
+            LabScoring.argValueMatches(key, leftAlternative, rightAlternative) ||
+                LabScoring.argValueMatches(key, rightAlternative, leftAlternative)
+        }
     }
 }
 

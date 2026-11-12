@@ -34,7 +34,7 @@ data class InitialCase(val json: JSONObject) {
         ArgumentConstraints(
             forbiddenArgs = if (json.has("forbiddenArgs")) json.getJSONArray("forbiddenArgs").stringList().toSet() else emptySet(),
             forbiddenNonEmptyArgs = if (json.has("forbiddenNonEmptyArgs")) json.getJSONArray("forbiddenNonEmptyArgs").stringList().toSet() else emptySet(),
-            forbiddenArgValues = if (json.has("forbiddenArgValues")) json.getJSONObject("forbiddenArgValues").stringMap() else emptyMap()
+            forbiddenArgValues = scalarForbiddenArgValues(json)
         )
     }
     val forbiddenArgs: Set<String> get() = constraints.forbiddenArgs
@@ -46,6 +46,18 @@ data class InitialCase(val json: JSONObject) {
         if (!constraints.isEmpty()) gold.put("constraints", constraints.toJson())
         return gold
     }
+}
+
+private fun scalarForbiddenArgValues(json: JSONObject): Map<String, String> {
+    if (!json.has("forbiddenArgValues")) return emptyMap()
+    val raw = json.getJSONObject("forbiddenArgValues")
+    raw.keys().forEach { key ->
+        val value = raw.get(key)
+        require(value is String || value is Number || value is Boolean) {
+            "forbiddenArgValues.$key must be a string, number or boolean"
+        }
+    }
+    return raw.stringMap()
 }
 
 /** Descriptor shared by selection, loading and manifest metadata for one initial-planning dataset. */

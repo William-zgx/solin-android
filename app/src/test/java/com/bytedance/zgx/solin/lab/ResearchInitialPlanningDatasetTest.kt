@@ -112,6 +112,7 @@ class ResearchInitialPlanningDatasetTest {
     fun forbiddenAndGoldAlternativePatternsCannotOverlap() {
         assertTrue(argumentPatternsOverlap("query", "foo|bar", "foo|bar"))
         assertTrue(argumentPatternsOverlap("query", "foo|bar", "foo"))
+        assertTrue(argumentPatternsOverlap("query", "~foo", "~bar"))
         assertFalse(argumentPatternsOverlap("query", "foo|bar", "baz"))
     }
 
@@ -165,6 +166,18 @@ class ResearchInitialPlanningDatasetTest {
 
         assertThrows(org.json.JSONException::class.java) {
             case.constraints
+        }
+
+        val nested = InitialCase(
+            org.json.JSONObject(
+                """{"id":"nested-constraint","source":"research_evaluation_only","input":"x","labeled":true,
+                    |"gold":{"tools":["create_calendar_event"],"args":{"title":"x"}},
+                    |"expectsTool":true,"forbiddenArgValues":{"allDay":{"value":true}}}
+                """.trimMargin()
+            )
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            nested.constraints
         }
     }
 
