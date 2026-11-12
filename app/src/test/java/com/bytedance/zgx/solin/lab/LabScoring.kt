@@ -108,15 +108,15 @@ object LabScoring {
      * (a call that failed to parse or was rejected) executes nothing, so it is never a correct tool,
      * but it is also not a false positive; `callAttempted` records the intent.
      */
-    fun scoreInitial(case: InitialCase, answer: LabAnswer, schemaValid: Boolean? = null, rawKind: String? = null): JSONObject {
+    fun scoreInitial(case: InitialCase, answer: LabAnswer, executionValid: Boolean? = null, rawKind: String? = null): JSONObject {
         val expectsTool = case.goldTools.isNotEmpty()
         val executedTool = answer.tool?.takeUnless { answer.invalid }
         val toolCorrect = if (expectsTool) {
             executedTool != null && executedTool in case.goldTools
         } else {
-            rawKind !in setOf("error", "missing_model") && (executedTool == null || schemaValid == false || answer.invalid)
+            rawKind !in setOf("error", "missing_model") && (executedTool == null || executionValid == false || answer.invalid)
         }
-        val validityAllowsScore = schemaValid != false
+        val validityAllowsScore = executionValid != false
         val perKey = JSONObject()
         val constraintResults = JSONObject()
         var allArgs = toolCorrect
@@ -162,10 +162,12 @@ object LabScoring {
     fun answerFromCallOutput(
         raw: String,
         parser: MobileActionPlanner,
-        noToolChoice: Boolean = false
+        noToolChoice: Boolean = false,
+        failureReason: String? = null
     ): Pair<LabAnswer, String> {
         parser.parseModelOutput(raw)?.let { draft -> return LabAnswer(draft.functionName, draft.parameters) to "call" }
-        if (noToolChoice && Regex("call:").findAll(raw).count() == 1 && normalizedChoice(raw) == LOCAL_MODEL_NO_TOOL_CHOICE) {
+        val rejection = failureReason ?: parser.modelOutputFailureReason(raw)
+        if (noToolChoice && rejection == "Unknown tool: $LOCAL_MODEL_NO_TOOL_CHOICE") {
             return LabAnswer.STOP to "no_tool_choice"
         }
         return when {
@@ -174,9 +176,6 @@ object LabScoring {
             else -> LabAnswer.STOP to "text"
         }
     }
-
-    /** The `answer` choice in a raw output, or null when the output does not name it. */
-    fun normalizedChoice(raw: String): String? = callName.find(raw)?.groupValues?.get(1)
 
     private val callName = Regex("""call:\s*([A-Za-z0-9_]+)""")
 

@@ -523,6 +523,14 @@ class ResearchScoringTest(unittest.TestCase):
         self.assertEqual((True, True), self.summarize.lenient_scores(record))
         record["rawPreview"] = record["rawPreview"].replace('"requiresCharging":false', '"requiresCharging":true')
         self.assertEqual((True, False), self.summarize.lenient_scores(record))
+    def test_headline_uses_suite_appropriate_score_field(self):
+        records = {(self.summarize.SUITE_D, "m", "complexity"): [{"correct": True, "metrics": {}}]}
+        out = []
+
+        self.summarize.headline(records, ["m"], {}, out)
+
+        self.assertIn("1/1 (100%)", "\n".join(out))
+
     def test_headline_uses_actual_dataset_case_count(self):
         records = {
             ("initial-planning", "rules", "R"): [
@@ -552,6 +560,8 @@ class ResearchScoringTest(unittest.TestCase):
         self.assertEqual((True, True), self.summarize.lenient_scores(record))
         record["rawPreview"] = record["rawPreview"].replace('"subject":""', '"subject":"unexpected"')
         self.assertEqual((True, False), self.summarize.lenient_scores(record))
+        record["rawPreview"] = record["rawPreview"].replace('"subject":"unexpected"', '"subject":null')
+        self.assertEqual((True, True), self.summarize.lenient_scores(record))
 
     def test_rule_gap_population_comes_from_records(self):
         records = {
@@ -645,6 +655,148 @@ class ResearchScoringTest(unittest.TestCase):
     def test_missing_model_is_an_error_not_a_score(self):
         self.assertTrue(self.summarize.errored({"rawKind": "missing_model", "metrics": {}}))
 
+    def test_fully_errored_score_cell_keeps_subset_population(self):
+        key = (self.summarize.SUITE_B, "m", "M-topk")
+        self.summarize.RUN_ERRORS[key] = (151, 151)
+
+        self.assertEqual("errored 100/100", self.summarize.score_cell(key, [], 0, total=100))
+        self.assertEqual("n/a (errored 151/151)", self.summarize.score_cell(key, [], 0))
+
+    def test_partly_errored_run_marks_fully_errored_subgroup(self):
+        key = (self.summarize.SUITE_B, "m", "M-topk")
+        self.summarize.RUN_ERRORS[key] = (2, 1)
+
+        self.assertEqual("errored 1/1 (1 errored)", self.summarize.score_cell(key, [], 0, total=1))
+        self.assertEqual("n/a (1 errored)", self.summarize.score_cell(key, [], 0, total=0))
+
+    def test_suite_e_fully_errored_row_matches_header_width(self):
+        key = (self.summarize.SUITE_E, "m", "E")
+        records = {key: [{"caseId": "e1", "expectsAction": True,
+                          "metrics": {"error": "boom"}}]}
+        self.summarize.set_run_errors(records)
+        self.assertFalse(self.summarize.has_scorable_answer(records[key][0]))
+        out = []
+        self.summarize.suite_e(records, ["m"], out)
+
+        _, header, row = next(self.summarize.table_rows(out[0].splitlines()))
+        self.assertEqual(len(header), len(row))
+        self.assertEqual(10, len(row))
+        self.assertTrue(all("errored" in cell for cell in row[2:8]))
+        self.assertEqual(["-", "-"], row[8:10])
+
+    def test_suite_d_fully_errored_row_uses_subgroup_populations(self):
+        key = (self.summarize.SUITE_D, "m", "D")
+        records = {key: [{"gold": "local", "confident": False, "metrics": {"error": "boom"}}]}
+        self.summarize.set_run_errors(records)
+        out = []
+        self.summarize.suite_d(records, ["m"], out)
+
+        _, header, row = next(self.summarize.table_rows(out[0].splitlines()))
+        self.assertEqual(len(header), len(row))
+        self.assertEqual("errored 1/1", row[3])
+        self.assertEqual("n/a (errored 1/1)", row[5])
+        self.assertFalse(any(cell.startswith("0/") for cell in row))
+
+    def test_suite_e_gap_columns_use_unfiltered_population(self):
+        key = (self.summarize.SUITE_E, "m", "E")
+        rules_key = (self.summarize.SUITE_B, "rules", "R")
+        records = {
+            rules_key: [{"caseId": "gap", "rawKind": "no_tool", "expectsTool": True, "metrics": {}}],
+            key: [
+                {"caseId": "gap", "expectsAction": True, "metrics": {"error": "boom"}},
+                {"caseId": "other", "expectsAction": False, "valid": True, "gatedCorrect": True,
+                 "gateOpen": False, "metrics": {}},
+            ],
+        }
+        self.summarize.set_run_errors(records)
+        out = []
+        self.summarize.suite_e(records, ["m"], out)
+
+        _, _, row = next(self.summarize.table_rows(out[0].splitlines()))
+        self.assertEqual("errored 1/1 (1 errored)", row[8])
+        self.assertEqual("errored 1/1 (1 errored)", row[9])
+
+    def test_attempted_call_validity_carries_run_error_annotation(self):
+        key = (self.summarize.SUITE_B, "m", "M-topk")
+        records = {key: [
+            {"caseId": "ok", "expectsTool": True, "correct": True, "toolCorrect": True,
+             "argsExact": True, "falsePositive": False, "rawKind": "call", "schemaValid": True,
+             "metrics": {}},
+            make_error({"caseId": "bad", "expectsTool": False, "rawKind": "call",
+                        "schemaValid": None, "metrics": {}}),
+        ]}
+
+        self.summarize.set_run_errors(records)
+        row = self.summarize.initial_rows([key], records, native=False)[0]
+        self.assertTrue(row[7].startswith("1/1 (100%)"), row[7])
+        self.assertIn("1 errored", row[7])
+
+    def test_model_error_does_not_hide_scorable_fallback(self):
+        record = {"rawKind": "use_tool", "correct": True, "expectsTool": True,
+                  "modelOutputs": [{"metrics": {"error": "boom"}}]}
+        key = (self.summarize.SUITE_B, "m", "R+M")
+        self.summarize.RUN_ERRORS[key] = (1, 1)
+
+        self.assertTrue(self.summarize.has_scorable_answer(record))
+        self.assertIsNone(self.summarize.initial_failure(record))
+        self.assertEqual("1/1 (100%) (errored 1/1)",
+                         self.summarize.score_cell(key, [record], 1, total=1))
+        self.assertEqual("1/1 (errored 1/1)", self.summarize.cell_for_runs([key], "1/1"))
+
+    def test_suite_a_later_acceptance_has_a_scorable_final_answer(self):
+        record = {"rawKind": "error", "finalSource": "minimal_prompt", "metrics": {"error": "boom"}}
+        self.assertTrue(self.summarize.has_scorable_answer(record))
+        record["finalSource"] = "stop"
+        self.assertFalse(self.summarize.has_scorable_answer(record))
+
+    def test_later_suite_a_error_does_not_clear_first_call_raw_result(self):
+        record = {"rawKind": "call", "calls": [
+            {"metrics": {}}, {"metrics": {"error": "corrective call failed"}},
+        ]}
+        self.assertFalse(self.summarize.first_call_errored(record))
+        self.assertTrue(self.summarize.errored(record))
+
+    def test_rm_delta_ignores_cases_missing_from_rules_baseline(self):
+        records = {
+            (self.summarize.SUITE_B, "rules", "R"): [
+                {"caseId": "known", "correct": True, "rawKind": "use_tool", "metrics": {}},
+            ],
+            (self.summarize.SUITE_B, "m", "R+M"): [
+                {"caseId": "other", "correct": True, "rawKind": "use_tool", "metrics": {},
+                 "modelCalls": 1, "planSource": "model"},
+            ],
+        }
+        out = []
+        self.summarize.rm_delta(records, ["m"], out)
+        self.assertTrue(out)
+
+    def test_recovery_rate_uses_only_model_covered_rule_misses(self):
+        records = {
+            (self.summarize.SUITE_B, "rules", "R"): [
+                {"caseId": "miss-1", "correct": False, "rawKind": "no_tool", "metrics": {}},
+                {"caseId": "miss-2", "correct": False, "rawKind": "no_tool", "metrics": {}},
+            ],
+            (self.summarize.SUITE_B, "m", "M"): [
+                {"caseId": "miss-1", "correct": False, "rawKind": "no_tool", "metrics": {}},
+            ],
+        }
+        out = []
+        self.summarize.model_vs_rules(records, ["m"], [(self.summarize.SUITE_B, "M")], out)
+        self.assertIn("0/1 (0%)", "\n".join(out))
+        self.assertNotIn("0/2", "\n".join(out))
+
+    def test_native_multi_call_is_not_a_valid_attempted_call(self):
+        key = (self.summarize.SUITE_C, "m", "N-topk")
+        records = {key: [
+            {"caseId": "multi", "expectsTool": True, "correct": False, "toolCorrect": False,
+             "argsExact": False, "falsePositive": False, "rawKind": "multi_call", "schemaValid": True,
+             "metrics": {}},
+        ]}
+        self.summarize.set_run_errors(records)
+
+        row = self.summarize.initial_rows([key], records, native=True)[0]
+        self.assertEqual("0/1 (0%)", row[7])
+
 
 class HeldOutSummaryTest(unittest.TestCase):
     def setUp(self):
@@ -685,6 +837,39 @@ class HeldOutSummaryTest(unittest.TestCase):
                        and f"| {group} | {category} |" in line)
             self.assertTrue(row.endswith(f"| {score} |"), row)
 
+    def test_delta_uses_the_same_answered_population_on_both_sides(self):
+        target = self.folder / "initial-planning__litert-gemma-4-e2b__R-gated-e2e.jsonl"
+        records = [make_error(record) if record["caseId"] == "domain_question" else record
+                   for record in read_jsonl(target)]
+        extra = json.loads(json.dumps(records[0]))
+        extra["caseId"] = "model_only_correct"
+        records.append(extra)
+        target.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        result = run(self.folder)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = (self.folder / "SUMMARY.md").read_text(encoding="utf-8").splitlines()
+        row = next(line for line in lines
+                   if line.startswith("| litert/gemma-4-e2b | R-gated-e2e |"))
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+
+        self.assertEqual("+0 (1 errored)", cells[14])
+
+    def test_fully_errored_heldout_run_has_no_numeric_zero_scores(self):
+        target = self.folder / "initial-planning__litert-gemma-4-e2b__R-gated-e2e.jsonl"
+        records = [make_error(record) for record in read_jsonl(target)]
+        target.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        result = run(self.folder)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = (self.folder / "SUMMARY.md").read_text(encoding="utf-8").splitlines()
+        row = next(line for line in lines
+                   if line.startswith("| litert/gemma-4-e2b | R-gated-e2e |"))
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+
+        self.assertEqual("errored 4/4", cells[2])
+        self.assertEqual("errored 2/2", cells[3])
+        self.assertEqual("errored 2/2", cells[4])
+        self.assertFalse(any(cell.startswith("0/") for cell in cells))
+
     def test_heldout_generated_cell_drift_is_rejected(self):
         self.target.write_text(self.summary.replace("2/4 (50%)", "3/4 (75%)", 1), encoding="utf-8")
         result = run("--check", self.folder)
@@ -709,7 +894,7 @@ class FenceSummaryTest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_fence_section_counts_and_exact_final_outcome_delta(self):
-        self.assertIn("| litert/gemma-4-e2b | 2/4 | 0/1 | 0/1 | 1/3 | 0 | 1 | 1 | 0 | 1 |",
+        self.assertIn("| litert/gemma-4-e2b | 2/4 (50%) | 0/1 (0%) | 0/1 (0%) | 1/3 (33%) | 0 | 1 | 1 | 0 | 1 |",
                       self.section)
         self.assertIn("| litert/gemma-4-e2b | 0 | 0 | 1 | 2 | 0 | 1 | 3 | 4 |", self.section)
         delta = self.section.split("| model | case | input | stage before → after |", 1)[1]

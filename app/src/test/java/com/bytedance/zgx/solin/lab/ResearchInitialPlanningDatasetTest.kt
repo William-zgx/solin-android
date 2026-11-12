@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.lab
 
 import com.bytedance.zgx.solin.action.MobileActionPlanner
+import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
@@ -111,6 +112,35 @@ class ResearchInitialPlanningDatasetTest {
     }
 
     @Test
+    fun intentionallyPartialGoldSkipsExecutionValidation() {
+        val case = InitialCase(
+            org.json.JSONObject(
+                """{"id":"partial-gold","source":"research_evaluation_only","input":"x",
+                    |"gold":{"tools":["schedule_reminder"],"args":{}},"expectsTool":true}
+                """.trimMargin()
+            )
+        )
+
+        assertTrue(initialPlanningLabelProblems(listOf(case), registry).isEmpty())
+    }
+
+    @Test
+    fun everyLiteralAlternativeGoldToolMustHaveAValidOption() {
+        val case = InitialCase(
+            org.json.JSONObject(
+                """{"id":"invalid-alternatives","source":"research_evaluation_only","input":"x",
+                    |"gold":{"tools":["web_search","schedule_reminder"],"args":{"query":"x","maxResults":"6"}},
+                    |"expectsTool":true}
+                """.trimMargin()
+            )
+        )
+
+        val problems = initialPlanningLabelProblems(listOf(case), registry)
+
+        assertTrue(problems.any { "gold request fails registry validation" in it })
+    }
+
+    @Test
     fun forbiddenAndGoldAlternativePatternsCannotOverlap() {
         assertTrue(argumentPatternsOverlap("query", "foo|bar", "foo|bar"))
         assertTrue(argumentPatternsOverlap("query", "foo|bar", "foo"))
@@ -208,15 +238,29 @@ class ResearchInitialPlanningDatasetTest {
     }
 
     @Test
-    fun multipleCallsOnOneLineAreNotDeliberateNoTool() {
+    fun malformedAnswerCallIsNotDeliberateNoTool() {
+        listOf("call:answer", "call:answer {} trailing").forEach { raw ->
+            val (answer, kind) = LabScoring.answerFromCallOutput(
+                raw,
+                MobileActionPlanner(toolRegistry = registry),
+                noToolChoice = true
+            )
+
+            assertNotEquals("no_tool_choice", kind)
+            assertTrue(answer.invalid)
+        }
+    }
+
+    @Test
+    fun callPrefixInsideAnswerArgumentsDoesNotRejectNoTool() {
         val (answer, kind) = LabScoring.answerFromCallOutput(
-            "call:answer {} call:web_search {\"query\":\"x\"}",
+            "call:answer {\"note\":\"call:\"}",
             MobileActionPlanner(toolRegistry = registry),
             noToolChoice = true
         )
 
-        assertNotEquals("no_tool_choice", kind)
-        assertTrue(answer.invalid)
+        assertEquals("no_tool_choice", kind)
+        assertFalse(answer.invalid)
     }
 
     @Test
@@ -225,7 +269,7 @@ class ResearchInitialPlanningDatasetTest {
         val score = LabScoring.scoreInitial(
             case,
             LabAnswer("web_search", mapOf("query" to "x", "maxResults" to "6")),
-            schemaValid = false
+            executionValid = false
         )
 
         assertTrue(score.getBoolean("correct"))
@@ -268,5 +312,55 @@ class ResearchInitialPlanningDatasetTest {
         assertFalse(limitedSearch.getBoolean("schemaValid"))
         assertTrue(limitedSearch.getBoolean("toolCorrect"))
         assertFalse(limitedSearch.getBoolean("missedTool"))
+    }
+
+    @Test
+    fun outsideAdvertisedCallIsRejectedBeforeScoring() {
+        val case = InitialPlanningDatasets.research.loadAll().single { it.id == "research_args_002" }
+        val record = InitialPlanningCases.record(
+            suite = "initial-planning",
+            model = "test",
+            mode = "M-topk",
+            case = case,
+            answer = LabAnswer(case.goldTools.single(), case.goldArgs),
+            rawKind = "call",
+            rawPreview = "",
+            registry = registry,
+            advertisedTools = listOf("create_calendar_event")
+        )
+
+        assertTrue(record.getBoolean("outsideAdvertised"))
+        assertTrue(record.getBoolean("schemaValid"))
+        assertFalse(record.getBoolean("executionValid"))
+        assertFalse(record.getBoolean("correct"))
+        assertFalse(record.getBoolean("argsExact"))
+    }
+
+    @Test
+    fun nullPlanAfterModelFailureIsNotDeliberateNoTool() {
+        val plan: AgentPlan? = null
+
+        val (answer, kind) = plan.toLabAnswer(modelCallFailed = true)
+
+        assertTrue(answer.invalid)
+        assertEquals("error", kind)
+    }
+
+    @Test
+    fun validRuleFallbackKeepsItsScoreDespiteModelErrorMetadata() {
+        val case = InitialPlanningDatasets.research.loadAll().single { it.id == "research_args_002" }
+        val record = InitialPlanningCases.record(
+            suite = "initial-planning",
+            model = "test",
+            mode = "R+M",
+            case = case,
+            answer = LabAnswer(case.goldTools.single(), case.goldArgs),
+            rawKind = "use_tool",
+            rawPreview = "",
+            registry = registry
+        ).put("metrics", org.json.JSONObject().put("error", "model unavailable"))
+
+        assertTrue(record.getBoolean("correct"))
+        assertTrue(record.getBoolean("argsExact"))
     }
 }

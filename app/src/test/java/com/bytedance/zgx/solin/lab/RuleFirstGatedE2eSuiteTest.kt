@@ -45,7 +45,7 @@ class RuleFirstGatedE2eSuiteTest {
         val modelRoot = LabEnv.liteRtModelRoot
         Assume.assumeTrue(
             "$mode requires SOLIN_LAB_LITERT_MODEL_ROOT to point to the production .litertlm directory",
-            modelRoot != null,
+            modelRoot != null
         )
         val client = OllamaClient()
         val requested = availableLabModels(client)
@@ -60,7 +60,7 @@ class RuleFirstGatedE2eSuiteTest {
         modelPaths.forEach { (model, path) ->
             Assume.assumeTrue(
                 "$mode requires the production file for $model at $path; check SOLIN_LAB_LITERT_MODEL_ROOT",
-                File(path).isFile,
+                File(path).isFile
             )
         }
         val cases = InitialPlanningCases.benchCases()
@@ -90,8 +90,8 @@ class RuleFirstGatedE2eSuiteTest {
                         .put("top_k", 1)
                         .put("top_p", 0.1)
                         .put("seed", 0)
-                        .put("num_ctx", 8_192),
-                ),
+                        .put("num_ctx", 8_192)
+                )
         )
         models.forEach { model ->
             // The adapter represents the shared engine already loaded for chat, as in SolinAppContainer.
@@ -103,16 +103,16 @@ class RuleFirstGatedE2eSuiteTest {
     private fun runModel(model: String, modelPath: String, cases: List<InitialCase>, mode: String) {
         val engine = LiteRtShimLocalEngine(
             loadedModelPath = modelPath,
-            gateReplyTransform = if (mode == FENCE_MODE) ::unwrapSingleJsonFence else null,
+            gateReplyTransform = if (mode == FENCE_MODE) ::unwrapSingleJsonFence else null
         )
         val fallback = DedicatedLiteRtEngine(
             Files.createTempDirectory("rule-first-gated-e2e").toFile(),
-            FakeLiteRtFactory(),
+            FakeLiteRtFactory()
         )
         val runtime = HybridActionPlanningRuntime(
             fallbackEngine = fallback,
             toolRegistry = registry,
-            sharedEngine = engine,
+            sharedEngine = engine
         )
         val traceStore = InMemoryAgentTraceStore(clockMillis = { FIXED_NOW.toEpochMilli() })
         val planner = InitialToolPlanner(
@@ -120,11 +120,11 @@ class RuleFirstGatedE2eSuiteTest {
             skillRuntime = BuiltInSkillRuntime(
                 clockMillis = { FIXED_NOW.toEpochMilli() },
                 zoneId = ZoneOffset.UTC,
-                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap },
+                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap }
             ),
             safetyPolicy = SafetyPolicy(),
             actionPlanningRuntime = runtime,
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val profile = ModelCatalog.recommendedProfiles().first { profile ->
             profile.supportsMobileActionPlanning && profile.byteSize == File(modelPath).length()
@@ -146,8 +146,8 @@ class RuleFirstGatedE2eSuiteTest {
                             initialPlanningMode = InitialPlanningMode.LocalModelFirst,
                             localPlanningStrategy = LocalPlanningStrategy.RuleFirstGatedModel,
                             localPlanningModelPath = modelPath,
-                            initialRouteCancellation = LocalOneShotCancellation(),
-                        ),
+                            initialRouteCancellation = LocalOneShotCancellation()
+                        )
                     )
                     val wallMs = (System.nanoTime() - started) / 1_000_000
                     val calls = engine.calls
@@ -168,13 +168,13 @@ class RuleFirstGatedE2eSuiteTest {
                     val outcome = reasons.firstOrNull { reason ->
                         reason.startsWith("local_model_") && !reason.startsWith(GATE_REASON_PREFIX)
                     }
-                    val (answer, kind) = if (firstError != null) {
-                        LabAnswer.INVALID to "error"
-                    } else {
-                        plan.toLabAnswer()
-                    }
+                    val (answer, kind) = plan.toLabAnswer(modelCallFailed = firstError != null)
                     val raw = proposalCall?.rawText ?: gateCall?.rawText.orEmpty()
-                    val record = InitialPlanningCases.record(SUITE, model, mode, case, answer, kind, raw, registry)
+                    val retrieved = reasons.retrievedTools()
+                    val advertised = if (retrieved.isNotEmpty()) retrieved + LOCAL_MODEL_NO_TOOL_CHOICE else null
+                    val record = InitialPlanningCases.record(
+                        SUITE, model, mode, case, answer, kind, raw, registry, advertised
+                    )
                         .put("decisionStage", stage)
                         .put("planSource", plan.planSource())
                         .put("gateReason", gateReason ?: JSONObject.NULL)
@@ -184,7 +184,7 @@ class RuleFirstGatedE2eSuiteTest {
                         .put("gateFenceUnwrapped", gateUnwrappedText != null)
                         .put("proposalOutcome", outcome ?: JSONObject.NULL)
                         .put("traceReasons", JSONArray(reasons))
-                        .put("retrievedTools", reasons.retrievedTools().toJsonStringArray())
+                        .put("retrievedTools", retrieved.toJsonStringArray())
                         .put("modelCalls", calls.size)
                         .put("modelCallsCached", 0)
                         .put("wallMs", wallMs)
@@ -199,39 +199,17 @@ class RuleFirstGatedE2eSuiteTest {
                                         .put("maxOutputTokens", call.request.maxOutputTokens)
                                         .put(
                                             "unavailableReason",
-                                            (call.result as? LocalOneShotResult.Unavailable)?.reason?.name ?: JSONObject.NULL,
+                                            (call.result as? LocalOneShotResult.Unavailable)?.reason?.name ?: JSONObject.NULL
                                         )
                                         .put("cached", false)
                                         .put("metrics", call.metrics)
-                                },
-                            ),
+                                }
+                            )
                         )
                     if (gateUnwrappedText != null) {
                         record.put("gateUnwrappedPreview", gateUnwrappedText.previewForLab())
                     }
-                    if (firstError != null) {
-                        // Decision L1: an errored call produced no answer and is never a correct refusal.
-                        record.put("correct", false)
-                            .put("toolCorrect", false)
-                            .put("argsExact", false)
-                            .put("falsePositive", false)
-                    }
-                    addFalsePositiveSplit(record, registry)
-                    val retrieved = reasons.retrievedTools()
-                    if (retrieved.isNotEmpty()) {
-                        record.put("advertisedToolCount", retrieved.size + 1)
-                            .put("advertisedTools", (retrieved + LOCAL_MODEL_NO_TOOL_CHOICE).toJsonStringArray())
-                            .put("answerOffered", true)
-                            .put(
-                                "outsideAdvertised",
-                                answer.tool != null && answer.tool !in retrieved && answer.tool != LOCAL_MODEL_NO_TOOL_CHOICE,
-                            )
-                        if (case.goldTools.isNotEmpty()) {
-                            record.put("retrieverHit", case.goldTools.any { it in retrieved })
-                        }
-                    } else {
-                        record.put("answerOffered", false)
-                    }
+                    record.put("answerOffered", advertised != null)
                     if (record.getBoolean("correct")) correct++
                     writer.write(record)
                 }
@@ -247,55 +225,31 @@ class RuleFirstGatedE2eSuiteTest {
         plan: AgentPlan?,
         callCount: Int,
         gateOpen: Boolean,
-        reasons: List<String>,
-    ): String =
-        when {
-            callCount == 0 && plan != null -> "rule"
-            callCount == 0 && case.input.startsWithActionNegation() -> "negation guard"
-            callCount == 0 -> "rule"
-            !gateOpen -> "gate closed"
-            plan is AgentPlan.UseTool && plan.plannedByModel -> "gate open → accepted"
-            "local_model_chose_no_tool" in reasons -> "gate open → answer"
-            else -> "gate open → failed"
-        }
+        reasons: List<String>
+    ): String = when {
+        callCount == 0 && plan != null -> "rule"
+        callCount == 0 && case.input.startsWithActionNegation() -> "negation guard"
+        callCount == 0 -> "rule"
+        !gateOpen -> "gate closed"
+        plan is AgentPlan.UseTool && plan.plannedByModel -> "gate open → accepted"
+        "local_model_chose_no_tool" in reasons -> "gate open → answer"
+        else -> "gate open → failed"
+    }
 
     private fun gateJsonValidity(call: LiteRtShimLocalEngine.ObservedCall?, reason: String?): Any {
         if (call == null || call.result !is LocalOneShotResult.Generated) return JSONObject.NULL
         return reason != "local_model_action_gate_invalid_output"
     }
 
-    private fun aggregateMetrics(wallMs: Long, error: String?): JSONObject =
-        JSONObject()
-            .put("wallMs", wallMs)
-            .put("totalMs", wallMs)
-            .put("promptTokens", 0)
-            .put("promptCachedTokens", 0)
-            .put("evalTokens", 0)
-            .put("error", error ?: JSONObject.NULL)
+    private fun aggregateMetrics(wallMs: Long, error: String?): JSONObject = JSONObject()
+        .put("wallMs", wallMs)
+        .put("totalMs", wallMs)
+        .put("promptTokens", 0)
+        .put("promptCachedTokens", 0)
+        .put("evalTokens", 0)
+        .put("error", error ?: JSONObject.NULL)
 
-    private fun List<String>.retrievedTools(): List<String> =
-        filter { it.startsWith("retrieved=") }.map { it.removePrefix("retrieved=") }
-
-    private fun AgentPlan?.toLabAnswer(): Pair<LabAnswer, String> =
-        when (this) {
-            null -> LabAnswer.STOP to "no_tool"
-            is AgentPlan.UseTool -> LabAnswer(request.toolName, request.arguments) to "use_tool"
-            is AgentPlan.RejectedTool -> LabAnswer(result.data["toolName"], invalid = true) to "rejected_tool"
-            is AgentPlan.MissingModel -> LabAnswer.INVALID to "missing_model"
-            is AgentPlan.Answer -> LabAnswer.STOP to "answer"
-        }
-
-    private fun AgentPlan?.planSource(): String =
-        when (this) {
-            is AgentPlan.UseTool -> when {
-                skillPlan != null && fallbackReason == "skill-first" -> "skill"
-                plannedByModel -> "model"
-                else -> "rules"
-            }
-            is AgentPlan.RejectedTool -> "rejected"
-            is AgentPlan.MissingModel -> "missing_model"
-            else -> "none"
-        }
+    private fun List<String>.retrievedTools(): List<String> = filter { it.startsWith("retrieved=") }.map { it.removePrefix("retrieved=") }
 
     private companion object {
         const val SUITE = "initial-planning"
@@ -306,7 +260,7 @@ class RuleFirstGatedE2eSuiteTest {
         val FIXED_NOW: Instant = Instant.parse("2026-06-14T02:00:00Z")
         val MODEL_FILE_NAMES = mapOf(
             "litert/gemma-4-e2b" to "gemma-4-E2B-it.litertlm",
-            "litert/gemma-4-e4b" to "gemma-4-E4B-it.litertlm",
+            "litert/gemma-4-e4b" to "gemma-4-E4B-it.litertlm"
         )
     }
 }

@@ -150,6 +150,29 @@ def errored(record):
     return any(m.get("error") for m in metrics) or record.get("rawKind") in ("error", "missing_model")
 
 
+def has_scorable_answer(record):
+    """Whether the final planner outcome exists despite any earlier model-call failure.
+
+    Call failures stay visible through [errored] and run annotations. A deterministic R+M/rule-first
+    fallback still returns a final plan, and Suite A may accept a later prompt after an earlier error;
+    those outcomes are scored. A bare transport error or missing model has no final answer.
+    """
+    if not errored(record):
+        return True
+    if record.get("finalSource") is not None:
+        return record["finalSource"] in ("full_prompt", "minimal_prompt", "corrective_prompt")
+    # B/C producers write these only for an actual final planner outcome. Missing rawKind (Suites
+    # D/E) or a transport-shaped text/call record is not affirmative evidence of a fallback plan.
+    return record.get("rawKind") in ("use_tool", "no_tool", "answer", "rejected_tool")
+
+
+def first_call_errored(record):
+    """Whether Suite A's first call failed, independently of later corrective calls."""
+    calls = record.get("calls") or []
+    first_error = bool(calls and (calls[0].get("metrics") or {}).get("error"))
+    return first_error or record.get("rawKind") in ("error", "missing_model")
+
+
 # Per-run error counts, computed once from the loaded records (Decision L1). Every renderer that
 # prints a number derived from a run reads it through [run_cell]; nothing else may format one.
 # key = (suite, model, mode) -> (records in the run, records whose model call failed)
@@ -197,23 +220,24 @@ def run_cell(key, text):
 
 
 def score_cell(key, rs, hits, total=None):
-    """`k/n` for the answered subset [rs] of a run, formatted through that run's error count.
+    """Format an answered subset without hiding valid fallback outcomes.
 
-    [key] is the run the cell belongs to (Decision L1), so a cell built from a subset (tool-gold
-    cases, one family) still carries the whole run's error count. [total] is the size of the cell's
-    population when [rs] has already had errored cases filtered out of it; it defaults to `len(rs)`.
-
-    A fully errored run has no score in any cell: the cell reads `errored N/N`, where N is the
-    population the cell is about, not the run size.
+    [rs] contains only scorable final answers. [total] is the unfiltered population, used when no
+    answer survives in a fully errored run. Empty subgroups remain `n/a`, with the run annotation.
     """
     run_n, run_e = RUN_ERRORS.get(key, (0, 0))
     population = len(rs) if total is None else total
-    if run_e and run_e == run_n:
-        population = population if population > 0 else run_n
-        return record_cell([key], f"errored {population}/{population}")
+    fully_errored = run_e and run_e == run_n
     if not rs:
-        return "n/a" if not run_e else run_cell(key, "n/a")
-    return run_cell(key, frac(hits, len(rs)))
+        if run_e and population > 0:
+            text = f"errored {population}/{population}"
+            if not fully_errored:
+                text += run_annotation(key)
+            return record_cell([key], text)
+        if run_e:
+            return record_cell([key], "n/a" + run_annotation(key))
+        return "n/a"
+    return record_cell([key], frac(hits, len(rs)) + run_annotation(key))
 
 
 def labelled(key, text):
@@ -242,7 +266,8 @@ def cell_for_runs(keys, text):
     if not dirty:
         return record_cell(keys, str(text))
     if len(dirty) == 1:
-        return run_cell(dirty[0], text)
+        # A composite can remain computable from its other contributor or a valid fallback plan.
+        return record_cell(keys, str(text) + run_annotation(dirty[0]))
     parts = ", ".join(f"{RUN_ERRORS[key][1]} errored in {key[2]}" for key in dirty)
     return record_cell(keys, f"{text} ({parts})")
 
@@ -370,7 +395,7 @@ def invalid_reason(record):
 
 def initial_failure(record):
     """Failure class of one Suites B/C record, or None when it is correct."""
-    if errored(record):
+    if not has_scorable_answer(record):
         return "error"
     if record["correct"]:
         return None
@@ -414,7 +439,8 @@ def lenient_answer(raw):
         return name, None
     if not isinstance(parsed, dict):
         return name, None
-    return name, {k: ("true" if v is True else "false" if v is False else str(v)) for k, v in parsed.items()}
+    return name, {k: ("true" if v is True else "false" if v is False else str(v))
+                  for k, v in parsed.items() if v is not None}
 
 
 def arg_value_matches(key, expected, actual):
@@ -471,7 +497,7 @@ def lenient_scores(record):
 
 
 def observation_failure(record):
-    if errored(record):
+    if not has_scorable_answer(record):
         return "error"
     if record["finalCorrect"]:
         return None
@@ -489,10 +515,10 @@ def observation_failure(record):
 # ---- Headline ------------------------------------------------------------------------------------
 
 
-def score_of(suite, rs):
-    if suite == SUITE_A:
-        return sum(r["finalCorrect"] and not errored(r) for r in rs), len(rs)
-    return sum(r["correct"] and not errored(r) for r in rs), len(rs)
+def answered_score_cell(key, rs, field):
+    """Score one boolean field over exactly the records with a final answer."""
+    answered = [r for r in rs if has_scorable_answer(r)]
+    return score_cell(key, answered, sum(bool(r[field]) for r in answered), total=len(rs))
 
 
 def headline_table(records, models, manifest, columns, cell):
@@ -550,29 +576,26 @@ def headline(records, models, manifest, out):
     initial = present_columns(records, models, manifest, (SUITE_B, SUITE_C))
     if initial:
         out.append("Suites B and C, requests that need a tool: right first tool with every pinned argument.\n")
-        out.append(headline_table(records, models, manifest, initial, lambda k, rs: score_cell(
-            k,
-            [r for r in rs if r["expectsTool"]],
-            sum(r["correct"] and not errored(r) for r in rs if r["expectsTool"]),
-            sum(r["argsExact"] and not errored(r) for r in rs if r["expectsTool"]))))
+        out.append(headline_table(records, models, manifest, initial,
+                                  lambda k, rs: answered_score_cell(
+                                      k, [r for r in rs if r["expectsTool"]], "correct")))
         out.append("")
         out.append("Suites B and C, requests that need no tool (chat, questions, explicit negations): nothing "
                    "executed. An invalid call executes nothing and counts as correct here.\n")
-        out.append(headline_table(records, models, manifest, initial, lambda k, rs: score_cell(
-            k,
-            [r for r in rs if not r["expectsTool"]],
-            sum(r["correct"] and not errored(r) for r in rs if not r["expectsTool"]))))
+        out.append(headline_table(records, models, manifest, initial,
+                                  lambda k, rs: answered_score_cell(
+                                      k, [r for r in rs if not r["expectsTool"]], "correct")))
         out.append("")
         out.append("Suites B and C, requests measured per model (no shared population is inferred).\n")
         out.append(headline_table(records, models, manifest, initial,
-                                  lambda k, rs: score_cell(k, rs, score_of(k[0], rs)[0])))
+                                  lambda k, rs: answered_score_cell(k, rs, "correct")))
         out.append("")
     other = present_columns(records, models, manifest, (SUITE_A, SUITE_D))
     if other:
         out.append("Suite A (final step after the replanner guards, 46 screens) and Suite D (placement on 26 "
                    "routing cases):\n")
         out.append(headline_table(records, models, manifest, other,
-                                  lambda k, rs: score_cell(k, rs, score_of(k[0], rs)[0])))
+                                  lambda k, rs: answered_score_cell(k, rs, "finalCorrect" if k[0] == SUITE_A else "correct")))
         out.append("")
     out.append("`rules` is the production rule path with no model, so it has no host and its row is repeated "
                "under each host as the same reference. `-` means not run. `-fix` modes are the lab-only "
@@ -601,10 +624,10 @@ def suite_a(records, models, out):
             key[1],
             key[2],
             n,
-            run_cell(key, frac(sum(r["rawCorrect"] and not errored(r) for r in rs), n)),
-            run_cell(key, frac(sum(r["finalCorrect"] and not errored(r) for r in rs), n)),
-            run_cell(key, frac(sum(r["finalCorrect"] and not errored(r) for r in action_cases), len(action_cases))),
-            run_cell(key, frac(sum(r["finalCorrect"] and not errored(r) for r in stop_cases), len(stop_cases))),
+            run_cell(key, frac(sum(r["rawCorrect"] and not first_call_errored(r) for r in rs), n)),
+            answered_score_cell(key, rs, "finalCorrect"),
+            answered_score_cell(key, action_cases, "finalCorrect"),
+            answered_score_cell(key, stop_cases, "finalCorrect"),
             run_cell(key, pct(len(parse_fail), len(attempted))),
             run_cell(key, f"{statistics.mean(r['modelCalls'] for r in rs):.2f}"),
         ])
@@ -630,15 +653,14 @@ def suite_a(records, models, out):
         for r in records[key]:
             by_cat[r["category"]].append(r)
         rows.append([key[1], key[2]] + [
-            run_cell(key, f"{sum(r['finalCorrect'] and not errored(r) for r in by_cat[c])}/{len(by_cat[c])}")
-            if by_cat[c] else "-"
+            answered_score_cell(key, by_cat[c], "finalCorrect") if by_cat[c] else "-"
             for c in categories
         ])
     out.append("Final correct by screen category:\n")
     out.append(table(["model", "mode"] + categories, rows))
     out.append("")
 
-    classes = ["stopped when an action was expected", "acted when the gold is stop", "wrong tool",
+    classes = ["error", "stopped when an action was expected", "acted when the gold is stop", "wrong tool",
                "right tool, wrong target or text"]
     rows = []
     for key in keys:
@@ -709,23 +731,20 @@ def initial_rows(keys, records, native):
         tool_cases = [r for r in rs if r["expectsTool"]]
         none_cases = [r for r in rs if not r["expectsTool"]]
         bad = [r for r in rs if errored(r)]
-        # An errored case answered nothing. It is never "correct": say so instead of letting a
-        # refusal-shaped record inflate the score (the 270M overflow case looked like 51/151 before).
-        # The fully errored case also names the cause, which the engine's stderr carries.
-        overall = score_cell(key, rs, sum(r["correct"] and not errored(r) for r in rs))
-        if bad and len(bad) == len(rs):
-            overall = f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})"
+        answered_records = [r for r in rs if has_scorable_answer(r)]
+        if bad and not answered_records:
+            overall = record_cell([key], f"errored {len(rs)}/{len(rs)} ({error_reason(bad[0])})")
+        else:
+            overall = score_cell(key, answered_records, sum(r["correct"] for r in answered_records), total=len(rs))
         attempted = [r for r in rs
                      if r["rawKind"] not in ("text", "blank", "no_tool", "no_tool_choice", "answer", "error")]
-        if native:
-            parsed = [r for r in attempted if r["rawKind"] in ("call", "multi_call")]
-        elif key[2].startswith("M-"):
+        if native or key[2].startswith("M-"):
             parsed = [r for r in attempted if r["rawKind"] == "call"]
         else:
             attempted, parsed = [], []
         schema = [r for r in rs if r.get("schemaValid") is not None]
-        answered_tool = [r for r in tool_cases if not errored(r)]
-        answered_none = [r for r in none_cases if not errored(r)]
+        answered_tool = [r for r in tool_cases if has_scorable_answer(r)]
+        answered_none = [r for r in none_cases if has_scorable_answer(r)]
         rows.append([
             key[1],
             key[2],
@@ -737,7 +756,7 @@ def initial_rows(keys, records, native):
                        total=len(tool_cases)),
             score_cell(key, answered_none, sum(r["falsePositive"] for r in answered_none),
                        total=len(none_cases)),
-            pct(len(parsed), len(attempted)) if attempted else run_cell(key, "-"),
+            run_cell(key, frac(len(parsed), len(attempted)) if attempted else "-"),
             run_cell(key, pct(sum(r["schemaValid"] for r in schema), len(schema))),
         ])
     return rows
@@ -765,7 +784,7 @@ def suite_b(records, models, out):
         if key[2] not in ("M-topk", "M-topk-fix", "M-topk-fix-lmf"):
             continue
         rs = [r for r in records[key] if r["expectsTool"]]
-        answered = [r for r in rs if not errored(r)]
+        answered = [r for r in rs if has_scorable_answer(r)]
         hits = [r for r in answered if r.get("retrieverHit")]
         outside = sum(1 for r in records[key] if r.get("outsideAdvertised"))
         topk_rows.append([key[1], key[2], run_cell(key, frac(len(hits), len(answered))),
@@ -782,7 +801,7 @@ def suite_b(records, models, out):
         if not key[2].startswith("M-"):
             continue
         rs = [r for r in records[key] if r["expectsTool"]]
-        answered = [r for r in rs if not errored(r)]
+        answered = [r for r in rs if has_scorable_answer(r)]
         scores = [lenient_scores(r) for r in answered]
         lenient_rows.append([key[1], key[2],
                              score_cell(key, answered, sum(r["toolCorrect"] for r in answered), total=len(rs)),
@@ -840,8 +859,7 @@ def initial_categories(records, models, out):
         for r in records[key]:
             by[family(r)].append(r)
         rows.append([SUITE_LETTER[key[0]], key[1], key[2]] + [
-            score_cell(key, [x for x in by[f] if not errored(x)],
-                       sum(x["correct"] for x in by[f] if not errored(x)), total=len(by[f]))
+            answered_score_cell(key, by[f], "correct")
             if by[f] else run_cell(key, "-") for f in families
         ])
     out.append(table(header, rows))
@@ -888,9 +906,10 @@ def rm_delta(records, models, out):
         rm = records.get((SUITE_B, model, "R+M"))
         if not rm:
             continue
-        gains = [r["caseId"] for r in rm if r["correct"] and not errored(r) and not rules[r["caseId"]]["correct"]]
-        losses = [r["caseId"] for r in rm
-                  if not r["correct"] and not errored(r) and rules[r["caseId"]]["correct"]]
+        gains = [r["caseId"] for r in rm if r["caseId"] in rules and r["correct"]
+                 and has_scorable_answer(r) and not rules[r["caseId"]]["correct"]]
+        losses = [r["caseId"] for r in rm if r["caseId"] in rules and not r["correct"]
+                  and has_scorable_answer(r) and rules[r["caseId"]]["correct"]]
         model_used = sum(1 for r in rm if r.get("planSource") == "model")
         model_called = sum(1 for r in rm if r.get("modelCalls"))
         key = (SUITE_B, model, "R+M")
@@ -919,11 +938,13 @@ def model_vs_rules(records, models, suite_modes, out):
                 continue
             by_id = {r["caseId"]: r for r in rs}
             key = (suite, model, mode)
-            recovered = [case_id for case_id in misses if by_id.get(case_id, {}).get("correct") and not errored(by_id[case_id])]
-            # An errored call produced no answer, so it cannot "break" a case R got right.
+            covered_misses = [case_id for case_id in misses if case_id in by_id]
+            recovered = [case_id for case_id in covered_misses
+                         if by_id[case_id].get("correct") and has_scorable_answer(by_id[case_id])]
+            # Only a scorable final answer can "break" a case R got right.
             broken = [r["caseId"] for r in rs
-                      if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
-            rows.append([model, mode, run_cell(key, frac(len(recovered), len(misses))),
+                      if not r["correct"] and has_scorable_answer(r) and rules.get(r["caseId"], {}).get("correct")]
+            rows.append([model, mode, run_cell(key, frac(len(recovered), len(covered_misses))),
                          run_cell(key, len(broken)),
                          ", ".join(recovered[:6]) + (" ..." if len(recovered) > 6 else "")])
     if rows:
@@ -982,11 +1003,11 @@ def suite_d(records, models, out):
         return
     rows = []
     for key in keys:
-        rs = [r for r in records[key] if not errored(r)]
-        if not rs:
-            rows.append([key[1], key[2]] + ["errored %d/%d" % (len(records[key]), len(records[key]))] * 7)
-            continue
-        n = len(rs)
+        all_rs = records[key]
+        rs = [r for r in all_rs if has_scorable_answer(r)]
+        local_all = [r for r in all_rs if r["gold"] == "local"]
+        remote_all = [r for r in all_rs if r["gold"] == "remote"]
+        confident_all = [r for r in all_rs if r.get("confident")]
         local = [r for r in rs if r["gold"] == "local"]
         remote = [r for r in rs if r["gold"] == "remote"]
         confident = [r for r in rs if r.get("confident")]
@@ -994,13 +1015,14 @@ def suite_d(records, models, out):
         rows.append([
             key[1],
             key[2],
-            score_cell(key, rs, sum(r["valid"] for r in rs)),
-            score_cell(key, rs, sum(r["correct"] and not errored(r) for r in rs)),
-            run_cell(key, frac(sum(r["correct"] and not errored(r) for r in local), len(local))),
-            run_cell(key, frac(sum(r["correct"] and not errored(r) for r in remote), len(remote))),
-            "-" if is_rule else run_cell(key, frac(len(confident), n)),
-            "-" if is_rule else run_cell(key, frac(sum(r["correct"] and not errored(r) for r in confident), len(confident))),
-            score_cell(key, rs, sum(r["effectiveCorrect"] for r in rs)),
+            score_cell(key, rs, sum(r["valid"] for r in rs), total=len(all_rs)),
+            score_cell(key, rs, sum(r["correct"] for r in rs), total=len(all_rs)),
+            score_cell(key, local, sum(r["correct"] for r in local), total=len(local_all)),
+            score_cell(key, remote, sum(r["correct"] for r in remote), total=len(remote_all)),
+            "-" if is_rule else score_cell(key, rs, len(confident), total=len(all_rs)),
+            "-" if is_rule else score_cell(key, confident, sum(r["correct"] for r in confident),
+                                           total=len(confident_all)),
+            score_cell(key, rs, sum(r["effectiveCorrect"] for r in rs), total=len(all_rs)),
         ])
     out.append(table(
         ["model", "mode", "valid", "accuracy", "local gold", "remote gold", "coverage at >= 0.9",
@@ -1095,7 +1117,7 @@ def failure_examples(records, models, out):
                f"outputs are whitespace-collapsed and cut to {PREVIEW_CHARS} characters.\n")
     out.append("## Suite A: wrong final step\n")
     for key in keys_for(SUITE_A, records, models):
-        wrong = [r for r in records[key] if not r["finalCorrect"]]
+        wrong = [r for r in records[key] if not has_scorable_answer(r) or not r["finalCorrect"]]
         if not wrong:
             continue
         groups = defaultdict(list)
@@ -1112,7 +1134,7 @@ def failure_examples(records, models, out):
     for suite, title in ((SUITE_B, "Suite B"), (SUITE_C, "Suite C")):
         out.append(f"## {title}: wrong first tool\n")
         for key in keys_for(suite, records, models):
-            wrong = [r for r in records[key] if errored(r) or not r["correct"]]
+            wrong = [r for r in records[key] if not has_scorable_answer(r) or not r["correct"]]
             if not wrong:
                 continue
             groups = defaultdict(list)
@@ -1146,16 +1168,19 @@ def suite_e(records, models, out):
     if not keys:
         out.append("No Suite E results.\n")
         return
+    header = ["model", "n", "valid JSON", "gate decision correct", "gate precision (true/false open)",
+              "recall on action cases", "no-action cases kept closed", "rule-gap n",
+              "correct on rule-gap cases", "gate opens on tool cases in the gap"]
     rules = {r["caseId"]: r for r in records.get((SUITE_B, "rules", "R"), [])}
     gap = {case_id for case_id, r in rules.items() if r["rawKind"] != "use_tool"} if rules else set()
     rows = []
     for key in keys:
         all_rs = records[key]
-        rs = [r for r in all_rs if not errored(r)]
-        if not rs:
-            rows.append([key[1], len(all_rs)] + [f"errored {len(all_rs)}/{len(all_rs)}"] * 7)
-            continue
-        n = len(rs)
+        rs = [r for r in all_rs if has_scorable_answer(r)]
+        acted_all = [r for r in all_rs if r["expectsAction"]]
+        idle_all = [r for r in all_rs if not r["expectsAction"]]
+        gap_all = [r for r in all_rs if r["caseId"] in gap] if gap else []
+        gap_acted_all = [r for r in gap_all if r["expectsAction"]]
         valid = [r for r in rs if r.get("valid")]
         acted = [r for r in rs if r["expectsAction"]]
         idle = [r for r in rs if not r["expectsAction"]]
@@ -1167,24 +1192,21 @@ def suite_e(records, models, out):
         gap_acted = [r for r in gap_rs if r["expectsAction"]]
         rows.append([
             key[1],
-            n,
-            score_cell(key, rs, len(valid)),
-            score_cell(key, rs, sum(1 for r in rs if r.get("gatedCorrect"))),
-            run_cell(key, f"{precision} ({pct(true_pos, true_pos + false_pos)})"),
-            run_cell(key, frac(true_pos, len(acted))),
-            run_cell(key, frac(sum(1 for r in idle if not r.get("gateOpen")), len(idle))),
-            run_cell(key, len(gap_rs)),
-            score_cell(key, gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect"))) if gap_rs else "-",
-            run_cell(key, frac(sum(1 for r in gap_acted if r.get("gateOpen")), len(gap_acted)))
-            if gap_acted else "-",
+            len(rs) if rs else len(all_rs),
+            score_cell(key, rs, len(valid), total=len(all_rs)),
+            score_cell(key, rs, sum(1 for r in rs if r.get("gatedCorrect")), total=len(all_rs)),
+            run_cell(key, f"{precision} ({pct(true_pos, true_pos + false_pos)})") if rs
+            else score_cell(key, [], 0, total=len(all_rs)),
+            score_cell(key, acted, true_pos, total=len(acted_all)),
+            score_cell(key, idle, sum(1 for r in idle if not r.get("gateOpen")), total=len(idle_all)),
+            run_cell(key, len(gap_rs)) if rs else score_cell(key, [], 0, total=len(gap_all)),
+            score_cell(key, gap_rs, sum(1 for r in gap_rs if r.get("gatedCorrect")), total=len(gap_all))
+            if gap_all else "-",
+            score_cell(key, gap_acted, sum(1 for r in gap_acted if r.get("gateOpen")), total=len(gap_acted_all))
+            if gap_acted_all else "-",
         ])
     population = rule_gap_population(records)
-    out.append(table(
-        ["model", "n", "valid JSON", "gate decision correct", "gate precision (true/false open)",
-         "recall on action cases", "no-action cases kept closed", "rule-gap n", "correct on rule-gap cases",
-         "gate opens on tool cases in the gap"],
-        rows,
-    ))
+    out.append(table(header, rows))
     out.append("")
     if population is None:
         out.append("No Suite B rules baseline is available, so gap-specific metrics are not shown.\n")
@@ -1258,18 +1280,18 @@ def composite_r_then_model(records, models, out):
                     continue
                 # Only an answered call can override R; an errored one leaves R's plan in place,
                 # which is exactly what a fail-closed hand-off does.
-                answered = [r for r in filled if not errored(r)]
+                answered = [r for r in filled if has_scorable_answer(r)]
                 fixed = [r for r in answered if r["correct"] and not base[r["caseId"]]["correct"]]
                 broken = [r for r in answered if not r["correct"] and base[r["caseId"]]["correct"]]
                 total = sum(base[c]["correct"] for c in base) - sum(base[c]["correct"] for c in gap)
                 total += sum(r["correct"] for r in answered)
-                total += sum(base[r["caseId"]]["correct"] for r in filled if errored(r))
+                total += sum(base[r["caseId"]]["correct"] for r in filled if not has_scorable_answer(r))
                 total += sum(base[c]["correct"] for c in gap if c not in by_id)
                 key = (suite, model, mode)
                 rows.append([
                     SUITE_LETTER[suite], model, mode,
-                    run_cell(key, f"{total}/{len(base)}"),
-                    run_cell(key, len(fixed)), run_cell(key, len(broken)),
+                    cell_for_runs([key], f"{total}/{len(base)}"),
+                    cell_for_runs([key], len(fixed)), cell_for_runs([key], len(broken)),
                     run_cell(key, sum(1 for r in filled if errored(r))),
                     ", ".join(r["caseId"] for r in fixed[:5]) + (" ..." if len(fixed) > 5 else ""),
                 ])
@@ -1466,7 +1488,7 @@ def gated_e2e(records, models, out, initial_info=None):
         valid = sum(1 for r in rs if r.get("gateRawJsonValid") is True)
         invalid = sum(1 for r in rs if r.get("gateRawJsonValid") is False)
         unavailable = sum(1 for r in rs if r.get("modelCalls") and r.get("gateRawJsonValid") is None)
-        rows.append([key[1], key[2], run_cell(key, f"{sum(r['correct'] and not errored(r) for r in rs)}/{len(rs)}")]
+        rows.append([key[1], key[2], answered_score_cell(key, rs, "correct")]
                     + [run_cell(key, counter.get(stage, 0)) for stage in stages]
                     + [run_cell(key, valid), run_cell(key, invalid), run_cell(key, unavailable)])
     out.append(table(["model", "mode", "overall correct"] + stages
@@ -1479,11 +1501,11 @@ def gated_e2e(records, models, out, initial_info=None):
         rows.append([
             key[1], key[2],
             run_cell(key, len(no_tool_rs)),
-            run_cell(key, sum(1 for r in rs if r.get("falsePositive"))),
-            run_cell(key, sum(1 for r in rs if r.get("fpOrchestrationOnly"))),
-            run_cell(key, sum(1 for r in rs if r.get("fpDeviceNetworkExternal"))),
-            run_cell(key, sum(1 for r in rs if r.get("fpPrivateRead"))),
-            run_cell(key, sum(1 for r in rs if r.get("fpNetworkEgress"))),
+            run_cell(key, sum(1 for r in rs if r.get("falsePositive") and has_scorable_answer(r))),
+            run_cell(key, sum(1 for r in rs if r.get("fpOrchestrationOnly") and has_scorable_answer(r))),
+            run_cell(key, sum(1 for r in rs if r.get("fpDeviceNetworkExternal") and has_scorable_answer(r))),
+            run_cell(key, sum(1 for r in rs if r.get("fpPrivateRead") and has_scorable_answer(r))),
+            run_cell(key, sum(1 for r in rs if r.get("fpNetworkEgress") and has_scorable_answer(r))),
         ])
     out.append("No-tool false positives in the final accepted plan (per-model denominators). "
                "Orchestration-only choices have no device, network or external-app effect; private reads and network egress "
@@ -1531,17 +1553,18 @@ def gated_e2e_fence(records, models, out):
         baseline_key = (SUITE_B, key[1], baseline_mode)
         tool_rs = [r for r in rs if r.get("expectsTool")]
         no_tool_rs = [r for r in rs if not r.get("expectsTool")]
+        answered_none = [r for r in no_tool_rs if has_scorable_answer(r)]
         score_rows.append([
             key[1],
-            run_cell(key, f"{sum(bool(r['correct']) and not errored(r) for r in rs)}/{len(rs)}"),
-            run_cell(key, f"{sum(bool(r['toolCorrect']) and not errored(r) for r in tool_rs)}/{len(tool_rs)}"),
-            run_cell(key, f"{sum(bool(r['argsExact']) and not errored(r) for r in tool_rs)}/{len(tool_rs)}"),
-            run_cell(key, f"{sum(bool(r.get('falsePositive')) and not errored(r) for r in no_tool_rs)}/{len(no_tool_rs)}"),
-            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) and not errored(r) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) and not errored(r) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("privacyRelevant")) and not errored(r) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("fpPrivateRead")) and not errored(r) for r in no_tool_rs)),
-            run_cell(key, sum(bool(r.get("fpNetworkEgress")) and not errored(r) for r in no_tool_rs)),
+            answered_score_cell(key, rs, "correct"),
+            answered_score_cell(key, tool_rs, "toolCorrect"),
+            answered_score_cell(key, tool_rs, "argsExact"),
+            answered_score_cell(key, no_tool_rs, "falsePositive"),
+            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) for r in answered_none)),
+            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) for r in answered_none)),
+            run_cell(key, sum(bool(r.get("privacyRelevant")) for r in answered_none)),
+            run_cell(key, sum(bool(r.get("fpPrivateRead")) for r in answered_none)),
+            run_cell(key, sum(bool(r.get("fpNetworkEgress")) for r in answered_none)),
         ])
         counter = Counter(r.get("decisionStage") for r in rs)
         stage_rows.append(
@@ -1661,11 +1684,11 @@ def gated_e2e_comparison(records, e2e_keys, out, initial_info=None):
                 estimate[cid] = proposal
             else:
                 estimate[cid] = closed_answer(rule)
-        estimate_total = sum(bool(r["correct"]) and not errored(r) for r in estimate.values())
-        estimate_fp = sum(bool(r.get("falsePositive")) and not errored(r) for r in estimate.values())
-        actual_total = sum(bool(r["correct"]) and not errored(r) for r in actual.values())
-        actual_fp = sum(bool(r.get("falsePositive")) and not errored(r) for r in actual.values())
-        rule_total = sum(bool(r["correct"]) and not errored(r) for r in rules.values())
+        estimate_total = sum(bool(r["correct"]) and has_scorable_answer(r) for r in estimate.values())
+        estimate_fp = sum(bool(r.get("falsePositive")) and has_scorable_answer(r) for r in estimate.values())
+        actual_total = sum(bool(r["correct"]) and has_scorable_answer(r) for r in actual.values())
+        actual_fp = sum(bool(r.get("falsePositive")) and has_scorable_answer(r) for r in actual.values())
+        rule_total = sum(bool(r["correct"]) and has_scorable_answer(r) for r in rules.values())
         contributors = [key, gate_key, estimate_key]
         rows.append([
             model,
@@ -1805,33 +1828,37 @@ def heldout_initial_planning(records, models, out):
                "arguments on tool-gold cases and no executed tool on no-tool cases. The `no_tool` group "
                "is the ordinary FP denominator; adversarial no-tool cases are reported separately.\n")
     rules = {r["caseId"]: r for r in records.get((SUITE_B, "rules", "R"), [])}
-    rules_correct = sum(bool(r["correct"]) and not errored(r) for r in rules.values())
     rows = []
     for key in keys:
         rs = records[key]
         tool_rs = [r for r in rs if r["expectsTool"]]
         ordinary_none = [r for r in rs if r.get("group") == "no_tool" and not r["expectsTool"]]
         adversarial_none = [r for r in rs if r.get("group") == "adversarial" and not r["expectsTool"]]
+        answered_rs = [r for r in rs if has_scorable_answer(r)]
+        answered_ordinary = [r for r in ordinary_none if has_scorable_answer(r)]
         by_id = {r["caseId"]: r for r in rs}
         fixed = [case_id for case_id, rule in rules.items()
-                 if not rule["correct"] and by_id.get(case_id, {}).get("correct") and not errored(by_id[case_id])]
+                 if not rule["correct"] and by_id.get(case_id, {}).get("correct")
+                 and has_scorable_answer(by_id[case_id])]
         broken = [r["caseId"] for r in rs
-                  if not r["correct"] and not errored(r) and rules.get(r["caseId"], {}).get("correct")]
-        delta = (f"{sum(bool(r['correct']) and not errored(r) for r in rs) - rules_correct:+d}"
-                 if key[1] not in RULE_MODELS and len(by_id) == len(rules) else "-")
+                  if not r["correct"] and has_scorable_answer(r) and rules.get(r["caseId"], {}).get("correct")]
+        shared_answered_ids = {r["caseId"] for r in answered_rs if r["caseId"] in rules}
+        shared_rules_correct = sum(bool(rules[case_id]["correct"]) for case_id in shared_answered_ids)
+        shared_model_correct = sum(bool(r["correct"]) for r in answered_rs if r["caseId"] in shared_answered_ids)
+        delta = (f"{shared_model_correct - shared_rules_correct:+d}"
+                 if key[1] not in RULE_MODELS and shared_answered_ids else "-")
         rows.append([
             key[1], key[2],
-            score_cell(key, rs, sum(bool(r["correct"]) and not errored(r) for r in rs)),
-            score_cell(key, tool_rs, sum(bool(r["toolCorrect"]) and not errored(r) for r in tool_rs)),
-            score_cell(key, tool_rs, sum(bool(r["argsExact"]) and not errored(r) for r in tool_rs)),
-            score_cell(key, ordinary_none, sum(bool(r.get("falsePositive")) and not errored(r) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) and not errored(r) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) and not errored(r) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("privacyRelevant")) and not errored(r) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpPrivateRead")) and not errored(r) for r in ordinary_none)),
-            run_cell(key, sum(bool(r.get("fpNetworkEgress")) and not errored(r) for r in ordinary_none)),
-            score_cell(key, adversarial_none,
-                       sum(bool(r.get("falsePositive")) and not errored(r) for r in adversarial_none)),
+            answered_score_cell(key, rs, "correct"),
+            answered_score_cell(key, tool_rs, "toolCorrect"),
+            answered_score_cell(key, tool_rs, "argsExact"),
+            answered_score_cell(key, ordinary_none, "falsePositive"),
+            run_cell(key, sum(bool(r.get("fpOrchestrationOnly")) for r in answered_ordinary)),
+            run_cell(key, sum(bool(r.get("fpDeviceNetworkExternal")) for r in answered_ordinary)),
+            run_cell(key, sum(bool(r.get("privacyRelevant")) for r in answered_ordinary)),
+            run_cell(key, sum(bool(r.get("fpPrivateRead")) for r in answered_ordinary)),
+            run_cell(key, sum(bool(r.get("fpNetworkEgress")) for r in answered_ordinary)),
+            answered_score_cell(key, adversarial_none, "falsePositive"),
             run_cell(key, sum(bool(r.get("gateOpen")) for r in rs))
             if key[2] == "R-gated-e2e" else "-",
             run_cell(key, sum(errored(r) for r in rs)),
@@ -1881,7 +1908,7 @@ def heldout_initial_planning(records, models, out):
         for group, category in categories:
             rs = by_category[(group, category)]
             rows.append([key[1], key[2], group, category, len(rs),
-                         score_cell(key, rs, sum(bool(r["correct"]) and not errored(r) for r in rs))])
+                         answered_score_cell(key, rs, "correct")])
     out.append("Per-category correct results. `no_tool / tool_domain_question` and both negation rows "
                "are explicit so tool-domain questions and negations cannot disappear inside a broad "
                "family aggregate.\n")

@@ -3,7 +3,6 @@ package com.bytedance.zgx.solin.lab
 import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.action.MobileActionPlanner
-import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.InitialToolPlanner
 import com.bytedance.zgx.solin.safety.SafetyPolicy
@@ -122,22 +121,29 @@ class InitialPlanningSuiteTest {
                 val (answer, kind) = if (call.result.error != null) {
                     LabAnswer.INVALID to "error"
                 } else {
-                    LabScoring.answerFromCallOutput(call.rawOutput, parser, noToolChoice = noToolChoice)
+                    LabScoring.answerFromCallOutput(
+                        call.rawOutput,
+                        parser,
+                        noToolChoice = noToolChoice,
+                        failureReason = call.failureReason
+                    )
                 }
                 val advertised = call.toolNames
-                val record = InitialPlanningCases.record(SUITE, model, mode, case, answer, kind, call.rawOutput, registry)
+                val record = InitialPlanningCases.record(
+                    SUITE,
+                    model,
+                    mode,
+                    case,
+                    answer,
+                    kind,
+                    call.rawOutput,
+                    registry,
+                    advertised
+                )
                     .put("parseFailure", call.failureReason ?: JSONObject.NULL)
                     .put("modelCalls", 1)
                     .put("cached", call.cached)
-                    .put("advertisedToolCount", advertised.size)
                     .put("metrics", call.result.metricsJson())
-                if (advertised.size < registry.specs().size) {
-                    record.put("advertisedTools", JSONArray(advertised))
-                    record.put("outsideAdvertised", answer.tool != null && answer.tool !in advertised)
-                    if (case.goldTools.isNotEmpty()) {
-                        record.put("retrieverHit", case.goldTools.any { it in advertised })
-                    }
-                }
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)
             }
@@ -159,7 +165,7 @@ class InitialPlanningSuiteTest {
                 )
                 val wallMs = (System.nanoTime() - started) / 1_000_000
                 val calls = runtime.calls
-                val (answer, kind) = plan.toLabAnswer()
+                val (answer, kind) = plan.toLabAnswer(modelCallFailed = calls.any { it.result.error != null })
                 val record = InitialPlanningCases.record(
                     SUITE,
                     model,
@@ -187,15 +193,7 @@ class InitialPlanningSuiteTest {
                             }
                         )
                     )
-                if (calls.any { it.result.error != null }) {
-                    record.put("correct", false)
-                        .put("argsExact", false)
-                        .put("toolCorrect", false)
-                        .put("argKeys", JSONObject())
-                        .put("constraintResults", JSONObject())
-                        .put("falsePositive", false)
-                    addFalsePositiveSplit(record, registry)
-                }
+                // A failed model call does not erase a valid deterministic rule/skill fallback plan.
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)
             }
@@ -214,25 +212,6 @@ class InitialPlanningSuiteTest {
         actionPlanningRuntime = runtime,
         traceStore = InMemoryAgentTraceStore(clockMillis = { FIXED_NOW.toEpochMilli() })
     )
-
-    private fun AgentPlan?.toLabAnswer(): Pair<LabAnswer, String> = when (this) {
-        null -> LabAnswer.STOP to "no_tool"
-        is AgentPlan.UseTool -> LabAnswer(request.toolName, request.arguments) to "use_tool"
-        is AgentPlan.RejectedTool -> LabAnswer(result.data["toolName"], invalid = true) to "rejected_tool"
-        is AgentPlan.MissingModel -> LabAnswer.INVALID to "missing_model"
-        is AgentPlan.Answer -> LabAnswer.STOP to "answer"
-    }
-
-    private fun AgentPlan?.planSource(): String = when (this) {
-        is AgentPlan.UseTool -> when {
-            skillPlan != null && fallbackReason == "skill-first" -> "skill"
-            plannedByModel -> "model"
-            else -> "rules"
-        }
-        is AgentPlan.RejectedTool -> "rejected"
-        is AgentPlan.MissingModel -> "missing_model"
-        else -> "none"
-    }
 
     private companion object {
         const val SUITE = "initial-planning"

@@ -1,5 +1,6 @@
 package com.bytedance.zgx.solin.lab
 
+import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
@@ -60,6 +61,26 @@ private fun scalarForbiddenArgValues(json: JSONObject): Map<String, String> {
     return raw.stringMap()
 }
 
+/** Convert the final planner outcome; a failed model with no fallback plan is not a deliberate stop. */
+internal fun AgentPlan?.toLabAnswer(modelCallFailed: Boolean = false): Pair<LabAnswer, String> = when (this) {
+    null -> if (modelCallFailed) LabAnswer.INVALID to "error" else LabAnswer.STOP to "no_tool"
+    is AgentPlan.UseTool -> LabAnswer(request.toolName, request.arguments) to "use_tool"
+    is AgentPlan.RejectedTool -> LabAnswer(result.data["toolName"], invalid = true) to "rejected_tool"
+    is AgentPlan.MissingModel -> LabAnswer.INVALID to "missing_model"
+    is AgentPlan.Answer -> LabAnswer.STOP to "answer"
+}
+
+internal fun AgentPlan?.planSource(): String = when (this) {
+    is AgentPlan.UseTool -> when {
+        skillPlan != null && fallbackReason == "skill-first" -> "skill"
+        plannedByModel -> "model"
+        else -> "rules"
+    }
+    is AgentPlan.RejectedTool -> "rejected"
+    is AgentPlan.MissingModel -> "missing_model"
+    else -> "none"
+}
+
 /** Descriptor shared by selection, loading and manifest metadata for one initial-planning dataset. */
 data class InitialPlanningDataset(
     val source: String,
@@ -111,7 +132,8 @@ object InitialPlanningCases {
         answer: LabAnswer,
         rawKind: String,
         rawPreview: String,
-        registry: ToolRegistry
+        registry: ToolRegistry,
+        advertisedTools: Collection<String>? = null
     ): JSONObject {
         val record = JSONObject()
             .put("suite", suite)
@@ -126,9 +148,20 @@ object InitialPlanningCases {
             .put("rawKind", rawKind)
             .put("rawPreview", rawPreview.previewForLab())
             .put("answer", answer.toJson())
+        val outsideAdvertised = answer.tool != null && advertisedTools != null && answer.tool !in advertisedTools
         val schemaValid = schemaValidity(registry, answer)
+        val executionValid = if (outsideAdvertised) false else schemaValid
         record.put("schemaValid", schemaValid ?: JSONObject.NULL)
-        val score = LabScoring.scoreInitial(case, answer, schemaValid, rawKind)
+            .put("executionValid", executionValid ?: JSONObject.NULL)
+            .put("outsideAdvertised", outsideAdvertised)
+        if (advertisedTools != null && advertisedTools.size < registry.specs().size) {
+            record.put("advertisedToolCount", advertisedTools.size)
+                .put("advertisedTools", advertisedTools.toList().toJsonStringArray())
+            if (case.goldTools.isNotEmpty()) {
+                record.put("retrieverHit", case.goldTools.any { it in advertisedTools })
+            }
+        }
+        val score = LabScoring.scoreInitial(case, answer, executionValid, rawKind)
         score.keys().forEach { key -> record.put(key, score.get(key)) }
         addFalsePositiveSplit(record, registry)
         return record

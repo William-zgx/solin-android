@@ -95,23 +95,21 @@ internal fun argumentPatternsOverlap(key: String, left: String, right: String): 
     }
 }
 
-private fun isCompleteLiteralGold(case: InitialCase, registry: ToolRegistry): Boolean {
-    if (case.goldArgs.values.any { '|' in it }) return false
-    val required = case.goldTools.mapNotNull(registry::specFor).flatMap { spec ->
-        JSONObject(spec.inputSchemaJson).optJSONArray("required").stringList()
-    }
-    return required.all(case.goldArgs::containsKey)
-}
-
 internal fun initialPlanningLabelProblems(cases: List<InitialCase>, registry: ToolRegistry): List<String> {
     val problems = mutableListOf<String>()
     cases.forEach { case ->
         case.goldTools.filterNot(registry::isKnownTool).forEach { problems += "${case.id}: unknown tool $it" }
         val declared = declaredToolArguments(case, registry)
         (case.goldArgs.keys - declared).forEach { problems += "${case.id}: argument $it not in gold tool schemas" }
-        if (case.goldTools.isNotEmpty() &&
-            isCompleteLiteralGold(case, registry) &&
-            case.goldTools.none { toolName ->
+        val validatableTools = case.goldTools.filter { toolName ->
+            val required = registry.specFor(toolName)?.let { spec ->
+                JSONObject(spec.inputSchemaJson).optJSONArray("required").stringList()
+            }.orEmpty()
+            required.all(case.goldArgs::containsKey)
+        }
+        if (case.goldArgs.values.none { '|' in it || it.startsWith("~") } &&
+            validatableTools.isNotEmpty() &&
+            validatableTools.none { toolName ->
                 registry.validate(ToolRequest(toolName = toolName, arguments = case.goldArgs, reason = "dataset")) == null
             }
         ) {

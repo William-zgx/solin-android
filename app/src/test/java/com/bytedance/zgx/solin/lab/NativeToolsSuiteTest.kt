@@ -96,18 +96,12 @@ class NativeToolsSuiteTest {
                 val noToolChoice = mode.endsWith("-lmf")
                 val (answer, kind) = answerFromNative(result, noToolChoice)
                 val advertised = specs.map(ToolSpec::name)
-                val record = InitialPlanningCases.record(SUITE, model, mode, case, answer, kind, rawPreview(result), registry)
+                val record = InitialPlanningCases.record(
+                    SUITE, model, mode, case, answer, kind, rawPreview(result), registry, advertised
+                )
                     .put("toolCallCount", result.toolCalls.size)
                     .put("modelCalls", 1)
-                    .put("advertisedToolCount", advertised.size)
                     .put("metrics", result.metricsJson())
-                if (advertised.size < registry.specs().size) {
-                    record.put("advertisedTools", JSONArray(advertised))
-                    record.put("outsideAdvertised", answer.tool != null && answer.tool !in advertised)
-                    if (case.goldTools.isNotEmpty()) {
-                        record.put("retrieverHit", case.goldTools.any { it in advertised })
-                    }
-                }
                 if (record.getBoolean("correct")) correct++
                 writer.write(record)
             }
@@ -127,18 +121,20 @@ class NativeToolsSuiteTest {
 
     internal fun answerFromNative(result: OllamaClient.ChatResult, noToolChoice: Boolean): Pair<LabAnswer, String> {
         if (result.error != null) return LabAnswer.INVALID to "error"
-        if (noToolChoice && result.toolCalls.isNotEmpty() && result.toolCalls.all { it.name == LOCAL_MODEL_NO_TOOL_CHOICE }) {
-            if (result.toolCalls.size > 1) {
-                return LabAnswer(LOCAL_MODEL_NO_TOOL_CHOICE, invalid = true) to "multi_call"
-            }
+        if (result.toolCalls.size > 1) {
+            val call = result.toolCalls.firstOrNull { !noToolChoice || it.name != LOCAL_MODEL_NO_TOOL_CHOICE }
+                ?: result.toolCalls.first()
+            return LabAnswer(call.name, invalid = true) to "multi_call"
+        }
+        val call = result.toolCalls.singleOrNull()
+            ?: return LabAnswer.STOP to if (result.text.isBlank()) "blank" else "text"
+        if (noToolChoice && call.name == LOCAL_MODEL_NO_TOOL_CHOICE) {
             return LabAnswer.STOP to "no_tool_choice"
         }
-        val call = result.toolCalls.firstOrNull { !noToolChoice || it.name != LOCAL_MODEL_NO_TOOL_CHOICE }
-            ?: return LabAnswer.STOP to if (result.text.isBlank()) "blank" else "text"
         if (!registry.isKnownTool(call.name)) return LabAnswer(call.name, invalid = true) to "unknown_tool"
         val arguments = call.arguments.toToolArgumentMapOrNull()
             ?: return LabAnswer(call.name, invalid = true) to "nested_arguments"
-        return LabAnswer(call.name, arguments, invalid = result.toolCalls.size > 1) to if (result.toolCalls.size > 1) "multi_call" else "call"
+        return LabAnswer(call.name, arguments) to "call"
     }
 
     /** Same conversion as the private `toToolArgumentMapOrNull` in runtime/RemoteChatRuntime.kt. */

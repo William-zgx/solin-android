@@ -53,6 +53,19 @@ class NativeMultiCallTest {
         assertEquals("text", kind)
     }
 
+    @Test
+    fun unknownToolOrderDoesNotChangeMultiCallClassification() {
+        val unknown = OllamaClient.ToolCall("not_a_tool", JSONObject())
+        val search = OllamaClient.ToolCall("web_search", JSONObject().put("query", "x"))
+
+        listOf(chatResult(unknown, search), chatResult(search, unknown)).forEach { result ->
+            val (answer, kind) = NativeToolsSuiteTest().answerFromNative(result, noToolChoice = false)
+
+            assertTrue(answer.invalid)
+            assertEquals("multi_call", kind)
+        }
+    }
+
     private fun chatResult(vararg calls: OllamaClient.ToolCall): OllamaClient.ChatResult = OllamaClient.ChatResult(
         text = "",
         toolCalls = calls.toList(),

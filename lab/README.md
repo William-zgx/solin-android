@@ -67,12 +67,16 @@ skips the suite with an assumption failure rather than selecting another path. T
 
 ## Errored runs never look like scores (Decision L1)
 
-A case is **errored** when its `metrics.error` is non-null: the model call failed, so it answered
-nothing. Every number in `SUMMARY.md` that comes from a run with at least one errored case carries
-that run's error count in the same cell or sentence:
+A case is **errored** when any recorded model call has `metrics.error`, or its final kind is `error` /
+`missing_model`. Errors stay visible even when the production fallback still returns a plan: R+M and
+rule-first deterministic plans, and a later accepted Suite A prompt, remain scorable. A transport error
+with no final plan is excluded from both the numerator and answered denominator. Every number in
+`SUMMARY.md` that comes from a run with at least one errored case carries that run's error count in the
+same cell or sentence:
 
-- fully errored run → `errored N/N`, and no score;
-- partly errored run → `<value> (E errored)`.
+- fully errored population with no scorable answer → `errored N/N`, and no numeric score;
+- empty subgroup → `n/a` with the run's error annotation;
+- answered scores, including valid fallbacks → `<value> (E errored)` (or the fully-errored form).
 
 This applies to every generated table and to the hand-written narrative. `summarize.py` computes the
 per-run counts once and every renderer formats through one function (`run_cell` / `score_cell`), so
@@ -179,8 +183,10 @@ The scoring contract also supports `forbiddenArgs` (the field must be absent),
 `forbiddenNonEmptyArgs` (absent or blank is accepted, but nonblank is rejected), and
 `forbiddenArgValues` (only the named value is rejected). Constraints are saved under the gold record's
 `constraints` object, so the strict Kotlin scorer and the lenient Python scorer apply the same rules.
-For tool-gold cases, a registry `schemaValid=false` result is never scored as correct. On no-tool cases,
-a rejected call executes nothing and is not an executed false positive. The lenient reader is a diagnostic text match and does not apply that strict gate.
+`schemaValid` records registry/schema validation only; `executionValid` also requires shortlist
+membership. For tool-gold cases, `executionValid=false` is never scored as correct. On no-tool cases,
+a rejected or outside-shortlist call executes nothing and is not an executed false positive. The lenient
+reader is a diagnostic text match and does not apply that strict gate.
 Research records use `research_evaluation_only` and the generic summary path, not the original
 60-case held-out renderer. For example, an optional `subject` must stay
 absent when the user explicitly omits it, while `requiresCharging=false` remains valid when only
