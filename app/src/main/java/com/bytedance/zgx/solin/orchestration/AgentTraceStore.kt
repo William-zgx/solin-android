@@ -931,13 +931,13 @@ internal fun AgentStep.toTraceStepSummary(
     position: Int,
     createdAtMillis: Long
 ): AgentTraceStepSummary {
-    val type = traceType()
+    val encoding = encodeTrace(runId)
     return AgentTraceStepSummary(
         runId = runId,
         position = position,
-        type = type,
-        summary = traceSummary(),
-        json = traceJson(type, runId).toString(),
+        type = encoding.type,
+        summary = encoding.summary,
+        json = encoding.json.toString(),
         createdAtMillis = createdAtMillis
     )
 }
@@ -1505,381 +1505,414 @@ private fun String?.safeOutputQualityIssue(): Any = takeIf { it in allowedOutput
 
 private fun String?.safeOutputQualityAction(): Any = takeIf { it in allowedOutputQualityActions } ?: JSONObject.NULL
 
-private fun AgentStep.traceType(): String = when (this) {
-    is AgentStep.ContextLoaded -> "ContextLoaded"
-    is AgentStep.ModelPlanned -> "ModelPlanned"
-    is AgentStep.IntentRouted -> "IntentRouted"
-    is AgentStep.RemoteToolsExposed -> "RemoteToolsExposed"
-    is AgentStep.PlacementSelected -> "PlacementSelected"
-    is AgentStep.ModelRuntimeInvocationStarted -> "ModelRuntimeInvocationStarted"
-    is AgentStep.ShadowPlacementEvaluated -> "ShadowPlacementEvaluated"
-    is AgentStep.RunDataReceiptRecorded -> "RunDataReceiptRecorded"
-    is AgentStep.ModelOutputQualityGuardTriggered -> "ModelOutputQualityGuardTriggered"
-    is AgentStep.ToolRequested -> "ToolRequested"
-    is AgentStep.SkillPlanned -> "SkillPlanned"
-    is AgentStep.SafetyChecked -> "SafetyChecked"
-    is AgentStep.UserConfirmationRequested -> "UserConfirmationRequested"
-    is AgentStep.UserConfirmed -> "UserConfirmed"
-    is AgentStep.UserRejected -> "UserRejected"
-    is AgentStep.UserQuestionAsked -> "UserQuestionAsked"
-    is AgentStep.UserQuestionAnswered -> "UserQuestionAnswered"
-    is AgentStep.ToolObserved -> "ToolObserved"
-    is AgentStep.ExternalOutcomeConfirmed -> "ExternalOutcomeConfirmed"
-    is AgentStep.ContinuationCursorRecorded -> "ContinuationCursorRecorded"
-    is AgentStep.ToolRetryScheduled -> "ToolRetryScheduled"
-    is AgentStep.ObservationDecided -> "ObservationDecided"
-    is AgentStep.AssistantResponded -> "AssistantResponded"
-    is AgentStep.ToolRejected -> "ToolRejected"
-    is AgentStep.Failed -> "Failed"
-    is AgentStep.RestoredSummary -> persistedType
-}
+private data class TraceEncoding(
+    val type: String,
+    val summary: String,
+    val json: JSONObject
+)
 
-private fun AgentStep.traceSummary(): String = when (this) {
+private fun traceEncoding(
+    type: String,
+    summary: String,
+    buildJson: JSONObject.() -> Unit = {}
+): TraceEncoding = TraceEncoding(
+    type = type,
+    summary = summary,
+    json = JSONObject().put("type", type).apply(buildJson)
+)
+
+private fun AgentStep.encodeTrace(runId: String): TraceEncoding = when (this) {
     is AgentStep.ContextLoaded -> {
-        val deviceContext = if (deviceContext == null) "without device context" else "with device context"
-        "Loaded ${memoryHits.size} memory hit(s) $deviceContext."
+        val deviceContextSummary = if (deviceContext == null) "without device context" else "with device context"
+        traceEncoding(
+            type = "ContextLoaded",
+            summary = "Loaded ${memoryHits.size} memory hit(s) $deviceContextSummary."
+        ) {
+            put("memoryHitCount", memoryHits.size)
+            put("hasDeviceContext", deviceContext != null)
+        }
     }
 
-    is AgentStep.ModelPlanned -> plan.traceSummary()
-    is AgentStep.IntentRouted ->
-        "Intent routed via ${decision.selectedPath.name} to " +
+    is AgentStep.ModelPlanned -> {
+        val planEncoding = plan.encodeTrace()
+        traceEncoding(type = "ModelPlanned", summary = planEncoding.summary) {
+            put("plan", planEncoding.json)
+        }
+    }
+
+    is AgentStep.IntentRouted -> traceEncoding(
+        type = "IntentRouted",
+        summary = "Intent routed via ${decision.selectedPath.name} to " +
             (decision.selectedToolName ?: decision.selectedSkillId ?: "no action") +
             " (accepted=${decision.accepted})."
-    is AgentStep.RemoteToolsExposed ->
-        "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
-    is AgentStep.PlacementSelected -> "Serving placement selected."
-    is AgentStep.ModelRuntimeInvocationStarted -> "Serving runtime invocation started."
-    is AgentStep.ShadowPlacementEvaluated -> "Shadow placement evaluated."
-    is AgentStep.RunDataReceiptRecorded ->
-        "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
+    ) {
+        put("selectedPath", decision.selectedPath.name)
+        put("selectedToolName", decision.selectedToolName)
+        put("selectedSkillId", decision.selectedSkillId)
+        put("priority", decision.priority)
+        put("accepted", decision.accepted)
+        put("confidence", decision.confidence.name)
+        put(
+            "rejectionReasons",
+            decision.rejectionReasons
+                .map { reason -> reason.shortTraceText(maxLength = PERSISTED_ROUTING_REASON_LENGTH) }
+                .toJsonArray()
+        )
+        put("requiresConfirmation", decision.requiresConfirmation)
+    }
+
+    is AgentStep.RemoteToolsExposed -> traceEncoding(
+        type = "RemoteToolsExposed",
+        summary = "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
+    ) {
+        put("scope", scope.name)
+        put("toolNames", toolNames.sorted())
+    }
+
+    is AgentStep.PlacementSelected -> traceEncoding(
+        type = "PlacementSelected",
+        summary = "Serving placement selected."
+    ) {
+        put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+        put("runId", runId)
+        put("policyVersion", binding.policyVersion)
+        put("preference", binding.preference.name)
+        put("placement", binding.placement.name)
+        put("primaryReason", binding.primaryReason.name)
+        put("complexity", binding.complexity.name)
+        put("resourceBand", binding.resourceBand.name)
+        put("localState", binding.localState.name)
+        put("remoteState", binding.remoteState.name)
+        put("remoteProfileRevision", binding.remoteProfileRevision ?: JSONObject.NULL)
+    }
+
+    is AgentStep.ModelRuntimeInvocationStarted -> traceEncoding(
+        type = "ModelRuntimeInvocationStarted",
+        summary = "Serving runtime invocation started."
+    ) {
+        put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+        put("runId", runId)
+        put("placement", invocation.placement.name)
+        put("attempt", invocation.attempt)
+        put("remoteProfileRevision", invocation.remoteProfileRevision ?: JSONObject.NULL)
+    }
+
+    is AgentStep.ShadowPlacementEvaluated -> traceEncoding(
+        type = "ShadowPlacementEvaluated",
+        summary = "Shadow placement evaluated."
+    ) {
+        put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
+        put("runId", runId)
+        put("policyVersion", trace.policyVersion)
+        put("preference", trace.preference.name)
+        put("placement", trace.placement?.name ?: JSONObject.NULL)
+        put("primaryReason", trace.primaryReason.name)
+        put("complexity", trace.complexity.name)
+        put("resourceBand", trace.resourceBand.name)
+        put("localState", trace.localState.name)
+        put("remoteState", trace.remoteState.name)
+    }
+
+    is AgentStep.RunDataReceiptRecorded -> traceEncoding(
+        type = "RunDataReceiptRecorded",
+        summary = "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
             "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
             "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}, " +
             "evidence=${receipt.evidenceCardCount}, qualityGuard=${receipt.outputQualityGuardTriggered}."
-    is AgentStep.ModelOutputQualityGuardTriggered ->
-        "Model output guard stopped ${trace.runtimeKind} generation: ${trace.issue} via ${trace.triggeredRule}."
-    is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
-    is AgentStep.SkillPlanned -> "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
-    is AgentStep.SafetyChecked -> "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
-    is AgentStep.UserConfirmationRequested -> "Requested confirmation for ${request.toolName}."
-    is AgentStep.UserConfirmed -> "User confirmed request $requestId."
-    is AgentStep.UserRejected -> "User rejected request $requestId."
-    is AgentStep.UserQuestionAsked ->
-        "Asked user clarifying question ($questionId): ${prompt.shortTraceText()}"
-    is AgentStep.UserQuestionAnswered ->
-        "User answered question $questionId: ${answer.shortTraceText()}"
-    is AgentStep.ToolObserved -> "Observed ${result.status} for ${result.requestId}."
-    is AgentStep.ExternalOutcomeConfirmed ->
-        "External outcome ${outcome.name} confirmed for $requestId."
-    is AgentStep.ContinuationCursorRecorded ->
-        "Recorded continuation cursor for ${cursor.sourceRequestId} -> ${cursor.request.toolName}."
-    is AgentStep.ToolRetryScheduled -> "Retry $attempt scheduled for ${request.toolName}."
-    is AgentStep.ObservationDecided -> decision.traceSummary()
-    is AgentStep.AssistantResponded -> "Assistant responded: ${text.shortTraceText()}"
-    is AgentStep.ToolRejected -> "Rejected tool result ${result.requestId}: ${result.summary.shortTraceText()}"
-    is AgentStep.Failed -> "Failed: ${reason.shortTraceText()}"
-    is AgentStep.RestoredSummary -> summary
-}
+    ) {
+        put("destination", receipt.destination.name)
+        put("currentPromptPrivacy", receipt.currentPromptPrivacy.safeMessagePrivacyName())
+        put("remoteHistoryCount", receipt.remoteHistoryCount)
+        put("localOnlyHistoryFilteredCount", receipt.localOnlyHistoryFilteredCount)
+        put("memoryHitCount", receipt.memoryHitCount)
+        put("semanticMemoryHitCount", receipt.semanticMemoryHitCount)
+        put("lexicalMemoryHitCount", receipt.lexicalMemoryHitCount)
+        put("memoryContextIncluded", receipt.memoryContextIncluded)
+        put("deviceContextIncluded", receipt.deviceContextIncluded)
+        put("imageAttachmentCount", receipt.imageAttachmentCount)
+        put("protectedSourceCount", receipt.protectedSourceCount)
+        put("evidenceCardCount", receipt.evidenceCardCount)
+        put("localOnlyEvidenceCardCount", receipt.localOnlyEvidenceCardCount)
+        put("truncatedEvidenceCardCount", receipt.truncatedEvidenceCardCount)
+        put("lowQualityEvidenceCardCount", receipt.lowQualityEvidenceCardCount)
+        put("evidenceSourceTypes", receipt.evidenceSourceTypes.safeEvidenceSourceTypes().toJsonArray())
+        put("rawContentPersisted", receipt.rawContentPersisted)
+        put("protectedContentTypes", receipt.protectedContentTypes.safeProtectedContentTypes().toJsonArray())
+        put("deletableRecordTypes", receipt.deletableRecordTypes.safeDeletableRecordTypes().toJsonArray())
+        put("outputQualityGuardTriggered", receipt.outputQualityGuardTriggered)
+        put("outputQualityIssue", receipt.outputQualityIssue.safeOutputQualityIssue())
+        put("outputQualityRule", JSONObject.NULL)
+        put("outputQualityAction", receipt.outputQualityAction.safeOutputQualityAction())
+        put("outputQualityStopped", receipt.outputQualityStopped)
+        put("outputQualityKeptPrefix", receipt.outputQualityKeptPrefix)
+    }
 
-private fun AgentPlan.traceSummary(): String = when (this) {
-    is AgentPlan.Answer -> "Planned answer generation."
-    is AgentPlan.UseTool -> "Planned tool ${request.toolName}."
-    is AgentPlan.RejectedTool -> "Rejected tool plan: ${result.summary.shortTraceText()}"
-    is AgentPlan.MissingModel -> "Missing model capability ${capability.name}."
-}
+    is AgentStep.ModelOutputQualityGuardTriggered -> traceEncoding(
+        type = "ModelOutputQualityGuardTriggered",
+        summary = "Model output guard stopped ${trace.runtimeKind} generation: ${trace.issue} via ${trace.triggeredRule}."
+    ) {
+        put("issue", trace.issue)
+        put("severity", trace.severity)
+        put("triggeredRule", trace.triggeredRule)
+        put("action", trace.action)
+        put("rawOutputLength", trace.rawOutputLength)
+        put("keptPrefix", trace.keptPrefix)
+        put("modelId", trace.modelId)
+        put("backend", trace.backend)
+        put("runtimeKind", trace.runtimeKind)
+    }
 
-private fun AgentObservationDecision.traceSummary(): String = when (this) {
-    AgentObservationDecision.Complete -> "Observation complete."
-    is AgentObservationDecision.ContinueWithModel ->
-        "Continue with model (requiresLocalModel=$requiresLocalModel)."
-    is AgentObservationDecision.RetryTool ->
-        "Retry ${request.toolName} attempt $attempt."
-    is AgentObservationDecision.PlanNextTool ->
-        "Plan next tool ${plan.request.toolName}."
-    is AgentObservationDecision.PlanToolBatch ->
-        "Plan tool batch ${plans.joinToString { plan -> plan.request.toolName }}."
-    is AgentObservationDecision.Fail -> "Observation failed."
-    AgentObservationDecision.Cancel -> "Observation cancelled."
-}
+    is AgentStep.ToolRequested -> traceEncoding(
+        type = "ToolRequested",
+        summary = "Requested tool ${request.toolName}."
+    ) {
+        put("requestId", request.id)
+        put("toolName", request.toolName)
+        put("argumentKeys", request.arguments.keys.sorted())
+        put("draftTitle", draft.title.shortTraceText())
+    }
 
-private fun AgentStep.traceJson(type: String, runId: String): JSONObject {
-    val json = JSONObject().put("type", type)
-    when (this) {
-        is AgentStep.ContextLoaded ->
-            json
-                .put("memoryHitCount", memoryHits.size)
-                .put("hasDeviceContext", deviceContext != null)
+    is AgentStep.SkillPlanned -> traceEncoding(
+        type = "SkillPlanned",
+        summary = "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
+    ) {
+        put("skillRequestId", request.id)
+        put("skillId", request.skillId)
+        put("stepCount", plan?.steps?.size ?: 0)
+        put("toolStepCount", plan?.steps?.filterIsInstance<SkillStep.ToolStep>()?.size ?: 0)
+        put(
+            "toolRequestIds",
+            plan?.steps
+                ?.filterIsInstance<SkillStep.ToolStep>()
+                ?.map { step -> step.request.id }
+                ?.toJsonArray()
+                ?: JSONArray()
+        )
+    }
 
-        is AgentStep.ModelPlanned -> json.put("plan", plan.traceJson())
-        is AgentStep.IntentRouted ->
-            json
-                .put("selectedPath", decision.selectedPath.name)
-                .put("selectedToolName", decision.selectedToolName)
-                .put("selectedSkillId", decision.selectedSkillId)
-                .put("priority", decision.priority)
-                .put("accepted", decision.accepted)
-                .put("confidence", decision.confidence.name)
-                .put(
-                    "rejectionReasons",
-                    decision.rejectionReasons
-                        .map { reason -> reason.shortTraceText(maxLength = PERSISTED_ROUTING_REASON_LENGTH) }
-                        .toJsonArray()
-                )
-                .put("requiresConfirmation", decision.requiresConfirmation)
-        is AgentStep.RemoteToolsExposed ->
-            json
-                .put("scope", scope.name)
-                .put("toolNames", toolNames.sorted())
+    is AgentStep.SafetyChecked -> traceEncoding(
+        type = "SafetyChecked",
+        summary = "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
+    ) {
+        put("outcome", decision.outcome.name)
+        put("reason", decision.reason.shortTraceText())
+    }
 
-        is AgentStep.PlacementSelected ->
-            json
-                .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
-                .put("runId", runId)
-                .put("policyVersion", binding.policyVersion)
-                .put("preference", binding.preference.name)
-                .put("placement", binding.placement.name)
-                .put("primaryReason", binding.primaryReason.name)
-                .put("complexity", binding.complexity.name)
-                .put("resourceBand", binding.resourceBand.name)
-                .put("localState", binding.localState.name)
-                .put("remoteState", binding.remoteState.name)
-                .put("remoteProfileRevision", binding.remoteProfileRevision ?: JSONObject.NULL)
+    is AgentStep.UserConfirmationRequested -> traceEncoding(
+        type = "UserConfirmationRequested",
+        summary = "Requested confirmation for ${request.toolName}."
+    ) {
+        put("requestId", request.id)
+        put("toolName", request.toolName)
+        put("draftTitle", draft.title.shortTraceText())
+    }
 
-        is AgentStep.ModelRuntimeInvocationStarted ->
-            json
-                .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
-                .put("runId", runId)
-                .put("placement", invocation.placement.name)
-                .put("attempt", invocation.attempt)
-                .put("remoteProfileRevision", invocation.remoteProfileRevision ?: JSONObject.NULL)
+    is AgentStep.UserConfirmed -> traceEncoding(
+        type = "UserConfirmed",
+        summary = "User confirmed request $requestId."
+    ) {
+        put("requestId", requestId)
+    }
 
-        is AgentStep.ShadowPlacementEvaluated ->
-            json
-                .put("schemaVersion", RUN_PLACEMENT_TRACE_SCHEMA_VERSION)
-                .put("runId", runId)
-                .put("policyVersion", trace.policyVersion)
-                .put("preference", trace.preference.name)
-                .put("placement", trace.placement?.name ?: JSONObject.NULL)
-                .put("primaryReason", trace.primaryReason.name)
-                .put("complexity", trace.complexity.name)
-                .put("resourceBand", trace.resourceBand.name)
-                .put("localState", trace.localState.name)
-                .put("remoteState", trace.remoteState.name)
+    is AgentStep.UserRejected -> traceEncoding(
+        type = "UserRejected",
+        summary = "User rejected request $requestId."
+    ) {
+        put("requestId", requestId)
+    }
 
-        is AgentStep.RunDataReceiptRecorded ->
-            json
-                .put("destination", receipt.destination.name)
-                .put("currentPromptPrivacy", receipt.currentPromptPrivacy.safeMessagePrivacyName())
-                .put("remoteHistoryCount", receipt.remoteHistoryCount)
-                .put("localOnlyHistoryFilteredCount", receipt.localOnlyHistoryFilteredCount)
-                .put("memoryHitCount", receipt.memoryHitCount)
-                .put("semanticMemoryHitCount", receipt.semanticMemoryHitCount)
-                .put("lexicalMemoryHitCount", receipt.lexicalMemoryHitCount)
-                .put("memoryContextIncluded", receipt.memoryContextIncluded)
-                .put("deviceContextIncluded", receipt.deviceContextIncluded)
-                .put("imageAttachmentCount", receipt.imageAttachmentCount)
-                .put("protectedSourceCount", receipt.protectedSourceCount)
-                .put("evidenceCardCount", receipt.evidenceCardCount)
-                .put("localOnlyEvidenceCardCount", receipt.localOnlyEvidenceCardCount)
-                .put("truncatedEvidenceCardCount", receipt.truncatedEvidenceCardCount)
-                .put("lowQualityEvidenceCardCount", receipt.lowQualityEvidenceCardCount)
-                .put("evidenceSourceTypes", receipt.evidenceSourceTypes.safeEvidenceSourceTypes().toJsonArray())
-                .put("rawContentPersisted", receipt.rawContentPersisted)
-                .put("protectedContentTypes", receipt.protectedContentTypes.safeProtectedContentTypes().toJsonArray())
-                .put("deletableRecordTypes", receipt.deletableRecordTypes.safeDeletableRecordTypes().toJsonArray())
-                .put("outputQualityGuardTriggered", receipt.outputQualityGuardTriggered)
-                .put("outputQualityIssue", receipt.outputQualityIssue.safeOutputQualityIssue())
-                .put("outputQualityRule", JSONObject.NULL)
-                .put("outputQualityAction", receipt.outputQualityAction.safeOutputQualityAction())
-                .put("outputQualityStopped", receipt.outputQualityStopped)
-                .put("outputQualityKeptPrefix", receipt.outputQualityKeptPrefix)
+    is AgentStep.UserQuestionAsked -> traceEncoding(
+        type = "UserQuestionAsked",
+        summary = "Asked user clarifying question ($questionId): ${prompt.shortTraceText()}"
+    ) {
+        put("questionId", questionId)
+        put("prompt", prompt.shortTraceText())
+        put("choices", choices.toJsonArray())
+    }
 
-        is AgentStep.ModelOutputQualityGuardTriggered ->
-            json
-                .put("issue", trace.issue)
-                .put("severity", trace.severity)
-                .put("triggeredRule", trace.triggeredRule)
-                .put("action", trace.action)
-                .put("rawOutputLength", trace.rawOutputLength)
-                .put("keptPrefix", trace.keptPrefix)
-                .put("modelId", trace.modelId)
-                .put("backend", trace.backend)
-                .put("runtimeKind", trace.runtimeKind)
+    is AgentStep.UserQuestionAnswered -> traceEncoding(
+        type = "UserQuestionAnswered",
+        summary = "User answered question $questionId: ${answer.shortTraceText()}"
+    ) {
+        put("questionId", questionId)
+        put("answer", answer.shortTraceText())
+    }
 
-        is AgentStep.ToolRequested ->
-            json
-                .put("requestId", request.id)
-                .put("toolName", request.toolName)
-                .put("argumentKeys", request.arguments.keys.sorted())
-                .put("draftTitle", draft.title.shortTraceText())
+    is AgentStep.ToolObserved -> traceEncoding(
+        type = "ToolObserved",
+        summary = "Observed ${result.status} for ${result.requestId}."
+    ) {
+        put("requestId", result.requestId)
+        put("status", result.status.name)
+        put("retryable", result.retryable)
+        putCompletionMetadata(result.data)
+    }
 
-        is AgentStep.SkillPlanned ->
-            json
-                .put("skillRequestId", request.id)
-                .put("skillId", request.skillId)
-                .put("stepCount", plan?.steps?.size ?: 0)
-                .put("toolStepCount", plan?.steps?.filterIsInstance<SkillStep.ToolStep>()?.size ?: 0)
-                .put(
-                    "toolRequestIds",
-                    plan?.steps
-                        ?.filterIsInstance<SkillStep.ToolStep>()
-                        ?.map { step -> step.request.id }
-                        ?.toJsonArray()
-                        ?: JSONArray()
-                )
+    is AgentStep.ExternalOutcomeConfirmed -> traceEncoding(
+        type = "ExternalOutcomeConfirmed",
+        summary = "External outcome ${outcome.name} confirmed for $requestId."
+    ) {
+        put("requestId", requestId)
+        put("outcome", outcome.name)
+        put("status", result.status.name)
+        putCompletionMetadata(result.data)
+    }
 
-        is AgentStep.SafetyChecked ->
-            json
-                .put("outcome", decision.outcome.name)
-                .put("reason", decision.reason.shortTraceText())
-
-        is AgentStep.UserConfirmationRequested ->
-            json
-                .put("requestId", request.id)
-                .put("toolName", request.toolName)
-                .put("draftTitle", draft.title.shortTraceText())
-
-        is AgentStep.UserConfirmed -> json.put("requestId", requestId)
-        is AgentStep.UserRejected -> json.put("requestId", requestId)
-        is AgentStep.UserQuestionAsked ->
-            json
-                .put("questionId", questionId)
-                .put("prompt", prompt.shortTraceText())
-                .put("choices", choices.toJsonArray())
-
-        is AgentStep.UserQuestionAnswered ->
-            json
-                .put("questionId", questionId)
-                .put("answer", answer.shortTraceText())
-
-        is AgentStep.ToolObserved ->
-            json
-                .put("requestId", result.requestId)
-                .put("status", result.status.name)
-                .put("retryable", result.retryable)
-                .putCompletionMetadata(result.data)
-
-        is AgentStep.ExternalOutcomeConfirmed ->
-            json
-                .put("requestId", requestId)
-                .put("outcome", outcome.name)
-                .put("status", result.status.name)
-                .putCompletionMetadata(result.data)
-
-        is AgentStep.ContinuationCursorRecorded ->
-            json
-                .put("sourceRequestId", cursor.sourceRequestId)
-                .put("targetToolName", cursor.request.toolName)
-                .also {
-                    cursor.persistableForTracePersistence()?.let { persistableCursor ->
-                        it.put("cursor", persistableCursor.toJsonObject())
-                    }
-                }
-
-        is AgentStep.ToolRetryScheduled ->
-            json
-                .put("requestId", request.id)
-                .put("toolName", request.toolName)
-                .put("attempt", attempt)
-
-        is AgentStep.ObservationDecided -> json.put("decision", decision.traceJson())
-        is AgentStep.AssistantResponded ->
-            json
-                .put("textPreview", text.shortTraceText())
-                .put("textLength", text.length)
-
-        is AgentStep.ToolRejected ->
-            json
-                .put("requestId", result.requestId)
-                .put("status", result.status.name)
-                .put("summary", result.summary.shortTraceText())
-
-        is AgentStep.Failed -> json.put("reason", reason.shortTraceText())
-
-        is AgentStep.RestoredSummary -> runCatching { JSONObject(this.json) }.getOrElse {
-            json
-                .put("persistedType", persistedType)
-                .put("summary", summary.shortTraceText())
+    is AgentStep.ContinuationCursorRecorded -> traceEncoding(
+        type = "ContinuationCursorRecorded",
+        summary = "Recorded continuation cursor for ${cursor.sourceRequestId} -> ${cursor.request.toolName}."
+    ) {
+        put("sourceRequestId", cursor.sourceRequestId)
+        put("targetToolName", cursor.request.toolName)
+        cursor.persistableForTracePersistence()?.let { persistableCursor ->
+            put("cursor", persistableCursor.toJsonObject())
         }
     }
-    return json
+
+    is AgentStep.ToolRetryScheduled -> traceEncoding(
+        type = "ToolRetryScheduled",
+        summary = "Retry $attempt scheduled for ${request.toolName}."
+    ) {
+        put("requestId", request.id)
+        put("toolName", request.toolName)
+        put("attempt", attempt)
+    }
+
+    is AgentStep.ObservationDecided -> {
+        val decisionEncoding = decision.encodeTrace()
+        traceEncoding(type = "ObservationDecided", summary = decisionEncoding.summary) {
+            put("decision", decisionEncoding.json)
+        }
+    }
+
+    is AgentStep.AssistantResponded -> traceEncoding(
+        type = "AssistantResponded",
+        summary = "Assistant responded: ${text.shortTraceText()}"
+    ) {
+        put("textPreview", text.shortTraceText())
+        put("textLength", text.length)
+    }
+
+    is AgentStep.ToolRejected -> traceEncoding(
+        type = "ToolRejected",
+        summary = "Rejected tool result ${result.requestId}: ${result.summary.shortTraceText()}"
+    ) {
+        put("requestId", result.requestId)
+        put("status", result.status.name)
+        put("summary", result.summary.shortTraceText())
+    }
+
+    is AgentStep.Failed -> traceEncoding(
+        type = "Failed",
+        summary = "Failed: ${reason.shortTraceText()}"
+    ) {
+        put("reason", reason.shortTraceText())
+    }
+
+    is AgentStep.RestoredSummary -> if (runCatching { JSONObject(json) }.getOrNull() != null) {
+        traceEncoding(type = persistedType, summary = summary)
+    } else {
+        traceEncoding(type = persistedType, summary = summary) {
+            put("persistedType", persistedType)
+            put("summary", summary.shortTraceText())
+        }
+    }
 }
 
-private fun AgentPlan.traceJson(): JSONObject {
-    val json = JSONObject()
-    when (this) {
-        is AgentPlan.Answer ->
-            json
-                .put("type", "Answer")
-                .put("memoryHitCount", memoryHits.size)
-                .put("hasDeviceContext", deviceContext != null)
-
-        is AgentPlan.UseTool ->
-            json
-                .put("type", "UseTool")
-                .put("requestId", request.id)
-                .put("toolName", request.toolName)
-                .put("plannedByModel", plannedByModel)
-                .put("skillId", skillRequest?.skillId)
-                .put("fallbackReason", fallbackReason?.shortTraceText())
-                .put("safetyOutcome", safetyDecision.outcome.name)
-
-        is AgentPlan.RejectedTool ->
-            json
-                .put("type", "RejectedTool")
-                .put("requestId", result.requestId)
-                .put("summary", result.summary.shortTraceText())
-
-        is AgentPlan.MissingModel ->
-            json
-                .put("type", "MissingModel")
-                .put("capability", capability.name)
+private fun AgentPlan.encodeTrace(): TraceEncoding = when (this) {
+    is AgentPlan.Answer -> traceEncoding(
+        type = "Answer",
+        summary = "Planned answer generation."
+    ) {
+        put("memoryHitCount", memoryHits.size)
+        put("hasDeviceContext", deviceContext != null)
     }
-    return json
+
+    is AgentPlan.UseTool -> traceEncoding(
+        type = "UseTool",
+        summary = "Planned tool ${request.toolName}."
+    ) {
+        put("requestId", request.id)
+        put("toolName", request.toolName)
+        put("plannedByModel", plannedByModel)
+        put("skillId", skillRequest?.skillId)
+        put("fallbackReason", fallbackReason?.shortTraceText())
+        put("safetyOutcome", safetyDecision.outcome.name)
+    }
+
+    is AgentPlan.RejectedTool -> traceEncoding(
+        type = "RejectedTool",
+        summary = "Rejected tool plan: ${result.summary.shortTraceText()}"
+    ) {
+        put("requestId", result.requestId)
+        put("summary", result.summary.shortTraceText())
+    }
+
+    is AgentPlan.MissingModel -> traceEncoding(
+        type = "MissingModel",
+        summary = "Missing model capability ${capability.name}."
+    ) {
+        put("capability", capability.name)
+    }
 }
 
-private fun AgentObservationDecision.traceJson(): JSONObject {
-    val json = JSONObject()
-    when (this) {
-        AgentObservationDecision.Complete -> json.put("type", "Complete")
-        is AgentObservationDecision.ContinueWithModel ->
-            json
-                .put("type", "ContinueWithModel")
-                .put("requiresLocalModel", requiresLocalModel)
+private fun AgentObservationDecision.encodeTrace(): TraceEncoding = when (this) {
+    AgentObservationDecision.Complete -> traceEncoding(
+        type = "Complete",
+        summary = "Observation complete."
+    )
 
-        is AgentObservationDecision.RetryTool ->
-            json
-                .put("type", "RetryTool")
-                .put("requestId", request.id)
-                .put("toolName", request.toolName)
-                .put("attempt", attempt)
-
-        is AgentObservationDecision.PlanNextTool ->
-            json
-                .put("type", "PlanNextTool")
-                .put("requestId", plan.request.id)
-                .put("toolName", plan.request.toolName)
-
-        is AgentObservationDecision.PlanToolBatch ->
-            json
-                .put("type", "PlanToolBatch")
-                .put(
-                    "requests",
-                    JSONArray().also { array ->
-                        plans.forEach { plan ->
-                            array.put(
-                                JSONObject()
-                                    .put("requestId", plan.request.id)
-                                    .put("toolName", plan.request.toolName)
-                            )
-                        }
-                    }
-                )
-
-        is AgentObservationDecision.Fail -> json.put("type", "Fail")
-
-        AgentObservationDecision.Cancel -> json.put("type", "Cancel")
+    is AgentObservationDecision.ContinueWithModel -> traceEncoding(
+        type = "ContinueWithModel",
+        summary = "Continue with model (requiresLocalModel=$requiresLocalModel)."
+    ) {
+        put("requiresLocalModel", requiresLocalModel)
     }
-    return json
+
+    is AgentObservationDecision.RetryTool -> traceEncoding(
+        type = "RetryTool",
+        summary = "Retry ${request.toolName} attempt $attempt."
+    ) {
+        put("requestId", request.id)
+        put("toolName", request.toolName)
+        put("attempt", attempt)
+    }
+
+    is AgentObservationDecision.PlanNextTool -> traceEncoding(
+        type = "PlanNextTool",
+        summary = "Plan next tool ${plan.request.toolName}."
+    ) {
+        put("requestId", plan.request.id)
+        put("toolName", plan.request.toolName)
+    }
+
+    is AgentObservationDecision.PlanToolBatch -> traceEncoding(
+        type = "PlanToolBatch",
+        summary = "Plan tool batch ${plans.joinToString { plan -> plan.request.toolName }}."
+    ) {
+        put(
+            "requests",
+            JSONArray().also { array ->
+                plans.forEach { plan ->
+                    array.put(
+                        JSONObject()
+                            .put("requestId", plan.request.id)
+                            .put("toolName", plan.request.toolName)
+                    )
+                }
+            }
+        )
+    }
+
+    is AgentObservationDecision.Fail -> traceEncoding(
+        type = "Fail",
+        summary = "Observation failed."
+    )
+
+    AgentObservationDecision.Cancel -> traceEncoding(
+        type = "Cancel",
+        summary = "Observation cancelled."
+    )
 }
 
 internal fun String.shortTraceText(maxLength: Int = 160): String {
