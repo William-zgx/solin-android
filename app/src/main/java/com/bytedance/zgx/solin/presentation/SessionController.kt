@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.ModelHealthState
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.label
+import com.bytedance.zgx.solin.logging.cleanMessage
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import kotlinx.coroutines.CoroutineDispatcher
@@ -16,7 +17,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import com.bytedance.zgx.solin.logging.cleanMessage
 
 /**
  * Owns chat-session lifecycle: create / select / delete, and local runtime conversation restore.
@@ -35,7 +35,7 @@ class SessionController(
     private val resetRemoteSendDisclosureSuppression: () -> Unit,
     private val restorePendingAgentConfirmationIfAny: (clearMissing: Boolean) -> Unit,
     private val restorePendingExternalOutcomeIfAny: (clearMissing: Boolean) -> Unit,
-    private val loadAgentTraceRuns: () -> List<AgentTraceRunUiSummary>,
+    private val loadAgentTraceRuns: () -> List<AgentTraceRunUiSummary>
 ) {
     private var sessionRestoreJob: Job? = null
     private var sessionRestoreGeneration: Long = 0L
@@ -47,87 +47,55 @@ class SessionController(
 
     fun createNewSession() {
         if (uiState.value.isBusy) return
-        clearPendingRemoteChatState()
-        // New session is a fresh trust context; drop any session-scoped disclosure suppression.
-        resetRemoteSendDisclosureSuppression()
-        val messages = sessionRepository.createNewSession()
-        val activeSessionId = sessionRepository.activeSessionId
-        val restoreGeneration = nextSessionRestoreGeneration()
-        uiState.update {
-            it.copy(
-                sessions = sessionRepository.summaries(),
-                activeSessionId = activeSessionId,
-                messages = messages,
-                pendingConfirmation = null,
-                pendingRemoteSendDisclosure = null,
-                pendingExternalOutcome = null,
-                pendingSharedInputDraft = null,
-                latestRecoveryAction = null,
-                agentTraceRuns = loadAgentTraceRuns(),
-                isReady = if (runtime.isLoaded) false else it.isReady,
-                statusText = if (!runtime.isLoaded) "新会话" else "正在开启新会话",
-            )
-        }
-        restorePendingAgentConfirmationIfAny(true)
-        restorePendingExternalOutcomeIfAny(true)
-        if (runtime.isLoaded) {
-            recreateConversationForMessages(
-                successPrefix = "新会话",
-                sessionId = activeSessionId,
-                messages = messages,
-                restoreGeneration = restoreGeneration,
-            )
-        }
+        commitSessionTransition(
+            operation = sessionRepository::createNewSession,
+            refreshSummaries = true,
+            unloadedStatus = "新会话",
+            restoringStatus = "正在开启新会话"
+        )
     }
 
     fun selectSession(sessionId: String) {
         if (uiState.value.isBusy || uiState.value.activeSessionId == sessionId) return
-        clearPendingRemoteChatState()
-        // Switching sessions is a trust-context change; drop session-scoped disclosure suppression.
-        resetRemoteSendDisclosureSuppression()
-        val messages = sessionRepository.selectSession(sessionId) ?: return
-        val activeSessionId = sessionRepository.activeSessionId
-        val restoreGeneration = nextSessionRestoreGeneration()
-        uiState.update {
-            it.copy(
-                activeSessionId = activeSessionId,
-                messages = messages,
-                pendingConfirmation = null,
-                pendingRemoteSendDisclosure = null,
-                pendingExternalOutcome = null,
-                pendingSharedInputDraft = null,
-                latestRecoveryAction = null,
-                agentTraceRuns = loadAgentTraceRuns(),
-                isReady = if (runtime.isLoaded) false else it.isReady,
-                statusText = if (!runtime.isLoaded) "已切换会话" else "正在恢复会话",
-            )
-        }
-        restorePendingAgentConfirmationIfAny(true)
-        restorePendingExternalOutcomeIfAny(true)
-        if (runtime.isLoaded) {
-            recreateConversationForMessages(
-                successPrefix = "已恢复会话",
-                sessionId = activeSessionId,
-                messages = messages,
-                restoreGeneration = restoreGeneration,
-            )
-        }
+        commitSessionTransition(
+            operation = { sessionRepository.selectSession(sessionId) },
+            refreshSummaries = false,
+            unloadedStatus = "已切换会话",
+            restoringStatus = "正在恢复会话",
+            successPrefix = "已恢复会话"
+        )
     }
 
     fun deleteActiveSession() {
         if (uiState.value.isBusy) return
+        commitSessionTransition(
+            operation = {
+                val deletedSessionId = sessionRepository.activeSessionId
+                assistantOrchestrator.deleteRunsForSession(deletedSessionId)
+                sessionRepository.deleteActiveSession()
+            },
+            refreshSummaries = true,
+            unloadedStatus = "已删除会话",
+            restoringStatus = "正在恢复会话"
+        )
+    }
+
+    private fun commitSessionTransition(
+        operation: () -> List<ChatMessage>?,
+        refreshSummaries: Boolean,
+        unloadedStatus: String,
+        restoringStatus: String,
+        successPrefix: String = unloadedStatus
+    ) {
         clearPendingRemoteChatState()
-        // Deleting the current session changes the remote trust context even when a replacement
-        // empty session is created immediately.
+        // Every session transition is a fresh trust context, including a failed selection.
         resetRemoteSendDisclosureSuppression()
-        val deletedSessionId = sessionRepository.activeSessionId
-        assistantOrchestrator.deleteRunsForSession(deletedSessionId)
-        val messages = sessionRepository.deleteActiveSession() ?: return
+        val messages = operation() ?: return
         val activeSessionId = sessionRepository.activeSessionId
         val restoreGeneration = nextSessionRestoreGeneration()
         uiState.update {
             it.copy(
-                sessions = sessionRepository.summaries(),
+                sessions = if (refreshSummaries) sessionRepository.summaries() else it.sessions,
                 activeSessionId = activeSessionId,
                 messages = messages,
                 pendingConfirmation = null,
@@ -137,17 +105,17 @@ class SessionController(
                 latestRecoveryAction = null,
                 agentTraceRuns = loadAgentTraceRuns(),
                 isReady = if (runtime.isLoaded) false else it.isReady,
-                statusText = if (!runtime.isLoaded) "已删除会话" else "正在恢复会话",
+                statusText = if (runtime.isLoaded) restoringStatus else unloadedStatus
             )
         }
         restorePendingAgentConfirmationIfAny(true)
         restorePendingExternalOutcomeIfAny(true)
         if (runtime.isLoaded) {
             recreateConversationForMessages(
-                successPrefix = "已删除会话",
+                successPrefix = successPrefix,
                 sessionId = activeSessionId,
                 messages = messages,
-                restoreGeneration = restoreGeneration,
+                restoreGeneration = restoreGeneration
             )
         }
     }
@@ -164,7 +132,7 @@ class SessionController(
             successPrefix = successPrefix,
             sessionId = sessionId,
             messages = history,
-            restoreGeneration = restoreGeneration,
+            restoreGeneration = restoreGeneration
         )
     }
 
@@ -172,7 +140,7 @@ class SessionController(
         successPrefix: String,
         sessionId: String,
         messages: List<ChatMessage>,
-        restoreGeneration: Long,
+        restoreGeneration: Long
     ) {
         sessionRestoreJob?.cancel()
         uiState.update {
@@ -182,8 +150,8 @@ class SessionController(
                     statusText = "正在恢复会话",
                     modelHealth = it.modelHealth.copy(
                         state = ModelHealthState.Loading,
-                        backend = it.backend,
-                    ),
+                        backend = it.backend
+                    )
                 )
             } else {
                 it
@@ -194,7 +162,7 @@ class SessionController(
                 runtimeLock.withLock {
                     runtime.recreateConversation(
                         history = messages,
-                        parameters = uiState.value.generationParameters,
+                        parameters = uiState.value.generationParameters
                     )
                 }
             }
@@ -208,8 +176,8 @@ class SessionController(
                                 modelHealth = current.modelHealth.copy(
                                     state = ModelHealthState.Loaded,
                                     backend = current.backend,
-                                    failureReason = null,
-                                ),
+                                    failureReason = null
+                                )
                             )
                         } else {
                             current
@@ -225,14 +193,14 @@ class SessionController(
                                 modelHealth = current.modelHealth.copy(
                                     state = ModelHealthState.LoadFailed,
                                     backend = current.backend,
-                                    failureReason = throwable.cleanMessage(),
-                                ),
+                                    failureReason = throwable.cleanMessage()
+                                )
                             )
                         } else {
                             current
                         }
                     }
-                },
+                }
             )
         }
     }
