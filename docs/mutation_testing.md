@@ -36,6 +36,8 @@ paired device benchmarks, migration tests, privacy review or release approval.
 - Null vs thrown/unknown enum values, case sensitivity, empty enum values.
 - Strict JSON trailing content, object guards and depth-boundary rejection.
 
-The first campaign proves the existing focused tests can kill these mutants. Expanding the pilot to trace
+The first campaign proves the existing focused tests can kill these mutants. On 2026-11-13 the actual
+run killed **6 mutants with 0 survivors**; see `build/verification/mutation/mutation-report.json`.
+Expanding the pilot to trace
 receipt/placement recovery and egress decisions requires additional deterministic fixtures; it should not
 be used as an excuse to weaken fail-closed or confirmation rules merely to make mutants pass.

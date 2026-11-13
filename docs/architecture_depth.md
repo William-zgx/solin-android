@@ -256,4 +256,4 @@ token-subset match against the user's input.
 | Action gate consolidation | Input injection entry is guarded; executor/replan early refusals remain, so full decision consolidation is incomplete |
 | Egress gate consolidation | Implemented for sensitive network text, typed text and external-app drafts in `safety/EgressGate.kt`; router/chat preflight and per-argument provenance remain separate |
 | Provenance labels | Not started |
-| Mutation testing | Not started |
+| Mutation testing | Pilot implemented: `scripts/mutation_test.py`, 6 killed / 0 survived on 2026-11-13 (`build/verification/mutation/mutation-report.json`) |

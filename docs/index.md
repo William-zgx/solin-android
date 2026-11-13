@@ -77,6 +77,7 @@ page owns current facts.
 | [Device acceptance](phone_acceptance.md) | Emulator/physical-device commands, manual flows and evidence rules |
 | [Validation report](validation_report.md) | Append-only commands, results, artifacts and known gaps |
 | [AI behavior evaluation](ai_behavior_eval_plan.md) | Fixture taxonomy, boundary mapping and actual-trace requirements |
+| [Mutation testing](mutation_testing.md) | Isolated mutation runner, baseline/survivor rules and campaign evidence |
 | [Phone benchmark](phone_task_benchmark.json) | Fixed phone tasks; execution rules live in device acceptance |
 | [Decision-routing evaluation](decision_routing_eval.json) | Labeled cloud/edge routing requests |
 | [Release readiness](release_readiness.md) | Current blockers and next owner actions |
