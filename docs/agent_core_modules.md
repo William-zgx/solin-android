@@ -1302,7 +1302,7 @@ Current status:
   session, memory, audit, background-task and voice controllers, plus startup,
   shared-input and authorization collaborators. `PresentationSessionHost` is the
   shared session/persistence seam; there is no `SolinViewModelCoordinator` class.
-- The current ViewModel is 852 lines at `cb7e4918`. The extraction plans preserve
+- The current ViewModel is 851 lines at `b435164f`. The extraction plans preserve
   historical targets; further changes follow the architecture depth rule.
 - `ChatController` delegates preflight, route outcome, remote disclosure/audit,
   shared input and tool continuation to focused collaborators. Per-run placement
@@ -1524,9 +1524,12 @@ Boundaries:
 - Data layer does not execute model inference or call remote endpoints.
 - All persisted data stays on device; nothing in this module syncs to
   cloud.
-- `runBlocking` is still used in `PreferenceSettingsStore` to bridge
-  synchronous callers with DataStore; migration to `suspend` is tracked
-  in `docs/plans/data-layer-suspend-migration.md`.
+- Most `PreferenceSettingsStore` methods still use `runBlocking` to bridge synchronous
+  callers with DataStore. `RemoteSendPendingStore.consumePendingRemoteSend` is the first
+  suspend vertical slice: one atomic edit captures and removes the marker, startup recovery
+  remains fail-closed across cancellation, and each startup attempt settles its own deferred
+  before a later retry installs another. Remaining migration is tracked in
+  `docs/plans/data-layer-suspend-migration.md`.
 
 Current status:
 

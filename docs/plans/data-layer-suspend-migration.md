@@ -1,9 +1,10 @@
-# Data Layer Suspend Migration — Deferred Proposal
+# Data Layer Suspend Migration — Incremental Plan
 
-**Status:** an interface-wide migration has not been implemented. Checked on
-2026-11-04 against `cb7e4918`: `data/Stores.kt` still exposes synchronous store
-methods, and `PreferenceSettingsStore.kt` still bridges DataStore with
-`runBlocking`. This page describes the remaining work, not a completed migration.
+**Status:** the first vertical slice is implemented at `b435164f` (2026-11-13).
+`RemoteSendPendingStore.consumePendingRemoteSend` is now suspend and atomic; its
+startup callers propagate suspension and retry safely. The interface-wide migration
+has not been implemented: other stores and `PreferenceSettingsStore` methods still
+use synchronous contracts and DataStore `runBlocking` bridges.
 
 Current ownership lives in [Data layer](../agent_core_modules.md#data-layer),
 [Memory controller](../agent_core_modules.md#memory-controller) and
@@ -25,18 +26,39 @@ The original inventory is available in
 
 | Boundary | Current fact | Migration decision needed |
 | --- | --- | --- |
-| `PreferenceSettingsStore` | Synchronous interface backed by DataStore bridges | Choose suspend reads/writes or a clearly initialized snapshot contract |
+| `PreferenceSettingsStore` | Pending-send consumption is suspend and uses one atomic DataStore edit; other methods retain synchronous bridges | Migrate remaining genuine IO independently; do not make cheap getters suspend for uniform spelling |
 | Session/model repositories | Synchronous facade methods call storage and file operations | Separate real IO from cheap pure getters and validate transaction ownership |
 | `MemoryController` | Synchronous public methods; callers own dispatch | Coordinate store, semantic runtime and UI result contracts together |
 | Presentation callers | Logic is distributed among focused controllers | Preserve ordering of state, persistence, cancellation and session ownership |
-| Startup and composition | Initial state is built before normal interaction | Define readiness and failure behavior without hiding initialization races |
+| Startup and composition | Pending-send recovery completes before post-persistence work; each initialization attempt has a stable completion and can be retried | Preserve this contract while migrating other startup IO and defining their readiness/failure behavior |
 
-## Proposed migration order
+## Implemented vertical slice
+
+- `consumePendingRemoteSend` captures and removes the marker in the same
+  DataStore transaction. A cancelled update cannot erase an unconsumed marker,
+  and an older consumer cannot delete a newer marker through a separate read/clear.
+- Startup recovery runs in `NonCancellable` after consumption so a consumed marker
+  still fails closed. `ChatRemoteSendSupport`, `ChatController`,
+  `StartupStateRestorer`, `SolinViewModel` and the Activity startup path propagate
+  suspension without adding a new blocking UI shim.
+- `MainActivity` uses one ordered lifecycle launch for restore, permission snapshot,
+  content readiness and post-persistence work. Each deferred startup attempt settles
+  its own `CompletableDeferred`; existing waiters observe failure or cancellation,
+  and only a later retry installs a fresh deferred.
+- Focused JVM tests cover atomic consumption, malformed markers, cancellation,
+  fail-closed recovery and failure/cancellation retry with an early waiter. The full
+  local gate passed at `b435164f`; commands and limits are recorded in
+  [validation_report.md](../validation_report.md).
+
+This is not evidence of interface-wide migration, main-thread responsiveness on a
+phone, or process-death recovery on a device.
+
+## Remaining migration order
 
 1. **Inventory current execution paths.** Locate actual IO and `runBlocking`, then
    trace callers and dispatchers. Keep pure computation synchronous; do not mark
    an entire facade `suspend` merely for uniform spelling.
-2. **Freeze one contract.** Choose one store and its production/test callers,
+2. **Freeze one contract.** Choose the next store and its production/test callers,
    define dispatcher ownership, cancellation, failure and transaction behavior,
    and give the atomic change one writer.
 3. **Migrate that boundary.** Convert genuine IO methods and propagate suspension
@@ -71,5 +93,5 @@ responsiveness and process-death recovery require separate device evidence;
 JVM tests alone are insufficient.
 
 Record actual commands, failures and pending device work in
-[validation_report.md](../validation_report.md). No code change or execution of
-this proposal is implied by a documentation refresh.
+[validation_report.md](../validation_report.md). The completed pending-send slice
+does not imply completion of the remaining migration.

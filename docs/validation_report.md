@@ -35,13 +35,71 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前 main 本地门禁 | `c60b2818` 的完整本地验证、隐私扫描、47 个 summarizer 测试及四个 lab summary drift 检查通过；不是 hosted CI 或设备证据。 | [2026-11-13 — Big simplification convergence](#2026-11-13--big-simplification-convergence) |
+| 当前本地门禁 | `b435164f` 的完整本地验证、隐私扫描和 hardened mutation campaign 通过；JVM 为 2981 tests / 0 failures / 0 errors / 13 skipped，mutation 为 baseline passed / 6 killed / 0 survived。均不是 hosted CI 或设备证据。 | [2026-11-13 — Egress, suspend startup and mutation convergence](#2026-11-13--egress-suspend-startup-and-mutation-convergence) |
 | 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查。二者均不是设备、延迟或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-13 — Egress, suspend startup and mutation convergence
+
+本轮覆盖项：三类工具 egress 决策收归窄 `safety/EgressGate.kt`，由 `SafetyPolicy` 与
+`ConfirmationBypassPolicy` 共用；敏感文本短路、run provenance 懒读取、外部草稿用户原文匹配及
+canonical registry 参数名均有聚焦回归。`RemoteSendPendingStore.consumePendingRemoteSend` 改为
+单个原子 DataStore edit，启动恢复跨取消保持 fail-closed，MainActivity 启动顺序收归一个 lifecycle
+协程；每次 deferred 初始化完成自己的等待者，后续重试才安装新 deferred。mutation runner 增加
+campaign 级锁、统一进程生命周期、有界 TERM/KILL 清理、失败报告和独立 JSON 深度边界夹具。
+
+代码基线：`b435164f02ae042fe1945016385af2bb145c28c4`；前序相关提交为 `ba7afbbd`、`be60ef35`。
+完成的质量与 simplify 复核无剩余发现；审查中发现的 deferred 错配、campaign 锁生命周期、深度夹具
+同步变异和超时等待问题均在最终树修复，并有确定性回归。
+
+验证命令（均在本机执行）：
+
+```bash
+# 最终完整门禁；宿主缺少 zip，PATH 中仅加入已检查的 /tmp fixture shim
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/tmp/t6tools/bin:/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+GRADLE_OPTS=-Xmx8g scripts/verify_local.sh
+
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+scripts/privacy_scan.sh
+
+python3 -I scripts/mutation_test.py --self-test
+
+# 在 b435164f 的干净树、停止既有 Gradle daemon 后执行
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+GRADLE_OPTS=-Xmx8g python3 -I scripts/mutation_test.py --run
+
+/data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 完整本地门禁通过：validation scripts（含 6 个 mutation 自测）、Spotless、**2981 JVM tests /
+  0 failures / 0 errors / 13 skipped**、Lint、debug APK、debug androidTest APK、release APK/AAB、
+  releaseSmoke 与 Android artifact scan。产物检查见
+  `build/verification/local/android-artifact-scan.properties`。
+- `scripts/privacy_scan.sh` 通过。架构水位未提高，`SolinViewModel.kt` / `ChatController.kt`
+  最终为 851 / 1423 行。
+- 真实 campaign 使用 `/tmp` 隔离副本，未修改主仓库。`SolinMutationReport/v2` 为
+  `status=passed`、`baseline=passed`、`killed=6`、`survived=0`，`gitHead=b435164f...`，
+  recordedAtUtc 为 `2026-11-13T13:21:38.304335+00:00`；证据为
+  `build/verification/mutation/mutation-report.json`。该结果不覆盖 egress、trace recovery、设备行为或模型质量。
+- `failedTarget=physical-device-and-paired-benchmark`，`reason=no-connected-authorized-device`：
+  `adb devices -l` 只有表头，没有连接设备；本轮未执行安装、instrumentation、数据清除或配对基准。
+  `failedTarget=emulator-infra`：前序 x86_64 尝试为 `reason=kvm-unavailable`，arm64 尝试为
+  `reason=host-architecture-incompatible`；最终门禁未重跑 emulator regression。
+  pending 状态记录于 `build/verification/local/followup-device-status.properties`。
+  不把 JVM、构建或 mutation 结果推断为真机/模拟器通过，也不新增 OEM、热态、性能或发布审批结论。
 
 ## 2026-11-13 — Big simplification convergence
 
