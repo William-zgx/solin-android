@@ -6,6 +6,7 @@ import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.ModelCatalog
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.isUsable
 import java.io.File
 import java.util.UUID
@@ -24,7 +25,7 @@ class LegacyPrefsMigrator(
     private val context: Context,
     private val database: SolinDatabase,
     private val settingsStore: PreferenceSettingsStore,
-    private val secretStore: SecretStore,
+    private val secretStore: SecretStore
 ) {
     fun migrateIfNeeded(): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
@@ -43,17 +44,17 @@ class LegacyPrefsMigrator(
         try {
             migratedSensitiveKeys += migrateSessions(
                 encoded = prefs.getString(LEGACY_SESSIONS_KEY, null),
-                activeSessionId = prefs.getString("active_session_id", null),
+                activeSessionId = prefs.getString("active_session_id", null)
             )
             migrateModels(
                 installedModelsJson = prefs.getString("installed_models_json", null),
                 legacyModelPath = prefs.getString("model_path", null),
                 activeInstalledModelId = prefs.getString("active_installed_model_id", null),
-                selectedModelId = prefs.getString("selected_model_id", null),
+                selectedModelId = prefs.getString("selected_model_id", null)
             )
             migratedSensitiveKeys += migrateDownload(
                 downloadId = prefs.getLong(LEGACY_DOWNLOAD_ID_KEY, -1L),
-                sourceJson = prefs.getString(LEGACY_DOWNLOAD_SOURCE_KEY, null),
+                sourceJson = prefs.getString(LEGACY_DOWNLOAD_SOURCE_KEY, null)
             )
             migrateSettings(prefs)
             migratedSensitiveKeys += migrateRemote(prefs)
@@ -65,8 +66,7 @@ class LegacyPrefsMigrator(
         return markMigrated()
     }
 
-    private fun markMigrated(): Boolean =
-        runCatching { settingsStore.setMigrationVersion(CURRENT_MIGRATION_VERSION) }.isSuccess
+    private fun markMigrated(): Boolean = runCatching { settingsStore.setMigrationVersion(CURRENT_MIGRATION_VERSION) }.isSuccess
 
     private fun migrateSessions(encoded: String?, activeSessionId: String?): Set<String> {
         if (encoded == null) return emptySet()
@@ -85,8 +85,8 @@ class LegacyPrefsMigrator(
                             id = legacy.id,
                             title = legacy.title,
                             createdAtMillis = legacy.createdAtMillis,
-                            updatedAtMillis = legacy.updatedAtMillis,
-                        ),
+                            updatedAtMillis = legacy.updatedAtMillis
+                        )
                     )
                     database.sessionDao().insertMessages(
                         legacy.messages.mapIndexed { index, message ->
@@ -97,9 +97,9 @@ class LegacyPrefsMigrator(
                                 text = message.text,
                                 tokenCount = message.tokenCount,
                                 tokensPerSecond = message.tokensPerSecond,
-                                privacy = MessagePrivacy.LocalOnly.name,
+                                privacy = MessagePrivacy.LocalOnly.name
                             )
-                        },
+                        }
                     )
                 }
             }
@@ -114,7 +114,7 @@ class LegacyPrefsMigrator(
         installedModelsJson: String?,
         legacyModelPath: String?,
         activeInstalledModelId: String?,
-        selectedModelId: String?,
+        selectedModelId: String?
     ) {
         settingsStore.saveSelectedModelId(selectedModelId?.takeIf { it.isNotBlank() } ?: DEFAULT_CHAT_MODEL_ID)
         if (activeInstalledModelId?.isNotBlank() == true) {
@@ -138,7 +138,7 @@ class LegacyPrefsMigrator(
                         ?: recommendedId?.let { ModelCatalog.recommendedModelOrNull(it)?.shortName }
                         ?: file.nameWithoutExtension,
                     path = path,
-                    recommendedModelId = recommendedId,
+                    recommendedModelId = recommendedId
                 )
             }
         }
@@ -149,7 +149,7 @@ class LegacyPrefsMigrator(
                 id = "local-${Integer.toHexString(path.hashCode())}",
                 displayName = file.nameWithoutExtension,
                 path = path,
-                recommendedModelId = null,
+                recommendedModelId = null
             )
         }
     }
@@ -158,7 +158,7 @@ class LegacyPrefsMigrator(
         id: String,
         displayName: String,
         path: String,
-        recommendedModelId: String?,
+        recommendedModelId: String?
     ) {
         val file = File(path)
         val model = recommendedModelId?.let { ModelCatalog.recommendedModelOrNull(it) }
@@ -175,8 +175,8 @@ class LegacyPrefsMigrator(
                     ModelVerificationStatus.UnverifiedCustom.name
                 } else {
                     ModelVerificationStatus.LegacyUnverified.name
-                },
-            ),
+                }
+            )
         )
     }
 
@@ -195,13 +195,13 @@ class LegacyPrefsMigrator(
                     id = PENDING_DOWNLOAD_RECORD_ID,
                     downloadManagerId = downloadId,
                     sourceJson = sanitizedSourceJson,
-                    updatedAtMillis = System.currentTimeMillis(),
-                ),
+                    updatedAtMillis = System.currentTimeMillis()
+                )
             )
         } else {
             check(
                 existing.downloadManagerId == downloadId &&
-                    existing.sourceJson == sanitizedSourceJson,
+                    existing.sourceJson == sanitizedSourceJson
             ) {
                 "旧下载状态与现有记录冲突"
             }
@@ -216,15 +216,15 @@ class LegacyPrefsMigrator(
             GenerationParameters(
                 temperature = prefs.getFloat("generation_temperature", GenerationParameters.DEFAULT_TEMPERATURE),
                 topP = prefs.getFloat("generation_top_p", GenerationParameters.DEFAULT_TOP_P),
-                topK = prefs.getInt("generation_top_k", GenerationParameters.DEFAULT_TOP_K),
-            ),
+                topK = prefs.getInt("generation_top_k", GenerationParameters.DEFAULT_TOP_K)
+            )
         )
         settingsStore.saveInferenceMode(
-            decodeInferenceMode(prefs.getString("inference_mode", null)),
+            decodeInferenceMode(prefs.getString("inference_mode", null))
         )
         runCatching {
             settingsStore.saveBackend(
-                com.bytedance.zgx.solin.BackendChoice.valueOf(prefs.getString("backend", "").orEmpty()),
+                com.bytedance.zgx.solin.BackendChoice.valueOf(prefs.getString("backend", "").orEmpty())
             )
         }
     }
@@ -233,8 +233,8 @@ class LegacyPrefsMigrator(
         settingsStore.saveRemoteConfig(
             com.bytedance.zgx.solin.RemoteModelConfig(
                 baseUrl = prefs.getString("remote_model_base_url", "").orEmpty(),
-                modelName = prefs.getString("remote_model_name", "").orEmpty(),
-            ),
+                modelName = prefs.getString("remote_model_name", "").orEmpty()
+            )
         )
         val legacyKey = prefs.getString(LEGACY_REMOTE_API_KEY, "").orEmpty()
         if (legacyKey.isBlank()) return emptySet()
@@ -244,7 +244,7 @@ class LegacyPrefsMigrator(
 
     private fun clearMigratedSensitiveKeys(
         prefs: android.content.SharedPreferences,
-        migratedKeys: Set<String>,
+        migratedKeys: Set<String>
     ): Boolean {
         if (migratedKeys.isEmpty()) return true
         return prefs.edit().apply {
@@ -254,7 +254,7 @@ class LegacyPrefsMigrator(
     }
 
     private fun previouslyMigratedSensitiveKeys(
-        prefs: android.content.SharedPreferences,
+        prefs: android.content.SharedPreferences
     ): Set<String>? {
         val migratedKeys = linkedSetOf<String>()
         prefs.getString(LEGACY_SESSIONS_KEY, null)?.let { encoded ->
@@ -273,8 +273,8 @@ class LegacyPrefsMigrator(
             val persistedDownload = database.downloadRecordDao().record()
             if (
                 downloadId <= 0L ||
-                    persistedDownload?.downloadManagerId != downloadId ||
-                    persistedDownload.sourceJson != sanitizedSourceJson
+                persistedDownload?.downloadManagerId != downloadId ||
+                persistedDownload.sourceJson != sanitizedSourceJson
             ) {
                 return null
             }
@@ -286,7 +286,7 @@ class LegacyPrefsMigrator(
             val legacyKey = prefs.getString(LEGACY_REMOTE_API_KEY, "").orEmpty()
             if (
                 legacyKey.isNotBlank() &&
-                    secretStore.loadString(LEGACY_REMOTE_API_KEY).getOrNull() != legacyKey
+                secretStore.loadString(LEGACY_REMOTE_API_KEY).getOrNull() != legacyKey
             ) {
                 return null
             }
@@ -301,8 +301,8 @@ class LegacyPrefsMigrator(
             val persistedSession = sessionDao.session(legacy.id) ?: return@all false
             if (
                 persistedSession.title != legacy.title ||
-                    persistedSession.createdAtMillis != legacy.createdAtMillis ||
-                    persistedSession.updatedAtMillis != legacy.updatedAtMillis
+                persistedSession.createdAtMillis != legacy.createdAtMillis ||
+                persistedSession.updatedAtMillis != legacy.updatedAtMillis
             ) {
                 return@all false
             }
@@ -318,30 +318,29 @@ class LegacyPrefsMigrator(
         }
     }
 
-    private fun decodeSessions(encoded: String): List<LegacySession>? =
-        runCatching {
-            val array = if (encoded.trimStart().startsWith("[")) {
-                JSONArray(encoded)
-            } else {
-                JSONObject(encoded).optJSONArray("sessions") ?: JSONArray()
-            }
-            buildList {
-                for (index in 0 until array.length()) {
-                    val json = array.getJSONObject(index)
-                    val messages = json.optJSONArray("messages").orEmptyMessages()
-                    add(
-                        LegacySession(
-                            id = json.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-                            title = json.optString("title").takeIf { it.isNotBlank() }
-                                ?: SessionTitleRules.deriveTitle(messages.map { it.toChatMessage() }),
-                            createdAtMillis = json.optLong("createdAtMillis", System.currentTimeMillis()),
-                            updatedAtMillis = json.optLong("updatedAtMillis", System.currentTimeMillis()),
-                            messages = messages,
-                        ),
+    private fun decodeSessions(encoded: String): List<LegacySession>? = runCatching {
+        val array = if (encoded.trimStart().startsWith("[")) {
+            JSONArray(encoded)
+        } else {
+            JSONObject(encoded).optJSONArray("sessions") ?: JSONArray()
+        }
+        buildList {
+            for (index in 0 until array.length()) {
+                val json = array.getJSONObject(index)
+                val messages = json.optJSONArray("messages").orEmptyMessages()
+                add(
+                    LegacySession(
+                        id = json.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
+                        title = json.optString("title").takeIf { it.isNotBlank() }
+                            ?: SessionTitleRules.deriveTitle(messages.map { it.toChatMessage() }),
+                        createdAtMillis = json.optLong("createdAtMillis", System.currentTimeMillis()),
+                        updatedAtMillis = json.optLong("updatedAtMillis", System.currentTimeMillis()),
+                        messages = messages
                     )
-                }
+                )
             }
-        }.getOrNull()
+        }
+    }.getOrNull()
 
     private fun JSONArray?.orEmptyMessages(): List<LegacyMessage> {
         if (this == null) return emptyList()
@@ -358,35 +357,33 @@ class LegacyPrefsMigrator(
                         tokenCount = stats?.optInt("tokenCount")?.takeIf { it > 0 },
                         tokensPerSecond = stats?.optDouble("tokensPerSecond")?.takeIf { value ->
                             com.bytedance.zgx.solin.GenerationStats(1, value).isUsable()
-                        },
-                    ),
+                        }
+                    )
                 )
             }
         }
     }
 
-    private fun JSONObject.optStringOrNull(name: String): String? =
-        if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() && it != "null" }
+    private fun JSONObject.optStringOrNull(name: String): String? = if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() && it != "null" }
 
     private data class LegacySession(
         val id: String,
         val title: String,
         val createdAtMillis: Long,
         val updatedAtMillis: Long,
-        val messages: List<LegacyMessage>,
+        val messages: List<LegacyMessage>
     )
 
     private data class LegacyMessage(
         val role: String,
         val text: String,
         val tokenCount: Int?,
-        val tokensPerSecond: Double?,
+        val tokensPerSecond: Double?
     ) {
-        fun toChatMessage(): com.bytedance.zgx.solin.ChatMessage =
-            com.bytedance.zgx.solin.ChatMessage(
-                role = runCatching { MessageRole.valueOf(role) }.getOrDefault(MessageRole.Assistant),
-                text = text,
-                privacy = MessagePrivacy.LocalOnly,
-            )
+        fun toChatMessage(): com.bytedance.zgx.solin.ChatMessage = com.bytedance.zgx.solin.ChatMessage(
+            role = persistedEnumOrNull<MessageRole>(role) ?: MessageRole.Assistant,
+            text = text,
+            privacy = MessagePrivacy.LocalOnly
+        )
     }
 }

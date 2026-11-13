@@ -17,6 +17,7 @@ import com.bytedance.zgx.solin.ReasoningEffort
 import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteModelConnectivityStatus
 import com.bytedance.zgx.solin.RemoteSendDisclosureKind
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -24,17 +25,17 @@ import org.json.JSONObject
 
 private val Context.solinDataStore by preferencesDataStore(name = "solin_settings")
 
-internal fun decodeInferenceMode(raw: String?): InferenceMode =
-    runCatching { InferenceMode.valueOf(raw.orEmpty()) }.getOrDefault(InferenceMode.Local)
+internal fun decodeInferenceMode(raw: String?): InferenceMode = persistedEnumOrNull(raw) ?: InferenceMode.Local
 
 /** DataStore-backed settings, active-session id and pending remote-send marker, in one `solin_settings` store. */
 class PreferenceSettingsStore internal constructor(
-    private val dataStore: DataStore<Preferences>,
-) : SettingsStore, ActiveSessionStore, RemoteSendPendingStore {
+    private val dataStore: DataStore<Preferences>
+) : SettingsStore,
+    ActiveSessionStore,
+    RemoteSendPendingStore {
     constructor(context: Context) : this(context.applicationContext.solinDataStore)
 
-    override fun isSetupDismissed(): Boolean =
-        read(Keys.FIRST_RUN_DISMISSED, false)
+    override fun isSetupDismissed(): Boolean = read(Keys.FIRST_RUN_DISMISSED, false)
 
     override fun markSetupDismissed() {
         write(Keys.FIRST_RUN_DISMISSED, true)
@@ -44,22 +45,19 @@ class PreferenceSettingsStore internal constructor(
         write(Keys.FIRST_RUN_DISMISSED, false)
     }
 
-    override fun isMemoryEnabled(): Boolean =
-        read(Keys.MEMORY_ENABLED, true)
+    override fun isMemoryEnabled(): Boolean = read(Keys.MEMORY_ENABLED, true)
 
     override fun setMemoryEnabled(enabled: Boolean) {
         write(Keys.MEMORY_ENABLED, enabled)
     }
 
-    override fun reduceDeviceActionConfirmations(): Boolean =
-        read(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, true)
+    override fun reduceDeviceActionConfirmations(): Boolean = read(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, true)
 
     override fun setReduceDeviceActionConfirmations(enabled: Boolean) {
         write(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, enabled)
     }
 
-    override fun remoteGuiAutomationEnabled(): Boolean =
-        read(Keys.REMOTE_GUI_AUTOMATION_ENABLED, false)
+    override fun remoteGuiAutomationEnabled(): Boolean = read(Keys.REMOTE_GUI_AUTOMATION_ENABLED, false)
 
     override fun setRemoteGuiAutomationEnabled(enabled: Boolean) {
         write(Keys.REMOTE_GUI_AUTOMATION_ENABLED, enabled)
@@ -73,8 +71,8 @@ class PreferenceSettingsStore internal constructor(
             topK = prefs[Keys.TOP_K] ?: GenerationParameters.DEFAULT_TOP_K,
             reasoningEffort = reasoningEffortFromOrdinal(
                 prefs[Keys.REASONING_EFFORT_ORDINAL]
-                    ?: GenerationParameters.DEFAULT_REASONING_EFFORT_ORDINAL,
-            ),
+                    ?: GenerationParameters.DEFAULT_REASONING_EFFORT_ORDINAL
+            )
         ).normalized()
     }
 
@@ -91,46 +89,38 @@ class PreferenceSettingsStore internal constructor(
         return normalized
     }
 
-    override fun loadInferenceMode(): InferenceMode =
-        decodeInferenceMode(read(Keys.INFERENCE_MODE, InferenceMode.Local.name))
+    override fun loadInferenceMode(): InferenceMode = decodeInferenceMode(read(Keys.INFERENCE_MODE, InferenceMode.Local.name))
 
     override fun saveInferenceMode(mode: InferenceMode): InferenceMode {
         write(Keys.INFERENCE_MODE, mode.name)
         return mode
     }
 
-    override fun loadBackend(): BackendChoice =
-        runCatching {
-            BackendChoice.valueOf(read(Keys.BACKEND, BackendChoice.GPU.name))
-        }.getOrDefault(BackendChoice.GPU)
+    override fun loadBackend(): BackendChoice = persistedEnumOrNull(read(Keys.BACKEND, BackendChoice.GPU.name)) ?: BackendChoice.GPU
 
     override fun saveBackend(backend: BackendChoice) {
         write(Keys.BACKEND, backend.name)
     }
 
-    override fun activeSessionId(): String? =
-        read(Keys.ACTIVE_SESSION_ID, "").takeIf { it.isNotBlank() }
+    override fun activeSessionId(): String? = read(Keys.ACTIVE_SESSION_ID, "").takeIf { it.isNotBlank() }
 
     override fun saveActiveSessionId(sessionId: String) {
         write(Keys.ACTIVE_SESSION_ID, sessionId)
     }
 
-    override fun selectedModelId(): String? =
-        read(Keys.SELECTED_MODEL_ID, "").takeIf { it.isNotBlank() }
+    override fun selectedModelId(): String? = read(Keys.SELECTED_MODEL_ID, "").takeIf { it.isNotBlank() }
 
     override fun saveSelectedModelId(modelId: String) {
         write(Keys.SELECTED_MODEL_ID, modelId)
     }
 
-    override fun activeInstalledModelId(): String? =
-        read(Keys.ACTIVE_INSTALLED_MODEL_ID, "").takeIf { it.isNotBlank() }
+    override fun activeInstalledModelId(): String? = read(Keys.ACTIVE_INSTALLED_MODEL_ID, "").takeIf { it.isNotBlank() }
 
     override fun saveActiveInstalledModelId(modelId: String?) {
         write(Keys.ACTIVE_INSTALLED_MODEL_ID, modelId.orEmpty())
     }
 
-    override fun localPlanningStrategy(): LocalPlanningStrategy =
-        LocalPlanningStrategy.parse(read(Keys.LOCAL_PLANNING_STRATEGY, "")) ?: LocalPlanningStrategy.RuleFirst
+    override fun localPlanningStrategy(): LocalPlanningStrategy = LocalPlanningStrategy.parse(read(Keys.LOCAL_PLANNING_STRATEGY, "")) ?: LocalPlanningStrategy.RuleFirst
 
     override fun setLocalPlanningStrategy(strategy: LocalPlanningStrategy) {
         write(Keys.LOCAL_PLANNING_STRATEGY, strategy.name)
@@ -146,7 +136,7 @@ class PreferenceSettingsStore internal constructor(
             supportsToolCalls = prefs[Keys.REMOTE_SUPPORTS_TOOL_CALLS] ?: false,
             contextWindowTokens = (prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS] ?: 0).takeIf { it > 0 },
             profileRevision = prefs[Keys.REMOTE_PROFILE_REVISION] ?: "",
-            connectivityStatus = RemoteModelConnectivityStatus.Unknown,
+            connectivityStatus = RemoteModelConnectivityStatus.Unknown
         ).normalized()
     }
 
@@ -181,7 +171,7 @@ class PreferenceSettingsStore internal constructor(
                 .put("runId", marker.runId.orEmpty())
                 .put("remoteProfileRevision", marker.remoteProfileRevision.orEmpty())
                 .put("createdAtMillis", marker.createdAtMillis)
-                .toString(),
+                .toString()
         )
     }
 
@@ -200,7 +190,7 @@ class PreferenceSettingsStore internal constructor(
                 protectedSourceCount = json.optInt("protectedSourceCount"),
                 runId = json.optString("runId").takeIf { it.isNotBlank() },
                 remoteProfileRevision = json.optString("remoteProfileRevision").takeIf { it.isNotBlank() },
-                createdAtMillis = json.optLong("createdAtMillis"),
+                createdAtMillis = json.optLong("createdAtMillis")
             )
         }.getOrNull()
     }
@@ -209,19 +199,16 @@ class PreferenceSettingsStore internal constructor(
         write(Keys.PENDING_REMOTE_SEND_MARKER, "")
     }
 
-    fun migrationVersion(): Int =
-        read(Keys.MIGRATION_VERSION, 0)
+    fun migrationVersion(): Int = read(Keys.MIGRATION_VERSION, 0)
 
     fun setMigrationVersion(version: Int) {
         write(Keys.MIGRATION_VERSION, version)
     }
 
     /** One consistent DataStore snapshot; multi-key loaders read every key from a single one. */
-    private fun snapshot(): Preferences =
-        runBlocking { dataStore.data.first() }
+    private fun snapshot(): Preferences = runBlocking { dataStore.data.first() }
 
-    private fun <T> read(key: Preferences.Key<T>, default: T): T =
-        snapshot()[key] ?: default
+    private fun <T> read(key: Preferences.Key<T>, default: T): T = snapshot()[key] ?: default
 
     private fun <T> write(key: Preferences.Key<T>, value: T) {
         runBlocking { dataStore.edit { it[key] = value } }

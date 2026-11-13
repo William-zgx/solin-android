@@ -1,6 +1,7 @@
 package com.bytedance.zgx.solin.memory
 
 import android.content.Context
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.common.sha256Hex
 import com.bytedance.zgx.solin.storage.LocalDocument
 import com.bytedance.zgx.solin.storage.LocalVectorIndexContract
@@ -154,17 +155,16 @@ private fun PersistedMemoryRecord.contentHash(): String = sha256Hex(
 /** Parses a plaintext record written by the retired zvec/SharedPreferences memory store. */
 internal fun LocalDocument.toLegacyMemoryRecordOrNull(): PersistedMemoryRecord? {
     if (domain != LEGACY_MEMORY_DOMAIN || deletedAtMillis != null) return null
-    val recordType = runCatching { MemoryRecordType.valueOf(type) }.getOrNull() ?: return null
+    val recordType = persistedEnumOrNull<MemoryRecordType>(type) ?: return null
     val metadata = runCatching { JSONObject(metadataJson) }.getOrNull()
     return PersistedMemoryRecord(
         id = id,
         type = recordType,
         text = text,
         source = metadata?.optString(LEGACY_MEMORY_SOURCE_KEY)
-            ?.let { source -> runCatching { MemoryRecordSource.valueOf(source) }.getOrNull() }
+            ?.let { source -> persistedEnumOrNull<MemoryRecordSource>(source) }
             ?: MemoryRecordSource.LegacyImport,
-        sensitivity = runCatching { MemoryRecordSensitivity.valueOf(sensitivity) }
-            .getOrDefault(MemoryRecordSensitivity.Normal),
+        sensitivity = persistedEnumOrNull<MemoryRecordSensitivity>(sensitivity) ?: MemoryRecordSensitivity.Normal,
         privacy = privacy,
         expiresAtMillis = expiresAtMillis,
         conflictKey = metadata?.optString(LEGACY_MEMORY_CONFLICT_KEY)?.takeIf { it.isNotBlank() }

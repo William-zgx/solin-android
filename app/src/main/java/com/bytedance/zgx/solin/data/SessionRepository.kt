@@ -6,17 +6,18 @@ import com.bytedance.zgx.solin.ChatSessionSummary
 import com.bytedance.zgx.solin.GenerationStats
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.isUsable
 import java.util.UUID
 import kotlin.math.max
 
 class SessionRepository(
     private val sessionDao: SessionDao,
-    private val activeSessionStore: ActiveSessionStore,
+    private val activeSessionStore: ActiveSessionStore
 ) : SessionStore {
     constructor(context: Context) : this(
         SolinDatabase.get(context).sessionDao(),
-        PreferenceSettingsStore(context),
+        PreferenceSettingsStore(context)
     )
 
     override var activeSessionId: String = resolveActiveSessionId()
@@ -29,24 +30,22 @@ class SessionRepository(
                 id = session.id,
                 title = session.title,
                 updatedAtMillis = session.updatedAtMillis,
-                messageCount = counts[session.id] ?: 0,
+                messageCount = counts[session.id] ?: 0
             )
         }
     }
 
-    override fun activeMessages(): List<ChatMessage> =
-        sessionDao.messagesForSession(activeSessionId).toChatMessages()
+    override fun activeMessages(): List<ChatMessage> = sessionDao.messagesForSession(activeSessionId).toChatMessages()
 
-    override fun allMessages(limit: Int): List<ChatMessage> =
-        if (limit == Int.MAX_VALUE) {
-            sessionDao.sessions()
-                .sortedBy { it.updatedAtMillis }
-                .flatMap { session -> sessionDao.messagesForSession(session.id).toChatMessages() }
-        } else {
-            sessionDao.recentMessages(limit)
-                .asReversed()
-                .toChatMessages()
-        }
+    override fun allMessages(limit: Int): List<ChatMessage> = if (limit == Int.MAX_VALUE) {
+        sessionDao.sessions()
+            .sortedBy { it.updatedAtMillis }
+            .flatMap { session -> sessionDao.messagesForSession(session.id).toChatMessages() }
+    } else {
+        sessionDao.recentMessages(limit)
+            .asReversed()
+            .toChatMessages()
+    }
 
     override fun createNewSession(): List<ChatMessage> {
         val created = newChatSession()
@@ -73,15 +72,15 @@ class SessionRepository(
 
     override fun replaceActiveSessionMessages(
         messages: List<ChatMessage>,
-        persistNow: Boolean,
+        persistNow: Boolean
     ) {
         val existing = sessionDao.session(activeSessionId) ?: newChatSession(activeSessionId)
         val now = System.currentTimeMillis()
         sessionDao.upsertSession(
             existing.copy(
                 title = SessionTitleRules.deriveTitle(messages),
-                updatedAtMillis = max(existing.updatedAtMillis, now),
-            ),
+                updatedAtMillis = max(existing.updatedAtMillis, now)
+            )
         )
         if (persistNow) {
             persistMessages(activeSessionId, messages)
@@ -103,9 +102,9 @@ class SessionRepository(
                     text = message.text,
                     tokenCount = message.generationStats?.tokenCount,
                     tokensPerSecond = message.generationStats?.tokensPerSecond,
-                    privacy = message.privacy.name,
+                    privacy = message.privacy.name
                 )
-            },
+            }
         )
     }
 
@@ -125,45 +124,41 @@ class SessionRepository(
             id = id,
             title = "新会话",
             createdAtMillis = now,
-            updatedAtMillis = now,
+            updatedAtMillis = now
         )
     }
 
-    private fun List<ChatMessageEntity>.toChatMessages(): List<ChatMessage> =
-        mapNotNull { entity ->
-            val text = entity.text.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val role = runCatching { MessageRole.valueOf(entity.role) }
-                .getOrDefault(MessageRole.Assistant)
-            ChatMessage(
-                role = role,
-                text = text,
-                generationStats = entity.tokenCount?.let { tokenCount ->
-                    GenerationStats(
-                        tokenCount = tokenCount,
-                        tokensPerSecond = entity.tokensPerSecond ?: 0.0,
-                    ).takeIf { it.isUsable() }
-                },
-                privacy = runCatching { MessagePrivacy.valueOf(entity.privacy) }
-                    .getOrDefault(MessagePrivacy.LocalOnly),
-            )
-        }
+    private fun List<ChatMessageEntity>.toChatMessages(): List<ChatMessage> = mapNotNull { entity ->
+        val text = entity.text.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val role = persistedEnumOrNull<MessageRole>(entity.role) ?: MessageRole.Assistant
+        ChatMessage(
+            role = role,
+            text = text,
+            generationStats = entity.tokenCount?.let { tokenCount ->
+                GenerationStats(
+                    tokenCount = tokenCount,
+                    tokensPerSecond = entity.tokensPerSecond ?: 0.0
+                ).takeIf { it.isUsable() }
+            },
+            privacy = persistedEnumOrNull<MessagePrivacy>(entity.privacy) ?: MessagePrivacy.LocalOnly
+        )
+    }
 }
 
 object SessionTitleRules {
-    fun deriveTitle(messages: List<ChatMessage>): String =
-        messages
-            .firstOrNull {
-                it.role == MessageRole.User &&
-                    it.privacy != MessagePrivacy.LocalOnly &&
-                    it.text.isNotBlank()
-            }
-            ?.text
-            ?.trim()
-            ?.replace(Regex("\\s+"), " ")
-            ?.take(28)
-            ?: if (messages.any { it.role == MessageRole.User && it.privacy == MessagePrivacy.LocalOnly }) {
-                "本地内容"
-            } else {
-                "新会话"
-            }
+    fun deriveTitle(messages: List<ChatMessage>): String = messages
+        .firstOrNull {
+            it.role == MessageRole.User &&
+                it.privacy != MessagePrivacy.LocalOnly &&
+                it.text.isNotBlank()
+        }
+        ?.text
+        ?.trim()
+        ?.replace(Regex("\\s+"), " ")
+        ?.take(28)
+        ?: if (messages.any { it.role == MessageRole.User && it.privacy == MessagePrivacy.LocalOnly }) {
+            "本地内容"
+        } else {
+            "新会话"
+        }
 }

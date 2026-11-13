@@ -36,6 +36,9 @@ internal fun JSONObject.optStringSet(name: String): Set<String> = optStringSetOr
 
 internal fun firstNonBlank(vararg values: String): String? = values.firstOrNull { value -> value.isNotBlank() }
 
+/** Exact persisted enum name, or null when it is absent or no longer recognized. Fallback stays with the caller. */
+internal inline fun <reified T : Enum<T>> persistedEnumOrNull(raw: String?): T? = enumValues<T>().firstOrNull { it.name == raw }
+
 /** Syntax violations found before a platform JSON parser can apply its own lenient rules. */
 internal enum class StrictJsonRejection {
     NotJsonObject,

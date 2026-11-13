@@ -3,6 +3,7 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.audit.ToolAuditSummaryRedactor
+import com.bytedance.zgx.solin.common.persistedEnumOrNull
 import com.bytedance.zgx.solin.data.AgentRunEntity
 import com.bytedance.zgx.solin.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.solin.data.AgentStepEntity
@@ -908,7 +909,7 @@ private fun AgentRun.toEntity(): AgentRunEntity = AgentRunEntity(
 private fun AgentRunEntity.toDomain(): AgentRun = AgentRun(
     id = id,
     input = input,
-    state = runCatching { AgentRunState.valueOf(state) }.getOrDefault(AgentRunState.Failed),
+    state = persistedEnumOrNull<AgentRunState>(state) ?: AgentRunState.Failed,
     createdAtMillis = createdAtMillis,
     updatedAtMillis = updatedAtMillis,
     sessionId = sessionId
@@ -1490,7 +1491,7 @@ private val allowedOutputQualityActions = setOf(
     "FailClosed"
 )
 
-private fun String.safeMessagePrivacyName(): String = runCatching { MessagePrivacy.valueOf(this).name }.getOrDefault(MessagePrivacy.LocalOnly.name)
+private fun String.safeMessagePrivacyName(): String = (persistedEnumOrNull<MessagePrivacy>(this) ?: MessagePrivacy.LocalOnly).name
 
 private fun List<String>.safeEvidenceSourceTypes(): List<String> {
     val allowed = EvidenceSourceType.entries.mapTo(hashSetOf()) { it.name }

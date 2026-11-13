@@ -13,8 +13,9 @@ Runtime/package boundaries remain conventions enforced by architecture tests.
 Shared helpers live in `app/src/main/java/com/bytedance/zgx/solin/common/`:
 `JsonReaders.kt` (`keysSet`, `jsonObjects`, `optNullableString`,
 `optStringOrNull`, `optDoubleOrNull`, `optStringSet`, `optStringSetOrNull`,
-`firstNonBlank`), plus the policy-neutral `StrictJsonScan` / `StrictJsonRejection`
-syntax scanner. `Hashing.kt` provides `sha256Hex`, `toLowerHex`, and
+`firstNonBlank`, `persistedEnumOrNull`), plus the policy-neutral `StrictJsonScan` / `StrictJsonRejection`
+syntax scanner. `persistedEnumOrNull` only performs exact-name lookup; each caller retains its own
+fallback or strict rejection policy. `Hashing.kt` provides `sha256Hex`, `toLowerHex`, and
 `appendLengthPrefixed`. Helpers are `internal` and carry no product policy. Most org.json
 readers fail soft (null or empty) so each caller decides how to fail closed;
 `optStringSetOrNull` / `optStringSet` instead throw for non-string array elements. The strict
