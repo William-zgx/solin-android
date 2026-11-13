@@ -38,14 +38,14 @@ class ConfirmationBypassPolicyTest {
                     description = "sends arguments to another app",
                     inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
                     capability = ToolCapability.Extension,
-                    riskLevel = RiskLevel.HighExternalSend,
+                    riskLevel = RiskLevel.HighExternalSend
                 )
-            },
+            }
         ),
         traceStore = traceStore,
         traceQueries = AgentTraceQueries(traceStore),
         isCriticalOnlyConfirmationEnabled = { criticalOnly },
-        isRemoteVisionDrivingEnabled = { remoteVisionDriving },
+        isRemoteVisionDrivingEnabled = { remoteVisionDriving }
     )
 
     @Test
@@ -56,7 +56,7 @@ class ConfirmationBypassPolicyTest {
             ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to "牛奶")),
             ToolRequest(toolName = MobileActionFunctions.COMPOSE_EMAIL, arguments = mapOf("body" to "明天聊")),
             ToolRequest(toolName = MobileActionFunctions.READ_CLIPBOARD),
-            ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "今天天气")),
+            ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "今天天气"))
         ).forEach { request ->
             assertNull(request.toolName, policy.criticalApprovalReason("run", request))
             assertTrue(request.toolName, policy.isAutoApproved("run", request))
@@ -67,11 +67,11 @@ class ConfirmationBypassPolicyTest {
     fun unknownToolsExternalSendsFlaggedStepsAndSensitiveQueriesStayCritical() {
         assertEquals(
             CriticalApprovalReason.UnknownTool,
-            policy.criticalApprovalReason("run", ToolRequest(toolName = "mcp__unknown")),
+            policy.criticalApprovalReason("run", ToolRequest(toolName = "mcp__unknown"))
         )
         assertEquals(
             CriticalApprovalReason.ExternalSendOrPayment,
-            policy.criticalApprovalReason("run", ToolRequest(toolName = EXTERNAL_SEND_TOOL)),
+            policy.criticalApprovalReason("run", ToolRequest(toolName = EXTERNAL_SEND_TOOL))
         )
         assertEquals(
             CriticalApprovalReason.ModelFlaggedSensitive,
@@ -80,9 +80,9 @@ class ConfirmationBypassPolicyTest {
                 ToolRequest(
                     toolName = MobileActionFunctions.UI_TAP,
                     arguments = mapOf("target" to "下一步"),
-                    sensitivityReason = "涉及支付",
-                ),
-            ),
+                    sensitivityReason = "涉及支付"
+                )
+            )
         )
         assertEquals(
             CriticalApprovalReason.SensitiveNetworkQuery,
@@ -90,9 +90,9 @@ class ConfirmationBypassPolicyTest {
                 "run",
                 ToolRequest(
                     toolName = MobileActionFunctions.WEB_SEARCH,
-                    arguments = mapOf("query" to "我的身份证号 110101199003071234"),
-                ),
-            ),
+                    arguments = mapOf("query" to "我的身份证号 110101199003071234")
+                )
+            )
         )
     }
 
@@ -104,9 +104,9 @@ class ConfirmationBypassPolicyTest {
                 "run",
                 ToolRequest(
                     toolName = MobileActionFunctions.OPEN_DEEP_LINK,
-                    arguments = mapOf("uri" to "https://example.com/?q=身份证号110101199003071234"),
-                ),
-            ),
+                    arguments = mapOf("uri" to "https://example.com/?q=身份证号110101199003071234")
+                )
+            )
         )
         assertEquals(
             CriticalApprovalReason.SensitiveNetworkQuery,
@@ -114,15 +114,15 @@ class ConfirmationBypassPolicyTest {
                 "run",
                 ToolRequest(
                     toolName = MobileActionFunctions.SEARCH_MAPS,
-                    arguments = mapOf("query" to "我家附近 手机13800138000"),
-                ),
-            ),
+                    arguments = mapOf("query" to "我家附近 手机13800138000")
+                )
+            )
         )
         assertNull(
             policy.criticalApprovalReason(
                 "run",
-                ToolRequest(toolName = MobileActionFunctions.OPEN_DEEP_LINK, arguments = mapOf("uri" to "https://example.com")),
-            ),
+                ToolRequest(toolName = MobileActionFunctions.OPEN_DEEP_LINK, arguments = mapOf("uri" to "https://example.com"))
+            )
         )
     }
 
@@ -132,7 +132,7 @@ class ConfirmationBypassPolicyTest {
         val read = ToolRequest(id = "read", toolName = MobileActionFunctions.READ_CLIPBOARD)
         traceStore.appendStep(
             runId,
-            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap())),
+            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap()))
         )
         val link = ToolRequest(id = "link", toolName = MobileActionFunctions.OPEN_DEEP_LINK, arguments = mapOf("uri" to "https://example.com/?q=abc"))
         val search = ToolRequest(id = "search", toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "abc"))
@@ -155,7 +155,7 @@ class ConfirmationBypassPolicyTest {
         criticalOnly = false
         assertEquals(
             SafetyOutcome.RequireConfirmation,
-            policy.withConfirmationBypass(runId, planOf(search, SafetyOutcome.Allow)).safetyDecision.outcome,
+            policy.withConfirmationBypass(runId, planOf(search, SafetyOutcome.Allow)).safetyDecision.outcome
         )
         criticalOnly = true
 
@@ -171,27 +171,26 @@ class ConfirmationBypassPolicyTest {
         val calculate = ToolRequest(id = "calc", toolName = MobileActionFunctions.CALCULATE)
         traceStore.appendStep(
             runId,
-            AgentStep.ToolRequested(calculate, ActionDraft(calculate.toolName, "计算", "计算", emptyMap())),
+            AgentStep.ToolRequested(calculate, ActionDraft(calculate.toolName, "计算", "计算", emptyMap()))
         )
         assertNull(
             policy.criticalApprovalReason(
                 runId,
-                ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "abc")),
-            ),
+                ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "abc"))
+            )
         )
     }
 
     @Test
     fun typedTextAfterAPrivateReadMustComeFromTheUser() {
         val runId = readPrivateDataRun("在淘宝搜索 海河 牛奶")
-        fun typing(text: String) =
-            ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+        fun typing(text: String) = ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
 
         assertNull(policy.criticalApprovalReason(runId, typing("海河牛奶".substring(2))))
         assertNull(policy.criticalApprovalReason(runId, typing("牛奶 海河")))
         assertEquals(
             CriticalApprovalReason.TypedTextNotFromUser,
-            policy.criticalApprovalReason(runId, typing("https://example.com/?q=abc")),
+            policy.criticalApprovalReason(runId, typing("https://example.com/?q=abc"))
         )
         // Nothing private has been read yet, so there is nothing to smuggle.
         val freshRun = traceStore.createRun("打开浏览器").id
@@ -200,18 +199,17 @@ class ConfirmationBypassPolicyTest {
 
     @Test
     fun typedChineseTextBuiltFromTheUsersCharactersCountsAsFromTheUser() {
-        fun typing(text: String) =
-            ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+        fun typing(text: String) = ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
 
         assertNull(policy.criticalApprovalReason(readPrivateDataRun("在携程搜索上海的酒店"), typing("上海酒店")))
         assertNull(policy.criticalApprovalReason(readPrivateDataRun("在高德地图搜索附近的咖啡店"), typing("附近咖啡店")))
         assertNull(
             policy.criticalApprovalReason(
                 readPrivateDataRun("在微信里打开文件传输助手，输入“基准测试消息”但不要发送"),
-                typing("基准测试消息"),
-            ),
+                typing("基准测试消息")
+            )
         )
-        // Case, punctuation, whitespace and full-width forms are ignored; letters and digits split.
+        // Case, ASCII punctuation/whitespace and full-width forms are ignored; letters and digits split.
         assertNull(policy.criticalApprovalReason(readPrivateDataRun("在京东搜索 iPhone15 手机壳"), typing("ＩＰＨＯＮＥ 15，手机壳")))
 
         val hotel = readPrivateDataRun("在携程搜索上海的酒店")
@@ -221,8 +219,7 @@ class ConfirmationBypassPolicyTest {
     @Test
     fun typedNumbersAndWordsMustAppearAsWholeTokens() {
         val runId = readPrivateDataRun("给10086发短信说查询话费")
-        fun typing(text: String) =
-            ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+        fun typing(text: String) = ToolRequest(toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
 
         assertNull(policy.criticalApprovalReason(runId, typing("10086 查询话费")))
         assertEquals(CriticalApprovalReason.TypedTextNotFromUser, policy.criticalApprovalReason(runId, typing("13800138000")))
@@ -242,7 +239,7 @@ class ConfirmationBypassPolicyTest {
             id = "search",
             toolName = MobileActionFunctions.WEB_SEARCH,
             arguments = mapOf("query" to "abc"),
-            sensitivityReason = "查询内容来自剪贴板",
+            sensitivityReason = "查询内容来自剪贴板"
         )
         assertEquals(CriticalApprovalReason.ModelFlaggedSensitive, policy.criticalApprovalReason(runId, search))
         listOf(true, false).forEach { mode ->
@@ -256,7 +253,7 @@ class ConfirmationBypassPolicyTest {
         val flaggedSearch = ToolRequest(toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "天气"), sensitivityReason = "x")
         assertEquals(
             SafetyOutcome.RequireConfirmation,
-            policy.withConfirmationBypass("clean", planOf(flaggedSearch, SafetyOutcome.Allow)).safetyDecision.outcome,
+            policy.withConfirmationBypass("clean", planOf(flaggedSearch, SafetyOutcome.Allow)).safetyDecision.outcome
         )
     }
 
@@ -273,14 +270,12 @@ class ConfirmationBypassPolicyTest {
         assertEquals(
             SafetyOutcome.Allow,
             policy.withLowRiskAppControlContinuationBypass(runId, planOf(tap, SafetyOutcome.RequireConfirmation), skillPlan)
-                .safetyDecision.outcome,
+                .safetyDecision.outcome
         )
         // The confirmed ui_tap read screen text, so typing is checked against the request.
-        fun continued(request: ToolRequest) =
-            policy.withLowRiskAppControlContinuationBypass(runId, planOf(request, SafetyOutcome.RequireConfirmation), skillPlan)
-                .safetyDecision.outcome
-        fun typing(text: String) =
-            ToolRequest(id = "type", toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
+        fun continued(request: ToolRequest) = policy.withLowRiskAppControlContinuationBypass(runId, planOf(request, SafetyOutcome.RequireConfirmation), skillPlan)
+            .safetyDecision.outcome
+        fun typing(text: String) = ToolRequest(id = "type", toolName = MobileActionFunctions.UI_TYPE_TEXT, arguments = mapOf("text" to text))
         assertEquals(SafetyOutcome.Allow, continued(typing("牛奶")))
         assertEquals(SafetyOutcome.RequireConfirmation, continued(typing("https://example.com/?q=abc")))
         assertEquals(SafetyOutcome.RequireConfirmation, continued(tap.copy(sensitivityReason = "涉及支付")))
@@ -319,8 +314,8 @@ class ConfirmationBypassPolicyTest {
         assertNull(
             policy.criticalApprovalReason(
                 runId,
-                ToolRequest(id = "search", toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "Kotlin")),
-            ),
+                ToolRequest(id = "search", toolName = MobileActionFunctions.WEB_SEARCH, arguments = mapOf("query" to "Kotlin"))
+            )
         )
     }
 
@@ -328,7 +323,7 @@ class ConfirmationBypassPolicyTest {
     fun sensitiveTextHandedToAnotherAppIsConfirmed() {
         val share = ToolRequest(
             toolName = MobileActionFunctions.SHARE_TEXT,
-            arguments = mapOf("text" to "我的手机号是 13800138000，转给朋友"),
+            arguments = mapOf("text" to "我的手机号是 13800138000，转给朋友")
         )
         assertEquals(CriticalApprovalReason.TextHandedToExternalApp, policy.criticalApprovalReason("run", share))
         val planned = policy.withConfirmationBypass("run", planOf(share, SafetyOutcome.Allow))
@@ -338,7 +333,7 @@ class ConfirmationBypassPolicyTest {
         criticalOnly = false
         assertEquals(
             SafetyOutcome.RequireConfirmation,
-            policy.withConfirmationBypass("run", planOf(share, SafetyOutcome.Allow)).safetyDecision.outcome,
+            policy.withConfirmationBypass("run", planOf(share, SafetyOutcome.Allow)).safetyDecision.outcome
         )
         criticalOnly = true
     }
@@ -348,7 +343,7 @@ class ConfirmationBypassPolicyTest {
         val runId = readPrivateDataRun("把剪贴板里的地址发给小王")
         val share = ToolRequest(
             toolName = MobileActionFunctions.SHARE_TEXT,
-            arguments = mapOf("text" to "地址：北京市海淀区中关村大街 1 号"),
+            arguments = mapOf("text" to "地址：北京市海淀区中关村大街 1 号")
         )
         assertEquals(CriticalApprovalReason.TextHandedToExternalApp, policy.criticalApprovalReason(runId, share))
         // The same tool with the user's own words stays auto-approved.
@@ -357,9 +352,9 @@ class ConfirmationBypassPolicyTest {
                 runId,
                 ToolRequest(
                     toolName = MobileActionFunctions.SHARE_TEXT,
-                    arguments = mapOf("text" to "剪贴板里的地址"),
-                ),
-            ),
+                    arguments = mapOf("text" to "剪贴板里的地址")
+                )
+            )
         )
         // Nothing private has been read yet, so there is nothing to smuggle.
         assertNull(policy.criticalApprovalReason(traceStore.createRun("分享一段话").id, share))
@@ -370,20 +365,20 @@ class ConfirmationBypassPolicyTest {
         listOf(
             ToolRequest(
                 toolName = MobileActionFunctions.COMPOSE_EMAIL,
-                arguments = mapOf("subject" to "周会改期", "body" to "明天的周会改到下午三点。"),
+                arguments = mapOf("subject" to "周会改期", "body" to "明天的周会改到下午三点。")
             ),
             ToolRequest(
                 toolName = MobileActionFunctions.COMPOSE_SMS,
-                arguments = mapOf("phoneNumber" to "10086", "body" to "查询话费"),
+                arguments = mapOf("phoneNumber" to "10086", "body" to "查询话费")
             ),
             ToolRequest(
                 toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
-                arguments = mapOf("title" to "周会", "description" to "下午三点"),
+                arguments = mapOf("title" to "周会", "description" to "下午三点")
             ),
             ToolRequest(
                 toolName = MobileActionFunctions.DIAL_PHONE_NUMBER,
-                arguments = mapOf("phoneNumber" to "10086"),
-            ),
+                arguments = mapOf("phoneNumber" to "10086")
+            )
         ).forEach { request ->
             assertNull(request.toolName, policy.criticalApprovalReason("run", request))
         }
@@ -394,9 +389,9 @@ class ConfirmationBypassPolicyTest {
                 mailRun,
                 ToolRequest(
                     toolName = MobileActionFunctions.COMPOSE_EMAIL,
-                    arguments = mapOf("subject" to "周会改期", "body" to "周会改期"),
-                ),
-            ),
+                    arguments = mapOf("subject" to "周会改期", "body" to "周会改期")
+                )
+            )
         )
         // A body with words the user did not supply is new text after the private read.
         assertEquals(
@@ -405,9 +400,9 @@ class ConfirmationBypassPolicyTest {
                 mailRun,
                 ToolRequest(
                     toolName = MobileActionFunctions.COMPOSE_EMAIL,
-                    arguments = mapOf("subject" to "周会改期", "body" to "周会改期，请知悉。"),
-                ),
-            ),
+                    arguments = mapOf("subject" to "周会改期", "body" to "周会改期，请知悉。")
+                )
+            )
         )
     }
 
@@ -426,8 +421,8 @@ class ConfirmationBypassPolicyTest {
                 ToolRequest(toolName = MobileActionFunctions.SHARE_TEXT, arguments = mapOf("text" to "今天很好")),
                 ToolRequest(
                     toolName = MobileActionFunctions.SHARE_TEXT,
-                    arguments = mapOf("text" to "我的身份证号是 110101199001011234"),
-                ),
+                    arguments = mapOf("text" to "我的身份证号是 110101199001011234")
+                )
             ).forEach { request ->
                 val ruleRun = traceStore.createRun("rule ${request.toolName}").id
                 val modelRun = traceStore.createRun("model ${request.toolName}").id
@@ -450,7 +445,7 @@ class ConfirmationBypassPolicyTest {
         accepted = true,
         confidence = ActionIntentConfidence.High,
         rejectionReasons = listOf(localModelProposedRequestTag(request.id)),
-        requiresConfirmation = true,
+        requiresConfirmation = true
     )
 
     private fun lowRiskSkillPlan(): SkillPlan {
@@ -463,7 +458,7 @@ class ConfirmationBypassPolicyTest {
             requiredTools = listOf(MobileActionFunctions.UI_TAP),
             inputSchemaJson = """{"type":"object"}""",
             riskLevel = RiskLevel.MediumDraftOrNavigation,
-            lowRiskAppControlEligible = true,
+            lowRiskAppControlEligible = true
         )
         val request = ToolRequest(id = "skill-tap", toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索框"))
         return SkillPlan(
@@ -472,9 +467,9 @@ class ConfirmationBypassPolicyTest {
             steps = listOf(
                 SkillStep.ToolStep(
                     request = request,
-                    draft = ActionDraft(request.toolName, "点击", "点击", request.arguments),
-                ),
-            ),
+                    draft = ActionDraft(request.toolName, "点击", "点击", request.arguments)
+                )
+            )
         )
     }
 
@@ -483,7 +478,7 @@ class ConfirmationBypassPolicyTest {
         val read = ToolRequest(id = "read", toolName = MobileActionFunctions.READ_CLIPBOARD)
         traceStore.appendStep(
             runId,
-            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap())),
+            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap()))
         )
         return runId
     }
@@ -493,14 +488,14 @@ class ConfirmationBypassPolicyTest {
         draft = ActionDraft(request.toolName, "步骤", "步骤", request.arguments, requiresConfirmation = false),
         plannedByModel = true,
         fallbackReason = null,
-        safetyDecision = SafetyDecision(outcome = outcome, reason = "test"),
+        safetyDecision = SafetyDecision(outcome = outcome, reason = "test")
     )
 
     @Test
     fun confirmEveryStepModeNeverAutoApproves() {
         criticalOnly = false
         assertFalse(
-            policy.isAutoApproved("run", ToolRequest(toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索"))),
+            policy.isAutoApproved("run", ToolRequest(toolName = MobileActionFunctions.UI_TAP, arguments = mapOf("target" to "搜索")))
         )
     }
 

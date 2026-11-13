@@ -374,7 +374,7 @@ class PackageBoundaryArchitectureTest {
         // CollaborationPolicy.kt (role placement, escalation) and MilestonePlan.kt (plan parser with its
         // strict JSON scan, RunProgressGate, CloudPlannerRequest).
         // Plus tool/ToolRetriever.kt: first-step tool retrieval for local model planning.
-        const val MAX_PRODUCTION_KOTLIN_FILES = 326
+        const val MAX_PRODUCTION_KOTLIN_FILES = 327
     }
 
     private data class GodObjectLimit(

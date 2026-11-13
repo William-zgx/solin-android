@@ -5,7 +5,7 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 [validation_report.md](validation_report.md).
 
-Checked on 2026-11-13. The tree has 326 production Kotlin files and 52 registered
+Checked on 2026-11-13. The tree has 327 production Kotlin files and 52 registered
 capability-matrix tool entries. These are measured inventory values, not goals to
 grow toward. `:app` is the product module; `releaseSmoke` is a verification helper.
 Runtime/package boundaries remain conventions enforced by architecture tests.
@@ -652,6 +652,10 @@ Current status:
 
 - `SafetyPolicy` rejects registered boundary tools that would cross execution
   or privacy boundaries without mandatory confirmation.
+- `safety/EgressGate.kt` owns the sensitive network, typed-text and external-app draft checks.
+  `SafetyPolicy` retains its final execution backstop; `ConfirmationBypassPolicy` supplies run
+  provenance and preserves reason precedence. Sensitive-content detection and user-token matching
+  are shared, with code-point-aware supplementary/symbol handling.
 - Critical-only confirmation (`orchestration/ConfirmationBypassPolicy.kt`, the
   default Trust-Center setting) turns a `RequireConfirmation` decision into
   `Allow` unless `criticalApprovalReason` names one: unknown tool,
@@ -662,8 +666,7 @@ Current status:
   `ui_type_text` with text not taken from the user's request after such a
   read (every ASCII letter or digit run must be a whole token of the request,
   so numbers and addresses appear in full; every CJK or other non-ASCII
-  character must appear in the request; case, punctuation and whitespace are
-  ignored), text handed to another app (`share_text`, `compose_email`,
+  character must appear in the request; ASCII punctuation and whitespace are ignored), text handed to another app (`share_text`, `compose_email`,
   `compose_sms`, `create_calendar_event`, `create_contact_draft` — tools with
   `ToolPermission.SendsTextToExternalApp`) whose free-text argument looks
   personal or secret or, after such a read, is not the user's own wording, and

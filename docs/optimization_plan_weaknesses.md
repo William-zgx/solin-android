@@ -13,7 +13,7 @@
 
 本页各 Wave 的行数、方法清单和测试数保留为当时的历史结果，不代表当前重跑证据。
 当前 `SolinViewModel.kt` / `SolinScreen.kt` / `AgentLoopRuntime.kt` 分别为
-852 / 497 / 1917 行；生产 Kotlin 文件 **326** 个，文件数门禁也是 326。2026-11-11 的包方向、
+852 / 497 / 1917 行；生产 Kotlin 文件 **327** 个，文件数门禁也是 327。2026-11-11 的包方向、
 严格 JSON、日志门面和 evidence decorator 收归保持单向依赖；2026-11-12 又删除纯 screenshot
 provider 转发文件，由组装根直接绑定 Accessibility capture。工具能力矩阵当前有 52 项。
 

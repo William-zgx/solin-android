@@ -112,7 +112,7 @@ capabilities. The integrated tree contained **334** production Kotlin files, up
 from **329**, and the ratchet was set to that measured count. The 2026-11-05
 cleanup (dead seams such as `AgentHooks`, `AgentProfile` and the credential
 resolvers removed; root-package helpers merged into their owners) brought the
-tree to **324**. The 2026-11-07 edge-lab merges (collab, local-agent, runtime, memory and lab) brought it to **327**. The 2026-11-11 package-direction cleanup moved the tool handler and safety-authorization contracts to their owners, moved strict JSON scanning into `common`, and extracted `EvidenceBoundingToolExecutor`; merging the one-port file and adding the substantive evidence decorator kept the count at **327**. The four legacy line watermarks were tightened to their measured values as growth guards, not splitting targets. A follow-up moved `BuiltInToolsModule` into the module owner and extended the source scanner to Android, AndroidX and Solin references while ignoring comments and literal string content but preserving `${...}` template expressions, closing dependency and gate-bypass paths without changing the file count. On 2026-11-12 the pure screenshot-provider forwarder was removed and its composition binding moved directly to `SolinAccessibilityService`, bringing the ratchet to **326**. Do not merge or split
+tree to **324**. The 2026-11-07 edge-lab merges (collab, local-agent, runtime, memory and lab) brought it to **327**. The 2026-11-11 package-direction cleanup moved the tool handler and safety-authorization contracts to their owners, moved strict JSON scanning into `common`, and extracted `EvidenceBoundingToolExecutor`; merging the one-port file and adding the substantive evidence decorator kept the count at **327**. The four legacy line watermarks were tightened to their measured values as growth guards, not splitting targets. A follow-up moved `BuiltInToolsModule` into the module owner and extended the source scanner to Android, AndroidX and Solin references while ignoring comments and literal string content but preserving `${...}` template expressions, closing dependency and gate-bypass paths without changing the file count. On 2026-11-12 the pure screenshot-provider forwarder was removed and its composition binding moved directly to `SolinAccessibilityService`, bringing the ratchet to **326**. On 2026-11-13 `safety/EgressGate.kt` consolidated the three tool-egress decisions, bringing the ratchet to **327**. Do not merge or split
 unrelated files just to conceal growth. Every added module must keep substantive
 logic behind a smaller interface. Tool registration, per-child authorization and
 route proposals reuse the existing execution boundary; the shell helper does not
@@ -183,7 +183,7 @@ caller; deleted 2026-11-01 along with its types and tests. Every tool call now
 passes `presentation/ToolExecutionController` → `tool/ToolExecutionBoundary`.
 
 **Egress rule ("private data does not leave without approval") has four
-partial implementations of the sensitive-text check:**
+checkpoints, with the first two sharing `safety/EgressGate.kt`:**
 
 | Check | Covers |
 | --- | --- |
@@ -193,8 +193,10 @@ partial implementations of the sensitive-text check:**
 | Chat send preflight | first remote chat turn and the remote tool-result continuation |
 
 Remote vision and text handed to other apps are covered by the separate run-consent
-and text-provenance checks described below; they are not unguarded sinks. These
-checks have not yet been consolidated into one egress module. Remote-send audit
+and text-provenance checks described below; they are not unguarded sinks. The
+sensitive network-text, typed-text and external-app draft checks now share
+`safety/EgressGate.kt`, with run provenance supplied by `ConfirmationBypassPolicy`.
+Router/chat preflight and remote-vision consent remain separate contracts. Remote-send audit
 entries exist for remote chat, remote vision, the router, MCP and — since gap 5
 (closed 2026-10-31) — each `web_search` request (`OkHttpWebSearchProvider` records
 the tool name, provider host and query length, never the query). Intents
@@ -232,11 +234,10 @@ token-subset match against the user's input.
 
 ## Migration order
 
-1. Egress gate: one `EgressGate.decide(sink, payload, provenance)` called by
-   every sink in the table above; the four sensitive-text checks and the
-   network-argument taint move into it. Preserve the existing remote-vision run
-   consent and external-app text checks, and close remaining audit/provenance
-   gaps without widening what may leave.
+1. Egress gate: `safety/EgressGate.kt` now owns the three tool-egress decisions and is called by
+   `SafetyPolicy` and `ConfirmationBypassPolicy`. Router text, chat preflight and per-argument
+   provenance remain separate follow-up work. Preserve the existing remote-vision run consent and
+   external-app text checks, and close remaining audit/provenance gaps without widening what may leave.
 2. Action gate: the live guard becomes the only allow/refuse decision; the
    executor preflight and replan guard keep early refusal only, with the
    shared rule called from one place. IME actions go through the gate.
@@ -251,8 +252,8 @@ token-subset match against the user's input.
 | Benchmark baseline | Pending: API 36 direct tool/background acceptance exists, but the diagnostic model configuration did not produce a valid paired task baseline; see `validation_report.md` |
 | Gate map (current checkpoints) | Recorded above |
 | Action entry (one injection entry, guarded) | Enforced by `architecture/ActionEntryArchitectureTest` (2026-11-01) |
-| Main Kotlin file count | Done for this pass: 324 (2026-11-05); 327 after the 2026-11-07 edge-lab merges; **326** after removing the pure screenshot-provider forwarder on 2026-11-12, ratcheted in `architecture/PackageBoundaryArchitectureTest` |
+| Main Kotlin file count | Done for this pass: 324 (2026-11-05); 327 after the 2026-11-07 edge-lab merges; **327** after adding the narrow `safety/EgressGate.kt` on 2026-11-13, ratcheted in `architecture/PackageBoundaryArchitectureTest` |
 | Action gate consolidation | Input injection entry is guarded; executor/replan early refusals remain, so full decision consolidation is incomplete |
-| Egress gate consolidation | Started: egress arguments and in-app launch declared on `ToolSpec` (2026-11-05); one `EgressGate` not started |
+| Egress gate consolidation | Implemented for sensitive network text, typed text and external-app drafts in `safety/EgressGate.kt`; router/chat preflight and per-argument provenance remain separate |
 | Provenance labels | Not started |
 | Mutation testing | Not started |

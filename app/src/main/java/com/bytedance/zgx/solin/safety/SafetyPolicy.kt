@@ -75,6 +75,8 @@ class SafetyPolicyToolExecutionAuthorizer(
 }
 
 class SafetyPolicy {
+    private val egressGate = EgressGate(::containsSensitivePersonalOrSecretContent)
+
     fun containsSensitivePersonalOrSecretContent(text: String): Boolean = text.containsSensitiveNetworkSearchContent()
 
     /**
@@ -229,7 +231,13 @@ class SafetyPolicy {
             )
         }
 
-        if (!context.userConfirmed && request.carriesSensitiveEgressText(spec)) {
+        if (!context.userConfirmed &&
+            egressGate.evaluate(
+                spec,
+                request,
+                context = { EgressRunContext(privateReadBefore = false, userInput = "") }
+            ).isNotEmpty()
+        ) {
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
                 reason = "Tool ${request.toolName} text may contain personal or secret data and requires confirmation before it leaves the device."
@@ -260,8 +268,6 @@ class SafetyPolicy {
     }
 
     private fun RiskLevel.requiresHardConfirmation(): Boolean = this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
-
-    private fun ToolRequest.carriesSensitiveEgressText(spec: ToolSpec): Boolean = spec.egressTextArguments.any { name -> arguments[name].orEmpty().containsSensitiveNetworkSearchContent() }
 
     /**
      * Same decision as a non-empty [detectSensitiveCategories]: it evaluated exactly the same

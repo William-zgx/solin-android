@@ -1,19 +1,21 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.action.MobileActionFunctions
+import com.bytedance.zgx.solin.safety.EgressGate
+import com.bytedance.zgx.solin.safety.EgressRunContext
+import com.bytedance.zgx.solin.safety.EgressTrigger
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.safety.SafetyPolicy
 import com.bytedance.zgx.solin.skill.SkillPlan
-import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.PhoneCompositeOperations
+import com.bytedance.zgx.solin.tool.RiskLevel
 import com.bytedance.zgx.solin.tool.ToolCapability
 import com.bytedance.zgx.solin.tool.ToolCapabilityTag
 import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
-import java.text.Normalizer
 
 private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
 
@@ -66,18 +68,8 @@ enum class CriticalApprovalReason {
      * treat as chat, and its proposal always asks, in either confirmation mode. Provenance comes from
      * the run trace ([AgentTraceQueries.localPlanningModelProposed]), never from the request itself.
      */
-    LocalModelProposedStep,
+    LocalModelProposedStep
 }
-
-/**
- * A network-reaching step: the spec declares [ToolSpec.egressTextArguments] and does not hand text
- * to another app (that case is [CriticalApprovalReason.TextHandedToExternalApp]).
- */
-private fun ToolSpec.reachesNetworkWithText(): Boolean =
-    egressTextArguments.isNotEmpty() && ToolPermission.SendsTextToExternalApp !in permissions
-
-private fun ToolRequest.egressTexts(spec: ToolSpec): List<String> =
-    spec.egressTextArguments.mapNotNull { name -> arguments[name]?.takeIf(String::isNotBlank) }
 
 private fun CriticalApprovalReason.confirmationReason(toolName: String): String = when (this) {
     CriticalApprovalReason.UnknownTool -> "Tool $toolName is not registered."
@@ -92,19 +84,6 @@ private fun CriticalApprovalReason.confirmationReason(toolName: String): String 
     CriticalApprovalReason.TextHandedToExternalApp ->
         "This step hands text to another app, and the text is sensitive or was composed after a read of private data."
     CriticalApprovalReason.LocalModelProposedStep -> "这一步由端侧模型提出，请确认"
-}
-
-/** [text] split for [ConfirmationBypassPolicy]'s typed-text check, after NFKC and lowercasing. */
-private class UserTextPieces(val asciiTokens: Set<String>, val otherChars: Set<Char>)
-
-private val asciiLetterOrDigitRun = Regex("[a-z]+|[0-9]+")
-
-private fun userTextPieces(text: String): UserTextPieces {
-    val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()
-    return UserTextPieces(
-        asciiTokens = asciiLetterOrDigitRun.findAll(normalized).map { it.value }.toSet(),
-        otherChars = normalized.filter { it.code > 0x7F && it.isLetterOrDigit() }.toSet(),
-    )
 }
 
 /**
@@ -129,14 +108,14 @@ internal class ConfirmationBypassPolicy(
     private val isCriticalOnlyConfirmationEnabled: (runId: String) -> Boolean,
     private val safetyPolicy: SafetyPolicy = SafetyPolicy(),
     /** True when this run drives GUI automation with the remote vision model (screenshot egress). */
-    private val isRemoteVisionDrivingEnabled: (runId: String) -> Boolean = { false },
+    private val isRemoteVisionDrivingEnabled: (runId: String) -> Boolean = { false }
 ) {
-    fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool =
-        plan.withConfirmationBypassForRun(runId)
+    private val egressGate = EgressGate(safetyPolicy::containsSensitivePersonalOrSecretContent)
+
+    fun withConfirmationBypass(runId: String, plan: AgentPlan.UseTool): AgentPlan.UseTool = plan.withConfirmationBypassForRun(runId)
 
     /** True when [request] runs without asking in this run (critical-only mode, no critical reason). */
-    fun isAutoApproved(runId: String, request: ToolRequest): Boolean =
-        isCriticalOnlyConfirmationEnabled(runId) && criticalApprovalReason(runId, request) == null
+    fun isAutoApproved(runId: String, request: ToolRequest): Boolean = isCriticalOnlyConfirmationEnabled(runId) && criticalApprovalReason(runId, request) == null
 
     /** T2/T5: a composite approval never approves its children or supplies fresh user intent. */
     fun canAuthorizeCompositeChild(runId: String, parent: ToolRequest, child: ToolRequest): Boolean {
@@ -145,7 +124,10 @@ internal class ConfirmationBypassPolicy(
         val allowed = PhoneCompositeOperations.childToolsFor(parent.toolName)
         if (allowed.isEmpty()) return false
         if (traceQueries.latestExecutableRequestId(runId) != parent.id ||
-            traceQueries.toolRequestFor(runId, parent.id) != parent) return false
+            traceQueries.toolRequestFor(runId, parent.id) != parent
+        ) {
+            return false
+        }
         val sequence = child.id.removePrefix("${parent.id}:child:").toIntOrNull()
         if (!child.id.startsWith("${parent.id}:child:") || sequence == null || sequence !in 1..32) return false
         if (child.toolName !in allowed || toolRegistry.validate(child) != null) return false
@@ -156,57 +138,54 @@ internal class ConfirmationBypassPolicy(
     }
 
     /** A RequireConfirmation decision when [request] is critical in [runId], otherwise null. */
-    fun criticalConfirmationDecision(runId: String, request: ToolRequest): SafetyDecision? =
-        criticalApprovalReason(runId, request)?.let { reason ->
-            SafetyDecision(
-                outcome = SafetyOutcome.RequireConfirmation,
-                reason = reason.confirmationReason(request.toolName),
-            )
-        }
+    fun criticalConfirmationDecision(runId: String, request: ToolRequest): SafetyDecision? = criticalApprovalReason(runId, request)?.let { reason ->
+        SafetyDecision(
+            outcome = SafetyOutcome.RequireConfirmation,
+            reason = reason.confirmationReason(request.toolName)
+        )
+    }
 
     fun criticalApprovalReason(runId: String, request: ToolRequest): CriticalApprovalReason? {
         val spec = toolRegistry.specFor(request.toolName) ?: return CriticalApprovalReason.UnknownTool
-        return when {
-            spec.riskLevel == RiskLevel.HighExternalSend || spec.riskLevel == RiskLevel.CriticalDeviceOrPayment ->
-                CriticalApprovalReason.ExternalSendOrPayment
-            request.sensitivityReason != null -> CriticalApprovalReason.ModelFlaggedSensitive
-            spec.reachesNetworkWithText() && (
-                request.egressTexts(spec).any(safetyPolicy::containsSensitivePersonalOrSecretContent) ||
-                    runReadPrivateData(runId, before = request.id)
-                ) -> CriticalApprovalReason.SensitiveNetworkQuery
-            request.toolName == MobileActionFunctions.UI_TYPE_TEXT &&
-                runReadPrivateData(runId, before = request.id) &&
-                !isTextFromUser(runId, request.arguments["text"].orEmpty()) ->
-                CriticalApprovalReason.TypedTextNotFromUser
-            isRemoteVisionFirstSend(runId, request, spec) -> CriticalApprovalReason.RemoteVisionFirstSend
-            handsSensitiveOrTaintedTextToExternalApp(runId, request, spec) ->
-                CriticalApprovalReason.TextHandedToExternalApp
-            traceQueries.localPlanningModelProposed(runId, request.id) -> CriticalApprovalReason.LocalModelProposedStep
-            else -> null
+        if (spec.riskLevel == RiskLevel.HighExternalSend || spec.riskLevel == RiskLevel.CriticalDeviceOrPayment) {
+            return CriticalApprovalReason.ExternalSendOrPayment
+        }
+        if (request.sensitivityReason != null) return CriticalApprovalReason.ModelFlaggedSensitive
+        val context by lazy {
+            if (spec.egressTextArguments.isNotEmpty() || request.toolName == MobileActionFunctions.UI_TYPE_TEXT) {
+                val privateRead = runReadPrivateData(runId, before = request.id)
+                EgressRunContext(
+                    privateReadBefore = privateRead,
+                    userInput = if (privateRead) traceStore.run(runId)?.input.orEmpty() else ""
+                )
+            } else {
+                EgressRunContext(privateReadBefore = false, userInput = "")
+            }
+        }
+        val triggers = egressGate.evaluate(
+            spec = spec,
+            request = request,
+            typedText = request.arguments["text"].takeIf { request.toolName == MobileActionFunctions.UI_TYPE_TEXT },
+            context = { context }
+        )
+        triggers.firstOrNull { it != EgressTrigger.TextHandedToExternalApp }?.let { trigger ->
+            return trigger.approvalReason()
+        }
+        if (isRemoteVisionFirstSend(runId, request, spec)) return CriticalApprovalReason.RemoteVisionFirstSend
+        if (EgressTrigger.TextHandedToExternalApp in triggers) {
+            return EgressTrigger.TextHandedToExternalApp.approvalReason()
+        }
+        return if (traceQueries.localPlanningModelProposed(runId, request.id)) {
+            CriticalApprovalReason.LocalModelProposedStep
+        } else {
+            null
         }
     }
 
-    /**
-     * Text to another app is egress too, and no other check covers it. A draft is confirmed when
-     * any free-text argument looks personal or secret, or when this run already read private data
-     * and the text is not the user's own wording. A draft built only from the user's words stays
-     * auto-approved.
-     */
-    private fun handsSensitiveOrTaintedTextToExternalApp(
-        runId: String,
-        request: ToolRequest,
-        spec: ToolSpec,
-    ): Boolean {
-        if (ToolPermission.SendsTextToExternalApp !in spec.permissions) return false
-        // Structured identifiers (a phone number) are not egress prose: the run-taint check covers
-        // them, so a draft built only from the user's own words stays auto-approved.
-        val textArguments = request.egressTexts(spec)
-        if (textArguments.isEmpty()) return false
-        if (textArguments.any { text -> safetyPolicy.containsSensitivePersonalOrSecretContent(text) }) {
-            return true
-        }
-        return runReadPrivateData(runId, before = request.id) &&
-            !textArguments.all { text -> isTextFromUser(runId, text) }
+    private fun EgressTrigger.approvalReason(): CriticalApprovalReason = when (this) {
+        EgressTrigger.SensitiveNetworkQuery -> CriticalApprovalReason.SensitiveNetworkQuery
+        EgressTrigger.TypedTextNotFromUser -> CriticalApprovalReason.TypedTextNotFromUser
+        EgressTrigger.TextHandedToExternalApp -> CriticalApprovalReason.TextHandedToExternalApp
     }
 
     /**
@@ -218,44 +197,28 @@ internal class ConfirmationBypassPolicy(
     private fun isRemoteVisionFirstSend(
         runId: String,
         request: ToolRequest,
-        spec: ToolSpec,
-    ): Boolean =
-        isRemoteVisionDrivingEnabled(runId) &&
-            // ToolCapabilityTag.StartsInAppLoop: the app launches the observe→act loop then drives.
-            // search_maps / open_deep_link launch another app and end the loop, so they do not count.
-            (spec.capability == ToolCapability.DeviceControl || ToolCapabilityTag.StartsInAppLoop in spec.tags) &&
-            traceStore.steps(runId).none { step -> step is AgentStep.UserConfirmed }
+        spec: ToolSpec
+    ): Boolean = isRemoteVisionDrivingEnabled(runId) &&
+        // ToolCapabilityTag.StartsInAppLoop: the app launches the observe→act loop then drives.
+        // search_maps / open_deep_link launch another app and end the loop, so they do not count.
+        (spec.capability == ToolCapability.DeviceControl || ToolCapabilityTag.StartsInAppLoop in spec.tags) &&
+        traceStore.steps(runId).none { step -> step is AgentStep.UserConfirmed }
 
     /**
      * Whether an earlier step of [runId] requested a tool that reads private device data.
      * [ToolCapability.LocalCompute] tools mark their output private but read nothing from the device.
      */
-    private fun runReadPrivateData(runId: String, before: String): Boolean =
-        traceQueries.toolRequestsFor(runId)
-            .takeWhile { request -> request.id != before }
-            .any { request ->
-                toolRegistry.specFor(request.toolName)?.capability != ToolCapability.LocalCompute &&
-                    toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty()
-            }
-
-    /**
-     * [text] is made only of pieces the user supplied, so it cannot carry new private content:
-     * every ASCII letter run and digit run of [text] is a whole token of the run input (so a phone
-     * number or address must appear in full, and a single digit never matches inside a longer
-     * number), and every other letter or digit, e.g. a CJK character, appears somewhere in the
-     * input. Case, punctuation and whitespace are ignored, so "上海酒店" counts for
-     * "在携程搜索上海的酒店" and a reordered query still counts.
-     */
-    private fun isTextFromUser(runId: String, text: String): Boolean {
-        val input = userTextPieces(traceStore.run(runId)?.input.orEmpty())
-        val typed = userTextPieces(text)
-        return input.asciiTokens.containsAll(typed.asciiTokens) && input.otherChars.containsAll(typed.otherChars)
-    }
+    private fun runReadPrivateData(runId: String, before: String): Boolean = traceQueries.toolRequestsFor(runId)
+        .takeWhile { request -> request.id != before }
+        .any { request ->
+            toolRegistry.specFor(request.toolName)?.capability != ToolCapability.LocalCompute &&
+                toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty()
+        }
 
     fun withLowRiskAppControlContinuationBypass(
         runId: String,
         plan: AgentPlan.UseTool,
-        skillPlan: SkillPlan?,
+        skillPlan: SkillPlan?
     ): AgentPlan.UseTool = plan.withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
 
     private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
@@ -266,24 +229,24 @@ internal class ConfirmationBypassPolicy(
         if (safetyDecision.outcome == SafetyOutcome.Allow && criticalDecision != null) {
             return copy(
                 draft = draft.copy(requiresConfirmation = true),
-                safetyDecision = criticalDecision,
+                safetyDecision = criticalDecision
             )
         }
         if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
         if (!isCriticalOnlyConfirmationEnabled(runId) || criticalDecision != null) return this
         val bypassDecision = SafetyDecision(
             outcome = SafetyOutcome.Allow,
-            reason = "Only critical actions are confirmed; ${request.toolName} is not critical.",
+            reason = "Only critical actions are confirmed; ${request.toolName} is not critical."
         )
         return copy(
             draft = draft.copy(requiresConfirmation = false),
-            safetyDecision = bypassDecision,
+            safetyDecision = bypassDecision
         )
     }
 
     private fun AgentPlan.UseTool.withLowRiskAppControlContinuationBypassForRun(
         runId: String,
-        skillPlan: SkillPlan?,
+        skillPlan: SkillPlan?
     ): AgentPlan.UseTool {
         val activeSkillPlan = lowRiskAppControlSkillPlanForRun(runId, skillPlan ?: this.skillPlan) ?: return this
         if (!request.isLowRiskAppControlContinuationTool()) return this
@@ -294,21 +257,20 @@ internal class ConfirmationBypassPolicy(
         if (exceedsLowRiskAppControlCheckpointForRun(runId, activeSkillPlan)) return this
         val bypassDecision = SafetyDecision(
             outcome = SafetyOutcome.Allow,
-            reason = "Low-risk app control continuation was allowed after the user's initial confirmation.",
+            reason = "Low-risk app control continuation was allowed after the user's initial confirmation."
         )
         return copy(
             draft = draft.copy(requiresConfirmation = false),
-            safetyDecision = bypassDecision,
+            safetyDecision = bypassDecision
         )
     }
 
-    private fun lowRiskAppControlSkillPlanForRun(runId: String, preferred: SkillPlan?): SkillPlan? =
-        preferred?.takeIf { plan -> plan.isLowRiskAppControlSkill() }
-            ?: traceQueries.latestSkillPlan(runId) { plan -> plan.isLowRiskAppControlSkill() }
+    private fun lowRiskAppControlSkillPlanForRun(runId: String, preferred: SkillPlan?): SkillPlan? = preferred?.takeIf { plan -> plan.isLowRiskAppControlSkill() }
+        ?: traceQueries.latestSkillPlan(runId) { plan -> plan.isLowRiskAppControlSkill() }
 
     private fun AgentPlan.UseTool.exceedsLowRiskAppControlCheckpointForRun(
         runId: String,
-        activeSkillPlan: SkillPlan? = skillPlan ?: traceQueries.latestSkillPlan(runId),
+        activeSkillPlan: SkillPlan? = skillPlan ?: traceQueries.latestSkillPlan(runId)
     ): Boolean {
         val plan = activeSkillPlan?.takeIf { it.isLowRiskAppControlSkill() } ?: return false
         return request.isLowRiskAppControlContinuationTool() &&
@@ -316,11 +278,9 @@ internal class ConfirmationBypassPolicy(
             plan.requestedCheckpointedUiActionCount(runId) >= LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT
     }
 
-    private fun ToolRequest.isLowRiskAppControlContinuationTool(): Boolean =
-        toolRegistry.isLowRiskAppControlContinuationTool(this)
+    private fun ToolRequest.isLowRiskAppControlContinuationTool(): Boolean = toolRegistry.isLowRiskAppControlContinuationTool(this)
 
-    private fun ToolRequest.isCheckpointedUiActionTool(): Boolean =
-        toolRegistry.isCheckpointedUiActionTool(toolName)
+    private fun ToolRequest.isCheckpointedUiActionTool(): Boolean = toolRegistry.isCheckpointedUiActionTool(toolName)
 
     private fun SkillPlan.hasConfirmedToolStep(runId: String): Boolean {
         val stepRequestIds = toolStepRequestIds()
