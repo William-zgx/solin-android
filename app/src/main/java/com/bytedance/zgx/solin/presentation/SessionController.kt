@@ -46,7 +46,6 @@ class SessionController(
     }
 
     fun createNewSession() {
-        if (uiState.value.isBusy) return
         commitSessionTransition(
             operation = sessionRepository::createNewSession,
             refreshSummaries = true,
@@ -56,7 +55,7 @@ class SessionController(
     }
 
     fun selectSession(sessionId: String) {
-        if (uiState.value.isBusy || uiState.value.activeSessionId == sessionId) return
+        if (uiState.value.activeSessionId == sessionId) return
         commitSessionTransition(
             operation = { sessionRepository.selectSession(sessionId) },
             refreshSummaries = false,
@@ -67,7 +66,6 @@ class SessionController(
     }
 
     fun deleteActiveSession() {
-        if (uiState.value.isBusy) return
         commitSessionTransition(
             operation = {
                 val deletedSessionId = sessionRepository.activeSessionId
@@ -87,6 +85,7 @@ class SessionController(
         restoringStatus: String,
         successPrefix: String = unloadedStatus
     ) {
+        if (uiState.value.isBusy) return
         clearPendingRemoteChatState()
         // Every session transition is a fresh trust context, including a failed selection.
         resetRemoteSendDisclosureSuppression()
