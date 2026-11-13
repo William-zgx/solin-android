@@ -28,8 +28,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
+import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 import com.bytedance.zgx.solin.multimodal.ShareIntentReader
+import com.bytedance.zgx.solin.multimodal.SharedInputReadMode
 import com.bytedance.zgx.solin.ui.SolinScreen
 import com.bytedance.zgx.solin.ui.components.McpCapabilityToggleUiState
 import com.bytedance.zgx.solin.ui.components.toToggleUiState
@@ -39,38 +40,37 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.bytedance.zgx.solin.data.DecisionModelRoutingState
 
 class MainActivity : ComponentActivity() {
     private val appContainer: SolinAppContainer by lazy {
         requireNotNull(
             (application as SolinApplication).readyAppContainer(
-                skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork(),
-            ),
+                skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork()
+            )
         ) { "Solin app container is not ready" }
     }
     private val viewModel: SolinViewModel by viewModels {
         appContainer.viewModelFactory(
-            skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork(),
+            skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork()
         )
     }
     private var contentInitialization by mutableStateOf<SolinAppContainerInitialization>(
-        SolinAppContainerInitialization.Loading,
+        SolinAppContainerInitialization.Loading
     )
     private var readyContentInitialized = false
     private val voiceRecognition = VoiceRecognitionCoordinator(
         activity = this,
         viewModel = { viewModel },
-        isViewModelReady = { readyContentInitialized },
+        isViewModelReady = { readyContentInitialized }
     )
     private val confirmationPermissions = ConfirmationPermissionCoordinator(
         activity = this,
         viewModel = { viewModel },
-        appContainer = { appContainer },
+        appContainer = { appContainer }
     )
     private val debugIntents = DebugIntentHandler(context = this, viewModel = { viewModel })
     private val sharedAttachmentLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
+        ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         handlePickedSharedUris(uris)
     }
@@ -79,17 +79,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork()
         val containerState = (application as SolinApplication).appContainerState(
-            skipLocalModelRuntime = skipStartupModelRuntimeWork,
+            skipLocalModelRuntime = skipStartupModelRuntimeWork
         )
         setContent {
             SolinTheme {
                 when (val initialization = contentInitialization) {
-                    is SolinAppContainerInitialization.Ready -> ReadySolinContent(
-                        skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+                    is SolinAppContainerInitialization.Ready -> readySolinContent(
+                        skipStartupModelRuntimeWork = skipStartupModelRuntimeWork
                     )
                     SolinAppContainerInitialization.Loading,
                     is SolinAppContainerInitialization.Failed ->
-                        ContainerInitializationContent(initialization)
+                        containerInitializationContent(initialization)
                 }
             }
         }
@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 is SolinAppContainerInitialization.Ready -> initializeReadyContent(
                     savedInstanceState = savedInstanceState,
-                    skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+                    skipStartupModelRuntimeWork = skipStartupModelRuntimeWork
                 )
                 is SolinAppContainerInitialization.Failed -> contentInitialization = resolved
                 SolinAppContainerInitialization.Loading -> Unit
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
 
     private fun initializeReadyContent(
         savedInstanceState: Bundle?,
-        skipStartupModelRuntimeWork: Boolean,
+        skipStartupModelRuntimeWork: Boolean
     ) {
         if (readyContentInitialized) return
         readyContentInitialized = true
@@ -124,7 +124,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 SystemBarStyle.light(
                     scrim = Color.TRANSPARENT,
-                    darkScrim = Color.TRANSPARENT,
+                    darkScrim = Color.TRANSPARENT
                 )
             },
             navigationBarStyle = if (useDarkSystemBars) {
@@ -132,18 +132,16 @@ class MainActivity : ComponentActivity() {
             } else {
                 SystemBarStyle.light(
                     scrim = Color.TRANSPARENT,
-                    darkScrim = Color.TRANSPARENT,
+                    darkScrim = Color.TRANSPARENT
                 )
-            },
+            }
         )
-        viewModel.restoreStartupState(
-            skipModelRuntimeWork = skipStartupModelRuntimeWork,
-        )
-        // onResume skips the permission sync while the container is still loading, so a cold
-        // start would otherwise report nothing granted until the next resume.
-        confirmationPermissions.syncDeviceContextAuthorizationSnapshot()
-        contentInitialization = SolinAppContainerInitialization.Ready(appContainer)
         lifecycleScope.launch {
+            viewModel.restoreStartupState(skipModelRuntimeWork = skipStartupModelRuntimeWork)
+            // onResume skips the permission sync while the container is still loading, so a cold
+            // start would otherwise report nothing granted until the next resume.
+            confirmationPermissions.syncDeviceContextAuthorizationSnapshot()
+            contentInitialization = SolinAppContainerInitialization.Ready(appContainer)
             runCatching { viewModel.awaitPersistenceInitialization() }
                 .onSuccess {
                     withContext(Dispatchers.IO) {
@@ -153,7 +151,7 @@ class MainActivity : ComponentActivity() {
                     handleSharedIntent(intent, allowPreviouslyConsumed = false)
                     debugIntents.dispatchPromptIfPresent(
                         intent = intent,
-                        restoredFromSavedState = savedInstanceState != null,
+                        restoredFromSavedState = savedInstanceState != null
                     )
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.refreshRemoteModelConnectivityIfStale()
@@ -164,7 +162,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ReadySolinContent(skipStartupModelRuntimeWork: Boolean) {
+    private fun readySolinContent(skipStartupModelRuntimeWork: Boolean) {
         val context = LocalContext.current
         val state by viewModel.uiState.collectAsStateWithLifecycle()
         val memoryPanel by viewModel.memoryPanelState.collectAsStateWithLifecycle()
@@ -179,195 +177,195 @@ class MainActivity : ComponentActivity() {
             decisionModelRouting = withContext(Dispatchers.IO) { routingController.state() }
         }
         SolinScreen(
-                    state = state,
-                    memoryPanel = memoryPanel,
-                    onConfirmMemorySuggestion = { suggestionId ->
-                        viewModel.launchPersistenceWork { viewModel.confirmMemorySuggestion(suggestionId) }
-                    },
-                    onDismissMemorySuggestion = { suggestionId ->
-                        viewModel.launchPersistenceWork { viewModel.dismissMemorySuggestion(suggestionId) }
-                    },
-                    decisionModelRouting = decisionModelRouting,
-                    onDecisionModelRoutingModeSelected = { mode ->
-                        lifecycleScope.launch {
-                            decisionModelRouting = withContext(Dispatchers.IO) { routingController.setMode(mode) }
-                        }
-                    },
-                    onDecisionModelRoutingKeySaved = { key ->
-                        lifecycleScope.launch {
-                            decisionModelRouting = withContext(Dispatchers.IO) { routingController.saveApiKey(key) }
-                        }
-                    },
-                    mcpCapability = mcpCapability,
-                    onMcpCapabilityEnabledChanged = { enabled, disclosureAccepted ->
-                        lifecycleScope.launch {
-                            mcpCapability = withContext(Dispatchers.IO) {
-                                mcpController.setEnabled(enabled, disclosureAccepted).toToggleUiState()
-                            }
-                        }
-                    },
-                    onImportModel = { uri -> viewModel.launchPersistenceWork { viewModel.importModel(uri) } },
-                    onDownloadModel = { viewModel.launchPersistenceWork(viewModel::startModelDownload) },
-                    onDownloadRecommendedModel = { modelId ->
-                        viewModel.launchPersistenceWork { viewModel.startRecommendedModelDownload(modelId) }
-                    },
-                    onDownloadCustomModel = { url ->
-                        viewModel.launchPersistenceWork { viewModel.startCustomModelDownload(url) }
-                    },
-                    onSaveHuggingFaceAccessToken = { token ->
-                        viewModel.launchPersistenceWork { viewModel.saveHuggingFaceAccessToken(token) }
-                    },
-                    onClearHuggingFaceAccessToken = {
-                        viewModel.launchPersistenceWork(viewModel::clearHuggingFaceAccessToken)
-                    },
-                    onCancelDownload = { viewModel.launchPersistenceWork(viewModel::cancelModelDownload) },
-                    onAllowMeteredDownload = { viewModel.launchPersistenceWork(viewModel::allowMeteredDownload) },
-                    onLoadModel = { viewModel.launchPersistenceWork(viewModel::loadModel) },
-                    onRecommendedModelSelected = { modelId ->
-                        viewModel.launchPersistenceWork { viewModel.selectRecommendedModel(modelId) }
-                    },
-                    onInstalledModelSelected = { modelId ->
-                        viewModel.launchPersistenceWork { viewModel.selectInstalledModel(modelId) }
-                    },
-                    onDeleteInstalledModel = { modelId ->
-                        viewModel.launchPersistenceWork { viewModel.deleteInstalledModel(modelId) }
-                    },
-                    // Both cross the trust boundary (mode switch closes the runtime and clears
-                    // pending remote-send state; config save does Keystore encryption), so they
-                    // are serialized with every other persistence action and kept off the main thread.
-                    onInferenceModeSelected = { mode ->
-                        viewModel.launchPersistenceWork { viewModel.selectInferenceMode(mode) }
-                    },
-                    onRemoteModelConfigChanged = { config ->
-                        viewModel.launchPersistenceWork { viewModel.updateRemoteModelConfig(config) }
-                    },
-                    onTestRemoteModelConnectivity = {
-                        viewModel.launchPersistenceWork(viewModel::testRemoteModelConnectivity)
-                    },
-                    onBackendSelected = { backend ->
-                        viewModel.launchPersistenceWork { viewModel.selectBackend(backend) }
-                    },
-                    onGenerationParametersChanged = { parameters ->
-                        viewModel.launchPersistenceWork { viewModel.updateGenerationParameters(parameters) }
-                    },
-                    onResetGenerationParameters = {
-                        viewModel.launchPersistenceWork(viewModel::resetGenerationParameters)
-                    },
-                    onCreateSession = { viewModel.launchPersistenceWork(viewModel::createNewSession) },
-                    onSessionSelected = { sessionId ->
-                        viewModel.launchPersistenceWork { viewModel.selectSession(sessionId) }
-                    },
-                    onDeleteSession = { viewModel.launchPersistenceWork(viewModel::deleteActiveSession) },
-                    onOpenModelPage = { url ->
-                        if (!skipStartupModelRuntimeWork) {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                            )
-                        }
-                    },
-                    onSetupModelToggled = { modelId, selected ->
-                        viewModel.launchPersistenceWork { viewModel.toggleSetupModel(modelId, selected) }
-                    },
-                    onDownloadSetupModels = {
-                        viewModel.launchPersistenceWork(viewModel::startSetupModelDownload)
-                    },
-                    onSkipFirstRunSetup = { viewModel.launchPersistenceWork(viewModel::skipFirstRunSetup) },
-                    onMemoryEnabledChanged = { enabled ->
-                        viewModel.launchPersistenceWork { viewModel.updateMemoryEnabled(enabled) }
-                    },
-                    onReduceDeviceActionConfirmationsChanged = { enabled ->
-                        viewModel.launchPersistenceWork { viewModel.updateReduceDeviceActionConfirmations(enabled) }
-                    },
-                    onRemoteGuiAutomationEnabledChanged = { enabled ->
-                        viewModel.launchPersistenceWork { viewModel.updateRemoteGuiAutomationEnabled(enabled) }
-                    },
-                    onForgetLongTermMemory = { memoryId ->
-                        viewModel.launchPersistenceWork { viewModel.forgetLongTermMemory(memoryId) }
-                    },
-                    onClearLongTermMemory = {
-                        viewModel.launchPersistenceWork(viewModel::clearLongTermMemory)
-                    },
-                    onRefreshBackgroundTasks = {
-                        viewModel.launchPersistenceWork(viewModel::refreshBackgroundTasks)
-                    },
-                    onRefreshAuditEvents = { viewModel.launchPersistenceWork(viewModel::refreshAuditEvents) },
-                    onCancelBackgroundTask = { taskId ->
-                        viewModel.launchPersistenceWork { viewModel.cancelBackgroundTask(taskId) }
-                    },
-                    onSetPeriodicCheckPolicy = { request ->
-                        viewModel.launchPersistenceWork { viewModel.setPeriodicCheckPolicy(request) }
-                    },
-                    onDisablePeriodicCheckPolicy = {
-                        viewModel.launchPersistenceWork(viewModel::disablePeriodicCheckPolicy)
-                    },
-                    onOpenSpecialAccessSettings = confirmationPermissions::openSpecialAccessSettings,
-                    resolveRuntimePermissionRequirements = { confirmation ->
-                        confirmation.runtimePermissionRequirementsFor(
-                            toolRegistry = appContainer.toolRegistry,
-                        )
-                    },
-                    resolveSpecialAccessRequirements = { confirmation ->
-                        confirmation.specialAccessRequirementsFor(
-                            toolRegistry = appContainer.toolRegistry,
-                        )
-                    },
-                    onConfirmAgentConfirmation = confirmationPermissions::confirmAgentConfirmationWithPermissions,
-                    onDismissAgentConfirmation = { confirmation ->
-                        viewModel.launchPersistenceWork { viewModel.dismissAgentConfirmation(confirmation) }
-                    },
-                    onRecordExternalOutcome = { pending, outcome ->
-                        viewModel.launchPersistenceWork { viewModel.recordExternalOutcome(pending, outcome) }
-                    },
-                    onOpenRecoveryAction = { action ->
-                        viewModel.launchPersistenceWork { viewModel.requestRecoveryActionConfirmation(action) }
-                    },
-                    onConfirmRemoteModeDisclosure = { disclosure ->
-                        viewModel.launchPersistenceWork {
-                            viewModel.confirmRemoteModeDisclosure(disclosure)
-                        }
-                    },
-                    onDismissRemoteModeDisclosure = {
-                        viewModel.launchPersistenceWork(viewModel::dismissRemoteModeDisclosure)
-                    },
-                    onConfirmRemoteSendDisclosure = { suppress ->
-                        viewModel.launchPersistenceWork { viewModel.confirmRemoteSendDisclosure(suppress) }
-                    },
-                    onConfirmRemoteSendWithMasking = {
-                        viewModel.launchPersistenceWork(viewModel::confirmRemoteSendWithMasking)
-                    },
-                    onConfirmRemoteSendDespiteSensitive = {
-                        viewModel.launchPersistenceWork(viewModel::confirmRemoteSendDespiteSensitive)
-                    },
-                    onDismissRemoteSendDisclosure = {
-                        viewModel.launchPersistenceWork(viewModel::dismissRemoteSendDisclosure)
-                    },
-                    onRemoteSendDisclosurePolicySelected = { policy ->
-                        viewModel.launchPersistenceWork { viewModel.setRemoteSendDisclosurePolicy(policy) }
-                    },
-                    onSendMessage = { prompt -> viewModel.launchPersistenceWork { viewModel.sendMessage(prompt) } },
-                    onSendPendingSharedInput = { instruction ->
-                        viewModel.launchPersistenceWork { viewModel.sendPendingSharedInput(instruction) }
-                    },
-                    onClearPendingSharedInput = { draftId ->
-                        viewModel.launchPersistenceWork { viewModel.clearPendingSharedInputDraft(draftId) }
-                    },
-                    onStartVoiceInput = voiceRecognition::start,
-                    onCancelVoiceInput = voiceRecognition::cancel,
-                    onFinishVoiceInput = voiceRecognition::finish,
-                    onPickSharedAttachment = {
-                        sharedAttachmentLauncher.launch(SHARED_ATTACHMENT_MIME_TYPES)
-                    },
-                    onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
-                    onStopGeneration = { viewModel.launchPersistenceWork(viewModel::stopGeneration) },
-                    resourceSampler = { appContainer.sampleSystemResources() },
+            state = state,
+            memoryPanel = memoryPanel,
+            onConfirmMemorySuggestion = { suggestionId ->
+                viewModel.launchPersistenceWork { viewModel.confirmMemorySuggestion(suggestionId) }
+            },
+            onDismissMemorySuggestion = { suggestionId ->
+                viewModel.launchPersistenceWork { viewModel.dismissMemorySuggestion(suggestionId) }
+            },
+            decisionModelRouting = decisionModelRouting,
+            onDecisionModelRoutingModeSelected = { mode ->
+                lifecycleScope.launch {
+                    decisionModelRouting = withContext(Dispatchers.IO) { routingController.setMode(mode) }
+                }
+            },
+            onDecisionModelRoutingKeySaved = { key ->
+                lifecycleScope.launch {
+                    decisionModelRouting = withContext(Dispatchers.IO) { routingController.saveApiKey(key) }
+                }
+            },
+            mcpCapability = mcpCapability,
+            onMcpCapabilityEnabledChanged = { enabled, disclosureAccepted ->
+                lifecycleScope.launch {
+                    mcpCapability = withContext(Dispatchers.IO) {
+                        mcpController.setEnabled(enabled, disclosureAccepted).toToggleUiState()
+                    }
+                }
+            },
+            onImportModel = { uri -> viewModel.launchPersistenceWork { viewModel.importModel(uri) } },
+            onDownloadModel = { viewModel.launchPersistenceWork(viewModel::startModelDownload) },
+            onDownloadRecommendedModel = { modelId ->
+                viewModel.launchPersistenceWork { viewModel.startRecommendedModelDownload(modelId) }
+            },
+            onDownloadCustomModel = { url ->
+                viewModel.launchPersistenceWork { viewModel.startCustomModelDownload(url) }
+            },
+            onSaveHuggingFaceAccessToken = { token ->
+                viewModel.launchPersistenceWork { viewModel.saveHuggingFaceAccessToken(token) }
+            },
+            onClearHuggingFaceAccessToken = {
+                viewModel.launchPersistenceWork(viewModel::clearHuggingFaceAccessToken)
+            },
+            onCancelDownload = { viewModel.launchPersistenceWork(viewModel::cancelModelDownload) },
+            onAllowMeteredDownload = { viewModel.launchPersistenceWork(viewModel::allowMeteredDownload) },
+            onLoadModel = { viewModel.launchPersistenceWork(viewModel::loadModel) },
+            onRecommendedModelSelected = { modelId ->
+                viewModel.launchPersistenceWork { viewModel.selectRecommendedModel(modelId) }
+            },
+            onInstalledModelSelected = { modelId ->
+                viewModel.launchPersistenceWork { viewModel.selectInstalledModel(modelId) }
+            },
+            onDeleteInstalledModel = { modelId ->
+                viewModel.launchPersistenceWork { viewModel.deleteInstalledModel(modelId) }
+            },
+            // Both cross the trust boundary (mode switch closes the runtime and clears
+            // pending remote-send state; config save does Keystore encryption), so they
+            // are serialized with every other persistence action and kept off the main thread.
+            onInferenceModeSelected = { mode ->
+                viewModel.launchPersistenceWork { viewModel.selectInferenceMode(mode) }
+            },
+            onRemoteModelConfigChanged = { config ->
+                viewModel.launchPersistenceWork { viewModel.updateRemoteModelConfig(config) }
+            },
+            onTestRemoteModelConnectivity = {
+                viewModel.launchPersistenceWork(viewModel::testRemoteModelConnectivity)
+            },
+            onBackendSelected = { backend ->
+                viewModel.launchPersistenceWork { viewModel.selectBackend(backend) }
+            },
+            onGenerationParametersChanged = { parameters ->
+                viewModel.launchPersistenceWork { viewModel.updateGenerationParameters(parameters) }
+            },
+            onResetGenerationParameters = {
+                viewModel.launchPersistenceWork(viewModel::resetGenerationParameters)
+            },
+            onCreateSession = { viewModel.launchPersistenceWork(viewModel::createNewSession) },
+            onSessionSelected = { sessionId ->
+                viewModel.launchPersistenceWork { viewModel.selectSession(sessionId) }
+            },
+            onDeleteSession = { viewModel.launchPersistenceWork(viewModel::deleteActiveSession) },
+            onOpenModelPage = { url ->
+                if (!skipStartupModelRuntimeWork) {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    )
+                }
+            },
+            onSetupModelToggled = { modelId, selected ->
+                viewModel.launchPersistenceWork { viewModel.toggleSetupModel(modelId, selected) }
+            },
+            onDownloadSetupModels = {
+                viewModel.launchPersistenceWork(viewModel::startSetupModelDownload)
+            },
+            onSkipFirstRunSetup = { viewModel.launchPersistenceWork(viewModel::skipFirstRunSetup) },
+            onMemoryEnabledChanged = { enabled ->
+                viewModel.launchPersistenceWork { viewModel.updateMemoryEnabled(enabled) }
+            },
+            onReduceDeviceActionConfirmationsChanged = { enabled ->
+                viewModel.launchPersistenceWork { viewModel.updateReduceDeviceActionConfirmations(enabled) }
+            },
+            onRemoteGuiAutomationEnabledChanged = { enabled ->
+                viewModel.launchPersistenceWork { viewModel.updateRemoteGuiAutomationEnabled(enabled) }
+            },
+            onForgetLongTermMemory = { memoryId ->
+                viewModel.launchPersistenceWork { viewModel.forgetLongTermMemory(memoryId) }
+            },
+            onClearLongTermMemory = {
+                viewModel.launchPersistenceWork(viewModel::clearLongTermMemory)
+            },
+            onRefreshBackgroundTasks = {
+                viewModel.launchPersistenceWork(viewModel::refreshBackgroundTasks)
+            },
+            onRefreshAuditEvents = { viewModel.launchPersistenceWork(viewModel::refreshAuditEvents) },
+            onCancelBackgroundTask = { taskId ->
+                viewModel.launchPersistenceWork { viewModel.cancelBackgroundTask(taskId) }
+            },
+            onSetPeriodicCheckPolicy = { request ->
+                viewModel.launchPersistenceWork { viewModel.setPeriodicCheckPolicy(request) }
+            },
+            onDisablePeriodicCheckPolicy = {
+                viewModel.launchPersistenceWork(viewModel::disablePeriodicCheckPolicy)
+            },
+            onOpenSpecialAccessSettings = confirmationPermissions::openSpecialAccessSettings,
+            resolveRuntimePermissionRequirements = { confirmation ->
+                confirmation.runtimePermissionRequirementsFor(
+                    toolRegistry = appContainer.toolRegistry
+                )
+            },
+            resolveSpecialAccessRequirements = { confirmation ->
+                confirmation.specialAccessRequirementsFor(
+                    toolRegistry = appContainer.toolRegistry
+                )
+            },
+            onConfirmAgentConfirmation = confirmationPermissions::confirmAgentConfirmationWithPermissions,
+            onDismissAgentConfirmation = { confirmation ->
+                viewModel.launchPersistenceWork { viewModel.dismissAgentConfirmation(confirmation) }
+            },
+            onRecordExternalOutcome = { pending, outcome ->
+                viewModel.launchPersistenceWork { viewModel.recordExternalOutcome(pending, outcome) }
+            },
+            onOpenRecoveryAction = { action ->
+                viewModel.launchPersistenceWork { viewModel.requestRecoveryActionConfirmation(action) }
+            },
+            onConfirmRemoteModeDisclosure = { disclosure ->
+                viewModel.launchPersistenceWork {
+                    viewModel.confirmRemoteModeDisclosure(disclosure)
+                }
+            },
+            onDismissRemoteModeDisclosure = {
+                viewModel.launchPersistenceWork(viewModel::dismissRemoteModeDisclosure)
+            },
+            onConfirmRemoteSendDisclosure = { suppress ->
+                viewModel.launchPersistenceWork { viewModel.confirmRemoteSendDisclosure(suppress) }
+            },
+            onConfirmRemoteSendWithMasking = {
+                viewModel.launchPersistenceWork(viewModel::confirmRemoteSendWithMasking)
+            },
+            onConfirmRemoteSendDespiteSensitive = {
+                viewModel.launchPersistenceWork(viewModel::confirmRemoteSendDespiteSensitive)
+            },
+            onDismissRemoteSendDisclosure = {
+                viewModel.launchPersistenceWork(viewModel::dismissRemoteSendDisclosure)
+            },
+            onRemoteSendDisclosurePolicySelected = { policy ->
+                viewModel.launchPersistenceWork { viewModel.setRemoteSendDisclosurePolicy(policy) }
+            },
+            onSendMessage = { prompt -> viewModel.launchPersistenceWork { viewModel.sendMessage(prompt) } },
+            onSendPendingSharedInput = { instruction ->
+                viewModel.launchPersistenceWork { viewModel.sendPendingSharedInput(instruction) }
+            },
+            onClearPendingSharedInput = { draftId ->
+                viewModel.launchPersistenceWork { viewModel.clearPendingSharedInputDraft(draftId) }
+            },
+            onStartVoiceInput = voiceRecognition::start,
+            onCancelVoiceInput = voiceRecognition::cancel,
+            onFinishVoiceInput = voiceRecognition::finish,
+            onPickSharedAttachment = {
+                sharedAttachmentLauncher.launch(SHARED_ATTACHMENT_MIME_TYPES)
+            },
+            onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
+            onStopGeneration = { viewModel.launchPersistenceWork(viewModel::stopGeneration) },
+            resourceSampler = { appContainer.sampleSystemResources() }
         )
     }
 
     @Composable
-    private fun ContainerInitializationContent(state: SolinAppContainerInitialization) {
+    private fun containerInitializationContent(state: SolinAppContainerInitialization) {
         Box(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+            contentAlignment = Alignment.Center
         ) {
             when (state) {
                 SolinAppContainerInitialization.Loading -> CircularProgressIndicator()
@@ -413,18 +411,16 @@ class MainActivity : ComponentActivity() {
             intent = sharedIntent,
             readMode = SHARED_INPUT_READ_MODE,
             reader = ShareIntentReader(applicationContext),
-            allowPreviouslyConsumed = allowPreviouslyConsumed,
+            allowPreviouslyConsumed = allowPreviouslyConsumed
         )
     }
 
-    private fun shouldSkipStartupModelRuntimeWork(): Boolean =
-        intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
-            isRunningUnderAndroidTest()
+    private fun shouldSkipStartupModelRuntimeWork(): Boolean = intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
+        isRunningUnderAndroidTest()
 
-    private fun isAppContainerReady(): Boolean =
-        (application as SolinApplication).readyAppContainer(
-            skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork(),
-        ) != null
+    private fun isAppContainerReady(): Boolean = (application as SolinApplication).readyAppContainer(
+        skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork()
+    ) != null
 
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
@@ -441,6 +437,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
             "com.bytedance.zgx.solin.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
+
         // Debug-only extras, handled by DebugIntentHandler. Release builds ignore them.
         const val EXTRA_DEBUG_PROMPT =
             "com.bytedance.zgx.solin.extra.DEBUG_PROMPT"
@@ -466,14 +463,13 @@ class MainActivity : ComponentActivity() {
             "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         )
 
-        private fun isRunningUnderAndroidTest(): Boolean =
-            runCatching {
-                val registry = Class.forName("androidx.test.platform.app.InstrumentationRegistry")
-                registry.getMethod("getInstrumentation").invoke(null) != null
-            }.getOrDefault(false)
+        private fun isRunningUnderAndroidTest(): Boolean = runCatching {
+            val registry = Class.forName("androidx.test.platform.app.InstrumentationRegistry")
+            registry.getMethod("getInstrumentation").invoke(null) != null
+        }.getOrDefault(false)
     }
 }
 
@@ -515,14 +511,13 @@ internal fun Intent.shareIntentConsumptionKey(): String? {
         textHash,
         subjectHash,
         streamHashes.joinToString(separator = ","),
-        clipHashes.joinToString(separator = ","),
+        clipHashes.joinToString(separator = ",")
     ).joinToString(separator = "|")
 }
 
 @Suppress("DEPRECATION")
-private fun Intent.sharedStreamUrisForConsumptionKey(): List<Uri> =
-    when (action) {
-        Intent.ACTION_SEND -> listOfNotNull(getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
-        Intent.ACTION_SEND_MULTIPLE -> getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
-        else -> emptyList()
-    }
+private fun Intent.sharedStreamUrisForConsumptionKey(): List<Uri> = when (action) {
+    Intent.ACTION_SEND -> listOfNotNull(getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+    Intent.ACTION_SEND_MULTIPLE -> getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+    else -> emptyList()
+}

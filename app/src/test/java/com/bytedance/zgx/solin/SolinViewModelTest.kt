@@ -9,21 +9,21 @@ import com.bytedance.zgx.solin.action.HybridActionPlanningRuntime
 import com.bytedance.zgx.solin.action.IntentRoutingPath
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.MobileActionPlanner
-import com.bytedance.zgx.solin.audit.ToolAuditLog
-import com.bytedance.zgx.solin.audit.ToolAuditRecord
 import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
-import com.bytedance.zgx.solin.data.BundledModelInstallResult
-import com.bytedance.zgx.solin.data.BundledModelInstaller
+import com.bytedance.zgx.solin.audit.ToolAuditLog
+import com.bytedance.zgx.solin.audit.ToolAuditRecord
 import com.bytedance.zgx.solin.background.BackgroundTaskScheduler
 import com.bytedance.zgx.solin.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.solin.background.PeriodicCheckScheduleRequest
-import com.bytedance.zgx.solin.background.ReminderScheduleRequest
 import com.bytedance.zgx.solin.background.ReminderRescheduleReport
+import com.bytedance.zgx.solin.background.ReminderScheduleRequest
 import com.bytedance.zgx.solin.background.ScheduledTask
 import com.bytedance.zgx.solin.background.ScheduledTaskStatus
 import com.bytedance.zgx.solin.background.ScheduledTaskType
+import com.bytedance.zgx.solin.data.BundledModelInstallResult
+import com.bytedance.zgx.solin.data.BundledModelInstaller
 import com.bytedance.zgx.solin.data.FirstRunSetupStore
 import com.bytedance.zgx.solin.data.GenerationParametersStore
 import com.bytedance.zgx.solin.data.HuggingFaceAuthStore
@@ -47,8 +47,8 @@ import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.MemoryRecallMode
-import com.bytedance.zgx.solin.memory.MemoryRecordType
 import com.bytedance.zgx.solin.memory.MemoryRecordStore
+import com.bytedance.zgx.solin.memory.MemoryRecordType
 import com.bytedance.zgx.solin.memory.MemoryRepository
 import com.bytedance.zgx.solin.memory.PersistedMemoryRecord
 import com.bytedance.zgx.solin.memory.SemanticMemoryRuntimeStatus
@@ -62,6 +62,7 @@ import com.bytedance.zgx.solin.multimodal.SharedInputSource
 import com.bytedance.zgx.solin.multimodal.SharedInputSourcePrivacy
 import com.bytedance.zgx.solin.multimodal.SharedTextPreview
 import com.bytedance.zgx.solin.multimodal.SharedTextPreviewSource
+import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.solin.orchestration.AgentExternalOutcomeResult
 import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
@@ -69,25 +70,24 @@ import com.bytedance.zgx.solin.orchestration.AgentObservationDecision
 import com.bytedance.zgx.solin.orchestration.AgentObservationResult
 import com.bytedance.zgx.solin.orchestration.AgentPlan
 import com.bytedance.zgx.solin.orchestration.AgentRecoveryAction
-import com.bytedance.zgx.solin.orchestration.AgentRunEvent
 import com.bytedance.zgx.solin.orchestration.AgentRun
+import com.bytedance.zgx.solin.orchestration.AgentRunEvent
 import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
-import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentStep
 import com.bytedance.zgx.solin.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.solin.orchestration.AgentTraceStepSummary
+import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
-import com.bytedance.zgx.solin.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.solin.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.solin.orchestration.InitialPlanningMode
 import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import com.bytedance.zgx.solin.orchestration.ModelOutputQualityTrace
 import com.bytedance.zgx.solin.orchestration.ModelRuntimeInvocation
-import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
+import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunDataReceipt
@@ -107,23 +107,25 @@ import com.bytedance.zgx.solin.runtime.LocalEngineSource
 import com.bytedance.zgx.solin.runtime.LocalOneShotRequest
 import com.bytedance.zgx.solin.runtime.LocalOneShotResult
 import com.bytedance.zgx.solin.runtime.LocalOneShotUnavailableReason
-import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.runtime.RemoteChatEvent
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
+import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.safety.SafetyDecision
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.SkillRequest
 import com.bytedance.zgx.solin.testing.FakeLiteRtRuntime
 import com.bytedance.zgx.solin.testing.RecordingActionRuntime
-import com.bytedance.zgx.solin.tool.ToolExecutor
+import com.bytedance.zgx.solin.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
+import com.bytedance.zgx.solin.tool.PublicWebEvidenceItem
+import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.tool.ToolExecutor
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolSpec
 import com.bytedance.zgx.solin.tool.ToolStatus
-import com.bytedance.zgx.solin.tool.ToolRegistry
-import com.bytedance.zgx.solin.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
 import java.io.IOException
@@ -133,17 +135,19 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -163,8 +167,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import com.bytedance.zgx.solin.tool.PublicWebEvidenceItem
-import com.bytedance.zgx.solin.tool.PublicWebEvidencePack
 
 private const val TEST_IMAGE_DATA_URL = "data:image/png;base64,AA=="
 private const val TEST_LOCAL_MODEL_PATH = "/tmp/model.litertlm"
@@ -193,7 +195,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -204,7 +206,7 @@ class SolinViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.first().text.contains("私密输入"))
     }
@@ -217,7 +219,7 @@ class SolinViewModelTest {
             runtime = runtime,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("route failed")),
+            assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("route failed"))
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -237,7 +239,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -257,7 +259,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             remoteSendPendingStore = pendingStore,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -285,8 +287,8 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-bound-remote",
                 promptForModel = "普通远程问题",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val placementRuntime = FakeChatPlacementRuntime()
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -295,9 +297,9 @@ class SolinViewModelTest {
             chatPlacementRuntime = placementRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(
-                configuredRemoteModel().copy(profileRevision = TEST_REMOTE_REVISION),
+                configuredRemoteModel().copy(profileRevision = TEST_REMOTE_REVISION)
             ),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -327,7 +329,7 @@ class SolinViewModelTest {
         val ioDispatcher = StandardTestDispatcher(testScheduler)
         val viewModel = createViewModel(
             ioDispatcher = ioDispatcher,
-            deferPersistenceInitialization = true,
+            deferPersistenceInitialization = true
         )
         val grantedIds = setOf(SPECIAL_ACCESS_USAGE_STATS, SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT)
 
@@ -335,12 +337,38 @@ class SolinViewModelTest {
         // before the deferred persistence initialization has built the initial state.
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         viewModel.updateDeviceContextAuthorizationSnapshot(
-            DeviceContextAuthorizationSnapshot(grantedSpecialAccessIds = grantedIds),
+            DeviceContextAuthorizationSnapshot(grantedSpecialAccessIds = grantedIds)
         )
         advanceUntilIdle()
         viewModel.awaitPersistenceInitialization()
 
         assertEquals(grantedIds, viewModel.uiState.value.grantedSpecialAccessIds)
+    }
+
+    @Test
+    fun deferredStartupFailuresCompleteCurrentWaiterAndAllowRetry() = runTest(dispatcher) {
+        listOf(IOException("store failed"), CancellationException("startup cancelled")).forEach { failure ->
+            val ioDispatcher = StandardTestDispatcher(testScheduler)
+            val pendingStore = FakeRemoteSendPendingStore()
+            pendingStore.consumeFailures += failure
+            val viewModel = createViewModel(
+                ioDispatcher = ioDispatcher,
+                remoteSendPendingStore = pendingStore,
+                deferPersistenceInitialization = true
+            )
+            val waiting = async { runCatching { viewModel.awaitPersistenceInitialization() } }
+
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            val observed = waiting.await().exceptionOrNull()
+            assertEquals(failure.javaClass, observed?.javaClass)
+            assertEquals(failure.message, observed?.message)
+
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+            viewModel.awaitPersistenceInitialization()
+        }
     }
 
     @Test
@@ -354,7 +382,7 @@ class SolinViewModelTest {
             remoteStore = remoteStore,
             remoteSendPendingStore = pendingStore,
             requireRemoteSendDisclosure = true,
-            ioDispatcher = ioDispatcher,
+            ioDispatcher = ioDispatcher
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -406,14 +434,14 @@ class SolinViewModelTest {
         val installed = installedModelSummary(
             id = "local-chat",
             displayName = "本地对话模型",
-            path = "/tmp/local-chat.litertlm",
+            path = "/tmp/local-chat.litertlm"
         )
         val viewModel = createViewModel(
             modelRepository = FakeModelRepository(initialInstalledModels = listOf(installed)),
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             remoteSendPendingStore = pendingStore,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -440,8 +468,8 @@ class SolinViewModelTest {
             pending = pendingRemoteSendMarker(
                 localOnlyHistoryFilteredCount = 2,
                 imageAttachmentCount = 1,
-                protectedSourceCount = 2,
-            ),
+                protectedSourceCount = 2
+            )
         )
         val sessionStore = FakeSessionStore(
             initialSessions = mapOf(
@@ -449,17 +477,17 @@ class SolinViewModelTest {
                     ChatMessage(
                         role = MessageRole.User,
                         text = "之前的本地会话内容",
-                        privacy = MessagePrivacy.RemoteEligible,
-                    ),
-                ),
-            ),
+                        privacy = MessagePrivacy.RemoteEligible
+                    )
+                )
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            remoteSendPendingStore = pendingStore,
+            remoteSendPendingStore = pendingStore
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -481,8 +509,8 @@ class SolinViewModelTest {
         val pendingStore = FakeRemoteSendPendingStore(
             pending = pendingRemoteSendMarker(
                 kind = RemoteSendDisclosureKind.ToolResultContinuation,
-                runId = "run-pending-continuation",
-            ),
+                runId = "run-pending-continuation"
+            )
         )
         val assistantRouter = FakeAssistantRouter()
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -492,7 +520,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            remoteSendPendingStore = pendingStore,
+            remoteSendPendingStore = pendingStore
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -514,9 +542,9 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Local,
-                config = configuredRemoteModel(),
+                config = configuredRemoteModel()
             ),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -550,7 +578,7 @@ class SolinViewModelTest {
         assertNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
         assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
         viewModel.confirmRemoteModeDisclosure(
-            requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure),
+            requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
         )
         advanceUntilIdle()
         assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
@@ -563,64 +591,63 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun dismissingRemoteModeDisclosureRevertsPersistedModeAndKeepsLocalRuntime() =
-        runTest(dispatcher) {
-            val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
-            val remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Local,
-                config = configuredRemoteModel(),
-            )
-            val viewModel = createViewModel(
-                runtime = runtime,
-                remoteStore = remoteStore,
-                modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
-                requireRemoteSendDisclosure = true,
-            )
-            viewModel.restoreStartupState(skipModelRuntimeWork = true)
-            advanceUntilIdle()
+    fun dismissingRemoteModeDisclosureRevertsPersistedModeAndKeepsLocalRuntime() = runTest(dispatcher) {
+        val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel()
+        )
+        val viewModel = createViewModel(
+            runtime = runtime,
+            remoteStore = remoteStore,
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            requireRemoteSendDisclosure = true
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
 
-            viewModel.selectInferenceMode(InferenceMode.Remote)
-            val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
 
-            // Nothing may take effect before the user has seen the disclosure.
-            assertEquals(InferenceMode.Local, remoteStore.loadMode())
-            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
-            assertEquals(0, runtime.closeCallCount)
-            assertTrue(runtime.isLoaded)
+        // Nothing may take effect before the user has seen the disclosure.
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertEquals(0, runtime.closeCallCount)
+        assertTrue(runtime.isLoaded)
 
-            viewModel.dismissRemoteModeDisclosure()
-            advanceUntilIdle()
+        viewModel.dismissRemoteModeDisclosure()
+        advanceUntilIdle()
 
-            assertEquals(InferenceMode.Local, remoteStore.loadMode())
-            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
-            assertEquals(0, runtime.closeCallCount)
-            assertTrue(runtime.isLoaded)
-            assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertEquals(0, runtime.closeCallCount)
+        assertTrue(runtime.isLoaded)
+        assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
 
-            viewModel.selectInferenceMode(InferenceMode.Remote)
-            viewModel.confirmRemoteModeDisclosure(
-                requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure),
-            )
-            advanceUntilIdle()
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        viewModel.confirmRemoteModeDisclosure(
+            requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        )
+        advanceUntilIdle()
 
-            assertEquals(InferenceMode.Remote, remoteStore.loadMode())
-            assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
-            assertEquals(1, runtime.closeCallCount)
-            assertFalse(runtime.isLoaded)
-            assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
-        }
+        assertEquals(InferenceMode.Remote, remoteStore.loadMode())
+        assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
+        assertEquals(1, runtime.closeCallCount)
+        assertFalse(runtime.isLoaded)
+        assertNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+    }
 
     @Test
     fun switchingToRemoteWithoutDisclosureAppliesImmediately() = runTest(dispatcher) {
         val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
         val remoteStore = FakeRemoteModelStore(
             mode = InferenceMode.Local,
-            config = configuredRemoteModel(),
+            config = configuredRemoteModel()
         )
         val viewModel = createViewModel(
             runtime = runtime,
             remoteStore = remoteStore,
-            requireRemoteSendDisclosure = false,
+            requireRemoteSendDisclosure = false
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -638,7 +665,7 @@ class SolinViewModelTest {
     fun offRolloutDowngradesPersistedAutoToLocalOnStartup() = runTest(dispatcher) {
         val remoteStore = FakeRemoteModelStore(
             mode = InferenceMode.Auto,
-            config = configuredRemoteModel(),
+            config = configuredRemoteModel()
         )
 
         val viewModel = createViewModel(remoteStore = remoteStore)
@@ -648,45 +675,44 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun selectingAutoWaitsForSameRevisionConfirmationAndKeepsLocalRuntimeLoaded() =
-        runTest(dispatcher) {
-            val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
-            val remoteStore = FakeRemoteModelStore(
-                mode = InferenceMode.Local,
-                config = configuredRemoteModel(),
-            )
-            val viewModel = createViewModel(
-                runtime = runtime,
-                remoteStore = remoteStore,
-                adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
-            )
+    fun selectingAutoWaitsForSameRevisionConfirmationAndKeepsLocalRuntimeLoaded() = runTest(dispatcher) {
+        val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Local,
+            config = configuredRemoteModel()
+        )
+        val viewModel = createViewModel(
+            runtime = runtime,
+            remoteStore = remoteStore,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn
+        )
 
-            viewModel.selectInferenceMode(InferenceMode.Auto)
+        viewModel.selectInferenceMode(InferenceMode.Auto)
 
-            val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
-            assertEquals(InferenceMode.Local, remoteStore.loadMode())
-            assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
-            assertEquals(0, runtime.closeCallCount)
-            assertTrue(runtime.isLoaded)
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        assertEquals(InferenceMode.Local, remoteStore.loadMode())
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertEquals(0, runtime.closeCallCount)
+        assertTrue(runtime.isLoaded)
 
-            viewModel.confirmRemoteModeDisclosure(disclosure)
-            advanceUntilIdle()
+        viewModel.confirmRemoteModeDisclosure(disclosure)
+        advanceUntilIdle()
 
-            assertEquals(InferenceMode.Auto, remoteStore.loadMode())
-            assertEquals(InferenceMode.Auto, viewModel.uiState.value.inferenceMode)
-            assertEquals(0, runtime.closeCallCount)
-            assertTrue(runtime.isLoaded)
-        }
+        assertEquals(InferenceMode.Auto, remoteStore.loadMode())
+        assertEquals(InferenceMode.Auto, viewModel.uiState.value.inferenceMode)
+        assertEquals(0, runtime.closeCallCount)
+        assertTrue(runtime.isLoaded)
+    }
 
     @Test
     fun cancellingAutoDisclosureDoesNotChangePersistedPreference() = runTest(dispatcher) {
         val remoteStore = FakeRemoteModelStore(
             mode = InferenceMode.Local,
-            config = configuredRemoteModel(),
+            config = configuredRemoteModel()
         )
         val viewModel = createViewModel(
             remoteStore = remoteStore,
-            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn
         )
 
         viewModel.selectInferenceMode(InferenceMode.Auto)
@@ -701,11 +727,11 @@ class SolinViewModelTest {
     fun remoteConfigRevisionChangeInvalidatesPendingAutoAuthorization() = runTest(dispatcher) {
         val remoteStore = FakeRemoteModelStore(
             mode = InferenceMode.Local,
-            config = configuredRemoteModel(),
+            config = configuredRemoteModel()
         )
         val viewModel = createViewModel(
             remoteStore = remoteStore,
-            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn
         )
 
         viewModel.selectInferenceMode(InferenceMode.Auto)
@@ -723,11 +749,11 @@ class SolinViewModelTest {
     fun blankRemoteRevisionCannotAuthorizeAuto() = runTest(dispatcher) {
         val remoteStore = FakeRemoteModelStore(
             mode = InferenceMode.Local,
-            config = configuredRemoteModel().copy(profileRevision = ""),
+            config = configuredRemoteModel().copy(profileRevision = "")
         )
         val viewModel = createViewModel(
             remoteStore = remoteStore,
-            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn
         )
 
         viewModel.selectInferenceMode(InferenceMode.Auto)
@@ -750,11 +776,11 @@ class SolinViewModelTest {
                 autoSaveEntered.countDown()
                 check(allowAutoSave.await(5, TimeUnit.SECONDS))
             },
-            beforeConfigSave = configSaveEntered::countDown,
+            beforeConfigSave = configSaveEntered::countDown
         )
         val viewModel = createViewModel(
             remoteStore = remoteStore,
-            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn
         )
         viewModel.selectInferenceMode(InferenceMode.Auto)
         val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
@@ -765,7 +791,7 @@ class SolinViewModelTest {
             assertTrue(autoSaveEntered.await(5, TimeUnit.SECONDS))
             val update = executor.submit {
                 viewModel.updateRemoteModelConfig(
-                    configuredRemoteModel().copy(modelName = "model-after-confirm"),
+                    configuredRemoteModel().copy(modelName = "model-after-confirm")
                 )
             }
 
@@ -795,11 +821,11 @@ class SolinViewModelTest {
                 confirmReadyToProject.countDown()
                 check(allowConfirmProjection.await(5, TimeUnit.SECONDS))
             },
-            beforeConfigSave = configSaveEntered::countDown,
+            beforeConfigSave = configSaveEntered::countDown
         )
         val viewModel = createViewModel(
             remoteStore = remoteStore,
-            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn,
+            adaptiveInferenceRollout = AdaptiveInferenceRollout.OptIn
         )
         viewModel.selectInferenceMode(InferenceMode.Auto)
         val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
@@ -810,7 +836,7 @@ class SolinViewModelTest {
             assertTrue(confirmReadyToProject.await(5, TimeUnit.SECONDS))
             val update = executor.submit {
                 viewModel.updateRemoteModelConfig(
-                    configuredRemoteModel().copy(modelName = "model-after-ui-barrier"),
+                    configuredRemoteModel().copy(modelName = "model-after-ui-barrier")
                 )
             }
 
@@ -829,58 +855,57 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun remoteSendDisclosureOncePerSessionGoesSilentForTextButStillConfirmsImage() =
-        runTest(dispatcher) {
-            val remoteRuntime = RecordingRemoteChatRuntime()
-            val viewModel = createViewModel(
-                remoteRuntime = remoteRuntime,
-                remoteStore = configuredRemoteStore(),
-                requireRemoteSendDisclosure = true,
-            )
-            viewModel.restoreStartupState(skipModelRuntimeWork = true)
-            advanceUntilIdle()
+    fun remoteSendDisclosureOncePerSessionGoesSilentForTextButStillConfirmsImage() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            requireRemoteSendDisclosure = true
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
 
-            viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OncePerSession)
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OncePerSession)
 
-            // First text send still requires confirmation.
-            viewModel.sendMessage("第一条远程问题")
-            advanceUntilIdle()
-            val first = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertFalse(first.forcedBySensitiveContent)
-            assertTrue(remoteRuntime.calls.isEmpty())
+        // First text send still requires confirmation.
+        viewModel.sendMessage("第一条远程问题")
+        advanceUntilIdle()
+        val first = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertFalse(first.forcedBySensitiveContent)
+        assertTrue(remoteRuntime.calls.isEmpty())
 
-            // Confirm with "don't ask again this session".
-            viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
-            advanceUntilIdle()
-            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals(1, remoteRuntime.calls.size)
+        // Confirm with "don't ask again this session".
+        viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+        advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(1, remoteRuntime.calls.size)
 
-            // Second text send is now silent — no disclosure, goes straight through.
-            viewModel.sendMessage("第二条远程问题")
-            advanceUntilIdle()
-            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals(2, remoteRuntime.calls.size)
-            assertEquals("第二条远程问题", remoteRuntime.calls.last().prompt)
+        // Second text send is now silent — no disclosure, goes straight through.
+        viewModel.sendMessage("第二条远程问题")
+        advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals("第二条远程问题", remoteRuntime.calls.last().prompt)
 
-            // Image sends still cross the local/remote byte boundary, so session suppression
-            // for ordinary text must not silence their per-send preview confirmation.
-            viewModel.stageSharedInput(sharedImageInput())
-            advanceUntilIdle()
-            viewModel.sendPendingSharedInput("描述这张图")
-            advanceUntilIdle()
+        // Image sends still cross the local/remote byte boundary, so session suppression
+        // for ordinary text must not silence their per-send preview confirmation.
+        viewModel.stageSharedInput(sharedImageInput())
+        advanceUntilIdle()
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
 
-            val imageDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals(RemoteSendDisclosureKind.CurrentInput, imageDisclosure.kind)
-            assertEquals(1, imageDisclosure.imageAttachmentCount)
-            assertEquals(2, remoteRuntime.calls.size)
+        val imageDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, imageDisclosure.kind)
+        assertEquals(1, imageDisclosure.imageAttachmentCount)
+        assertEquals(2, remoteRuntime.calls.size)
 
-            viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
-            advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+        advanceUntilIdle()
 
-            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals(3, remoteRuntime.calls.size)
-            assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
-        }
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(3, remoteRuntime.calls.size)
+        assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
+    }
 
     @Test
     fun remoteSendDisclosureEveryMessageIgnoresSuppressForSession() = runTest(dispatcher) {
@@ -888,7 +913,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -916,15 +941,15 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore(
             initialSessions = mapOf(
                 "session-1" to emptyList(),
-                "session-2" to emptyList(),
+                "session-2" to emptyList()
             ),
-            initialActiveSessionId = "session-1",
+            initialActiveSessionId = "session-1"
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -947,52 +972,51 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun remoteSendDisclosureOnlyWhenSensitiveStillConfirmsImageSend() =
-        runTest(dispatcher) {
-            val remoteRuntime = RecordingRemoteChatRuntime()
-            val viewModel = createViewModel(
-                remoteRuntime = remoteRuntime,
-                remoteStore = configuredRemoteStore(),
-                requireRemoteSendDisclosure = true,
-            )
-            viewModel.restoreStartupState(skipModelRuntimeWork = true)
-            advanceUntilIdle()
+    fun remoteSendDisclosureOnlyWhenSensitiveStillConfirmsImageSend() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = configuredRemoteStore(),
+            requireRemoteSendDisclosure = true
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
 
-            viewModel.setRemoteSendDisclosurePolicy(
-                RemoteSendDisclosurePolicy.OnlyWhenSensitive,
-            )
+        viewModel.setRemoteSendDisclosurePolicy(
+            RemoteSendDisclosurePolicy.OnlyWhenSensitive
+        )
 
-            // Non-sensitive text send goes through silently (no disclosure).
-            viewModel.sendMessage("普通远程问题")
-            advanceUntilIdle()
-            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        // Non-sensitive text send goes through silently (no disclosure).
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
 
-            // Image bytes require a per-send preview even when ordinary text is silent.
-            viewModel.stageSharedInput(sharedImageInput())
-            advanceUntilIdle()
-            viewModel.sendPendingSharedInput("描述这张图")
-            advanceUntilIdle()
+        // Image bytes require a per-send preview even when ordinary text is silent.
+        viewModel.stageSharedInput(sharedImageInput())
+        advanceUntilIdle()
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
 
-            val imageDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals(RemoteSendDisclosureKind.CurrentInput, imageDisclosure.kind)
-            assertEquals(1, imageDisclosure.imageAttachmentCount)
-            assertEquals(1, remoteRuntime.calls.size)
+        val imageDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, imageDisclosure.kind)
+        assertEquals(1, imageDisclosure.imageAttachmentCount)
+        assertEquals(1, remoteRuntime.calls.size)
 
-            viewModel.confirmRemoteSendDisclosure()
-            advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
 
-            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertEquals(2, remoteRuntime.calls.size)
-            assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
-        }
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
+    }
 
     @Test
     fun remoteConnectivityPreflightUpdatesConfigStatus() = runTest(dispatcher) {
         val probe = FakeRemoteModelConnectivityProbe(RemoteModelConnectivityStatus.AuthenticationFailed)
         val viewModel = createViewModel(
             remoteConnectivityProbe = probe,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1011,11 +1035,11 @@ class SolinViewModelTest {
         val remoteStore = configuredRemoteStore()
         remoteStore.recordConnectivity(
             configuredRemoteModel(),
-            RemoteModelConnectivityStatus.Unreachable,
+            RemoteModelConnectivityStatus.Unreachable
         )
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = remoteStore,
+            remoteStore = remoteStore
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1028,7 +1052,7 @@ class SolinViewModelTest {
         assertEquals("没有可用的模型执行目标", viewModel.uiState.value.statusText)
         assertEquals(
             PlacementReasonCode.REMOTE_CONNECTIVITY_UNAVAILABLE,
-            viewModel.uiState.value.activeRunPlacementReason,
+            viewModel.uiState.value.activeRunPlacementReason
         )
         assertTrue(viewModel.uiState.value.remoteSendAuditEvents.isEmpty())
     }
@@ -1039,7 +1063,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1060,7 +1084,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1086,14 +1110,14 @@ class SolinViewModelTest {
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = orchestrator,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1106,17 +1130,17 @@ class SolinViewModelTest {
         assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, confirmation.draft.functionName)
         assertEquals(
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
-            confirmation.toolRequest?.toolName,
+            confirmation.toolRequest?.toolName
         )
         assertEquals(
             listOf(Manifest.permission.READ_CALENDAR),
-            confirmation.runtimePermissionRequirementsFor(toolRegistry = ToolRegistry()).flatMap { it.permissions },
+            confirmation.runtimePermissionRequirementsFor(toolRegistry = ToolRegistry()).flatMap { it.permissions }
         )
         assertEquals("动作草稿待确认 · 规则回退", confirmedState.statusText)
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(
             AgentRunState.AwaitingUserConfirmation,
-            orchestrator.recentTraceRuns(limit = 1).single().run.state,
+            orchestrator.recentTraceRuns(limit = 1).single().run.state
         )
     }
 
@@ -1126,7 +1150,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1153,8 +1177,8 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-memory-boundary",
                 promptForModel = "ordinary remote question",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val placementRuntime = FakeChatPlacementRuntime()
@@ -1163,7 +1187,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             memoryRepository = memoryRepository,
             assistantRouter = assistantRouter,
-            chatPlacementRuntime = placementRuntime,
+            chatPlacementRuntime = placementRuntime
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1193,7 +1217,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1228,7 +1252,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -1263,9 +1287,9 @@ class SolinViewModelTest {
             modelRepository = FakeModelRepository(activeModelPath = null),
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Local,
-                config = RemoteModelConfig(),
+                config = RemoteModelConfig()
             ),
-            firstRunStore = FakeFirstRunSetupStore(setupDismissed = false),
+            firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -1275,7 +1299,7 @@ class SolinViewModelTest {
         assertFalse(viewModel.uiState.value.isReady)
         assertEquals(
             NO_MODEL_READY_STATUS_TEXT,
-            viewModel.uiState.value.statusText,
+            viewModel.uiState.value.statusText
         )
     }
 
@@ -1285,9 +1309,9 @@ class SolinViewModelTest {
             modelRepository = FakeModelRepository(activeModelPath = null),
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Local,
-                config = RemoteModelConfig(),
+                config = RemoteModelConfig()
             ),
-            firstRunStore = FakeFirstRunSetupStore(setupDismissed = true),
+            firstRunStore = FakeFirstRunSetupStore(setupDismissed = true)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -1297,7 +1321,7 @@ class SolinViewModelTest {
         assertFalse(viewModel.uiState.value.isReady)
         assertEquals(
             NO_MODEL_READY_STATUS_TEXT,
-            viewModel.uiState.value.statusText,
+            viewModel.uiState.value.statusText
         )
     }
 
@@ -1306,7 +1330,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             modelRepository = FakeModelRepository(activeModelPath = null),
             remoteStore = configuredRemoteStore(),
-            firstRunStore = FakeFirstRunSetupStore(setupDismissed = false),
+            firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -1324,9 +1348,9 @@ class SolinViewModelTest {
             modelRepository = FakeModelRepository(activeModelPath = null),
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Local,
-                config = RemoteModelConfig(),
+                config = RemoteModelConfig()
             ),
-            firstRunStore = firstRunStore,
+            firstRunStore = firstRunStore
         )
 
         assertTrue(viewModel.uiState.value.showFirstRunSetup)
@@ -1344,12 +1368,12 @@ class SolinViewModelTest {
         val fallback = installedModelSummary(id = "fallback-chat", displayName = "备用对话", path = "/tmp/fallback.litertlm")
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
-            initialInstalledModels = listOf(active, fallback),
+            initialInstalledModels = listOf(active, fallback)
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.loadModel()
@@ -1378,16 +1402,16 @@ class SolinViewModelTest {
             displayName = "当前对话",
             path = "/tmp/active.litertlm",
             recommendedModelId = recommendedModelId,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
-            initialInstalledModels = listOf(active),
+            initialInstalledModels = listOf(active)
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.loadModel()
@@ -1406,17 +1430,17 @@ class SolinViewModelTest {
             displayName = "当前对话",
             path = "/tmp/active.litertlm",
             recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
             initialInstalledModels = listOf(active),
-            activeModelVerificationResult = false,
+            activeModelVerificationResult = false
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.loadModel()
@@ -1436,16 +1460,16 @@ class SolinViewModelTest {
             displayName = "导入模型",
             path = "/tmp/custom.litertlm",
             recommendedModelId = null,
-            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom
         )
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
-            initialInstalledModels = listOf(active),
+            initialInstalledModels = listOf(active)
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, viewModel.uiState.value.modelHealth.profileId)
@@ -1468,11 +1492,11 @@ class SolinViewModelTest {
             displayName = "未知推荐模型",
             path = "/tmp/unknown.litertlm",
             recommendedModelId = "unknown-model-id",
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
-            initialInstalledModels = listOf(active),
+            initialInstalledModels = listOf(active)
         )
 
         val viewModel = createViewModel(modelRepository = modelRepository)
@@ -1490,29 +1514,29 @@ class SolinViewModelTest {
             displayName = "当前对话",
             path = "/tmp/chat.litertlm",
             recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val action = installedModelSummary(
             id = "action-model",
             displayName = "低资源动作模型",
             path = "/tmp/action.litertlm",
             recommendedModelId = MOBILE_ACTION_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val unverifiedAction = installedModelSummary(
             id = "unverified-action",
             displayName = "未验证低资源动作模型",
             path = "/tmp/unverified-action.litertlm",
             recommendedModelId = MOBILE_ACTION_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom
         )
         val assistantRouter = FakeAssistantRouter()
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             modelRepository = FakeModelRepository(
                 activeInstalledModelId = chat.id,
-                initialInstalledModels = listOf(chat, action, unverifiedAction),
-            ),
+                initialInstalledModels = listOf(chat, action, unverifiedAction)
+            )
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -1524,11 +1548,13 @@ class SolinViewModelTest {
         assertEquals(
             "retired and unverified action installs contribute no route capability profile",
             listOf(DEFAULT_CHAT_MODEL_ID),
-            assistantRouter.lastRouteCapabilityProfiles.map { profile -> profile.id },
+            assistantRouter.lastRouteCapabilityProfiles.map { profile -> profile.id }
         )
-        assertTrue(assistantRouter.lastRouteCapabilityProfiles.any { profile ->
-            profile.supportsMobileActionPlanning
-        })
+        assertTrue(
+            assistantRouter.lastRouteCapabilityProfiles.any { profile ->
+                profile.supportsMobileActionPlanning
+            }
+        )
     }
 
     @Test
@@ -1537,12 +1563,12 @@ class SolinViewModelTest {
         val extra = installedModelSummary(id = "extra-chat", displayName = "额外对话", path = "/tmp/extra.litertlm")
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
-            initialInstalledModels = listOf(active, extra),
+            initialInstalledModels = listOf(active, extra)
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.loadModel()
@@ -1566,12 +1592,12 @@ class SolinViewModelTest {
         val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
-            initialInstalledModels = listOf(active),
+            initialInstalledModels = listOf(active)
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.loadModel()
@@ -1597,12 +1623,12 @@ class SolinViewModelTest {
         val modelRepository = FakeModelRepository(
             activeInstalledModelId = active.id,
             initialInstalledModels = listOf(active),
-            deleteResult = false,
+            deleteResult = false
         )
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.loadModel()
@@ -1627,7 +1653,7 @@ class SolinViewModelTest {
         val downloadClient = FakeModelDownloadClient()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            downloadClient = downloadClient,
+            downloadClient = downloadClient
         )
 
         viewModel.startModelDownload()
@@ -1644,13 +1670,13 @@ class SolinViewModelTest {
         val firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
         val modelRepository = FakeModelRepository(
             activeModelPath = null,
-            downloadedModelFileProvider = { null },
+            downloadedModelFileProvider = { null }
         )
         val downloadClient = FakeModelDownloadClient()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
             firstRunStore = firstRunStore,
-            downloadClient = downloadClient,
+            downloadClient = downloadClient
         )
 
         assertTrue(viewModel.uiState.value.showFirstRunSetup)
@@ -1676,11 +1702,11 @@ class SolinViewModelTest {
                 downloadUrl = "https://models.example.com/custom.litertlm",
                 expectedBytes = 5L,
                 expectedSha256 = null,
-                modelId = null,
+                modelId = null
             )
             val modelRepository = FakeModelRepository(
                 customDownloadSource = customSource,
-                downloadedModelFileProvider = { target },
+                downloadedModelFileProvider = { target }
             )
             val downloadClient = FakeModelDownloadClient(
                 queryResults = mutableListOf(
@@ -1689,17 +1715,17 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_SUCCESSFUL,
                         reason = 0,
                         downloadedBytes = 5L,
-                        totalBytes = 5L,
-                    ),
+                        totalBytes = 5L
+                    )
                 ),
                 onEnqueue = { source, file ->
                     if (source.modelId == null) file.writeText("model", Charsets.UTF_8)
-                },
+                }
             )
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
                 downloadClient = downloadClient,
-                huggingFaceAuthStore = FakeHuggingFaceAuthStore("hf_test_read_token"),
+                huggingFaceAuthStore = FakeHuggingFaceAuthStore("hf_test_read_token")
             )
 
             // The memory model queues its tokenizer behind the model file; the task then vanishes.
@@ -1712,7 +1738,7 @@ class SolinViewModelTest {
 
             assertEquals(
                 listOf(MEMORY_EMBEDDING_MODEL_ID, null),
-                downloadClient.enqueuedDownloads.map { (source, _) -> source.modelId },
+                downloadClient.enqueuedDownloads.map { (source, _) -> source.modelId }
             )
             assertFalse(viewModel.uiState.value.isDownloading)
         }
@@ -1724,7 +1750,7 @@ class SolinViewModelTest {
         val downloadClient = FakeModelDownloadClient()
         val viewModel = createViewModel(
             modelRepository = modelRepository,
-            downloadClient = downloadClient,
+            downloadClient = downloadClient
         )
 
         viewModel.startCustomModelDownload("https://models.example.com/model.bin")
@@ -1732,7 +1758,7 @@ class SolinViewModelTest {
 
         assertEquals(
             "请输入有效的 HTTPS .litertlm 模型下载链接；HTTP 仅支持本地调试地址",
-            viewModel.uiState.value.statusText,
+            viewModel.uiState.value.statusText
         )
         assertFalse(viewModel.uiState.value.isDownloading)
         assertTrue(downloadClient.enqueuedDownloads.isEmpty())
@@ -1749,14 +1775,14 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_FAILED,
                         reason = DownloadManager.ERROR_INSUFFICIENT_SPACE,
                         downloadedBytes = 0L,
-                        totalBytes = 100L,
-                    ),
+                        totalBytes = 100L
+                    )
                 ),
-                onEnqueue = { _, file -> file.writeText("partial", Charsets.UTF_8) },
+                onEnqueue = { _, file -> file.writeText("partial", Charsets.UTF_8) }
             )
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
 
             viewModel.startModelDownload()
@@ -1779,7 +1805,7 @@ class SolinViewModelTest {
             val firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
             val modelRepository = FakeModelRepository(
                 activeModelPath = null,
-                downloadedModelFileProvider = { target },
+                downloadedModelFileProvider = { target }
             )
             val downloadClient = FakeModelDownloadClient(
                 queryResults = mutableListOf(
@@ -1787,15 +1813,15 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_FAILED,
                         reason = DownloadManager.ERROR_INSUFFICIENT_SPACE,
                         downloadedBytes = 0L,
-                        totalBytes = 100L,
-                    ),
+                        totalBytes = 100L
+                    )
                 ),
-                onEnqueue = { _, file -> file.writeText("partial", Charsets.UTF_8) },
+                onEnqueue = { _, file -> file.writeText("partial", Charsets.UTF_8) }
             )
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
                 firstRunStore = firstRunStore,
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
 
             assertTrue(viewModel.uiState.value.showFirstRunSetup)
@@ -1825,7 +1851,7 @@ class SolinViewModelTest {
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
                 downloadClient = downloadClient,
-                huggingFaceAuthStore = FakeHuggingFaceAuthStore(),
+                huggingFaceAuthStore = FakeHuggingFaceAuthStore()
             )
 
             viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
@@ -1847,7 +1873,7 @@ class SolinViewModelTest {
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
                 downloadClient = downloadClient,
-                huggingFaceAuthStore = authStore,
+                huggingFaceAuthStore = authStore
             )
 
             viewModel.saveHuggingFaceAccessToken("Bearer hf_test_read_token")
@@ -1871,7 +1897,7 @@ class SolinViewModelTest {
                 modelRepository = modelRepository,
                 downloadClient = downloadClient,
                 huggingFaceAuthStore = authStore,
-                ioDispatcher = downloadDispatcher,
+                ioDispatcher = downloadDispatcher
             )
 
             viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
@@ -1909,7 +1935,7 @@ class SolinViewModelTest {
                 },
                 onCancel = { downloadId ->
                     if (downloadId == 1L) lateDownloadCancelled.countDown()
-                },
+                }
             )
             val authStore = FakeHuggingFaceAuthStore("hf_test_read_token")
             val downloadDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -1918,7 +1944,7 @@ class SolinViewModelTest {
                     modelRepository = modelRepository,
                     downloadClient = downloadClient,
                     huggingFaceAuthStore = authStore,
-                    ioDispatcher = downloadDispatcher,
+                    ioDispatcher = downloadDispatcher
                 )
 
                 viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
@@ -1958,11 +1984,11 @@ class SolinViewModelTest {
                 downloadUrl = "https://models.example.com/custom.litertlm",
                 expectedBytes = 5L,
                 expectedSha256 = "0".repeat(64),
-                modelId = null,
+                modelId = null
             )
             val modelRepository = FakeModelRepository(
                 customDownloadSource = source,
-                downloadedModelFileProvider = { target },
+                downloadedModelFileProvider = { target }
             )
             val downloadClient = FakeModelDownloadClient(
                 queryResults = mutableListOf(
@@ -1970,14 +1996,14 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_SUCCESSFUL,
                         reason = 0,
                         downloadedBytes = 5L,
-                        totalBytes = 5L,
-                    ),
+                        totalBytes = 5L
+                    )
                 ),
-                onEnqueue = { _, file -> file.writeText("model", Charsets.UTF_8) },
+                onEnqueue = { _, file -> file.writeText("model", Charsets.UTF_8) }
             )
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
 
             viewModel.startCustomModelDownload(source.downloadUrl)
@@ -2001,18 +2027,18 @@ class SolinViewModelTest {
                 downloadUrl = "https://models.example.com/custom.litertlm",
                 expectedBytes = null,
                 expectedSha256 = null,
-                modelId = null,
+                modelId = null
             )
             val modelRepository = FakeModelRepository(
                 activeModelPath = null,
                 downloadedModelFileProvider = { target },
                 pendingDownloadId = 42L,
-                pendingDownloadSource = source,
+                pendingDownloadSource = source
             )
             val downloadClient = FakeModelDownloadClient()
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
 
             viewModel.restoreStartupState()
@@ -2034,13 +2060,13 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_RUNNING,
                         reason = 0,
                         downloadedBytes = 10L,
-                        totalBytes = 100L,
-                    ),
-                ),
+                        totalBytes = 100L
+                    )
+                )
             )
             val viewModel = createViewModel(
                 modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
 
             viewModel.startModelDownload()
@@ -2062,53 +2088,52 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun wifiPausedDownloadOffersMeteredResumeAndReEnqueuesWithMeteredAllowed() =
-        runTest(dispatcher) {
-            withTempDownloadTarget { target ->
-                val downloadClient = FakeModelDownloadClient(
-                    queryResults = mutableListOf(
-                        DownloadInfo(
-                            status = DownloadManager.STATUS_PAUSED,
-                            reason = DownloadManager.PAUSED_QUEUED_FOR_WIFI,
-                            downloadedBytes = 10L,
-                            totalBytes = 100L,
-                        ),
-                        DownloadInfo(
-                            status = DownloadManager.STATUS_RUNNING,
-                            reason = 0,
-                            downloadedBytes = 10L,
-                            totalBytes = 100L,
-                        ),
+    fun wifiPausedDownloadOffersMeteredResumeAndReEnqueuesWithMeteredAllowed() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_PAUSED,
+                        reason = DownloadManager.PAUSED_QUEUED_FOR_WIFI,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L
                     ),
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_RUNNING,
+                        reason = 0,
+                        downloadedBytes = 10L,
+                        totalBytes = 100L
+                    )
                 )
-                val viewModel = createViewModel(
-                    modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
-                    downloadClient = downloadClient,
-                )
+            )
+            val viewModel = createViewModel(
+                modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
+                downloadClient = downloadClient
+            )
 
-                viewModel.startModelDownload()
-                runCurrent()
+            viewModel.startModelDownload()
+            runCurrent()
 
-                assertTrue(viewModel.uiState.value.isWaitingForWifiDownload)
-                assertEquals("等待 Wi-Fi，可改用移动数据", viewModel.uiState.value.statusText)
-                assertEquals(listOf(false), downloadClient.enqueuedMeteredFlags)
-                assertFalse(viewModel.uiState.value.isBusy)
+            assertTrue(viewModel.uiState.value.isWaitingForWifiDownload)
+            assertEquals("等待 Wi-Fi，可改用移动数据", viewModel.uiState.value.statusText)
+            assertEquals(listOf(false), downloadClient.enqueuedMeteredFlags)
+            assertFalse(viewModel.uiState.value.isBusy)
 
-                viewModel.allowMeteredDownload()
-                runCurrent()
+            viewModel.allowMeteredDownload()
+            runCurrent()
 
-                assertEquals(listOf(false, true), downloadClient.enqueuedMeteredFlags)
-                assertEquals(listOf(1L), downloadClient.cancelledDownloadIds)
-                assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
-                assertTrue(viewModel.uiState.value.isDownloading)
-                assertFalse(viewModel.uiState.value.isBusy)
+            assertEquals(listOf(false, true), downloadClient.enqueuedMeteredFlags)
+            assertEquals(listOf(1L), downloadClient.cancelledDownloadIds)
+            assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
+            assertTrue(viewModel.uiState.value.isDownloading)
+            assertFalse(viewModel.uiState.value.isBusy)
 
-                viewModel.cancelModelDownload()
-                runCurrent()
-                assertFalse(viewModel.uiState.value.isDownloading)
-                assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
-            }
+            viewModel.cancelModelDownload()
+            runCurrent()
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertFalse(viewModel.uiState.value.isWaitingForWifiDownload)
         }
+    }
 
     @Test
     fun meteredResumeIsIgnoredWhileTheDownloadIsRunningOnWifi() = runTest(dispatcher) {
@@ -2119,13 +2144,13 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_RUNNING,
                         reason = 0,
                         downloadedBytes = 10L,
-                        totalBytes = 100L,
-                    ),
-                ),
+                        totalBytes = 100L
+                    )
+                )
             )
             val viewModel = createViewModel(
                 modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
 
             viewModel.startModelDownload()
@@ -2149,12 +2174,12 @@ class SolinViewModelTest {
             val installed = installedModelSummary(
                 id = "installed-chat",
                 displayName = "已装模型",
-                path = TEST_LOCAL_MODEL_PATH,
+                path = TEST_LOCAL_MODEL_PATH
             )
             val modelRepository = FakeModelRepository(
                 activeInstalledModelId = installed.id,
                 initialInstalledModels = listOf(installed),
-                downloadedModelFileProvider = { target },
+                downloadedModelFileProvider = { target }
             )
             val downloadClient = FakeModelDownloadClient(
                 queryResults = mutableListOf(
@@ -2162,14 +2187,14 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_RUNNING,
                         reason = 0,
                         downloadedBytes = 10L,
-                        totalBytes = 100L,
-                    ),
-                ),
+                        totalBytes = 100L
+                    )
+                )
             )
             val viewModel = createViewModel(
                 modelRepository = modelRepository,
                 downloadClient = downloadClient,
-                runtime = runtime,
+                runtime = runtime
             )
 
             viewModel.startModelDownload()
@@ -2202,15 +2227,15 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_RUNNING,
                         reason = 0,
                         downloadedBytes = 10L,
-                        totalBytes = 100L,
-                    ),
-                ),
+                        totalBytes = 100L
+                    )
+                )
             )
             val sessionStore = FakeSessionStore()
             val viewModel = createViewModel(
                 sessionStore = sessionStore,
                 modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
             advanceUntilIdle()
@@ -2241,13 +2266,13 @@ class SolinViewModelTest {
                         status = DownloadManager.STATUS_RUNNING,
                         reason = 0,
                         downloadedBytes = 10L,
-                        totalBytes = 100L,
-                    ),
-                ),
+                        totalBytes = 100L
+                    )
+                )
             )
             val viewModel = createViewModel(
                 modelRepository = FakeModelRepository(downloadedModelFileProvider = { target }),
-                downloadClient = downloadClient,
+                downloadClient = downloadClient
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
             advanceUntilIdle()
@@ -2257,7 +2282,7 @@ class SolinViewModelTest {
             assertTrue(viewModel.uiState.value.isDownloading)
 
             viewModel.updateRemoteModelConfig(
-                RemoteModelConfig(baseUrl = "https://example.invalid/v1", modelName = "m"),
+                RemoteModelConfig(baseUrl = "https://example.invalid/v1", modelName = "m")
             )
             runCurrent()
 
@@ -2279,7 +2304,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2290,7 +2315,7 @@ class SolinViewModelTest {
         listOf(
             "我的手机号是 13800138000，帮我总结一下",
             "AWS key AKIA1234567890ABCDEF 帮我分析",
-            "client_secret = superSecret123 帮我检查",
+            "client_secret = superSecret123 帮我检查"
         ).forEachIndexed { index, sensitivePrompt ->
             viewModel.sendMessage(sensitivePrompt)
             advanceUntilIdle()
@@ -2317,7 +2342,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2339,7 +2364,7 @@ class SolinViewModelTest {
         assertTrue(
             sessionStore.messages.any { message ->
                 message.privacy == MessagePrivacy.LocalOnly && message.text.contains("打码后发送")
-            },
+            }
         )
     }
 
@@ -2348,7 +2373,7 @@ class SolinViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2373,7 +2398,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2392,7 +2417,7 @@ class SolinViewModelTest {
         assertTrue(
             sessionStore.messages.any { message ->
                 message.privacy == MessagePrivacy.LocalOnly && message.text.contains("仍原样发送")
-            },
+            }
         )
     }
 
@@ -2403,7 +2428,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2424,7 +2449,7 @@ class SolinViewModelTest {
         assertTrue(
             sessionStore.messages.any { message ->
                 message.privacy == MessagePrivacy.LocalOnly && message.text.contains("仍原样发送")
-            },
+            }
         )
     }
 
@@ -2438,9 +2463,9 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Remote,
-                config = RemoteModelConfig(),
+                config = RemoteModelConfig()
             ),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2470,7 +2495,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2505,9 +2530,9 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Remote,
-                config = RemoteModelConfig(),
+                config = RemoteModelConfig()
             ),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2517,8 +2542,8 @@ class SolinViewModelTest {
                 text = "",
                 attachments = emptyList(),
                 protectedSourceCount = 1,
-                protectedImageSourceCount = 1,
-            ),
+                protectedImageSourceCount = 1
+            )
         )
         advanceUntilIdle()
 
@@ -2547,20 +2572,20 @@ class SolinViewModelTest {
                     ChatMessage(
                         role = MessageRole.User,
                         text = "公开上下文：我在比较城市天气",
-                        privacy = MessagePrivacy.RemoteEligible,
+                        privacy = MessagePrivacy.RemoteEligible
                     ),
                     ChatMessage(
                         role = MessageRole.User,
                         text = "历史误标内容：我的手机号是 13800138000",
-                        privacy = MessagePrivacy.RemoteEligible,
-                    ),
-                ),
-            ),
+                        privacy = MessagePrivacy.RemoteEligible
+                    )
+                )
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2579,14 +2604,14 @@ class SolinViewModelTest {
         data class ProtectedShareCase(
             val sharedInput: SharedInput,
             val forbiddenText: List<String>,
-            val verifyNextRemoteSend: Boolean = false,
+            val verifyNextRemoteSend: Boolean = false
         )
 
         val cases = listOf(
             ProtectedShareCase(
                 sharedInput = SharedInput(text = "私密分享正文", attachments = emptyList()),
                 forbiddenText = listOf("私密分享正文"),
-                verifyNextRemoteSend = true,
+                verifyNextRemoteSend = true
             ),
             ProtectedShareCase(
                 sharedInput = SharedInput(
@@ -2596,24 +2621,24 @@ class SolinViewModelTest {
                             kind = SharedAttachmentKind.Document,
                             mimeType = "application/pdf",
                             displayName = "private-report.pdf",
-                            sizeBytes = 12_000L,
-                        ),
-                    ),
+                            sizeBytes = 12_000L
+                        )
+                    )
                 ),
-                forbiddenText = listOf("private-report.pdf", "application/pdf", "12000", "已分享附件"),
+                forbiddenText = listOf("private-report.pdf", "application/pdf", "12000", "已分享附件")
             ),
             ProtectedShareCase(
                 sharedInput = SharedInput(text = "", attachments = emptyList(), protectedSourceCount = 2),
-                forbiddenText = listOf("已收到受保护分享", "2"),
+                forbiddenText = listOf("已收到受保护分享", "2")
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
                     mimeType = "text/plain",
                     displayName = "private.txt",
                     sizeBytes = 12L,
-                    text = "private excerpt",
+                    text = "private excerpt"
                 ),
-                forbiddenText = listOf("private excerpt", "private.txt", "text/plain", "12"),
+                forbiddenText = listOf("private excerpt", "private.txt", "text/plain", "12")
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
@@ -2621,9 +2646,9 @@ class SolinViewModelTest {
                     displayName = "private-data.json",
                     sizeBytes = 34L,
                     text = "private json excerpt",
-                    source = SharedTextPreviewSource.TextFile,
+                    source = SharedTextPreviewSource.TextFile
                 ),
-                forbiddenText = listOf("private json excerpt", "private-data.json", "application/json", "34"),
+                forbiddenText = listOf("private json excerpt", "private-data.json", "application/json", "34")
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
@@ -2632,9 +2657,9 @@ class SolinViewModelTest {
                     displayName = "private-screen.png",
                     sizeBytes = 12L,
                     text = "private screenshot text",
-                    source = SharedTextPreviewSource.ImageOcr,
+                    source = SharedTextPreviewSource.ImageOcr
                 ),
-                forbiddenText = listOf("private screenshot text", "private-screen.png", "image/png", "12"),
+                forbiddenText = listOf("private screenshot text", "private-screen.png", "image/png", "12")
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
@@ -2642,14 +2667,14 @@ class SolinViewModelTest {
                     displayName = "private-plan.docx",
                     sizeBytes = 12L,
                     text = "private office document excerpt",
-                    source = SharedTextPreviewSource.OfficeDocument,
+                    source = SharedTextPreviewSource.OfficeDocument
                 ),
                 forbiddenText = listOf(
                     "private office document excerpt",
                     "private-plan.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "12",
-                ),
+                    "12"
+                )
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
@@ -2657,9 +2682,9 @@ class SolinViewModelTest {
                     displayName = "private-notes.rtf",
                     sizeBytes = 12L,
                     text = "private rich text excerpt",
-                    source = SharedTextPreviewSource.RichTextDocument,
+                    source = SharedTextPreviewSource.RichTextDocument
                 ),
-                forbiddenText = listOf("private rich text excerpt", "private-notes.rtf", "application/rtf", "12"),
+                forbiddenText = listOf("private rich text excerpt", "private-notes.rtf", "application/rtf", "12")
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
@@ -2667,9 +2692,9 @@ class SolinViewModelTest {
                     displayName = "private-plan.pdf",
                     sizeBytes = 12L,
                     text = "private pdf text layer excerpt",
-                    source = SharedTextPreviewSource.PdfTextLayer,
+                    source = SharedTextPreviewSource.PdfTextLayer
                 ),
-                forbiddenText = listOf("private pdf text layer excerpt", "private-plan.pdf", "application/pdf", "12"),
+                forbiddenText = listOf("private pdf text layer excerpt", "private-plan.pdf", "application/pdf", "12")
             ),
             ProtectedShareCase(
                 sharedInput = sharedTextPreviewInput(
@@ -2677,10 +2702,10 @@ class SolinViewModelTest {
                     displayName = "private-scan.pdf",
                     sizeBytes = 12L,
                     text = "private pdf scanned page OCR",
-                    source = SharedTextPreviewSource.PdfImageOcr,
+                    source = SharedTextPreviewSource.PdfImageOcr
                 ),
-                forbiddenText = listOf("private pdf scanned page OCR", "private-scan.pdf", "application/pdf", "12"),
-            ),
+                forbiddenText = listOf("private pdf scanned page OCR", "private-scan.pdf", "application/pdf", "12")
+            )
         )
 
         cases.forEach { case ->
@@ -2689,7 +2714,7 @@ class SolinViewModelTest {
             val viewModel = createViewModel(
                 sessionStore = sessionStore,
                 remoteRuntime = remoteRuntime,
-                remoteStore = configuredRemoteStore(),
+                remoteStore = configuredRemoteStore()
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
             advanceUntilIdle()
@@ -2701,7 +2726,7 @@ class SolinViewModelTest {
                 remoteRuntime = remoteRuntime,
                 sessionStore = sessionStore,
                 statusText = viewModel.uiState.value.statusText,
-                forbiddenText = case.forbiddenText,
+                forbiddenText = case.forbiddenText
             )
 
             if (case.verifyNextRemoteSend) {
@@ -2721,7 +2746,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2761,7 +2786,7 @@ class SolinViewModelTest {
         assertFalse(sessionStore.messages.first().text.contains("12"))
         assertEquals(
             listOf(MessagePrivacy.RemoteEligible, MessagePrivacy.RemoteEligible),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
     }
 
@@ -2772,7 +2797,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2790,7 +2815,7 @@ class SolinViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(
             listOf(MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
         assertTrue(sessionStore.messages.single().text.contains("配置远程模型地址和模型名"))
@@ -2819,7 +2844,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             runtime = runtime,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2859,8 +2884,8 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(
-                config = configuredRemoteModel().copy(supportsVisionInput = false),
-            ),
+                config = configuredRemoteModel().copy(supportsVisionInput = false)
+            )
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2889,8 +2914,8 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(
-                config = configuredRemoteModel().copy(supportsVisionInput = false),
-            ),
+                config = configuredRemoteModel().copy(supportsVisionInput = false)
+            )
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -2900,8 +2925,8 @@ class SolinViewModelTest {
                 text = "",
                 attachments = emptyList(),
                 protectedSourceCount = 1,
-                protectedImageSourceCount = 1,
-            ),
+                protectedImageSourceCount = 1
+            )
         )
         advanceUntilIdle()
 
@@ -2928,7 +2953,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -2936,8 +2961,8 @@ class SolinViewModelTest {
         viewModel.ingestSharedInput(
             SharedInput(
                 text = "私密分享内容",
-                attachments = emptyList(),
-            ),
+                attachments = emptyList()
+            )
         )
         advanceUntilIdle()
 
@@ -2951,7 +2976,7 @@ class SolinViewModelTest {
 
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
 
         viewModel.updateRemoteModelConfig(configuredRemoteModel())
@@ -2976,7 +3001,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -2986,7 +3011,7 @@ class SolinViewModelTest {
 
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.last().text.contains("本地回复：普通本地回答"))
 
@@ -3008,7 +3033,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = runtime,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3020,8 +3045,8 @@ class SolinViewModelTest {
                 displayName = "receipt.png",
                 sizeBytes = 128L,
                 text = "private receipt text",
-                source = SharedTextPreviewSource.ImageOcr,
-            ),
+                source = SharedTextPreviewSource.ImageOcr
+            )
         )
         advanceUntilIdle()
 
@@ -3040,7 +3065,7 @@ class SolinViewModelTest {
         assertTrue(prompt.contains("private receipt text"))
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
     }
 
@@ -3050,15 +3075,15 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-local-pdf-ocr-truncated",
                 promptForModel = "本地 PDF OCR 摘录",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val placementRuntime = FakeChatPlacementRuntime()
         val viewModel = createViewModel(
             runtime = FakeLiteRtRuntime(localResponse = "本地回复：PDF 摘要"),
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             assistantRouter = assistantRouter,
-            chatPlacementRuntime = placementRuntime,
+            chatPlacementRuntime = placementRuntime
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3070,8 +3095,8 @@ class SolinViewModelTest {
                 sizeBytes = 512L,
                 text = "private scanned pdf OCR excerpt",
                 truncated = true,
-                source = SharedTextPreviewSource.PdfImageOcr,
-            ),
+                source = SharedTextPreviewSource.PdfImageOcr
+            )
         )
         advanceUntilIdle()
 
@@ -3093,13 +3118,13 @@ class SolinViewModelTest {
         val runtime = FakeLiteRtRuntime(localResponse = "本地回复：我无法看到图片视觉内容")
         val viewModel = createViewModel(
             runtime = runtime,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
 
         viewModel.stageSharedInput(
-            localSharedImageInput(displayName = "photo.jpg", mimeType = "image/jpeg", sizeBytes = 256L),
+            localSharedImageInput(displayName = "photo.jpg", mimeType = "image/jpeg", sizeBytes = 256L)
         )
         advanceUntilIdle()
 
@@ -3128,20 +3153,20 @@ class SolinViewModelTest {
                 displayName = DEFAULT_CHAT_MODEL.shortName,
                 recommendedModelId = DEFAULT_CHAT_MODEL_ID,
                 verifiedSha256 = DEFAULT_CHAT_MODEL.sha256Hex,
-                verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                verificationStatus = ModelVerificationStatus.VerifiedRecommended
             )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             runtime = runtime,
-            modelRepository = modelRepository,
+            modelRepository = modelRepository
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
 
         viewModel.stageSharedInput(
-            localSharedImageInput(displayName = "receipt.png", bytes = byteArrayOf(1, 2, 3, 4)),
+            localSharedImageInput(displayName = "receipt.png", bytes = byteArrayOf(1, 2, 3, 4))
         )
         advanceUntilIdle()
 
@@ -3160,7 +3185,7 @@ class SolinViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         val persistedText = sessionStore.messages.joinToString(separator = "\n") { it.text }
         assertFalse(persistedText.contains("data:image"))
@@ -3176,7 +3201,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            actionExecutor = executor,
+            actionExecutor = executor
         )
 
         viewModel.acceptVoiceTranscript("  帮我\n总结今天会议  ")
@@ -3203,7 +3228,7 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val viewModel = createViewModel(
             sessionStore = sessionStore,
-            remoteRuntime = remoteRuntime,
+            remoteRuntime = remoteRuntime
         )
 
         viewModel.startVoiceInputCapture()
@@ -3288,7 +3313,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
-            actionExecutor = executor,
+            actionExecutor = executor
         )
 
         viewModel.startVoiceInputCapture()
@@ -3341,7 +3366,7 @@ class SolinViewModelTest {
             id = SPECIAL_ACCESS_USAGE_STATS,
             title = "使用情况访问权限",
             rationale = "用于只读识别当前前台应用。",
-            settingsAction = "android.settings.USAGE_ACCESS_SETTINGS",
+            settingsAction = "android.settings.USAGE_ACCESS_SETTINGS"
         )
 
         viewModel.reportSpecialAccessResult(requirement, granted = false)
@@ -3361,7 +3386,7 @@ class SolinViewModelTest {
             id = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
             title = "无障碍屏幕文本权限",
             rationale = "用于只读获取当前屏幕可访问文本。",
-            settingsAction = "android.settings.ACCESSIBILITY_SETTINGS",
+            settingsAction = "android.settings.ACCESSIBILITY_SETTINGS"
         )
 
         viewModel.reportSpecialAccessResult(requirement, granted = false)
@@ -3383,18 +3408,18 @@ class SolinViewModelTest {
             functionName = MobileActionFunctions.READ_CLIPBOARD,
             title = "读取剪贴板",
             summary = "将读取当前剪贴板文本。",
-            parameters = emptyMap(),
+            parameters = emptyMap()
         )
         val shareRequest = ToolRequest(
             toolName = MobileActionFunctions.SHARE_TEXT,
             arguments = mapOf("text" to "摘要：适合分享的本地摘要"),
-            reason = "将打开系统分享面板并填入上一步生成的摘要。",
+            reason = "将打开系统分享面板并填入上一步生成的摘要。"
         )
         val shareDraft = ActionDraft(
             functionName = MobileActionFunctions.SHARE_TEXT,
             title = "分享摘要",
             summary = "将打开系统分享面板并填入上一步生成的摘要。",
-            parameters = shareRequest.arguments,
+            parameters = shareRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -3403,7 +3428,7 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
             ),
             confirmedRun = AgentRun("run-share", "总结剪贴板并分享", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
@@ -3412,16 +3437,16 @@ class SolinViewModelTest {
                     requestId = readRequest.id,
                     status = ToolStatus.Succeeded,
                     summary = "已读取剪贴板文本",
-                    data = mapOf("text" to "[redacted]"),
+                    data = mapOf("text" to "[redacted]")
                 ),
                 assistantMessage = "工具执行结果：已读取剪贴板文本",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "已读取剪贴板文本",
+                    reason = "已读取剪贴板文本"
                 ),
                 continuationPromptForModel = "请总结剪贴板文本",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
+                steps = emptyList()
             ),
             modelObservation = AgentModelObservationResult(
                 run = AgentRun("run-share", "总结剪贴板并分享", AgentRunState.AwaitingUserConfirmation, 1L, 4L),
@@ -3435,24 +3460,24 @@ class SolinViewModelTest {
                             id = "skill-run",
                             skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
                             arguments = mapOf("input" to "总结剪贴板并分享"),
-                            reason = "总结剪贴板并分享",
+                            reason = "总结剪贴板并分享"
                         ),
                         safetyDecision = SafetyDecision(
                             outcome = SafetyOutcome.RequireConfirmation,
-                            reason = "Tool share_text requires user confirmation before execution.",
-                        ),
+                            reason = "Tool share_text requires user confirmation before execution."
+                        )
                     ),
-                    reason = "Model output satisfied the next skill step.",
+                    reason = "Model output satisfied the next skill step."
                 ),
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3476,9 +3501,9 @@ class SolinViewModelTest {
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
-                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly
             ),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.last().text.contains("摘要：适合分享的本地摘要"))
     }
@@ -3493,7 +3518,7 @@ class SolinViewModelTest {
             functionName = MobileActionFunctions.READ_CLIPBOARD,
             title = "读取剪贴板",
             summary = "将读取当前剪贴板文本。",
-            parameters = emptyMap(),
+            parameters = emptyMap()
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -3502,7 +3527,7 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
             ),
             confirmedRun = AgentRun("run-share-failure", "总结剪贴板并分享", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
@@ -3511,24 +3536,24 @@ class SolinViewModelTest {
                     requestId = readRequest.id,
                     status = ToolStatus.Succeeded,
                     summary = "已读取剪贴板文本",
-                    data = mapOf("text" to "[redacted]"),
+                    data = mapOf("text" to "[redacted]")
                 ),
                 assistantMessage = "工具执行结果：已读取剪贴板文本",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "已读取剪贴板文本",
+                    reason = "已读取剪贴板文本"
                 ),
                 continuationPromptForModel = "请总结剪贴板文本",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3559,7 +3584,7 @@ class SolinViewModelTest {
         val localRuntime = FakeLiteRtRuntime(failure = IllegalStateException("local model crashed"))
         val viewModel = createViewModel(
             runtime = localRuntime,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3588,17 +3613,17 @@ class SolinViewModelTest {
                             tokensPerSecond = 1.0,
                             backend = BackendChoice.CPU,
                             firstTokenMs = 6_000,
-                            usedFallbackBackend = true,
-                        ),
-                    ),
-                ),
-            ),
+                            usedFallbackBackend = true
+                        )
+                    )
+                )
+            )
         )
         val localRuntime = FakeLiteRtRuntime(localResponse = "本地回复")
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = localRuntime,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3615,12 +3640,12 @@ class SolinViewModelTest {
             saveBackend(BackendChoice.GPU)
         }
         val runtime = FakeLiteRtRuntime(
-            loadFailures = mapOf(BackendChoice.GPU to IllegalStateException("gpu unavailable")),
+            loadFailures = mapOf(BackendChoice.GPU to IllegalStateException("gpu unavailable"))
         )
         val viewModel = createViewModel(
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             generationStore = generationStore,
-            runtime = runtime,
+            runtime = runtime
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
 
@@ -3644,13 +3669,13 @@ class SolinViewModelTest {
         val runtime = FakeLiteRtRuntime(
             loadFailures = mapOf(
                 BackendChoice.GPU to IllegalStateException("gpu unavailable"),
-                BackendChoice.CPU to IllegalStateException("cpu unavailable"),
-            ),
+                BackendChoice.CPU to IllegalStateException("cpu unavailable")
+            )
         )
         val viewModel = createViewModel(
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             generationStore = generationStore,
-            runtime = runtime,
+            runtime = runtime
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
 
@@ -3673,24 +3698,24 @@ class SolinViewModelTest {
         val localRuntime = FakeLiteRtRuntime(localResponse = "屏幕摘要：验证码仅用于本地确认")
         val readRequest = ToolRequest(
             toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            arguments = mapOf("maxChars" to "2000"),
+            arguments = mapOf("maxChars" to "2000")
         )
         val readDraft = ActionDraft(
             functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             title = "读取当前屏幕文本",
             summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要。",
-            parameters = readRequest.arguments,
+            parameters = readRequest.arguments
         )
         val shareRequest = ToolRequest(
             toolName = MobileActionFunctions.SHARE_TEXT,
             arguments = mapOf("text" to "屏幕摘要：验证码仅用于本地确认"),
-            reason = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
+            reason = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。"
         )
         val shareDraft = ActionDraft(
             functionName = MobileActionFunctions.SHARE_TEXT,
             title = "分享屏幕摘要",
             summary = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
-            parameters = shareRequest.arguments,
+            parameters = shareRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -3699,7 +3724,7 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+                skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL
             ),
             confirmedRun = AgentRun("run-screen-share", "总结当前屏幕文字并分享", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
@@ -3711,17 +3736,17 @@ class SolinViewModelTest {
                     data = mapOf(
                         "screenText" to "[redacted]",
                         "screenTextIncluded" to "true",
-                        "privacy" to MessagePrivacy.LocalOnly.name,
-                    ),
+                        "privacy" to MessagePrivacy.LocalOnly.name
+                    )
                 ),
                 assistantMessage = "工具执行结果：已读取当前屏幕可访问文本快照",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "当前屏幕文本仅可在本地继续处理。",
+                    reason = "当前屏幕文本仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请摘要当前屏幕文本：$rawScreenText",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
+                steps = emptyList()
             ),
             modelObservation = AgentModelObservationResult(
                 run = AgentRun("run-screen-share", "总结当前屏幕文字并分享", AgentRunState.AwaitingUserConfirmation, 1L, 4L),
@@ -3735,30 +3760,29 @@ class SolinViewModelTest {
                             id = "skill-screen-share",
                             skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
                             arguments = mapOf("input" to "总结当前屏幕文字并分享"),
-                            reason = "总结当前屏幕文字并分享",
+                            reason = "总结当前屏幕文字并分享"
                         ),
                         safetyDecision = SafetyDecision(
                             outcome = SafetyOutcome.RequireConfirmation,
-                            reason = "Tool share_text requires user confirmation before execution.",
-                        ),
+                            reason = "Tool share_text requires user confirmation before execution."
+                        )
                     ),
-                    reason = "Model output satisfied the next skill step.",
+                    reason = "Model output satisfied the next skill step."
                 ),
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已读取当前屏幕可访问文本快照",
-                    data = mapOf(
-                        "screenText" to rawScreenText,
-                        "screenTextIncluded" to "true",
-                        "privacy" to MessagePrivacy.LocalOnly.name,
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕可访问文本快照",
+                data = mapOf(
+                    "screenText" to rawScreenText,
+                    "screenTextIncluded" to "true",
+                    "privacy" to MessagePrivacy.LocalOnly.name
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -3766,7 +3790,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -3791,9 +3815,9 @@ class SolinViewModelTest {
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
-                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly
             ),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.last().text.contains("屏幕摘要：验证码仅用于本地确认"))
         assertTrue(sessionStore.messages.none { message -> message.text.contains(rawScreenText) })
@@ -3806,13 +3830,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val readRequest = ToolRequest(
             toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-            arguments = mapOf("maxCount" to "1"),
+            arguments = mapOf("maxCount" to "1")
         )
         val readDraft = ActionDraft(
             functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
             title = "读取最近截图 OCR",
             summary = "将读取最近 1 张截图并在本地提取文字。",
-            parameters = readRequest.arguments,
+            parameters = readRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -3821,14 +3845,14 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
+                skillId = null
             ),
             confirmedRun = AgentRun(
                 "run-screenshot-ocr",
                 "识别最近截图文字",
                 AgentRunState.ExecutingTool,
                 1L,
-                2L,
+                2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -3836,7 +3860,7 @@ class SolinViewModelTest {
                     "识别最近截图文字",
                     AgentRunState.GeneratingAnswer,
                     1L,
-                    3L,
+                    3L
                 ),
                 result = ToolResult(
                     requestId = readRequest.id,
@@ -3845,31 +3869,30 @@ class SolinViewModelTest {
                     data = mapOf(
                         "ocrText" to "[redacted]",
                         "ocrTextIncluded" to "true",
-                        "privacy" to "LocalOnly",
-                    ),
+                        "privacy" to "LocalOnly"
+                    )
                 ),
                 assistantMessage = "工具执行结果：已读取最近截图 OCR 摘录",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "截图 OCR 内容仅可在本地继续处理。",
+                    reason = "截图 OCR 内容仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请根据 OCR 文本回答：$rawOcrText",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已读取最近截图 OCR 摘录",
-                    data = mapOf(
-                        "ocrText" to rawOcrText,
-                        "ocrTextIncluded" to "true",
-                        "privacy" to "LocalOnly",
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取最近截图 OCR 摘录",
+                data = mapOf(
+                    "ocrText" to rawOcrText,
+                    "ocrTextIncluded" to "true",
+                    "privacy" to "LocalOnly"
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -3877,7 +3900,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -3905,13 +3928,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val readRequest = ToolRequest(
             toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
-            arguments = mapOf("captureMode" to "current_screen"),
+            arguments = mapOf("captureMode" to "current_screen")
         )
         val readDraft = ActionDraft(
             functionName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
             title = "当前屏幕截图 OCR",
             summary = "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本。",
-            parameters = readRequest.arguments,
+            parameters = readRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -3920,14 +3943,14 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL,
+                skillId = BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL
             ),
             confirmedRun = AgentRun(
                 "run-current-screenshot-ocr",
                 "识别当前屏幕截图文字",
                 AgentRunState.ExecutingTool,
                 1L,
-                2L,
+                2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -3935,7 +3958,7 @@ class SolinViewModelTest {
                     "识别当前屏幕截图文字",
                     AgentRunState.GeneratingAnswer,
                     1L,
-                    3L,
+                    3L
                 ),
                 result = ToolResult(
                     requestId = readRequest.id,
@@ -3945,32 +3968,31 @@ class SolinViewModelTest {
                         "ocrText" to "[redacted]",
                         "ocrTextIncluded" to "true",
                         "privacy" to MessagePrivacy.LocalOnly.name,
-                        "requiresLocalModel" to "true",
-                    ),
+                        "requiresLocalModel" to "true"
+                    )
                 ),
                 assistantMessage = "工具执行结果：已读取当前屏幕截图 OCR 摘录",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "当前屏幕截图 OCR 内容仅可在本地继续处理。",
+                    reason = "当前屏幕截图 OCR 内容仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请根据当前屏幕截图 OCR 文本回答：$rawOcrText",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已读取当前屏幕截图 OCR 摘录",
-                    data = mapOf(
-                        "ocrText" to rawOcrText,
-                        "ocrTextIncluded" to "true",
-                        "privacy" to MessagePrivacy.LocalOnly.name,
-                        "requiresLocalModel" to "true",
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕截图 OCR 摘录",
+                data = mapOf(
+                    "ocrText" to rawOcrText,
+                    "ocrTextIncluded" to "true",
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true"
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -3978,7 +4000,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4009,13 +4031,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val readRequest = ToolRequest(
             toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
-            arguments = mapOf("maxCount" to "3"),
+            arguments = mapOf("maxCount" to "3")
         )
         val readDraft = ActionDraft(
             functionName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
             title = "读取最近图片 OCR",
             summary = "将扫描最近图片并在本地提取文字。",
-            parameters = readRequest.arguments,
+            parameters = readRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4024,14 +4046,14 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
+                skillId = null
             ),
             confirmedRun = AgentRun(
                 "run-image-ocr",
                 "识别最近图片文字",
                 AgentRunState.ExecutingTool,
                 1L,
-                2L,
+                2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -4039,7 +4061,7 @@ class SolinViewModelTest {
                     "识别最近图片文字",
                     AgentRunState.GeneratingAnswer,
                     1L,
-                    3L,
+                    3L
                 ),
                 result = ToolResult(
                     requestId = readRequest.id,
@@ -4048,31 +4070,30 @@ class SolinViewModelTest {
                     data = mapOf(
                         "ocrText" to "[redacted]",
                         "ocrTextIncluded" to "true",
-                        "privacy" to "LocalOnly",
-                    ),
+                        "privacy" to "LocalOnly"
+                    )
                 ),
                 assistantMessage = "工具执行结果：已读取最近图片 OCR 摘录",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "图片 OCR 内容仅可在本地继续处理。",
+                    reason = "图片 OCR 内容仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请根据 OCR 文本回答：$rawOcrText",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已读取最近图片 OCR 摘录",
-                    data = mapOf(
-                        "ocrText" to rawOcrText,
-                        "ocrTextIncluded" to "true",
-                        "privacy" to "LocalOnly",
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取最近图片 OCR 摘录",
+                data = mapOf(
+                    "ocrText" to rawOcrText,
+                    "ocrTextIncluded" to "true",
+                    "privacy" to "LocalOnly"
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -4080,7 +4101,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4108,13 +4129,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val readRequest = ToolRequest(
             toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            arguments = mapOf("maxChars" to "1200"),
+            arguments = mapOf("maxChars" to "1200")
         )
         val readDraft = ActionDraft(
             functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             title = "读取当前屏幕文本",
             summary = "将读取当前屏幕的可访问文本快照。",
-            parameters = readRequest.arguments,
+            parameters = readRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4123,14 +4144,14 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
+                skillId = null
             ),
             confirmedRun = AgentRun(
                 "run-screen-text",
                 "总结当前屏幕文字",
                 AgentRunState.ExecutingTool,
                 1L,
-                2L,
+                2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -4138,7 +4159,7 @@ class SolinViewModelTest {
                     "总结当前屏幕文字",
                     AgentRunState.GeneratingAnswer,
                     1L,
-                    3L,
+                    3L
                 ),
                 result = ToolResult(
                     requestId = readRequest.id,
@@ -4147,31 +4168,30 @@ class SolinViewModelTest {
                     data = mapOf(
                         "screenText" to "[redacted]",
                         "screenTextIncluded" to "true",
-                        "privacy" to "LocalOnly",
-                    ),
+                        "privacy" to "LocalOnly"
+                    )
                 ),
                 assistantMessage = "工具执行结果：已读取当前屏幕可访问文本快照",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "当前屏幕文本仅可在本地继续处理。",
+                    reason = "当前屏幕文本仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请根据当前屏幕文本回答：$rawScreenText",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已读取当前屏幕可访问文本快照",
-                    data = mapOf(
-                        "screenText" to rawScreenText,
-                        "screenTextIncluded" to "true",
-                        "privacy" to "LocalOnly",
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕可访问文本快照",
+                data = mapOf(
+                    "screenText" to rawScreenText,
+                    "screenTextIncluded" to "true",
+                    "privacy" to "LocalOnly"
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -4179,7 +4199,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4210,13 +4230,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val readRequest = ToolRequest(
             toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            arguments = mapOf("maxChars" to "2000"),
+            arguments = mapOf("maxChars" to "2000")
         )
         val readDraft = ActionDraft(
             functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             title = "读取当前屏幕文本",
             summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要。",
-            parameters = readRequest.arguments,
+            parameters = readRequest.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4225,14 +4245,14 @@ class SolinViewModelTest {
                 draft = readDraft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+                skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL
             ),
             confirmedRun = AgentRun(
                 "run-screen-share",
                 "总结当前屏幕文字并分享",
                 AgentRunState.ExecutingTool,
                 1L,
-                2L,
+                2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -4240,7 +4260,7 @@ class SolinViewModelTest {
                     "总结当前屏幕文字并分享",
                     AgentRunState.GeneratingAnswer,
                     1L,
-                    3L,
+                    3L
                 ),
                 result = ToolResult(
                     requestId = readRequest.id,
@@ -4249,31 +4269,30 @@ class SolinViewModelTest {
                     data = mapOf(
                         "screenText" to "[redacted]",
                         "screenTextIncluded" to "true",
-                        "privacy" to MessagePrivacy.LocalOnly.name,
-                    ),
+                        "privacy" to MessagePrivacy.LocalOnly.name
+                    )
                 ),
                 assistantMessage = "工具执行结果：已读取当前屏幕可访问文本快照",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "当前屏幕文本仅可在本地继续处理。",
+                    reason = "当前屏幕文本仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请摘要当前屏幕文本并分享：$rawScreenText",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "已读取当前屏幕可访问文本快照",
-                    data = mapOf(
-                        "screenText" to rawScreenText,
-                        "screenTextIncluded" to "true",
-                        "privacy" to MessagePrivacy.LocalOnly.name,
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕可访问文本快照",
+                data = mapOf(
+                    "screenText" to rawScreenText,
+                    "screenTextIncluded" to "true",
+                    "privacy" to MessagePrivacy.LocalOnly.name
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -4281,7 +4300,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4309,13 +4328,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val request = ToolRequest(
             toolName = MobileActionFunctions.QUERY_CONTACTS,
-            arguments = mapOf("query" to "Alice"),
+            arguments = mapOf("query" to "Alice")
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.QUERY_CONTACTS,
             title = "查询联系人",
             summary = "将读取联系人摘要。",
-            parameters = request.arguments,
+            parameters = request.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4324,7 +4343,7 @@ class SolinViewModelTest {
                 draft = draft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
+                skillId = null
             ),
             confirmedRun = AgentRun("run-local-tool", "查联系人 Alice", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
@@ -4335,30 +4354,29 @@ class SolinViewModelTest {
                     summary = "联系人 Alice：仅本地摘要",
                     data = mapOf(
                         "privacy" to MessagePrivacy.LocalOnly.name,
-                        "requiresLocalModel" to "true",
-                    ),
+                        "requiresLocalModel" to "true"
+                    )
                 ),
                 assistantMessage = "工具执行结果：联系人 Alice：仅本地摘要",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = true,
-                    reason = "联系人摘要仅可在本地继续处理。",
+                    reason = "联系人摘要仅可在本地继续处理。"
                 ),
                 continuationPromptForModel = "请根据联系人摘要回答",
                 continuationRequiresLocalModel = true,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val actionExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "联系人 Alice：仅本地摘要",
-                    data = mapOf(
-                        "privacy" to MessagePrivacy.LocalOnly.name,
-                        "requiresLocalModel" to "true",
-                    ),
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "联系人 Alice：仅本地摘要",
+                data = mapOf(
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true"
                 )
+            )
         }
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -4366,7 +4384,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = actionExecutor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4393,13 +4411,13 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore()
         val request = ToolRequest(
             toolName = MobileActionFunctions.QUERY_CONTACTS,
-            arguments = mapOf("query" to "Alice"),
+            arguments = mapOf("query" to "Alice")
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.QUERY_CONTACTS,
             title = "查询联系人",
             summary = "将读取联系人摘要。",
-            parameters = request.arguments,
+            parameters = request.arguments
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4408,14 +4426,14 @@ class SolinViewModelTest {
                 draft = draft,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
+                skillId = null
             ),
             confirmedRun = AgentRun(
                 "run-unknown-privacy-tool",
                 "查联系人 Alice",
                 AgentRunState.ExecutingTool,
                 1L,
-                2L,
+                2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -4423,23 +4441,23 @@ class SolinViewModelTest {
                     "查联系人 Alice",
                     AgentRunState.GeneratingAnswer,
                     1L,
-                    3L,
+                    3L
                 ),
                 result = ToolResult(
                     requestId = request.id,
                     status = ToolStatus.Succeeded,
                     summary = "联系人 Alice：仅本地摘要",
-                    data = mapOf("privacy" to "UnknownFutureValue"),
+                    data = mapOf("privacy" to "UnknownFutureValue")
                 ),
                 assistantMessage = "工具执行结果：联系人 Alice：仅本地摘要",
                 decision = AgentObservationDecision.ContinueWithModel(
                     requiresLocalModel = false,
-                    reason = "继续处理工具结果。",
+                    reason = "继续处理工具结果。"
                 ),
                 continuationPromptForModel = "请根据联系人 Alice 的摘要回答",
                 continuationRequiresLocalModel = false,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -4447,15 +4465,14 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = object : ToolExecutor {
-                override fun execute(request: ToolRequest): ToolResult =
-                    ToolResult(
-                        requestId = request.id,
-                        status = ToolStatus.Succeeded,
-                        summary = "联系人 Alice：仅本地摘要",
-                        data = mapOf("privacy" to "UnknownFutureValue"),
-                    )
+                override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "联系人 Alice：仅本地摘要",
+                    data = mapOf("privacy" to "UnknownFutureValue")
+                )
             },
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4481,12 +4498,12 @@ class SolinViewModelTest {
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val viewModel = createViewModel(
             assistantRouter = orchestrator,
             runtime = FakeLiteRtRuntime(localResponse = "完成"),
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4496,7 +4513,7 @@ class SolinViewModelTest {
 
         assertEquals(
             AgentRunState.Completed,
-            orchestrator.recentTraceRuns(limit = 1).single().run.state,
+            orchestrator.recentTraceRuns(limit = 1).single().run.state
         )
     }
 
@@ -4511,17 +4528,17 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4550,17 +4567,17 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4579,14 +4596,14 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore(
             initialSessions = linkedMapOf(
                 "session-1" to listOf(ChatMessage(MessageRole.User, "旧会话")),
-                "session-2" to listOf(selectedMessage),
+                "session-2" to listOf(selectedMessage)
             ),
-            initialActiveSessionId = "session-1",
+            initialActiveSessionId = "session-1"
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = runtime,
-            ioDispatcher = ioDispatcher,
+            ioDispatcher = ioDispatcher
         )
 
         viewModel.selectSession("session-2")
@@ -4612,7 +4629,7 @@ class SolinViewModelTest {
         val assistantRouter = FakeAssistantRouter()
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4622,10 +4639,10 @@ class SolinViewModelTest {
                     Manifest.permission.READ_CONTACTS,
                     Manifest.permission.READ_EXTERNAL_STORAGE,
                     Manifest.permission.READ_MEDIA_IMAGES,
-                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
                 ),
-                grantedSpecialAccessIds = setOf(SPECIAL_ACCESS_USAGE_STATS),
-            ),
+                grantedSpecialAccessIds = setOf(SPECIAL_ACCESS_USAGE_STATS)
+            )
         )
 
         viewModel.sendMessage("检查设备上下文")
@@ -4636,27 +4653,27 @@ class SolinViewModelTest {
             .associateBy { it.toolName }
         assertEquals(
             DeviceContextToolReadinessState.Available,
-            readiness[MobileActionFunctions.QUERY_CONTACTS]?.state,
+            readiness[MobileActionFunctions.QUERY_CONTACTS]?.state
         )
         assertEquals(
             DeviceContextToolReadinessState.Available,
-            readiness[MobileActionFunctions.QUERY_FOREGROUND_APP]?.state,
+            readiness[MobileActionFunctions.QUERY_FOREGROUND_APP]?.state
         )
         assertEquals(
             DeviceContextToolReadinessState.Available,
-            readiness[MobileActionFunctions.QUERY_RECENT_FILES]?.state,
+            readiness[MobileActionFunctions.QUERY_RECENT_FILES]?.state
         )
         assertEquals(
             DeviceContextToolReadinessState.Available,
-            readiness[MobileActionFunctions.READ_RECENT_IMAGE_OCR]?.state,
+            readiness[MobileActionFunctions.READ_RECENT_IMAGE_OCR]?.state
         )
         assertEquals(
             DeviceContextToolReadinessState.RequiresRuntimePermission,
-            readiness[MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY]?.state,
+            readiness[MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY]?.state
         )
         assertEquals(
             DeviceContextToolReadinessState.RequiresSpecialAccess,
-            readiness[MobileActionFunctions.READ_CURRENT_SCREEN_TEXT]?.state,
+            readiness[MobileActionFunctions.READ_CURRENT_SCREEN_TEXT]?.state
         )
     }
 
@@ -4665,9 +4682,9 @@ class SolinViewModelTest {
         val sessionStore = FakeSessionStore(
             initialSessions = linkedMapOf(
                 "session-delete" to listOf(ChatMessage(MessageRole.User, "旧会话")),
-                "session-keep" to listOf(ChatMessage(MessageRole.User, "保留会话")),
+                "session-keep" to listOf(ChatMessage(MessageRole.User, "保留会话"))
             ),
-            initialActiveSessionId = "session-delete",
+            initialActiveSessionId = "session-delete"
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4677,17 +4694,17 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4709,14 +4726,14 @@ class SolinViewModelTest {
     fun deleteOnlyActiveSessionClearsMessagesAndPendingSharedDraft() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore(
             initialSessions = linkedMapOf(
-                "session-only" to listOf(ChatMessage(MessageRole.User, "要清掉的聊天记录")),
+                "session-only" to listOf(ChatMessage(MessageRole.User, "要清掉的聊天记录"))
             ),
-            initialActiveSessionId = "session-only",
+            initialActiveSessionId = "session-only"
         )
         val assistantRouter = FakeAssistantRouter()
         val viewModel = createViewModel(
             sessionStore = sessionStore,
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -4747,18 +4764,18 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
             ),
-            confirmedRun = AgentRun("run-1", "打开 Wi-Fi 设置", AgentRunState.ExecutingTool, 1L, 2L),
+            confirmedRun = AgentRun("run-1", "打开 Wi-Fi 设置", AgentRunState.ExecutingTool, 1L, 2L)
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4783,7 +4800,7 @@ class SolinViewModelTest {
             id = "share-request",
             toolName = MobileActionFunctions.SHARE_TEXT,
             arguments = mapOf("text" to "original share text"),
-            reason = "分享文本",
+            reason = "分享文本"
         )
         val executor = RecordingToolExecutor()
         val assistantRouter = FakeAssistantRouter(
@@ -4794,18 +4811,18 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.SHARE_TEXT,
                     title = "系统分享",
                     summary = "分享文本",
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.SHARE_TEXT_SKILL,
+                skillId = BuiltInSkillRuntime.SHARE_TEXT_SKILL
             ),
-            confirmedRun = AgentRun("run-share", "分享文本", AgentRunState.ExecutingTool, 1L, 2L),
+            confirmedRun = AgentRun("run-share", "分享文本", AgentRunState.ExecutingTool, 1L, 2L)
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4816,7 +4833,7 @@ class SolinViewModelTest {
         requireNotNull(confirmation)
         val tampered = confirmation.copy(
             toolRequest = request.copy(arguments = mapOf("text" to "tampered share text")),
-            draft = confirmation.draft.copy(parameters = request.arguments),
+            draft = confirmation.draft.copy(parameters = request.arguments)
         )
 
         viewModel.confirmAgentConfirmation(tampered)
@@ -4840,18 +4857,18 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
             ),
-            confirmFailure = IllegalStateException("trace store unavailable"),
+            confirmFailure = IllegalStateException("trace store unavailable")
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4894,7 +4911,7 @@ class SolinViewModelTest {
         val request = ToolRequest(
             id = "request-current",
             toolName = MobileActionFunctions.SHARE_TEXT,
-            arguments = mapOf("text" to "current summary"),
+            arguments = mapOf("text" to "current summary")
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -4904,16 +4921,16 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.SHARE_TEXT,
                     title = "分享摘要",
                     summary = "将分享当前摘要。",
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
+            )
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4924,7 +4941,7 @@ class SolinViewModelTest {
         requireNotNull(current)
         val stale = current.copy(
             toolRequest = current.toolRequest?.copy(arguments = mapOf("text" to "stale summary")),
-            draft = current.draft.copy(parameters = mapOf("text" to "stale summary")),
+            draft = current.draft.copy(parameters = mapOf("text" to "stale summary"))
         )
 
         viewModel.dismissAgentConfirmation(stale)
@@ -4940,7 +4957,7 @@ class SolinViewModelTest {
         val request = ToolRequest(
             id = "request-current",
             toolName = MobileActionFunctions.SHARE_TEXT,
-            arguments = mapOf("text" to "current summary"),
+            arguments = mapOf("text" to "current summary")
         )
         val executor = RecordingToolExecutor()
         val assistantRouter = FakeAssistantRouter(
@@ -4951,17 +4968,17 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.SHARE_TEXT,
                     title = "分享摘要",
                     summary = "将分享当前摘要。",
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
+            )
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -4972,7 +4989,7 @@ class SolinViewModelTest {
         requireNotNull(current)
         val stale = current.copy(
             toolRequest = current.toolRequest?.copy(arguments = mapOf("text" to "stale summary")),
-            draft = current.draft.copy(parameters = mapOf("text" to "stale summary")),
+            draft = current.draft.copy(parameters = mapOf("text" to "stale summary"))
         )
 
         viewModel.confirmAgentConfirmation(stale)
@@ -4996,18 +5013,18 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            )
         )
         val actionViewModel = createViewModel(
             sessionStore = sessionStore,
             remoteStore = remoteStore,
             assistantRouter = actionRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         actionViewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5017,14 +5034,14 @@ class SolinViewModelTest {
 
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val chatViewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            assistantRouter = FakeAssistantRouter(),
+            assistantRouter = FakeAssistantRouter()
         )
         chatViewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5045,13 +5062,13 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-stop",
                 promptForModel = "本地生成 prompt",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val viewModel = createViewModel(
             runtime = localRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -5082,12 +5099,12 @@ class SolinViewModelTest {
         val cacheDir = Files.createTempDirectory("stop-gated-initial-route").toFile()
         val planningRuntime = HybridActionPlanningRuntime(
             cacheDir = cacheDir,
-            sharedEngine = gateEngine,
+            sharedEngine = gateEngine
         )
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = planningRuntime,
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val localRuntime = FakeLiteRtRuntime()
         val routeDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -5096,7 +5113,7 @@ class SolinViewModelTest {
             displayName = "当前对话",
             path = TEST_LOCAL_MODEL_PATH,
             recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val viewModel = createViewModel(
             runtime = localRuntime,
@@ -5105,9 +5122,9 @@ class SolinViewModelTest {
                 activeInstalledModelId = chat.id,
                 initialInstalledModels = listOf(chat),
                 localPlanningStrategy = LocalPlanningStrategy.RuleFirstGatedModel,
-                observationActionModelPath = chat.path,
+                observationActionModelPath = chat.path
             ),
-            ioDispatcher = routeDispatcher,
+            ioDispatcher = routeDispatcher
         )
         try {
             viewModel.restoreStartupState()
@@ -5124,7 +5141,7 @@ class SolinViewModelTest {
                 "the initial route never reached the action gate; " +
                     "status=${viewModel.uiState.value.statusText}, busy=${viewModel.uiState.value.isBusy}, " +
                     "runs=${orchestrator.recentTraceRuns(limit = 1).map { it.run.state }}",
-                gateEngine.started.await(5, TimeUnit.SECONDS),
+                gateEngine.started.await(5, TimeUnit.SECONDS)
             )
             val generationJob = requireNotNull(currentGenerationJob(viewModel))
             viewModel.stopGeneration()
@@ -5145,9 +5162,11 @@ class SolinViewModelTest {
             val run = traceStore.recentRunSummaries(limit = 1).single().run
             assertEquals(AgentRunState.Cancelled, run.state)
             val steps = traceStore.steps(run.id)
-            assertTrue(steps.none { step ->
-                step is AgentStep.IntentRouted && step.decision.selectedPath == IntentRoutingPath.NoAction
-            })
+            assertTrue(
+                steps.none { step ->
+                    step is AgentStep.IntentRouted && step.decision.selectedPath == IntentRoutingPath.NoAction
+                }
+            )
             assertTrue(steps.none { step -> step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer })
         } finally {
             gateEngine.release.countDown()
@@ -5164,14 +5183,14 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-stop",
                 promptForModel = "远程生成 prompt",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5202,7 +5221,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             runtime = localRuntime,
             assistantRouter = router,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -5223,7 +5242,7 @@ class SolinViewModelTest {
         assertTrue(localRuntime.prompts.last().contains("改成第二个问题"))
         assertEquals(
             listOf("第一个问题", "改成第二个问题"),
-            viewModel.uiState.value.messages.filter { it.role == MessageRole.User }.map(ChatMessage::text),
+            viewModel.uiState.value.messages.filter { it.role == MessageRole.User }.map(ChatMessage::text)
         )
         assertEquals(0, viewModel.uiState.value.pendingSteerMessageCount)
         assertTrue(viewModel.uiState.value.isGenerating)
@@ -5237,7 +5256,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = router,
+            assistantRouter = router
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5265,7 +5284,7 @@ class SolinViewModelTest {
         assertEquals(0, viewModel.uiState.value.pendingSteerMessageCount)
         assertEquals(
             listOf("先查一下天气", "顺便看明天"),
-            viewModel.uiState.value.messages.filter { it.role == MessageRole.User }.map(ChatMessage::text),
+            viewModel.uiState.value.messages.filter { it.role == MessageRole.User }.map(ChatMessage::text)
         )
     }
 
@@ -5277,7 +5296,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = router,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5312,7 +5331,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             runtime = localRuntime,
             assistantRouter = router,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -5341,7 +5360,7 @@ class SolinViewModelTest {
         val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
         val viewModel = createViewModel(
             runtime = localRuntime,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -5360,7 +5379,7 @@ class SolinViewModelTest {
     /** Emulates the runtime's steer contract: steer cancels the registered model call only while generating. */
     private class MidRunSteeringRouter(
         delegate: AssistantRouter,
-        var state: AgentRunState?,
+        var state: AgentRunState?
     ) : AssistantRouter by delegate {
         val steered = mutableListOf<Pair<String, List<ChatMessage>>>()
         val queued = mutableListOf<Pair<String, List<ChatMessage>>>()
@@ -5409,9 +5428,9 @@ class SolinViewModelTest {
                 routeResult = AssistantRoute.Chat(
                     runId = "run-bound-remote-stop",
                     promptForModel = "remote prompt",
-                    memoryHits = emptyList(),
-                ),
-            ),
+                    memoryHits = emptyList()
+                )
+            )
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5435,7 +5454,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5454,7 +5473,7 @@ class SolinViewModelTest {
         val localViewModel = createViewModel(
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         localViewModel.restoreStartupState()
         advanceUntilIdle()
@@ -5474,7 +5493,7 @@ class SolinViewModelTest {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            chatPlacementRuntime = FakeChatPlacementRuntime(rejectBinding = true),
+            chatPlacementRuntime = FakeChatPlacementRuntime(rejectBinding = true)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5493,7 +5512,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteStore = configuredRemoteStore(),
             chatPlacementRuntime = placementRuntime,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5514,7 +5533,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true),
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5540,7 +5559,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             remoteSendAuditStore = auditStore,
             requireRemoteSendDisclosure = true,
-            ioDispatcher = resumeDispatcher,
+            ioDispatcher = resumeDispatcher
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5564,7 +5583,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            chatPlacementRuntime = FakeChatPlacementRuntime(stopBeforeAwait = true),
+            chatPlacementRuntime = FakeChatPlacementRuntime(stopBeforeAwait = true)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5581,9 +5600,9 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteStore = configuredRemoteStore(),
             chatPlacementRuntime = FakeChatPlacementRuntime(
-                dispatchFailure = IllegalStateException("claim failed"),
+                dispatchFailure = IllegalStateException("claim failed")
             ),
-            remoteSendAuditStore = auditStore,
+            remoteSendAuditStore = auditStore
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5606,7 +5625,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            remoteSendAuditStore = auditStore,
+            remoteSendAuditStore = auditStore
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5630,7 +5649,7 @@ class SolinViewModelTest {
             val viewModel = createViewModel(
                 remoteRuntime = remoteRuntime,
                 remoteStore = configuredRemoteStore(),
-                remoteSendAuditStore = auditStore,
+                remoteSendAuditStore = auditStore
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
             advanceUntilIdle()
@@ -5649,7 +5668,7 @@ class SolinViewModelTest {
             assertFalse(
                 viewModel.uiState.value.messages.any { message ->
                     message.text.contains("打码后发送") || message.text.contains("仍原样发送")
-                },
+                }
             )
 
             viewModel.stopGeneration()
@@ -5664,7 +5683,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             remoteStore = configuredRemoteStore(),
             chatPlacementRuntime = placementRuntime,
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5685,7 +5704,7 @@ class SolinViewModelTest {
             generationStore = FakeGenerationParametersStore(frozen),
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5709,14 +5728,14 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-clear",
                 promptForModel = "本地生成 prompt",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val viewModel = createViewModel(
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -5739,13 +5758,13 @@ class SolinViewModelTest {
             id = "call-1",
             toolName = MobileActionFunctions.WEB_SEARCH,
             arguments = mapOf("query" to "Kotlin"),
-            reason = "remote tool call",
+            reason = "remote tool call"
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.WEB_SEARCH,
             title = "Web 搜索",
             summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
-            parameters = request.arguments,
+            parameters = request.arguments
         )
         val plan = AgentPlan.UseTool(
             request = request,
@@ -5754,23 +5773,23 @@ class SolinViewModelTest {
             fallbackReason = "remote tool call",
             safetyDecision = SafetyDecision(
                 outcome = SafetyOutcome.Allow,
-                reason = "Read-only web search can execute without confirmation.",
-            ),
+                reason = "Read-only web search can execute without confirmation."
+            )
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool",
                 promptForModel = "搜索 Kotlin",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolObservation = AgentModelObservationResult(
                 run = AgentRun("run-remote-tool", "搜索 Kotlin", AgentRunState.ExecutingTool, 1L, 2L),
                 decision = AgentObservationDecision.PlanNextTool(plan, "Remote model requested a tool call."),
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
-            events = listOf(RemoteChatEvent.ToolCall(request)),
+            events = listOf(RemoteChatEvent.ToolCall(request))
         )
         val executor = RecordingToolExecutor()
         val sessionStore = FakeSessionStore()
@@ -5780,7 +5799,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5811,7 +5830,7 @@ class SolinViewModelTest {
             displayName = "当前对话",
             path = "/tmp/chat.litertlm",
             recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val defaultRouter = FakeAssistantRouter()
         val strategyRouter = FakeAssistantRouter()
@@ -5821,8 +5840,8 @@ class SolinViewModelTest {
                 activeInstalledModelId = chat.id,
                 initialInstalledModels = listOf(chat),
                 localPlanningStrategy = LocalPlanningStrategy.ModelFirstWithRuleFastPath,
-                observationActionModelPath = chat.path,
-            ),
+                observationActionModelPath = chat.path
+            )
         ).forEach { (router, repository) ->
             val viewModel = createViewModel(assistantRouter = router, modelRepository = repository)
             viewModel.restoreStartupState()
@@ -5837,9 +5856,9 @@ class SolinViewModelTest {
         assertEquals(
             AgentRunOptions(
                 reduceDeviceActionConfirmations = defaultOptions.reduceDeviceActionConfirmations,
-                initialRouteCancellation = defaultOptions.initialRouteCancellation,
+                initialRouteCancellation = defaultOptions.initialRouteCancellation
             ),
-            defaultOptions,
+            defaultOptions
         )
         val strategyOptions = requireNotNull(strategyRouter.lastRouteOptions)
         assertNotNull(strategyOptions.initialRouteCancellation)
@@ -5854,15 +5873,15 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-filter",
                 promptForModel = "北京天气怎么样？",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5894,10 +5913,10 @@ class SolinViewModelTest {
                     MemoryHit(
                         id = "pref-secret",
                         text = "用户偏好：secret local preference",
-                        score = 1f,
-                    ),
-                ),
-            ),
+                        score = 1f
+                    )
+                )
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -5906,7 +5925,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5930,8 +5949,8 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-prompt-boundary",
                 promptForModel = "本地记忆：secret\n\n普通远程问题",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -5940,7 +5959,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -5972,26 +5991,26 @@ class SolinViewModelTest {
                     url = "https://weather.example.com/beijing-shanghai",
                     snippet = "北京和上海当前天气。",
                     sourceName = "Weather Example",
-                    qualityLabel = "High",
-                ),
-            ),
+                    qualityLabel = "High"
+                )
+            )
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch",
                 promptForModel = "北京和上海今天温差多少？",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch", requests),
             toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch"),
             modelObservation = publicEvidenceBatchCompletedObservation("run-remote-tool-batch"),
-            publicWebEvidenceByRunId = mapOf("run-remote-tool-batch" to listOf(publicEvidencePack)),
+            publicWebEvidenceByRunId = mapOf("run-remote-tool-batch" to listOf(publicEvidencePack))
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
                 listOf(RemoteChatEvent.ToolCalls(requests)),
-                listOf(RemoteChatEvent.TextDelta("北京和上海今天温差约 3 度。")),
-            ),
+                listOf(RemoteChatEvent.TextDelta("北京和上海今天温差约 3 度。"))
+            )
         )
         val executor = RecordingToolExecutor()
         val sessionStore = FakeSessionStore()
@@ -6002,7 +6021,7 @@ class SolinViewModelTest {
             assistantRouter = assistantRouter,
             actionExecutor = executor,
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6045,27 +6064,27 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = runId,
                 promptForModel = "北京今天气温是多少？",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelObservations = listOf(
                 AgentModelObservationResult(
                     run = publicEvidenceBatchRun(runId, AgentRunState.GeneratingAnswer, 2L),
                     decision = AgentObservationDecision.ContinueWithModel(
                         requiresLocalModel = false,
-                        reason = "public_evidence_citation_retry",
+                        reason = "public_evidence_citation_retry"
                     ),
                     continuationPromptForModel = "请补充公开来源引用。",
                     continuationRemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
-                    steps = emptyList(),
+                    steps = emptyList()
                 ),
-                publicEvidenceBatchCompletedObservation(runId),
-            ),
+                publicEvidenceBatchCompletedObservation(runId)
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
                 listOf(RemoteChatEvent.TextDelta("北京今天气温 26 度。")),
-                listOf(RemoteChatEvent.TextDelta("北京今天气温 26 度。[S1]")),
-            ),
+                listOf(RemoteChatEvent.TextDelta("北京今天气温 26 度。[S1]"))
+            )
         )
         val sessionStore = FakeSessionStore()
         val viewModel = createViewModel(
@@ -6073,7 +6092,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6097,20 +6116,20 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = runId,
                 promptForModel = "北京和上海今天温差多少？",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolBatchObservation = publicEvidenceBatchModelObservation(runId, requests),
-            toolBatchObservation = publicEvidenceBatchToolObservation(runId),
+            toolBatchObservation = publicEvidenceBatchToolObservation(runId)
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
                 listOf(RemoteChatEvent.ToolCalls(requests)),
                 listOf(
                     RemoteChatEvent.TextDelta("已综合"),
-                    RemoteChatEvent.TextDelta("两地天气。"),
-                ),
+                    RemoteChatEvent.TextDelta("两地天气。")
+                )
             ),
-            eventBatchStartGates = listOf(null, secondCallGate),
+            eventBatchStartGates = listOf(null, secondCallGate)
         )
         val auditStore = FakeRemoteSendAuditStore()
         val viewModel = createViewModel(
@@ -6120,7 +6139,7 @@ class SolinViewModelTest {
             actionExecutor = RecordingToolExecutor(),
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             remoteSendAuditStore = auditStore,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6157,22 +6176,22 @@ class SolinViewModelTest {
                 routeResult = AssistantRoute.Chat(
                     runId = runId,
                     promptForModel = "北京和上海今天温差多少？",
-                    memoryHits = emptyList(),
+                    memoryHits = emptyList()
                 ),
                 modelToolBatchObservation = publicEvidenceBatchModelObservation(runId, requests),
-                toolBatchObservation = publicEvidenceBatchToolObservation(runId),
+                toolBatchObservation = publicEvidenceBatchToolObservation(runId)
             )
             val remoteRuntime = RecordingRemoteChatRuntime(
                 eventBatches = listOf(
                     listOf(RemoteChatEvent.ToolCalls(requests)),
-                    listOf(RemoteChatEvent.TextDelta("不应提交审计")),
+                    listOf(RemoteChatEvent.TextDelta("不应提交审计"))
                 ),
                 eventBatchStartGates = listOf(null, secondCallGate),
                 eventBatchFailures = if (failSecondCall) {
                     mapOf(1 to IOException("continuation failed"))
                 } else {
                     emptyMap()
-                },
+                }
             )
             val auditStore = FakeRemoteSendAuditStore()
             val viewModel = createViewModel(
@@ -6182,7 +6201,7 @@ class SolinViewModelTest {
                 actionExecutor = RecordingToolExecutor(),
                 modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
                 remoteSendAuditStore = auditStore,
-                requireRemoteSendDisclosure = true,
+                requireRemoteSendDisclosure = true
             )
             viewModel.restoreStartupState(skipModelRuntimeWork = true)
             advanceUntilIdle()
@@ -6211,16 +6230,16 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch-cancel",
                 promptForModel = "北京和上海今天温差多少？",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch-cancel", requests),
-            toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch-cancel"),
+            toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch-cancel")
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
                 listOf(RemoteChatEvent.ToolCalls(requests)),
-                listOf(RemoteChatEvent.TextDelta("不应发起第二次远程续写。")),
-            ),
+                listOf(RemoteChatEvent.TextDelta("不应发起第二次远程续写。"))
+            )
         )
         val executor = RecordingToolExecutor()
         val sessionStore = FakeSessionStore()
@@ -6231,7 +6250,7 @@ class SolinViewModelTest {
             assistantRouter = assistantRouter,
             actionExecutor = executor,
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6245,7 +6264,7 @@ class SolinViewModelTest {
         assertEquals("远程续写待确认", viewModel.uiState.value.statusText)
         assertEquals(
             RemoteSendDisclosureKind.ToolResultContinuation,
-            requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure).kind,
+            requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure).kind
         )
         assertEquals(1, remoteRuntime.calls.size)
 
@@ -6271,17 +6290,17 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch-retry",
                 promptForModel = "北京和上海今天温差多少？",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch-retry", requests),
             toolBatchObservation = publicEvidenceBatchToolObservation("run-remote-tool-batch-retry"),
-            modelObservation = publicEvidenceBatchCompletedObservation("run-remote-tool-batch-retry"),
+            modelObservation = publicEvidenceBatchCompletedObservation("run-remote-tool-batch-retry")
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
             eventBatches = listOf(
                 listOf(RemoteChatEvent.ToolCalls(requests)),
-                listOf(RemoteChatEvent.TextDelta("已综合两地天气。")),
-            ),
+                listOf(RemoteChatEvent.TextDelta("已综合两地天气。"))
+            )
         )
         val executor = RetryableFailureThenSuccessToolExecutor(failOnceRequestId = "call-shanghai")
         val sessionStore = FakeSessionStore()
@@ -6291,7 +6310,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6305,7 +6324,7 @@ class SolinViewModelTest {
         assertEquals(1, assistantRouter.observeToolBatchCallCount)
         assertEquals(
             setOf(ToolStatus.Succeeded),
-            assistantRouter.lastObservedResults.map { result -> result.status }.toSet(),
+            assistantRouter.lastObservedResults.map { result -> result.status }.toSet()
         )
         assertEquals("已综合两地天气。", sessionStore.messages.last().text)
     }
@@ -6318,7 +6337,7 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-tool-batch-failed",
                 promptForModel = "北京和上海今天温差多少？",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolBatchObservation = publicEvidenceBatchModelObservation("run-remote-tool-batch-failed", requests),
             toolBatchObservation = publicEvidenceBatchToolObservation(
@@ -6327,11 +6346,11 @@ class SolinViewModelTest {
                 resultStatus = ToolStatus.Failed,
                 summary = assistantMessage,
                 decision = AgentObservationDecision.Fail(assistantMessage),
-                continuationPrompt = null,
-            ),
+                continuationPrompt = null
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
-            eventBatches = listOf(listOf(RemoteChatEvent.ToolCalls(requests))),
+            eventBatches = listOf(listOf(RemoteChatEvent.ToolCalls(requests)))
         )
         val sessionStore = FakeSessionStore()
         val viewModel = createViewModel(
@@ -6340,7 +6359,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = ThrowingToolExecutor(IllegalStateException("network unavailable")),
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6351,12 +6370,12 @@ class SolinViewModelTest {
         assertEquals(1, assistantRouter.observeToolBatchCallCount)
         assertEquals(
             setOf(ToolStatus.Failed),
-            assistantRouter.lastObservedResults.map { result -> result.status }.toSet(),
+            assistantRouter.lastObservedResults.map { result -> result.status }.toSet()
         )
         assertTrue(
             assistantRouter.lastObservedResults.all { result ->
                 result.summary.contains("network unavailable")
-            },
+            }
         )
         assertEquals(0, assistantRouter.failModelGenerationCallCount)
         assertTrue(sessionStore.messages.any { message -> message.text.contains("正在并行使用工具：Web 搜索 x2") })
@@ -6372,29 +6391,29 @@ class SolinViewModelTest {
             id = "call-unknown",
             toolName = "unknown_tool",
             arguments = emptyMap(),
-            reason = "remote tool call",
+            reason = "remote tool call"
         )
         val traceSummary = agentTraceRunSummary(
             runId = "run-remote-rejected",
             input = "执行未知工具",
             state = AgentRunState.Failed,
-            stepSummary = "Unknown tool: unknown_tool",
+            stepSummary = "Unknown tool: unknown_tool"
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-rejected",
                 promptForModel = "执行未知工具",
-                memoryHits = emptyList(),
+                memoryHits = emptyList()
             ),
             modelToolObservation = AgentModelObservationResult(
                 run = AgentRun("run-remote-rejected", "执行未知工具", AgentRunState.Failed, 1L, 2L),
                 decision = AgentObservationDecision.Fail("Unknown tool: unknown_tool"),
-                steps = emptyList(),
+                steps = emptyList()
             ),
-            recentTraceRuns = listOf(traceSummary),
+            recentTraceRuns = listOf(traceSummary)
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
-            events = listOf(RemoteChatEvent.ToolCall(request)),
+            events = listOf(RemoteChatEvent.ToolCall(request))
         )
         val executor = RecordingToolExecutor()
         val sessionStore = FakeSessionStore()
@@ -6404,7 +6423,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6432,11 +6451,11 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-malformed-tool",
                 promptForModel = "执行远程工具",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime(
-            events = listOf(RemoteChatEvent.ParseError(parseError)),
+            events = listOf(RemoteChatEvent.ParseError(parseError))
         )
         val executor = RecordingToolExecutor()
         val sessionStore = FakeSessionStore()
@@ -6447,7 +6466,7 @@ class SolinViewModelTest {
             assistantRouter = assistantRouter,
             actionExecutor = executor,
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6485,15 +6504,15 @@ class SolinViewModelTest {
             localChunks = listOf(
                 "正常开头。",
                 "好".repeat(32),
-                "不应继续出现",
-            ),
+                "不应继续出现"
+            )
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-local-repetition",
                 promptForModel = "普通问题",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val memoryRepository = CountingMemoryRepository()
         val sessionStore = FakeSessionStore()
@@ -6503,7 +6522,7 @@ class SolinViewModelTest {
             assistantRouter = assistantRouter,
             modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
             memoryIndex = memoryRepository,
-            longTermMemoryControls = memoryRepository,
+            longTermMemoryControls = memoryRepository
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6535,15 +6554,15 @@ class SolinViewModelTest {
             events = listOf(
                 RemoteChatEvent.TextDelta("远程正常开头。"),
                 RemoteChatEvent.TextDelta("0".repeat(32)),
-                RemoteChatEvent.TextDelta("不应继续出现"),
-            ),
+                RemoteChatEvent.TextDelta("不应继续出现")
+            )
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-repetition",
                 promptForModel = "普通远程问题",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val memoryRepository = CountingMemoryRepository()
         val sessionStore = FakeSessionStore()
@@ -6553,7 +6572,7 @@ class SolinViewModelTest {
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
             memoryIndex = memoryRepository,
-            longTermMemoryControls = memoryRepository,
+            longTermMemoryControls = memoryRepository
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6584,8 +6603,8 @@ class SolinViewModelTest {
             routeResult = AssistantRoute.Chat(
                 runId = "run-remote-network-failure",
                 promptForModel = "普通远程问题",
-                memoryHits = emptyList(),
-            ),
+                memoryHits = emptyList()
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime(failure = IOException())
         val sessionStore = FakeSessionStore()
@@ -6594,7 +6613,7 @@ class SolinViewModelTest {
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
             assistantRouter = assistantRouter,
-            requireRemoteSendDisclosure = true,
+            requireRemoteSendDisclosure = true
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6639,12 +6658,12 @@ class SolinViewModelTest {
         val localCall = """call:share_text{"text":"$secretPayload"}"""
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
-            modelOutputResult = MobileActionPlanner().parseModelToolOutput(localCall),
+            modelOutputResult = MobileActionPlanner().parseModelToolOutput(localCall)
         )
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(),
+            traceStore = InMemoryAgentTraceStore()
         )
         val sessionStore = FakeSessionStore()
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -6654,14 +6673,14 @@ class SolinViewModelTest {
             displayName = "当前对话",
             path = "/tmp/chat.litertlm",
             recommendedModelId = DEFAULT_CHAT_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val action = installedModelSummary(
             id = "action-model",
             displayName = "低资源动作模型",
             path = "/tmp/action.litertlm",
             recommendedModelId = MOBILE_ACTION_MODEL_ID,
-            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
@@ -6671,8 +6690,8 @@ class SolinViewModelTest {
             actionExecutor = executor,
             modelRepository = FakeModelRepository(
                 activeInstalledModelId = chat.id,
-                initialInstalledModels = listOf(chat, action),
-            ),
+                initialInstalledModels = listOf(chat, action)
+            )
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6713,14 +6732,14 @@ class SolinViewModelTest {
         val remoteStore = configuredRemoteStore()
         val rejectedRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.ToolRejected(
-                summary = "Unknown tool: open_wifi_settings",
-            ),
+                summary = "Unknown tool: open_wifi_settings"
+            )
         )
         val rejectedViewModel = createViewModel(
             sessionStore = sessionStore,
             remoteStore = remoteStore,
             assistantRouter = rejectedRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         rejectedViewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6730,14 +6749,14 @@ class SolinViewModelTest {
 
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val chatViewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             remoteStore = remoteStore,
-            assistantRouter = FakeAssistantRouter(),
+            assistantRouter = FakeAssistantRouter()
         )
         chatViewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -6756,7 +6775,7 @@ class SolinViewModelTest {
         val request = ToolRequest(
             id = "request-open-settings",
             toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-            arguments = emptyMap(),
+            arguments = emptyMap()
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -6766,10 +6785,10 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
                     title = "打开应用设置",
                     summary = "将打开应用设置页。",
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = true,
-                fallbackReason = null,
+                fallbackReason = null
             ),
             runEventsById = mapOf(
                 "run-settings" to listOf(
@@ -6777,21 +6796,21 @@ class SolinViewModelTest {
                         eventId = "run-settings:input",
                         runId = "run-settings",
                         inputId = "run-settings:input",
-                        sourceLabel = "typed",
+                        sourceLabel = "typed"
                     ),
                     AgentRunEvent.ConfirmationRequested(
                         eventId = "run-settings:confirmation",
                         runId = "run-settings",
                         confirmationId = request.id,
                         toolCallId = request.id,
-                        actionLabel = "打开应用设置",
-                    ),
-                ),
-            ),
+                        actionLabel = "打开应用设置"
+                    )
+                )
+            )
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6810,7 +6829,7 @@ class SolinViewModelTest {
         val request = ToolRequest(
             id = "request-contacts",
             toolName = MobileActionFunctions.QUERY_CONTACTS,
-            arguments = mapOf("query" to "Alice"),
+            arguments = mapOf("query" to "Alice")
         )
         val executor = RecordingToolExecutor()
         val assistantRouter = FakeAssistantRouter(
@@ -6821,18 +6840,18 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.QUERY_CONTACTS,
                     title = "查询联系人",
                     summary = "将读取联系人摘要。",
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
-            ),
+                skillId = null
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6844,7 +6863,7 @@ class SolinViewModelTest {
 
         viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
             confirmation = confirmation,
-            deniedPermissions = listOf("android.permission.READ_CONTACTS"),
+            deniedPermissions = listOf("android.permission.READ_CONTACTS")
         )
         advanceUntilIdle()
 
@@ -6856,7 +6875,7 @@ class SolinViewModelTest {
         assertTrue(assistantRouter.lastFailedPendingResult?.summary.orEmpty().contains("联系人权限"))
         assertEquals(
             "android.permission.READ_CONTACTS",
-            assistantRouter.lastFailedPendingResult?.data?.get("deniedPermissions"),
+            assistantRouter.lastFailedPendingResult?.data?.get("deniedPermissions")
         )
         assertEquals("联系人权限", assistantRouter.lastFailedPendingResult?.data?.get("deniedPermissionLabels"))
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
@@ -6870,7 +6889,7 @@ class SolinViewModelTest {
         val request = ToolRequest(
             id = "request-screen-text",
             toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            arguments = mapOf("maxChars" to "1200"),
+            arguments = mapOf("maxChars" to "1200")
         )
         val executor = RecordingToolExecutor()
         val assistantRouter = FakeAssistantRouter(
@@ -6881,18 +6900,18 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
                     title = "读取屏幕文本",
                     summary = "将读取当前屏幕可访问文本。",
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = null,
-            ),
+                skillId = null
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6904,7 +6923,7 @@ class SolinViewModelTest {
 
         viewModel.rejectAgentConfirmationForSpecialAccessDenial(
             confirmation = confirmation,
-            deniedRequirements = confirmation.specialAccessRequirementsFor(toolRegistry = ToolRegistry()),
+            deniedRequirements = confirmation.specialAccessRequirementsFor(toolRegistry = ToolRegistry())
         )
         advanceUntilIdle()
 
@@ -6916,15 +6935,15 @@ class SolinViewModelTest {
         assertTrue(assistantRouter.lastFailedPendingResult?.summary.orEmpty().contains("无障碍屏幕文本权限"))
         assertEquals(
             SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
-            assistantRouter.lastFailedPendingResult?.data?.get("specialAccess"),
+            assistantRouter.lastFailedPendingResult?.data?.get("specialAccess")
         )
         assertEquals(
             "无障碍屏幕文本权限",
-            assistantRouter.lastFailedPendingResult?.data?.get("specialAccessLabels"),
+            assistantRouter.lastFailedPendingResult?.data?.get("specialAccessLabels")
         )
         assertEquals(
             Settings.ACTION_ACCESSIBILITY_SETTINGS,
-            assistantRouter.lastFailedPendingResult?.data?.get("settingsAction"),
+            assistantRouter.lastFailedPendingResult?.data?.get("settingsAction")
         )
         assertFalse(assistantRouter.lastFailedPendingResult?.data?.containsKey("screenText") == true)
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
@@ -6939,7 +6958,7 @@ class SolinViewModelTest {
             id = "request-share",
             toolName = MobileActionFunctions.SHARE_TEXT,
             arguments = mapOf("text" to "明天十点开会"),
-            reason = "将打开系统分享面板并填入文本。",
+            reason = "将打开系统分享面板并填入文本。"
         )
         val result = ToolResult(
             requestId = request.id,
@@ -6949,8 +6968,8 @@ class SolinViewModelTest {
                 "completionState" to "ExternalActivityOpened",
                 "completionVerified" to "false",
                 "externalOutcome" to "Unknown",
-                "externalOutcomeSource" to "Unknown",
-            ),
+                "externalOutcomeSource" to "Unknown"
+            )
         )
         val assistantMessage = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：${result.summary}"
         val confirmedMessage = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：目标应用中的操作已完成"
@@ -6959,8 +6978,8 @@ class SolinViewModelTest {
             data = result.data + mapOf(
                 "completionVerified" to "true",
                 "externalOutcome" to "Completed",
-                "externalOutcomeSource" to "UserConfirmed",
-            ),
+                "externalOutcomeSource" to "UserConfirmed"
+            )
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -6970,11 +6989,11 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.SHARE_TEXT,
                     title = "系统分享",
                     summary = request.reason,
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.SHARE_TEXT_SKILL,
+                skillId = BuiltInSkillRuntime.SHARE_TEXT_SKILL
             ),
             confirmedRun = AgentRun("run-share", "分享这段文字", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
@@ -6982,24 +7001,23 @@ class SolinViewModelTest {
                 result = result,
                 assistantMessage = assistantMessage,
                 decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
+                steps = emptyList()
             ),
             externalOutcomeResult = AgentExternalOutcomeResult(
                 run = AgentRun("run-share", "分享这段文字", AgentRunState.Completed, 1L, 4L),
                 result = confirmedResult,
                 assistantMessage = confirmedMessage,
                 decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = object : ToolExecutor {
-                override fun execute(request: ToolRequest): ToolResult =
-                    result.copy(requestId = request.id)
+                override fun execute(request: ToolRequest): ToolResult = result.copy(requestId = request.id)
             },
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -7039,27 +7057,27 @@ class SolinViewModelTest {
             toolName = MobileActionFunctions.SCHEDULE_REMINDER,
             arguments = mapOf(
                 "title" to "喝水",
-                "delayMinutes" to "10",
+                "delayMinutes" to "10"
             ),
-            reason = "将在 10 分钟后提醒：喝水",
+            reason = "将在 10 分钟后提醒：喝水"
         )
         val recoveryRequest = ToolRequest(
             id = "request-recovery",
             toolName = MobileActionFunctions.CANCEL_REMINDER,
             arguments = mapOf("taskId" to "task-1"),
-            reason = "撤销提醒任务：task-1",
+            reason = "撤销提醒任务：task-1"
         )
         val recoveryDraft = ActionDraft(
             functionName = MobileActionFunctions.CANCEL_REMINDER,
             title = "撤销提醒",
             summary = "将取消提醒任务：task-1",
-            parameters = recoveryRequest.arguments,
+            parameters = recoveryRequest.arguments
         )
         val recoveryAction = AgentRecoveryAction(
             sourceRequestId = request.id,
             sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
             request = recoveryRequest,
-            draft = recoveryDraft,
+            draft = recoveryDraft
         )
         val result = ToolResult(
             requestId = request.id,
@@ -7069,8 +7087,8 @@ class SolinViewModelTest {
                 "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
                 "taskId" to "task-1",
                 "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
-                "recoveryTaskId" to "task-1",
-            ),
+                "recoveryTaskId" to "task-1"
+            )
         )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
@@ -7080,11 +7098,11 @@ class SolinViewModelTest {
                     functionName = MobileActionFunctions.SCHEDULE_REMINDER,
                     title = "后台提醒",
                     summary = request.reason,
-                    parameters = request.arguments,
+                    parameters = request.arguments
                 ),
                 plannedByModel = false,
                 fallbackReason = "test fallback",
-                skillId = BuiltInSkillRuntime.REMINDER_SKILL,
+                skillId = BuiltInSkillRuntime.REMINDER_SKILL
             ),
             confirmedRun = AgentRun("run-reminder", "提醒我 10 分钟后喝水", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
@@ -7093,17 +7111,16 @@ class SolinViewModelTest {
                 assistantMessage = "工具执行结果：已安排 10000 触发的后台提醒\n如需撤销该提醒，请再次确认执行 cancel_reminder，taskId=task-1。",
                 decision = AgentObservationDecision.Complete,
                 recoveryAction = recoveryAction,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = object : ToolExecutor {
-                override fun execute(request: ToolRequest): ToolResult =
-                    result.copy(requestId = request.id)
+                override fun execute(request: ToolRequest): ToolResult = result.copy(requestId = request.id)
             },
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -7121,195 +7138,194 @@ class SolinViewModelTest {
     }
 
     @Test
-    fun reminderUndoEntryCreatesPendingCancelConfirmationAndDoesNotExecuteUntilConfirmed() =
-        runTest(dispatcher) {
-            val sessionStore = FakeSessionStore()
-            val request = ToolRequest(
-                id = "request-reminder",
-                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
-                arguments = mapOf(
-                    "title" to "喝水",
-                    "delayMinutes" to "10",
+    fun reminderUndoEntryCreatesPendingCancelConfirmationAndDoesNotExecuteUntilConfirmed() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            id = "request-reminder",
+            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            arguments = mapOf(
+                "title" to "喝水",
+                "delayMinutes" to "10"
+            ),
+            reason = "将在 10 分钟后提醒：喝水"
+        )
+        val recoveryRequest = ToolRequest(
+            id = "request-recovery",
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = mapOf("taskId" to "task-1"),
+            reason = "撤销提醒任务：task-1"
+        )
+        val recoveryDraft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "撤销提醒",
+            summary = "将取消提醒任务：task-1",
+            parameters = recoveryRequest.arguments
+        )
+        val recoveryAction = AgentRecoveryAction(
+            sourceRequestId = request.id,
+            sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            request = recoveryRequest,
+            draft = recoveryDraft
+        )
+        val scheduleResult = ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已安排 10000 触发的后台提醒",
+            data = mapOf(
+                "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                "taskId" to "task-1",
+                "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                "recoveryTaskId" to "task-1"
+            )
+        )
+        val cancelResult = ToolResult(
+            requestId = recoveryRequest.id,
+            status = ToolStatus.Succeeded,
+            summary = "已取消后台任务：task-1",
+            data = mapOf(
+                "toolName" to MobileActionFunctions.CANCEL_REMINDER,
+                "taskId" to "task-1"
+            )
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-reminder",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+                    title = "后台提醒",
+                    summary = request.reason,
+                    parameters = request.arguments
                 ),
-                reason = "将在 10 分钟后提醒：喝水",
-            )
-            val recoveryRequest = ToolRequest(
-                id = "request-recovery",
-                toolName = MobileActionFunctions.CANCEL_REMINDER,
-                arguments = mapOf("taskId" to "task-1"),
-                reason = "撤销提醒任务：task-1",
-            )
-            val recoveryDraft = ActionDraft(
-                functionName = MobileActionFunctions.CANCEL_REMINDER,
-                title = "撤销提醒",
-                summary = "将取消提醒任务：task-1",
-                parameters = recoveryRequest.arguments,
-            )
-            val recoveryAction = AgentRecoveryAction(
-                sourceRequestId = request.id,
-                sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
-                request = recoveryRequest,
-                draft = recoveryDraft,
-            )
-            val scheduleResult = ToolResult(
-                requestId = request.id,
-                status = ToolStatus.Succeeded,
-                summary = "已安排 10000 触发的后台提醒",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
-                    "taskId" to "task-1",
-                    "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
-                    "recoveryTaskId" to "task-1",
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.REMINDER_SKILL
+            ),
+            confirmedRunsById = mapOf(
+                "run-reminder" to AgentRun(
+                    "run-reminder",
+                    "提醒我 10 分钟后喝水",
+                    AgentRunState.ExecutingTool,
+                    1L,
+                    2L
                 ),
-            )
-            val cancelResult = ToolResult(
-                requestId = recoveryRequest.id,
-                status = ToolStatus.Succeeded,
-                summary = "已取消后台任务：task-1",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.CANCEL_REMINDER,
-                    "taskId" to "task-1",
-                ),
-            )
-            val assistantRouter = FakeAssistantRouter(
-                routeResult = AssistantRoute.Action(
-                    runId = "run-reminder",
-                    toolRequest = request,
-                    draft = ActionDraft(
-                        functionName = MobileActionFunctions.SCHEDULE_REMINDER,
-                        title = "后台提醒",
-                        summary = request.reason,
-                        parameters = request.arguments,
-                    ),
-                    plannedByModel = false,
-                    fallbackReason = "test fallback",
-                    skillId = BuiltInSkillRuntime.REMINDER_SKILL,
-                ),
-                confirmedRunsById = mapOf(
-                    "run-reminder" to AgentRun(
+                "run-recovery" to AgentRun(
+                    "run-recovery",
+                    "撤销提醒任务：task-1",
+                    AgentRunState.ExecutingTool,
+                    4L,
+                    5L
+                )
+            ),
+            toolObservationsByRunId = mapOf(
+                "run-reminder" to AgentObservationResult(
+                    run = AgentRun(
                         "run-reminder",
                         "提醒我 10 分钟后喝水",
-                        AgentRunState.ExecutingTool,
+                        AgentRunState.Completed,
                         1L,
-                        2L,
+                        3L
                     ),
-                    "run-recovery" to AgentRun(
+                    result = scheduleResult,
+                    assistantMessage = "工具执行结果：已安排 10000 触发的后台提醒\n" +
+                        "如需撤销该提醒，请再次确认执行 cancel_reminder，taskId=task-1。",
+                    decision = AgentObservationDecision.Complete,
+                    recoveryAction = recoveryAction,
+                    steps = emptyList()
+                ),
+                "run-recovery" to AgentObservationResult(
+                    run = AgentRun(
                         "run-recovery",
                         "撤销提醒任务：task-1",
-                        AgentRunState.ExecutingTool,
+                        AgentRunState.Completed,
                         4L,
-                        5L,
+                        6L
                     ),
-                ),
-                toolObservationsByRunId = mapOf(
-                    "run-reminder" to AgentObservationResult(
-                        run = AgentRun(
-                            "run-reminder",
-                            "提醒我 10 分钟后喝水",
-                            AgentRunState.Completed,
-                            1L,
-                            3L,
-                        ),
-                        result = scheduleResult,
-                        assistantMessage = "工具执行结果：已安排 10000 触发的后台提醒\n" +
-                            "如需撤销该提醒，请再次确认执行 cancel_reminder，taskId=task-1。",
-                        decision = AgentObservationDecision.Complete,
-                        recoveryAction = recoveryAction,
-                        steps = emptyList(),
-                    ),
-                    "run-recovery" to AgentObservationResult(
-                        run = AgentRun(
-                            "run-recovery",
-                            "撤销提醒任务：task-1",
-                            AgentRunState.Completed,
-                            4L,
-                            6L,
-                        ),
-                        result = cancelResult,
-                        assistantMessage = "工具执行结果：已取消后台任务：task-1",
-                        decision = AgentObservationDecision.Complete,
-                        steps = emptyList(),
-                    ),
-                ),
+                    result = cancelResult,
+                    assistantMessage = "工具执行结果：已取消后台任务：task-1",
+                    decision = AgentObservationDecision.Complete,
+                    steps = emptyList()
+                )
             )
-            val executedRequests = mutableListOf<ToolRequest>()
-            val viewModel = createViewModel(
-                sessionStore = sessionStore,
-                assistantRouter = assistantRouter,
-                actionExecutor = object : ToolExecutor {
-                    override fun execute(request: ToolRequest): ToolResult {
-                        executedRequests += request
-                        return when (request.toolName) {
-                            MobileActionFunctions.SCHEDULE_REMINDER -> scheduleResult.copy(requestId = request.id)
-                            MobileActionFunctions.CANCEL_REMINDER -> cancelResult.copy(requestId = request.id)
-                            else -> ToolResult(
-                                requestId = request.id,
-                                status = ToolStatus.Succeeded,
-                                summary = "executed",
-                            )
-                        }
+        )
+        val executedRequests = mutableListOf<ToolRequest>()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = object : ToolExecutor {
+                override fun execute(request: ToolRequest): ToolResult {
+                    executedRequests += request
+                    return when (request.toolName) {
+                        MobileActionFunctions.SCHEDULE_REMINDER -> scheduleResult.copy(requestId = request.id)
+                        MobileActionFunctions.CANCEL_REMINDER -> cancelResult.copy(requestId = request.id)
+                        else -> ToolResult(
+                            requestId = request.id,
+                            status = ToolStatus.Succeeded,
+                            summary = "executed"
+                        )
                     }
-                },
-                modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
-            )
-            viewModel.restoreStartupState()
-            advanceUntilIdle()
+                }
+            },
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
 
-            viewModel.sendMessage("提醒我 10 分钟后喝水")
-            advanceUntilIdle()
-            val confirmation = viewModel.uiState.value.pendingConfirmation
-            requireNotNull(confirmation)
-            viewModel.confirmAgentConfirmation(confirmation)
-            advanceUntilIdle()
+        viewModel.sendMessage("提醒我 10 分钟后喝水")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
 
-            assertEquals(listOf(MobileActionFunctions.SCHEDULE_REMINDER), executedRequests.map { it.toolName })
-            assertEquals(recoveryAction, viewModel.uiState.value.latestRecoveryAction)
+        assertEquals(listOf(MobileActionFunctions.SCHEDULE_REMINDER), executedRequests.map { it.toolName })
+        assertEquals(recoveryAction, viewModel.uiState.value.latestRecoveryAction)
 
-            viewModel.requestRecoveryActionConfirmation(recoveryAction)
-            advanceUntilIdle()
+        viewModel.requestRecoveryActionConfirmation(recoveryAction)
+        advanceUntilIdle()
 
-            val pendingRecovery = viewModel.uiState.value.pendingConfirmation
-            requireNotNull(pendingRecovery) {
-                "status=${viewModel.uiState.value.statusText}, isBusy=${viewModel.uiState.value.isBusy}"
-            }
-            assertEquals("run-recovery", pendingRecovery.runId)
-            assertEquals(MobileActionFunctions.CANCEL_REMINDER, pendingRecovery.draft.functionName)
-            assertEquals(MobileActionFunctions.CANCEL_REMINDER, pendingRecovery.toolRequest?.toolName)
-            assertEquals(mapOf("taskId" to "task-1"), pendingRecovery.toolRequest?.arguments)
-            assertFalse(pendingRecovery.draft.summary.contains("喝水"))
-            assertEquals(null, viewModel.uiState.value.latestRecoveryAction)
-            assertEquals("撤销提醒待确认", viewModel.uiState.value.statusText)
-            assertEquals(listOf(MobileActionFunctions.SCHEDULE_REMINDER), executedRequests.map { it.toolName })
-            assertEquals(1, assistantRouter.requestRecoveryCallCount)
-            assertEquals("session-1", assistantRouter.lastRecoverySessionId)
-            assertEquals(1, assistantRouter.confirmCallCount)
-
-            viewModel.confirmAgentConfirmation(pendingRecovery)
-            advanceUntilIdle()
-
-            assertEquals(
-                listOf(MobileActionFunctions.SCHEDULE_REMINDER, MobileActionFunctions.CANCEL_REMINDER),
-                executedRequests.map { it.toolName },
-            )
-            assertEquals(null, viewModel.uiState.value.pendingConfirmation)
-            assertEquals(null, viewModel.uiState.value.latestRecoveryAction)
-            assertEquals(2, assistantRouter.confirmCallCount)
-            assertEquals(2, assistantRouter.observeToolCallCount)
-            assertTrue(sessionStore.messages.last().text.contains("已取消后台任务：task-1"))
+        val pendingRecovery = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(pendingRecovery) {
+            "status=${viewModel.uiState.value.statusText}, isBusy=${viewModel.uiState.value.isBusy}"
         }
+        assertEquals("run-recovery", pendingRecovery.runId)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, pendingRecovery.draft.functionName)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, pendingRecovery.toolRequest?.toolName)
+        assertEquals(mapOf("taskId" to "task-1"), pendingRecovery.toolRequest?.arguments)
+        assertFalse(pendingRecovery.draft.summary.contains("喝水"))
+        assertEquals(null, viewModel.uiState.value.latestRecoveryAction)
+        assertEquals("撤销提醒待确认", viewModel.uiState.value.statusText)
+        assertEquals(listOf(MobileActionFunctions.SCHEDULE_REMINDER), executedRequests.map { it.toolName })
+        assertEquals(1, assistantRouter.requestRecoveryCallCount)
+        assertEquals("session-1", assistantRouter.lastRecoverySessionId)
+        assertEquals(1, assistantRouter.confirmCallCount)
+
+        viewModel.confirmAgentConfirmation(pendingRecovery)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MobileActionFunctions.SCHEDULE_REMINDER, MobileActionFunctions.CANCEL_REMINDER),
+            executedRequests.map { it.toolName }
+        )
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals(null, viewModel.uiState.value.latestRecoveryAction)
+        assertEquals(2, assistantRouter.confirmCallCount)
+        assertEquals(2, assistantRouter.observeToolCallCount)
+        assertTrue(sessionStore.messages.last().text.contains("已取消后台任务：task-1"))
+    }
 
     @Test
     fun restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool() = runTest(dispatcher) {
         val request = ToolRequest(
             id = "request-restored",
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = "Open Wi-Fi",
+            reason = "Open Wi-Fi"
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "将打开系统 Wi-Fi 设置页。",
-            parameters = emptyMap(),
+            parameters = emptyMap()
         )
         val executor = RecordingToolExecutor()
         val assistantRouter = FakeAssistantRouter(
@@ -7319,13 +7335,13 @@ class SolinViewModelTest {
                 draft = draft,
                 plannedByModel = false,
                 fallbackReason = "restored",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
-            ),
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            )
         )
         val viewModel = createViewModel(
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7353,7 +7369,7 @@ class SolinViewModelTest {
             requestId = "request-external",
             toolName = MobileActionFunctions.SHARE_TEXT,
             title = "系统分享",
-            summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开系统分享面板",
+            summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开系统分享面板"
         )
         val assistantRouter = FakeAssistantRouter(
             restoredPendingExternalOutcome = pending,
@@ -7367,19 +7383,19 @@ class SolinViewModelTest {
                         "completionState" to "ExternalActivityOpened",
                         "completionVerified" to "false",
                         "externalOutcome" to "OpenedOnly",
-                        "externalOutcomeSource" to "UserConfirmed",
-                    ),
+                        "externalOutcomeSource" to "UserConfirmed"
+                    )
                 ),
                 assistantMessage = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：只确认外部界面已打开",
                 decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7418,18 +7434,18 @@ class SolinViewModelTest {
             requestId = "request-external-next",
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
-            summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开 Wi-Fi 设置页",
+            summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开 Wi-Fi 设置页"
         )
         val nextRequest = ToolRequest(
             id = "request-flashlight",
             toolName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            reason = "Open flashlight settings after external completion",
+            reason = "Open flashlight settings after external completion"
         )
         val nextDraft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
             title = "打开手电筒设置",
             summary = "将打开手电筒设置页。",
-            parameters = emptyMap(),
+            parameters = emptyMap()
         )
         val assistantRouter = FakeAssistantRouter(
             restoredPendingExternalOutcome = pending,
@@ -7443,8 +7459,8 @@ class SolinViewModelTest {
                         "completionState" to "ExternalActivityOpened",
                         "completionVerified" to "true",
                         "externalOutcome" to "Completed",
-                        "externalOutcomeSource" to "UserConfirmed",
-                    ),
+                        "externalOutcomeSource" to "UserConfirmed"
+                    )
                 ),
                 assistantMessage = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：目标应用中的操作已完成",
                 decision = AgentObservationDecision.PlanNextTool(
@@ -7455,19 +7471,19 @@ class SolinViewModelTest {
                         fallbackReason = "restored continuation cursor",
                         safetyDecision = SafetyDecision(
                             outcome = SafetyOutcome.RequireConfirmation,
-                            reason = "Next tool requires confirmation.",
-                        ),
+                            reason = "Next tool requires confirmation."
+                        )
                     ),
-                    reason = "external outcome completed",
+                    reason = "external outcome completed"
                 ),
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7494,13 +7510,13 @@ class SolinViewModelTest {
         val request = ToolRequest(
             id = "request-restored-once",
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = "Open Wi-Fi",
+            reason = "Open Wi-Fi"
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "将打开系统 Wi-Fi 设置页。",
-            parameters = emptyMap(),
+            parameters = emptyMap()
         )
         val sessionStore = FakeSessionStore()
         val executor = RecordingToolExecutor()
@@ -7511,14 +7527,14 @@ class SolinViewModelTest {
                 draft = draft,
                 plannedByModel = false,
                 fallbackReason = "restored",
-                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
             ),
             confirmedRun = AgentRun(
                 id = "run-restored-once",
                 input = "打开 Wi-Fi 设置",
                 state = AgentRunState.ExecutingTool,
                 createdAtMillis = 1L,
-                updatedAtMillis = 2L,
+                updatedAtMillis = 2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -7526,23 +7542,23 @@ class SolinViewModelTest {
                     input = "打开 Wi-Fi 设置",
                     state = AgentRunState.Completed,
                     createdAtMillis = 1L,
-                    updatedAtMillis = 3L,
+                    updatedAtMillis = 3L
                 ),
                 result = ToolResult(
                     requestId = request.id,
                     status = ToolStatus.Succeeded,
-                    summary = "已打开 Wi-Fi 设置页",
+                    summary = "已打开 Wi-Fi 设置页"
                 ),
                 assistantMessage = "工具执行结果：已打开 Wi-Fi 设置页",
                 decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7571,13 +7587,13 @@ class SolinViewModelTest {
             id = "request-restored-share",
             toolName = MobileActionFunctions.SHARE_TEXT,
             arguments = mapOf("text" to modelSummary),
-            reason = "分享本地摘要",
+            reason = "分享本地摘要"
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.SHARE_TEXT,
             title = "分享摘要",
             summary = "将打开系统分享面板。",
-            parameters = request.arguments,
+            parameters = request.arguments
         )
         val sessionStore = FakeSessionStore()
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -7589,14 +7605,14 @@ class SolinViewModelTest {
                 draft = draft,
                 plannedByModel = false,
                 fallbackReason = "skill model step",
-                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
             ),
             confirmedRun = AgentRun(
                 id = "run-restored-share",
                 input = "总结剪贴板并分享",
                 state = AgentRunState.ExecutingTool,
                 createdAtMillis = 1L,
-                updatedAtMillis = 2L,
+                updatedAtMillis = 2L
             ),
             toolObservation = AgentObservationResult(
                 run = AgentRun(
@@ -7604,24 +7620,24 @@ class SolinViewModelTest {
                     input = "总结剪贴板并分享",
                     state = AgentRunState.Completed,
                     createdAtMillis = 1L,
-                    updatedAtMillis = 3L,
+                    updatedAtMillis = 3L
                 ),
                 result = ToolResult(
                     requestId = request.id,
                     status = ToolStatus.Succeeded,
-                    summary = "已打开系统分享面板",
+                    summary = "已打开系统分享面板"
                 ),
                 assistantMessage = "外部界面已打开，最终结果未验证。",
                 decision = AgentObservationDecision.Complete,
-                steps = emptyList(),
-            ),
+                steps = emptyList()
+            )
         )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             remoteRuntime = remoteRuntime,
             assistantRouter = assistantRouter,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH),
+            modelRepository = FakeModelRepository(activeModelPath = TEST_LOCAL_MODEL_PATH)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7636,7 +7652,7 @@ class SolinViewModelTest {
 
         val staleConfirmation = restored.copy(
             draft = restored.draft.copy(parameters = mapOf("text" to stalePayload)),
-            toolRequest = restored.toolRequest?.copy(arguments = mapOf("text" to stalePayload)),
+            toolRequest = restored.toolRequest?.copy(arguments = mapOf("text" to stalePayload))
         )
         viewModel.confirmAgentConfirmation(staleConfirmation)
         advanceUntilIdle()
@@ -7668,7 +7684,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            actionExecutor = executor,
+            actionExecutor = executor
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7676,7 +7692,7 @@ class SolinViewModelTest {
 
         assertEquals(
             listOf("pref-1", "task-1"),
-            viewModel.uiState.value.longTermMemories.map { it.id },
+            viewModel.uiState.value.longTermMemories.map { it.id }
         )
         assertTrue(remoteRuntime.calls.isEmpty())
         assertTrue(executor.executedRequests.isEmpty())
@@ -7690,21 +7706,21 @@ class SolinViewModelTest {
             semanticRuntimeFactory = { path ->
                 check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
-            },
+            }
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val active = installedModelSummary(
             id = "active-chat",
             displayName = "当前对话",
-            path = TEST_LOCAL_MODEL_PATH,
+            path = TEST_LOCAL_MODEL_PATH
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             modelRepository = FakeModelRepository(
                 activeInstalledModelId = active.id,
                 initialInstalledModels = listOf(active),
-                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
-            ),
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH
+            )
         )
 
         assertFalse(viewModel.uiState.value.semanticMemory.enabled)
@@ -7737,13 +7753,13 @@ class SolinViewModelTest {
             semanticRuntimeFactory = {
                 semanticRuntimeFactoryCalls += 1
                 error("Semantic runtime must stay unloaded while startup runtime work is suppressed.")
-            },
+            }
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
-            skipStartupModelRuntimeWork = true,
+            skipStartupModelRuntimeWork = true
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7766,21 +7782,21 @@ class SolinViewModelTest {
         val active = installedModelSummary(
             id = "active-chat",
             displayName = "当前对话",
-            path = TEST_LOCAL_MODEL_PATH,
+            path = TEST_LOCAL_MODEL_PATH
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             modelRepository = FakeModelRepository(
                 activeInstalledModelId = active.id,
                 initialInstalledModels = listOf(active),
-                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
-            ),
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH
+            )
         )
 
         assertFalse(viewModel.uiState.value.semanticMemory.enabled)
         assertEquals(
             SemanticMemoryRuntimeStatus.NoVerifiedModel,
-            viewModel.uiState.value.semanticMemory.runtimeStatus,
+            viewModel.uiState.value.semanticMemory.runtimeStatus
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7797,7 +7813,7 @@ class SolinViewModelTest {
         assertFalse(viewModel.uiState.value.semanticMemory.enabled)
         assertEquals(
             SemanticMemoryRuntimeStatus.RuntimeUnavailable,
-            viewModel.uiState.value.semanticMemory.runtimeStatus,
+            viewModel.uiState.value.semanticMemory.runtimeStatus
         )
         assertTrue(memoryRepository.search("laconic replies").isEmpty())
         val lexicalHits = memoryRepository.search("concise answers")
@@ -7813,7 +7829,7 @@ class SolinViewModelTest {
             semanticRuntimeFactory = { path ->
                 check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
-            },
+            }
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val localRuntime = FakeLiteRtRuntime(localResponse = "本地回复：简洁回答")
@@ -7824,12 +7840,12 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             assistantRouter = AssistantOrchestrator(
                 memoryRepository,
-                RecordingActionRuntime(likelyAction = false),
+                RecordingActionRuntime(likelyAction = false)
             ),
             modelRepository = FakeModelRepository(
                 activeModelPath = TEST_LOCAL_MODEL_PATH,
-                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
-            ),
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH
+            )
         )
 
         viewModel.restoreStartupState()
@@ -7849,7 +7865,7 @@ class SolinViewModelTest {
         assertEquals(listOf("语义召回"), viewModel.uiState.value.activeMemoryEvidence.map { it.recallLabel })
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            viewModel.uiState.value.messages.map { it.privacy },
+            viewModel.uiState.value.messages.map { it.privacy }
         )
         assertTrue(remoteRuntime.calls.isEmpty())
     }
@@ -7862,12 +7878,12 @@ class SolinViewModelTest {
             semanticRuntimeFactory = { path ->
                 check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
-            },
+            }
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         memoryRepository.indexUserFact(
             explicitUserFactRecordId("my rcode is xb83"),
-            "my rcode is xb83",
+            "my rcode is xb83"
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
@@ -7877,12 +7893,12 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             assistantRouter = AssistantOrchestrator(
                 memoryRepository,
-                RecordingActionRuntime(likelyAction = false),
+                RecordingActionRuntime(likelyAction = false)
             ),
             modelRepository = FakeModelRepository(
                 activeModelPath = TEST_LOCAL_MODEL_PATH,
-                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH,
-            ),
+                memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH
+            )
         )
 
         viewModel.restoreStartupState()
@@ -7892,7 +7908,7 @@ class SolinViewModelTest {
 
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            viewModel.uiState.value.messages.map { it.privacy },
+            viewModel.uiState.value.messages.map { it.privacy }
         )
 
         viewModel.updateRemoteModelConfig(configuredRemoteModel())
@@ -7916,7 +7932,7 @@ class SolinViewModelTest {
             semanticRuntimeFactory = { path ->
                 check(path == TEST_MEMORY_EMBEDDING_MODEL_PATH)
                 ConciseSemanticRuntime()
-            },
+            }
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -7926,9 +7942,9 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             assistantRouter = AssistantOrchestrator(
                 memoryRepository,
-                RecordingActionRuntime(likelyAction = false),
+                RecordingActionRuntime(likelyAction = false)
             ),
-            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH),
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = TEST_MEMORY_EMBEDDING_MODEL_PATH)
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7965,28 +7981,28 @@ class SolinViewModelTest {
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
                     title = "喝水 私密prompt 私密toolArg 私密remoteResponse",
-                    body = "不要写入长期记忆的提醒正文",
+                    body = "不要写入长期记忆的提醒正文"
                 ),
                 scheduledTask(
                     id = PeriodicCheckScheduleRequest.TASK_ID,
                     type = ScheduledTaskType.PeriodicCheck,
                     status = ScheduledTaskStatus.Running,
                     title = "后台检查",
-                    body = "enabled=true;lastRun=secret",
+                    body = "enabled=true;lastRun=secret"
                 ),
                 scheduledTask(
                     id = "done-task",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Delivered,
                     title = "已完成提醒",
-                    body = "已完成正文",
-                ),
-            ),
+                    body = "已完成正文"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
-            remoteRuntime = remoteRuntime,
+            remoteRuntime = remoteRuntime
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -7995,7 +8011,7 @@ class SolinViewModelTest {
         val taskRecords = store.records().filter { record -> record.type == MemoryRecordType.TaskState }
         assertEquals(
             listOf(taskStateMemoryRecordId("task-1"), taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID)),
-            taskRecords.map { record -> record.id },
+            taskRecords.map { record -> record.id }
         )
         assertTrue(taskRecords.first().text.contains("Reminder"))
         assertTrue(taskRecords.first().text.contains("Scheduled"))
@@ -8026,16 +8042,16 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
-                    title = "喝水",
-                ),
-            ),
+                    title = "喝水"
+                )
+            )
         )
         val viewModel = createViewModel(
             firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8065,9 +8081,9 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
-                    title = "喝水",
-                ),
-            ),
+                    title = "喝水"
+                )
+            )
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
 
@@ -8086,23 +8102,23 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
-                    title = "喝水",
+                    title = "喝水"
                 ),
                 scheduledTask(
                     id = PeriodicCheckScheduleRequest.TASK_ID,
                     type = ScheduledTaskType.PeriodicCheck,
                     status = ScheduledTaskStatus.Scheduled,
                     title = PeriodicCheckScheduleRequest.TITLE,
-                    body = PeriodicCheckScheduleRequest().storageSummary(),
-                ),
+                    body = PeriodicCheckScheduleRequest().storageSummary()
+                )
             ),
             onReconcilePeriodicCheckOnStartup = { tasks ->
                 val existing = tasks.getValue(PeriodicCheckScheduleRequest.TASK_ID)
                 tasks[existing.id] = existing.copy(
                     status = ScheduledTaskStatus.Failed,
-                    updatedAtMillis = existing.updatedAtMillis + 1L,
+                    updatedAtMillis = existing.updatedAtMillis + 1L
                 )
-            },
+            }
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
 
@@ -8113,7 +8129,7 @@ class SolinViewModelTest {
         assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
         assertEquals(
             listOf(PeriodicCheckScheduleRequest.TASK_ID),
-            viewModel.uiState.value.backgroundTaskHistory.map { it.id },
+            viewModel.uiState.value.backgroundTaskHistory.map { it.id }
         )
         assertEquals(ScheduledTaskStatus.Failed, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
     }
@@ -8130,15 +8146,15 @@ class SolinViewModelTest {
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
                     title = "喝水",
-                    body = "不要进入远程的提醒正文",
-                ),
-            ),
+                    body = "不要进入远程的提醒正文"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8174,15 +8190,15 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
-                    title = "喝水",
-                ),
-            ),
+                    title = "喝水"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8241,13 +8257,13 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
-                    title = "喝水",
-                ),
-            ),
+                    title = "喝水"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            backgroundTaskScheduler = scheduler,
+            backgroundTaskScheduler = scheduler
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8268,7 +8284,7 @@ class SolinViewModelTest {
         val deletionStore = FakeMemoryDeletionEventStore()
         val memoryRepository = MemoryRepository(
             recordStore = store,
-            deletionEventStore = deletionStore,
+            deletionEventStore = deletionStore
         )
         val taskMemoryId = taskStateMemoryRecordId("done-task")
         memoryRepository.indexTaskState(taskMemoryId, "旧的后台任务状态")
@@ -8279,13 +8295,13 @@ class SolinViewModelTest {
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Failed,
                     title = "失败提醒",
-                    body = "失败正文",
-                ),
-            ),
+                    body = "失败正文"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            backgroundTaskScheduler = scheduler,
+            backgroundTaskScheduler = scheduler
         )
 
         viewModel.refreshBackgroundTasks()
@@ -8308,15 +8324,15 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Scheduled,
-                    title = "喝水",
-                ),
-            ),
+                    title = "喝水"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8351,7 +8367,7 @@ class SolinViewModelTest {
     @Test
     fun memoryStoreFailureDoesNotBlockStartupOrRemoteChat() = runTest(dispatcher) {
         val memoryRepository = MemoryRepository(
-            recordStore = FakeMemoryRecordStore(failure = IllegalStateException("memory db unavailable")),
+            recordStore = FakeMemoryRecordStore(failure = IllegalStateException("memory db unavailable"))
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -8359,7 +8375,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8380,7 +8396,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8398,7 +8414,7 @@ class SolinViewModelTest {
         assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            viewModel.uiState.value.messages.map { it.privacy },
+            viewModel.uiState.value.messages.map { it.privacy }
         )
         assertEquals("记住：我喜欢简洁回答", viewModel.uiState.value.messages.first().text)
         assertTrue(viewModel.uiState.value.messages.last().text.contains("已记住这条本地偏好"))
@@ -8414,7 +8430,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8441,7 +8457,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8465,7 +8481,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8493,7 +8509,7 @@ class SolinViewModelTest {
             firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8510,7 +8526,7 @@ class SolinViewModelTest {
         assertTrue(viewModel.uiState.value.messages.last().text.contains("本地记忆已关闭"))
         assertEquals(
             List(4) { MessagePrivacy.LocalOnly },
-            viewModel.uiState.value.messages.map { it.privacy },
+            viewModel.uiState.value.messages.map { it.privacy }
         )
         assertTrue(remoteRuntime.calls.isEmpty())
     }
@@ -8525,7 +8541,7 @@ class SolinViewModelTest {
             firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8546,7 +8562,7 @@ class SolinViewModelTest {
         val memoryRepository = MemoryRepository(recordStore = store)
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8576,7 +8592,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8590,7 +8606,7 @@ class SolinViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.last().text.contains("已记住这条本地偏好"))
     }
@@ -8603,7 +8619,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8637,7 +8653,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8660,9 +8676,9 @@ class SolinViewModelTest {
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
-                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly
             ),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.last().text.contains("已遗忘这条本地记忆"))
     }
@@ -8679,7 +8695,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8702,9 +8718,9 @@ class SolinViewModelTest {
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
-                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly
             ),
-            sessionStore.messages.map { it.privacy },
+            sessionStore.messages.map { it.privacy }
         )
         assertTrue(sessionStore.messages.last().text.contains("已遗忘这条本地记忆"))
     }
@@ -8719,7 +8735,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
             remoteStore = configuredRemoteStore(),
-            assistantRouter = assistantRouter,
+            assistantRouter = assistantRouter
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8750,7 +8766,7 @@ class SolinViewModelTest {
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8778,13 +8794,13 @@ class SolinViewModelTest {
     @Test
     fun rememberCommandMemoryStoreFailureDoesNotFallbackToRemote() = runTest(dispatcher) {
         val memoryRepository = MemoryRepository(
-            recordStore = FakeMemoryRecordStore(failure = IllegalStateException("memory unavailable")),
+            recordStore = FakeMemoryRecordStore(failure = IllegalStateException("memory unavailable"))
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8797,7 +8813,7 @@ class SolinViewModelTest {
         assertEquals("本地记忆暂不可用", viewModel.uiState.value.statusText)
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
-            viewModel.uiState.value.messages.map { it.privacy },
+            viewModel.uiState.value.messages.map { it.privacy }
         )
     }
 
@@ -8808,7 +8824,7 @@ class SolinViewModelTest {
         val runtime = FakeLiteRtRuntime()
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            runtime = runtime,
+            runtime = runtime
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -8849,7 +8865,7 @@ class SolinViewModelTest {
         memoryRepository.indexUserFact("fact-1", "我的项目是 Solin")
         val viewModel = createViewModel(
             firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
-            memoryRepository = memoryRepository,
+            memoryRepository = memoryRepository
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8857,7 +8873,7 @@ class SolinViewModelTest {
         assertFalse(viewModel.uiState.value.memoryEnabled)
         assertEquals(
             listOf("pref-1", "fact-1"),
-            viewModel.uiState.value.longTermMemories.map { it.id },
+            viewModel.uiState.value.longTermMemories.map { it.id }
         )
         assertTrue(memoryRepository.search("Solin").isEmpty())
 
@@ -8884,8 +8900,8 @@ class SolinViewModelTest {
                 ChatMessage(
                     role = MessageRole.User,
                     text = "普通会话内容",
-                    id = 10L,
-                ),
+                    id = 10L
+                )
             )
         }
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -8893,7 +8909,7 @@ class SolinViewModelTest {
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
             remoteRuntime = remoteRuntime,
-            remoteStore = configuredRemoteStore(),
+            remoteStore = configuredRemoteStore()
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8919,13 +8935,13 @@ class SolinViewModelTest {
                     id = "task-1",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Running,
-                    title = "喝水",
-                ),
-            ),
+                    title = "喝水"
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            backgroundTaskScheduler = scheduler,
+            backgroundTaskScheduler = scheduler
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8960,13 +8976,13 @@ class SolinViewModelTest {
                     type = ScheduledTaskType.PeriodicCheck,
                     status = ScheduledTaskStatus.Scheduled,
                     title = PeriodicCheckScheduleRequest.TITLE,
-                    body = PeriodicCheckScheduleRequest().storageSummary(),
-                ),
-            ),
+                    body = PeriodicCheckScheduleRequest().storageSummary()
+                )
+            )
         )
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
-            backgroundTaskScheduler = scheduler,
+            backgroundTaskScheduler = scheduler
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -8994,7 +9010,7 @@ class SolinViewModelTest {
 
     @Test
     fun restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork() = runTest(
-        dispatcher,
+        dispatcher
     ) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
@@ -9006,15 +9022,15 @@ class SolinViewModelTest {
                     id = "task-2",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Delivered,
-                    updatedAtMillis = 2_000L,
+                    updatedAtMillis = 2_000L
                 ),
                 scheduledTask(
                     id = "task-3",
                     type = ScheduledTaskType.Reminder,
                     status = ScheduledTaskStatus.Failed,
-                    updatedAtMillis = 3_000L,
-                ),
-            ),
+                    updatedAtMillis = 3_000L
+                )
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val executor = RecordingToolExecutor()
@@ -9022,7 +9038,7 @@ class SolinViewModelTest {
             memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
-            actionExecutor = executor,
+            actionExecutor = executor
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9034,7 +9050,7 @@ class SolinViewModelTest {
             listOf(taskStateMemoryRecordId("task-1"), taskStateMemoryRecordId("task-running")),
             store.records()
                 .filter { record -> record.type == MemoryRecordType.TaskState }
-                .map { record -> record.id },
+                .map { record -> record.id }
         )
 
         viewModel.refreshBackgroundTasks()
@@ -9056,23 +9072,23 @@ class SolinViewModelTest {
                     requestId = "request-newest",
                     toolName = MobileActionFunctions.READ_CLIPBOARD,
                     summary = "工具观察：sk-[redacted]",
-                    createdAtMillis = 3_000L,
+                    createdAtMillis = 3_000L
                 ),
                 toolAuditRecord(
                     id = "audit-older",
                     requestId = "request-older",
                     toolName = MobileActionFunctions.SCHEDULE_REMINDER,
                     summary = "已创建提醒",
-                    createdAtMillis = 1_000L,
-                ),
-            ),
+                    createdAtMillis = 1_000L
+                )
+            )
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val executor = RecordingToolExecutor()
         val viewModel = createViewModel(
             toolAuditLog = auditLog,
             remoteRuntime = remoteRuntime,
-            actionExecutor = executor,
+            actionExecutor = executor
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9104,8 +9120,8 @@ class SolinViewModelTest {
                 riskLevel = "LowReadOnly",
                 permissions = listOf("ReadsFiles"),
                 summary = "工具执行成功，结果详情不在审计视图中展示。",
-                createdAtMillis = 2_000L,
-            ),
+                createdAtMillis = 2_000L
+            )
         )
 
         viewModel.refreshAuditEvents()
@@ -9128,9 +9144,9 @@ class SolinViewModelTest {
                     runId = "run-1",
                     input = "打开 Wi-Fi 设置",
                     state = AgentRunState.Completed,
-                    stepSummary = "Requested confirmation for open_wifi_settings.",
-                ),
-            ),
+                    stepSummary = "Requested confirmation for open_wifi_settings."
+                )
+            )
         )
         val viewModel = createViewModel(assistantRouter = assistantRouter)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9156,9 +9172,9 @@ class SolinViewModelTest {
                     receiptDestination = RunDataDestination.Remote,
                     receiptPrivacy = MessagePrivacy.RemoteEligible,
                     invocationPlacement = RunPlacement.Remote,
-                    trailingStepCount = 12,
-                ),
-            ),
+                    trailingStepCount = 12
+                )
+            )
         )
         val viewModel = createViewModel(assistantRouter = assistantRouter)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9182,17 +9198,17 @@ class SolinViewModelTest {
                 selectedPlacement = RunPlacement.Remote,
                 receiptDestination = RunDataDestination.Local,
                 receiptPrivacy = MessagePrivacy.RemoteEligible,
-                invocationPlacement = RunPlacement.Remote,
+                invocationPlacement = RunPlacement.Remote
             ),
             placementTraceRunSummary(
                 selectedPlacement = RunPlacement.Remote,
                 receiptDestination = RunDataDestination.Remote,
                 receiptPrivacy = MessagePrivacy.LocalOnly,
-                invocationPlacement = RunPlacement.Remote,
-            ),
+                invocationPlacement = RunPlacement.Remote
+            )
         )
         val viewModel = createViewModel(
-            assistantRouter = FakeAssistantRouter(recentTraceRuns = invalidRuns),
+            assistantRouter = FakeAssistantRouter(recentTraceRuns = invalidRuns)
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -9214,10 +9230,10 @@ class SolinViewModelTest {
                 recentTraceRuns = listOf(
                     receiptOnlyTraceRunSummary(
                         destination = RunDataDestination.Remote,
-                        privacy = MessagePrivacy.RemoteEligible.name,
-                    ),
-                ),
-            ),
+                        privacy = MessagePrivacy.RemoteEligible.name
+                    )
+                )
+            )
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -9236,10 +9252,10 @@ class SolinViewModelTest {
                 recentTraceRuns = listOf(MessagePrivacy.LocalOnly.name, "Unknown").map { privacy ->
                     receiptOnlyTraceRunSummary(
                         destination = RunDataDestination.Remote,
-                        privacy = privacy,
+                        privacy = privacy
                     )
-                },
-            ),
+                }
+            )
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
@@ -9254,7 +9270,7 @@ class SolinViewModelTest {
     @Test
     fun cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
-            scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
+            scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled))
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9273,7 +9289,7 @@ class SolinViewModelTest {
     fun cancelScheduledBackgroundTaskFailureKeepsTaskVisible() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
-            cancelFailure = IllegalStateException("alarm unavailable"),
+            cancelFailure = IllegalStateException("alarm unavailable")
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9292,7 +9308,7 @@ class SolinViewModelTest {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
             cancelFailure = IllegalStateException("already running"),
-            cancelFailureStatus = ScheduledTaskStatus.Running,
+            cancelFailureStatus = ScheduledTaskStatus.Running
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9321,7 +9337,7 @@ class SolinViewModelTest {
         assertEquals(PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES, request.intervalMinutes)
         assertEquals(
             PeriodicCheckScheduleRequest.DEFAULT_MIN_NOTIFICATION_SPACING_MINUTES,
-            request.minNotificationSpacingMinutes,
+            request.minNotificationSpacingMinutes
         )
         assertEquals(PeriodicCheckScheduleRequest.DEFAULT_OVERDUE_GRACE_MINUTES, request.overdueGraceMinutes)
         assertTrue(viewModel.uiState.value.periodicCheckPolicy.request.enabled)
@@ -9332,7 +9348,7 @@ class SolinViewModelTest {
     @Test
     fun setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
-            periodicSetFailure = IllegalStateException("work enqueue unavailable"),
+            periodicSetFailure = IllegalStateException("work enqueue unavailable")
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9344,7 +9360,7 @@ class SolinViewModelTest {
         assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
         assertEquals(
             listOf(PeriodicCheckScheduleRequest.TASK_ID),
-            viewModel.uiState.value.backgroundTaskHistory.map { it.id },
+            viewModel.uiState.value.backgroundTaskHistory.map { it.id }
         )
         assertEquals(ScheduledTaskStatus.Failed, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
         assertTrue(viewModel.uiState.value.statusText.contains("周期检查策略保存失败"))
@@ -9359,9 +9375,9 @@ class SolinViewModelTest {
                     type = ScheduledTaskType.PeriodicCheck,
                     status = ScheduledTaskStatus.Scheduled,
                     title = PeriodicCheckScheduleRequest.TITLE,
-                    body = PeriodicCheckScheduleRequest().storageSummary(),
-                ),
-            ),
+                    body = PeriodicCheckScheduleRequest().storageSummary()
+                )
+            )
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9374,7 +9390,7 @@ class SolinViewModelTest {
         assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
         assertEquals(
             listOf(PeriodicCheckScheduleRequest.TASK_ID),
-            viewModel.uiState.value.backgroundTaskHistory.map { it.id },
+            viewModel.uiState.value.backgroundTaskHistory.map { it.id }
         )
         assertFalse(viewModel.uiState.value.periodicCheckPolicy.request.enabled)
         assertEquals(ScheduledTaskStatus.Cancelled, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
@@ -9390,10 +9406,10 @@ class SolinViewModelTest {
                     type = ScheduledTaskType.PeriodicCheck,
                     status = ScheduledTaskStatus.Scheduled,
                     title = PeriodicCheckScheduleRequest.TITLE,
-                    body = PeriodicCheckScheduleRequest().storageSummary(),
-                ),
+                    body = PeriodicCheckScheduleRequest().storageSummary()
+                )
             ),
-            periodicDisableFailure = IllegalStateException("work cancel unavailable"),
+            periodicDisableFailure = IllegalStateException("work cancel unavailable")
         )
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -9434,59 +9450,57 @@ class SolinViewModelTest {
         skipStartupModelRuntimeWork: Boolean = false,
         deferPersistenceInitialization: Boolean = false,
         actionExecutor: ToolExecutor = object : ToolExecutor {
-            override fun execute(request: ToolRequest): ToolResult =
-                ToolResult(
-                    requestId = request.id,
-                    status = ToolStatus.Succeeded,
-                    summary = "executed",
-                )
+            override fun execute(request: ToolRequest): ToolResult = ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "executed"
+            )
+        }
+    ): SolinViewModel = SolinViewModel(
+        modelRepository = modelRepository,
+        sessionRepository = sessionStore,
+        generationParametersRepository = generationStore,
+        remoteModelRepository = remoteStore,
+        huggingFaceAuthStore = huggingFaceAuthStore,
+        firstRunSetupRepository = firstRunStore,
+        downloadService = downloadClient,
+        runtime = runtime,
+        remoteRuntime = remoteRuntime,
+        memoryRepository = memoryIndex,
+        longTermMemoryControls = longTermMemoryControls,
+        backgroundTaskScheduler = backgroundTaskScheduler,
+        toolAuditLog = toolAuditLog,
+        actionExecutor = actionExecutor,
+        assistantOrchestrator = assistantRouter,
+        isArm64DeviceProvider = { true },
+        ioDispatcher = ioDispatcher,
+        requireRemoteSendDisclosure = requireRemoteSendDisclosure,
+        adaptiveInferenceRollout = adaptiveInferenceRollout,
+        chatPlacementRuntime = chatPlacementRuntime,
+        stableResourceStateProvider = {
+            StableResourceState(
+                band = StableResourceBand.Normal,
+                stableLowMemory = false,
+                latestLowMemory = false,
+                localHardBlocked = false,
+                thermalPressure = ThermalPressure.Normal
+            )
         },
-    ): SolinViewModel =
-        SolinViewModel(
-            modelRepository = modelRepository,
-            sessionRepository = sessionStore,
-            generationParametersRepository = generationStore,
-            remoteModelRepository = remoteStore,
-            huggingFaceAuthStore = huggingFaceAuthStore,
-            firstRunSetupRepository = firstRunStore,
-            downloadService = downloadClient,
-            runtime = runtime,
-            remoteRuntime = remoteRuntime,
-            memoryRepository = memoryIndex,
-            longTermMemoryControls = longTermMemoryControls,
-            backgroundTaskScheduler = backgroundTaskScheduler,
-            toolAuditLog = toolAuditLog,
-            actionExecutor = actionExecutor,
-            assistantOrchestrator = assistantRouter,
-            isArm64DeviceProvider = { true },
-            ioDispatcher = ioDispatcher,
-            requireRemoteSendDisclosure = requireRemoteSendDisclosure,
-            adaptiveInferenceRollout = adaptiveInferenceRollout,
-            chatPlacementRuntime = chatPlacementRuntime,
-            stableResourceStateProvider = {
-                StableResourceState(
-                    band = StableResourceBand.Normal,
-                    stableLowMemory = false,
-                    latestLowMemory = false,
-                    localHardBlocked = false,
-                    thermalPressure = ThermalPressure.Normal,
-                )
-            },
-            bootCountProvider = { 1L },
-            elapsedRealtimeMillis = { 10L },
-            remoteConnectivityProbe = remoteConnectivityProbe,
-            remoteSendAuditSink = remoteSendAuditStore,
-            remoteSendAuditLog = remoteSendAuditStore,
-            remoteSendPendingStore = remoteSendPendingStore,
-            bundledModelInstaller = bundledModelInstaller,
-            skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
-            deferPersistenceInitialization = deferPersistenceInitialization,
-        )
+        bootCountProvider = { 1L },
+        elapsedRealtimeMillis = { 10L },
+        remoteConnectivityProbe = remoteConnectivityProbe,
+        remoteSendAuditSink = remoteSendAuditStore,
+        remoteSendAuditLog = remoteSendAuditStore,
+        remoteSendPendingStore = remoteSendPendingStore,
+        bundledModelInstaller = bundledModelInstaller,
+        skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
+        deferPersistenceInitialization = deferPersistenceInitialization
+    )
 
     private class FakeChatPlacementRuntime(
         private val rejectBinding: Boolean = false,
         private val stopBeforeAwait: Boolean = false,
-        private val dispatchFailure: Throwable? = null,
+        private val dispatchFailure: Throwable? = null
     ) : ChatPlacementRuntime {
         var dispatchCount: Int = 0
             private set
@@ -9499,14 +9513,13 @@ class SolinViewModelTest {
 
         override fun activeBinding(runId: String): ActiveRunPlacementPermit? = permits[runId]
 
-        override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit? =
-            if (rejectBinding) {
-                null
-            } else {
-                ActiveRunPlacementPermit.detached(binding).also { permit ->
-                    permits[binding.runId] = permit
-                }
+        override fun bindAndReserve(binding: RunPlacementBinding): ActiveRunPlacementPermit? = if (rejectBinding) {
+            null
+        } else {
+            ActiveRunPlacementPermit.detached(binding).also { permit ->
+                permits[binding.runId] = permit
             }
+        }
 
         override fun abort(permit: ActiveRunPlacementPermit) {
             abortCount += 1
@@ -9518,7 +9531,7 @@ class SolinViewModelTest {
             prepared: PreparedChatRun,
             receipt: RunDataReceipt,
             local: ChatServingCall,
-            remote: ChatServingCall,
+            remote: ChatServingCall
         ) {
             dispatchCount += 1
             receipts += receipt
@@ -9575,16 +9588,15 @@ class SolinViewModelTest {
         displayName: String,
         path: String,
         recommendedModelId: String? = null,
-        verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
-    ): InstalledModelSummary =
-        InstalledModelSummary(
-            id = id,
-            displayName = displayName,
-            path = path,
-            fileBytes = 1L,
-            recommendedModelId = recommendedModelId,
-            verificationStatus = verificationStatus,
-        )
+        verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom
+    ): InstalledModelSummary = InstalledModelSummary(
+        id = id,
+        displayName = displayName,
+        path = path,
+        fileBytes = 1L,
+        recommendedModelId = recommendedModelId,
+        verificationStatus = verificationStatus
+    )
 
     private fun pendingRemoteSendMarker(
         kind: RemoteSendDisclosureKind = RemoteSendDisclosureKind.CurrentInput,
@@ -9593,17 +9605,16 @@ class SolinViewModelTest {
         localOnlyHistoryFilteredCount: Int = 0,
         imageAttachmentCount: Int = 0,
         protectedSourceCount: Int = 0,
-        runId: String? = null,
-    ): PendingRemoteSendMarker =
-        PendingRemoteSendMarker(
-            kind = kind,
-            remoteModelName = remoteModelName,
-            remoteHistoryCount = remoteHistoryCount,
-            localOnlyHistoryFilteredCount = localOnlyHistoryFilteredCount,
-            imageAttachmentCount = imageAttachmentCount,
-            protectedSourceCount = protectedSourceCount,
-            runId = runId,
-        )
+        runId: String? = null
+    ): PendingRemoteSendMarker = PendingRemoteSendMarker(
+        kind = kind,
+        remoteModelName = remoteModelName,
+        remoteHistoryCount = remoteHistoryCount,
+        localOnlyHistoryFilteredCount = localOnlyHistoryFilteredCount,
+        imageAttachmentCount = imageAttachmentCount,
+        protectedSourceCount = protectedSourceCount,
+        runId = runId
+    )
 
     private fun sharedTextPreviewInput(
         kind: SharedAttachmentKind = SharedAttachmentKind.Document,
@@ -9612,129 +9623,122 @@ class SolinViewModelTest {
         sizeBytes: Long,
         text: String,
         truncated: Boolean = false,
-        source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
-    ): SharedInput =
-        SharedInput(
-            text = "",
-            attachments = listOf(
-                SharedAttachment(
-                    kind = kind,
-                    mimeType = mimeType,
-                    displayName = displayName,
-                    sizeBytes = sizeBytes,
-                    textPreview = SharedTextPreview(
-                        text = text,
-                        truncated = truncated,
-                        source = source,
-                    ),
-                ),
-            ),
+        source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile
+    ): SharedInput = SharedInput(
+        text = "",
+        attachments = listOf(
+            SharedAttachment(
+                kind = kind,
+                mimeType = mimeType,
+                displayName = displayName,
+                sizeBytes = sizeBytes,
+                textPreview = SharedTextPreview(
+                    text = text,
+                    truncated = truncated,
+                    source = source
+                )
+            )
         )
+    )
 
     private fun sharedImageInput(
         displayName: String = "screen.png",
         dataUrl: String = TEST_IMAGE_DATA_URL,
         sizeBytes: Long = 12L,
-        mimeType: String = "image/png",
-    ): SharedInput =
-        SharedInput(
-            text = "",
-            attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
+        mimeType: String = "image/png"
+    ): SharedInput = SharedInput(
+        text = "",
+        attachments = listOf(
+            SharedAttachment(
+                kind = SharedAttachmentKind.Image,
+                mimeType = mimeType,
+                displayName = displayName,
+                sizeBytes = sizeBytes,
+                imageAttachment = ChatImageAttachment(
                     mimeType = mimeType,
-                    displayName = displayName,
-                    sizeBytes = sizeBytes,
-                    imageAttachment = ChatImageAttachment(
-                        mimeType = mimeType,
-                        dataUrl = dataUrl,
-                    ),
-                    localImageAttachment = LocalImageAttachment(
-                        mimeType = mimeType,
-                        bytes = byteArrayOf(0),
-                        sizeBytes = 1,
-                    ),
+                    dataUrl = dataUrl
                 ),
-            ),
-            sourcePrivacy = listOf(
-                SharedInputSourcePrivacy(
-                    source = SharedInputSource.Image,
-                    privacy = MessagePrivacy.RemoteEligible,
-                    requiresLocalModel = false,
-                ),
-            ),
+                localImageAttachment = LocalImageAttachment(
+                    mimeType = mimeType,
+                    bytes = byteArrayOf(0),
+                    sizeBytes = 1
+                )
+            )
+        ),
+        sourcePrivacy = listOf(
+            SharedInputSourcePrivacy(
+                source = SharedInputSource.Image,
+                privacy = MessagePrivacy.RemoteEligible,
+                requiresLocalModel = false
+            )
         )
+    )
 
     private fun localSharedImageInput(
         displayName: String,
         mimeType: String = "image/png",
         sizeBytes: Long = 4L,
-        bytes: ByteArray? = null,
-    ): SharedInput =
-        SharedInput(
-            text = "",
-            attachments = listOf(
-                SharedAttachment(
-                    kind = SharedAttachmentKind.Image,
-                    mimeType = mimeType,
-                    displayName = displayName,
-                    sizeBytes = sizeBytes,
-                    localImageAttachment = bytes?.let {
-                        LocalImageAttachment(
-                            mimeType = mimeType,
-                            bytes = it,
-                            sizeBytes = sizeBytes,
-                        )
-                    },
-                ),
-            ),
-        )
-
-    private fun publicWeatherBatchRequests(): List<ToolRequest> =
-        listOf(
-            publicWeatherRequest(id = "call-beijing", query = "北京 今天 天气"),
-            publicWeatherRequest(id = "call-shanghai", query = "上海 今天 天气"),
-        )
-
-    private fun publicWeatherRequest(id: String, query: String): ToolRequest =
-        ToolRequest(
-            id = id,
-            toolName = MobileActionFunctions.WEB_SEARCH,
-            arguments = mapOf("query" to query),
-            reason = "remote tool call",
-        )
-
-    private fun publicEvidenceBatchPlans(requests: List<ToolRequest>): List<AgentPlan.UseTool> =
-        requests.map { request ->
-            AgentPlan.UseTool(
-                request = request,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.WEB_SEARCH,
-                    title = "Web 搜索",
-                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
-                    parameters = request.arguments,
-                ),
-                plannedByModel = true,
-                fallbackReason = "remote tool batch",
-                safetyDecision = SafetyDecision(
-                    outcome = SafetyOutcome.Allow,
-                    reason = "Read-only web search can execute without confirmation.",
-                ),
+        bytes: ByteArray? = null
+    ): SharedInput = SharedInput(
+        text = "",
+        attachments = listOf(
+            SharedAttachment(
+                kind = SharedAttachmentKind.Image,
+                mimeType = mimeType,
+                displayName = displayName,
+                sizeBytes = sizeBytes,
+                localImageAttachment = bytes?.let {
+                    LocalImageAttachment(
+                        mimeType = mimeType,
+                        bytes = it,
+                        sizeBytes = sizeBytes
+                    )
+                }
             )
-        }
+        )
+    )
+
+    private fun publicWeatherBatchRequests(): List<ToolRequest> = listOf(
+        publicWeatherRequest(id = "call-beijing", query = "北京 今天 天气"),
+        publicWeatherRequest(id = "call-shanghai", query = "上海 今天 天气")
+    )
+
+    private fun publicWeatherRequest(id: String, query: String): ToolRequest = ToolRequest(
+        id = id,
+        toolName = MobileActionFunctions.WEB_SEARCH,
+        arguments = mapOf("query" to query),
+        reason = "remote tool call"
+    )
+
+    private fun publicEvidenceBatchPlans(requests: List<ToolRequest>): List<AgentPlan.UseTool> = requests.map { request ->
+        AgentPlan.UseTool(
+            request = request,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.WEB_SEARCH,
+                title = "Web 搜索",
+                summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
+                parameters = request.arguments
+            ),
+            plannedByModel = true,
+            fallbackReason = "remote tool batch",
+            safetyDecision = SafetyDecision(
+                outcome = SafetyOutcome.Allow,
+                reason = "Read-only web search can execute without confirmation."
+            )
+        )
+    }
 
     private fun publicEvidenceBatchModelObservation(
         runId: String,
-        requests: List<ToolRequest>,
-    ): AgentModelObservationResult =
-        AgentModelObservationResult(
-            run = publicEvidenceBatchRun(runId, AgentRunState.ExecutingTool, 2L),
-            decision = AgentObservationDecision.PlanToolBatch(
-                plans = publicEvidenceBatchPlans(requests),
-                reason = "Remote model requested 2 parallel public evidence tool calls.",
-            ),
-            steps = emptyList(),
-        )
+        requests: List<ToolRequest>
+    ): AgentModelObservationResult = AgentModelObservationResult(
+        run = publicEvidenceBatchRun(runId, AgentRunState.ExecutingTool, 2L),
+        decision = AgentObservationDecision.PlanToolBatch(
+            plans = publicEvidenceBatchPlans(requests),
+            reason = "Remote model requested 2 parallel public evidence tool calls."
+        ),
+        steps = emptyList()
+    )
 
     private fun publicEvidenceBatchToolObservation(
         runId: String,
@@ -9743,51 +9747,48 @@ class SolinViewModelTest {
         summary: String = "工具执行结果：已完成 2 个公开只读工具调用。",
         decision: AgentObservationDecision = AgentObservationDecision.ContinueWithModel(
             requiresLocalModel = false,
-            reason = "Parallel public evidence tools completed.",
+            reason = "Parallel public evidence tools completed."
         ),
         continuationPrompt: String? = "请综合北京和上海的天气结果计算温差。",
-        retryable: Boolean = false,
-    ): AgentObservationResult =
-        AgentObservationResult(
-            run = publicEvidenceBatchRun(runId, state, 3L),
-            result = ToolResult(
-                requestId = "public-evidence-batch",
-                status = resultStatus,
-                summary = summary,
-                data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
-                retryable = retryable,
-            ),
-            assistantMessage = summary,
-            decision = decision,
-            continuationPromptForModel = continuationPrompt,
-            steps = emptyList(),
-        )
+        retryable: Boolean = false
+    ): AgentObservationResult = AgentObservationResult(
+        run = publicEvidenceBatchRun(runId, state, 3L),
+        result = ToolResult(
+            requestId = "public-evidence-batch",
+            status = resultStatus,
+            summary = summary,
+            data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
+            retryable = retryable
+        ),
+        assistantMessage = summary,
+        decision = decision,
+        continuationPromptForModel = continuationPrompt,
+        steps = emptyList()
+    )
 
-    private fun publicEvidenceBatchCompletedObservation(runId: String): AgentModelObservationResult =
-        AgentModelObservationResult(
-            run = publicEvidenceBatchRun(runId, AgentRunState.Completed, 4L),
-            decision = AgentObservationDecision.Complete,
-            steps = emptyList(),
-        )
+    private fun publicEvidenceBatchCompletedObservation(runId: String): AgentModelObservationResult = AgentModelObservationResult(
+        run = publicEvidenceBatchRun(runId, AgentRunState.Completed, 4L),
+        decision = AgentObservationDecision.Complete,
+        steps = emptyList()
+    )
 
     private fun publicEvidenceBatchRun(
         runId: String,
         state: AgentRunState,
-        updatedAtMillis: Long,
-    ): AgentRun =
-        AgentRun(
-            id = runId,
-            input = "北京和上海今天温差多少？",
-            state = state,
-            createdAtMillis = 1L,
-            updatedAtMillis = updatedAtMillis,
-        )
+        updatedAtMillis: Long
+    ): AgentRun = AgentRun(
+        id = runId,
+        input = "北京和上海今天温差多少？",
+        state = state,
+        createdAtMillis = 1L,
+        updatedAtMillis = updatedAtMillis
+    )
 
     private fun assertRemoteProtectedSharedInput(
         remoteRuntime: RecordingRemoteChatRuntime,
         sessionStore: FakeSessionStore,
         statusText: String,
-        forbiddenText: List<String>,
+        forbiddenText: List<String>
     ) {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(1, sessionStore.messages.size)
@@ -9803,34 +9804,32 @@ class SolinViewModelTest {
         assertEquals("已保护分享内容", statusText)
     }
 
-    private fun configuredRemoteModel(): RemoteModelConfig =
-        RemoteModelConfig(
-            baseUrl = "https://api.example.com/v1",
-            modelName = "model-a",
-            // Vision-capable test model: supportsVisionInput now defaults to false (fail-closed),
-            // so image-sending tests must opt in explicitly.
-            supportsVisionInput = true,
-            profileRevision = TEST_REMOTE_REVISION,
-        )
+    private fun configuredRemoteModel(): RemoteModelConfig = RemoteModelConfig(
+        baseUrl = "https://api.example.com/v1",
+        modelName = "model-a",
+        // Vision-capable test model: supportsVisionInput now defaults to false (fail-closed),
+        // so image-sending tests must opt in explicitly.
+        supportsVisionInput = true,
+        profileRevision = TEST_REMOTE_REVISION
+    )
 
     private fun configuredRemoteStore(
-        config: RemoteModelConfig = configuredRemoteModel(),
-    ): FakeRemoteModelStore =
-        FakeRemoteModelStore(
-            mode = InferenceMode.Remote,
-            config = config,
-        )
+        config: RemoteModelConfig = configuredRemoteModel()
+    ): FakeRemoteModelStore = FakeRemoteModelStore(
+        mode = InferenceMode.Remote,
+        config = config
+    )
 
     private data class RemoteCall(
         val prompt: String,
         val history: List<ChatMessage>,
         val parameters: GenerationParameters,
         val tools: List<ToolSpec> = emptyList(),
-        val imageAttachments: List<ChatImageAttachment> = emptyList(),
+        val imageAttachments: List<ChatImageAttachment> = emptyList()
     )
 
     private class FakeRemoteModelConnectivityProbe(
-        private val status: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Reachable,
+        private val status: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Reachable
     ) : RemoteModelConnectivityProbe {
         val checkedConfigs = mutableListOf<RemoteModelConfig>()
 
@@ -9844,34 +9843,33 @@ class SolinViewModelTest {
         runId: String,
         input: String,
         state: AgentRunState,
-        stepSummary: String,
-    ): AgentTraceRunSummary =
-        AgentTraceRunSummary(
-            run = AgentRun(
-                id = runId,
-                input = input,
-                state = state,
-                createdAtMillis = 1_000L,
-                updatedAtMillis = 2_000L,
-            ),
-            steps = listOf(
-                AgentTraceStepSummary(
-                    runId = runId,
-                    position = 0,
-                    type = "UserConfirmationRequested",
-                    summary = stepSummary,
-                    json = "{}",
-                    createdAtMillis = 1_500L,
-                ),
-            ),
+        stepSummary: String
+    ): AgentTraceRunSummary = AgentTraceRunSummary(
+        run = AgentRun(
+            id = runId,
+            input = input,
+            state = state,
+            createdAtMillis = 1_000L,
+            updatedAtMillis = 2_000L
+        ),
+        steps = listOf(
+            AgentTraceStepSummary(
+                runId = runId,
+                position = 0,
+                type = "UserConfirmationRequested",
+                summary = stepSummary,
+                json = "{}",
+                createdAtMillis = 1_500L
+            )
         )
+    )
 
     private fun placementTraceRunSummary(
         selectedPlacement: RunPlacement,
         receiptDestination: RunDataDestination,
         receiptPrivacy: MessagePrivacy,
         invocationPlacement: RunPlacement,
-        trailingStepCount: Int = 0,
+        trailingStepCount: Int = 0
     ): AgentTraceRunSummary {
         val store = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val run = store.createRun("[redacted]", sessionId = "session")
@@ -9895,18 +9893,18 @@ class SolinViewModelTest {
                     remoteState = com.bytedance.zgx.solin.orchestration.CandidateState.Eligible,
                     remoteProfileRevision = remoteRevision.takeIf { selectedPlacement == RunPlacement.Remote },
                     bootCount = 1L,
-                    boundAtElapsedRealtimeMillis = 1_000L,
-                ),
-            ),
+                    boundAtElapsedRealtimeMillis = 1_000L
+                )
+            )
         )
         store.appendStep(
             run.id,
             AgentStep.RunDataReceiptRecorded(
                 RunDataReceipt(
                     destination = receiptDestination,
-                    currentPromptPrivacy = receiptPrivacy.name,
-                ),
-            ),
+                    currentPromptPrivacy = receiptPrivacy.name
+                )
+            )
         )
         store.appendStep(
             run.id,
@@ -9915,9 +9913,9 @@ class SolinViewModelTest {
                     runId = run.id,
                     placement = invocationPlacement,
                     attempt = 1,
-                    remoteProfileRevision = remoteRevision.takeIf { invocationPlacement == RunPlacement.Remote },
-                ),
-            ),
+                    remoteProfileRevision = remoteRevision.takeIf { invocationPlacement == RunPlacement.Remote }
+                )
+            )
         )
         repeat(trailingStepCount) { index ->
             store.appendStep(run.id, AgentStep.AssistantResponded("step-$index"))
@@ -9927,7 +9925,7 @@ class SolinViewModelTest {
 
     private fun receiptOnlyTraceRunSummary(
         destination: RunDataDestination,
-        privacy: String,
+        privacy: String
     ): AgentTraceRunSummary {
         val store = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val run = store.createRun("[redacted]", sessionId = "session")
@@ -9936,9 +9934,9 @@ class SolinViewModelTest {
             AgentStep.RunDataReceiptRecorded(
                 RunDataReceipt(
                     destination = destination,
-                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name,
-                ),
-            ),
+                    currentPromptPrivacy = MessagePrivacy.RemoteEligible.name
+                )
+            )
         )
         val summary = store.recentRunSummaries(limit = 1, stepLimit = Int.MAX_VALUE).single()
         val steps = summary.steps.map { step ->
@@ -9946,7 +9944,7 @@ class SolinViewModelTest {
                 step.copy(
                     json = JSONObject(step.json)
                         .put("currentPromptPrivacy", privacy)
-                        .toString(),
+                        .toString()
                 )
             } else {
                 step
@@ -9954,18 +9952,16 @@ class SolinViewModelTest {
         }
         return summary.copy(
             steps = steps,
-            runDataReceiptStep = steps.single { step -> step.type == "RunDataReceiptRecorded" },
+            runDataReceiptStep = steps.single { step -> step.type == "RunDataReceiptRecorded" }
         )
     }
 
-    private fun MemoryRecordStore.hasRecord(id: String, type: MemoryRecordType): Boolean =
-        records().any { record -> record.id == id && record.type == type }
+    private fun MemoryRecordStore.hasRecord(id: String, type: MemoryRecordType): Boolean = records().any { record -> record.id == id && record.type == type }
 
-    private fun MemoryRecordStore.hasSuppressedTaskState(taskStateMemoryId: String): Boolean =
-        records().any { record ->
-            record.type == MemoryRecordType.SuppressedTaskState &&
-                record.text == taskStateMemoryId
-        }
+    private fun MemoryRecordStore.hasSuppressedTaskState(taskStateMemoryId: String): Boolean = records().any { record ->
+        record.type == MemoryRecordType.SuppressedTaskState &&
+            record.text == taskStateMemoryId
+    }
 
     private class RecordingRemoteChatRuntime(
         private val events: List<RemoteChatEvent> = listOf(RemoteChatEvent.TextDelta("远程回复")),
@@ -9973,7 +9969,7 @@ class SolinViewModelTest {
         private val eventBatchStartGates: List<CompletableDeferred<Unit>?> = emptyList(),
         private val eventBatchFailures: Map<Int, Throwable> = emptyMap(),
         var failure: Throwable? = null,
-        private val hangDuringSend: Boolean = false,
+        private val hangDuringSend: Boolean = false
     ) : RemoteChatRuntime {
         val calls = mutableListOf<RemoteCall>()
         var stopCallCount: Int = 0
@@ -9984,7 +9980,7 @@ class SolinViewModelTest {
             history: List<ChatMessage>,
             parameters: GenerationParameters,
             config: RemoteModelConfig,
-            imageAttachments: List<ChatImageAttachment>,
+            imageAttachments: List<ChatImageAttachment>
         ): Flow<String> {
             calls += RemoteCall(prompt, history, parameters, imageAttachments = imageAttachments)
             failure?.let { throwable ->
@@ -10002,7 +9998,7 @@ class SolinViewModelTest {
             parameters: GenerationParameters,
             config: RemoteModelConfig,
             tools: List<ToolSpec>,
-            imageAttachments: List<ChatImageAttachment>,
+            imageAttachments: List<ChatImageAttachment>
         ): Flow<RemoteChatEvent> {
             val callIndex = calls.size
             calls += RemoteCall(prompt, history, parameters, tools, imageAttachments)
@@ -10038,13 +10034,13 @@ class SolinViewModelTest {
             return ToolResult(
                 requestId = request.id,
                 status = ToolStatus.Succeeded,
-                summary = "executed",
+                summary = "executed"
             )
         }
     }
 
     private class RetryableFailureThenSuccessToolExecutor(
-        private val failOnceRequestId: String,
+        private val failOnceRequestId: String
     ) : ToolExecutor {
         val executedRequests: MutableList<ToolRequest> = Collections.synchronizedList(mutableListOf())
         private val attemptsByRequestId = mutableMapOf<String, Int>()
@@ -10061,24 +10057,22 @@ class SolinViewModelTest {
                     requestId = request.id,
                     status = ToolStatus.Failed,
                     summary = "temporary network unavailable",
-                    retryable = true,
+                    retryable = true
                 )
             } else {
                 ToolResult(
                     requestId = request.id,
                     status = ToolStatus.Succeeded,
-                    summary = "executed",
+                    summary = "executed"
                 )
             }
         }
     }
 
     private class ThrowingToolExecutor(
-        private val throwable: Throwable,
+        private val throwable: Throwable
     ) : ToolExecutor {
-        override fun execute(request: ToolRequest): ToolResult {
-            throw throwable
-        }
+        override fun execute(request: ToolRequest): ToolResult = throw throwable
     }
 
     private class BlockingSharedGateEngine : LocalEngine {
@@ -10088,8 +10082,7 @@ class SolinViewModelTest {
         val interrupted = CountDownLatch(1)
         val release = CountDownLatch(1)
 
-        override fun engineCapabilities() =
-            LocalEngineCapabilities("fake", setOf(LocalAccelerator.CPU), 8_192)
+        override fun engineCapabilities() = LocalEngineCapabilities("fake", setOf(LocalAccelerator.CPU), 8_192)
 
         override fun generateOneShot(request: LocalOneShotRequest): LocalOneShotResult {
             requests += request
@@ -10103,7 +10096,7 @@ class SolinViewModelTest {
                 when {
                     request.cancellation.isCancelled -> LocalOneShotResult.Unavailable(
                         LocalOneShotUnavailableReason.Cancelled,
-                        "caller cancelled",
+                        "caller cancelled"
                     )
                     completed -> LocalOneShotResult.Generated(
                         text = """{"action":true,"confidence":1.0}""",
@@ -10114,12 +10107,12 @@ class SolinViewModelTest {
                             5,
                             10,
                             null,
-                            null,
-                        ),
+                            null
+                        )
                     )
                     else -> LocalOneShotResult.Unavailable(
                         LocalOneShotUnavailableReason.Failed,
-                        "test gate timed out",
+                        "test gate timed out"
                     )
                 }
             } catch (_: InterruptedException) {
@@ -10152,7 +10145,7 @@ class SolinViewModelTest {
         private val recoveryRoute: AssistantRoute? = null,
         private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
         private val runEventsById: Map<String, List<AgentRunEvent>> = emptyMap(),
-        private val publicWebEvidenceByRunId: Map<String, List<PublicWebEvidencePack>> = emptyMap(),
+        private val publicWebEvidenceByRunId: Map<String, List<PublicWebEvidencePack>> = emptyMap()
     ) : AssistantRouter {
         var routeCallCount: Int = 0
             private set
@@ -10253,7 +10246,7 @@ class SolinViewModelTest {
             deviceContext: com.bytedance.zgx.solin.device.DeviceContextSnapshot?,
             sessionId: String?,
             options: AgentRunOptions,
-            installedCapabilityProfiles: List<ModelCapabilityProfile>,
+            installedCapabilityProfiles: List<ModelCapabilityProfile>
         ): AssistantRoute {
             routeCallCount += 1
             lastRouteSessionId = sessionId
@@ -10262,12 +10255,12 @@ class SolinViewModelTest {
             lastRouteDeviceContext = deviceContext
             lastRouteCapabilityProfiles = installedCapabilityProfiles
             routeFailure?.let { throw it }
-            val route = routeResult ?:
-                AssistantRoute.Chat(
+            val route = routeResult
+                ?: AssistantRoute.Chat(
                     runId = "run-route-$routeCallCount",
                     promptForModel = input,
                     memoryHits = emptyList(),
-                    deviceContext = deviceContext,
+                    deviceContext = deviceContext
                 )
             recordRoute(route)
             return route
@@ -10281,7 +10274,7 @@ class SolinViewModelTest {
                 toolRequest = action.request,
                 draft = action.draft,
                 plannedByModel = false,
-                fallbackReason = "typed recovery action",
+                fallbackReason = "typed recovery action"
             )
             recordRoute(route)
             return route
@@ -10304,14 +10297,14 @@ class SolinViewModelTest {
                         type = "Failed",
                         summary = reason,
                         json = "{}",
-                        createdAtMillis = 2L,
-                    ),
-                ),
+                        createdAtMillis = 2L
+                    )
+                )
             )
             return AgentModelObservationResult(
                 run = AgentRun(runId, "", AgentRunState.Failed, 1L, 2L),
                 decision = AgentObservationDecision.Fail(reason),
-                steps = emptyList(),
+                steps = emptyList()
             )
         }
 
@@ -10337,14 +10330,14 @@ class SolinViewModelTest {
                         type = "ObservationDecided",
                         summary = "Observation cancelled.",
                         json = """{"type":"ObservationDecided","decision":{"type":"Cancel"}}""",
-                        createdAtMillis = 2L,
-                    ),
-                ),
+                        createdAtMillis = 2L
+                    )
+                )
             )
             return AgentModelObservationResult(
                 run = AgentRun(runId, "", AgentRunState.Cancelled, 1L, 2L),
                 decision = AgentObservationDecision.Cancel,
-                steps = emptyList(),
+                steps = emptyList()
             )
         }
 
@@ -10369,16 +10362,15 @@ class SolinViewModelTest {
         override fun answerUserQuestion(
             runId: String,
             questionId: String,
-            answer: String,
+            answer: String
         ): AgentObservationResult? = null
 
-        override fun cancelUserQuestion(runId: String, questionId: String): AgentObservationResult? =
-            null
+        override fun cancelUserQuestion(runId: String, questionId: String): AgentObservationResult? = null
 
         override fun failPendingToolRequest(
             runId: String,
             requestId: String,
-            result: ToolResult,
+            result: ToolResult
         ): AgentObservationResult? {
             failPendingCallCount += 1
             lastFailedPendingResult = result
@@ -10388,7 +10380,7 @@ class SolinViewModelTest {
                 result = result,
                 assistantMessage = "工具执行失败：${result.summary}",
                 decision = AgentObservationDecision.Fail(result.summary),
-                steps = emptyList(),
+                steps = emptyList()
             )
         }
 
@@ -10411,7 +10403,7 @@ class SolinViewModelTest {
         override fun recordExternalOutcome(
             runId: String,
             requestId: String,
-            outcome: AgentExternalOutcome,
+            outcome: AgentExternalOutcome
         ): AgentExternalOutcomeResult? {
             recordExternalOutcomeCallCount += 1
             lastExternalOutcome = outcome
@@ -10423,7 +10415,7 @@ class SolinViewModelTest {
         override fun observeModelResult(
             runId: String,
             text: String,
-            allowInlineToolCalls: Boolean,
+            allowInlineToolCalls: Boolean
         ): AgentModelObservationResult? {
             observeModelResultCallCount += 1
             lastObserveModelResultAllowInlineToolCalls = allowInlineToolCalls
@@ -10436,7 +10428,7 @@ class SolinViewModelTest {
         override fun recordRemoteToolsExposed(
             runId: String,
             scope: RemoteToolScope,
-            toolNames: Set<String>,
+            toolNames: Set<String>
         ) {
             lastRemoteToolsExposedScope = scope
             lastRemoteToolsExposedNames = toolNames
@@ -10460,7 +10452,7 @@ class SolinViewModelTest {
 
         override fun observeModelToolRequests(
             runId: String,
-            requests: List<ToolRequest>,
+            requests: List<ToolRequest>
         ): AgentModelObservationResult? {
             observeModelToolBatchCallCount += 1
             lastObservedModelToolRequests = requests
@@ -10488,19 +10480,16 @@ class SolinViewModelTest {
                 }
         }
 
-        override fun runEvents(runId: String): List<AgentRunEvent> =
-            runEventsById[runId].orEmpty()
+        override fun runEvents(runId: String): List<AgentRunEvent> = runEventsById[runId].orEmpty()
 
-        override fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> =
-            publicWebEvidenceByRunId[runId].orEmpty()
+        override fun publicWebEvidence(runId: String): List<PublicWebEvidencePack> = publicWebEvidenceByRunId[runId].orEmpty()
 
         override fun deleteRunsForSession(sessionId: String): Int {
             deletedTraceSessionIds += sessionId
             return 1
         }
 
-        override fun availableToolSpecs(): List<ToolSpec> =
-            ToolRegistry().specs()
+        override fun availableToolSpecs(): List<ToolSpec> = ToolRegistry().specs()
 
         private fun recordRoute(route: AssistantRoute) {
             when (route) {
@@ -10530,7 +10519,7 @@ class SolinViewModelTest {
 
     private class FakeSessionStore(
         initialSessions: Map<String, List<ChatMessage>> = mapOf("session-1" to emptyList()),
-        initialActiveSessionId: String = initialSessions.keys.first(),
+        initialActiveSessionId: String = initialSessions.keys.first()
     ) : SessionStore {
         private val sessionsById = linkedMapOf<String, List<ChatMessage>>().apply {
             putAll(initialSessions)
@@ -10544,15 +10533,13 @@ class SolinViewModelTest {
                 sessionsById[activeSessionId] = value
             }
 
-        override fun summaries(): List<ChatSessionSummary> =
-            sessionsById.map { (sessionId, messages) ->
-                ChatSessionSummary(sessionId, "测试会话", 1L, messages.size)
-            }
+        override fun summaries(): List<ChatSessionSummary> = sessionsById.map { (sessionId, messages) ->
+            ChatSessionSummary(sessionId, "测试会话", 1L, messages.size)
+        }
 
         override fun activeMessages(): List<ChatMessage> = messages
 
-        override fun allMessages(limit: Int): List<ChatMessage> =
-            sessionsById.values.flatten().takeLast(limit)
+        override fun allMessages(limit: Int): List<ChatMessage> = sessionsById.values.flatten().takeLast(limit)
 
         override fun createNewSession(): List<ChatMessage> {
             val sessionId = "session-${nextSessionId++}"
@@ -10585,7 +10572,9 @@ class SolinViewModelTest {
         }
     }
 
-    private class CountingMemoryRepository : MemoryIndex, LongTermMemoryControls {
+    private class CountingMemoryRepository :
+        MemoryIndex,
+        LongTermMemoryControls {
         override var enabled: Boolean = true
         var rebuildCallCount: Int = 0
             private set
@@ -10648,7 +10637,7 @@ class SolinViewModelTest {
         private val cancelFailureStatus: ScheduledTaskStatus? = null,
         private val periodicSetFailure: Throwable? = null,
         private val periodicDisableFailure: Throwable? = null,
-        private val onReconcilePeriodicCheckOnStartup: (MutableMap<String, ScheduledTask>) -> Unit = {},
+        private val onReconcilePeriodicCheckOnStartup: (MutableMap<String, ScheduledTask>) -> Unit = {}
     ) : BackgroundTaskScheduler {
         private val tasks = linkedMapOf<String, ScheduledTask>()
         val cancelledTaskIds = mutableListOf<String>()
@@ -10661,20 +10650,17 @@ class SolinViewModelTest {
             scheduledTasks.forEach { task -> tasks[task.id] = task }
         }
 
-        override fun scheduledTasks(limit: Int): List<ScheduledTask> =
-            tasks.values.sortedBy { it.triggerAtMillis }.take(limit)
+        override fun scheduledTasks(limit: Int): List<ScheduledTask> = tasks.values.sortedBy { it.triggerAtMillis }.take(limit)
 
-        override fun recentTasks(limit: Int): List<ScheduledTask> =
-            tasks.values
-                .sortedWith(compareByDescending<ScheduledTask> { it.updatedAtMillis }.thenBy { it.id })
-                .take(limit)
+        override fun recentTasks(limit: Int): List<ScheduledTask> = tasks.values
+            .sortedWith(compareByDescending<ScheduledTask> { it.updatedAtMillis }.thenBy { it.id })
+            .take(limit)
 
-        override fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
-            tasks[PeriodicCheckScheduleRequest.TASK_ID]?.toPeriodicCheckPolicySummary()
-                ?: PeriodicCheckPolicySummary.disabled()
+        override fun periodicCheckPolicy(): PeriodicCheckPolicySummary = tasks[PeriodicCheckScheduleRequest.TASK_ID]?.toPeriodicCheckPolicySummary()
+            ?: PeriodicCheckPolicySummary.disabled()
 
         override fun setPeriodicCheckPolicy(
-            request: PeriodicCheckScheduleRequest,
+            request: PeriodicCheckScheduleRequest
         ): Result<PeriodicCheckPolicySummary> {
             val normalized = request.normalized()
             periodicPolicyRequests += normalized
@@ -10682,7 +10668,7 @@ class SolinViewModelTest {
 
             val task = periodicCheckTask(
                 request = normalized,
-                status = ScheduledTaskStatus.Scheduled,
+                status = ScheduledTaskStatus.Scheduled
             )
             tasks[task.id] = task
             periodicSetFailure?.let { throwable ->
@@ -10700,7 +10686,7 @@ class SolinViewModelTest {
                 ?: PeriodicCheckScheduleRequest()
             val task = periodicCheckTask(
                 request = existingRequest.copy(enabled = false).normalized(),
-                status = ScheduledTaskStatus.Cancelled,
+                status = ScheduledTaskStatus.Cancelled
             )
             tasks[task.id] = task
             return Result.success(periodicCheckPolicy())
@@ -10713,8 +10699,8 @@ class SolinViewModelTest {
                 ReminderRescheduleReport(
                     total = total,
                     scheduled = total,
-                    failed = 0,
-                ),
+                    failed = 0
+                )
             )
         }
 
@@ -10733,7 +10719,7 @@ class SolinViewModelTest {
                 triggerAtMillis = 2_000L,
                 status = ScheduledTaskStatus.Scheduled,
                 createdAtMillis = 1_000L,
-                updatedAtMillis = 1_000L,
+                updatedAtMillis = 1_000L
             )
             tasks[task.id] = task
             return Result.success(task)
@@ -10755,7 +10741,7 @@ class SolinViewModelTest {
 
         private fun periodicCheckTask(
             request: PeriodicCheckScheduleRequest,
-            status: ScheduledTaskStatus,
+            status: ScheduledTaskStatus
         ): ScheduledTask {
             val existing = tasks[PeriodicCheckScheduleRequest.TASK_ID]
             return ScheduledTask(
@@ -10766,7 +10752,7 @@ class SolinViewModelTest {
                 triggerAtMillis = existing?.triggerAtMillis ?: 2_000L,
                 status = status,
                 createdAtMillis = existing?.createdAtMillis ?: 1_000L,
-                updatedAtMillis = (existing?.updatedAtMillis ?: 1_000L) + 1L,
+                updatedAtMillis = (existing?.updatedAtMillis ?: 1_000L) + 1L
             )
         }
 
@@ -10777,7 +10763,7 @@ class SolinViewModelTest {
                     PeriodicCheckScheduleRequest(enabled = false)
                 } else {
                     PeriodicCheckScheduleRequest()
-                },
+                }
             )
             return PeriodicCheckPolicySummary(
                 request = if (status == ScheduledTaskStatus.Cancelled) {
@@ -10788,13 +10774,13 @@ class SolinViewModelTest {
                 taskStatus = status,
                 nextAllowedRunAtMillis = triggerAtMillis,
                 lastRunSummary = null,
-                updatedAtMillis = updatedAtMillis,
+                updatedAtMillis = updatedAtMillis
             )
         }
     }
 
     private class FakeToolAuditLog(
-        var records: List<ToolAuditRecord> = emptyList(),
+        var records: List<ToolAuditRecord> = emptyList()
     ) : ToolAuditLog {
         val requestedLimits = mutableListOf<Int>()
 
@@ -10816,7 +10802,7 @@ class SolinViewModelTest {
         private val deleteResult: Boolean = true,
         private val activeModelVerificationResult: Boolean = true,
         private val localPlanningStrategy: LocalPlanningStrategy = LocalPlanningStrategy.RuleFirst,
-        private val observationActionModelPath: String? = null,
+        private val observationActionModelPath: String? = null
     ) : ModelRepositoryFacade {
         val registeredModels = mutableListOf<InstalledModelSummary>()
         val deletedModelIds = mutableListOf<String>()
@@ -10829,16 +10815,14 @@ class SolinViewModelTest {
             activeModelPath = activeModelPath ?: initialInstalledModels
                 .firstOrNull { it.id == activeInstalledModelId }
                 ?.path,
-            installedModels = initialInstalledModels,
+            installedModels = initialInstalledModels
         )
 
         override fun currentState(): ModelSelectionState = state
 
-        override fun verifyActiveModelPath(path: String): Boolean =
-            activeModelVerificationResult && state.activeModelPath == path
+        override fun verifyActiveModelPath(path: String): Boolean = activeModelVerificationResult && state.activeModelPath == path
 
-        override fun selectedRecommendedModel(): RecommendedModel =
-            ModelCatalog.recommendedChatModelById(state.selectedModelId)
+        override fun selectedRecommendedModel(): RecommendedModel = ModelCatalog.recommendedChatModelById(state.selectedModelId)
 
         override fun selectRecommendedModel(modelId: String): ModelSelectionResult {
             state = state.copy(selectedModelId = ModelCatalog.recommendedChatModelById(modelId).id)
@@ -10849,7 +10833,7 @@ class SolinViewModelTest {
             val selected = state.installedModels.firstOrNull { it.id == modelId } ?: return null
             state = state.copy(
                 activeInstalledModelId = selected.id,
-                activeModelPath = selected.path,
+                activeModelPath = selected.path
             )
             return selected
         }
@@ -10869,7 +10853,7 @@ class SolinViewModelTest {
             state = state.copy(
                 activeInstalledModelId = fallback?.id,
                 activeModelPath = fallback?.path,
-                installedModels = remaining,
+                installedModels = remaining
             )
             return true
         }
@@ -10879,7 +10863,7 @@ class SolinViewModelTest {
             displayName: String,
             recommendedModelId: String?,
             verifiedSha256: String?,
-            verificationStatus: ModelVerificationStatus,
+            verificationStatus: ModelVerificationStatus
         ): InstalledModelSummary {
             val summary = InstalledModelSummary(
                 id = recommendedModelId ?: "local-test",
@@ -10888,25 +10872,24 @@ class SolinViewModelTest {
                 fileBytes = 1L,
                 recommendedModelId = recommendedModelId,
                 verifiedSha256 = verifiedSha256,
-                verificationStatus = verificationStatus,
+                verificationStatus = verificationStatus
             )
             registeredModels += summary
             state = state.copy(
                 activeInstalledModelId = summary.id,
                 activeModelPath = path,
-                installedModels = state.installedModels + summary,
+                installedModels = state.installedModels + summary
             )
             return summary
         }
 
         override fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? = customDownloadSource
 
-        override fun downloadedModelFile(fileName: String): File? =
-            if (downloadedModelFileProvider != null) {
-                downloadedModelFileProvider.invoke(fileName)
-            } else {
-                File("/tmp/$fileName")
-            }
+        override fun downloadedModelFile(fileName: String): File? = if (downloadedModelFileProvider != null) {
+            downloadedModelFileProvider.invoke(fileName)
+        } else {
+            File("/tmp/$fileName")
+        }
 
         override fun resolveModelStorageBytes(): Long = 1024L * 1024L * 1024L
 
@@ -10920,8 +10903,7 @@ class SolinViewModelTest {
 
         override fun verifyLegacyRecommendedModels(): Boolean = false
 
-        override fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String =
-            "/tmp/imported.litertlm"
+        override fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String = "/tmp/imported.litertlm"
 
         override fun pendingDownloadId(): Long = pendingDownloadId
 
@@ -10941,7 +10923,7 @@ class SolinViewModelTest {
     }
 
     private class FakeGenerationParametersStore(
-        private var parameters: GenerationParameters = GenerationParameters(),
+        private var parameters: GenerationParameters = GenerationParameters()
     ) : GenerationParametersStore {
         private var backend = BackendChoice.CPU
 
@@ -10969,7 +10951,7 @@ class SolinViewModelTest {
         private var config: RemoteModelConfig = RemoteModelConfig(),
         private val beforeAutoModeSave: () -> Unit = {},
         private val afterAutoModeSaveBeforeConfigLoadReturns: () -> Unit = {},
-        private val beforeConfigSave: () -> Unit = {},
+        private val beforeConfigSave: () -> Unit = {}
     ) : RemoteModelStore {
         private var nextRevision: Int = 2
         private var connectivitySnapshot: RemoteConnectivitySnapshot? = null
@@ -11002,7 +10984,7 @@ class SolinViewModelTest {
                 } else {
                     this.config.profileRevision
                 },
-                connectivityStatus = RemoteModelConnectivityStatus.Unknown,
+                connectivityStatus = RemoteModelConnectivityStatus.Unknown
             )
             if (revisionChanged) connectivitySnapshot = null
             return Result.success(this.config)
@@ -11010,19 +10992,18 @@ class SolinViewModelTest {
 
         override fun recordConnectivity(
             config: RemoteModelConfig,
-            status: RemoteModelConnectivityStatus,
+            status: RemoteModelConnectivityStatus
         ) {
             if (config.profileRevision.isBlank() || config.profileRevision != this.config.profileRevision) return
             connectivitySnapshot = RemoteConnectivitySnapshot(
                 configRevision = config.profileRevision,
                 status = status,
-                checkedAtElapsedRealtimeMs = 1_000L,
+                checkedAtElapsedRealtimeMs = 1_000L
             )
             this.config = this.config.copy(connectivityStatus = status)
         }
 
-        override fun currentConnectivity(config: RemoteModelConfig): RemoteConnectivitySnapshot? =
-            connectivitySnapshot?.takeIf { it.configRevision == config.profileRevision }
+        override fun currentConnectivity(config: RemoteModelConfig): RemoteConnectivitySnapshot? = connectivitySnapshot?.takeIf { it.configRevision == config.profileRevision }
 
         override fun invalidateConnectivity() {
             connectivitySnapshot = null
@@ -11031,34 +11012,39 @@ class SolinViewModelTest {
     }
 
     private class FakeRemoteSendPendingStore(
-        var pending: PendingRemoteSendMarker? = null,
+        var pending: PendingRemoteSendMarker? = null
     ) : RemoteSendPendingStore {
+        val consumeFailures = mutableListOf<Throwable>()
+
         override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) {
             pending = marker
         }
 
-        override fun consumePendingRemoteSend(): PendingRemoteSendMarker? =
-            pending.also { pending = null }
+        override suspend fun consumePendingRemoteSend(): PendingRemoteSendMarker? {
+            if (consumeFailures.isNotEmpty()) throw consumeFailures.removeAt(0)
+            return pending.also { pending = null }
+        }
 
         override fun clearPendingRemoteSend() {
             pending = null
         }
     }
 
-    private class FakeRemoteSendAuditStore : RemoteSendAuditSink, RemoteSendAuditLog {
+    private class FakeRemoteSendAuditStore :
+        RemoteSendAuditSink,
+        RemoteSendAuditLog {
         private val events = mutableListOf<RemoteSendAuditEvent>()
 
         override fun record(event: RemoteSendAuditEvent) {
             events.add(0, event.redactedForAudit())
         }
 
-        override fun recentRemoteSends(limit: Int): List<RemoteSendAuditEvent> =
-            if (limit <= 0) emptyList() else events.take(limit)
+        override fun recentRemoteSends(limit: Int): List<RemoteSendAuditEvent> = if (limit <= 0) emptyList() else events.take(limit)
     }
 
     private class FakeBundledModelInstaller(
         override val isEnabled: Boolean = false,
-        private val result: BundledModelInstallResult = BundledModelInstallResult(available = false),
+        private val result: BundledModelInstallResult = BundledModelInstallResult(available = false)
     ) : BundledModelInstaller {
         var installCount = 0
 
@@ -11072,7 +11058,7 @@ class SolinViewModelTest {
         private var memoryEnabled: Boolean = true,
         private var setupDismissed: Boolean = true,
         private var reduceDeviceActionConfirmations: Boolean = false,
-        private var remoteGuiAutomationEnabled: Boolean = false,
+        private var remoteGuiAutomationEnabled: Boolean = false
     ) : FirstRunSetupStore {
         override fun isSetupDismissed(): Boolean = setupDismissed
 
@@ -11103,7 +11089,7 @@ class SolinViewModelTest {
         private val enqueueResult: Result<Long> = Result.success(1L),
         private val queryResults: MutableList<DownloadInfo?> = mutableListOf(),
         private val onEnqueue: (ModelDownloadSource, File) -> Unit = { _, _ -> },
-        private val onCancel: (Long) -> Unit = {},
+        private val onCancel: (Long) -> Unit = {}
     ) : ModelDownloadClient {
         val enqueuedDownloads = mutableListOf<Pair<ModelDownloadSource, File>>()
         val enqueuedMeteredFlags = mutableListOf<Boolean>()
@@ -11114,7 +11100,7 @@ class SolinViewModelTest {
         override fun enqueue(
             source: ModelDownloadSource,
             targetFile: File,
-            allowMetered: Boolean,
+            allowMetered: Boolean
         ): Result<Long> {
             enqueuedDownloads += source to targetFile
             enqueuedMeteredFlags += allowMetered
@@ -11138,12 +11124,11 @@ class SolinViewModelTest {
     }
 
     private class FakeHuggingFaceAuthStore(
-        private var token: String = "",
+        private var token: String = ""
     ) : HuggingFaceAuthStore {
         override fun hasAccessToken(): Boolean = token.isNotBlank()
 
-        override fun authorizationHeader(): String? =
-            token.takeIf { it.isNotBlank() }?.let { "Bearer $it" }
+        override fun authorizationHeader(): String? = token.takeIf { it.isNotBlank() }?.let { "Bearer $it" }
 
         override fun saveAccessToken(token: String): Result<Unit> {
             this.token = token.trim().removePrefix("Bearer ").removePrefix("bearer ").trim()
@@ -11156,7 +11141,7 @@ class SolinViewModelTest {
         }
     }
 
-    private fun withTempDownloadTarget(block: (File) -> Unit) {
+    private suspend fun withTempDownloadTarget(block: suspend (File) -> Unit) {
         val file = File.createTempFile("solin-download", ".litertlm")
         file.delete()
         try {
@@ -11172,18 +11157,17 @@ class SolinViewModelTest {
         status: ScheduledTaskStatus,
         title: String = id,
         body: String = "测试后台任务",
-        updatedAtMillis: Long = 1_000L,
-    ): ScheduledTask =
-        ScheduledTask(
-            id = id,
-            type = type,
-            title = title,
-            body = body,
-            triggerAtMillis = 2_000L,
-            status = status,
-            createdAtMillis = 1_000L,
-            updatedAtMillis = updatedAtMillis,
-        )
+        updatedAtMillis: Long = 1_000L
+    ): ScheduledTask = ScheduledTask(
+        id = id,
+        type = type,
+        title = title,
+        body = body,
+        triggerAtMillis = 2_000L,
+        status = status,
+        createdAtMillis = 1_000L,
+        updatedAtMillis = updatedAtMillis
+    )
 
     private fun toolAuditRecord(
         id: String,
@@ -11194,19 +11178,18 @@ class SolinViewModelTest {
         riskLevel: String? = "LowReadOnly",
         permissions: List<String> = emptyList(),
         summary: String,
-        createdAtMillis: Long,
-    ): ToolAuditRecord =
-        ToolAuditRecord(
-            id = id,
-            runId = "run-$id",
-            requestId = requestId,
-            toolName = toolName,
-            skillId = null,
-            eventType = eventType,
-            status = status,
-            riskLevel = riskLevel,
-            permissions = permissions,
-            summary = summary,
-            createdAtMillis = createdAtMillis,
-        )
+        createdAtMillis: Long
+    ): ToolAuditRecord = ToolAuditRecord(
+        id = id,
+        runId = "run-$id",
+        requestId = requestId,
+        toolName = toolName,
+        skillId = null,
+        eventType = eventType,
+        status = status,
+        riskLevel = riskLevel,
+        permissions = permissions,
+        summary = summary,
+        createdAtMillis = createdAtMillis
+    )
 }

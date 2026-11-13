@@ -1,11 +1,9 @@
 package com.bytedance.zgx.solin.safety
 
-import com.bytedance.zgx.solin.tool.ConfirmationPolicy
-import com.bytedance.zgx.solin.tool.RiskLevel
-import com.bytedance.zgx.solin.tool.ToolCapability
-import com.bytedance.zgx.solin.tool.ToolPermission
+import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolSpec
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,34 +11,52 @@ import org.junit.Test
 class EgressGateTest {
     private val policy = SafetyPolicy()
     private val gate = EgressGate(policy::containsSensitivePersonalOrSecretContent)
+    private val webSearch = spec(MobileActionFunctions.WEB_SEARCH)
+    private val shareText = spec(MobileActionFunctions.SHARE_TEXT)
+    private val typeText = spec(MobileActionFunctions.UI_TYPE_TEXT)
 
     @Test
     fun networkRequiresSensitiveTextOrPrivateReadEvenWhenNoTextWasSupplied() {
-        val spec = spec()
         assertEquals(
             setOf(EgressTrigger.SensitiveNetworkQuery),
-            gate.evaluate(spec, request(args = mapOf("query" to "alice@example.com")), context = { EgressRunContext(false, "") })
+            gate.evaluate(
+                webSearch,
+                request(args = mapOf("query" to "alice@example.com")),
+                context = { EgressRunContext(false, "") }
+            )
         )
-        val triggers = gate.evaluate(spec, request(), context = { EgressRunContext(true, "user") })
+        val triggers = gate.evaluate(webSearch, request(), context = { EgressRunContext(true, "user") })
         assertEquals(setOf(EgressTrigger.SensitiveNetworkQuery), triggers)
-        assertTrue(gate.evaluate(spec, request(args = mapOf("query" to "weather")), context = { EgressRunContext(false, "") }).isEmpty())
+        assertTrue(
+            gate.evaluate(
+                webSearch,
+                request(args = mapOf("query" to "weather")),
+                context = { EgressRunContext(false, "") }
+            ).isEmpty()
+        )
     }
 
     @Test
     fun typedTextNeedsPrivateReadAndNewContent() {
-        val spec = spec(egressArgs = emptySet())
         val triggers = gate.evaluate(
-            spec,
-            request(),
+            typeText,
+            request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
             typedText = "new private text",
             context = { EgressRunContext(true, "original request") }
         )
         assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), triggers)
-        assertTrue(gate.evaluate(spec, request(), typedText = "sensitive looking text", context = { EgressRunContext(false, "") }).isEmpty())
         assertTrue(
             gate.evaluate(
-                spec,
-                request(),
+                typeText,
+                request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
+                typedText = "sensitive looking text",
+                context = { EgressRunContext(false, "") }
+            ).isEmpty()
+        )
+        assertTrue(
+            gate.evaluate(
+                typeText,
+                request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
                 typedText = "上海酒店",
                 context = { EgressRunContext(true, "在携程搜索上海的酒店") }
             ).isEmpty()
@@ -49,34 +65,41 @@ class EgressGateTest {
 
     @Test
     fun externalDraftUsesSensitiveContentTaintAndUserWording() {
-        val spec = spec(externalApp = true, egressArgs = setOf("body", "subject"))
         assertEquals(
             setOf(EgressTrigger.TextHandedToExternalApp),
-            gate.evaluate(spec, request(toolName = "share_text", args = mapOf("body" to "alice@example.com")), context = { EgressRunContext(false, "") })
+            gate.evaluate(
+                shareText,
+                request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "alice@example.com")),
+                context = { EgressRunContext(false, "") }
+            )
         )
         assertTrue(
             gate.evaluate(
-                spec,
-                request(toolName = "share_text", args = mapOf("body" to "上海酒店")),
+                shareText,
+                request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "上海酒店")),
                 context = { EgressRunContext(true, "在携程搜索上海的酒店") }
             ).isEmpty()
         )
         val triggers = gate.evaluate(
-            spec,
-            request(toolName = "share_text", args = mapOf("body" to "上海酒店", "subject" to "new")),
+            shareText,
+            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "上海酒店", "title" to "new")),
             context = { EgressRunContext(true, "在携程搜索上海的酒店") }
         )
         assertEquals(setOf(EgressTrigger.TextHandedToExternalApp), triggers)
         assertTrue(
-            gate.evaluate(spec, request(toolName = "share_text"), context = { EgressRunContext(true, "private") }).isEmpty()
+            gate.evaluate(
+                shareText,
+                request(MobileActionFunctions.SHARE_TEXT),
+                context = { EgressRunContext(true, "private") }
+            ).isEmpty()
         )
     }
 
     @Test
     fun nonAsciiPunctuationDoesNotChangeUserWording() {
         val result = gate.evaluate(
-            spec(egressArgs = emptySet()),
-            request(),
+            typeText,
+            request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
             typedText = "上海酒店。",
             context = { EgressRunContext(true, "在携程搜索上海的酒店") }
         )
@@ -85,9 +108,32 @@ class EgressGateTest {
     }
 
     @Test
+    fun nonBreakingSpaceDoesNotChangeUserWording() {
+        val result = gate.evaluate(
+            typeText,
+            request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
+            typedText = "上海 酒店",
+            context = { EgressRunContext(true, "上海 酒店") }
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun symbolOnlyTextKeepsLegacyMatching() {
+        val result = gate.evaluate(
+            shareText,
+            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "♥")),
+            context = { EgressRunContext(true, "") }
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
     fun sensitiveContentDoesNotEvaluateRunContext() {
         val result = gate.evaluate(
-            spec(),
+            webSearch,
             request(args = mapOf("query" to "alice@example.com")),
             context = { error("sensitive text must not require run context") }
         )
@@ -102,11 +148,10 @@ class EgressGateTest {
             reads++
             policy.containsSensitivePersonalOrSecretContent(text)
         }
-        val spec = spec(externalApp = true, egressArgs = setOf("body", "subject"))
 
         countingGate.evaluate(
-            spec,
-            request(toolName = "share_text", args = mapOf("body" to "one", "subject" to "two")),
+            shareText,
+            request(MobileActionFunctions.SHARE_TEXT, mapOf("text" to "one", "title" to "two")),
             context = { EgressRunContext(false, "") }
         )
 
@@ -114,37 +159,20 @@ class EgressGateTest {
     }
 
     @Test
-    fun supplementaryAndSymbolCodePointsCannotMatchEmptyInput() {
+    fun supplementaryCodePointsCannotMatchEmptyInput() {
         val supplementary = gate.evaluate(
-            spec(egressArgs = emptySet()),
-            request(),
+            typeText,
+            request(toolName = MobileActionFunctions.UI_TYPE_TEXT),
             typedText = "user𠀀",
             context = { EgressRunContext(true, "user") }
         )
-        val symbols = gate.evaluate(
-            spec(externalApp = true),
-            request(toolName = "share_text", args = mapOf("query" to "♥")),
-            context = { EgressRunContext(true, "") }
-        )
-
         assertEquals(setOf(EgressTrigger.TypedTextNotFromUser), supplementary)
-        assertEquals(setOf(EgressTrigger.TextHandedToExternalApp), symbols)
     }
 
-    private fun spec(
-        externalApp: Boolean = false,
-        egressArgs: Set<String> = setOf("query")
-    ): ToolSpec = ToolSpec(
-        name = if (externalApp) "share_text" else "web_search",
-        title = "test",
-        description = "test",
-        inputSchemaJson = """{"type":"object"}""",
-        capability = if (externalApp) ToolCapability.ExternalShare else ToolCapability.WebSearch,
-        permissions = if (externalApp) setOf(ToolPermission.SendsTextToExternalApp) else emptySet(),
-        riskLevel = RiskLevel.LowReadOnly,
-        confirmationPolicy = ConfirmationPolicy.NotRequired,
-        egressTextArguments = egressArgs
-    )
+    private fun spec(toolName: String): ToolSpec = requireNotNull(defaultBuiltInToolRegistry.specFor(toolName))
 
-    private fun request(toolName: String = "web_search", args: Map<String, String> = emptyMap()): ToolRequest = ToolRequest(toolName = toolName, arguments = args, reason = "test")
+    private fun request(
+        toolName: String = MobileActionFunctions.WEB_SEARCH,
+        args: Map<String, String> = emptyMap()
+    ): ToolRequest = ToolRequest(toolName = toolName, arguments = args, reason = "test")
 }

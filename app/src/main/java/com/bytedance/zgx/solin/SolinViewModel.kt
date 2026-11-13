@@ -21,6 +21,7 @@ import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.data.SessionStore
 import com.bytedance.zgx.solin.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.solin.download.ModelDownloadClient
+import com.bytedance.zgx.solin.logging.cleanMessage
 import com.bytedance.zgx.solin.memory.LongTermMemoryControls
 import com.bytedance.zgx.solin.memory.MemoryController
 import com.bytedance.zgx.solin.memory.MemoryIndex
@@ -36,32 +37,32 @@ import com.bytedance.zgx.solin.presentation.AuditUiController
 import com.bytedance.zgx.solin.presentation.AutoInferenceAuthorizationCoordinator
 import com.bytedance.zgx.solin.presentation.BackgroundTaskController
 import com.bytedance.zgx.solin.presentation.ChatController
+import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.DefaultPresentationSessionHost
 import com.bytedance.zgx.solin.presentation.InferenceModeController
 import com.bytedance.zgx.solin.presentation.InitialChatStateFactory
-import com.bytedance.zgx.solin.presentation.StartupStateRestorer
 import com.bytedance.zgx.solin.presentation.MemoryPanelState
 import com.bytedance.zgx.solin.presentation.MemoryUiController
-import com.bytedance.zgx.solin.presentation.PresentationSessionHost
-import com.bytedance.zgx.solin.presentation.ChatPlacementRuntime
 import com.bytedance.zgx.solin.presentation.ModelLoadController
+import com.bytedance.zgx.solin.presentation.PresentationSessionHost
 import com.bytedance.zgx.solin.presentation.SessionController
 import com.bytedance.zgx.solin.presentation.SharedIntentIngestionGate
+import com.bytedance.zgx.solin.presentation.StartupStateRestorer
 import com.bytedance.zgx.solin.presentation.ToolExecutionController
 import com.bytedance.zgx.solin.presentation.VoiceInputController
 import com.bytedance.zgx.solin.presentation.toDeviceContextSnapshot
+import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.solin.runtime.OkHttpRemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
-import com.bytedance.zgx.solin.tool.ToolRegistry
-import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
-import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.runtime.RemoteConnectivityRefreshCoordinator
 import com.bytedance.zgx.solin.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.solin.tool.ToolExecutor
-import kotlinx.coroutines.CompletableDeferred
+import com.bytedance.zgx.solin.tool.ToolRegistry
+import com.bytedance.zgx.solin.tool.defaultBuiltInToolRegistry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +74,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import com.bytedance.zgx.solin.logging.cleanMessage
 
 private const val VIEW_MODEL_CLEARED_AGENT_RUN_REASON =
     "ViewModel cleared before this Agent run completed."
@@ -84,7 +84,7 @@ internal const val NO_MODEL_READY_STATUS_TEXT =
 class StreamingAssistantUpdateCoalescer(
     private val publish: (String) -> Unit,
     private val intervalMillis: Long = STREAMING_UI_UPDATE_INTERVAL_MILLIS,
-    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L }
 ) {
     private var pendingText: String? = null
     private var lastPublishedText: String? = null
@@ -162,11 +162,11 @@ class SolinViewModel internal constructor(
      * (plan tools, MCP tools) unexecutable. Defaults to the built-in set so tests that only drive
      * built-in tools stay terse.
      */
-    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry,
+    private val toolRegistry: ToolRegistry = defaultBuiltInToolRegistry
 ) : ViewModel() {
     private val runtimeLock = Mutex()
     private val persistenceActionMutex = Mutex()
-    private val persistenceInitialization = CompletableDeferred<Unit>()
+    private var persistenceInitialization = CompletableDeferred<Unit>()
     private val sharedIntentIngestionGate = SharedIntentIngestionGate()
     private var hasCleared = false
     private var startupRestored = false
@@ -179,13 +179,13 @@ class SolinViewModel internal constructor(
         modelRepository = modelRepository,
         backgroundTaskScheduler = backgroundTaskScheduler,
         semanticMemoryRuntimeController = semanticMemoryRuntimeController,
-        ioDispatcher = ioDispatcher,
+        ioDispatcher = ioDispatcher
     )
 
     // Constructed before `_uiState` so createInitialState() can load task/audit snapshots.
     private val auditUiController = AuditUiController(
         toolAuditLog = toolAuditLog,
-        assistantOrchestrator = assistantOrchestrator,
+        assistantOrchestrator = assistantOrchestrator
     )
 
     private val backgroundTaskController = BackgroundTaskController(
@@ -195,19 +195,19 @@ class SolinViewModel internal constructor(
         syncTaskStateMemories = {
             memoryController.syncTaskStateMemories(memoryEnabled = _uiState.value.memoryEnabled)
         },
-        loadLongTermMemories = memoryController::loadLongTermMemories,
+        loadLongTermMemories = memoryController::loadLongTermMemories
     )
 
     private val autoInferenceAuthorizationCoordinator = AutoInferenceAuthorizationCoordinator(
         rollout = adaptiveInferenceRollout,
-        remoteModelStore = remoteModelRepository,
+        remoteModelStore = remoteModelRepository
     )
     private val remoteConnectivityRefreshCoordinator =
         injectedRemoteConnectivityRefreshCoordinator ?: RemoteConnectivityRefreshCoordinator(
             remoteModelStore = remoteModelRepository,
             probe = remoteConnectivityProbe ?: OkHttpRemoteModelConnectivityProbe(),
             scope = viewModelScope,
-            dispatcher = ioDispatcher,
+            dispatcher = ioDispatcher
         )
 
     private val initialChatStateFactory = InitialChatStateFactory(
@@ -223,18 +223,18 @@ class SolinViewModel internal constructor(
         auditUiController = auditUiController,
         backgroundTaskController = backgroundTaskController,
         remoteSendAuditLog = remoteSendAuditLog,
-        isArm64Device = isArm64DeviceProvider,
+        isArm64Device = isArm64DeviceProvider
     )
 
     private val _uiState: MutableStateFlow<ChatUiState> = MutableStateFlow(
         if (deferPersistenceInitialization) {
             ChatUiState(
                 statusText = "正在初始化本地数据",
-                isArm64Supported = isArm64DeviceProvider(),
+                isArm64Supported = isArm64DeviceProvider()
             )
         } else {
             initialChatStateFactory.createInitialState()
-        },
+        }
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
@@ -243,7 +243,7 @@ class SolinViewModel internal constructor(
         firstRunSetupStore = firstRunSetupRepository,
         sessionStore = sessionRepository,
         uiState = _uiState,
-        skipModelRuntimeWork = skipStartupModelRuntimeWork,
+        skipModelRuntimeWork = skipStartupModelRuntimeWork
     )
 
     private val sessionHost: PresentationSessionHost = DefaultPresentationSessionHost(
@@ -253,7 +253,7 @@ class SolinViewModel internal constructor(
         memoryUiController = memoryUiController,
         auditUiController = auditUiController,
         backgroundTaskController = backgroundTaskController,
-        dispatchPersistenceWork = ::dispatchPersistenceWorkIfNeeded,
+        dispatchPersistenceWork = ::dispatchPersistenceWorkIfNeeded
     )
 
     // ChatController is constructed before ToolExecutionController; tool methods are late-bound
@@ -290,13 +290,13 @@ class SolinViewModel internal constructor(
             toolExecutionController.handleNextToolPlan(
                 runId = runId,
                 plan = plan,
-                pendingStatusText = pendingStatusText,
+                pendingStatusText = pendingStatusText
             )
         },
         sessionHost = sessionHost,
         deviceContextSnapshot = {
             _uiState.value.toDeviceContextSnapshot(deviceContextAuthorizationSnapshot)
-        },
+        }
     )
 
     private val toolExecutionController: ToolExecutionController = ToolExecutionController(
@@ -313,11 +313,11 @@ class SolinViewModel internal constructor(
                 promptForModel = promptForModel,
                 responsePrivacy = responsePrivacy,
                 remoteToolScope = remoteToolScope,
-                remoteSendConfirmed = remoteSendConfirmed,
+                remoteSendConfirmed = remoteSendConfirmed
             )
         },
         sessionHost = sessionHost,
-        activeRunPlacement = chatPlacementRuntime::activeBinding,
+        activeRunPlacement = chatPlacementRuntime::activeBinding
     )
 
     private val modelLoadController = ModelLoadController(
@@ -344,7 +344,7 @@ class SolinViewModel internal constructor(
             chatController.clearPendingRemoteChatState()
         },
         resetRemoteSendDisclosureSuppression = chatController::resetRemoteSendDisclosureSuppression,
-        rebuildMemoryIndex = sessionHost::rebuildMemoryIndex,
+        rebuildMemoryIndex = sessionHost::rebuildMemoryIndex
     )
 
     private val inferenceModeController = InferenceModeController(
@@ -354,7 +354,7 @@ class SolinViewModel internal constructor(
         autoInferenceAuthorizationCoordinator = autoInferenceAuthorizationCoordinator,
         chatController = chatController,
         modelLoadController = modelLoadController,
-        requireRemoteSendDisclosure = requireRemoteSendDisclosure,
+        requireRemoteSendDisclosure = requireRemoteSendDisclosure
     )
 
     private val sessionController = SessionController(
@@ -373,7 +373,7 @@ class SolinViewModel internal constructor(
         restorePendingExternalOutcomeIfAny = { clearMissing ->
             toolExecutionController.restorePendingExternalOutcomeIfAny(clearMissing)
         },
-        loadAgentTraceRuns = auditUiController::loadAgentTraceRuns,
+        loadAgentTraceRuns = auditUiController::loadAgentTraceRuns
     )
 
     private val startupStateRestorer = StartupStateRestorer(
@@ -386,12 +386,12 @@ class SolinViewModel internal constructor(
         backgroundTaskController = backgroundTaskController,
         memoryUiController = memoryUiController,
         auditUiController = auditUiController,
-        isArm64Device = isArm64DeviceProvider,
+        isArm64Device = isArm64DeviceProvider
     )
 
     private val voiceInputController = VoiceInputController(
         uiState = _uiState,
-        allocateVoiceInputDraftId = chatController::allocateVoiceInputDraftId,
+        allocateVoiceInputDraftId = chatController::allocateVoiceInputDraftId
     )
 
     init {
@@ -410,7 +410,7 @@ class SolinViewModel internal constructor(
         intent: Intent,
         readMode: SharedInputReadMode,
         reader: ShareIntentReader,
-        allowPreviouslyConsumed: Boolean,
+        allowPreviouslyConsumed: Boolean
     ) {
         val generation = sharedIntentIngestionGate.tryStart(consumptionKey, allowPreviouslyConsumed)
             ?: return
@@ -459,66 +459,65 @@ class SolinViewModel internal constructor(
 
     fun dismissMemorySuggestion(suggestionId: String) = memoryUiController.dismissMemorySuggestion(suggestionId)
 
-    fun restoreStartupState(skipModelRuntimeWork: Boolean = false) {
+    suspend fun restoreStartupState(skipModelRuntimeWork: Boolean = false) {
         if (startupRestored) return
         startupRestored = true
-        if (deferPersistenceInitialization) {
-            viewModelScope.launch(ioDispatcher) {
-                runCatching {
-                    val initialState = initialChatStateFactory.createInitialState()
-                    // The Activity may already have synced the permission snapshot while the
-                    // deferred initialization was pending; do not reset it to "nothing granted".
-                    _uiState.update { current ->
-                        initialState.copy(grantedSpecialAccessIds = current.grantedSpecialAccessIds)
-                    }
-                    startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
-                    persistenceInitialization.complete(Unit)
-                }.onFailure { error ->
-                    persistenceInitialization.completeExceptionally(error)
-                    _uiState.update {
-                        it.copy(
-                            statusText = "本地数据初始化失败：${error.cleanMessage()}",
-                            isReady = false,
-                        )
+        try {
+            if (deferPersistenceInitialization) {
+                if (persistenceInitialization.isCompleted) persistenceInitialization = CompletableDeferred()
+                val initialization = persistenceInitialization
+                viewModelScope.launch(ioDispatcher) {
+                    runCatching {
+                        val initialState = initialChatStateFactory.createInitialState()
+                        // The Activity may already have synced the permission snapshot while the
+                        // deferred initialization was pending; do not reset it to "nothing granted".
+                        _uiState.update { current ->
+                            initialState.copy(grantedSpecialAccessIds = current.grantedSpecialAccessIds)
+                        }
+                        startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
+                        initialization.complete(Unit)
+                    }.onFailure { error ->
+                        initialization.completeExceptionally(error)
+                        startupRestored = false
+                        if (error is CancellationException) throw error
+                        _uiState.update {
+                            it.copy(
+                                statusText = "本地数据初始化失败：${error.cleanMessage()}",
+                                isReady = false
+                            )
+                        }
                     }
                 }
+                return
             }
-            return
+            startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
+        } catch (error: Exception) {
+            startupRestored = false
+            throw error
         }
-        startupStateRestorer.restoreStartupStateAfterInitialization(skipModelRuntimeWork)
     }
 
     fun configureDebugRemoteModelForScreenshotEvidence(
         baseUrl: String,
         modelName: String,
-        supportsVisionInput: Boolean = false,
+        supportsVisionInput: Boolean = false
     ) {
         modelLoadController.configureDebugRemoteModelForScreenshotEvidence(
             baseUrl = baseUrl,
             modelName = modelName,
-            supportsVisionInput = supportsVisionInput,
+            supportsVisionInput = supportsVisionInput
         )
     }
 
-    fun startModelDownload() {
-        modelLoadController.startModelDownload()
-    }
+    fun startModelDownload() = modelLoadController.startModelDownload()
 
-    fun startRecommendedModelDownload(modelId: String) {
-        modelLoadController.startRecommendedModelDownload(modelId)
-    }
+    fun startRecommendedModelDownload(modelId: String) = modelLoadController.startRecommendedModelDownload(modelId)
 
-    fun saveHuggingFaceAccessToken(token: String) {
-        modelLoadController.saveHuggingFaceAccessToken(token)
-    }
+    fun saveHuggingFaceAccessToken(token: String) = modelLoadController.saveHuggingFaceAccessToken(token)
 
-    fun clearHuggingFaceAccessToken() {
-        modelLoadController.clearHuggingFaceAccessToken()
-    }
+    fun clearHuggingFaceAccessToken() = modelLoadController.clearHuggingFaceAccessToken()
 
-    fun toggleSetupModel(modelId: String, selected: Boolean) {
-        modelLoadController.toggleSetupModel(modelId, selected)
-    }
+    fun toggleSetupModel(modelId: String, selected: Boolean) = modelLoadController.toggleSetupModel(modelId, selected)
 
     fun startSetupModelDownload() {
         modelLoadController.startSetupModelDownload()
@@ -541,7 +540,7 @@ class SolinViewModel internal constructor(
                     "低风险手机操作将减少确认"
                 } else {
                     "手机操作确认已恢复为保守模式"
-                },
+                }
             )
         }
     }
@@ -555,7 +554,7 @@ class SolinViewModel internal constructor(
                     "已开启远程视觉操作：远程模型可看屏幕截图并规划点击（首次外发仍需确认）"
                 } else {
                     "已关闭远程视觉操作：屏幕截图不再外发，改由本地动作模型驱动"
-                },
+                }
             )
         }
     }
@@ -629,7 +628,7 @@ class SolinViewModel internal constructor(
 
     fun reportSpecialAccessResult(
         requirement: SpecialAccessRequirement,
-        granted: Boolean,
+        granted: Boolean
     ) {
         _uiState.update {
             it.copy(
@@ -637,7 +636,7 @@ class SolinViewModel internal constructor(
                     "${requirement.title}已开启"
                 } else {
                     "返回后仍未开启${requirement.title}"
-                },
+                }
             )
         }
     }
@@ -668,7 +667,7 @@ class SolinViewModel internal constructor(
         _uiState.update {
             it.copy(
                 generationParameters = normalized,
-                statusText = if (runtime.isLoaded) "参数已更新，正在应用" else "参数已更新",
+                statusText = if (runtime.isLoaded) "参数已更新，正在应用" else "参数已更新"
             )
         }
         if (runtime.isLoaded) {
@@ -794,33 +793,33 @@ class SolinViewModel internal constructor(
 
     fun rejectAgentConfirmationForRuntimePermissionDenial(
         confirmation: PendingAgentConfirmation,
-        deniedPermissions: List<String>,
+        deniedPermissions: List<String>
     ) {
         toolExecutionController.rejectAgentConfirmationForRuntimePermissionDenial(
             confirmation = confirmation,
-            deniedPermissions = deniedPermissions,
+            deniedPermissions = deniedPermissions
         )
     }
 
     fun rejectAgentConfirmationForSpecialAccessDenial(
         confirmation: PendingAgentConfirmation,
-        deniedRequirements: List<SpecialAccessRequirement>,
+        deniedRequirements: List<SpecialAccessRequirement>
     ) {
         toolExecutionController.rejectAgentConfirmationForSpecialAccessDenial(
             confirmation = confirmation,
-            deniedRequirements = deniedRequirements,
+            deniedRequirements = deniedRequirements
         )
     }
 
     fun rejectAgentConfirmationForMediaProjectionDenial(
-        confirmation: PendingAgentConfirmation,
+        confirmation: PendingAgentConfirmation
     ) {
         toolExecutionController.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
     }
 
     fun recordExternalOutcome(
         pending: PendingExternalOutcomeConfirmation,
-        outcome: AgentExternalOutcome,
+        outcome: AgentExternalOutcome
     ) {
         toolExecutionController.recordExternalOutcome(pending, outcome)
     }

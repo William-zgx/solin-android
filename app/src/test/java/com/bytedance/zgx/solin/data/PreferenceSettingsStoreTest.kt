@@ -7,13 +7,17 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.bytedance.zgx.solin.BackendChoice
 import com.bytedance.zgx.solin.GenerationParameters
 import com.bytedance.zgx.solin.InferenceMode
+import com.bytedance.zgx.solin.PendingRemoteSendMarker
 import com.bytedance.zgx.solin.ReasoningEffort
 import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.RemoteSendDisclosureKind
 import com.bytedance.zgx.solin.orchestration.LocalPlanningStrategy
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,8 +36,8 @@ class PreferenceSettingsStoreTest {
                 modelName = "model-a",
                 supportsVisionInput = true,
                 supportsToolCalls = true,
-                contextWindowTokens = 32_000,
-            ),
+                contextWindowTokens = 32_000
+            )
         )
         dataStore.reads.set(0)
 
@@ -52,7 +56,7 @@ class PreferenceSettingsStoreTest {
         val dataStore = CountingPreferencesDataStore()
         val store = PreferenceSettingsStore(dataStore)
         val saved = store.saveGenerationParameters(
-            GenerationParameters(temperature = 0.3f, topP = 0.8f, topK = 20, reasoningEffort = ReasoningEffort.entries.last()),
+            GenerationParameters(temperature = 0.3f, topP = 0.8f, topK = 20, reasoningEffort = ReasoningEffort.entries.last())
         )
         dataStore.reads.set(0)
 
@@ -113,14 +117,61 @@ class PreferenceSettingsStoreTest {
         }
     }
 
+    @Test
+    fun consumePendingRemoteSendClearsBeforeParsingAndIsIdempotent() = runBlocking {
+        val dataStore = CountingPreferencesDataStore()
+        val store = PreferenceSettingsStore(dataStore)
+        store.savePendingRemoteSend(pendingMarker(remoteHistoryCount = 1))
+
+        val restored = store.consumePendingRemoteSend()
+
+        assertEquals("run-a", restored?.runId)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, restored?.kind)
+        assertNull(store.consumePendingRemoteSend())
+        dataStore.updateData { preferences ->
+            preferences.toMutablePreferences().apply {
+                set(stringPreferencesKey("pending_remote_send_marker"), "{bad")
+            }
+        }
+        assertNull(store.consumePendingRemoteSend())
+    }
+
+    @Test
+    fun cancelledConsumeDoesNotClearPendingMarker() = runBlocking {
+        val dataStore = CountingPreferencesDataStore()
+        val store = PreferenceSettingsStore(dataStore)
+        store.savePendingRemoteSend(pendingMarker())
+        dataStore.delayUpdates = true
+        val pending = launch { store.consumePendingRemoteSend() }
+        delay(50)
+        pending.cancel()
+        pending.join()
+
+        dataStore.delayUpdates = false
+        assertEquals("run-a", store.consumePendingRemoteSend()?.runId)
+    }
+
+    private fun pendingMarker(remoteHistoryCount: Int = 0) = PendingRemoteSendMarker(
+        kind = RemoteSendDisclosureKind.CurrentInput,
+        remoteModelName = "model-a",
+        remoteHistoryCount = remoteHistoryCount,
+        localOnlyHistoryFilteredCount = 0,
+        imageAttachmentCount = 0,
+        protectedSourceCount = 0,
+        runId = "run-a",
+        remoteProfileRevision = "rev-a"
+    )
+
     private class CountingPreferencesDataStore : DataStore<Preferences> {
         private val state = MutableStateFlow(emptyPreferences())
         val reads = AtomicInteger(0)
+        var delayUpdates = false
 
         override val data: Flow<Preferences>
             get() = state.onStart { reads.incrementAndGet() }
 
         override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+            if (delayUpdates) delay(1_000)
             val updated = transform(state.value)
             state.value = updated
             return updated

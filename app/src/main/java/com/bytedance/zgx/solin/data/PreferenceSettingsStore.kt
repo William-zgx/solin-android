@@ -175,10 +175,13 @@ class PreferenceSettingsStore internal constructor(
         )
     }
 
-    override fun consumePendingRemoteSend(): PendingRemoteSendMarker? {
-        val raw = read(Keys.PENDING_REMOTE_SEND_MARKER, "")
+    override suspend fun consumePendingRemoteSend(): PendingRemoteSendMarker? {
+        var raw = ""
+        dataStore.edit { preferences ->
+            raw = preferences[Keys.PENDING_REMOTE_SEND_MARKER] ?: ""
+            if (raw.isNotBlank()) preferences.remove(Keys.PENDING_REMOTE_SEND_MARKER)
+        }
         if (raw.isBlank()) return null
-        clearPendingRemoteSend()
         return runCatching {
             val json = JSONObject(raw)
             PendingRemoteSendMarker(
@@ -196,7 +199,9 @@ class PreferenceSettingsStore internal constructor(
     }
 
     override fun clearPendingRemoteSend() {
-        write(Keys.PENDING_REMOTE_SEND_MARKER, "")
+        runBlocking {
+            dataStore.edit { preferences -> preferences.remove(Keys.PENDING_REMOTE_SEND_MARKER) }
+        }
     }
 
     fun migrationVersion(): Int = read(Keys.MIGRATION_VERSION, 0)

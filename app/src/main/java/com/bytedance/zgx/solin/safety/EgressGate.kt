@@ -21,6 +21,12 @@ internal enum class EgressTrigger {
 internal class EgressGate(
     private val sensitiveContent: (String) -> Boolean
 ) {
+    fun evaluateContentOnly(spec: ToolSpec, request: ToolRequest): Set<EgressTrigger> = evaluate(
+        spec,
+        request,
+        context = { EgressRunContext(privateReadBefore = false, userInput = "") }
+    )
+
     fun evaluate(
         spec: ToolSpec,
         request: ToolRequest,
@@ -47,7 +53,9 @@ internal class EgressGate(
             if (ToolPermission.SendsTextToExternalApp in spec.permissions && textArguments.isNotEmpty()) {
                 val tainted = sensitiveText ||
                     context().let { runContext ->
-                        runContext.privateReadBefore && textArguments.any { text -> !isTextFromUser(runContext.userInput, text) }
+                        runContext.privateReadBefore && userTextPieces(runContext.userInput).let { input ->
+                            textArguments.any { text -> !isTextFromUser(input, text) }
+                        }
                     }
                 if (tainted) add(EgressTrigger.TextHandedToExternalApp)
             }
@@ -58,15 +66,6 @@ internal class EgressGate(
 private class UserTextPieces(val asciiTokens: Set<String>, val otherCodePoints: Set<Int>)
 
 private val asciiLetterOrDigitRun = Regex("[a-z]+|[0-9]+")
-private val PUNCTUATION_TYPES = setOf(
-    Character.CONNECTOR_PUNCTUATION.toInt(),
-    Character.DASH_PUNCTUATION.toInt(),
-    Character.START_PUNCTUATION.toInt(),
-    Character.END_PUNCTUATION.toInt(),
-    Character.INITIAL_QUOTE_PUNCTUATION.toInt(),
-    Character.FINAL_QUOTE_PUNCTUATION.toInt(),
-    Character.OTHER_PUNCTUATION.toInt()
-)
 
 private fun userTextPieces(text: String): UserTextPieces {
     val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase()
@@ -76,10 +75,7 @@ private fun userTextPieces(text: String): UserTextPieces {
             var index = 0
             while (index < normalized.length) {
                 val codePoint = normalized.codePointAt(index)
-                if (codePoint > 0x7F &&
-                    !Character.isWhitespace(codePoint) &&
-                    Character.getType(codePoint) !in PUNCTUATION_TYPES
-                ) {
+                if (codePoint > 0x7F && Character.isLetterOrDigit(codePoint)) {
                     add(codePoint)
                 }
                 index += Character.charCount(codePoint)
@@ -89,12 +85,14 @@ private fun userTextPieces(text: String): UserTextPieces {
 }
 
 /**
- * Every ASCII letter/digit run must be a whole token of the run input, and every non-ASCII letter,
- * digit or symbol (including supplementary-plane characters) must occur in that input. Case,
- * punctuation and whitespace are ignored, so reordered user wording still counts while new symbols or private content cannot pass through empty token sets.
+ * Every ASCII letter/digit run must be a whole token of the run input, and every non-ASCII letter or
+ * digit (including supplementary-plane characters) must occur in that input. Case, punctuation and
+ * whitespace are ignored, so reordered user wording still counts while new private content cannot
+ * pass through empty token sets.
  */
-private fun isTextFromUser(userInput: String, text: String): Boolean {
-    val input = userTextPieces(userInput)
+private fun isTextFromUser(userInput: String, text: String): Boolean = isTextFromUser(userTextPieces(userInput), text)
+
+private fun isTextFromUser(input: UserTextPieces, text: String): Boolean {
     val typed = userTextPieces(text)
     return input.asciiTokens.containsAll(typed.asciiTokens) && input.otherCodePoints.containsAll(typed.otherCodePoints)
 }

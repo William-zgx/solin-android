@@ -22,6 +22,7 @@ VALIDATION_TEST_PARTS=(
   71_model_license.sh
   72_android_artifact_scan.sh
   73_release_gate_and_signing.sh
+  80_mutation_test.sh
   80_perf_collection.sh
   81_app_search_eval.sh
   90_install_and_test_device.sh

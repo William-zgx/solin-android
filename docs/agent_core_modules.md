@@ -655,7 +655,7 @@ Current status:
 - `safety/EgressGate.kt` owns the sensitive network, typed-text and external-app draft checks.
   `SafetyPolicy` retains its final execution backstop; `ConfirmationBypassPolicy` supplies run
   provenance and preserves reason precedence. Sensitive-content detection and user-token matching
-  are shared, with code-point-aware supplementary/symbol handling.
+  are shared, with code-point-aware supplementary-letter/digit handling.
 - Critical-only confirmation (`orchestration/ConfirmationBypassPolicy.kt`, the
   default Trust-Center setting) turns a `RequireConfirmation` decision into
   `Allow` unless `criticalApprovalReason` names one: unknown tool,

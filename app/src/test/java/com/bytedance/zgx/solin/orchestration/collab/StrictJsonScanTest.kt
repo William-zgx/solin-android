@@ -22,7 +22,7 @@ class StrictJsonScanTest {
 
     @Test
     fun everyStrictJsonFormIsAccepted() {
-        val maxNesting = "{\"a\":" + "[".repeat(StrictJsonScan.MAX_DEPTH - 1) + "1" + "]".repeat(StrictJsonScan.MAX_DEPTH - 1) + "}"
+        val maxNesting = "{\"a\":" + "[".repeat(EXPECTED_MAX_DEPTH - 1) + "1" + "]".repeat(EXPECTED_MAX_DEPTH - 1) + "}"
         listOf(
             VALID,
             " \t\r\n$VALID \t\r\n",
@@ -56,6 +56,9 @@ class StrictJsonScanTest {
     private companion object {
         const val REQUEST = "在淘宝搜索牛奶"
         const val TAOBAO = "com.taobao.taobao"
+
+        // Keep the boundary independent from the production constant so depth mutations are observable.
+        const val EXPECTED_MAX_DEPTH = 8
         val MILESTONE = """{"intent":"open_app","app":"$TAOBAO"}"""
         val VALID = """{"version":1,"milestones":[$MILESTONE]}"""
 
@@ -95,7 +98,7 @@ class StrictJsonScanTest {
                 MilestoneRejection.DuplicateKey,
             "{\"version\":1,\u00A0\"milestones\":[$MILESTONE]}" to MilestoneRejection.MalformedJson,
             "\uFEFF$VALID" to MilestoneRejection.NotJsonObject,
-            "{\"version\":1,\"milestones\":${"[".repeat(StrictJsonScan.MAX_DEPTH)}1${"]".repeat(StrictJsonScan.MAX_DEPTH)}}" to
+            "{\"version\":1,\"milestones\":${"[".repeat(EXPECTED_MAX_DEPTH)}1${"]".repeat(EXPECTED_MAX_DEPTH)}}" to
                 MilestoneRejection.MalformedJson
         ) + listOf("01", "0x1", "0X1", "+1", "1.", ".5", "1e", "-", "NaN", "Infinity", "1_0").map { version ->
             """{"version":$version,"milestones":[$MILESTONE]}""" to MilestoneRejection.MalformedJson

@@ -12,8 +12,8 @@ import com.bytedance.zgx.solin.audit.RemoteSendAuditEvent
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
 import com.bytedance.zgx.solin.data.RemoteSendPendingStore
-import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
+import com.bytedance.zgx.solin.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
 import com.bytedance.zgx.solin.orchestration.ModelDispatchState
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
@@ -46,47 +46,46 @@ class ChatToolContinuationRemoteEgressTest {
         ChatUiState(
             messages = listOf(
                 ChatMessage(role = MessageRole.User, text = "总结剪贴板", privacy = MessagePrivacy.RemoteEligible),
-                ChatMessage(role = MessageRole.Assistant, text = "", privacy = MessagePrivacy.RemoteEligible),
+                ChatMessage(role = MessageRole.Assistant, text = "", privacy = MessagePrivacy.RemoteEligible)
             ),
-            remoteModelConfig = RemoteModelConfig(baseUrl = "https://example.com/v1", modelName = "model-a"),
-        ),
+            remoteModelConfig = RemoteModelConfig(baseUrl = "https://example.com/v1", modelName = "model-a")
+        )
     )
     private val auditStore = RecordingAuditStore()
     private val remoteRuntime = RecordingRemoteRuntime()
     private val localRuntime = FakeLiteRtRuntime()
     private val recordingRouter = RecordingRouter()
 
-    private fun remoteSendSupport(): ChatRemoteSendSupport =
-        ChatRemoteSendSupport(
-            uiState = uiState,
-            remoteSendAuditSink = auditStore,
-            remoteSendAuditLog = auditStore,
-            remoteSendPendingStore = NoopPendingStore,
-            requireRemoteSendDisclosure = false,
-            replaceActiveSessionMessages = { _, _ -> },
-            persistActiveSessionFromUi = {},
-            loadAgentTraceRuns = { emptyList() },
-            failModelGeneration = { runId, reason -> recordingRouter.failed += runId to reason },
-            takeSharedInputRestoreMatching = { null },
-            clearSharedInputRestore = {},
-            applyConfirmedRemoteSendDraftClear = { state, _ -> state },
-            applyCancelRemoteSendDraftRestore = { state, _, _, _ -> state },
-            onResumeSendAfterDisclosure = { _, _ -> },
-            onDiscardPreparedSend = {},
-            onResumeContinuationAfterDisclosure = { _, _, _, _ -> },
-        )
+    private fun remoteSendSupport(): ChatRemoteSendSupport = ChatRemoteSendSupport(
+        uiState = uiState,
+        remoteSendAuditSink = auditStore,
+        remoteSendAuditLog = auditStore,
+        remoteSendPendingStore = NoopPendingStore,
+        requireRemoteSendDisclosure = false,
+        replaceActiveSessionMessages = { _, _ -> },
+        persistActiveSessionFromUi = {},
+        loadAgentTraceRuns = { emptyList() },
+        failModelGeneration = { runId, reason -> recordingRouter.failed += runId to reason },
+        takeSharedInputRestoreMatching = { null },
+        clearSharedInputRestore = {},
+        applyConfirmedRemoteSendDraftClear = { state, _ -> state },
+        applyCancelRemoteSendDraftRestore = { state, _, _, _ -> state },
+        onResumeSendAfterDisclosure = { _, _ -> },
+        onDiscardPreparedSend = {},
+        onResumeContinuationAfterDisclosure = { _, _, _, _ -> }
+    )
 
     private fun continuationSupport(
         remoteSendSupport: ChatRemoteSendSupport,
-        launched: MutableList<String>,
+        launched: MutableList<String>
     ): ChatToolContinuationSupport {
         val permit = ActiveRunPlacementPermit.detached(
             testBinding(
                 runId = "run-remote",
                 placement = RunPlacement.Remote,
                 dispatchState = ModelDispatchState.Idle,
-                attempt = 1,
-            ),
+                attempt = 1
+            )
         )
         val generationSupport = ChatGenerationSupport(
             uiState = uiState,
@@ -98,7 +97,7 @@ class ChatToolContinuationRemoteEgressTest {
             persistActiveSessionFromUi = {},
             persistMessagesAndRebuildMemory = { _, _ -> },
             loadAgentTraceRuns = { emptyList() },
-            activeRunTimelineFor = { emptyList() },
+            activeRunTimelineFor = { emptyList() }
         )
         return ChatToolContinuationSupport(
             uiState = uiState,
@@ -119,7 +118,7 @@ class ChatToolContinuationRemoteEgressTest {
             loadAgentTraceRuns = { emptyList() },
             activeRunTimelineFor = { emptyList() },
             activePublicWebEvidenceFor = { emptyList() },
-            activeRunPlacement = { runId -> permit.takeIf { it.binding.runId == runId } },
+            activeRunPlacement = { runId -> permit.takeIf { it.binding.runId == runId } }
         )
     }
 
@@ -130,7 +129,7 @@ class ChatToolContinuationRemoteEgressTest {
             runId = "run-remote",
             promptForModel = "工具结果：我的身份证号 110101199003071234，请继续",
             responsePrivacy = MessagePrivacy.RemoteEligible,
-            remoteToolScope = RemoteToolScope.PublicEvidenceOnly,
+            remoteToolScope = RemoteToolScope.PublicEvidenceOnly
         )
 
         assertTrue("no model call may start for a blocked continuation", launched.isEmpty())
@@ -149,7 +148,7 @@ class ChatToolContinuationRemoteEgressTest {
             runId = "run-remote",
             promptForModel = "工具结果：Kotlin 1.9 发布，请继续",
             responsePrivacy = MessagePrivacy.RemoteEligible,
-            remoteToolScope = RemoteToolScope.PublicEvidenceOnly,
+            remoteToolScope = RemoteToolScope.PublicEvidenceOnly
         )
 
         assertEquals(listOf("run-remote"), launched)
@@ -174,7 +173,7 @@ class ChatToolContinuationRemoteEgressTest {
             tokenBudget: Int,
             runId: String?,
             force: Boolean,
-            estimatedTokens: ((List<ChatMessage>) -> Int)?,
+            estimatedTokens: ((List<ChatMessage>) -> Int)?
         ): List<ChatMessage> = messages
 
         override fun recordRunDataReceipt(runId: String, receipt: com.bytedance.zgx.solin.orchestration.RunDataReceipt) = Unit
@@ -182,19 +181,20 @@ class ChatToolContinuationRemoteEgressTest {
         override fun observeModelResult(
             runId: String,
             text: String,
-            allowInlineToolCalls: Boolean,
+            allowInlineToolCalls: Boolean
         ): AgentModelObservationResult? = null
     }
 
-    private class RecordingAuditStore : RemoteSendAuditSink, RemoteSendAuditLog {
+    private class RecordingAuditStore :
+        RemoteSendAuditSink,
+        RemoteSendAuditLog {
         val events = mutableListOf<RemoteSendAuditEvent>()
 
         override fun record(event: RemoteSendAuditEvent) {
             events += event.redactedForAudit()
         }
 
-        override fun recentRemoteSends(limit: Int): List<RemoteSendAuditEvent> =
-            if (limit <= 0) emptyList() else events.take(limit)
+        override fun recentRemoteSends(limit: Int): List<RemoteSendAuditEvent> = if (limit <= 0) emptyList() else events.take(limit)
     }
 
     private class RecordingRemoteRuntime : RemoteChatRuntime {
@@ -205,7 +205,7 @@ class ChatToolContinuationRemoteEgressTest {
             history: List<ChatMessage>,
             parameters: GenerationParameters,
             config: RemoteModelConfig,
-            imageAttachments: List<ChatImageAttachment>,
+            imageAttachments: List<ChatImageAttachment>
         ): Flow<String> {
             sentPrompts += prompt
             return flowOf("远程回复")
@@ -217,7 +217,7 @@ class ChatToolContinuationRemoteEgressTest {
             parameters: GenerationParameters,
             config: RemoteModelConfig,
             tools: List<ToolSpec>,
-            imageAttachments: List<ChatImageAttachment>,
+            imageAttachments: List<ChatImageAttachment>
         ): Flow<RemoteChatEvent> {
             sentPrompts += prompt
             return flowOf(RemoteChatEvent.TextDelta("远程回复"))
@@ -229,14 +229,13 @@ class ChatToolContinuationRemoteEgressTest {
     private object NoopPendingStore : RemoteSendPendingStore {
         override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) = Unit
 
-        override fun consumePendingRemoteSend(): PendingRemoteSendMarker? = null
+        override suspend fun consumePendingRemoteSend(): PendingRemoteSendMarker? = null
 
         override fun clearPendingRemoteSend() = Unit
     }
 }
 
-private fun unusedRouter(): AssistantRouter =
-    Proxy.newProxyInstance(
-        AssistantRouter::class.java.classLoader,
-        arrayOf(AssistantRouter::class.java),
-    ) { _, method, _ -> error("unexpected AssistantRouter call: ${method.name}") } as AssistantRouter
+private fun unusedRouter(): AssistantRouter = Proxy.newProxyInstance(
+    AssistantRouter::class.java.classLoader,
+    arrayOf(AssistantRouter::class.java)
+) { _, method, _ -> error("unexpected AssistantRouter call: ${method.name}") } as AssistantRouter

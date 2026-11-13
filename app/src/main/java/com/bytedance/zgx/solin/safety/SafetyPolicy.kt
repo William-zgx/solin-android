@@ -231,13 +231,7 @@ class SafetyPolicy {
             )
         }
 
-        if (!context.userConfirmed &&
-            egressGate.evaluate(
-                spec,
-                request,
-                context = { EgressRunContext(privateReadBefore = false, userInput = "") }
-            ).isNotEmpty()
-        ) {
+        if (!context.userConfirmed && egressGate.evaluateContentOnly(spec, request).isNotEmpty()) {
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
                 reason = "Tool ${request.toolName} text may contain personal or secret data and requires confirmation before it leaves the device."

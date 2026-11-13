@@ -42,7 +42,7 @@ interface ModelRepositoryFacade {
         displayName: String,
         recommendedModelId: String?,
         verifiedSha256: String? = null,
-        verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
+        verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom
     ): com.bytedance.zgx.solin.InstalledModelSummary
     fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource?
     fun downloadedModelFile(fileName: String): File?
@@ -85,8 +85,7 @@ interface RemoteModelStore {
     fun saveMode(mode: InferenceMode): InferenceMode
     fun loadConfig(): RemoteModelConfig
     fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>
-    fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> =
-        Result.failure(UnsupportedOperationException("Saving remote config without an API key is unsupported"))
+    fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> = Result.failure(UnsupportedOperationException("Saving remote config without an API key is unsupported"))
     fun recordConnectivity(config: RemoteModelConfig, status: RemoteModelConnectivityStatus) = Unit
     fun currentConnectivity(config: RemoteModelConfig): RemoteConnectivitySnapshot? = null
     fun invalidateConnectivity() = Unit
@@ -94,7 +93,7 @@ interface RemoteModelStore {
 
 interface RemoteSendPendingStore {
     fun savePendingRemoteSend(marker: PendingRemoteSendMarker)
-    fun consumePendingRemoteSend(): PendingRemoteSendMarker?
+    suspend fun consumePendingRemoteSend(): PendingRemoteSendMarker?
     fun clearPendingRemoteSend()
 }
 
@@ -134,5 +133,5 @@ enum class ModelVerificationStatus {
     VerifiedRecommended,
     UnverifiedCustom,
     LegacyUnverified,
-    FailedVerification,
+    FailedVerification
 }

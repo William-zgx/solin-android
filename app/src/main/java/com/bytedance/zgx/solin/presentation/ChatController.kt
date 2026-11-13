@@ -10,9 +10,9 @@ import com.bytedance.zgx.solin.MessagePrivacy
 import com.bytedance.zgx.solin.MessageRole
 import com.bytedance.zgx.solin.PendingAgentConfirmation
 import com.bytedance.zgx.solin.PendingRemoteSendDisclosure
-import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
-import com.bytedance.zgx.solin.RemoteModelConfig
 import com.bytedance.zgx.solin.RemoteConnectivitySnapshot
+import com.bytedance.zgx.solin.RemoteModelConfig
+import com.bytedance.zgx.solin.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.solin.StreamingAssistantUpdateCoalescer
 import com.bytedance.zgx.solin.audit.RemoteSendAuditLog
 import com.bytedance.zgx.solin.audit.RemoteSendAuditSink
@@ -22,10 +22,10 @@ import com.bytedance.zgx.solin.data.RemoteSendPendingStore
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
 import com.bytedance.zgx.solin.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.solin.label
-import com.bytedance.zgx.solin.logging.solinD
-import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_LIFECYCLE
 import com.bytedance.zgx.solin.logging.SolinLogTags.TAG_MODEL
+import com.bytedance.zgx.solin.logging.solinD
+import com.bytedance.zgx.solin.logging.solinE
 import com.bytedance.zgx.solin.multimodal.SharedInput
 import com.bytedance.zgx.solin.orchestration.ActiveRunPlacementPermit
 import com.bytedance.zgx.solin.orchestration.AgentPlan
@@ -33,31 +33,33 @@ import com.bytedance.zgx.solin.orchestration.AgentRunOptions
 import com.bytedance.zgx.solin.orchestration.AgentRunState
 import com.bytedance.zgx.solin.orchestration.AssistantRoute
 import com.bytedance.zgx.solin.orchestration.AssistantRouter
+import com.bytedance.zgx.solin.orchestration.DecisionModelPlacementPolicy
 import com.bytedance.zgx.solin.orchestration.ModelPlacementInput
 import com.bytedance.zgx.solin.orchestration.ModelPlacementPolicy
+import com.bytedance.zgx.solin.orchestration.PlacementDecision
+import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.PrepareChatRunRequest
 import com.bytedance.zgx.solin.orchestration.PrepareChatRunResult
-import com.bytedance.zgx.solin.orchestration.PreparedChatDispatcher
 import com.bytedance.zgx.solin.orchestration.PreparedChatBindingStore
+import com.bytedance.zgx.solin.orchestration.PreparedChatDispatcher
 import com.bytedance.zgx.solin.orchestration.PreparedChatPlacementPolicy
-import com.bytedance.zgx.solin.orchestration.DecisionModelPlacementPolicy
 import com.bytedance.zgx.solin.orchestration.PreparedChatRevisionValidator
 import com.bytedance.zgx.solin.orchestration.PreparedChatRun
 import com.bytedance.zgx.solin.orchestration.PreparedChatRunCoordinator
 import com.bytedance.zgx.solin.orchestration.PreparedChatRunningCall
-import com.bytedance.zgx.solin.orchestration.PlacementDecision
-import com.bytedance.zgx.solin.orchestration.PlacementReasonCode
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.orchestration.RunDataDestination
 import com.bytedance.zgx.solin.orchestration.RunPlacement
 import com.bytedance.zgx.solin.orchestration.RunPlacementBinding
 import com.bytedance.zgx.solin.orchestration.toRunDataDestination
+import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.runtime.LiteRtRuntime
 import com.bytedance.zgx.solin.runtime.LocalOneShotCancellation
 import com.bytedance.zgx.solin.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.solin.runtime.RemoteChatRuntime
-import com.bytedance.zgx.solin.resource.StableResourceState
 import com.bytedance.zgx.solin.tool.ToolRequest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -71,8 +73,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
@@ -113,22 +113,23 @@ class ChatController internal constructor(
     private val remoteConnectivity: (RemoteModelConfig) -> RemoteConnectivitySnapshot?,
     private val executeToolRequestAfterRunIsExecutingCallback: suspend (
         confirmation: PendingAgentConfirmation,
-        request: ToolRequest,
+        request: ToolRequest
     ) -> Unit,
     private val executePublicEvidenceToolBatchAfterRunIsExecutingCallback: suspend (
         runId: String,
-        plans: List<AgentPlan.UseTool>,
+        plans: List<AgentPlan.UseTool>
     ) -> Unit,
     private val handleNextToolPlanCallback: (
         runId: String,
         plan: AgentPlan.UseTool,
-        pendingStatusText: String,
+        pendingStatusText: String
     ) -> Unit,
     private val sessionHost: PresentationSessionHost,
-    private val deviceContextSnapshot: () -> DeviceContextSnapshot,
+    private val deviceContextSnapshot: () -> DeviceContextSnapshot
 ) {
     private var generationJob: Job? = null
     private var activeGenerationRunId: String? = null
+
     @Volatile private var activeInitialRouteCancellation: LocalOneShotCancellation? = null
     private val generationStreams = GenerationStreamCoordinator()
     private var nextVoiceInputDraftId = 0L
@@ -146,7 +147,7 @@ class ChatController internal constructor(
             sessionHost.persistMessagesAndRebuildMemory(messages, memoryUserMessage)
         },
         loadAgentTraceRuns = { sessionHost.loadAgentTraceRuns() },
-        activeRunTimelineFor = { runId -> sessionHost.activeRunTimelineFor(runId) },
+        activeRunTimelineFor = { runId -> sessionHost.activeRunTimelineFor(runId) }
     )
 
     private val preparedChatExecutions = ConcurrentHashMap<String, PreparedChatExecution>()
@@ -156,7 +157,7 @@ class ChatController internal constructor(
         replaceActiveSessionMessages = { messages, persistNow ->
             sessionHost.replaceActiveSessionMessages(messages, persistNow)
         },
-        refreshAuditEvents = { remoteSendSupport.refreshRemoteSendAuditEvents() },
+        refreshAuditEvents = { remoteSendSupport.refreshRemoteSendAuditEvents() }
     )
     private val preparedChatRunCoordinator = PreparedChatRunCoordinator(
         policy = PreparedChatPlacementPolicy { input, routingText ->
@@ -189,7 +190,7 @@ class ChatController internal constructor(
         },
         revisionValidator = PreparedChatRevisionValidator { expected ->
             currentRemoteConfig().normalized().profileRevision == expected
-        },
+        }
     )
 
     private val sharedInputSupport = ChatSharedInputSupport(
@@ -205,9 +206,9 @@ class ChatController internal constructor(
                 explicitMessagePrivacy = privacy,
                 imageAttachments = images,
                 localImageAttachments = localImages,
-                currentPromptEvidenceSummary = evidence,
+                currentPromptEvidenceSummary = evidence
             )
-        },
+        }
     )
 
     private val remoteSendSupport: ChatRemoteSendSupport = ChatRemoteSendSupport(
@@ -238,10 +239,10 @@ class ChatController internal constructor(
                 promptForModel = promptForModel,
                 responsePrivacy = responsePrivacy,
                 remoteToolScope = remoteToolScope,
-                remoteSendConfirmed = true,
+                remoteSendConfirmed = true
             )
         },
-        deferRemoteSendAuditNote = deferredAudit::deferNote,
+        deferRemoteSendAuditNote = deferredAudit::deferNote
     )
 
     private val toolContinuationSupport = ChatToolContinuationSupport(
@@ -262,7 +263,7 @@ class ChatController internal constructor(
         activePublicWebEvidenceFor = { runId -> sessionHost.activePublicWebEvidenceFor(runId) },
         activeRunPlacement = chatPlacementRuntime::activeBinding,
         onRemoteServingStarted = { runId -> runId?.let(deferredAudit::commit) },
-        discardDeferredRemoteSend = { runId -> runId?.let(deferredAudit::discard) },
+        discardDeferredRemoteSend = { runId -> runId?.let(deferredAudit::discard) }
     )
 
     private val generationCompletion = ChatGenerationCompletion(
@@ -277,15 +278,15 @@ class ChatController internal constructor(
                 runId = runId,
                 promptForModel = promptForModel,
                 responsePrivacy = responsePrivacy,
-                remoteToolScope = remoteToolScope,
+                remoteToolScope = remoteToolScope
             )
-        },
+        }
     )
 
     private val routeOutcomes = ChatRouteOutcomeHandler(
         uiState = uiState,
         sessionHost = sessionHost,
-        executeToolRequestAfterRunIsExecuting = executeToolRequestAfterRunIsExecutingCallback,
+        executeToolRequestAfterRunIsExecuting = executeToolRequestAfterRunIsExecutingCallback
     )
 
     val isGenerationJobActive: Boolean
@@ -312,7 +313,7 @@ class ChatController internal constructor(
         ownedRunIds(
             preparedChatExecutions
                 .filterValues { execution -> execution.stateBeforeSend.activeSessionId == sessionId }
-                .keys,
+                .keys
         ).forEach { runId -> chatPlacementRuntime.stop(runId, AgentRunState.Cancelled) }
         preparedChatRunCoordinator.teardownSession(sessionId)
         midRunSteering.clearSession(sessionId)
@@ -323,14 +324,13 @@ class ChatController internal constructor(
     }
 
     /** [preparedRunIds] plus every run this controller is generating for or waiting on the user for. */
-    private fun ownedRunIds(preparedRunIds: Collection<String>): Set<String> =
-        buildSet {
-            activeGenerationRunId?.let(::add)
-            addAll(preparedRunIds)
-            remoteSendSupport.pendingContinuationRunId?.let(::add)
-            uiState.value.pendingConfirmation?.runId?.let(::add)
-            uiState.value.pendingExternalOutcome?.runId?.let(::add)
-        }
+    private fun ownedRunIds(preparedRunIds: Collection<String>): Set<String> = buildSet {
+        activeGenerationRunId?.let(::add)
+        addAll(preparedRunIds)
+        remoteSendSupport.pendingContinuationRunId?.let(::add)
+        uiState.value.pendingConfirmation?.runId?.let(::add)
+        uiState.value.pendingExternalOutcome?.runId?.let(::add)
+    }
 
     fun sendMessage(prompt: String) {
         sendMessageInternal(prompt = prompt, explicitMessagePrivacy = null)
@@ -351,7 +351,7 @@ class ChatController internal constructor(
         preparedPlacement: RunPlacement? = null,
         preparedJobLaunched: ((Deferred<Unit>) -> Unit)? = null,
         onRemoteServingStarted: (() -> Unit)? = null,
-        heldMessagesOnly: Boolean = false,
+        heldMessagesOnly: Boolean = false
     ) {
         if (
             preparedExecution == null &&
@@ -362,13 +362,14 @@ class ChatController internal constructor(
                 remoteSendConfirmed = remoteSendConfirmed,
                 hasAttachmentsOrEvidence = imageAttachments.isNotEmpty() ||
                     localImageAttachments.isNotEmpty() ||
-                    currentPromptEvidenceSummary != null,
+                    currentPromptEvidenceSummary != null
             )
         ) {
             return
         }
         if (
-            preparedExecution == null && sessionHost.dispatchPersistenceWorkIfNeeded {
+            preparedExecution == null &&
+            sessionHost.dispatchPersistenceWorkIfNeeded {
                 sendMessageInternal(
                     prompt = prompt,
                     explicitMessagePrivacy = explicitMessagePrivacy,
@@ -376,7 +377,7 @@ class ChatController internal constructor(
                     localImageAttachments = localImageAttachments,
                     remoteSendConfirmed = remoteSendConfirmed,
                     currentPromptEvidenceSummary = currentPromptEvidenceSummary,
-                    heldMessagesOnly = heldMessagesOnly,
+                    heldMessagesOnly = heldMessagesOnly
                 )
             }
         ) {
@@ -389,7 +390,7 @@ class ChatController internal constructor(
                     trimmedPrompt = trimmed,
                     state = uiState.value,
                     remoteSendConfirmed = remoteSendConfirmed,
-                    generationActive = generationJob?.isActive == true,
+                    generationActive = generationJob?.isActive == true
                 )
             ) {
                 InitialSendDecision.Ignore -> return
@@ -424,14 +425,14 @@ class ChatController internal constructor(
                 midRunSteering.takeMerged(
                     sessionId = uiState.value.activeSessionId,
                     prompt = trimmed.takeUnless { heldMessagesOnly },
-                    explicitMessagePrivacy = explicitMessagePrivacy.takeUnless { heldMessagesOnly },
+                    explicitMessagePrivacy = explicitMessagePrivacy.takeUnless { heldMessagesOnly }
                 )?.let { merged ->
                     sendMessageInternal(
                         prompt = merged.prompt,
                         explicitMessagePrivacy = merged.explicitMessagePrivacy,
                         imageAttachments = imageAttachments,
                         localImageAttachments = localImageAttachments,
-                        currentPromptEvidenceSummary = currentPromptEvidenceSummary,
+                        currentPromptEvidenceSummary = currentPromptEvidenceSummary
                     )
                     return
                 }
@@ -443,7 +444,7 @@ class ChatController internal constructor(
             TAG_LIFECYCLE,
             "sendMessageInternal: len=${trimmed.length} " +
                 "mode=${uiState.value.inferenceMode.name} " +
-                "busy=${uiState.value.isBusy}",
+                "busy=${uiState.value.isBusy}"
         )
 
         if (preparedExecution == null) {
@@ -460,7 +461,8 @@ class ChatController internal constructor(
         var remoteHistory: List<ChatMessage> = preparedExecution?.remoteHistory
             ?: remoteSendSupport.remoteHistoryForRemoteSend(stateBeforeSend.messages)
         val localImageAttachmentCount = if (useRemoteModel) 0 else localImageAttachments.size
-        if (preparedExecution != null && !useRemoteModel &&
+        if (preparedExecution != null &&
+            !useRemoteModel &&
             localImageAttachments.isNotEmpty() &&
             !stateBeforeSend.activeLocalModelSupportsVisionInput
         ) {
@@ -473,13 +475,15 @@ class ChatController internal constructor(
         // first run inside the generation block on ioDispatcher.
         val initialRouteCancellation = LocalOneShotCancellation()
         val agentRunOptions by lazy {
-            (preparedExecution?.agentRunOptions ?: initialAgentRunOptions(
-                stateBeforeSend,
-                useRemoteModel,
-                remoteConfig,
-                modelRepository::localPlanningStrategy,
-                modelRepository::verifiedObservationActionModelPath,
-            )).copy(initialRouteCancellation = initialRouteCancellation)
+            (
+                preparedExecution?.agentRunOptions ?: initialAgentRunOptions(
+                    stateBeforeSend,
+                    useRemoteModel,
+                    remoteConfig,
+                    modelRepository::localPlanningStrategy,
+                    modelRepository::verifiedObservationActionModelPath
+                )
+                ).copy(initialRouteCancellation = initialRouteCancellation)
         }
         if (preparedExecution != null && useRemoteModel) {
             val remoteDecision = ChatSendPreflight.preparedRemoteSend(
@@ -491,7 +495,7 @@ class ChatController internal constructor(
                 },
                 requiresSendDisclosure = {
                     remoteSendSupport.shouldRequireRemoteSendDisclosure(imageAttachmentCount = imageAttachments.size)
-                },
+                }
             )
             when (remoteDecision) {
                 RemoteSendPreflightDecision.KeepLocalOnlyContent -> {
@@ -507,13 +511,13 @@ class ChatController internal constructor(
                         modelName = remoteConfig.normalized().modelName,
                         prompt = trimmed,
                         imageCount = imageAttachments.size,
-                        remoteHistoryCount = remoteHistory.size,
+                        remoteHistoryCount = remoteHistory.size
                     )
                     persistLocalReply(
                         history = stateBeforeSend.messages,
                         userText = trimmed,
                         userPrivacy = MessagePrivacy.RemoteEligible,
-                        reply = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。",
+                        reply = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。"
                     )
                     uiState.update {
                         it.copy(statusText = "远程连接不可用")
@@ -521,7 +525,7 @@ class ChatController internal constructor(
                     return
                 }
                 RemoteSendPreflightDecision.RequireSensitiveContentConsent,
-                RemoteSendPreflightDecision.RequireSendDisclosure,
+                RemoteSendPreflightDecision.RequireSendDisclosure
                 -> {
                     // Sensitive content gets a forced disclosure with graded choices (mask & send,
                     // send anyway with audit, or cancel); the session-suppression flag never hides it.
@@ -534,9 +538,9 @@ class ChatController internal constructor(
                             remoteConfig = remoteConfig,
                             remoteHistory = remoteHistory,
                             imageAttachments = imageAttachments,
-                            stateBeforeSend = stateBeforeSend,
+                            stateBeforeSend = stateBeforeSend
                         ),
-                        statusText = if (sensitive) "敏感内容待确认" else "远程发送待确认",
+                        statusText = if (sensitive) "敏感内容待确认" else "远程发送待确认"
                     )
                     return
                 }
@@ -548,7 +552,7 @@ class ChatController internal constructor(
                         userText = trimmed,
                         userPrivacy = MessagePrivacy.LocalOnly,
                         reply = "这条内容疑似包含个人信息或密钥。当前为远程模型模式，我不会把它发送到远程模型；请切换到本地模型，或删去敏感内容后再发送。",
-                        rememberUser = false,
+                        rememberUser = false
                     )
                     uiState.update {
                         it.copy(statusText = "已保护敏感内容")
@@ -571,7 +575,7 @@ class ChatController internal constructor(
                     activePublicWebEvidence = emptyList(),
                     activeRunPlacement = null,
                     activeRunPlacementReason = null,
-                    statusText = "处理中",
+                    statusText = "处理中"
                 )
             }
         }
@@ -584,7 +588,7 @@ class ChatController internal constructor(
                 val userMessage = ChatMessage(
                     role = MessageRole.User,
                     text = trimmed,
-                    privacy = effectiveMessagePrivacy,
+                    privacy = effectiveMessagePrivacy
                 )
                 val route = preparedExecution?.routeForDispatch ?: try {
                     assistantOrchestrator.route(
@@ -595,7 +599,7 @@ class ChatController internal constructor(
                         deviceContext = deviceContextSnapshot().takeIf { includePrivateLocalContext },
                         sessionId = stateBeforeSend.activeSessionId,
                         options = agentRunOptions,
-                        installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
+                        installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles
                     )
                 } catch (cancellation: CancellationException) {
                     throw cancellation
@@ -622,12 +626,12 @@ class ChatController internal constructor(
                             prompt = trimmed,
                             stateBeforeSend = stateBeforeSend,
                             promptPrivacy = effectiveMessagePrivacy,
-                            remoteConfig = remoteConfig,
+                            remoteConfig = remoteConfig
                         ) == null
                     ) {
                         failInitialPlacement(
                             route.runId,
-                            PlacementReasonCode.PLACEMENT_NOT_RESTORABLE,
+                            PlacementReasonCode.PLACEMENT_NOT_RESTORABLE
                         )
                         return@generation
                     }
@@ -639,13 +643,15 @@ class ChatController internal constructor(
                     currentPromptPrivacy = effectiveMessagePrivacy,
                     remoteHistoryCount = remoteHistory.size,
                     imageAttachmentCount = imageAttachments.size + localImageAttachmentCount,
-                    currentPromptEvidenceSummary = currentPromptEvidenceSummary,
+                    currentPromptEvidenceSummary = currentPromptEvidenceSummary
                 )
-                if (preparedExecution == null && route !is AssistantRoute.Chat) route.runIdOrNull()?.let { runId ->
-                    assistantOrchestrator.recordRunDataReceipt(
-                        runId = runId,
-                        receipt = routeReceipt,
-                    )
+                if (preparedExecution == null && route !is AssistantRoute.Chat) {
+                    route.runIdOrNull()?.let { runId ->
+                        assistantOrchestrator.recordRunDataReceipt(
+                            runId = runId,
+                            receipt = routeReceipt
+                        )
+                    }
                 }
                 when (route) {
                     is AssistantRoute.Cancelled -> return@generation
@@ -678,7 +684,7 @@ class ChatController internal constructor(
                                 localImageAttachments = localImageAttachments,
                                 includePrivateLocalContext = includePrivateLocalContext,
                                 agentRunOptions = agentRunOptions,
-                                currentPromptEvidenceSummary = currentPromptEvidenceSummary,
+                                currentPromptEvidenceSummary = currentPromptEvidenceSummary
                             )
                             return@generation
                         }
@@ -686,7 +692,7 @@ class ChatController internal constructor(
                         activeGenerationRunId = route.runId
                         val streamKey = generationStreams.start(
                             sessionId = stateBeforeSend.activeSessionId.orEmpty(),
-                            runId = route.runId,
+                            runId = route.runId
                         )
                         activeStreamKey = streamKey
                         val responsePrivacy = if (
@@ -705,11 +711,11 @@ class ChatController internal constructor(
                         val assistantPlaceholder = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "",
-                            privacy = responsePrivacy,
+                            privacy = responsePrivacy
                         )
                         sessionHost.replaceActiveSessionMessages(
                             stateBeforeSend.messages + chatUserMessage + assistantPlaceholder,
-                            persistNow = true,
+                            persistNow = true
                         )
                         sessionHost.persistExplicitPreferenceMemory(chatUserMessage)
                         uiState.update {
@@ -719,16 +725,16 @@ class ChatController internal constructor(
                                 activeRunTimeline = sessionHost.activeRunTimelineFor(route.runId),
                                 activeMemoryEvidence = sessionHost.activeMemoryEvidenceFor(
                                     memoryHits = route.memoryHits,
-                                    includePrivateLocalContext = includePrivateLocalContext,
+                                    includePrivateLocalContext = includePrivateLocalContext
                                 ),
-                                statusText = "生成中",
+                                statusText = "生成中"
                             )
                         }
                         if (generationSupport.abortIfServingUnavailable(
                                 runId = route.runId,
                                 useRemoteModel = useRemoteModel,
                                 remoteConfigured = remoteConfig.isConfigured,
-                                localNotReadyText = "模型尚未就绪",
+                                localNotReadyText = "模型尚未就绪"
                             )
                         ) {
                             return@generation
@@ -736,7 +742,7 @@ class ChatController internal constructor(
                         if (useRemoteModel) {
                             val boundaryFailure = remoteRouteBoundaryFailure(
                                 userInput = trimmed,
-                                route = route,
+                                route = route
                             )
                             if (boundaryFailure != null) {
                                 activeModelRunId?.let { runId ->
@@ -747,7 +753,7 @@ class ChatController internal constructor(
                                     modelName = remoteConfig.normalized().modelName,
                                     prompt = route.promptForModel,
                                     imageCount = imageAttachments.size,
-                                    remoteHistoryCount = remoteHistory.size,
+                                    remoteHistoryCount = remoteHistory.size
                                 )
                                 uiState.updateLastAssistantLocalOnly(boundaryFailure)
                                 sessionHost.persistActiveSessionFromUi()
@@ -756,7 +762,7 @@ class ChatController internal constructor(
                                         isReady = remoteConfig.isConfigured,
                                         pendingConfirmation = null,
                                         memoryHits = emptyList(),
-                                        activeMemoryEvidence = emptyList(),
+                                        activeMemoryEvidence = emptyList()
                                     )
                                 }
                                 return@generation
@@ -768,7 +774,7 @@ class ChatController internal constructor(
                                 if (generationStreams.isActive(streamKey)) {
                                     uiState.updateLastAssistant(text)
                                 }
-                            },
+                            }
                         )
                         streamingAssistantUpdates = streamingUpdates
                         val turn = GuardedTurn(streamingUpdates)
@@ -782,7 +788,7 @@ class ChatController internal constructor(
                                     assistantOrchestrator.recordRemoteToolsExposed(
                                         runId = runId,
                                         scope = agentRunOptions.remoteToolScope,
-                                        toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name },
+                                        toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name }
                                     )
                                 }
                                 if (!remoteSendConfirmed) {
@@ -791,7 +797,7 @@ class ChatController internal constructor(
                                         modelName = remoteConfig.normalized().modelName,
                                         prompt = route.promptForModel,
                                         imageCount = imageAttachments.size,
-                                        remoteHistoryCount = remoteHistory.size,
+                                        remoteHistoryCount = remoteHistory.size
                                     )
                                 }
                                 remoteHistory = generationSupport.streamRemoteTurn(
@@ -804,7 +810,7 @@ class ChatController internal constructor(
                                     tools = remoteTools,
                                     imageAttachments = imageAttachments,
                                     acceptDelta = acceptDelta,
-                                    onServingStarted = { onRemoteServingStarted?.invoke() },
+                                    onServingStarted = { onRemoteServingStarted?.invoke() }
                                 )
                             } else {
                                 generationSupport.streamLocalTurn(
@@ -813,7 +819,7 @@ class ChatController internal constructor(
                                     history = stateBeforeSend.messages,
                                     parameters = stateBeforeSend.generationParameters,
                                     imageAttachments = localImageAttachments,
-                                    acceptDelta = acceptDelta,
+                                    acceptDelta = acceptDelta
                                 )
                             }
                         } finally {
@@ -826,7 +832,7 @@ class ChatController internal constructor(
                                 runId = route.runId,
                                 decision = decision,
                                 receipt = routeReceipt,
-                                useRemoteModel = useRemoteModel,
+                                useRemoteModel = useRemoteModel
                             )
                             return@generation
                         }
@@ -837,7 +843,7 @@ class ChatController internal constructor(
                             observation = turn.observation,
                             partial = turn.partial,
                             useRemoteModel = useRemoteModel,
-                            includePrivateLocalContext = includePrivateLocalContext,
+                            includePrivateLocalContext = includePrivateLocalContext
                         )
                     }
                 }
@@ -853,7 +859,7 @@ class ChatController internal constructor(
                         it.copy(
                             isBusy = false,
                             isGenerating = false,
-                            statusText = "已停止",
+                            statusText = "已停止"
                         )
                     }
                 }
@@ -867,7 +873,7 @@ class ChatController internal constructor(
                     throwable = throwable,
                     useRemoteModel = useRemoteModel,
                     remoteConfigured = remoteConfig.isConfigured,
-                    showErrorOnlyWhileGenerating = true,
+                    showErrorOnlyWhileGenerating = true
                 )
             }
         }
@@ -890,20 +896,20 @@ class ChatController internal constructor(
         prompt: String,
         stateBeforeSend: ChatUiState,
         promptPrivacy: MessagePrivacy,
-        remoteConfig: RemoteModelConfig,
+        remoteConfig: RemoteModelConfig
     ): ActiveRunPlacementPermit? {
         chatPlacementRuntime.activeBinding(runId)?.let { return it }
         val inputs = placementInputsFor(
             state = stateBeforeSend,
             prompt = prompt,
-            connectivity = remoteConnectivity(remoteConfig.normalized()),
+            connectivity = remoteConnectivity(remoteConfig.normalized())
         )
         val privacy = initialChatPrivacyPlan(
             promptPrivacy = promptPrivacy,
             history = stateBeforeSend.messages,
             remoteImages = emptyList(),
             localImages = emptyList(),
-            evidence = null,
+            evidence = null
         )
         val decision = ModelPlacementPolicy.decide(
             ModelPlacementInput(
@@ -914,8 +920,8 @@ class ChatController internal constructor(
                 local = inputs.localCandidate,
                 remote = inputs.remoteCandidate,
                 resources = stableResourceStateProvider(),
-                complexity = inputs.complexity,
-            ),
+                complexity = inputs.complexity
+            )
         ) as? PlacementDecision.Chosen ?: return null
         val binding = runCatching {
             RunPlacementBinding.fromDecision(
@@ -923,41 +929,39 @@ class ChatController internal constructor(
                 decision = decision,
                 remoteProfileRevision = remoteConfig.normalized().profileRevision,
                 bootCount = bootCountProvider(),
-                boundAtElapsedRealtimeMillis = elapsedRealtimeMillis(),
+                boundAtElapsedRealtimeMillis = elapsedRealtimeMillis()
             )
         }.getOrNull() ?: return null
         return bindAndShowPlacement(binding)
     }
 
-    private fun bindAndShowPlacement(binding: RunPlacementBinding): ActiveRunPlacementPermit? =
-        chatPlacementRuntime.bindAndReserve(binding)?.also {
-            uiState.update { state ->
-                state.copy(
-                    activeRunPlacement = binding.placement,
-                    activeRunPlacementReason = binding.primaryReason,
-                )
-            }
+    private fun bindAndShowPlacement(binding: RunPlacementBinding): ActiveRunPlacementPermit? = chatPlacementRuntime.bindAndReserve(binding)?.also {
+        uiState.update { state ->
+            state.copy(
+                activeRunPlacement = binding.placement,
+                activeRunPlacementReason = binding.primaryReason
+            )
         }
+    }
 
     private fun placementInputsFor(
         state: ChatUiState,
         prompt: String,
         connectivity: RemoteConnectivitySnapshot?,
         remoteImageCount: Int = 0,
-        localImageCount: Int = 0,
-    ): ChatPlacementInputs =
-        chatPlacementInputs(
-            state = state,
-            promptForModel = prompt,
-            history = state.messages,
-            remoteImageCount = remoteImageCount,
-            localImageCount = localImageCount,
-            localRuntimeLoaded = runtime.isLoaded,
-            connectivity = connectivity,
-            nowElapsedRealtimeMillis = elapsedRealtimeMillis(),
-            autoRemoteAuthorized = adaptiveInferenceRollout.autoSelectable &&
-                state.inferenceMode == InferenceMode.Auto,
-        )
+        localImageCount: Int = 0
+    ): ChatPlacementInputs = chatPlacementInputs(
+        state = state,
+        promptForModel = prompt,
+        history = state.messages,
+        remoteImageCount = remoteImageCount,
+        localImageCount = localImageCount,
+        localRuntimeLoaded = runtime.isLoaded,
+        connectivity = connectivity,
+        nowElapsedRealtimeMillis = elapsedRealtimeMillis(),
+        autoRemoteAuthorized = adaptiveInferenceRollout.autoSelectable &&
+            state.inferenceMode == InferenceMode.Auto
+    )
 
     /** Keeps the user's turn plus a local-only explanation in the session; nothing is sent remotely. */
     private fun persistLocalReply(
@@ -965,20 +969,20 @@ class ChatController internal constructor(
         userText: String,
         userPrivacy: MessagePrivacy,
         reply: String,
-        rememberUser: Boolean = true,
+        rememberUser: Boolean = true
     ) {
         val userMessage = ChatMessage(role = MessageRole.User, text = userText, privacy = userPrivacy)
         sessionHost.persistMessagesAndRebuildMemory(
             messages = history + userMessage +
                 ChatMessage(role = MessageRole.Assistant, text = reply, privacy = MessagePrivacy.LocalOnly),
-            memoryUserMessage = userMessage.takeIf { rememberUser },
+            memoryUserMessage = userMessage.takeIf { rememberUser }
         )
     }
 
     private fun showRemoteSendDisclosure(
         disclosure: PendingRemoteSendDisclosure,
         statusText: String,
-        endRun: Boolean = false,
+        endRun: Boolean = false
     ) {
         remoteSendSupport.savePendingRemoteSendMarker(disclosure)
         uiState.update {
@@ -986,7 +990,7 @@ class ChatController internal constructor(
                 pendingRemoteSendDisclosure = disclosure,
                 pendingExternalOutcome = null,
                 latestRecoveryAction = null,
-                statusText = statusText,
+                statusText = statusText
             )
         }
     }
@@ -1002,14 +1006,14 @@ class ChatController internal constructor(
         localImageAttachments: List<LocalImageAttachment>,
         includePrivateLocalContext: Boolean,
         agentRunOptions: AgentRunOptions,
-        currentPromptEvidenceSummary: EvidenceReceiptSummary?,
+        currentPromptEvidenceSummary: EvidenceReceiptSummary?
     ) {
         val runId = route.runId
         val sessionId = stateBeforeSend.activeSessionId
         if (runId.isNullOrBlank() || sessionId.isNullOrBlank()) {
             failInitialPlacement(
                 runId = runId,
-                reason = PlacementReasonCode.PLACEMENT_DECISION_MISSING,
+                reason = PlacementReasonCode.PLACEMENT_DECISION_MISSING
             )
             return
         }
@@ -1027,7 +1031,7 @@ class ChatController internal constructor(
                     modelName = remoteConfig.normalized().modelName,
                     prompt = route.promptForModel,
                     imageCount = imageAttachments.size,
-                    remoteHistoryCount = remoteHistory.size,
+                    remoteHistoryCount = remoteHistory.size
                 )
                 persistLocalReply(stateBeforeSend.messages, userPrompt, MessagePrivacy.RemoteEligible, boundaryFailure)
                 uiState.update { it.idleWithoutPlacement(PlacementReasonCode.PRIVACY_REQUIRES_LOCAL, "已阻止远程发送") }
@@ -1041,14 +1045,14 @@ class ChatController internal constructor(
             history = stateBeforeSend.messages,
             remoteImages = imageAttachments,
             localImages = localImageAttachments,
-            evidence = currentPromptEvidenceSummary,
+            evidence = currentPromptEvidenceSummary
         ).withRouteContext(route)
         val placementInputs = placementInputsFor(
             state = stateBeforeSend,
             prompt = route.promptForModel,
             connectivity = connectivity,
             remoteImageCount = imageAttachments.size,
-            localImageCount = localImageAttachments.size,
+            localImageCount = localImageAttachments.size
         )
         val sensitive = remoteSendSupport.containsSensitivePersonalOrSecretContent(userPrompt)
         val imageAttachmentCount = maxOf(imageAttachments.size, localImageAttachments.size)
@@ -1068,7 +1072,7 @@ class ChatController internal constructor(
             includePrivateLocalContext = includePrivateLocalContext,
             agentRunOptions = agentRunOptions,
             currentPromptEvidenceSummary = currentPromptEvidenceSummary,
-            remoteSendConfirmed = requiresDisclosure,
+            remoteSendConfirmed = requiresDisclosure
         )
         if (preparedChatExecutions.putIfAbsent(runId, execution) != null) {
             failInitialPlacement(runId, PlacementReasonCode.PLACEMENT_NOT_RESTORABLE)
@@ -1093,8 +1097,8 @@ class ChatController internal constructor(
                 requiresRemoteDisclosure = requiresDisclosure,
                 routingText = userPrompt,
                 bootCount = bootCountProvider(),
-                boundAtElapsedRealtimeMillis = elapsedRealtimeMillis(),
-            ),
+                boundAtElapsedRealtimeMillis = elapsedRealtimeMillis()
+            )
         )
         when (result) {
             is PrepareChatRunResult.Blocked -> {
@@ -1118,20 +1122,20 @@ class ChatController internal constructor(
                     remoteConfig = normalizedRemoteConfig,
                     remoteHistory = remoteHistory,
                     imageAttachments = imageAttachments,
-                    stateBeforeSend = stateBeforeSend,
+                    stateBeforeSend = stateBeforeSend
                 ).copy(
                     runId = result.runId,
-                    remoteProfileRevision = result.expectedConfigRevision,
+                    remoteProfileRevision = result.expectedConfigRevision
                 ),
                 statusText = if (sensitive) "敏感内容待确认" else "远程发送待确认",
-                endRun = true,
+                endRun = true
             )
         }
     }
 
     private fun resumePreparedChatAfterDisclosure(
         pending: PendingRemoteSendDisclosure,
-        promptOverride: String?,
+        promptOverride: String?
     ) {
         val runId = pending.runId
         val revision = pending.remoteProfileRevision
@@ -1152,14 +1156,14 @@ class ChatController internal constructor(
             return
         }
         execution.preserveConfirmedLocalMessages(
-            uiState.value.messages.drop(execution.stateBeforeSend.messages.size),
+            uiState.value.messages.drop(execution.stateBeforeSend.messages.size)
         )
         promptOverride?.let(execution::overridePrompt)
         uiState.update {
             it.copy(
                 isBusy = true,
                 isGenerating = false,
-                statusText = "处理中",
+                statusText = "处理中"
             )
         }
         launchGenerationJob(runId) {
@@ -1180,7 +1184,7 @@ class ChatController internal constructor(
 
     private fun failInitialPlacement(
         runId: String?,
-        reason: PlacementReasonCode,
+        reason: PlacementReasonCode
     ) {
         runId?.let { assistantOrchestrator.failModelGeneration(it, reason.name) }
         uiState.update { it.idleWithoutPlacement(reason, "没有可用的模型执行目标") }
@@ -1188,7 +1192,7 @@ class ChatController internal constructor(
 
     private suspend fun dispatchPreparedExecution(
         prepared: PreparedChatRun,
-        execution: PreparedChatExecution,
+        execution: PreparedChatExecution
     ) {
         val receipt = execution.route.runDataReceipt(
             stateBeforeSend = execution.stateBeforeSend,
@@ -1200,20 +1204,20 @@ class ChatController internal constructor(
             } else {
                 prepared.localImageAttachments.size
             },
-            currentPromptEvidenceSummary = execution.currentPromptEvidenceSummary,
+            currentPromptEvidenceSummary = execution.currentPromptEvidenceSummary
         )
         chatPlacementRuntime.dispatch(
             prepared = prepared,
             receipt = receipt,
             local = preparedServingCall(prepared, execution, RunPlacement.Local),
-            remote = preparedServingCall(prepared, execution, RunPlacement.Remote),
+            remote = preparedServingCall(prepared, execution, RunPlacement.Remote)
         )
     }
 
     private fun preparedServingCall(
         prepared: PreparedChatRun,
         execution: PreparedChatExecution,
-        placement: RunPlacement,
+        placement: RunPlacement
     ): ChatServingCall = PreparedServingCall(
         launch = { onLaunched ->
             sendMessageInternal(
@@ -1226,7 +1230,7 @@ class ChatController internal constructor(
                 preparedExecution = execution,
                 preparedPlacement = placement,
                 preparedJobLaunched = onLaunched,
-                onRemoteServingStarted = { deferredAudit.commit(prepared.runId) },
+                onRemoteServingStarted = { deferredAudit.commit(prepared.runId) }
             )
         },
         stopRuntime = {
@@ -1234,7 +1238,7 @@ class ChatController internal constructor(
                 RunPlacement.Local -> runtime.stop()
                 RunPlacement.Remote -> remoteRuntime.stop()
             }
-        },
+        }
     )
 
     fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
@@ -1251,17 +1255,11 @@ class ChatController internal constructor(
         deferredAudit.deferSuccessfulAudit(remoteSendSupport::confirmRemoteSendDespiteSensitive)
     }
 
-    fun failClosedPendingRemoteSendOnStartup() {
-        remoteSendSupport.failClosedPendingRemoteSendOnStartup()
-    }
+    suspend fun failClosedPendingRemoteSendOnStartup() = remoteSendSupport.failClosedPendingRemoteSendOnStartup()
 
-    fun dismissRemoteSendDisclosure() {
-        remoteSendSupport.dismissRemoteSendDisclosure()
-    }
+    fun dismissRemoteSendDisclosure() = remoteSendSupport.dismissRemoteSendDisclosure()
 
-    fun ingestSharedInput(sharedInput: SharedInput) {
-        sharedInputSupport.ingestSharedInput(sharedInput)
-    }
+    fun ingestSharedInput(sharedInput: SharedInput) = sharedInputSupport.ingestSharedInput(sharedInput)
 
     fun stageSharedInput(sharedInput: SharedInput) {
         sharedInputSupport.stageSharedInput(sharedInput)
@@ -1372,7 +1370,7 @@ class ChatController internal constructor(
         prompt: String,
         explicitMessagePrivacy: MessagePrivacy?,
         remoteSendConfirmed: Boolean,
-        hasAttachmentsOrEvidence: Boolean,
+        hasAttachmentsOrEvidence: Boolean
     ): Boolean {
         if (remoteSendConfirmed || hasAttachmentsOrEvidence || generationJob?.isActive != true) return false
         val trimmed = prompt.trim()
@@ -1397,14 +1395,14 @@ class ChatController internal constructor(
         promptForModel: String,
         responsePrivacy: MessagePrivacy,
         remoteToolScope: RemoteToolScope,
-        remoteSendConfirmed: Boolean = false,
+        remoteSendConfirmed: Boolean = false
     ) {
         toolContinuationSupport.continueAfterToolObservation(
             runId = runId,
             promptForModel = promptForModel,
             responsePrivacy = responsePrivacy,
             remoteToolScope = remoteToolScope,
-            remoteSendConfirmed = remoteSendConfirmed,
+            remoteSendConfirmed = remoteSendConfirmed
         )
     }
 

@@ -40,7 +40,7 @@ internal class InitialChatStateFactory(
     private val auditUiController: AuditUiController,
     private val backgroundTaskController: BackgroundTaskController,
     private val remoteSendAuditLog: RemoteSendAuditLog,
-    private val isArm64Device: () -> Boolean,
+    private val isArm64Device: () -> Boolean
 ) {
     fun createInitialState(): ChatUiState {
         val modelState = modelRepository.currentState()
@@ -92,15 +92,14 @@ internal class InitialChatStateFactory(
                 NO_MODEL_READY_STATUS_TEXT
             } else {
                 "未加载模型"
-            },
+            }
         )
     }
 
     private fun hasStartupModelEndpoint(
         modelState: ModelSelectionState,
-        remoteConfig: RemoteModelConfig,
-    ): Boolean =
-        modelState.activeModelPath != null || remoteConfig.isConfigured
+        remoteConfig: RemoteModelConfig
+    ): Boolean = modelState.activeModelPath != null || remoteConfig.isConfigured
 }
 
 /**
@@ -118,9 +117,9 @@ internal class StartupStateRestorer(
     private val backgroundTaskController: BackgroundTaskController,
     private val memoryUiController: MemoryUiController,
     private val auditUiController: AuditUiController,
-    private val isArm64Device: () -> Boolean,
+    private val isArm64Device: () -> Boolean
 ) {
-    fun restoreStartupStateAfterInitialization(skipModelRuntimeWork: Boolean) {
+    suspend fun restoreStartupStateAfterInitialization(skipModelRuntimeWork: Boolean) {
         chatController.failClosedPendingRemoteSendOnStartup()
         backgroundTaskController.recoverBackgroundTasksOnStartup()
         memoryUiController.syncTaskStateMemories()

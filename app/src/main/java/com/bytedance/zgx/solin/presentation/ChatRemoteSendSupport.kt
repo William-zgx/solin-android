@@ -22,8 +22,10 @@ import com.bytedance.zgx.solin.destinationHostLabel
 import com.bytedance.zgx.solin.orchestration.RemoteToolScope
 import com.bytedance.zgx.solin.remoteEligibleMessages
 import com.bytedance.zgx.solin.safety.SafetyPolicy
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 internal const val REMOTE_SEND_RESTART_DISCARDED_TEXT =
     "上次远程发送确认因应用重启已失效，内容没有发送。请重新发起请求。"
@@ -34,7 +36,7 @@ internal data class PendingRemoteContinuation(
     val runId: String?,
     val promptForModel: String,
     val responsePrivacy: MessagePrivacy,
-    val remoteToolScope: RemoteToolScope,
+    val remoteToolScope: RemoteToolScope
 )
 
 /**
@@ -58,26 +60,26 @@ internal class ChatRemoteSendSupport(
     private val clearSharedInputRestore: () -> Unit,
     private val applyConfirmedRemoteSendDraftClear: (
         ChatUiState,
-        PendingSharedInputRemoteSendRestore?,
+        PendingSharedInputRemoteSendRestore?
     ) -> ChatUiState,
     private val applyCancelRemoteSendDraftRestore: (
         ChatUiState,
         PendingRemoteSendDisclosure?,
         PendingSharedInputRemoteSendRestore?,
-        Boolean,
+        Boolean
     ) -> ChatUiState,
     private val onResumeSendAfterDisclosure: (
         pending: PendingRemoteSendDisclosure,
-        promptOverride: String?,
+        promptOverride: String?
     ) -> Unit,
     private val onDiscardPreparedSend: (runId: String) -> Unit,
     private val onResumeContinuationAfterDisclosure: (
         runId: String?,
         promptForModel: String,
         responsePrivacy: MessagePrivacy,
-        remoteToolScope: RemoteToolScope,
+        remoteToolScope: RemoteToolScope
     ) -> Unit,
-    private val deferRemoteSendAuditNote: (runId: String?, note: String) -> Boolean = { _, _ -> false },
+    private val deferRemoteSendAuditNote: (runId: String?, note: String) -> Boolean = { _, _ -> false }
 ) {
     private var pendingRemoteContinuation: PendingRemoteContinuation? = null
 
@@ -102,8 +104,7 @@ internal class ChatRemoteSendSupport(
         remoteSendPendingStore.clearPendingRemoteSend()
     }
 
-    fun containsSensitivePersonalOrSecretContent(text: String): Boolean =
-        outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(text)
+    fun containsSensitivePersonalOrSecretContent(text: String): Boolean = outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(text)
 
     fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
         val pending = uiState.value.pendingRemoteSendDisclosure ?: return
@@ -125,7 +126,7 @@ internal class ChatRemoteSendSupport(
             if (it.pendingRemoteSendDisclosure == pending) {
                 applyConfirmedRemoteSendDraftClear(it, sharedInputRestore).copy(
                     pendingRemoteSendDisclosure = null,
-                    statusText = "处理中",
+                    statusText = "处理中"
                 )
             } else {
                 it
@@ -137,7 +138,7 @@ internal class ChatRemoteSendSupport(
                 continuation.runId,
                 continuation.promptForModel,
                 continuation.responsePrivacy,
-                continuation.remoteToolScope,
+                continuation.remoteToolScope
             )
             return
         }
@@ -204,9 +205,9 @@ internal class ChatRemoteSendSupport(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = note,
-                privacy = MessagePrivacy.LocalOnly,
+                privacy = MessagePrivacy.LocalOnly
             ),
-            true,
+            true
         )
     }
 
@@ -217,20 +218,20 @@ internal class ChatRemoteSendSupport(
      */
     private fun recordRemoteSendDecision(
         decision: RemoteSendDecision,
-        pending: PendingRemoteSendDisclosure,
+        pending: PendingRemoteSendDisclosure
     ) {
         recordRemoteSendAuditEvent(
             decision = decision,
             modelName = pending.remoteModelName,
             prompt = pending.prompt,
             imageCount = pending.imageAttachmentCount,
-            remoteHistoryCount = pending.remoteHistoryCount,
+            remoteHistoryCount = pending.remoteHistoryCount
         )
     }
 
     fun savePendingRemoteSendMarker(
         pending: PendingRemoteSendDisclosure,
-        runId: String? = null,
+        runId: String? = null
     ) {
         remoteSendPendingStore.savePendingRemoteSend(
             PendingRemoteSendMarker(
@@ -241,13 +242,13 @@ internal class ChatRemoteSendSupport(
                 imageAttachmentCount = pending.imageAttachmentCount,
                 protectedSourceCount = pending.protectedSourceCount,
                 runId = runId ?: pending.runId,
-                remoteProfileRevision = pending.remoteProfileRevision,
-            ),
+                remoteProfileRevision = pending.remoteProfileRevision
+            )
         )
     }
 
-    fun failClosedPendingRemoteSendOnStartup() {
-        val marker = remoteSendPendingStore.consumePendingRemoteSend() ?: return
+    suspend fun failClosedPendingRemoteSendOnStartup() = withContext(NonCancellable) {
+        val marker = remoteSendPendingStore.consumePendingRemoteSend() ?: return@withContext
         pendingRemoteContinuation = null
         val reason = when (marker.kind) {
             RemoteSendDisclosureKind.CurrentInput -> REMOTE_SEND_RESTART_DISCARDED_TEXT
@@ -260,9 +261,9 @@ internal class ChatRemoteSendSupport(
             uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = reason,
-                privacy = MessagePrivacy.LocalOnly,
+                privacy = MessagePrivacy.LocalOnly
             ),
-            true,
+            true
         )
         uiState.update {
             it.copy(
@@ -270,7 +271,7 @@ internal class ChatRemoteSendSupport(
                 isBusy = false,
                 isGenerating = false,
                 agentTraceRuns = loadAgentTraceRuns(),
-                statusText = "远程发送确认已失效",
+                statusText = "远程发送确认已失效"
             )
         }
     }
@@ -289,14 +290,14 @@ internal class ChatRemoteSendSupport(
         modelName: String?,
         prompt: String,
         imageCount: Int,
-        remoteHistoryCount: Int,
+        remoteHistoryCount: Int
     ) {
         // Raw prompt is used only for in-memory decision making and is NEVER persisted to the audit log.
         val sensitiveCategories = outboundSafetyPolicy.detectSensitiveCategories(prompt)
         val summaryParts = buildList {
             add(decision.label)
-            if (imageCount > 0) add("图片 ${imageCount} 张")
-            if (remoteHistoryCount > 0) add("历史 ${remoteHistoryCount} 条")
+            if (imageCount > 0) add("图片 $imageCount 张")
+            if (remoteHistoryCount > 0) add("历史 $remoteHistoryCount 条")
             if (sensitiveCategories.isNotEmpty()) {
                 add("敏感类别：" + sensitiveCategories.joinToString("、") { it.label })
             }
@@ -309,14 +310,13 @@ internal class ChatRemoteSendSupport(
                 imageCount = imageCount,
                 remoteHistoryCount = remoteHistoryCount,
                 summary = summaryParts.joinToString("；"),
-                createdAtMillis = System.currentTimeMillis(),
-            ),
+                createdAtMillis = System.currentTimeMillis()
+            )
         )
         uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
     }
 
-    private fun loadRemoteSendAuditEvents(): List<RemoteSendAuditSummary> =
-        remoteSendAuditLog.recentRemoteSendSummaries()
+    private fun loadRemoteSendAuditEvents(): List<RemoteSendAuditSummary> = remoteSendAuditLog.recentRemoteSendSummaries()
 
     fun refreshRemoteSendAuditEvents() {
         uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
@@ -353,13 +353,13 @@ internal class ChatRemoteSendSupport(
                     it,
                     pending,
                     if (continuation == null) sharedInputRestore else null,
-                    continuation == null,
+                    continuation == null
                 ).copy(
                     pendingRemoteSendDisclosure = null,
                     isBusy = false,
                     isGenerating = false,
                     agentTraceRuns = loadAgentTraceRuns(),
-                    statusText = "已取消远程发送",
+                    statusText = "已取消远程发送"
                 )
             } else {
                 it
@@ -367,11 +367,10 @@ internal class ChatRemoteSendSupport(
         }
     }
 
-    fun remoteHistoryForRemoteSend(messages: List<ChatMessage>): List<ChatMessage> =
-        messages.remoteEligibleMessages()
-            .filterNot { message ->
-                outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(message.text)
-            }
+    fun remoteHistoryForRemoteSend(messages: List<ChatMessage>): List<ChatMessage> = messages.remoteEligibleMessages()
+        .filterNot { message ->
+            outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(message.text)
+        }
 
     /**
      * Decides whether the remote-send disclosure sheet must be shown before an ordinary,
@@ -414,32 +413,31 @@ internal class ChatRemoteSendSupport(
         remoteConfig: RemoteModelConfig,
         remoteHistory: List<ChatMessage>,
         imageAttachments: List<ChatImageAttachment>,
-        stateBeforeSend: ChatUiState,
-    ): PendingRemoteSendDisclosure =
-        PendingRemoteSendDisclosure(
-            kind = kind,
-            forcedBySensitiveContent = false,
-            prompt = prompt,
-            messagePrivacy = messagePrivacy,
-            remoteHost = remoteConfig.destinationHostLabel(),
-            remoteModelName = remoteConfig.normalized().modelName.ifBlank { "未命名远程模型" },
-            remoteHistoryCount = remoteHistory.size,
-            localOnlyHistoryFilteredCount = stateBeforeSend.messages.count { message ->
-                message.privacy == MessagePrivacy.LocalOnly
-            },
-            imageAttachmentCount = imageAttachments.size,
-            protectedSourceCount = stateBeforeSend.messages.count { message ->
-                message.privacy == MessagePrivacy.LocalOnly
-            },
-            apiKeyConfigured = remoteConfig.apiKey.isNotBlank(),
-            connectivityStatus = remoteConfig.connectivityStatus,
-            imageAttachments = imageAttachments,
-            promptPreview = prompt.toRemoteSendPromptPreview(),
-            sensitiveHitCategories = outboundSafetyPolicy
-                .detectSensitiveCategories(prompt)
-                .map { it.label },
-            sensitiveHitSnippets = outboundSafetyPolicy.detectSensitiveSnippets(prompt),
-        )
+        stateBeforeSend: ChatUiState
+    ): PendingRemoteSendDisclosure = PendingRemoteSendDisclosure(
+        kind = kind,
+        forcedBySensitiveContent = false,
+        prompt = prompt,
+        messagePrivacy = messagePrivacy,
+        remoteHost = remoteConfig.destinationHostLabel(),
+        remoteModelName = remoteConfig.normalized().modelName.ifBlank { "未命名远程模型" },
+        remoteHistoryCount = remoteHistory.size,
+        localOnlyHistoryFilteredCount = stateBeforeSend.messages.count { message ->
+            message.privacy == MessagePrivacy.LocalOnly
+        },
+        imageAttachmentCount = imageAttachments.size,
+        protectedSourceCount = stateBeforeSend.messages.count { message ->
+            message.privacy == MessagePrivacy.LocalOnly
+        },
+        apiKeyConfigured = remoteConfig.apiKey.isNotBlank(),
+        connectivityStatus = remoteConfig.connectivityStatus,
+        imageAttachments = imageAttachments,
+        promptPreview = prompt.toRemoteSendPromptPreview(),
+        sensitiveHitCategories = outboundSafetyPolicy
+            .detectSensitiveCategories(prompt)
+            .map { it.label },
+        sensitiveHitSnippets = outboundSafetyPolicy.detectSensitiveSnippets(prompt)
+    )
 
     /** The current-input disclosure: the forced graded one for sensitive content, otherwise the plain one. */
     fun buildCurrentInputDisclosure(
@@ -449,28 +447,27 @@ internal class ChatRemoteSendSupport(
         remoteConfig: RemoteModelConfig,
         remoteHistory: List<ChatMessage>,
         imageAttachments: List<ChatImageAttachment>,
-        stateBeforeSend: ChatUiState,
-    ): PendingRemoteSendDisclosure =
-        if (sensitive) {
-            buildSensitiveRemoteSendDisclosure(
-                prompt = prompt,
-                messagePrivacy = messagePrivacy,
-                remoteConfig = remoteConfig,
-                remoteHistory = remoteHistory,
-                imageAttachments = imageAttachments,
-                stateBeforeSend = stateBeforeSend,
-            )
-        } else {
-            buildPendingRemoteSendDisclosure(
-                kind = RemoteSendDisclosureKind.CurrentInput,
-                prompt = prompt,
-                messagePrivacy = messagePrivacy,
-                remoteConfig = remoteConfig,
-                remoteHistory = remoteHistory,
-                imageAttachments = imageAttachments,
-                stateBeforeSend = stateBeforeSend,
-            )
-        }
+        stateBeforeSend: ChatUiState
+    ): PendingRemoteSendDisclosure = if (sensitive) {
+        buildSensitiveRemoteSendDisclosure(
+            prompt = prompt,
+            messagePrivacy = messagePrivacy,
+            remoteConfig = remoteConfig,
+            remoteHistory = remoteHistory,
+            imageAttachments = imageAttachments,
+            stateBeforeSend = stateBeforeSend
+        )
+    } else {
+        buildPendingRemoteSendDisclosure(
+            kind = RemoteSendDisclosureKind.CurrentInput,
+            prompt = prompt,
+            messagePrivacy = messagePrivacy,
+            remoteConfig = remoteConfig,
+            remoteHistory = remoteHistory,
+            imageAttachments = imageAttachments,
+            stateBeforeSend = stateBeforeSend
+        )
+    }
 
     /**
      * Builds a forced disclosure for a sensitive send that offers graded handling (mask & send /
@@ -484,7 +481,7 @@ internal class ChatRemoteSendSupport(
         remoteConfig: RemoteModelConfig,
         remoteHistory: List<ChatMessage>,
         imageAttachments: List<ChatImageAttachment>,
-        stateBeforeSend: ChatUiState,
+        stateBeforeSend: ChatUiState
     ): PendingRemoteSendDisclosure {
         val base = buildPendingRemoteSendDisclosure(
             kind = RemoteSendDisclosureKind.CurrentInput,
@@ -493,7 +490,7 @@ internal class ChatRemoteSendSupport(
             remoteConfig = remoteConfig,
             remoteHistory = remoteHistory,
             imageAttachments = imageAttachments,
-            stateBeforeSend = stateBeforeSend,
+            stateBeforeSend = stateBeforeSend
         )
         val maskResult = outboundSafetyPolicy.maskSensitiveContent(prompt)
         return base.copy(
@@ -504,7 +501,7 @@ internal class ChatRemoteSendSupport(
                 maskResult.maskedText.toRemoteSendPromptPreview()
             } else {
                 ""
-            },
+            }
         )
     }
 
@@ -519,13 +516,12 @@ internal class ChatRemoteSendSupport(
 }
 
 /** Read-only egress audit view surfaced to the privacy/settings UI (most-recent-first). */
-internal fun RemoteSendAuditLog.recentRemoteSendSummaries(): List<RemoteSendAuditSummary> =
-    recentRemoteSends().map { event ->
-        RemoteSendAuditSummary(
-            id = event.id,
-            decisionLabel = event.decision.label,
-            modelName = event.modelName,
-            summary = event.summary,
-            createdAtMillis = event.createdAtMillis,
-        )
-    }
+internal fun RemoteSendAuditLog.recentRemoteSendSummaries(): List<RemoteSendAuditSummary> = recentRemoteSends().map { event ->
+    RemoteSendAuditSummary(
+        id = event.id,
+        decisionLabel = event.decision.label,
+        modelName = event.modelName,
+        summary = event.summary,
+        createdAtMillis = event.createdAtMillis
+    )
+}
