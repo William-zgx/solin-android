@@ -9,7 +9,7 @@
 
 ---
 
-## 当前核对（2026-11-12）
+## 当前核对（2026-11-13）
 
 本页各 Wave 的行数、方法清单和测试数保留为当时的历史结果，不代表当前重跑证据。
 当前 `SolinViewModel.kt` / `SolinScreen.kt` / `AgentLoopRuntime.kt` 分别为
@@ -21,7 +21,10 @@ provider 转发文件，由组装根直接绑定 Accessibility capture。工具�
 MCP spec/handler 共用一次 catalog snapshot、survival card 单一工厂、memory migration 快照复用与
 query 单次分词；后台任务 UI 发布合并为一个 reducer，scenario IDs 从 canonical title map 派生。
 lab 架构扫描改为一次读文件/词法分析，manifest 的 load→mutate→write 与锁收归一个入口，held-out
-纯转发 facade 已删除。以上均保持现有隐私、确认、持久化和生命周期合同。
+纯转发 facade 已删除。随后 session create/select/delete 的信任恢复管线收归为一个私有 transition
+（含 busy 前置条件），trace 的 type/summary/JSON 七套 sealed dispatch 收归为 3 套 `TraceEncoding`，
+等价 persisted-enum 解码统一为 exact-name helper；各自 fallback 和严格拒绝路径保持独立。
+以上均保持现有隐私、确认、持久化和生命周期合同。
 
 - ViewModel 和 Screen 提取已落地，当前归属见 [模块文档](agent_core_modules.md)。
 - 全量 UiState 多流拆分仍不执行；数据层全量 suspend 接口迁移仍未完成。

@@ -20,9 +20,9 @@ for the coding-agent protocol.
 
 ## Current baseline
 
-Implementation and repository links were refreshed on 2026-11-12. The
-[current local main gate](validation_report.md#2026-11-12--final-polish-convergence)
-at `badc8624` passed on the integrated tree. The dated
+Implementation and repository links were refreshed on 2026-11-13. The
+[current local main gate](validation_report.md#2026-11-13--big-simplification-convergence)
+at `c60b2818` passed on the integrated tree. The dated
 [main CI convergence](validation_report.md#2026-11-04--main-ci-convergence) entry for `cb7e4918`
 retains the successful workflow and hosted emulator infrastructure skip as historical evidence;
 it is not device evidence for the current tree. The earlier Mika entry retains the APK hashes

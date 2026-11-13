@@ -1,7 +1,7 @@
 # Release Readiness
 
-Repository baseline for this readiness refresh: main `badc8624d660786762194d4d284be3110e3b956d`
-(2026-11-12). The full local gate for that integrated tree passed; the latest recorded hosted full CI
+Repository baseline for this readiness refresh: main `c60b2818c89bd52dd0993635b16ace3b5d78d05a`
+(2026-11-13). The full local gate for that integrated tree passed; the latest recorded hosted full CI
 remains the earlier `cb7e4918` run. This page is not the release checklist or evidence log.
 
 - Use [the release checklist](release_checklist.md) to execute a release candidate.
@@ -58,7 +58,7 @@ Current implementation ownership and limitations live in
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
-| Current local main gate | `badc8624` passed `scripts/verify_local.sh`, including script regression, JVM tests, Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. The 47 summarizer tests and all four lab-summary drift checks also passed. | Local JVM/offline evidence is not hosted CI, emulator, physical-device, OEM, thermal or release approval evidence. |
+| Current local main gate | `c60b2818` passed `scripts/verify_local.sh`, including script regression, JVM tests, Lint, debug/release builds and artifact checks; `scripts/privacy_scan.sh` passed. The 47 summarizer tests and all four lab-summary drift checks also passed. | Local JVM/offline evidence is not hosted CI, emulator, physical-device, OEM, thermal or release approval evidence. |
 | Mainline CI | [Android Verification 41699276903](https://github.com/William-zgx/solin-android/actions/runs/41699276903) passed on `cb7e4918`: `verify` ran `scripts/verify_local.sh`, including script regression, JVM tests, Lint, builds, and artifact checks. | A push run does not execute the protected signing, release archive, or final public-release jobs. |
 | JVM and Lint | The matching local fix gate passed 2688 JVM tests with zero failures/errors/skips and Lint with zero errors. The registration-race regression failed on the previous implementation and passed after the fix. | This count is evidence for that commit, not a permanent minimum or device-behavior claim. |
 | AI behavior fixtures | CI fixture/boundary validation passed 40 cases across 7 categories and 6 MVP scenarios. | Fixture validation is not a fresh public-strict runtime trace or live-model task benchmark. |

@@ -5,7 +5,7 @@ Keep it about module ownership, boundaries, current status, and regression
 coverage. Historical command output and validation notes belong in
 [validation_report.md](validation_report.md).
 
-Checked on 2026-11-12. The tree has 326 production Kotlin files and 52 registered
+Checked on 2026-11-13. The tree has 326 production Kotlin files and 52 registered
 capability-matrix tool entries. These are measured inventory values, not goals to
 grow toward. `:app` is the product module; `releaseSmoke` is a verification helper.
 Runtime/package boundaries remain conventions enforced by architecture tests.
