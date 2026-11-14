@@ -67,6 +67,21 @@ class CloudMilestonePlannerTest {
         assertEquals(MilestoneParseResult.Rejected(MilestoneRejection.TrailingContent), malformed)
     }
 
+    @Test
+    fun invalidCapabilitiesNeverReachTheRemoteModel() {
+        var calls = 0
+        val planner = CloudMilestonePlanner { _, _ ->
+            calls++
+            BRANCHING_PLAN
+        }
+        val invalid = capabilities().copy(apps = setOf("com.example.private"))
+
+        val result = planner.planBranching(REQUEST, invalid)
+
+        assertEquals(BranchParseResult.Rejected(BranchRejection.CapabilityNotAllowed), result)
+        assertEquals(0, calls)
+    }
+
     private fun capabilities() = BranchCapabilities(
         intents = setOf(MilestoneIntent.SearchInApp, MilestoneIntent.OpenApp),
         apps = setOf(TAOBAO),

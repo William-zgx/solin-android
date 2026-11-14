@@ -315,6 +315,12 @@ object BranchingMilestonePlanParser {
         BranchParseResult.Rejected(rejection.reason, rejection.index)
     }
 
+    fun capabilitiesAreValidForPlanning(
+        capabilities: BranchCapabilities,
+        vocabulary: MilestoneVocabulary = MilestoneVocabulary.DEFAULT
+    ): Boolean = capabilities.intents.isNotEmpty() && capabilities.apps.isNotEmpty() && capabilities.tools.isNotEmpty() &&
+        capabilities.apps.all { it in vocabulary.apps } && capabilities.tools.all { it in vocabulary.tools }
+
     private fun readPlan(
         raw: String,
         userRequest: String,
@@ -397,12 +403,7 @@ object BranchingMilestonePlanParser {
     }
 
     private fun validateCapabilities(capabilities: BranchCapabilities, vocabulary: MilestoneVocabulary) {
-        if (capabilities.intents.isEmpty() ||
-            capabilities.apps.isEmpty() ||
-            capabilities.tools.isEmpty() ||
-            capabilities.apps.any { it !in vocabulary.apps } ||
-            capabilities.tools.any { it !in vocabulary.tools }
-        ) {
+        if (!capabilitiesAreValidForPlanning(capabilities, vocabulary)) {
             reject(BranchRejection.CapabilityNotAllowed)
         }
     }
@@ -679,6 +680,9 @@ class CloudMilestonePlanner(private val model: MilestonePlannerModel) {
     }
 
     fun planBranching(userRequest: String, capabilities: BranchCapabilities): BranchParseResult {
+        if (!BranchingMilestonePlanParser.capabilitiesAreValidForPlanning(capabilities)) {
+            return BranchParseResult.Rejected(BranchRejection.CapabilityNotAllowed)
+        }
         val instruction = BRANCHING_INSTRUCTION + capabilities.instructionSuffix()
         val output = model.complete(instruction, CloudPlannerRequest.render(userRequest).text)
         return BranchingMilestonePlanParser.parse(output, userRequest, capabilities)
