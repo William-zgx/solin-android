@@ -72,6 +72,18 @@ class PrivacyUtilityTest(unittest.TestCase):
         with self.assertRaises(privacy_utility.ContractError):
             privacy_utility.validate_observation(case["structuredObservation"])
 
+    def test_project_revalidates_direct_inputs(self):
+        case = copy.deepcopy(self.cases[0])
+        case["structuredObservation"]["candidates"][0]["text"] = "private"
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.project(case, "p2")
+        case = copy.deepcopy(self.cases[0])
+        case["publicCapabilities"] = ["screenText=private"]
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.project(case, "p1")
+        with self.assertRaises(privacy_utility.ContractError):
+            privacy_utility.validate_case(case)
+
     def test_exact_boolean_and_argument_shape_scoring(self):
         optional = next(case for case in self.cases if case["id"] == "optional_boolean")
         self.assertFalse(privacy_utility.correct_answer(optional, "p0"))

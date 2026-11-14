@@ -446,7 +446,6 @@ sealed interface BranchStep {
 /** Owns the current node so callers cannot jump to a different branch by naming it. */
 class BranchingPlanEvaluator(plan: BranchingMilestonePlan) {
     private val nodes = plan.nodes
-    private var currentIndex = 0
     private var current: BranchStep = BranchStep.Act(nodes.first())
 
     fun current(): BranchStep = current
@@ -459,17 +458,16 @@ class BranchingPlanEvaluator(plan: BranchingMilestonePlan) {
             "done" -> finish(BranchStep.Done)
             "blocked" -> finish(BranchStep.Blocked)
             else -> {
+                val currentIndex = nodes.indexOfFirst { it.id == active.node.id }
                 val nextIndex = nodes.indexOfFirst { it.id == destination }
                 if (nextIndex <= currentIndex) return finish(BranchStep.Blocked)
-                currentIndex = nextIndex
-                current = BranchStep.Act(nodes[currentIndex])
+                current = BranchStep.Act(nodes[nextIndex])
                 current
             }
         }
     }
 
     private fun finish(terminal: BranchStep): BranchStep {
-        currentIndex = nodes.size
         current = terminal
         return current
     }

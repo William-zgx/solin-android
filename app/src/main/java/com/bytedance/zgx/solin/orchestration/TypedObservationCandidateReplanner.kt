@@ -25,9 +25,15 @@ class TypedObservationCandidateReplanner(
 ) : AgentObservationReplanner {
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
         if (!enabled) return null
-        val observation = context.currentObservation() ?: return null
+        val observations = mutableMapOf<String, ScreenObservation?>()
+        val parse: (String) -> ScreenObservation? = { raw ->
+            observations.getOrPut(raw) { screenObservationFromJsonStringOrNull(raw) }
+        }
+        val stage = AppSearchProgressEvidence.fromData(context.observedResult.data, parse).appSearchProgressStage
+        if (stage != "input_ready" && stage != "query_typed") return null
+        val observation = context.currentObservation(parse) ?: return null
         val query = context.run.input.searchQuery() ?: return null
-        return when (AppSearchProgressEvidence.fromData(context.observedResult.data).appSearchProgressStage) {
+        return when (stage) {
             "input_ready" -> context.typeQuery(observation, query)
             "query_typed" -> context.submitQuery(observation, query)
             else -> null
@@ -96,10 +102,12 @@ class TypedObservationCandidateReplanner(
         input = run.input
     )
 
-    private fun AgentObservationReplanContext.currentObservation(): ScreenObservation? {
+    private fun AgentObservationReplanContext.currentObservation(
+        parse: (String) -> ScreenObservation?
+    ): ScreenObservation? {
         val json = observedResult.data["afterScreenObservationJson"]?.takeIf(String::isNotBlank)
             ?: observedResult.data["screenObservationJson"]?.takeIf(String::isNotBlank)
-        return json?.let(::screenObservationFromJsonStringOrNull)
+        return json?.let(parse)
     }
     private fun Map<String, String>.withExpectedPackage(observation: ScreenObservation): Map<String, String> = observation.packageName?.takeIf(String::isNotBlank)?.let { this + ("expectedPackageName" to it) } ?: this
 

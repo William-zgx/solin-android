@@ -47,6 +47,8 @@ class GatedTypeSourceScanTest {
             UI to "val plan = milestones.let(::MilestonePlan)",
             UI to "val release = ProgressExport::Released",
             UI to "val plan = MilestonePlan(milestones)",
+            UI to "val branch = BranchingMilestonePlan(nodes)",
+            UI to "val branch: BranchingMilestonePlan = parsed; val changed = branch.copy(nodes = emptyList())",
             UI to "val constructor = RunProgress::class.java.declaredConstructors.single()",
             UI to "import com.bytedance.zgx.solin.orchestration.collab.MilestonePlan as Plan",
             UI to "import com.bytedance.zgx.solin.orchestration.collab.ProgressExport.Released as Ok",
@@ -106,6 +108,7 @@ private object GatedTypeScan {
 
     private val TYPE_OWNERS = mapOf(
         "MilestonePlan" to PLAN_OWNER,
+        "BranchingMilestonePlan" to PLAN_OWNER,
         "MilestoneVocabulary" to PLAN_OWNER,
         "RunProgress" to PLAN_OWNER,
         "ProgressExport" to PLAN_OWNER,
@@ -142,7 +145,7 @@ private object GatedTypeScan {
     }
 
     private val GATED_VALUE_DECLARATION = Regex(
-        """\b(\w+)\s*:\s*(MilestonePlan|MilestoneVocabulary|RunProgress|ProgressExport\.Released|RolePlacementDecision)\b"""
+        """\b(\w+)\s*:\s*(MilestonePlan|BranchingMilestonePlan|MilestoneVocabulary|RunProgress|ProgressExport\.Released|RolePlacementDecision)\b"""
     )
 
     private fun rulesFor(path: String): List<Pair<String, Regex>> = buildList {

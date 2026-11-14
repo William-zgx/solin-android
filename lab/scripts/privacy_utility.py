@@ -11,6 +11,7 @@ from pathlib import Path
 
 TIERS = ("p0", "p1", "p2", "p3")
 PREDICATES = {"results_match_query", "last_action_succeeded", "planned_app_foreground", "target_exists"}
+CAPABILITIES = {"search_in_app", "open_app", "set_system_flag", "schedule_reminder"}
 CANDIDATE_KINDS = {"editable", "submit", "result"}
 OUTCOMES = {"completed", "blocked", "failed"}
 NODE_ID = re.compile(r"[a-z][a-z0-9_]{0,31}")
@@ -45,7 +46,7 @@ def validate_case(case):
     capabilities = case.get("publicCapabilities")
     require(isinstance(capabilities, list) and capabilities and all(isinstance(x, str) for x in capabilities),
             "public capabilities are required")
-    validate_observation(case.get("structuredObservation"))
+    validate_public_inputs(case)
     require(isinstance(case.get("gold"), dict), "gold is required")
     require(case["gold"].get("outcome") in OUTCOMES, "invalid gold outcome")
     require(isinstance(case["gold"].get("action"), dict), "gold action is required")
@@ -56,6 +57,12 @@ def validate_case(case):
         require(isinstance(answer.get("action"), dict), f"{tier} action is required")
         require(isinstance(answer.get("cloudCalls"), int) and answer["cloudCalls"] >= 0, "invalid cloudCalls")
         require(answer.get("costPerCall", 0) >= 0, "invalid costPerCall")
+
+
+def validate_public_inputs(case):
+    require(all(capability in CAPABILITIES for capability in case["publicCapabilities"]),
+            "unknown public capability")
+    validate_observation(case.get("structuredObservation"))
 
 
 def validate_observation(observation):
@@ -87,19 +94,17 @@ def project(case, tier):
     require(tier in TIERS, "unknown privacy tier")
     require(case.get("synthetic") is True and case.get("privacy") == "synthetic",
             "P3 is limited to declared synthetic fixtures")
+    validate_public_inputs(case)
     projected = {
         "synthetic": True,
         "request": case["request"],
         "publicCapabilities": copy.deepcopy(case["publicCapabilities"]),
     }
-    if tier == "p0":
+    if tier == "p0" or tier == "p3":
         projected["structuredObservation"] = copy.deepcopy(case["structuredObservation"])
         projected["privateContext"] = copy.deepcopy(case.get("privateContext", {}))
     elif tier == "p2":
         projected["structuredObservation"] = copy.deepcopy(case["structuredObservation"])
-    elif tier == "p3":
-        projected["structuredObservation"] = copy.deepcopy(case["structuredObservation"])
-        projected["privateContext"] = copy.deepcopy(case.get("privateContext", {}))
     if tier in {"p1", "p2"}:
         require(not contains_private_keys(projected), f"private field reached {tier}")
     return projected

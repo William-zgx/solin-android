@@ -12,6 +12,7 @@ import org.junit.Test
 class TypedObservationReplayTest {
     private val typed = TypedObservationCandidateReplanner(enabled = true)
     private val cases = ObservationStepCases.load().associateBy { it.id }
+    private val builtCases = cases.mapValues { (_, case) -> ObservationStepCases.build(case) }
 
     @Test
     fun pairedSavedOutputReplayImprovesWithoutBreakingCases() {
@@ -45,7 +46,7 @@ class TypedObservationReplayTest {
 
         baselineRecords.forEach { record ->
             val caseId = record.getString("caseId")
-            val built = ObservationStepCases.build(requireNotNull(cases[caseId]))
+            val built = requireNotNull(builtCases[caseId])
             val typedReplan = typed.planNext(built.context)
             val before = record.getBoolean("finalCorrect")
             val after = if (typedReplan == null) {
