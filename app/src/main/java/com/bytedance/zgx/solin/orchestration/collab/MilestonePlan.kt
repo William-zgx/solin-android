@@ -666,6 +666,39 @@ class RunProgressGate(private val flag: DerivedProgressEgress = DerivedProgressE
     }
 }
 
+/** Narrow model port for the lab cloud-planner adapter. Implementations must not add device evidence. */
+fun interface MilestonePlannerModel {
+    fun complete(instruction: String, renderedRequest: String): String
+}
+
+/** Executes the request-only experiment; production disclosure/dispatch remains a separate prerequisite. */
+class CloudMilestonePlanner(private val model: MilestonePlannerModel) {
+    fun planSequential(userRequest: String): MilestoneParseResult {
+        val output = model.complete(SEQUENTIAL_INSTRUCTION, CloudPlannerRequest.render(userRequest).text)
+        return MilestonePlanParser.parse(output, userRequest)
+    }
+
+    fun planBranching(userRequest: String, capabilities: BranchCapabilities): BranchParseResult {
+        val instruction = BRANCHING_INSTRUCTION + capabilities.instructionSuffix()
+        val output = model.complete(instruction, CloudPlannerRequest.render(userRequest).text)
+        return BranchingMilestonePlanParser.parse(output, userRequest, capabilities)
+    }
+
+    private fun BranchCapabilities.instructionSuffix(): String = " Allowed intents=" + intents.map { it.wireName }.sorted() +
+        "; apps=" + apps.sorted() +
+        "; tools=" + tools.sorted() +
+        ". Stay inside these capabilities."
+
+    companion object {
+        const val SEQUENTIAL_INSTRUCTION =
+            "Return only one JSON object with version=1 and a milestones array. Use the supplied closed vocabulary. No Markdown or explanation."
+        const val BRANCHING_INSTRUCTION =
+            "Return only one JSON object with version=1 and nodes. Each node has id,milestone,predicate,on_true,on_false. " +
+                "Use at most 8 forward-only nodes; destinations are a later id,done or blocked. " +
+                "Predicates: results_match_query,last_action_succeeded,planned_app_foreground,target_exists. No Markdown or explanation."
+    }
+}
+
 /**
  * The exact text sent to a remote planner. [MilestoneVocabulary.DEFAULT] is always the vocabulary,
  * and device data enters only as the one [RunProgress] a [RunProgressGate] releases, so a caller

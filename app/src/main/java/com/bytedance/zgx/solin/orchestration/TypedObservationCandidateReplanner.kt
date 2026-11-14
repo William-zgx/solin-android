@@ -48,8 +48,7 @@ class TypedObservationCandidateReplanner(
         val target = observation.uniqueRealCandidate(UiTargetKind.EditableField) ?: return null
         val arguments = mapOf(
             "target" to target.nodeId.orEmpty(),
-            "text" to query,
-            "verifySearchQuery" to query
+            "text" to query
         ).withExpectedPackage(observation)
         return replan(
             request = ToolRequest(
@@ -73,7 +72,7 @@ class TypedObservationCandidateReplanner(
             return null
         }
         if (observation.uniqueRealCandidate(UiTargetKind.SubmitSearch) == null) return null
-        val arguments = mapOf("verifySearchQuery" to query).withExpectedPackage(observation)
+        val arguments = emptyMap<String, String>().withExpectedPackage(observation)
         return replan(
             request = ToolRequest(
                 toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,

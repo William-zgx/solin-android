@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.device.screenObservationFromJsonStringOrNull
 import com.bytedance.zgx.solin.device.toJsonObject
 import com.bytedance.zgx.solin.orchestration.MODEL_OBSERVATION_REPLAN_REQUEST_REASON
 import com.bytedance.zgx.solin.orchestration.TypedObservationCandidateReplanner
+import com.bytedance.zgx.solin.tool.ToolRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -14,6 +15,7 @@ import org.junit.Test
 
 class TypedObservationCandidateSuiteTest {
     private val enabled = TypedObservationCandidateReplanner(enabled = true)
+    private val registry = ToolRegistry()
 
     @Test
     fun everyEmittedActionMatchesGoldAndUsesNonModelProvenance() {
@@ -25,6 +27,7 @@ class TypedObservationCandidateSuiteTest {
             assertFalse(case.id, replan.plannedByModel)
             assertNotEquals(case.id, MODEL_OBSERVATION_REPLAN_REQUEST_REASON, replan.request.reason)
             assertEquals(case.id, replan.request.toolName, replan.draft.functionName)
+            assertNull(case.id, registry.validate(replan.request))
             val answer = LabAnswer(replan.request.toolName, replan.request.arguments)
             assertTrue(
                 "${case.id}: ${replan.request.toolName} ${replan.request.arguments}",
