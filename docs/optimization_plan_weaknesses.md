@@ -27,7 +27,9 @@ lab 架构扫描改为一次读文件/词法分析，manifest 的 load→mutate�
 随后三类工具 egress 决策收归 `safety/EgressGate.kt`，pending-send 首个 suspend 垂直切片完成原子消费、
 启动 fail-closed 与稳定重试；mutation runner 以 campaign 级锁、统一进程生命周期和独立深度夹具加固。
 2026-11-14 新增未接线的分支计划、debug-only typed observation candidate 和合成隐私效用实验；paired replay
-与 P0–P3 合同检查均有固定负向用例，生产隐私、release 观察和关键动作合同不变。
+与 P0–P3 合同检查均有固定负向用例。云规划适配器先校验公开能力再调用模型，live 评估比较完整参数与
+分支语义；完整协调器回归证明 typed 输入/提交不增加模型调用，测试 fixture 已共享。
+生产隐私、release 观察和关键动作合同不变。
 以上均保持现有隐私、确认、持久化和生命周期合同。
 
 - ViewModel 和 Screen 提取已落地，当前归属见 [模块文档](agent_core_modules.md)。

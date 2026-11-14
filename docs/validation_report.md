@@ -35,13 +35,57 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | --- | --- | --- |
 | 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
-| 当前本地门禁 | `00a2969f` 的完整本地验证与隐私扫描通过；JVM 为 2992 tests / 0 failures / 0 errors / 13 skipped。typed replay 零 broken，P0–P3 仅验证合成投影合同。均不是 hosted CI、真实模型或设备证据。 | [2026-11-14 — Privacy planning and typed execution](#2026-11-14--privacy-planning-and-typed-execution) |
+| 当前本地门禁 | `3cd5328f` 的完整本地验证与隐私扫描通过；JVM 为 3001 tests / 0 failures / 0 errors / 14 skipped。完整协调器与云规划语义测试通过，live cloud planning 仍待授权端点。均不是 hosted CI、真实模型或设备证据。 | [2026-11-14 — Coordinator and cloud planner lab](#2026-11-14--coordinator-and-cloud-planner-lab) |
 | 最近记录的全量 main CI | `cb7e4918` 的 `verify` 与 AI 行为边界映射通过；hosted emulator 因 HVF 不支持而跳过。该条目是历史 CI 证据，不是当前提交的本地门禁结论。 | [2026-11-04 — Main CI convergence](#2026-11-04--main-ci-convergence) |
 | 手机能力增量 | 合入前 APK 的 6 项 API 36 设备用例和后台正向/生命周期验证通过；完整矩阵、有效模型配对基准和后台危险控件 fixture 仍待补。 | [Mika phone capability integration](#2026-11-04--mika-phone-capability-integration) |
 | 离线模型能力 lab | 20261109 held-out 为 devbox LiteRT 60-case 结果；20261112 research 为 18-case rules-only 约束检查。二者均不是设备、延迟或发布证据。 | [Held-out bench](#2026-11-09--held-out-devbox-litert-bench) · [Research run](#2026-11-12--research-evaluation-set-and-rules-only-run) |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
 | model-driven app search 文档口径 | 2026-07-01 已同步本地 Chat/action-planning bootstrap、可选设备模型 instrumentation、mock/real eval 的 query/package/app 结果验证字段；这是文档合同更新，不是新真机通过证据。 | `2026-07-01 Model-Driven App Search Documentation Contract` |
 | 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-11-14 — Coordinator and cloud planner lab
+
+本轮覆盖项：在上一批分支合同与 typed replay 之上，新增完整 `AgentLoopRuntime` 协调器测试、真实
+`ToolRegistry` 参数校验，以及 request-only `CloudMilestonePlanner` 和测试侧远程适配器。公开能力在
+指令构造或任何模型调用之前校验；live 评估比较完整 `Milestone`、谓词与分支目的地，记录 accepted、
+拒绝原因/索引、结构化计划、调用数、请求字节和耗时。新旧协调器测试共享 queued runtime、结果构造器与
+屏幕 JSON。生产隐私、release 观察和关键动作合同不变。
+
+相关提交：`e8b2b611`（协调器与 lab 适配器）、`ef34bd57`（外发前校验、精确语义与共享 fixture）、
+`3cd5328f28f058d77bb0a7af84702ae2a0244242`（Spotless 必需格式化）。原 correctness 与 simplify
+审查者在修复后复核均无剩余问题。
+
+验证命令：受影响测试使用上一批同一 JDK 21 / Android SDK 环境，另执行
+`./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.orchestration.TypedObservationCoordinatorTest" --tests "com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.modelDrivenOpenAppSearchBootstrapsThenReplansUiChainUntilVerified" --tests "com.bytedance.zgx.solin.orchestration.collab.*" --tests "com.bytedance.zgx.solin.lab.CloudPlanningSuiteTest" --tests "com.bytedance.zgx.solin.lab.RemoteMilestonePlannerModelTest"`。
+完整门禁与隐私扫描命令同前（JDK 21、`GRADLE_OPTS=-Xmx8g`、`/tmp/t6tools/bin` fixture zip shim）：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/tmp/t6tools/bin:/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+GRADLE_OPTS=-Xmx8g scripts/verify_local.sh
+
+JAVA_HOME=/data00/home/zouguoxue/android-font-verification/jdk21 \
+PATH=/data00/home/zouguoxue/android-font-verification/jdk21/bin:$PATH \
+scripts/privacy_scan.sh
+```
+
+结果：
+
+- 受影响 suites 与最终完整本地门禁通过：**3001 JVM tests / 0 failures / 0 errors / 14 skipped**，
+  另含 Lint、debug/androidTest/release 构建、releaseSmoke 和 artifact scan；隐私扫描通过。
+- 完整协调器路径中 typed 输入与提交均不调用模型，只有首次搜索入口点击和最终结果等待调用模型，
+  共 2 次，verified-search 正常完成。gold sweep 的 16 个 emitted 请求也全部通过真实 registry。
+  该测试发现并防止了 `ui_type_text` / `ui_submit_search` 携带未声明 `verifySearchQuery`，验证仍由
+  `ui_wait` 负责。
+- `invalidCapabilitiesNeverReachTheRemoteModel` 证明非法能力值导致 **0 次模型调用**，不再出现
+  “私有包名先外发、响应后被拒绝”的顺序。fake adapter 同时验证精确 rendered request、独立规划指令、
+  传输失败停止运行时。live 语义测试证明“可解析但参数或分支错误”不计为正确，并保留拒绝诊断。
+- live cloud suite 仅在 `SOLIN_LAB_REMOTE_BASE_URL` 与 `SOLIN_LAB_REMOTE_MODEL` 显式配置时运行；
+  `SOLIN_LAB_REMOTE_API_KEY` 按端点需要可选提供。当前未提供授权端点，因此该 suite **skip**，没有 live
+  成功率、延迟或成本结论，也未执行生产云规划、Room 迁移、真实 FullContext、模型转换或设备验收。
+  `build/verification/privacy-capability/device-status.properties` 仍记录无连接真机与 pending 配对基准。
 
 ## 2026-11-14 — Privacy planning and typed execution
 

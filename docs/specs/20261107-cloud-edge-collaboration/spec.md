@@ -17,6 +17,9 @@ The pure core is in `app/src/main/java/com/bytedance/zgx/solin/orchestration/col
 - `BranchingMilestonePlanParser` and `BranchingPlanEvaluator`: a lab-only, forward-only extension with
   closed local predicates and caller-precommitted `BranchCapabilities`. Unknown predicate outcomes block;
   the gated-type scan protects the validated factory.
+- `CloudMilestonePlanner`: request-only sequential/branching lab entry. Public capabilities are validated
+  before instruction construction or model invocation. A test-only remote adapter keeps the exact rendered
+  request as the current user prompt and records exact plan/branch semantics and structured diagnostics.
 
 The original 48 JVM tests across six classes remain, with six additional branching-plan tests in a seventh, plus one instrumented test class
 (`MilestonePlanParserDeviceTest`) that compiles but has not yet run on a device.
@@ -642,6 +645,8 @@ progress is wired (Phase 6), and T12 if branching plans move beyond the current 
 | `EscalationPolicyTest` | 10 | Answerer-only, failed-call privacy, escalation tiers and the pre-approval sweep |
 | `MilestonePlanParserTest` | 12 | Injection, hidden or padded queries, vocabulary, exact shape, duplicate keys, whole-plan rejection, no critical intent, public tools |
 | `BranchingMilestonePlanTest` | 6 | Forward-only transitions, unknown outcomes, strict schema, capability confinement, cycles/unreachable nodes and Branch Steering rejection |
+| `CloudMilestonePlannerTest` | 4 | Exact rendered request, public-only instruction capabilities, schema rejection, and invalid capabilities causing zero model calls |
+| `CloudPlanningSuiteTest` | 1 active + 1 optional | Exact argument/branch semantics and rejection diagnostics without network; optional live sequential/branch comparison requires an explicit endpoint |
 | `StrictJsonScanTest` | 3 | Syntax Android's org.json tolerates, tested on the scan directly; strict JSON still accepted |
 | `RunProgressGateTest` | 11 | Flag defaults Off, byte-identical and pinned output when Off, no secrets in output, failure-code smuggling and the pinned code list, OCR in element names, package spoofing, gate order, per-run budget, closed rendering and reflection |
 | `GatedTypeSourceScanTest` | 2 | Private-constructor factory/copy bypass source scanning |

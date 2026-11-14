@@ -256,6 +256,6 @@ token-subset match against the user's input.
 | Action gate consolidation | Input injection entry is guarded; executor/replan early refusals remain, so full decision consolidation is incomplete |
 | Egress gate consolidation | Implemented for sensitive network text, typed text and external-app drafts in `safety/EgressGate.kt`; router/chat preflight and per-argument provenance remain separate |
 | Provenance labels | Not started |
-| Branch-plan and typed-execution experiments | Lab/debug only at `00a2969f`: forward-only caller-bound branch plans and high-confidence Accessibility candidates; release observation behavior and privacy defaults unchanged |
+| Branch-plan and typed-execution experiments | Lab/debug only at `3cd5328f`: forward-only caller-bound branch plans and high-confidence Accessibility candidates; cloud capabilities are preflighted before any model call, full coordinator and exact plan-semantic tests exist, release observation behavior and privacy defaults unchanged |
 | Data-layer suspend migration | First vertical slice implemented: atomic pending-send consumption, fail-closed startup recovery and stable retry completion; other synchronous store contracts remain in `plans/data-layer-suspend-migration.md` |
 | Mutation testing | Hardened pilot at `b435164f`: baseline passed, 6 killed / 0 survived on 2026-11-13 (`build/verification/mutation/mutation-report.json`, schema v2) |

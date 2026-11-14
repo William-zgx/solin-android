@@ -320,5 +320,11 @@ against the saved `20261108` production-model answers produced:
 See [`lab/results/20261114-typed-observation/SUMMARY.md`](../../../lab/results/20261114-typed-observation/SUMMARY.md).
 This is replanner-level saved-output evidence, not a new model run, complete coordinator run, latency result
 or device acceptance. Verified-search completion remains in `ToolObservationCoordinator`, not in the new
-class. Full production-path and paired device comparisons remain pending; the typed candidate is not a
-reason to enable a new model strategy by default.
+class. Paired device comparisons remain pending; the typed candidate is not a reason to enable a new model
+strategy by default.
+
+`TypedObservationCoordinatorTest` additionally covers the full `AgentLoopRuntime` coordinator with shared
+fixtures. Typed input and submit skip the model; the initial search-entry tap and final wait use it, for two
+calls before verified completion. All 16 gold-sweep requests also pass the real `ToolRegistry`. This caught
+and now prevents undeclared `verifySearchQuery` on `ui_type_text` and `ui_submit_search`; verification remains
+with `ui_wait`.

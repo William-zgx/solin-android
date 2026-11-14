@@ -1,6 +1,6 @@
 # Privacy-preserving cloud planning and typed device execution
 
-Date: 2026-11-14 · Code baseline: `00a2969f` · Status: **lab / debug experiment**
+Date: 2026-11-14 · Code baseline: `3cd5328f` · Status: **lab / debug experiment**
 
 ## Purpose and current boundary
 
@@ -39,6 +39,19 @@ new GUI model, or claim device acceptance.
 No runtime path calls this parser or evaluator. A live request-only cloud-planner comparison must show a
 benefit before role/step placement or Room migration is considered.
 
+`CloudMilestonePlanner` adds the request-only lab adapter. It keeps `CloudPlannerRequest.render()` unchanged
+as the current user prompt, passes the fixed planner instruction separately, and calls
+`capabilitiesAreValidForPlanning` **before** instruction construction or any model invocation. Thus a private
+or otherwise unapproved package/tool value cannot leave the device and be rejected only after the response.
+The test-only `RemoteMilestonePlannerModel` collects the existing `RemoteChatRuntime` flow and stops it on
+transport failure; production disclosure and dispatch remain separate prerequisites.
+
+`CloudPlanningSuiteTest` optionally runs sequential and branching plans against an explicitly configured
+OpenAI-compatible endpoint. It compares exact milestones, predicates and destinations, and records accepted,
+rejection reason/index, structured plans, cloud calls, request bytes and wall time, plus fixed/broken between
+modes. No raw prompt, API key or full error body is written. No authorized endpoint was available for this
+batch, so the live suite is implemented but its result remains pending.
+
 ## 2. High-confidence typed observation candidates
 
 `orchestration/TypedObservationCandidateReplanner.kt` avoids a model call only for two search states:
@@ -72,6 +85,13 @@ remain unchanged.
 All 16 typed emissions match the gold labels. See
 [`lab/results/20261114-typed-observation/SUMMARY.md`](../../lab/results/20261114-typed-observation/SUMMARY.md).
 This is replanner-level saved-output evidence, not full production-path, latency, energy or device evidence.
+
+`TypedObservationCoordinatorTest` also exercises the complete `AgentLoopRuntime` observation path using the
+shared coordinator fixtures. Typed input and submit require no model call; only the initial search-entry tap
+and final result wait use the model, for **2 model calls total** before verified completion. The independent
+gold sweep validates all 16 emitted requests against the real `ToolRegistry`. These coordinator tests caught
+and now prevent undeclared `verifySearchQuery` arguments on both `ui_type_text` and `ui_submit_search`; query
+verification remains with `ui_wait`.
 
 ### Synthetic privacy-utility projections
 

@@ -252,9 +252,13 @@ Current status:
   Accessibility search input/submit candidates. It uses literal user queries and non-model provenance,
   falls through on ambiguity or unknown evidence, and leaves release behavior unchanged. Saved-output
   replay reaches 30/46 for both E2B and E4B with zero broken cases; this is not full-path/device evidence.
+  A full coordinator regression uses shared fixtures to prove only the first tap and final wait need the
+  model (two calls), and all 16 gold-sweep requests pass the real registry.
 - `orchestration/collab/MilestonePlan.kt` also holds an unwired forward-only branching-plan experiment.
   Local predicates are closed, unknown outcomes block, caller-supplied capabilities constrain every node,
-  and the gated-type source scan protects the validated factory. No cloud runtime or progress egress is enabled.
+  and the gated-type source scan protects the validated factory. `CloudMilestonePlanner` preflights those
+  public capabilities before instruction construction or model invocation; its optional live lab reports
+  exact plan/branch semantics and structured diagnostics. No cloud runtime or progress egress is enabled.
 - Pending confirmations, redacted Skill plan shapes, value-free Skill
   checkpoints, and selected no-payload continuation cursors can restore after
   process death. Raw tool arguments, model output, private payload, and

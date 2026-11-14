@@ -456,3 +456,31 @@ python3 -I lab/scripts/privacy_utility.py --check \
 The 12 fixtures compare P0 local, P1 request-only, P2 structured observation and P3 synthetic full context.
 Every projection is revalidated and unknown privacy fails closed. P3 is not a production option and no real
 model/network/device run occurs. See [`results/20261114-privacy-utility/SUMMARY.md`](results/20261114-privacy-utility/SUMMARY.md).
+
+## Request-only cloud planning (2026-11-14)
+
+Run the no-network contract tests:
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests "com.bytedance.zgx.solin.orchestration.collab.CloudMilestonePlannerTest" \
+  --tests "com.bytedance.zgx.solin.lab.RemoteMilestonePlannerModelTest" \
+  --tests "com.bytedance.zgx.solin.lab.CloudPlanningSuiteTest"
+```
+
+`CloudMilestonePlanner` validates public branch capabilities before any model call. The live suite requires
+only an authorized base URL and model name; an API key is optional when the endpoint does not require one:
+
+```bash
+SOLIN_LAB=1 \
+SOLIN_LAB_REMOTE_BASE_URL=https://authorized.example/v1 \
+SOLIN_LAB_REMOTE_MODEL=planner-model \
+SOLIN_LAB_REMOTE_API_KEY=<secret> \
+./gradlew :app:testDebugUnitTest --tests "com.bytedance.zgx.solin.lab.CloudPlanningSuiteTest"
+```
+
+The report is written to `build/verification/cloud-planning/live-summary.json` only after live execution.
+It compares exact milestones, predicates and branch destinations, and records accepted/rejection diagnostics,
+structured plans, cloud calls, request bytes and wall time, plus fixed/broken between sequential and branching
+modes. It does not store raw prompts, API keys or full error bodies. No authorized endpoint was available in
+this batch, so live evidence is pending and the suite is skipped by default.
