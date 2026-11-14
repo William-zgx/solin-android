@@ -1,8 +1,8 @@
 package com.bytedance.zgx.solin.orchestration
 
 import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
-import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.ModelCapability
+import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.memory.MemoryRepository
@@ -139,5 +139,4 @@ class TypedObservationCoordinatorTest {
         assertEquals(toolName, plan.request.toolName)
         return plan
     }
-
 }

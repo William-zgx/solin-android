@@ -52,17 +52,30 @@ class CloudPlanningSuiteTest {
                 .put("evidence", "live request-only remote lab; not production or device evidence")
                 .put("model", config.normalized().modelName)
                 .put("caseCount", results.size)
-                .put("fixedVsSequential", JSONArray(results.filter { result ->
-                    result.getJSONObject("branching").getBoolean("correct") &&
-                        !result.getJSONObject("sequential").getBoolean("correct")
-                }.map { it.getString("caseId") }))
-                .put("brokenVsSequential", JSONArray(results.filter { result ->
-                    !result.getJSONObject("branching").getBoolean("correct") &&
-                        result.getJSONObject("sequential").getBoolean("correct")
-                }.map { it.getString("caseId") }))
-                .put("metrics", JSONObject()
-                    .put("sequential", metrics(results, "sequential"))
-                    .put("branching", metrics(results, "branching")))
+                .put(
+                    "fixedVsSequential",
+                    JSONArray(
+                        results.filter { result ->
+                            result.getJSONObject("branching").getBoolean("correct") &&
+                                !result.getJSONObject("sequential").getBoolean("correct")
+                        }.map { it.getString("caseId") }
+                    )
+                )
+                .put(
+                    "brokenVsSequential",
+                    JSONArray(
+                        results.filter { result ->
+                            !result.getJSONObject("branching").getBoolean("correct") &&
+                                result.getJSONObject("sequential").getBoolean("correct")
+                        }.map { it.getString("caseId") }
+                    )
+                )
+                .put(
+                    "metrics",
+                    JSONObject()
+                        .put("sequential", metrics(results, "sequential"))
+                        .put("branching", metrics(results, "branching"))
+                )
                 .put("cases", JSONArray(results))
             val output = File(LabEnv.repoRoot, "build/verification/cloud-planning/live-summary.json")
             output.parentFile?.mkdirs()
@@ -113,27 +126,31 @@ class CloudPlanningSuiteTest {
         return try {
             if (sequential) {
                 when (val parsed = planner.planSequential(case.request)) {
-                    is MilestoneParseResult.Accepted -> result
-                        .put("accepted", true)
-                        .put("correct", parsed.plan.milestones == case.expectedMilestones)
-                        .put("plan", milestonesJson(parsed.plan.milestones))
-                    is MilestoneParseResult.Rejected -> result
-                        .put("accepted", false)
-                        .put("correct", false)
-                        .put("rejectionReason", parsed.reason.name)
-                        .put("rejectionIndex", parsed.index ?: JSONObject.NULL)
+                    is MilestoneParseResult.Accepted ->
+                        result
+                            .put("accepted", true)
+                            .put("correct", parsed.plan.milestones == case.expectedMilestones)
+                            .put("plan", milestonesJson(parsed.plan.milestones))
+                    is MilestoneParseResult.Rejected ->
+                        result
+                            .put("accepted", false)
+                            .put("correct", false)
+                            .put("rejectionReason", parsed.reason.name)
+                            .put("rejectionIndex", parsed.index ?: JSONObject.NULL)
                 }
             } else {
                 when (val parsed = planner.planBranching(case.request, case.capabilities)) {
-                    is BranchParseResult.Accepted -> result
-                        .put("accepted", true)
-                        .put("correct", branchMatches(case, parsed.plan.nodes))
-                        .put("plan", branchJson(parsed.plan.nodes))
-                    is BranchParseResult.Rejected -> result
-                        .put("accepted", false)
-                        .put("correct", false)
-                        .put("rejectionReason", parsed.reason.name)
-                        .put("rejectionIndex", parsed.index ?: JSONObject.NULL)
+                    is BranchParseResult.Accepted ->
+                        result
+                            .put("accepted", true)
+                            .put("correct", branchMatches(case, parsed.plan.nodes))
+                            .put("plan", branchJson(parsed.plan.nodes))
+                    is BranchParseResult.Rejected ->
+                        result
+                            .put("accepted", false)
+                            .put("correct", false)
+                            .put("rejectionReason", parsed.reason.name)
+                            .put("rejectionIndex", parsed.index ?: JSONObject.NULL)
                 }
             }
             result.put("wallMs", (System.nanoTime() - started) / 1_000_000)
@@ -148,15 +165,14 @@ class CloudPlanningSuiteTest {
         }
     }
 
-    private fun branchMatches(case: CloudCase, nodes: List<BranchNode>): Boolean =
-        nodes.map { it.milestone } == case.expectedMilestones &&
-            nodes.indices.all { index ->
-                val node = nodes[index]
-                val expected = case.expectedBranches[index]
-                node.predicate == expected.predicate &&
-                    destinationMatches(expected.onTrue, index, nodes, node.onTrue) &&
-                    destinationMatches(expected.onFalse, index, nodes, node.onFalse)
-            }
+    private fun branchMatches(case: CloudCase, nodes: List<BranchNode>): Boolean = nodes.map { it.milestone } == case.expectedMilestones &&
+        nodes.indices.all { index ->
+            val node = nodes[index]
+            val expected = case.expectedBranches[index]
+            node.predicate == expected.predicate &&
+                destinationMatches(expected.onTrue, index, nodes, node.onTrue) &&
+                destinationMatches(expected.onFalse, index, nodes, node.onFalse)
+        }
 
     private fun destinationMatches(
         expected: BranchDestination,
@@ -171,22 +187,26 @@ class CloudPlanningSuiteTest {
 
     private fun milestonesJson(milestones: List<Milestone>): JSONArray = JSONArray().apply {
         milestones.forEach { milestone ->
-            put(JSONObject()
-                .put("intent", milestone.intent.wireName)
-                .put("app", milestone.app ?: JSONObject.NULL)
-                .put("query", milestone.query ?: JSONObject.NULL)
-                .put("tool", milestone.tool ?: JSONObject.NULL))
+            put(
+                JSONObject()
+                    .put("intent", milestone.intent.wireName)
+                    .put("app", milestone.app ?: JSONObject.NULL)
+                    .put("query", milestone.query ?: JSONObject.NULL)
+                    .put("tool", milestone.tool ?: JSONObject.NULL)
+            )
         }
     }
 
     private fun branchJson(nodes: List<BranchNode>): JSONArray = JSONArray().apply {
         nodes.forEach { node ->
-            put(JSONObject()
-                .put("id", node.id)
-                .put("predicate", node.predicate.wireName)
-                .put("onTrue", node.onTrue)
-                .put("onFalse", node.onFalse)
-                .put("milestone", milestonesJson(listOf(node.milestone)).getJSONObject(0)))
+            put(
+                JSONObject()
+                    .put("id", node.id)
+                    .put("predicate", node.predicate.wireName)
+                    .put("onTrue", node.onTrue)
+                    .put("onFalse", node.onFalse)
+                    .put("milestone", milestonesJson(listOf(node.milestone)).getJSONObject(0))
+            )
         }
     }
 
@@ -226,22 +246,32 @@ class CloudPlanningSuiteTest {
             """{"version":1,"milestones":[{"intent":"search_in_app","app":"com.taobao.taobao","query":"牛奶"}]}"""
         val BRANCHING_PLAN = JSONObject()
             .put("version", 1)
-            .put("nodes", JSONArray()
-                .put(JSONObject()
-                    .put("id", "open")
-                    .put("milestone", JSONObject().put("intent", "open_app").put("app", "com.taobao.taobao"))
-                    .put("predicate", "planned_app_foreground")
-                    .put("on_true", "search")
-                    .put("on_false", "blocked"))
-                .put(JSONObject()
-                    .put("id", "search")
-                    .put("milestone", JSONObject()
-                        .put("intent", "search_in_app")
-                        .put("app", "com.taobao.taobao")
-                        .put("query", "牛奶"))
-                    .put("predicate", "results_match_query")
-                    .put("on_true", "done")
-                    .put("on_false", "blocked")))
+            .put(
+                "nodes",
+                JSONArray()
+                    .put(
+                        JSONObject()
+                            .put("id", "open")
+                            .put("milestone", JSONObject().put("intent", "open_app").put("app", "com.taobao.taobao"))
+                            .put("predicate", "planned_app_foreground")
+                            .put("on_true", "search")
+                            .put("on_false", "blocked")
+                    )
+                    .put(
+                        JSONObject()
+                            .put("id", "search")
+                            .put(
+                                "milestone",
+                                JSONObject()
+                                    .put("intent", "search_in_app")
+                                    .put("app", "com.taobao.taobao")
+                                    .put("query", "牛奶")
+                            )
+                            .put("predicate", "results_match_query")
+                            .put("on_true", "done")
+                            .put("on_false", "blocked")
+                    )
+            )
             .toString()
 
         fun searchCase(id: String, request: String, app: String, query: String) = CloudCase(

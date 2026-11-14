@@ -3,13 +3,12 @@ package com.bytedance.zgx.solin.orchestration
 import com.bytedance.zgx.solin.ChatMessage
 import com.bytedance.zgx.solin.ChatUiState
 import com.bytedance.zgx.solin.InstalledModelSummary
-import com.bytedance.zgx.solin.MessageRole
-import com.bytedance.zgx.solin.ModelCapability
-import com.bytedance.zgx.solin.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.solin.LocalModelTokenLimits
 import com.bytedance.zgx.solin.MEMORY_EMBEDDING_MODEL_ID
 import com.bytedance.zgx.solin.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.solin.MessagePrivacy
+import com.bytedance.zgx.solin.MessageRole
+import com.bytedance.zgx.solin.ModelCapability
 import com.bytedance.zgx.solin.ModelCatalog
 import com.bytedance.zgx.solin.action.ActionDraft
 import com.bytedance.zgx.solin.action.ActionIntentConfidence
@@ -31,8 +30,6 @@ import com.bytedance.zgx.solin.audit.ToolAuditSink
 import com.bytedance.zgx.solin.data.AgentStepEntity
 import com.bytedance.zgx.solin.data.ModelVerificationStatus
 import com.bytedance.zgx.solin.device.DeviceContextSnapshot
-import com.bytedance.zgx.solin.device.DEVICE_CONTROL_METADATA_POLICY
-import com.bytedance.zgx.solin.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.MemoryRepository
@@ -48,13 +45,13 @@ import com.bytedance.zgx.solin.skill.SkillStep
 import com.bytedance.zgx.solin.testing.FakeAgentTraceDao
 import com.bytedance.zgx.solin.testing.RecordingActionRuntime
 import com.bytedance.zgx.solin.tool.RiskLevel
-import com.bytedance.zgx.solin.tool.ToolPermission
-import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import com.bytedance.zgx.solin.tool.ToolError
 import com.bytedance.zgx.solin.tool.ToolErrorCode
+import com.bytedance.zgx.solin.tool.ToolPermission
 import com.bytedance.zgx.solin.tool.ToolRequest
 import com.bytedance.zgx.solin.tool.ToolResult
 import com.bytedance.zgx.solin.tool.ToolStatus
+import com.bytedance.zgx.solin.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import kotlinx.coroutines.Job
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -67,7 +64,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun closeCancelsRegisteredModelGenerationJobs() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val generationJob = Job()
         runtime.registerModelCallJob("run-close", generationJob)
@@ -84,7 +81,7 @@ class AgentLoopRuntimeTest {
         var deviceControlSessionFinishCount = 0
         val runtime = agentLoopRuntime(
             traceStore = traceStore,
-            deviceControlSessionFinisher = { deviceControlSessionFinishCount += 1 },
+            deviceControlSessionFinisher = { deviceControlSessionFinishCount += 1 }
         )
         val sessionId = "session-delete"
         val executingDeviceRun = traceStore.createRun("观察当前屏幕", sessionId)
@@ -97,9 +94,9 @@ class AgentLoopRuntimeTest {
                     functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                     title = "观察当前屏幕",
                     summary = "观察当前屏幕内容。",
-                    parameters = emptyMap(),
-                ),
-            ),
+                    parameters = emptyMap()
+                )
+            )
         )
         val generatingRun = traceStore.createRun("普通问题", sessionId)
         traceStore.updateState(generatingRun.id, AgentRunState.GeneratingAnswer)
@@ -127,13 +124,13 @@ class AgentLoopRuntimeTest {
         val runtime = agentLoopRuntime(
             memoryIndex = memoryRepository,
             actionPlanningRuntime = actionRuntime,
-            traceStore = traceStore,
+            traceStore = traceStore
         )
 
         val result = runtime.runOnce(
             input = "端侧聊天偏好是什么",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
+            memoryEnabled = true
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -143,13 +140,17 @@ class AgentLoopRuntimeTest {
         assertTrue(result.plan.promptForModel.contains("用户喜欢端侧离线聊天"))
         assertEquals(listOf("preference"), result.plan.memoryHits.map { it.id })
         assertEquals(0, actionRuntime.planCallCount)
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.ContextLoaded &&
-                step.memoryHits.map { it.id } == listOf("preference")
-        })
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.ContextLoaded &&
+                    step.memoryHits.map { it.id } == listOf("preference")
+            }
+        )
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer
+            }
+        )
     }
 
     @Test
@@ -157,17 +158,17 @@ class AgentLoopRuntimeTest {
         val memoryRepository = MemoryRepository()
         memoryRepository.index(
             id = "long-memory",
-            text = "端侧上下文" + "很长".repeat(LocalModelTokenLimits.MAX_INPUT_TOKENS) + "TAIL_SHOULD_NOT_APPEAR",
+            text = "端侧上下文" + "很长".repeat(LocalModelTokenLimits.MAX_INPUT_TOKENS) + "TAIL_SHOULD_NOT_APPEAR"
         )
         val runtime = agentLoopRuntime(
             memoryIndex = memoryRepository,
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
 
         val result = runtime.runOnce(
             input = "端侧上下文是什么",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
+            memoryEnabled = true
         )
 
         require(result.plan is AgentPlan.Answer)
@@ -179,10 +180,10 @@ class AgentLoopRuntimeTest {
     fun modelFirstRemoteToolsSkipsActionRuntimeForNonSkillInput() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = wifiPlanningResult(),
+            planningResult = wifiPlanningResult()
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
 
         val result = runtime.runOnce(
@@ -191,8 +192,8 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -204,7 +205,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun remoteModelCannotRequestToolBeforeToolSnapshotIsRecorded() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -212,8 +213,8 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
 
         val observed = runtime.observeModelToolRequest(
@@ -221,8 +222,8 @@ class AgentLoopRuntimeTest {
             request = ToolRequest(
                 id = "call-clipboard",
                 toolName = MobileActionFunctions.READ_CLIPBOARD,
-                reason = "remote guessed private tool",
-            ),
+                reason = "remote guessed private tool"
+            )
         )
 
         requireNotNull(observed)
@@ -239,7 +240,7 @@ class AgentLoopRuntimeTest {
         val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val runtime = agentLoopRuntime(
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -247,8 +248,8 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
@@ -257,8 +258,8 @@ class AgentLoopRuntimeTest {
                 MobileActionFunctions.WEB_SEARCH,
                 MobileActionFunctions.SHARE_TEXT,
                 MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-                "not_a_real_tool",
-            ),
+                "not_a_real_tool"
+            )
         )
 
         val exposed = traceStore.steps(result.run.id)
@@ -266,7 +267,7 @@ class AgentLoopRuntimeTest {
             .single()
         assertEquals(
             listOf(MobileActionFunctions.SHARE_TEXT, MobileActionFunctions.WEB_SEARCH),
-            exposed.toolNames,
+            exposed.toolNames
         )
 
         val observed = runtime.observeModelToolRequest(
@@ -274,8 +275,8 @@ class AgentLoopRuntimeTest {
             request = ToolRequest(
                 id = "call-screen",
                 toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-                reason = "remote attempted private screen context",
-            ),
+                reason = "remote attempted private screen context"
+            )
         )
 
         requireNotNull(observed)
@@ -290,7 +291,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun remoteModelCannotRequestScopeEligibleToolMissingFromExposedSnapshot() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -298,13 +299,13 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.ModelPlanning,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
 
         val observed = runtime.observeModelToolRequest(
@@ -313,8 +314,8 @@ class AgentLoopRuntimeTest {
                 id = "call-share",
                 toolName = MobileActionFunctions.SHARE_TEXT,
                 arguments = mapOf("text" to "hello"),
-                reason = "remote guessed hidden scope-eligible tool",
-            ),
+                reason = "remote guessed hidden scope-eligible tool"
+            )
         )
 
         requireNotNull(observed)
@@ -329,7 +330,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun remoteMixedBatchRejectionRecordsAttemptedToolNames() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -337,25 +338,25 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.PublicEvidenceOnly,
-            ),
+                remoteToolScope = RemoteToolScope.PublicEvidenceOnly
+            )
         )
         val requests = listOf(
             ToolRequest(
                 id = "search",
                 toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "天气"),
+                arguments = mapOf("query" to "天气")
             ),
             ToolRequest(
                 id = "contacts",
                 toolName = MobileActionFunctions.QUERY_CONTACTS,
-                arguments = mapOf("query" to "张三"),
-            ),
+                arguments = mapOf("query" to "张三")
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = requests.mapTo(linkedSetOf()) { request -> request.toolName },
+            toolNames = requests.mapTo(linkedSetOf()) { request -> request.toolName }
         )
 
         val observed = runtime.observeModelToolRequests(result.run.id, requests)
@@ -366,7 +367,7 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.QUERY_CONTACTS, rejected.data["toolName"])
         assertEquals(
             "${MobileActionFunctions.WEB_SEARCH},${MobileActionFunctions.QUERY_CONTACTS}",
-            rejected.data["attemptedToolNames"],
+            rejected.data["attemptedToolNames"]
         )
         assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
     }
@@ -374,10 +375,10 @@ class AgentLoopRuntimeTest {
     @Test
     fun modelFirstRemoteToolsKeepsDirectSkillPreflightLocal() {
         val actionRuntime = RecordingActionRuntime(
-            likelyAction = false,
+            likelyAction = false
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
 
         val result = runtime.runOnce(
@@ -386,8 +387,8 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -400,10 +401,10 @@ class AgentLoopRuntimeTest {
     @Test
     fun modelFirstRemoteToolsKeepsDirectPublicEvidenceSkillLocal() {
         val actionRuntime = RecordingActionRuntime(
-            likelyAction = false,
+            likelyAction = false
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
 
         val result = runtime.runOnce(
@@ -412,8 +413,8 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
 
         assertEquals(AgentRunState.ExecutingTool, result.run.state)
@@ -427,16 +428,16 @@ class AgentLoopRuntimeTest {
     fun defaultRuleFirstStillPlansActionLikeInputBeforeModelAnswer() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = wifiPlanningResult(),
+            planningResult = wifiPlanningResult()
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
 
         val result = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -449,23 +450,23 @@ class AgentLoopRuntimeTest {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
             modelOutputResult = modelToolOutputPlanningResult(
-                """call:web_search{"query":"Kotlin coroutines"}""",
-            ),
+                """call:web_search{"query":"Kotlin coroutines"}"""
+            )
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val result = runtime.runOnce(
             input = "帮我查 Kotlin 协程资料",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
 
         val observed = runtime.observeModelResult(
             result.run.id,
-            """call:web_search{"query":"Kotlin coroutines"}""",
+            """call:web_search{"query":"Kotlin coroutines"}"""
         )
 
         requireNotNull(observed)
@@ -492,25 +493,25 @@ class AgentLoopRuntimeTest {
                         path = "/tmp/retired-action.litertlm",
                         fileBytes = 1L,
                         recommendedModelId = MOBILE_ACTION_MODEL_ID,
-                        verificationStatus = ModelVerificationStatus.VerifiedRecommended,
-                    ),
-                ),
-            ),
+                        verificationStatus = ModelVerificationStatus.VerifiedRecommended
+                    )
+                )
+            )
         )
 
         states.forEach { (label, state) ->
             val actionRuntime = RecordingActionRuntime(
                 likelyAction = false,
-                modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}"""),
+                modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}""")
             )
             val runtime = agentLoopRuntime(
-                actionPlanningRuntime = actionRuntime,
+                actionPlanningRuntime = actionRuntime
             )
             val result = runtime.runOnce(
                 input = "准备分享一段文字",
                 installedCapabilities = state.installedCapabilities,
                 memoryEnabled = false,
-                installedCapabilityProfiles = state.installedCapabilityProfiles,
+                installedCapabilityProfiles = state.installedCapabilityProfiles
             )
 
             val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"draft"}""")
@@ -519,13 +520,19 @@ class AgentLoopRuntimeTest {
             assertEquals(label, AgentRunState.Failed, observed.run.state)
             require(observed.decision is AgentObservationDecision.Fail)
             assertTrue(label, observed.decision.reason.contains("Missing model capability MobileAction"))
-            assertTrue(label, observed.steps.any { step ->
-                step is AgentStep.ModelPlanned &&
-                    step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
-            })
-            assertTrue(label, observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-                step.request.toolName == MobileActionFunctions.SHARE_TEXT
-            })
+            assertTrue(
+                label,
+                observed.steps.any { step ->
+                    step is AgentStep.ModelPlanned &&
+                        step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+                }
+            )
+            assertTrue(
+                label,
+                observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                    step.request.toolName == MobileActionFunctions.SHARE_TEXT
+                }
+            )
             assertEquals(label, null, runtime.latestPendingConfirmation())
             assertEquals(label, 1, actionRuntime.parseModelToolOutputCallCount)
         }
@@ -538,30 +545,32 @@ class AgentLoopRuntimeTest {
         // MobileAction profile — the loop is allowed to proceed on the remote-vision path.
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
-            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}"""),
+            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}""")
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val result = runtime.runOnce(
             input = "准备分享一段文字",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            options = AgentRunOptions(remoteGuiDrivingEnabled = true),
+            options = AgentRunOptions(remoteGuiDrivingEnabled = true)
         )
 
         val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"draft"}""")
 
         requireNotNull(observed)
         // The gate passed: no MissingModel failure was recorded.
-        assertTrue(observed.steps.none { step ->
-            step is AgentStep.ModelPlanned &&
-                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
-        })
+        assertTrue(
+            observed.steps.none { step ->
+                step is AgentStep.ModelPlanned &&
+                    step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+            }
+        )
         assertTrue(
             "run should not fail with a MissingModel reason when remote-GUI driving is enabled",
             observed.decision !is AgentObservationDecision.Fail ||
-                !(observed.decision as AgentObservationDecision.Fail).reason.contains("MobileAction"),
+                !(observed.decision as AgentObservationDecision.Fail).reason.contains("MobileAction")
         )
     }
 
@@ -570,23 +579,23 @@ class AgentLoopRuntimeTest {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
             modelOutputResult = modelToolOutputPlanningResult(
-                """call:share_text{"text":"should not become a tool"}""",
-            ),
+                """call:share_text{"text":"should not become a tool"}"""
+            )
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            options = AgentRunOptions(initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools),
+            options = AgentRunOptions(initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools)
         )
 
         val observed = runtime.observeModelResult(
             runId = result.run.id,
             text = """call:share_text{"text":"should not become a tool"}""",
-            allowInlineToolCalls = false,
+            allowInlineToolCalls = false
         )
 
         requireNotNull(observed)
@@ -603,20 +612,20 @@ class AgentLoopRuntimeTest {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
             modelOutputResult = modelToolOutputPlanningResult(
-                """call:web_search{"query":"北京和上海的天气"}""",
-            ),
+                """call:web_search{"query":"北京和上海的天气"}"""
+            )
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val result = runtime.runOnce(
             input = "北京和上海的温差是多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val planned = runtime.observeModelResult(
             result.run.id,
-            """call:web_search{"query":"北京和上海的天气"}""",
+            """call:web_search{"query":"北京和上海的天气"}"""
         )
         requireNotNull(planned)
         require(planned.decision is AgentObservationDecision.PlanNextTool)
@@ -630,8 +639,8 @@ class AgentLoopRuntimeTest {
                 summaryText = "已读取北京、上海当前天气。",
                 resultsJson = """
                         {"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}},{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}
-                    """.trimIndent(),
-            ),
+                """.trimIndent()
+            )
         )
 
         requireNotNull(observed)
@@ -653,17 +662,17 @@ class AgentLoopRuntimeTest {
     @Test
     fun publicEvidenceContinuationPromptUsesNumberedSourceBlocksAndRetriesMissingCitationOnce() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "Kotlin 目前最新发布是什么？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequest(
             runId = result.run.id,
@@ -671,8 +680,8 @@ class AgentLoopRuntimeTest {
                 id = "call-kotlin",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "Kotlin latest release"),
-                reason = "remote public evidence",
-            ),
+                reason = "remote public evidence"
+            )
         )
         requireNotNull(planned)
         require(planned.decision is AgentObservationDecision.PlanNextTool)
@@ -695,9 +704,9 @@ class AgentLoopRuntimeTest {
                           "sources": [{"id":"duckduckgo_html","name":"DuckDuckGo HTML","url":"https://html.duckduckgo.com/html/"}],
                           "results": [{"kind":"web_result","sourceId":"duckduckgo_html","title":"Kotlin releases","snippet":"Kotlin current release notes.","url":"https://kotlinlang.org/docs/releases.html"}]
                         }
-                    """.trimIndent(),
-                ),
-            ),
+                    """.trimIndent()
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -726,7 +735,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun publicEvidenceContinuationRejectsActionToolRequestNotExposedInScope() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
@@ -734,13 +743,13 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.ModelPlanning,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequest(
             runId = result.run.id,
@@ -748,8 +757,8 @@ class AgentLoopRuntimeTest {
                 id = "call-weather",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote public evidence",
-            ),
+                reason = "remote public evidence"
+            )
         )
         requireNotNull(planned)
         require(planned.decision is AgentObservationDecision.PlanNextTool)
@@ -759,15 +768,15 @@ class AgentLoopRuntimeTest {
                 requestId = planned.decision.plan.request.id,
                 summary = "已读取北京天气。",
                 query = "北京天气",
-                summaryText = "北京 12 摄氏度。",
-            ),
+                summaryText = "北京 12 摄氏度。"
+            )
         )
         requireNotNull(observed)
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.COMPOSE_EMAIL),
+            toolNames = setOf(MobileActionFunctions.COMPOSE_EMAIL)
         )
 
         val rejected = runtime.observeModelToolRequest(
@@ -775,8 +784,8 @@ class AgentLoopRuntimeTest {
             request = ToolRequest(
                 id = "call-email",
                 toolName = MobileActionFunctions.COMPOSE_EMAIL,
-                reason = "remote action after public evidence",
-            ),
+                reason = "remote action after public evidence"
+            )
         )
 
         requireNotNull(rejected)
@@ -790,7 +799,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun remoteModelSensitiveWebSearchRequiresConfirmationBeforeNetworkAccess() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "帮我检查手机号有没有泄露",
@@ -798,13 +807,13 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
             options = AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
-                remoteToolScope = RemoteToolScope.ModelPlanning,
-            ),
+                remoteToolScope = RemoteToolScope.ModelPlanning
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.ModelPlanning,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
 
         val observed = runtime.observeModelToolRequest(
@@ -813,8 +822,8 @@ class AgentLoopRuntimeTest {
                 id = "call-sensitive-web-search",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "搜索我的手机号 13800138000 有没有泄露"),
-                reason = "remote public evidence",
-            ),
+                reason = "remote public evidence"
+            )
         )
 
         requireNotNull(observed)
@@ -830,31 +839,31 @@ class AgentLoopRuntimeTest {
     @Test
     fun remoteModelMultiplePublicEvidenceToolCallsPlanBatchWithoutConfirmation() {
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false)
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-shanghai",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "上海天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
 
         val observed = runtime.observeModelToolRequests(result.run.id, requests)
@@ -866,7 +875,7 @@ class AgentLoopRuntimeTest {
         assertEquals(requests.map { request -> request.id }, decision.plans.map { plan -> plan.request.id })
         assertEquals(
             listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.WEB_SEARCH),
-            decision.plans.map { plan -> plan.request.toolName },
+            decision.plans.map { plan -> plan.request.toolName }
         )
         assertTrue(decision.plans.all { plan -> plan.plannedByModel })
         assertEquals(null, runtime.latestPendingConfirmation())
@@ -879,31 +888,31 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "普通远程问题",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-weather",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-sensitive",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "搜索我的手机号 13800138000 有没有泄露"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
 
         val observed = runtime.observeModelToolRequests(result.run.id, requests)
@@ -915,10 +924,12 @@ class AgentLoopRuntimeTest {
         assertEquals(null, runtime.latestPendingConfirmation())
         assertTrue(observed.steps.none { step -> step is AgentStep.ToolRequested })
         assertTrue(observed.steps.none { step -> step is AgentStep.ToolObserved })
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.SafetyChecked &&
-                step.decision.outcome == SafetyOutcome.RequireConfirmation
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.SafetyChecked &&
+                    step.decision.outcome == SafetyOutcome.RequireConfirmation
+            }
+        )
     }
 
     @Test
@@ -927,30 +938,30 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val result = runtime.runOnce(
             input = "读剪贴板再搜索",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val read = ToolRequest(id = "call-read", toolName = MobileActionFunctions.READ_CLIPBOARD)
         traceStore.appendStep(
             result.run.id,
-            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap())),
+            AgentStep.ToolRequested(read, ActionDraft(read.toolName, "读剪贴板", "读剪贴板", emptyMap()))
         )
         val requests = listOf("北京天气", "上海天气").mapIndexed { index, query ->
             ToolRequest(
                 id = "call-search-$index",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to query),
-                reason = "remote tool call",
+                reason = "remote tool call"
             )
         }
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
 
         val observed = runtime.observeModelToolRequests(result.run.id, requests)
@@ -961,10 +972,12 @@ class AgentLoopRuntimeTest {
         assertTrue(decision.reason, decision.reason.contains("requires confirmation"))
         assertTrue(observed.steps.none { step -> step is AgentStep.ToolRequested && step.request.id != read.id })
         assertTrue(observed.steps.none { step -> step is AgentStep.ToolObserved })
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.SafetyChecked &&
-                step.decision.outcome == SafetyOutcome.RequireConfirmation
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.SafetyChecked &&
+                    step.decision.outcome == SafetyOutcome.RequireConfirmation
+            }
+        )
     }
 
     @Test
@@ -972,30 +985,30 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "查天气然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-weather",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-wifi",
                 toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.OPEN_WIFI_SETTINGS)
         )
 
         val observed = runtime.observeModelToolRequests(result.run.id, requests)
@@ -1013,31 +1026,31 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-shanghai",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "上海天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequests(result.run.id, requests)
         requireNotNull(planned)
@@ -1053,8 +1066,8 @@ class AgentLoopRuntimeTest {
                     data = webSearchResultData(
                         query = "北京天气",
                         summaryText = "北京 12 摄氏度。",
-                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}""",
-                    ),
+                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}"""
+                    )
                 ),
                 ToolResult(
                     requestId = "call-shanghai",
@@ -1063,10 +1076,10 @@ class AgentLoopRuntimeTest {
                     data = webSearchResultData(
                         query = "上海天气",
                         summaryText = "上海 18 摄氏度。",
-                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}""",
-                    ),
-                ),
-            ),
+                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}"""
+                    )
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -1093,31 +1106,31 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "Kotlin 目前最新发布是什么？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-kotlin",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "Kotlin latest release"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-local-only",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "local-only should not leak"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequests(result.run.id, requests)
         requireNotNull(planned)
@@ -1154,8 +1167,8 @@ class AgentLoopRuntimeTest {
                                 }
                               ]
                             }
-                        """.trimIndent(),
-                    ),
+                        """.trimIndent()
+                    )
                 ),
                 ToolResult(
                     requestId = "call-local-only",
@@ -1166,10 +1179,10 @@ class AgentLoopRuntimeTest {
                         "privacy" to MessagePrivacy.LocalOnly.name,
                         "requiresLocalModel" to "true",
                         "query" to "PRIVATE_LOCAL_QUERY",
-                        "secret" to "PRIVATE_LOCAL_DATA",
-                    ),
-                ),
-            ),
+                        "secret" to "PRIVATE_LOCAL_DATA"
+                    )
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -1191,31 +1204,31 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-shanghai",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "上海天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequests(result.run.id, requests)
         requireNotNull(planned)
@@ -1231,8 +1244,8 @@ class AgentLoopRuntimeTest {
                     data = webSearchResultData(
                         query = "北京天气",
                         summaryText = "北京 12 摄氏度。",
-                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}""",
-                    ),
+                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}"""
+                    )
                 ),
                 ToolResult(
                     requestId = "call-shanghai",
@@ -1240,9 +1253,9 @@ class AgentLoopRuntimeTest {
                     summary = "搜索上海天气失败",
                     data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH),
                     error = ToolError(ToolErrorCode.ExecutionFailed, "网络错误"),
-                    retryable = false,
-                ),
-            ),
+                    retryable = false
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -1266,17 +1279,17 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val firstPlan = runtime.observeModelToolRequest(
             runId = result.run.id,
@@ -1284,8 +1297,8 @@ class AgentLoopRuntimeTest {
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         requireNotNull(firstPlan)
         require(firstPlan.decision is AgentObservationDecision.PlanNextTool)
@@ -1296,8 +1309,8 @@ class AgentLoopRuntimeTest {
                 summary = "已读取北京当前天气。",
                 query = "北京天气",
                 summaryText = "北京 12 摄氏度。",
-                resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}""",
-            ),
+                resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}"""
+            )
         )
         requireNotNull(firstObserved)
         require(firstObserved.decision is AgentObservationDecision.ContinueWithModel)
@@ -1305,7 +1318,7 @@ class AgentLoopRuntimeTest {
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val secondPlan = runtime.observeModelToolRequest(
             runId = result.run.id,
@@ -1313,8 +1326,8 @@ class AgentLoopRuntimeTest {
                 id = "call-shanghai",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "上海天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         requireNotNull(secondPlan)
         require(secondPlan.decision is AgentObservationDecision.PlanNextTool)
@@ -1326,8 +1339,8 @@ class AgentLoopRuntimeTest {
                 summary = "已读取上海当前天气。",
                 query = "上海天气",
                 summaryText = "上海 18 摄氏度。",
-                resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}""",
-            ),
+                resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}"""
+            )
         )
 
         requireNotNull(secondObserved)
@@ -1346,17 +1359,17 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequest(
             runId = result.run.id,
@@ -1364,8 +1377,8 @@ class AgentLoopRuntimeTest {
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         requireNotNull(planned)
         require(planned.decision is AgentObservationDecision.PlanNextTool)
@@ -1376,8 +1389,8 @@ class AgentLoopRuntimeTest {
                 requestId = "call-beijing",
                 status = ToolStatus.Succeeded,
                 summary = "已读取北京当前天气。",
-                data = webSearchResultData().minus("privacy").minus("requiresLocalModel"),
-            ),
+                data = webSearchResultData().minus("privacy").minus("requiresLocalModel")
+            )
         )
 
         requireNotNull(observed)
@@ -1392,31 +1405,31 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-shanghai",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "上海天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequests(result.run.id, requests)
         requireNotNull(planned)
@@ -1429,15 +1442,15 @@ class AgentLoopRuntimeTest {
                     requestId = "call-beijing",
                     status = ToolStatus.Cancelled,
                     summary = "用户停止了工具执行",
-                    data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH),
+                    data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH)
                 ),
                 ToolResult(
                     requestId = "call-shanghai",
                     status = ToolStatus.Succeeded,
                     summary = "已读取上海当前天气。",
-                    data = webSearchResultData(query = "上海天气", summaryText = "上海 18 摄氏度。"),
-                ),
-            ),
+                    data = webSearchResultData(query = "上海天气", summaryText = "上海 18 摄氏度。")
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -1453,31 +1466,31 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "北京和上海今天温差多少？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val requests = listOf(
             ToolRequest(
                 id = "call-beijing",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "北京天气"),
-                reason = "remote tool call",
+                reason = "remote tool call"
             ),
             ToolRequest(
                 id = "call-shanghai",
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "上海天气"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
         runtime.recordRemoteToolsExposed(
             runId = result.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
         val planned = runtime.observeModelToolRequests(result.run.id, requests)
         requireNotNull(planned)
@@ -1492,7 +1505,7 @@ class AgentLoopRuntimeTest {
                     summary = "搜索失败",
                     data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH),
                     error = ToolError(ToolErrorCode.ExecutionFailed, "搜索失败"),
-                    retryable = false,
+                    retryable = false
                 ),
                 ToolResult(
                     requestId = "call-shanghai",
@@ -1500,9 +1513,9 @@ class AgentLoopRuntimeTest {
                     summary = "用户停止了工具执行",
                     data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH),
                     error = ToolError(ToolErrorCode.UserCancelled, "用户停止了工具执行"),
-                    retryable = false,
-                ),
-            ),
+                    retryable = false
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -1518,10 +1531,10 @@ class AgentLoopRuntimeTest {
         val secretPayload = "SECRET_SHARE_TEXT"
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
-            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"$secretPayload"}"""),
+            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"$secretPayload"}""")
         )
         val audited = auditedAgentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val runtime = audited.runtime
         val auditSink = audited.auditSink
@@ -1529,7 +1542,7 @@ class AgentLoopRuntimeTest {
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
 
         val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"$secretPayload"}""")
@@ -1539,7 +1552,7 @@ class AgentLoopRuntimeTest {
         val planningEvents = auditSink.events.filter { event ->
             event.eventType in setOf(
                 ToolAuditEventType.ToolPlanned,
-                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.ConfirmationRequested
             )
         }
         assertEquals(2, planningEvents.size)
@@ -1551,20 +1564,20 @@ class AgentLoopRuntimeTest {
     fun ordinaryModelAnswerStillCompletesWithoutActionParsingFallback() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
-            modelOutputResult = ModelToolOutputParseResult.None,
+            modelOutputResult = ModelToolOutputParseResult.None
         )
         val runtime = agentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val result = runtime.runOnce(
             input = "解释一下 web_search 工具",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         val observed = runtime.observeModelResult(
             result.run.id,
-            "web_search 工具会直接返回只读搜索结果，不打开浏览器。",
+            "web_search 工具会直接返回只读搜索结果，不打开浏览器。"
         )
 
         requireNotNull(observed)
@@ -1579,17 +1592,17 @@ class AgentLoopRuntimeTest {
     fun localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
-            modelOutputResult = modelToolOutputPlanningResult("""call:unknown_tool{}"""),
+            modelOutputResult = modelToolOutputPlanningResult("""call:unknown_tool{}""")
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "执行未知工具",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         val observed = runtime.observeModelResult(result.run.id, """call:unknown_tool{}""")
@@ -1607,18 +1620,18 @@ class AgentLoopRuntimeTest {
     fun localModelInvalidToolArgumentsFailBeforeConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
-            modelOutputResult = modelToolOutputPlanningResult("""call:compose_email{"subject":"Hi"}"""),
+            modelOutputResult = modelToolOutputPlanningResult("""call:compose_email{"subject":"Hi"}""")
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val result = runtime.runOnce(
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
 
         val observed = runtime.observeModelResult(result.run.id, """call:compose_email{"subject":"Hi"}""")
@@ -1637,7 +1650,7 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val run = traceStore.createRun("发邮件")
         val waitingRun = traceStore.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
@@ -1645,7 +1658,7 @@ class AgentLoopRuntimeTest {
             id = "invalid-email",
             toolName = MobileActionFunctions.COMPOSE_EMAIL,
             arguments = mapOf("subject" to "Hi"),
-            reason = "restored invalid pending request",
+            reason = "restored invalid pending request"
         )
         traceStore.savePendingConfirmation(
             PendingToolConfirmationSnapshot(
@@ -1655,12 +1668,12 @@ class AgentLoopRuntimeTest {
                     functionName = MobileActionFunctions.COMPOSE_EMAIL,
                     title = "写邮件",
                     summary = "restored invalid pending request",
-                    parameters = invalidRequest.arguments,
+                    parameters = invalidRequest.arguments
                 ),
                 skillId = null,
                 plannedByModel = true,
-                fallbackReason = "test restored pending",
-            ),
+                fallbackReason = "test restored pending"
+            )
         )
 
         val confirmed = runtime.confirmToolRequest(run.id, invalidRequest.id)
@@ -1678,12 +1691,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -1693,15 +1706,15 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("local private text"),
-            ),
+                data = clipboardResultData("local private text")
+            )
         )
         requireNotNull(observedRead)
         assertEquals(AgentRunState.GeneratingAnswer, observedRead.run.state)
         runtime.recordRemoteToolsExposed(
             runId = planned.run.id,
             scope = RemoteToolScope.PublicEvidenceOnly,
-            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH)
         )
 
         val duplicate = runtime.observeModelToolRequest(
@@ -1710,8 +1723,8 @@ class AgentLoopRuntimeTest {
                 id = planned.plan.request.id,
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 arguments = mapOf("query" to "Kotlin"),
-                reason = "remote tool call",
-            ),
+                reason = "remote tool call"
+            )
         )
 
         requireNotNull(duplicate)
@@ -1719,10 +1732,12 @@ class AgentLoopRuntimeTest {
         assertTrue(duplicate.decision is AgentObservationDecision.Fail)
         assertTrue((duplicate.decision as AgentObservationDecision.Fail).reason.contains("already exists"))
         assertEquals(null, runtime.latestPendingConfirmation())
-        assertTrue(duplicate.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.WEB_SEARCH
-        })
+        assertTrue(
+            duplicate.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.WEB_SEARCH
+            }
+        )
     }
 
     @Test
@@ -1731,22 +1746,24 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = ThrowingMemoryIndex(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
+            memoryEnabled = true
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
         require(result.plan is AgentPlan.Answer)
         assertTrue(result.plan.memoryHits.isEmpty())
         assertEquals("普通问题", result.plan.promptForModel)
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.ContextLoaded && step.memoryHits.isEmpty()
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.ContextLoaded && step.memoryHits.isEmpty()
+            }
+        )
     }
 
     @Test
@@ -1755,7 +1772,7 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = ThrowingMemoryIndex(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val deviceContext = DeviceContextSnapshot(
             isArm64Supported = true,
@@ -1764,14 +1781,14 @@ class AgentLoopRuntimeTest {
             memoryEnabled = true,
             availableStorageBytes = 512L * 1024L * 1024L,
             activeSessionId = "session-1",
-            hasPendingConfirmation = false,
+            hasPendingConfirmation = false
         )
 
         val result = runtime.runOnce(
             input = "现在用的是什么推理模式",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = true,
-            deviceContext = deviceContext,
+            deviceContext = deviceContext
         )
 
         require(result.plan is AgentPlan.Answer)
@@ -1786,7 +1803,7 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val deviceContext = DeviceContextSnapshot(
             isArm64Supported = true,
@@ -1795,22 +1812,24 @@ class AgentLoopRuntimeTest {
             memoryEnabled = true,
             availableStorageBytes = 512L * 1024L * 1024L,
             activeSessionId = "session-1",
-            hasPendingConfirmation = false,
+            hasPendingConfirmation = false
         )
 
         val result = runtime.runOnce(
             input = "现在用的是什么推理模式",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = true,
-            deviceContext = deviceContext,
+            deviceContext = deviceContext
         )
 
         require(result.plan is AgentPlan.Answer)
         assertTrue(result.plan.promptForModel.contains("设备上下文"))
         assertTrue(result.plan.promptForModel.contains("Inference mode: Remote"))
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.ContextLoaded && step.deviceContext == deviceContext
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.ContextLoaded && step.deviceContext == deviceContext
+            }
+        )
     }
 
     @Test
@@ -1825,25 +1844,25 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
 
         val result = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = true,
+            memoryEnabled = true
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -1870,19 +1889,23 @@ class AgentLoopRuntimeTest {
                 AgentStep.SkillPlanned::class,
                 AgentStep.SafetyChecked::class,
                 AgentStep.ToolRequested::class,
-                AgentStep.UserConfirmationRequested::class,
+                AgentStep.UserConfirmationRequested::class
             ),
-            result.steps.map { it::class },
+            result.steps.map { it::class }
         )
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.SkillPlanned &&
-                step.request.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
-        })
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS &&
-                step.draft.functionName == MobileActionFunctions.OPEN_WIFI_SETTINGS
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.SkillPlanned &&
+                    step.request.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            }
+        )
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS &&
+                    step.draft.functionName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+            }
+        )
     }
 
     @Test
@@ -1895,7 +1918,7 @@ class AgentLoopRuntimeTest {
                 expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 expectedSafety = SafetyOutcome.Allow,
-                requiresConfirmation = false,
+                requiresConfirmation = false
             ),
             ReducedConfirmationInitialCase(
                 name = "low-risk UI tap",
@@ -1904,7 +1927,7 @@ class AgentLoopRuntimeTest {
                 expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.UI_TAP,
                 expectedSafety = SafetyOutcome.Allow,
-                requiresConfirmation = false,
+                requiresConfirmation = false
             ),
             // The agent never taps a critical control itself: the plan runs without a prompt and the
             // device-control executor stops before 确认支付 so the user taps it.
@@ -1915,7 +1938,7 @@ class AgentLoopRuntimeTest {
                 expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.UI_TAP,
                 expectedSafety = SafetyOutcome.Allow,
-                requiresConfirmation = false,
+                requiresConfirmation = false
             ),
             // A draft only opens the mail app; the user still presses send there.
             ReducedConfirmationInitialCase(
@@ -1925,7 +1948,7 @@ class AgentLoopRuntimeTest {
                 expectedRunState = AgentRunState.ExecutingTool,
                 expectedToolName = MobileActionFunctions.COMPOSE_EMAIL,
                 expectedSafety = SafetyOutcome.Allow,
-                requiresConfirmation = false,
+                requiresConfirmation = false
             ),
             // Only opens the settings page; granting access is still the user's own system toggle.
             ReducedConfirmationInitialCase(
@@ -1936,8 +1959,8 @@ class AgentLoopRuntimeTest {
                 expectedToolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
                 expectedSafety = SafetyOutcome.Allow,
                 requiresConfirmation = false,
-                expectedArguments = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
-            ),
+                expectedArguments = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY)
+            )
         ).forEach { case ->
             assertReducedConfirmationInitialPlan(case)
         }
@@ -1949,7 +1972,7 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = HighRiskContinuationSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val planned = runtime.runOnce(
@@ -1959,8 +1982,8 @@ class AgentLoopRuntimeTest {
             // Remote-vision GUI driving is on, so the first observe unlocks screenshot egress.
             options = AgentRunOptions(
                 reduceDeviceActionConfirmations = true,
-                remoteGuiDrivingEnabled = true,
-            ),
+                remoteGuiDrivingEnabled = true
+            )
         )
 
         require(planned.plan is AgentPlan.UseTool)
@@ -1978,14 +2001,14 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = HighRiskContinuationSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val planned = runtime.runOnce(
             input = HighRiskContinuationSkillRuntime.INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true)
         )
 
         require(planned.plan is AgentPlan.UseTool)
@@ -2000,14 +2023,14 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = HighRiskContinuationSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val planned = runtime.runOnce(
             input = HighRiskContinuationSkillRuntime.INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true)
         )
 
         assertEquals(AgentRunState.ExecutingTool, planned.run.state)
@@ -2018,16 +2041,18 @@ class AgentLoopRuntimeTest {
 
         val observed = runtime.observeToolResult(
             runId = planned.run.id,
-            result = observeScreenResult(planned.plan.request),
+            result = observeScreenResult(planned.plan.request)
         )
 
         // The 确认支付 tap is neither low-risk nor confirmed, so the skill does not auto-continue:
         // the run hands back to the model (and the user) instead of planning the critical tap.
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
-        assertTrue(observed.steps.none { step ->
-            step is AgentStep.ToolRequested && step.request.arguments["target"].orEmpty().contains("确认支付")
-        })
+        assertTrue(
+            observed.steps.none { step ->
+                step is AgentStep.ToolRequested && step.request.arguments["target"].orEmpty().contains("确认支付")
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -2035,7 +2060,7 @@ class AgentLoopRuntimeTest {
     fun reduceDeviceActionConfirmationsCompletesLowRiskExternalLaunchWithoutOutcomePopup() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = wifiPlanningResult(),
+            planningResult = wifiPlanningResult()
         )
         var deviceControlSessionFinishCount = 0
         val runtime = AgentLoopRuntime(
@@ -2043,13 +2068,13 @@ class AgentLoopRuntimeTest {
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            deviceControlSessionFinisher = { deviceControlSessionFinishCount += 1 },
+            deviceControlSessionFinisher = { deviceControlSessionFinishCount += 1 }
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true)
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -2063,9 +2088,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -2088,25 +2113,25 @@ class AgentLoopRuntimeTest {
                         parameters = mapOf(
                             "title" to "喝水",
                             "body" to "提醒我 15 分钟后喝水",
-                            "delayMinutes" to "15",
+                            "delayMinutes" to "15"
                         ),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "提醒我 15 分钟后喝水",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -2125,21 +2150,25 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.request.toolName)
         assertEquals("15", plan.request.arguments["delayMinutes"])
         assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.skillRequest?.skillId)
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.SkillPlanned &&
-                step.plan?.request?.skillId == BuiltInSkillRuntime.REMINDER_SKILL
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.SkillPlanned &&
+                    step.plan?.request?.skillId == BuiltInSkillRuntime.REMINDER_SKILL
+            }
+        )
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.SCHEDULE_REMINDER &&
-                event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
-                ToolPermission.SchedulesBackgroundWork in event.permissions &&
-                ToolPermission.PostsNotification in event.permissions &&
-                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.SCHEDULE_REMINDER &&
+                    event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
+                    ToolPermission.SchedulesBackgroundWork in event.permissions &&
+                    ToolPermission.PostsNotification in event.permissions &&
+                    ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+            }
+        )
     }
 
     @Test
@@ -2163,13 +2192,15 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
-                event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
-                ToolPermission.SchedulesBackgroundWork in event.permissions
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
+                    event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
+                    ToolPermission.SchedulesBackgroundWork in event.permissions
+            }
+        )
     }
 
     @Test
@@ -2184,15 +2215,17 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.CONFIGURE_PERIODIC_CHECK &&
-                event.skillId == BuiltInSkillRuntime.PERIODIC_CHECK_SKILL &&
-                ToolPermission.SchedulesBackgroundWork in event.permissions &&
-                ToolPermission.PostsNotification in event.permissions &&
-                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
-            })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.CONFIGURE_PERIODIC_CHECK &&
+                    event.skillId == BuiltInSkillRuntime.PERIODIC_CHECK_SKILL &&
+                    ToolPermission.SchedulesBackgroundWork in event.permissions &&
+                    ToolPermission.PostsNotification in event.permissions &&
+                    ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+            }
+        )
     }
 
     @Test
@@ -2206,13 +2239,15 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.QUERY_BACKGROUND_TASKS &&
-                event.skillId == BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL &&
-                event.permissions == setOf(ToolPermission.ReadsDeviceContext)
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.QUERY_BACKGROUND_TASKS &&
+                    event.skillId == BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL &&
+                    event.permissions == setOf(ToolPermission.ReadsDeviceContext)
+            }
+        )
     }
 
     @Test
@@ -2230,16 +2265,16 @@ class AgentLoopRuntimeTest {
                         parameters = mapOf(
                             "title" to "wrong",
                             "body" to "wrong",
-                            "delayMinutes" to "15",
-                        ),
-                    ),
+                            "delayMinutes" to "15"
+                        )
+                    )
                 ),
                 usedModel = true,
-                fallbackReason = null,
-            ),
+                fallbackReason = null
+            )
         )
         val audited = auditedAgentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val runtime = audited.runtime
         val auditSink = audited.auditSink
@@ -2247,7 +2282,7 @@ class AgentLoopRuntimeTest {
         val result = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -2264,7 +2299,7 @@ class AgentLoopRuntimeTest {
             "帮我写一份文档",
             "这张图片是什么",
             "这个 app 架构怎么设计",
-            "文件列表怎么实现",
+            "文件列表怎么实现"
         )
 
         cases.forEach { input ->
@@ -2277,15 +2312,15 @@ class AgentLoopRuntimeTest {
                             functionName = MobileActionFunctions.QUERY_RECENT_FILES,
                             title = "should not be used",
                             summary = "should not be used",
-                            parameters = mapOf("kind" to "documents"),
-                        ),
+                            parameters = mapOf("kind" to "documents")
+                        )
                     ),
                     usedModel = true,
-                    fallbackReason = null,
-                ),
+                    fallbackReason = null
+                )
             )
             val audited = auditedAgentLoopRuntime(
-                actionPlanningRuntime = actionRuntime,
+                actionPlanningRuntime = actionRuntime
             )
             val runtime = audited.runtime
             val auditSink = audited.auditSink
@@ -2293,7 +2328,7 @@ class AgentLoopRuntimeTest {
             val result = runtime.runOnce(
                 input = input,
                 installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
+                memoryEnabled = false
             )
 
             assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -2313,24 +2348,22 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = object : ActionPlanningRuntime {
-                override fun isLikelyAction(input: String): Boolean =
-                    planner.isLikelyAction(input)
+                override fun isLikelyAction(input: String): Boolean = planner.isLikelyAction(input)
 
-                override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-                    ActionPlanningResult(
-                        plan = planner.plan(input),
-                        usedModel = false,
-                        fallbackReason = "test rule fallback",
-                    )
+                override fun plan(input: String, actionModelPath: String?): ActionPlanningResult = ActionPlanningResult(
+                    plan = planner.plan(input),
+                    usedModel = false,
+                    fallbackReason = "test rule fallback"
+                )
             },
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -2341,9 +2374,9 @@ class AgentLoopRuntimeTest {
         assertEquals(
             listOf(
                 ToolAuditEventType.ToolPlanned,
-                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.ConfirmationRequested
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
     }
 
@@ -2359,23 +2392,23 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "读取剪贴板",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -2398,10 +2431,12 @@ class AgentLoopRuntimeTest {
         requireNotNull(pending)
         assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, pending.skillId)
         assertEquals(plan.skillPlan, pending.skillPlan)
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.SkillPlanned &&
-                step.plan?.request?.skillId == BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.SkillPlanned &&
+                    step.plan?.request?.skillId == BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
+            }
+        )
     }
 
     @Test
@@ -2429,7 +2464,7 @@ class AgentLoopRuntimeTest {
         val cases = listOf(
             "打开 Wi-Fi 设置" to MobileActionFunctions.OPEN_WIFI_SETTINGS,
             "打开使用情况访问权限设置" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
-            "打开手电筒设置" to MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            "打开手电筒设置" to MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
         )
 
         cases.forEach { (input, toolName) ->
@@ -2440,10 +2475,12 @@ class AgentLoopRuntimeTest {
             assertTrue(plan.request.arguments.isEmpty())
             assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, plan.skillRequest?.skillId)
             assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
-            assertTrue(run.result.steps.any { step ->
-                step is AgentStep.SkillPlanned &&
-                    step.request.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
-            })
+            assertTrue(
+                run.result.steps.any { step ->
+                    step is AgentStep.SkillPlanned &&
+                        step.request.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+                }
+            )
         }
     }
 
@@ -2453,13 +2490,13 @@ class AgentLoopRuntimeTest {
             val runtime = AgentLoopRuntime(
                 memoryIndex = MemoryRepository(),
                 actionPlanningRuntime = RuleOnlyActionRuntime(),
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
             )
 
             val result = runtime.runOnce(
                 input = input,
                 installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
+                memoryEnabled = false
             )
 
             assertEquals("$input should request tool confirmation before normal answer generation", AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -2475,7 +2512,7 @@ class AgentLoopRuntimeTest {
         val cases = listOf(
             "搜一下 Kotlin 协程" to "Kotlin 协程",
             "北京天气怎么样" to "北京天气",
-            "look up Kotlin coroutines" to "Kotlin coroutines",
+            "look up Kotlin coroutines" to "Kotlin coroutines"
         )
 
         cases.forEach { (input, query) ->
@@ -2495,7 +2532,7 @@ class AgentLoopRuntimeTest {
     fun skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation() {
         val cases = listOf(
             Triple("最近 3 张图片", "images", "3"),
-            Triple("recent screenshots", "screenshots", null),
+            Triple("recent screenshots", "screenshots", null)
         )
 
         cases.forEach { (input, kind, maxCount) ->
@@ -2525,14 +2562,16 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR &&
-                event.skillId == BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL &&
-                ToolPermission.ReadsFiles in event.permissions &&
-                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR &&
+                    event.skillId == BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL &&
+                    ToolPermission.ReadsFiles in event.permissions &&
+                    ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+            }
+        )
     }
 
     @Test
@@ -2546,14 +2585,16 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.READ_RECENT_IMAGE_OCR &&
-                event.skillId == BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL &&
-                ToolPermission.ReadsFiles in event.permissions &&
-                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.READ_RECENT_IMAGE_OCR &&
+                    event.skillId == BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL &&
+                    ToolPermission.ReadsFiles in event.permissions &&
+                    ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+            }
+        )
     }
 
     @Test
@@ -2573,7 +2614,7 @@ class AgentLoopRuntimeTest {
             "启动微信" to MobileActionFunctions.OPEN_APP_BY_NAME,
             "打开微信应用详情设置" to MobileActionFunctions.OPEN_APP_DEEP_TARGET,
             "打开高德地图" to MobileActionFunctions.OPEN_APP_BY_NAME,
-            "打开信息" to MobileActionFunctions.OPEN_APP_BY_NAME,
+            "打开信息" to MobileActionFunctions.OPEN_APP_BY_NAME
         )
 
         cases.forEach { (input, toolName) ->
@@ -2616,7 +2657,7 @@ class AgentLoopRuntimeTest {
             observationReplanner = AgentObservationReplanner {
                 replanCallCount += 1
                 null
-            },
+            }
         )
 
         assertTrue(run.nextPlan.request.reason.contains("等待淘宝前台界面稳定"))
@@ -2629,11 +2670,11 @@ class AgentLoopRuntimeTest {
     fun openAppUiSearchLocalOnlyUiResultsContinueSkillBeforeModelContinuation() {
         val run = startOpenAppUiSearch(
             input = "打开淘宝搜索海河牛奶",
-            observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false)),
+            observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false))
         )
 
         val observedAfterWait = requireNotNull(
-            run.observeToolResult(uiActionResult(run.nextPlan.request, actionType = "wait")),
+            run.observeToolResult(uiActionResult(run.nextPlan.request, actionType = "wait"))
         )
 
         assertEquals(AgentRunState.ExecutingTool, observedAfterWait.run.state)
@@ -2647,7 +2688,7 @@ class AgentLoopRuntimeTest {
     fun openAppUiSearchProgressesThroughLowRiskUiStepsUntilVerification() {
         val run = startOpenAppUiSearch(
             input = "打开淘宝搜索海河牛奶",
-            observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false)),
+            observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false))
         )
         val plan = run.advanceOpenAppUiSearchToVerificationWait(query = "海河牛奶")
         val verified = run.verifyOpenAppUiSearch(plan)
@@ -2665,46 +2706,46 @@ class AgentLoopRuntimeTest {
                     functionName = MobileActionFunctions.UI_TAP,
                     title = "点击搜索入口",
                     summary = "点击淘宝搜索入口。",
-                    parameters = mapOf("target" to "search_entry"),
+                    parameters = mapOf("target" to "search_entry")
                 ),
                 ActionDraft(
                     functionName = MobileActionFunctions.UI_TYPE_TEXT,
                     title = "输入搜索词",
                     summary = "输入搜索关键词：耳机。",
-                    parameters = mapOf("target" to "搜索输入框", "text" to "耳机"),
+                    parameters = mapOf("target" to "搜索输入框", "text" to "耳机")
                 ),
                 ActionDraft(
                     functionName = MobileActionFunctions.UI_SUBMIT_SEARCH,
                     title = "提交搜索",
                     summary = "提交搜索。",
-                    parameters = emptyMap(),
+                    parameters = emptyMap()
                 ),
                 ActionDraft(
                     functionName = MobileActionFunctions.UI_WAIT,
                     title = "等待搜索结果",
                     summary = "等待搜索结果验证。",
-                    parameters = mapOf("verifySearchQuery" to "耳机"),
-                ),
-            ),
+                    parameters = mapOf("verifySearchQuery" to "耳机")
+                )
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = BuiltInSkillRuntime(
-                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap },
+                appSearchPlanningModeProvider = { AppSearchPlanningMode.ModelDrivenBootstrap }
             ),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
                 actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-                maxModelReplans = 5,
-            ),
+                maxModelReplans = 5
+            )
         )
         val planned = runtime.runOnce(
             input = "打开淘宝搜索耳机",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
         assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
         require(planned.plan is AgentPlan.UseTool)
@@ -2722,21 +2763,21 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
         plan = runtime.observeToolResult(
             planned.run.id,
-            uiActionResult(plan.request, actionType = "wait"),
+            uiActionResult(plan.request, actionType = "wait")
         ).requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
 
         plan = runtime.observeToolResult(
             planned.run.id,
             observeScreenResult(
                 request = plan.request,
-                rawScreenObservationJson = searchEntryScreenObservationJson("screen-${plan.request.id}"),
-            ),
+                rawScreenObservationJson = searchEntryScreenObservationJson("screen-${plan.request.id}")
+            )
         ).requireNextTool(MobileActionFunctions.UI_TAP)
         assertTrue(plan.plannedByModel)
         assertEquals(BuiltInSkillRuntime.DEVICE_CONTROL_SKILL, plan.skillRequest?.skillId)
@@ -2744,20 +2785,20 @@ class AgentLoopRuntimeTest {
 
         plan = runtime.observeToolResult(
             planned.run.id,
-            uiActionResult(plan.request, actionType = "tap", target = "search_entry"),
+            uiActionResult(plan.request, actionType = "tap", target = "search_entry")
         ).requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
         assertTrue(plan.plannedByModel)
         assertEquals("耳机", plan.request.arguments["text"])
 
         plan = runtime.observeToolResult(
             planned.run.id,
-            uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"),
+            uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框")
         ).requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
         assertTrue(plan.plannedByModel)
 
         plan = runtime.observeToolResult(
             planned.run.id,
-            uiActionResult(plan.request, actionType = "submit_search"),
+            uiActionResult(plan.request, actionType = "submit_search")
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
         assertTrue(plan.plannedByModel)
         assertEquals("耳机", plan.request.arguments["verifySearchQuery"])
@@ -2770,10 +2811,10 @@ class AgentLoopRuntimeTest {
                     actionType = "wait",
                     extraData = mapOf(
                         "searchVerificationStatus" to "verified",
-                        "searchVerificationEvidence" to "query_visible_after_change",
-                    ),
-                ),
-            ),
+                        "searchVerificationEvidence" to "query_visible_after_change"
+                    )
+                )
+            )
         )
 
         assertEquals(AgentRunState.Completed, verified.run.state)
@@ -2786,12 +2827,12 @@ class AgentLoopRuntimeTest {
     @Test
     fun openAppUiSearchThenBackRequestsCheckpointBeforePressingBack() {
         val run = startOpenAppUiSearch(
-            input = "打开淘宝搜索耳机，然后返回",
+            input = "打开淘宝搜索耳机，然后返回"
         )
         val plan = run.advanceOpenAppUiSearchToVerificationWait(query = "耳机")
 
         val backCheckpoint = requireNotNull(
-            run.observeToolResult(verifiedOpenAppSearchResult(plan.request)),
+            run.observeToolResult(verifiedOpenAppSearchResult(plan.request))
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, backCheckpoint.run.state)
@@ -2806,11 +2847,11 @@ class AgentLoopRuntimeTest {
     @Test
     fun openAppUiSearchThenBackPressesBackAfterUserConfirmsCheckpoint() {
         val run = startOpenAppUiSearch(
-            input = "打开淘宝搜索耳机，然后返回",
+            input = "打开淘宝搜索耳机，然后返回"
         )
         val plan = run.advanceOpenAppUiSearchToVerificationWait(query = "耳机")
         val backCheckpoint = requireNotNull(
-            run.observeToolResult(verifiedOpenAppSearchResult(plan.request)),
+            run.observeToolResult(verifiedOpenAppSearchResult(plan.request))
         )
         require(backCheckpoint.decision is AgentObservationDecision.PlanNextTool)
         val backPlan = backCheckpoint.decision.plan
@@ -2819,12 +2860,12 @@ class AgentLoopRuntimeTest {
         val waitAfterBack = run.observeToolResult(
             uiActionResult(
                 request = backPlan.request,
-                actionType = "press_back",
-            ),
+                actionType = "press_back"
+            )
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
 
         val completed = requireNotNull(
-            run.observeToolResult(uiActionResult(waitAfterBack.request, actionType = "wait")),
+            run.observeToolResult(uiActionResult(waitAfterBack.request, actionType = "wait"))
         )
         assertEquals(AgentRunState.GeneratingAnswer, completed.run.state)
         require(completed.decision is AgentObservationDecision.ContinueWithModel)
@@ -2838,29 +2879,29 @@ class AgentLoopRuntimeTest {
                 appName = "拼多多",
                 query = "纸巾",
                 expectedPackageName = "com.xunmeng.pinduoduo",
-                resultSummary = "拼多多 纸巾 综合 销量 筛选 百亿补贴",
+                resultSummary = "拼多多 纸巾 综合 销量 筛选 百亿补贴"
             ),
             OpenAppUiSearchRuntimeCase(
                 input = "打开高德地图搜索机场",
                 appName = "高德地图",
                 query = "机场",
                 expectedPackageName = "com.autonavi.minimap",
-                resultSummary = "高德地图 机场 路线 导航 到这去 地点列表",
+                resultSummary = "高德地图 机场 路线 导航 到这去 地点列表"
             ),
             OpenAppUiSearchRuntimeCase(
                 input = "打开京东搜索数据线",
                 appName = "京东",
                 query = "数据线",
                 expectedPackageName = "com.jingdong.app.mall",
-                resultSummary = "京东 数据线 综合 销量 筛选 京东物流",
+                resultSummary = "京东 数据线 综合 销量 筛选 京东物流"
             ),
             OpenAppUiSearchRuntimeCase(
                 input = "打开浏览器搜索 Kotlin 协程",
                 appName = "浏览器",
                 query = "Kotlin 协程",
                 expectedPackageName = "com.android.chrome",
-                resultSummary = "浏览器 Kotlin 协程 搜索结果 网页 相关搜索",
-            ),
+                resultSummary = "浏览器 Kotlin 协程 搜索结果 网页 相关搜索"
+            )
         ).forEach { searchCase ->
             assertOpenAppUiSearchRuntimeFlow(searchCase)
         }
@@ -2871,12 +2912,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开微信",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
@@ -2893,19 +2934,21 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.Completed, observed.run.state)
         assertEquals(AgentObservationDecision.Complete, observed.decision)
         assertNull(runtime.latestPendingExternalOutcome())
-        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-            step.request.toolName == MobileActionFunctions.UI_WAIT ||
-                step.request.toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN
-        })
+        assertTrue(
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.toolName == MobileActionFunctions.UI_WAIT ||
+                    step.request.toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN
+            }
+        )
     }
 
     @Test
@@ -2914,14 +2957,14 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = CheckpointingLowRiskTapSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val planned = runtime.runOnce(
             input = CheckpointingLowRiskTapSkillRuntime.INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true)
         )
 
         assertEquals(AgentRunState.ExecutingTool, planned.run.state)
@@ -2934,7 +2977,7 @@ class AgentLoopRuntimeTest {
         for (index in 2..5) {
             plan = runtime.observeToolResult(
                 runId = planned.run.id,
-                result = uiActionResult(plan.request, actionType = "tap", target = "搜索${index - 1}"),
+                result = uiActionResult(plan.request, actionType = "tap", target = "搜索${index - 1}")
             ).requireNextTool(MobileActionFunctions.UI_TAP)
             assertEquals("tap_$index", plan.request.id)
             assertFalse(plan.draft.requiresConfirmation)
@@ -2942,7 +2985,7 @@ class AgentLoopRuntimeTest {
 
         val sixth = runtime.observeToolResult(
             runId = planned.run.id,
-            result = uiActionResult(plan.request, actionType = "tap", target = "搜索5"),
+            result = uiActionResult(plan.request, actionType = "tap", target = "搜索5")
         ).requireNextTool(MobileActionFunctions.UI_TAP)
         assertEquals("tap_6", sixth.request.id)
         assertNull(runtime.latestPendingConfirmation())
@@ -2954,18 +2997,18 @@ class AgentLoopRuntimeTest {
         val traceStore = RoomAgentTraceStore(
             traceDao = dao,
             clockMillis = { 1_000L },
-            runIdFactory = { "run-open-app-ui-search-restored" },
+            runIdFactory = { "run-open-app-ui-search-restored" }
         )
         val initialRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val planned = initialRuntime.runOnce(
             input = "打开淘宝搜索海河牛奶",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            sessionId = "session-open-app-ui-search",
+            sessionId = "session-open-app-ui-search"
         )
         require(planned.plan is AgentPlan.UseTool)
         initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -2979,9 +3022,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
         requireNotNull(opened)
         assertEquals(AgentRunState.ExecutingTool, opened.run.state)
@@ -2990,7 +3033,7 @@ class AgentLoopRuntimeTest {
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = RoomAgentTraceStore(traceDao = dao),
+            traceStore = RoomAgentTraceStore(traceDao = dao)
         )
 
         assertNull(restoredRuntime.latestPendingExternalOutcome("session-open-app-ui-search"))
@@ -3002,13 +3045,13 @@ class AgentLoopRuntimeTest {
             val runtime = AgentLoopRuntime(
                 memoryIndex = MemoryRepository(),
                 actionPlanningRuntime = RuleOnlyActionRuntime(),
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
             )
 
             val result = runtime.runOnce(
                 input = input,
                 installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
+                memoryEnabled = false
             )
 
             assertEquals("$input should request tool confirmation before normal answer generation", AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -3035,12 +3078,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "当前应用是什么",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3059,9 +3102,9 @@ class AgentLoopRuntimeTest {
                     "appLabel" to "Mail",
                     "lastTimeUsedMillis" to "1234",
                     "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to "true",
-                ),
-            ),
+                    "requiresLocalModel" to "true"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3095,13 +3138,15 @@ class AgentLoopRuntimeTest {
         assertTrue(plan.draft.summary.contains("可访问文本快照"))
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.READ_CURRENT_SCREEN_TEXT &&
-                event.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL &&
-                ToolPermission.ReadsAccessibilityText in event.permissions
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.READ_CURRENT_SCREEN_TEXT &&
+                    event.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL &&
+                    ToolPermission.ReadsAccessibilityText in event.permissions
+            }
+        )
     }
 
     @Test
@@ -3126,15 +3171,17 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, run.runtime.latestPendingConfirmation()?.skillId)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            run.auditSink.events.map { it.eventType },
+            run.auditSink.events.map { it.eventType }
         )
-        assertTrue(run.auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.CREATE_CONTACT_DRAFT &&
-                event.skillId == BuiltInSkillRuntime.CONTACT_DRAFT_SKILL &&
-                ToolPermission.SendsTextToExternalApp in event.permissions &&
-                ToolPermission.ReadsContacts !in event.permissions &&
-                ToolPermission.RequiresAndroidRuntimePermission !in event.permissions
-        })
+        assertTrue(
+            run.auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.CREATE_CONTACT_DRAFT &&
+                    event.skillId == BuiltInSkillRuntime.CONTACT_DRAFT_SKILL &&
+                    ToolPermission.SendsTextToExternalApp in event.permissions &&
+                    ToolPermission.ReadsContacts !in event.permissions &&
+                    ToolPermission.RequiresAndroidRuntimePermission !in event.permissions
+            }
+        )
     }
 
     @Test
@@ -3155,12 +3202,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "查联系人 Alice",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3179,9 +3226,9 @@ class AgentLoopRuntimeTest {
                     "contactCount" to "1",
                     "contactsJson" to rawContactsJson,
                     "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to "true",
-                ),
-            ),
+                    "requiresLocalModel" to "true"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3204,12 +3251,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "查看后台任务",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3233,9 +3280,9 @@ class AgentLoopRuntimeTest {
                     "tasksJson" to rawTasksJson,
                     "policyJson" to rawPolicyJson,
                     "metadataPolicy" to "background_tasks_local_only_no_reminder_body",
-                    "rawPayloadIncluded" to "false",
-                ),
-            ),
+                    "rawPayloadIncluded" to "false"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3263,22 +3310,22 @@ class AgentLoopRuntimeTest {
                 toolName = MobileActionFunctions.SEARCH_MAPS,
                 skillId = BuiltInSkillRuntime.MAP_SEARCH_SKILL,
                 argumentName = "query",
-                argumentValue = "机场的路线",
+                argumentValue = "机场的路线"
             ),
             SkillFirstDraftCase(
                 input = "帮我写邮件：明天延期到周五",
                 toolName = MobileActionFunctions.COMPOSE_EMAIL,
                 skillId = BuiltInSkillRuntime.EMAIL_DRAFT_SKILL,
                 argumentName = "body",
-                argumentValue = "明天延期到周五",
+                argumentValue = "明天延期到周五"
             ),
             SkillFirstDraftCase(
                 input = "帮我建个日程：周五评审",
                 toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
                 skillId = BuiltInSkillRuntime.CALENDAR_DRAFT_SKILL,
                 argumentName = "title",
-                argumentValue = "周五评审",
-            ),
+                argumentValue = "周五评审"
+            )
         )
 
         cases.forEach { testCase ->
@@ -3288,13 +3335,13 @@ class AgentLoopRuntimeTest {
                 memoryIndex = MemoryRepository(),
                 actionPlanningRuntime = actionRuntime,
                 auditSink = auditSink,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
             )
 
             val result = runtime.runOnce(
                 input = testCase.input,
                 installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
+                memoryEnabled = false
             )
 
             assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -3441,7 +3488,7 @@ class AgentLoopRuntimeTest {
             "free/busy schema 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
             "how to implement free/busy",
             "查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z",
-            "查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z",
+            "查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z"
         )
 
         inputs.forEach { input ->
@@ -3451,13 +3498,13 @@ class AgentLoopRuntimeTest {
                 memoryIndex = MemoryRepository(),
                 actionPlanningRuntime = actionRuntime,
                 auditSink = auditSink,
-                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
             )
 
             val result = runtime.runOnce(
                 input = input,
                 installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
+                memoryEnabled = false
             )
 
             assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -3478,37 +3525,36 @@ class AgentLoopRuntimeTest {
                 triggerExamples = listOf("invalid email"),
                 requiredTools = listOf(MobileActionFunctions.COMPOSE_EMAIL),
                 inputSchemaJson = """{"type":"object","additionalProperties":false}""",
-                riskLevel = RiskLevel.MediumDraftOrNavigation,
+                riskLevel = RiskLevel.MediumDraftOrNavigation
             )
 
             override fun manifests(): List<SkillManifest> = listOf(manifest)
 
-            override fun plan(input: String): SkillPlan =
-                SkillPlan(
-                    request = SkillRequest(
-                        id = "invalid-skill-request",
-                        skillId = manifest.id,
-                        arguments = emptyMap(),
-                        reason = input,
-                    ),
-                    manifest = manifest,
-                    steps = listOf(
-                        SkillStep.ToolStep(
-                            id = "compose_email",
-                            request = ToolRequest(
-                                toolName = MobileActionFunctions.COMPOSE_EMAIL,
-                                arguments = emptyMap(),
-                                reason = "invalid direct skill",
-                            ),
-                            draft = ActionDraft(
-                                functionName = MobileActionFunctions.COMPOSE_EMAIL,
-                                title = "邮件草稿",
-                                summary = "invalid direct skill",
-                                parameters = emptyMap(),
-                            ),
+            override fun plan(input: String): SkillPlan = SkillPlan(
+                request = SkillRequest(
+                    id = "invalid-skill-request",
+                    skillId = manifest.id,
+                    arguments = emptyMap(),
+                    reason = input
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "compose_email",
+                        request = ToolRequest(
+                            toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                            arguments = emptyMap(),
+                            reason = "invalid direct skill"
                         ),
-                    ),
+                        draft = ActionDraft(
+                            functionName = MobileActionFunctions.COMPOSE_EMAIL,
+                            title = "邮件草稿",
+                            summary = "invalid direct skill",
+                            parameters = emptyMap()
+                        )
+                    )
                 )
+            )
 
             override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
         }
@@ -3516,13 +3562,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = invalidSkillRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "invalid email",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
@@ -3545,13 +3591,13 @@ class AgentLoopRuntimeTest {
                     manifest
                 }
             },
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = ToolToToolSkillRuntime.REMINDER_INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
@@ -3573,24 +3619,24 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawClipboardText = "这是一段剪贴板文本"
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3601,18 +3647,20 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本（12 字符）",
-                data = clipboardResultData(rawClipboardText),
-            ),
+                data = clipboardResultData(rawClipboardText)
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         assertTrue(observed.decision.requiresLocalModel)
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ObservationDecided &&
-                step.decision is AgentObservationDecision.ContinueWithModel
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.ObservationDecided &&
+                    step.decision is AgentObservationDecision.ContinueWithModel
+            }
+        )
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("这是一段剪贴板文本"))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("读取剪贴板并总结"))
         assertEquals("[redacted]", observed.result.data["text"])
@@ -3627,7 +3675,7 @@ class AgentLoopRuntimeTest {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = readClipboardPlanningResult(),
+            planningResult = readClipboardPlanningResult()
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -3636,13 +3684,13 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = AgentObservationReplanner {
                 error("invalid tool results must not reach replanning")
-            },
+            }
         )
         val rawPayload = "malformed clipboard payload must not leak"
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3659,9 +3707,9 @@ class AgentLoopRuntimeTest {
                     "requiresLocalModel" to "true",
                     "text" to rawPayload,
                     "truncated" to "false",
-                    "unexpected" to rawPayload,
-                ),
-            ),
+                    "unexpected" to rawPayload
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3670,10 +3718,12 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.decision.reason.contains("returned invalid result"))
         assertEquals(ToolErrorCode.InvalidResult, observed.result.error?.code)
         assertNull(observed.continuationPromptForModel)
-        assertFalse(observed.steps.any { step ->
-            step is AgentStep.ObservationDecided &&
-                step.decision is AgentObservationDecision.ContinueWithModel
-        })
+        assertFalse(
+            observed.steps.any { step ->
+                step is AgentStep.ObservationDecided &&
+                    step.decision is AgentObservationDecision.ContinueWithModel
+            }
+        )
         assertFalse(observed.steps.toString().contains(rawPayload))
         assertFalse(auditSink.events.toString().contains(rawPayload))
     }
@@ -3691,25 +3741,25 @@ class AgentLoopRuntimeTest {
                         title = "读取最近截图 OCR",
                         summary = "将读取最近 1 张截图的像素并在本地提取 OCR 文本。",
                         parameters = mapOf("maxCount" to "1"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawOcrText = "截图里的私密验证码 123456"
         val rawImageName = "Screenshot-private-123456.png"
         val planned = runtime.runOnce(
             input = "识别最近1张截图文字并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3724,9 +3774,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                     text = rawOcrText,
                     source = "recent_screenshot",
-                    maxCount = "1",
-                ),
-            ),
+                    maxCount = "1"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3761,18 +3811,18 @@ class AgentLoopRuntimeTest {
                         title = "当前屏幕截图 OCR",
                         summary = "单次截取当前屏幕并在本地提取 OCR 文本。",
                         parameters = mapOf("captureMode" to "current_screen"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawOcrText = "当前屏幕 OCR 里的搜索框"
         val rawObservationJson =
@@ -3780,7 +3830,7 @@ class AgentLoopRuntimeTest {
         val planned = runtime.runOnce(
             input = "识别当前屏幕截图文字并判断哪里能搜索",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3793,9 +3843,9 @@ class AgentLoopRuntimeTest {
                 summary = "已读取当前屏幕截图 OCR 摘录",
                 data = currentScreenshotOcrResultData(
                     text = rawOcrText,
-                    screenObservationJson = rawObservationJson,
-                ),
-            ),
+                    screenObservationJson = rawObservationJson
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3832,25 +3882,25 @@ class AgentLoopRuntimeTest {
                         title = "读取最近图片 OCR",
                         summary = "将扫描最近图片并在本地提取 OCR 文本。",
                         parameters = mapOf("maxCount" to "3"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawOcrText = "照片里的私密订单号 ABC123"
         val rawImageName = "IMG-private-order-ABC123.jpg"
         val planned = runtime.runOnce(
             input = "识别最近图片文字并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3865,9 +3915,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
                     text = rawOcrText,
                     source = "recent_image",
-                    maxCount = "3",
-                ),
-            ),
+                    maxCount = "3"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -3904,24 +3954,24 @@ class AgentLoopRuntimeTest {
                         title = "读取当前屏幕文本",
                         summary = "将读取当前屏幕的可访问文本快照。",
                         parameters = mapOf("maxChars" to "1200"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawScreenText = "当前屏幕里的私密验证码 654321"
         val planned = runtime.runOnce(
             input = "总结当前屏幕文字",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -3932,8 +3982,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕 17 个字符的可访问文本快照。",
-                data = currentScreenTextResultData(rawScreenText),
-            ),
+                data = currentScreenTextResultData(rawScreenText)
+            )
         )
 
         requireNotNull(observed)
@@ -3964,33 +4014,35 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawClipboardText = "只应出现在 continuation prompt 的剪贴板原文"
         val modelSummary = "摘要：这段内容适合分享。"
         val planned = runtime.runOnce(
             input = "总结剪贴板并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, planned.plan.skillRequest?.skillId)
         assertTrue(planned.plan.skillPlan?.steps?.size == 3)
-        assertTrue(planned.steps.any { step ->
-            step is AgentStep.SkillPlanned &&
-                step.plan?.request?.skillId == BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
-        })
+        assertTrue(
+            planned.steps.any { step ->
+                step is AgentStep.SkillPlanned &&
+                    step.plan?.request?.skillId == BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
+            }
+        )
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
         val observed = runtime.observeToolResult(
             runId = planned.run.id,
@@ -3998,8 +4050,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData(rawClipboardText),
-            ),
+                data = clipboardResultData(rawClipboardText)
+            )
         )
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
@@ -4021,7 +4073,7 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, sharePlan.skillRequest?.skillId)
         assertEquals(
             listOf(MobileActionFunctions.READ_CLIPBOARD, MobileActionFunctions.SHARE_TEXT),
-            modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
         assertTrue(modelObserved.steps.toString().contains(modelSummary))
         assertTrue(!modelObserved.steps.toString().contains(rawClipboardText))
@@ -4035,8 +4087,8 @@ class AgentLoopRuntimeTest {
                 requestId = sharePlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统分享面板",
-                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT)
+            )
         )
 
         requireNotNull(completed)
@@ -4051,22 +4103,24 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawScreenText = "当前屏幕里的私密验证码 654321"
         val modelSummary = "屏幕摘要：验证码仅用于本地确认。"
         val planned = runtime.runOnce(
             input = "总结当前屏幕文字并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, planned.plan.skillRequest?.skillId)
         assertTrue(planned.plan.skillPlan?.steps?.size == 3)
-        assertTrue(planned.steps.any { step ->
-            step is AgentStep.SkillPlanned &&
-                step.plan?.request?.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL
-        })
+        assertTrue(
+            planned.steps.any { step ->
+                step is AgentStep.SkillPlanned &&
+                    step.plan?.request?.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL
+            }
+        )
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
         val observed = runtime.observeToolResult(
             runId = planned.run.id,
@@ -4074,8 +4128,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕可访问文本快照",
-                data = currentScreenTextResultData(rawScreenText),
-            ),
+                data = currentScreenTextResultData(rawScreenText)
+            )
         )
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
@@ -4100,7 +4154,7 @@ class AgentLoopRuntimeTest {
         assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, sharePlan.skillRequest?.skillId)
         assertEquals(
             listOf(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, MobileActionFunctions.SHARE_TEXT),
-            modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
         assertTrue(modelObserved.steps.toString().contains(modelSummary))
         assertTrue(!modelObserved.steps.toString().contains(rawScreenText))
@@ -4115,13 +4169,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = customSkillRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val modelText = "自定义 Skill 生成的可分享文本"
         val planned = runtime.runOnce(
             input = "custom clipboard transform",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(CustomClipboardTransformSkillRuntime.SKILL_ID, planned.plan.skillRequest?.skillId)
@@ -4133,8 +4187,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("不应持久化的剪贴板原文"),
-            ),
+                data = clipboardResultData("不应持久化的剪贴板原文")
+            )
         )
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
@@ -4155,14 +4209,18 @@ class AgentLoopRuntimeTest {
         assertEquals(modelText, sharePlan.draft.parameters["text"])
         assertEquals(CustomClipboardTransformSkillRuntime.SKILL_ID, sharePlan.skillRequest?.skillId)
         assertEquals("skill model step", sharePlan.fallbackReason)
-        assertTrue(modelObserved.steps.any { step ->
-            step is AgentStep.SafetyChecked &&
-                step.decision.outcome == SafetyOutcome.RequireConfirmation
-        })
-        assertTrue(modelObserved.steps.any { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.id == sharePlan.request.id
-        })
+        assertTrue(
+            modelObserved.steps.any { step ->
+                step is AgentStep.SafetyChecked &&
+                    step.decision.outcome == SafetyOutcome.RequireConfirmation
+            }
+        )
+        assertTrue(
+            modelObserved.steps.any { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.id == sharePlan.request.id
+            }
+        )
     }
 
     @Test
@@ -4171,12 +4229,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = ToolToToolSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = ToolToToolSkillRuntime.REMINDER_INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, planned.plan.skillRequest?.skillId)
@@ -4189,8 +4247,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已安排 10000 触发的后台提醒",
-                data = scheduleReminderResultData(taskId = "task-1", triggerAtMillis = "10000"),
-            ),
+                data = scheduleReminderResultData(taskId = "task-1", triggerAtMillis = "10000")
+            )
         )
 
         requireNotNull(observed)
@@ -4206,7 +4264,7 @@ class AgentLoopRuntimeTest {
         assertEquals(cancelPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
         assertEquals(
             listOf(MobileActionFunctions.SCHEDULE_REMINDER, MobileActionFunctions.CANCEL_REMINDER),
-            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
 
         runtime.confirmToolRequest(planned.run.id, cancelPlan.request.id)
@@ -4216,8 +4274,8 @@ class AgentLoopRuntimeTest {
                 requestId = cancelPlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已取消后台任务：task-1",
-                data = cancelReminderResultData(taskId = "task-1"),
-            ),
+                data = cancelReminderResultData(taskId = "task-1")
+            )
         )
 
         requireNotNull(completed)
@@ -4238,22 +4296,24 @@ class AgentLoopRuntimeTest {
             observationReplanner = AgentObservationReplanner {
                 replanCallCount += 1
                 error("unsafe skill progression must fail before replanning")
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = ToolToToolSkillRuntime.UNSAFE_CONTACTS_INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         assertEquals(AgentRunState.Failed, planned.run.state)
         require(planned.plan is AgentPlan.RejectedTool)
         assertTrue(planned.plan.result.summary.contains("private tool output cannot be bound directly"))
         assertTrue(planned.plan.result.summary.contains("contacts.contactsJson"))
         assertTrue(planned.steps.any { it is AgentStep.ToolRejected })
-        assertTrue(planned.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
+        assertTrue(
+            planned.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.SHARE_TEXT
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
         assertEquals(0, replanCallCount)
         assertTrue(!planned.steps.toString().contains("+1 555 0100"))
@@ -4266,13 +4326,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = OcrModelSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val rawOcrText = "截图 OCR 里的本地待办"
         val planned = runtime.runOnce(
             input = "ocr model skill",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, planned.plan.request.toolName)
@@ -4288,9 +4348,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                     text = rawOcrText,
                     source = "recent_screenshot",
-                    maxCount = "1",
-                ),
-            ),
+                    maxCount = "1"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -4311,12 +4371,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = LocalOnlyResultSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "local only contacts skill",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.QUERY_CONTACTS, planned.plan.request.toolName)
@@ -4328,8 +4388,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "联系人 Alice：仅本地摘要",
-                data = contactsResultData(),
-            ),
+                data = contactsResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -4347,22 +4407,24 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = CustomClipboardTransformSkillRuntime(shareBinding = "custom_model.missingOutput"),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "custom clipboard transform",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         assertEquals(AgentRunState.Failed, planned.run.state)
         require(planned.plan is AgentPlan.RejectedTool)
         assertTrue(planned.plan.result.summary.contains("Invalid skill plan"))
         assertTrue(planned.plan.result.summary.contains("custom_model.missingOutput"))
         assertTrue(planned.steps.any { it is AgentStep.ToolRejected })
-        assertTrue(planned.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
+        assertTrue(
+            planned.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.SHARE_TEXT
+            }
+        )
     }
 
     @Test
@@ -4371,12 +4433,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = CustomClipboardTransformSkillRuntime(includeUnmetShareDependency = true),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "custom clipboard transform",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -4386,8 +4448,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("剪贴板原文"),
-            ),
+                data = clipboardResultData("剪贴板原文")
+            )
         )
         requireNotNull(observed)
 
@@ -4399,10 +4461,12 @@ class AgentLoopRuntimeTest {
         assertTrue(modelObserved.decision.reason.contains("Unmet skill dependency"))
         assertTrue(modelObserved.decision.reason.contains("custom_foreground"))
         assertTrue(modelObserved.steps.any { it is AgentStep.ToolRejected })
-        assertTrue(modelObserved.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
+        assertTrue(
+            modelObserved.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.SHARE_TEXT
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -4415,20 +4479,22 @@ class AgentLoopRuntimeTest {
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             skillRuntime = CustomClipboardTransformSkillRuntime(shareBinding = "custom_read.text"),
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "custom clipboard transform",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         assertEquals(AgentRunState.Failed, planned.run.state)
         require(planned.plan is AgentPlan.RejectedTool)
         assertTrue(planned.plan.result.summary.contains("private tool output cannot be bound directly"))
-        assertTrue(planned.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
+        assertTrue(
+            planned.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.SHARE_TEXT
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
         assertTrue(!planned.steps.toString().contains(secretClipboardText))
         assertTrue(!auditSink.events.toString().contains(secretClipboardText))
@@ -4440,14 +4506,14 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(
                 likelyAction = true,
-                planningResult = readClipboardPlanningResult(),
+                planningResult = readClipboardPlanningResult()
             ),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "总结剪贴板并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         val readRequestId = planned.plan.request.id
@@ -4458,8 +4524,8 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("剪贴板原文"),
-            ),
+                data = clipboardResultData("剪贴板原文")
+            )
         )
         requireNotNull(observed)
         val modelObserved = runtime.observeModelResult(planned.run.id, "摘要文本")
@@ -4477,8 +4543,8 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "旧剪贴板观察不应生效",
-                data = mapOf("text" to "不应重新进入模型"),
-            ),
+                data = mapOf("text" to "不应重新进入模型")
+            )
         )
 
         assertNull(staleObservation)
@@ -4490,14 +4556,14 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(
                 likelyAction = true,
-                planningResult = readClipboardPlanningResult(),
+                planningResult = readClipboardPlanningResult()
             ),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "总结剪贴板并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -4507,8 +4573,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("剪贴板原文"),
-            ),
+                data = clipboardResultData("剪贴板原文")
+            )
         )
         requireNotNull(observed)
 
@@ -4517,9 +4583,11 @@ class AgentLoopRuntimeTest {
         requireNotNull(modelObserved)
         assertEquals(AgentRunState.Failed, modelObserved.run.state)
         require(modelObserved.decision is AgentObservationDecision.Fail)
-        assertTrue(modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().none {
-            it.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
+        assertTrue(
+            modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().none {
+                it.request.toolName == MobileActionFunctions.SHARE_TEXT
+            }
+        )
     }
 
     @Test
@@ -4527,12 +4595,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "远程工具解析失败",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         assertEquals(AgentRunState.GeneratingAnswer, planned.run.state)
 
@@ -4553,12 +4621,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val planned = runtime.runOnce(
             input = "普通聊天",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         val completed = runtime.observeModelResult(planned.run.id, "正常回答")
         requireNotNull(completed)
@@ -4583,12 +4651,12 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -4597,12 +4665,12 @@ class AgentLoopRuntimeTest {
             observationReplanner = AgentObservationReplanner {
                 replanCallCount += 1
                 error("clipboard continuation should win before replanning")
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -4613,8 +4681,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("需要本地续写的文本"),
-            ),
+                data = clipboardResultData("需要本地续写的文本")
+            )
         )
 
         requireNotNull(observed)
@@ -4635,23 +4703,23 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -4661,8 +4729,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to "不应进入 trace 的内容"),
-            ),
+                data = mapOf("text" to "不应进入 trace 的内容")
+            )
         )
 
         assertNull(observed)
@@ -4683,23 +4751,23 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -4710,8 +4778,8 @@ class AgentLoopRuntimeTest {
                 requestId = "unknown-request",
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to "不应进入 trace 的内容"),
-            ),
+                data = mapOf("text" to "不应进入 trace 的内容")
+            )
         )
 
         assertNull(observed)
@@ -4732,24 +4800,24 @@ class AgentLoopRuntimeTest {
                         title = "读取剪贴板",
                         summary = "将读取当前剪贴板文本。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val delegateStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         val traceStore = ClearPendingThrowingTraceStore(delegateStore)
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val planned = runtime.runOnce(
             input = "读取剪贴板并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -4759,9 +4827,11 @@ class AgentLoopRuntimeTest {
 
         assertTrue(failure is IllegalStateException)
         assertEquals(AgentRunState.ExecutingTool, delegateStore.run(planned.run.id)?.state)
-        assertTrue(delegateStore.steps(planned.run.id).any { step ->
-            step is AgentStep.UserConfirmed && step.requestId == planned.plan.request.id
-        })
+        assertTrue(
+            delegateStore.steps(planned.run.id).any { step ->
+                step is AgentStep.UserConfirmed && step.requestId == planned.plan.request.id
+            }
+        )
     }
 
     @Test
@@ -4777,23 +4847,23 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -4806,8 +4876,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(observed)
@@ -4816,23 +4886,27 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.assistantMessage.contains("已打开 Wi-Fi 设置页"))
         assertTrue(observed.steps.any { it is AgentStep.UserConfirmed })
         assertTrue(observed.steps.any { it is AgentStep.ToolObserved })
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ObservationDecided &&
-                step.decision == AgentObservationDecision.Complete
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.ObservationDecided &&
+                    step.decision == AgentObservationDecision.Complete
+            }
+        )
         assertTrue(observed.steps.any { it is AgentStep.AssistantResponded })
         assertEquals(
             listOf(
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ConfirmationRequested,
                 ToolAuditEventType.UserConfirmed,
-                ToolAuditEventType.ToolObserved,
+                ToolAuditEventType.ToolObserved
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
-        assertTrue(auditSink.events.all { event ->
-            event.toolName == null || event.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
-        })
+        assertTrue(
+            auditSink.events.all { event ->
+                event.toolName == null || event.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+            }
+        )
     }
 
     @Test
@@ -4848,23 +4922,23 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -4878,9 +4952,9 @@ class AgentLoopRuntimeTest {
                 data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS) + mapOf(
                     "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
                     "taskId" to "task-spoofed",
-                    "recoveryTaskId" to "task-spoofed",
-                ),
-            ),
+                    "recoveryTaskId" to "task-spoofed"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -4897,12 +4971,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "提醒我 10 分钟后喝水",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, planned.plan.request.toolName)
@@ -4914,8 +4988,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已安排 10000 触发的后台提醒",
-                data = scheduleReminderResultData(taskId = "task-1", triggerAtMillis = "10000"),
-            ),
+                data = scheduleReminderResultData(taskId = "task-1", triggerAtMillis = "10000")
+            )
         )
 
         requireNotNull(observed)
@@ -4931,11 +5005,13 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.assistantMessage.contains(MobileActionFunctions.CANCEL_REMINDER))
         assertTrue(observed.assistantMessage.contains("taskId=task-1"))
         assertFalse(observed.assistantMessage.contains("提醒我喝水"))
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.AssistantResponded &&
-                step.text.contains("taskId=task-1") &&
-                !step.text.contains("提醒我喝水")
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.AssistantResponded &&
+                    step.text.contains("taskId=task-1") &&
+                    !step.text.contains("提醒我喝水")
+            }
+        )
         val observedAudit = auditSink.events.single { event ->
             event.eventType == ToolAuditEventType.ToolObserved
         }
@@ -4955,12 +5031,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "开启周期检查，每 2 小时",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, planned.plan.request.toolName)
@@ -4982,9 +5058,9 @@ class AgentLoopRuntimeTest {
                     "requiresBatteryNotLow" to "true",
                     "requiresCharging" to "false",
                     "recoveryToolName" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
-                    "recoveryEnabled" to "false",
-                ),
-            ),
+                    "recoveryEnabled" to "false"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -5006,7 +5082,7 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val action = AgentRecoveryAction(
             sourceRequestId = "request-reminder",
@@ -5015,15 +5091,15 @@ class AgentLoopRuntimeTest {
                 id = "request-recovery",
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
                 arguments = mapOf("taskId" to "task-1"),
-                reason = "unsafe source reason should be normalized",
+                reason = "unsafe source reason should be normalized"
             ),
             draft = ActionDraft(
                 functionName = MobileActionFunctions.CANCEL_REMINDER,
                 title = "unsafe title",
                 summary = "unsafe reminder body: 喝水",
                 parameters = mapOf("taskId" to "task-1"),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
 
         val requested = runtime.requestRecoveryAction(action)
@@ -5042,13 +5118,15 @@ class AgentLoopRuntimeTest {
         assertEquals("request-recovery", pending.request.id)
         assertEquals(
             listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
-        assertTrue(auditSink.events.all { event ->
-            event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
-                event.riskLevel == RiskLevel.MediumDraftOrNavigation &&
-                ToolPermission.SchedulesBackgroundWork in event.permissions
-        })
+        assertTrue(
+            auditSink.events.all { event ->
+                event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
+                    event.riskLevel == RiskLevel.MediumDraftOrNavigation &&
+                    ToolPermission.SchedulesBackgroundWork in event.permissions
+            }
+        )
 
         val executing = runtime.confirmToolRequest(requested.run.id, requested.plan.request.id)
         requireNotNull(executing)
@@ -5059,8 +5137,8 @@ class AgentLoopRuntimeTest {
                 requestId = requested.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已取消后台任务：task-1",
-                data = cancelReminderResultData(taskId = "task-1"),
-            ),
+                data = cancelReminderResultData(taskId = "task-1")
+            )
         )
 
         requireNotNull(observed)
@@ -5070,9 +5148,9 @@ class AgentLoopRuntimeTest {
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ConfirmationRequested,
                 ToolAuditEventType.UserConfirmed,
-                ToolAuditEventType.ToolObserved,
+                ToolAuditEventType.ToolObserved
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
         val observedAudit = auditSink.events.single { event ->
             event.eventType == ToolAuditEventType.ToolObserved
@@ -5090,12 +5168,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "提醒我 10 分钟后喝水",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -5109,9 +5187,9 @@ class AgentLoopRuntimeTest {
                 data = mapOf(
                     "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
                     "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
-                    "recoveryTaskId" to "token=secret",
-                ),
-            ),
+                    "recoveryTaskId" to "token=secret"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -5138,12 +5216,12 @@ class AgentLoopRuntimeTest {
                         title = "系统分享",
                         summary = "将打开系统分享面板。",
                         parameters = mapOf("text" to "Kotlin private payload"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val initialRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -5151,13 +5229,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-web" },
-            ),
+                runIdFactory = { "run-restored-web" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = "分享这段文字：Kotlin private payload",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -5165,21 +5243,23 @@ class AgentLoopRuntimeTest {
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
 
         assertNull(restoredPending)
         assertEquals(AgentRunState.Failed, restoredTraceStore.run(planned.run.id)?.state)
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.Failed &&
-                step.reason.contains("Pending tool confirmation could not be restored")
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("Pending tool confirmation could not be restored")
+            }
+        )
         assertNull(
             restoredRuntime.confirmToolRequest(
                 runId = planned.run.id,
-                requestId = planned.plan.request.id,
-            )?.takeIf { run -> run.state == AgentRunState.ExecutingTool },
+                requestId = planned.plan.request.id
+            )?.takeIf { run -> run.state == AgentRunState.ExecutingTool }
         )
     }
 
@@ -5196,12 +5276,12 @@ class AgentLoopRuntimeTest {
                         title = "系统分享",
                         summary = "将打开系统分享面板。",
                         parameters = mapOf("text" to "Kotlin private payload"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val initialRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -5209,34 +5289,36 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-sequential" },
-            ),
+                runIdFactory = { "run-restored-sequential" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = "先分享 Kotlin private payload，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.SHARE_TEXT, planned.plan.request.toolName)
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = searchActionRuntime,
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
 
         assertNull(restoredPending)
         assertEquals(AgentRunState.Failed, restoredTraceStore.run(planned.run.id)?.state)
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.Failed &&
-                step.reason.contains("Pending tool confirmation could not be restored")
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("Pending tool confirmation could not be restored")
+            }
+        )
         val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
             "${step.summary}\n${step.json}"
         }
@@ -5253,13 +5335,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-clipboard" },
-            ),
+                runIdFactory = { "run-restored-clipboard" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = "总结剪贴板并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, planned.plan.skillRequest?.skillId)
@@ -5267,7 +5349,7 @@ class AgentLoopRuntimeTest {
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = RoomAgentTraceStore(traceDao = dao),
+            traceStore = RoomAgentTraceStore(traceDao = dao)
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
         requireNotNull(restoredPending)
@@ -5277,7 +5359,7 @@ class AgentLoopRuntimeTest {
 
         val executing = restoredRuntime.confirmToolRequest(
             runId = restoredPending.run.id,
-            requestId = restoredPending.request.id,
+            requestId = restoredPending.request.id
         )
         assertEquals(AgentRunState.ExecutingTool, executing?.state)
 
@@ -5287,8 +5369,8 @@ class AgentLoopRuntimeTest {
                 requestId = restoredPending.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("剪贴板原文"),
-            ),
+                data = clipboardResultData("剪贴板原文")
+            )
         )
 
         requireNotNull(observed)
@@ -5302,7 +5384,7 @@ class AgentLoopRuntimeTest {
 
         val modelObserved = restoredRuntime.observeModelResult(
             runId = restoredPending.run.id,
-            text = "摘要：恢复后生成的分享内容",
+            text = "摘要：恢复后生成的分享内容"
         )
 
         requireNotNull(modelObserved)
@@ -5331,13 +5413,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-tool-to-tool" },
-            ),
+                runIdFactory = { "run-restored-tool-to-tool" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = ToolToToolSkillRuntime.REMINDER_INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, planned.plan.skillRequest?.skillId)
@@ -5350,8 +5432,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已安排 10000 触发的后台提醒",
-                data = scheduleReminderResultData(taskId = "task-restored", triggerAtMillis = "10000"),
-            ),
+                data = scheduleReminderResultData(taskId = "task-restored", triggerAtMillis = "10000")
+            )
         )
 
         requireNotNull(observed)
@@ -5371,13 +5453,13 @@ class AgentLoopRuntimeTest {
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = ToolToToolSkillRuntime(),
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
         requireNotNull(restoredPending)
@@ -5388,15 +5470,17 @@ class AgentLoopRuntimeTest {
         assertEquals(mapOf("taskId" to "task-restored"), restoredPending.draft.parameters)
         assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, restoredPending.skillPlan?.request?.skillId)
         assertEquals(2, restoredPending.skillPlan?.steps?.size)
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.ToolRequested &&
-                step.request.id == planned.plan.request.id &&
-                step.request.toolName == MobileActionFunctions.SCHEDULE_REMINDER
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.ToolRequested &&
+                    step.request.id == planned.plan.request.id &&
+                    step.request.toolName == MobileActionFunctions.SCHEDULE_REMINDER
+            }
+        )
 
         val executing = restoredRuntime.confirmToolRequest(
             runId = restoredPending.run.id,
-            requestId = restoredPending.request.id,
+            requestId = restoredPending.request.id
         )
         assertEquals(AgentRunState.ExecutingTool, executing?.state)
         val completed = restoredRuntime.observeToolResult(
@@ -5405,8 +5489,8 @@ class AgentLoopRuntimeTest {
                 requestId = restoredPending.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已取消后台任务：task-restored",
-                data = cancelReminderResultData(taskId = "task-restored"),
-            ),
+                data = cancelReminderResultData(taskId = "task-restored")
+            )
         )
 
         requireNotNull(completed)
@@ -5415,7 +5499,7 @@ class AgentLoopRuntimeTest {
         assertTrue(dao.pendingConfirmations().isEmpty())
         assertFalse(
             restoredRuntime.confirmToolRequest(planned.run.id, restoredPending.request.id)?.state ==
-                AgentRunState.ExecutingTool,
+                AgentRunState.ExecutingTool
         )
     }
 
@@ -5444,7 +5528,7 @@ class AgentLoopRuntimeTest {
                               "required": ["input"],
                               "type": "object"
                             }
-                        """.trimIndent(),
+                        """.trimIndent()
                     )
                 } else {
                     manifest
@@ -5452,8 +5536,8 @@ class AgentLoopRuntimeTest {
             },
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
-                clockMillis = { 2_000L },
-            ),
+                clockMillis = { 2_000L }
+            )
         )
 
         val restoredPending = restoredRuntime.latestPendingConfirmation()
@@ -5463,7 +5547,7 @@ class AgentLoopRuntimeTest {
         assertEquals(pending.cancelRequestId, restoredPending.request.id)
         assertEquals(
             AgentRunState.ExecutingTool,
-            restoredRuntime.confirmToolRequest(pending.runId, pending.cancelRequestId)?.state,
+            restoredRuntime.confirmToolRequest(pending.runId, pending.cancelRequestId)?.state
         )
     }
 
@@ -5473,7 +5557,7 @@ class AgentLoopRuntimeTest {
         val pending = persistToolToToolCancelPending(dao, runId = "run-manifest-contract-drift")
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -5485,7 +5569,7 @@ class AgentLoopRuntimeTest {
                     manifest
                 }
             },
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
 
         val restoredPending = restoredRuntime.latestPendingConfirmation()
@@ -5494,9 +5578,11 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.Failed, restoredTraceStore.run(pending.runId)?.state)
         assertTrue(dao.pendingConfirmations().isEmpty())
         assertTrue(dao.skillRunCheckpointsForRun(pending.runId).isEmpty())
-        assertTrue(restoredTraceStore.steps(pending.runId).any { step ->
-            step is AgentStep.Failed && step.reason.contains("Skill manifest changed")
-        })
+        assertTrue(
+            restoredTraceStore.steps(pending.runId).any { step ->
+                step is AgentStep.Failed && step.reason.contains("Skill manifest changed")
+            }
+        )
     }
 
     @Test
@@ -5505,7 +5591,7 @@ class AgentLoopRuntimeTest {
         val pending = persistToolToToolCancelPending(dao, runId = "run-direct-confirm-manifest-drift")
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -5517,20 +5603,22 @@ class AgentLoopRuntimeTest {
                     manifest
                 }
             },
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
 
         val confirmed = restoredRuntime.confirmToolRequest(
             runId = pending.runId,
-            requestId = pending.cancelRequestId,
+            requestId = pending.cancelRequestId
         )
 
         assertEquals(AgentRunState.Failed, confirmed?.state)
         assertTrue(dao.pendingConfirmations().isEmpty())
         assertTrue(dao.skillRunCheckpointsForRun(pending.runId).isEmpty())
-        assertTrue(restoredTraceStore.steps(pending.runId).any { step ->
-            step is AgentStep.Failed && step.reason.contains("Skill manifest changed")
-        })
+        assertTrue(
+            restoredTraceStore.steps(pending.runId).any { step ->
+                step is AgentStep.Failed && step.reason.contains("Skill manifest changed")
+            }
+        )
     }
 
     @Test
@@ -5544,13 +5632,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-value-free-frontier" },
-            ),
+                runIdFactory = { "run-value-free-frontier" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = ValueFreeFrontierSkillRuntime.INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.READ_CLIPBOARD, planned.plan.request.toolName)
@@ -5562,15 +5650,15 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("frontier clipboard text"),
-            ),
+                data = clipboardResultData("frontier clipboard text")
+            )
         )
         requireNotNull(readObserved)
         assertEquals(AgentRunState.GeneratingAnswer, readObserved.run.state)
 
         val modelObserved = initialRuntime.observeModelResult(
             runId = planned.run.id,
-            text = "SECRET_FRONTIER_MODEL_OUTPUT",
+            text = "SECRET_FRONTIER_MODEL_OUTPUT"
         )
         requireNotNull(modelObserved)
         assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
@@ -5580,20 +5668,20 @@ class AgentLoopRuntimeTest {
         assertEquals(
             listOf("frontier_read", "frontier_model"),
             dao.skillRunCheckpoint(planned.run.id, wifiPlan.request.id)?.completedStepIdsJson
-                ?.let { org.json.JSONArray(it).toStringListForTest() },
+                ?.let { org.json.JSONArray(it).toStringListForTest() }
         )
         val persistedBeforeRestart = dao.steps(planned.run.id).joinToString("\n") { step -> step.json }
         assertFalse(persistedBeforeRestart.contains("SECRET_FRONTIER_MODEL_OUTPUT"))
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = ValueFreeFrontierSkillRuntime(),
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
         requireNotNull(restoredPending)
@@ -5608,8 +5696,8 @@ class AgentLoopRuntimeTest {
                 requestId = restoredPending.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(flashlightObserved)
@@ -5620,7 +5708,7 @@ class AgentLoopRuntimeTest {
         assertTrue(flashlightPlan.request.arguments.isEmpty())
         assertFalse(
             restoredTraceStore.steps(planned.run.id).joinToString("\n") { step -> step.toString() }
-                .contains("SECRET_FRONTIER_MODEL_OUTPUT"),
+                .contains("SECRET_FRONTIER_MODEL_OUTPUT")
         )
     }
 
@@ -5635,13 +5723,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-direct-confirm-frontier" },
-            ),
+                runIdFactory = { "run-direct-confirm-frontier" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = ValueFreeFrontierSkillRuntime.INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -5651,13 +5739,13 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("frontier clipboard text"),
-            ),
+                data = clipboardResultData("frontier clipboard text")
+            )
         )
         requireNotNull(readObserved)
         val modelObserved = initialRuntime.observeModelResult(
             runId = planned.run.id,
-            text = "SECRET_FRONTIER_MODEL_OUTPUT",
+            text = "SECRET_FRONTIER_MODEL_OUTPUT"
         )
         requireNotNull(modelObserved)
         require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
@@ -5666,7 +5754,7 @@ class AgentLoopRuntimeTest {
         assertEquals(
             listOf("frontier_read", "frontier_model"),
             dao.skillRunCheckpoint(planned.run.id, wifiPlan.request.id)?.completedStepIdsJson
-                ?.let { org.json.JSONArray(it).toStringListForTest() },
+                ?.let { org.json.JSONArray(it).toStringListForTest() }
         )
 
         val restoredRuntime = AgentLoopRuntime(
@@ -5675,13 +5763,13 @@ class AgentLoopRuntimeTest {
             skillRuntime = ValueFreeFrontierSkillRuntime(),
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
-                clockMillis = { 2_000L },
-            ),
+                clockMillis = { 2_000L }
+            )
         )
 
         val executing = restoredRuntime.confirmToolRequest(
             runId = planned.run.id,
-            requestId = wifiPlan.request.id,
+            requestId = wifiPlan.request.id
         )
         assertEquals(AgentRunState.ExecutingTool, executing?.state)
         val flashlightObserved = restoredRuntime.observeToolResult(
@@ -5690,8 +5778,8 @@ class AgentLoopRuntimeTest {
                 requestId = wifiPlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(flashlightObserved)
@@ -5700,7 +5788,7 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightObserved.decision.plan.request.toolName)
         assertFalse(
             dao.steps(planned.run.id).joinToString("\n") { step -> step.json }
-                .contains("SECRET_FRONTIER_MODEL_OUTPUT"),
+                .contains("SECRET_FRONTIER_MODEL_OUTPUT")
         )
     }
 
@@ -5715,13 +5803,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-value-free-payload-frontier" },
-            ),
+                runIdFactory = { "run-value-free-payload-frontier" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = ValueFreeFrontierSkillRuntime.INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -5731,13 +5819,13 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("frontier clipboard text"),
-            ),
+                data = clipboardResultData("frontier clipboard text")
+            )
         )
         requireNotNull(readObserved)
         initialRuntime.observeModelResult(
             runId = planned.run.id,
-            text = "SECRET_FRONTIER_SHARE_TEXT",
+            text = "SECRET_FRONTIER_SHARE_TEXT"
         )
         val persistedPending = dao.latestPendingConfirmation()
         requireNotNull(persistedPending)
@@ -5745,13 +5833,13 @@ class AgentLoopRuntimeTest {
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = ValueFreeFrontierSkillRuntime(nextStepBindsModelPayload = true),
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
         requireNotNull(restoredPending)
@@ -5762,8 +5850,8 @@ class AgentLoopRuntimeTest {
                 requestId = restoredPending.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(failed)
@@ -5771,12 +5859,14 @@ class AgentLoopRuntimeTest {
         require(failed.decision is AgentObservationDecision.Fail)
         assertTrue(failed.decision.reason.contains("Missing tool result binding"))
         assertNull(restoredRuntime.latestPendingConfirmation())
-        assertTrue(restoredTraceStore.steps(planned.run.id).none { step ->
-            step is AgentStep.ToolRequested && step.request.toolName == MobileActionFunctions.SHARE_TEXT
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).none { step ->
+                step is AgentStep.ToolRequested && step.request.toolName == MobileActionFunctions.SHARE_TEXT
+            }
+        )
         assertFalse(
             restoredTraceStore.steps(planned.run.id).joinToString("\n") { step -> step.toString() }
-                .contains("SECRET_FRONTIER_SHARE_TEXT"),
+                .contains("SECRET_FRONTIER_SHARE_TEXT")
         )
         assertTrue(dao.pendingConfirmations().isEmpty())
     }
@@ -5793,15 +5883,15 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-share" },
-            ),
+                runIdFactory = { "run-restored-share" }
+            )
         )
         val rawClipboardText = "重启后不应重新进入 trace 的剪贴板原文"
         val modelSummary = "摘要：恢复后可分享的安全内容"
         val planned = initialRuntime.runOnce(
             input = "总结剪贴板并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         val readRequestId = planned.plan.request.id
@@ -5812,8 +5902,8 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData(rawClipboardText),
-            ),
+                data = clipboardResultData(rawClipboardText)
+            )
         )
         requireNotNull(readObserved)
         assertEquals(AgentRunState.GeneratingAnswer, readObserved.run.state)
@@ -5838,13 +5928,13 @@ class AgentLoopRuntimeTest {
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
 
@@ -5852,17 +5942,19 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.Failed, restoredTraceStore.run(planned.run.id)?.state)
         assertNull(restoredRuntime.latestPendingConfirmation())
         assertTrue(dao.pendingConfirmations().isEmpty())
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.Failed &&
-                step.reason.contains("Pending tool confirmation could not be restored")
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("Pending tool confirmation could not be restored")
+            }
+        )
         assertFalse(
             restoredRuntime.confirmToolRequest(planned.run.id, shareRequestId)?.state ==
-                AgentRunState.ExecutingTool,
+                AgentRunState.ExecutingTool
         )
         assertFalse(
             restoredRuntime.confirmToolRequest(planned.run.id, readRequestId)?.state ==
-                AgentRunState.ExecutingTool,
+                AgentRunState.ExecutingTool
         )
         val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
             "${step.summary}\n${step.json}"
@@ -5885,15 +5977,15 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-screen-share" },
-            ),
+                runIdFactory = { "run-restored-screen-share" }
+            )
         )
         val rawScreenText = "重启后不应重新进入 trace 的屏幕文本"
         val modelSummary = "摘要：恢复后可分享的屏幕摘要"
         val planned = initialRuntime.runOnce(
             input = "总结当前屏幕文字并分享",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         val readRequestId = planned.plan.request.id
@@ -5904,8 +5996,8 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕可访问文本快照",
-                data = currentScreenTextResultData(rawScreenText),
-            ),
+                data = currentScreenTextResultData(rawScreenText)
+            )
         )
         requireNotNull(readObserved)
         assertEquals(AgentRunState.GeneratingAnswer, readObserved.run.state)
@@ -5930,13 +6022,13 @@ class AgentLoopRuntimeTest {
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
 
@@ -5944,17 +6036,19 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.Failed, restoredTraceStore.run(planned.run.id)?.state)
         assertNull(restoredRuntime.latestPendingConfirmation())
         assertTrue(dao.pendingConfirmations().isEmpty())
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.Failed &&
-                step.reason.contains("Pending tool confirmation could not be restored")
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("Pending tool confirmation could not be restored")
+            }
+        )
         assertFalse(
             restoredRuntime.confirmToolRequest(planned.run.id, shareRequestId)?.state ==
-                AgentRunState.ExecutingTool,
+                AgentRunState.ExecutingTool
         )
         assertFalse(
             restoredRuntime.confirmToolRequest(planned.run.id, readRequestId)?.state ==
-                AgentRunState.ExecutingTool,
+                AgentRunState.ExecutingTool
         )
         val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
             "${step.summary}\n${step.json}"
@@ -5976,13 +6070,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-multi-model-skill" },
-            ),
+                runIdFactory = { "run-multi-model-skill" }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = "multi model skill",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
@@ -5994,8 +6088,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "搜索结果摘要",
-                data = webSearchResultData(summaryText = "搜索结果摘要"),
-            ),
+                data = webSearchResultData(summaryText = "搜索结果摘要")
+            )
         )
         requireNotNull(searchObserved)
         assertEquals(AgentRunState.GeneratingAnswer, searchObserved.run.state)
@@ -6007,7 +6101,7 @@ class AgentLoopRuntimeTest {
 
         val sharePlanned = initialRuntime.observeModelResult(
             runId = planned.run.id,
-            text = "可分享的搜索摘要",
+            text = "可分享的搜索摘要"
         )
         requireNotNull(sharePlanned)
         assertEquals(AgentRunState.AwaitingUserConfirmation, sharePlanned.run.state)
@@ -6027,26 +6121,28 @@ class AgentLoopRuntimeTest {
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = MultiModelSkillRuntime(),
-            traceStore = restoredTraceStore,
+            traceStore = restoredTraceStore
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
 
         assertNull(restoredPending)
         assertEquals(AgentRunState.Failed, restoredTraceStore.run(planned.run.id)?.state)
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.Failed &&
-                step.reason.contains("Pending tool confirmation could not be restored")
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("Pending tool confirmation could not be restored")
+            }
+        )
         assertTrue(dao.pendingConfirmations().isEmpty())
         assertFalse(
             restoredRuntime.confirmToolRequest(planned.run.id, shareRequest.id)?.state ==
-                AgentRunState.ExecutingTool,
+                AgentRunState.ExecutingTool
         )
         val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
             "${step.summary}\n${step.json}"
@@ -6068,22 +6164,22 @@ class AgentLoopRuntimeTest {
                         title = "点击按钮",
                         summary = "将点击当前屏幕上的 Continue 按钮。",
                         parameters = mapOf("target" to "Continue"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "点击 Continue",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.UI_TAP, planned.plan.request.toolName)
@@ -6102,11 +6198,11 @@ class AgentLoopRuntimeTest {
                     "actionType" to "tap",
                     "status" to "failed",
                     "retryable" to "true",
-                    "failureKind" to "node_not_found",
+                    "failureKind" to "node_not_found"
                 ),
                 error = ToolError(ToolErrorCode.ExecutionFailed, "未找到可点击目标：Continue"),
-                retryable = true,
-            ),
+                retryable = true
+            )
         )
 
         requireNotNull(replanned)
@@ -6129,12 +6225,12 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val captured = mutableListOf<AgentObservationReplanContext>()
         val runtime = AgentLoopRuntime(
@@ -6144,12 +6240,12 @@ class AgentLoopRuntimeTest {
             observationReplanner = AgentObservationReplanner { context ->
                 captured += context
                 null
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -6160,8 +6256,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         val context = captured.single()
@@ -6182,23 +6278,23 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val nextDraft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "搜索完成后继续打开 Wi-Fi 设置页。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
         val nextRequest = ToolRequest(
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = nextDraft.summary,
+            reason = nextDraft.summary
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -6214,17 +6310,17 @@ class AgentLoopRuntimeTest {
                         request = nextRequest,
                         draft = nextDraft,
                         plannedByModel = false,
-                        fallbackReason = "test replan",
+                        fallbackReason = "test replan"
                     )
                 } else {
                     null
                 }
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -6235,8 +6331,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(replanned)
@@ -6248,23 +6344,25 @@ class AgentLoopRuntimeTest {
         assertEquals(
             listOf(
                 MobileActionFunctions.WEB_SEARCH,
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS
             ),
-            replanned.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            replanned.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
         assertEquals(1, replanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
-        assertTrue(replanned.steps.any { step ->
-            step is AgentStep.ObservationDecided &&
-                step.decision is AgentObservationDecision.PlanNextTool
-        })
+        assertTrue(
+            replanned.steps.any { step ->
+                step is AgentStep.ObservationDecided &&
+                    step.decision is AgentObservationDecision.PlanNextTool
+            }
+        )
         assertEquals(
             listOf(
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ToolObserved,
                 ToolAuditEventType.ToolPlanned,
-                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.ConfirmationRequested
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
 
         runtime.confirmToolRequest(planned.run.id, nextRequest.id)
@@ -6274,8 +6372,8 @@ class AgentLoopRuntimeTest {
                 requestId = nextRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(completed)
@@ -6296,12 +6394,12 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -6317,17 +6415,17 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "继续打开 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     ),
                     plannedByModel = false,
-                    fallbackReason = "test replan",
+                    fallbackReason = "test replan"
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -6335,7 +6433,7 @@ class AgentLoopRuntimeTest {
         // The tool is executing: steer must not cancel anything; the input is queued.
         val queued = runtime.queue(
             messages = listOf(ChatMessage(role = MessageRole.User, text = "改成只搜 Kotlin 协程")),
-            runId = planned.run.id,
+            runId = planned.run.id
         )
         assertTrue(queued)
 
@@ -6345,8 +6443,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -6355,7 +6453,7 @@ class AgentLoopRuntimeTest {
         assertFalse(observed.run.state == AgentRunState.AwaitingUserConfirmation)
         assertEquals(
             listOf(MobileActionFunctions.WEB_SEARCH),
-            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
     }
 
@@ -6366,13 +6464,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val input = "先搜 Kotlin，然后打开 Wi-Fi 设置，再打开手电筒设置"
         val planned = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
@@ -6385,8 +6483,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(wifiPlanned)
@@ -6404,8 +6502,8 @@ class AgentLoopRuntimeTest {
                 requestId = wifiRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(flashlightPlanned)
@@ -6423,8 +6521,8 @@ class AgentLoopRuntimeTest {
                 requestId = flashlightRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS)
+            )
         )
 
         requireNotNull(completed)
@@ -6434,9 +6532,9 @@ class AgentLoopRuntimeTest {
             listOf(
                 MobileActionFunctions.WEB_SEARCH,
                 MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
             ),
-            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
         assertEquals(3, actionRuntime.plannedInputs.size)
     }
@@ -6451,15 +6549,15 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-sequential-room" },
+                runIdFactory = { "run-sequential-room" }
             ),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val input = "先搜 Kotlin，然后打开 Wi-Fi 设置，再打开手电筒设置"
         val planned = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -6469,8 +6567,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
         requireNotNull(wifiPlanned)
         require(wifiPlanned.decision is AgentObservationDecision.PlanNextTool)
@@ -6483,8 +6581,8 @@ class AgentLoopRuntimeTest {
                 requestId = wifiRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
         requireNotNull(flashlightPlanned)
         require(flashlightPlanned.decision is AgentObservationDecision.PlanNextTool)
@@ -6499,8 +6597,8 @@ class AgentLoopRuntimeTest {
                 requestId = flashlightRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS)
+            )
         )
 
         requireNotNull(completed)
@@ -6520,15 +6618,15 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-sequence-cursor" },
+                runIdFactory = { "run-restored-sequence-cursor" }
             ),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val rawInput = "打开 Wi-Fi 设置，然后打开手电筒设置"
         val planned = initialRuntime.runOnce(
             input = rawInput,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
@@ -6543,14 +6641,14 @@ class AgentLoopRuntimeTest {
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
             JSONObject(cursorJson)
                 .getJSONObject("request")
-                .getString("toolName"),
+                .getString("toolName")
         )
 
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = RoomAgentTraceStore(traceDao = dao),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
         requireNotNull(restoredPending)
@@ -6564,8 +6662,8 @@ class AgentLoopRuntimeTest {
                 requestId = restoredPending.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(flashlightPlanned)
@@ -6573,7 +6671,7 @@ class AgentLoopRuntimeTest {
         require(flashlightPlanned.decision is AgentObservationDecision.PlanNextTool)
         assertEquals(
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            flashlightPlanned.decision.plan.request.toolName,
+            flashlightPlanned.decision.plan.request.toolName
         )
     }
 
@@ -6587,15 +6685,15 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-payload-sequence-cursor" },
+                runIdFactory = { "run-payload-sequence-cursor" }
             ),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
 
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置，然后搜索 Kotlin",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         require(planned.plan is AgentPlan.UseTool)
@@ -6612,12 +6710,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "先搜一下 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         require(planned.plan is AgentPlan.UseTool)
@@ -6631,8 +6729,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(wifiPlanned)
@@ -6647,13 +6745,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RuleActionRuntime(),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime()),
+            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime())
         )
 
         val result = runtime.runOnce(
             input = "总结剪贴板并分享，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -6670,12 +6768,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "总结剪贴板并分享，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.READ_CLIPBOARD, planned.plan.request.toolName)
@@ -6687,8 +6785,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData("只应留在本地模型 continuation 的剪贴板原文"),
-            ),
+                data = clipboardResultData("只应留在本地模型 continuation 的剪贴板原文")
+            )
         )
         requireNotNull(observedRead)
         assertEquals(AgentRunState.GeneratingAnswer, observedRead.run.state)
@@ -6711,8 +6809,8 @@ class AgentLoopRuntimeTest {
                 requestId = sharePlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统分享面板",
-                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT)
+            )
         )
 
         requireNotNull(wifiPlanned)
@@ -6730,8 +6828,8 @@ class AgentLoopRuntimeTest {
                 requestId = wifiPlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(completed)
@@ -6741,9 +6839,9 @@ class AgentLoopRuntimeTest {
             listOf(
                 MobileActionFunctions.READ_CLIPBOARD,
                 MobileActionFunctions.SHARE_TEXT,
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS
             ),
-            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
     }
 
@@ -6756,12 +6854,12 @@ class AgentLoopRuntimeTest {
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置，然后总结剪贴板并分享，再打开手电筒设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
@@ -6774,8 +6872,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(clipboardPlanned)
@@ -6794,8 +6892,8 @@ class AgentLoopRuntimeTest {
                 requestId = clipboardPlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = clipboardResultData(rawClipboardText),
-            ),
+                data = clipboardResultData(rawClipboardText)
+            )
         )
         requireNotNull(observedClipboard)
         assertEquals(AgentRunState.GeneratingAnswer, observedClipboard.run.state)
@@ -6824,8 +6922,8 @@ class AgentLoopRuntimeTest {
                 requestId = sharePlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统分享面板",
-                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT)
+            )
         )
 
         requireNotNull(flashlightPlanned)
@@ -6841,8 +6939,8 @@ class AgentLoopRuntimeTest {
                 requestId = flashlightPlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开手电筒设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS)
+            )
         )
 
         requireNotNull(completed)
@@ -6852,9 +6950,9 @@ class AgentLoopRuntimeTest {
                 MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 MobileActionFunctions.READ_CLIPBOARD,
                 MobileActionFunctions.SHARE_TEXT,
-                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
             ),
-            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
     }
 
@@ -6865,12 +6963,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置，然后读取剪贴板，再打开手电筒设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
@@ -6882,17 +6980,19 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.Completed, observed.run.state)
         assertEquals(AgentObservationDecision.Complete, observed.decision)
-        assertTrue(observed.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
-        })
+        assertTrue(
+            observed.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
+            }
+        )
     }
 
     @Test
@@ -6901,13 +7001,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RuleActionRuntime(),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime()),
+            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime())
         )
 
         val result = runtime.runOnce(
             input = "读取剪贴板，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -6922,12 +7022,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "先搜一下 Kotlin，然后读取剪贴板，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
@@ -6939,18 +7039,20 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         assertFalse(observed.decision.requiresLocalModel)
-        assertTrue(observed.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
-        })
+        assertTrue(
+            observed.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
+            }
+        )
     }
 
     @Test
@@ -6960,12 +7062,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "先搜一下 Kotlin，然后读取剪贴板",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
@@ -6977,8 +7079,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -6994,13 +7096,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RuleActionRuntime(),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime()),
+            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime())
         )
 
         val result = runtime.runOnce(
             input = "解释一下先搜索再打开设置这个流程怎么实现",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
@@ -7021,19 +7123,19 @@ class AgentLoopRuntimeTest {
                         title = "打开深链",
                         summary = "将打开示例网页。",
                         parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val nextDraft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "不应自动规划。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
         var replanCallCount = 0
         val runtime = AgentLoopRuntime(
@@ -7046,17 +7148,17 @@ class AgentLoopRuntimeTest {
                 AgentObservationReplan(
                     request = ToolRequest(
                         toolName = nextDraft.functionName,
-                        reason = nextDraft.summary,
+                        reason = nextDraft.summary
                     ),
                     draft = nextDraft,
-                    fallbackReason = "should not run",
+                    fallbackReason = "should not run"
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7071,9 +7173,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -7082,10 +7184,12 @@ class AgentLoopRuntimeTest {
         assertEquals(0, replanCallCount)
         assertTrue(observed.assistantMessage.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
         assertEquals(1, observed.steps.filterIsInstance<AgentStep.ToolRequested>().size)
-        assertTrue(observed.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
-        })
+        assertTrue(
+            observed.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+            }
+        )
         val observedAudit = auditSink.events.last { event ->
             event.eventType == ToolAuditEventType.ToolObserved
         }
@@ -7100,7 +7204,7 @@ class AgentLoopRuntimeTest {
             title = "打开 Wi-Fi 设置",
             summary = "用户已确认搜索完成，可以继续。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
         var replanCallCount = 0
         val runtime = externalOutcomeRuntime(
@@ -7110,17 +7214,17 @@ class AgentLoopRuntimeTest {
                 AgentObservationReplan(
                     request = ToolRequest(
                         toolName = nextDraft.functionName,
-                        reason = nextDraft.summary,
+                        reason = nextDraft.summary
                     ),
                     draft = nextDraft,
-                    fallbackReason = "after external completion",
+                    fallbackReason = "after external completion"
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7134,9 +7238,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
         requireNotNull(opened)
         assertEquals(0, replanCallCount)
@@ -7144,7 +7248,7 @@ class AgentLoopRuntimeTest {
         val confirmed = runtime.recordExternalOutcome(
             runId = planned.run.id,
             requestId = planned.plan.request.id,
-            outcome = AgentExternalOutcome.Completed,
+            outcome = AgentExternalOutcome.Completed
         )
 
         requireNotNull(confirmed)
@@ -7155,13 +7259,17 @@ class AgentLoopRuntimeTest {
         assertEquals("true", confirmed.result.data["completionVerified"])
         assertEquals("Completed", confirmed.result.data["externalOutcome"])
         assertEquals("UserConfirmed", confirmed.result.data["externalOutcomeSource"])
-        assertTrue(confirmed.steps.any { step ->
-            step is AgentStep.ExternalOutcomeConfirmed &&
-                step.outcome == AgentExternalOutcome.Completed
-        })
-        assertTrue(auditSink.events.any { event ->
-            event.eventType == ToolAuditEventType.ExternalOutcomeConfirmed
-        })
+        assertTrue(
+            confirmed.steps.any { step ->
+                step is AgentStep.ExternalOutcomeConfirmed &&
+                    step.outcome == AgentExternalOutcome.Completed
+            }
+        )
+        assertTrue(
+            auditSink.events.any { event ->
+                event.eventType == ToolAuditEventType.ExternalOutcomeConfirmed
+            }
+        )
     }
 
     @Test
@@ -7175,23 +7283,23 @@ class AgentLoopRuntimeTest {
                 AgentObservationReplan(
                     request = ToolRequest(
                         toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                        reason = "should not run",
+                        reason = "should not run"
                     ),
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                         title = "打开 Wi-Fi 设置",
                         summary = "不应自动规划。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     ),
-                    fallbackReason = "late external completion",
+                    fallbackReason = "late external completion"
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7205,9 +7313,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
         requireNotNull(opened)
         assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
@@ -7219,14 +7327,16 @@ class AgentLoopRuntimeTest {
         val lateOutcome = runtime.recordExternalOutcome(
             runId = planned.run.id,
             requestId = planned.plan.request.id,
-            outcome = AgentExternalOutcome.Completed,
+            outcome = AgentExternalOutcome.Completed
         )
 
         assertNull(lateOutcome)
         assertEquals(0, replanCallCount)
-        assertFalse(auditSink.events.any { event ->
-            event.eventType == ToolAuditEventType.ExternalOutcomeConfirmed
-        })
+        assertFalse(
+            auditSink.events.any { event ->
+                event.eventType == ToolAuditEventType.ExternalOutcomeConfirmed
+            }
+        )
     }
 
     @Test
@@ -7240,23 +7350,23 @@ class AgentLoopRuntimeTest {
                 AgentObservationReplan(
                     request = ToolRequest(
                         toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                        reason = "should not run",
+                        reason = "should not run"
                     ),
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                         title = "打开 Wi-Fi 设置",
                         summary = "不应自动规划。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     ),
-                    fallbackReason = "should not run",
+                    fallbackReason = "should not run"
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7270,15 +7380,15 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
 
         val confirmed = runtime.recordExternalOutcome(
             runId = planned.run.id,
             requestId = planned.plan.request.id,
-            outcome = AgentExternalOutcome.NotCompleted,
+            outcome = AgentExternalOutcome.NotCompleted
         )
 
         requireNotNull(confirmed)
@@ -7288,10 +7398,12 @@ class AgentLoopRuntimeTest {
         assertEquals("false", confirmed.result.data["completionVerified"])
         assertEquals("NotCompleted", confirmed.result.data["externalOutcome"])
         assertEquals("UserConfirmed", confirmed.result.data["externalOutcomeSource"])
-        assertTrue(confirmed.steps.none { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
-        })
+        assertTrue(
+            confirmed.steps.none { step ->
+                step is AgentStep.UserConfirmationRequested &&
+                    step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+            }
+        )
     }
 
     @Test
@@ -7300,7 +7412,7 @@ class AgentLoopRuntimeTest {
         val traceStore = RoomAgentTraceStore(
             traceDao = dao,
             clockMillis = { 1_000L },
-            runIdFactory = { "run-restored-external-outcome" },
+            runIdFactory = { "run-restored-external-outcome" }
         )
         val initialRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -7314,20 +7426,20 @@ class AgentLoopRuntimeTest {
                             title = "打开深链",
                             summary = "将打开示例网页。",
                             parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
-                            requiresConfirmation = true,
-                        ),
+                            requiresConfirmation = true
+                        )
                     ),
                     usedModel = false,
-                    fallbackReason = "test fallback",
-                ),
+                    fallbackReason = "test fallback"
+                )
             ),
-            traceStore = traceStore,
+            traceStore = traceStore
         )
         val planned = initialRuntime.runOnce(
             input = "打开示例网页",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            sessionId = "session-restored",
+            sessionId = "session-restored"
         )
         require(planned.plan is AgentPlan.UseTool)
         initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7341,9 +7453,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
         requireNotNull(opened)
         assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
@@ -7351,7 +7463,7 @@ class AgentLoopRuntimeTest {
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = RoomAgentTraceStore(traceDao = dao),
+            traceStore = RoomAgentTraceStore(traceDao = dao)
         )
         val pending = restoredRuntime.latestPendingExternalOutcome("session-restored")
 
@@ -7366,7 +7478,7 @@ class AgentLoopRuntimeTest {
         val confirmed = restoredRuntime.recordExternalOutcome(
             runId = pending.runId,
             requestId = pending.requestId,
-            outcome = AgentExternalOutcome.Completed,
+            outcome = AgentExternalOutcome.Completed
         )
 
         requireNotNull(confirmed)
@@ -7382,7 +7494,7 @@ class AgentLoopRuntimeTest {
         val traceStore = RoomAgentTraceStore(
             traceDao = dao,
             clockMillis = { 1_000L },
-            runIdFactory = { "run-unrestorable-external-runtime" },
+            runIdFactory = { "run-unrestorable-external-runtime" }
         )
         val run = traceStore.createRun("share text", sessionId = "session-unrestorable")
         val requestId = "request-share"
@@ -7393,8 +7505,8 @@ class AgentLoopRuntimeTest {
                 type = "ToolRequested",
                 summary = "Requested tool share_text.",
                 json = """{"type":"ToolRequested","requestId":"$requestId"}""",
-                createdAtMillis = 1_000L,
-            ),
+                createdAtMillis = 1_000L
+            )
         )
         traceStore.appendStep(
             run.id,
@@ -7407,16 +7519,16 @@ class AgentLoopRuntimeTest {
                         toolName = MobileActionFunctions.SHARE_TEXT,
                         completionVerified = false,
                         externalOutcome = "Unknown",
-                        externalOutcomeSource = "Unknown",
-                    ),
-                ),
-            ),
+                        externalOutcomeSource = "Unknown"
+                    )
+                )
+            )
         )
         traceStore.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = RoomAgentTraceStore(traceDao = dao),
+            traceStore = RoomAgentTraceStore(traceDao = dao)
         )
 
         val failedCount = runtime.failStaleInFlightRuns("process restarted")
@@ -7436,16 +7548,16 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-external-sequence-cursor" },
+                runIdFactory = { "run-restored-external-sequence-cursor" }
             ),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val rawInput = "打开 Wi-Fi 设置，然后打开手电筒设置"
         val planned = initialRuntime.runOnce(
             input = rawInput,
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            sessionId = "session-restored-external",
+            sessionId = "session-restored-external"
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
@@ -7461,9 +7573,9 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
 
         requireNotNull(opened)
@@ -7471,7 +7583,7 @@ class AgentLoopRuntimeTest {
         require(opened.decision is AgentObservationDecision.PlanNextTool)
         assertEquals(
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            opened.decision.plan.request.toolName,
+            opened.decision.plan.request.toolName
         )
         val cursorStep = dao.steps(planned.run.id).lastOrNull { step ->
             step.type == "ContinuationCursorRecorded"
@@ -7481,14 +7593,14 @@ class AgentLoopRuntimeTest {
         assertFalse(cursorStep.json.contains("然后"))
         assertEquals(
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            JSONObject(cursorStep.json).getString("targetToolName"),
+            JSONObject(cursorStep.json).getString("targetToolName")
         )
 
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = RoomAgentTraceStore(traceDao = dao),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         assertNull(restoredRuntime.latestPendingExternalOutcome("session-restored-external"))
         val nextPending = dao.latestPendingConfirmation()
@@ -7507,15 +7619,15 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-external-payload-tail" },
+                runIdFactory = { "run-restored-external-payload-tail" }
             ),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = initialRuntime.runOnce(
             input = "打开 Wi-Fi 设置，然后搜索 Kotlin",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            sessionId = "session-restored-external-payload",
+            sessionId = "session-restored-external-payload"
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
@@ -7531,22 +7643,24 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
         requireNotNull(opened)
         assertEquals(AgentRunState.Completed, opened.run.state)
         assertEquals(AgentObservationDecision.Complete, opened.decision)
-        assertTrue(dao.steps(planned.run.id).none { step ->
-            step.type == "ContinuationCursorRecorded"
-        })
+        assertTrue(
+            dao.steps(planned.run.id).none { step ->
+                step.type == "ContinuationCursorRecorded"
+            }
+        )
 
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = RoomAgentTraceStore(traceDao = dao),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         assertNull(restoredRuntime.latestPendingExternalOutcome("session-restored-external-payload"))
         assertNull(dao.latestPendingConfirmation())
@@ -7564,12 +7678,12 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -7583,15 +7697,15 @@ class AgentLoopRuntimeTest {
                         title = "重复请求",
                         summary = "不应复用已有 request id。",
                         parameters = context.previousRequest.arguments,
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "搜一下 Kotlin",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7602,17 +7716,19 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.Failed, observed.run.state)
         require(observed.decision is AgentObservationDecision.Fail)
         assertTrue(observed.decision.reason.contains("already exists"))
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ModelPlanned && step.plan is AgentPlan.RejectedTool
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.ModelPlanned && step.plan is AgentPlan.RejectedTool
+            }
+        )
         assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
     }
 
@@ -7629,24 +7745,24 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val currentDraft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "搜索完成后继续打开 Wi-Fi 设置页。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
         val currentRequest = ToolRequest(
             id = "request-current-after-restore",
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = currentDraft.summary,
+            reason = currentDraft.summary
         )
         val initialRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -7654,7 +7770,7 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { "run-restored-duplicate" },
+                runIdFactory = { "run-restored-duplicate" }
             ),
             observationReplanner = AgentObservationReplanner { context ->
                 if (context.previousRequest.toolName == MobileActionFunctions.WEB_SEARCH) {
@@ -7662,17 +7778,17 @@ class AgentLoopRuntimeTest {
                         request = currentRequest,
                         draft = currentDraft,
                         plannedByModel = false,
-                        fallbackReason = "test replan",
+                        fallbackReason = "test replan"
                     )
                 } else {
                     null
                 }
-            },
+            }
         )
         val planned = initialRuntime.runOnce(
             input = "搜一下 Kotlin",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         val oldRequest = planned.plan.request
@@ -7683,8 +7799,8 @@ class AgentLoopRuntimeTest {
                 requestId = oldRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
         requireNotNull(currentPlanned)
         assertEquals(AgentRunState.AwaitingUserConfirmation, currentPlanned.run.state)
@@ -7693,7 +7809,7 @@ class AgentLoopRuntimeTest {
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
-            clockMillis = { 2_000L },
+            clockMillis = { 2_000L }
         )
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -7707,23 +7823,25 @@ class AgentLoopRuntimeTest {
                         title = "重复请求",
                         summary = "不应复用已有 request id。",
                         parameters = oldRequest.arguments,
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     ),
                     plannedByModel = false,
-                    fallbackReason = "duplicate old request",
+                    fallbackReason = "duplicate old request"
                 )
-            },
+            }
         )
         val restoredPending = restoredRuntime.latestPendingConfirmation()
         requireNotNull(restoredPending)
         assertEquals(currentRequest.id, restoredPending.request.id)
         assertEquals(emptyMap<String, String>(), restoredPending.request.arguments)
         assertEquals(null, restoredPending.nextActionInput)
-        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
-            step is AgentStep.ToolRequested &&
-                step.request.id == oldRequest.id &&
-                step.request.arguments.isEmpty()
-        })
+        assertTrue(
+            restoredTraceStore.steps(planned.run.id).any { step ->
+                step is AgentStep.ToolRequested &&
+                    step.request.id == oldRequest.id &&
+                    step.request.arguments.isEmpty()
+            }
+        )
 
         restoredRuntime.confirmToolRequest(planned.run.id, currentRequest.id)
         val observed = restoredRuntime.observeToolResult(
@@ -7732,8 +7850,8 @@ class AgentLoopRuntimeTest {
                 requestId = currentRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(observed)
@@ -7741,9 +7859,11 @@ class AgentLoopRuntimeTest {
         require(observed.decision is AgentObservationDecision.Fail)
         assertTrue(observed.decision.reason.contains("already exists"))
         assertTrue(observed.decision.reason.contains(oldRequest.id))
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ModelPlanned && step.plan is AgentPlan.RejectedTool
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.ModelPlanned && step.plan is AgentPlan.RejectedTool
+            }
+        )
         assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
         assertNull(restoredRuntime.latestPendingConfirmation())
     }
@@ -7757,12 +7877,12 @@ class AgentLoopRuntimeTest {
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            maxToolRetryAttempts = 1,
+            maxToolRetryAttempts = 1
         )
         val planned = runtime.runOnce(
             input = "搜一下 Kotlin",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
@@ -7773,8 +7893,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Failed,
                 summary = "浏览器临时不可用",
-                retryable = true,
-            ),
+                retryable = true
+            )
         )
 
         requireNotNull(retrying)
@@ -7787,10 +7907,12 @@ class AgentLoopRuntimeTest {
         val retryStep = retrying.steps.filterIsInstance<AgentStep.ToolRetryScheduled>().single()
         assertEquals(planned.plan.request.id, retryStep.request.id)
         assertEquals(1, retryStep.attempt)
-        assertTrue(auditSink.events.any { event ->
-            event.eventType == ToolAuditEventType.ToolRetryScheduled &&
-                event.requestId == planned.plan.request.id
-        })
+        assertTrue(
+            auditSink.events.any { event ->
+                event.eventType == ToolAuditEventType.ToolRetryScheduled &&
+                    event.requestId == planned.plan.request.id
+            }
+        )
 
         val failed = runtime.observeToolResult(
             runId = planned.run.id,
@@ -7798,8 +7920,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Failed,
                 summary = "重试后仍不可用",
-                retryable = true,
-            ),
+                retryable = true
+            )
         )
 
         requireNotNull(failed)
@@ -7822,13 +7944,13 @@ class AgentLoopRuntimeTest {
             auditSink = auditSink,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = SequentialActionObservationReplanner(actionRuntime),
-            maxToolRetryAttempts = 1,
+            maxToolRetryAttempts = 1
         )
         val input = "当前应用是什么，然后打开 Wi-Fi 设置"
         val planned = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, planned.plan.request.toolName)
@@ -7840,8 +7962,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Failed,
                 summary = "Usage stats provider temporarily unavailable",
-                retryable = true,
-            ),
+                retryable = true
+            )
         )
 
         requireNotNull(retrying)
@@ -7852,9 +7974,11 @@ class AgentLoopRuntimeTest {
         assertNull(runtime.latestPendingConfirmation())
         assertEquals(listOf(input), actionRuntime.plannedInputs)
         assertTrue(retrying.steps.none { it is AgentStep.ToolRetryScheduled })
-        assertTrue(auditSink.events.none { event ->
-            event.eventType == ToolAuditEventType.ToolRetryScheduled
-        })
+        assertTrue(
+            auditSink.events.none { event ->
+                event.eventType == ToolAuditEventType.ToolRetryScheduled
+            }
+        )
     }
 
     @Test
@@ -7863,12 +7987,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "当前应用是什么",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -7880,8 +8004,8 @@ class AgentLoopRuntimeTest {
                 status = ToolStatus.Failed,
                 summary = "用户拒绝了所需权限",
                 error = ToolError(ToolErrorCode.PermissionDenied, "用户拒绝了所需权限"),
-                retryable = true,
-            ),
+                retryable = true
+            )
         )
 
         requireNotNull(failed)
@@ -7897,7 +8021,7 @@ class AgentLoopRuntimeTest {
         val cases = listOf(
             "分享这段文字：hello" to MobileActionFunctions.SHARE_TEXT,
             "提醒我 15 分钟后喝水" to MobileActionFunctions.SCHEDULE_REMINDER,
-            "开启周期检查，每 2 小时" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+            "开启周期检查，每 2 小时" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK
         )
 
         cases.forEach { (input, toolName) ->
@@ -7905,12 +8029,12 @@ class AgentLoopRuntimeTest {
                 memoryIndex = MemoryRepository(),
                 actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
                 traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-                maxToolRetryAttempts = 1,
+                maxToolRetryAttempts = 1
             )
             val planned = runtime.runOnce(
                 input = input,
                 installedCapabilities = setOf(ModelCapability.Chat),
-                memoryEnabled = false,
+                memoryEnabled = false
             )
             require(planned.plan is AgentPlan.UseTool)
             assertEquals(toolName, planned.plan.request.toolName)
@@ -7922,8 +8046,8 @@ class AgentLoopRuntimeTest {
                     requestId = planned.plan.request.id,
                     status = ToolStatus.Failed,
                     summary = "底层临时失败",
-                    retryable = true,
-                ),
+                    retryable = true
+                )
             )
 
             requireNotNull(failed)
@@ -7948,23 +8072,23 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -7976,24 +8100,28 @@ class AgentLoopRuntimeTest {
                 status = ToolStatus.Failed,
                 summary = "用户拒绝了所需权限",
                 error = ToolError(ToolErrorCode.PermissionDenied, "用户拒绝了所需权限"),
-                retryable = false,
-            ),
+                retryable = false
+            )
         )
 
         requireNotNull(failed)
         assertEquals(AgentRunState.Failed, failed.run.state)
         require(failed.decision is AgentObservationDecision.Fail)
         assertTrue(failed.steps.any { it is AgentStep.UserConfirmed })
-        assertTrue(failed.steps.any { step ->
-            step is AgentStep.ToolObserved &&
-                step.result.error?.code == ToolErrorCode.PermissionDenied
-        })
+        assertTrue(
+            failed.steps.any { step ->
+                step is AgentStep.ToolObserved &&
+                    step.result.error?.code == ToolErrorCode.PermissionDenied
+            }
+        )
         assertTrue(failed.steps.none { it is AgentStep.ToolRetryScheduled })
         assertNull(runtime.latestPendingConfirmation())
-        assertTrue(auditSink.events.any { event ->
-            event.eventType == ToolAuditEventType.ToolObserved &&
-                event.status == ToolStatus.Failed
-        })
+        assertTrue(
+            auditSink.events.any { event ->
+                event.eventType == ToolAuditEventType.ToolObserved &&
+                    event.status == ToolStatus.Failed
+            }
+        )
     }
 
     @Test
@@ -8008,22 +8136,22 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8034,8 +8162,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Failed,
                 summary = "找不到可处理的设置页",
-                retryable = false,
-            ),
+                retryable = false
+            )
         )
 
         requireNotNull(failed)
@@ -8053,13 +8181,13 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "也许打开 Wi-Fi 设置？",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         require(result.plan is AgentPlan.Answer)
@@ -8079,29 +8207,29 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
         val cancelled = runtime.cancelToolRequest(
             runId = planned.run.id,
-            requestId = planned.plan.request.id,
+            requestId = planned.plan.request.id
         )
 
         requireNotNull(cancelled)
@@ -8115,9 +8243,9 @@ class AgentLoopRuntimeTest {
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ConfirmationRequested,
                 ToolAuditEventType.UserCancelled,
-                ToolAuditEventType.ToolObserved,
+                ToolAuditEventType.ToolObserved
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
     }
 
@@ -8126,12 +8254,12 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         val cancelled = runtime.cancelRun(planned.run.id, "user stopped generation")
@@ -8140,10 +8268,12 @@ class AgentLoopRuntimeTest {
         requireNotNull(cancelled)
         assertEquals(AgentRunState.Cancelled, cancelled.run.state)
         assertEquals(AgentObservationDecision.Cancel, cancelled.decision)
-        assertTrue(cancelled.steps.any { step ->
-            step is AgentStep.ObservationDecided &&
-                step.decision == AgentObservationDecision.Cancel
-        })
+        assertTrue(
+            cancelled.steps.any { step ->
+                step is AgentStep.ObservationDecided &&
+                    step.decision == AgentObservationDecision.Cancel
+            }
+        )
         assertTrue(cancelled.steps.none { it is AgentStep.Failed })
         assertNull(lateOutput)
     }
@@ -8161,23 +8291,23 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
         val planned = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
 
@@ -8188,18 +8318,20 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentObservationDecision.Cancel, cancelled.decision)
         assertNull(runtime.latestPendingConfirmation())
         assertTrue(cancelled.steps.any { it is AgentStep.UserRejected })
-        assertTrue(cancelled.steps.any { step ->
-            step is AgentStep.ToolObserved &&
-                step.result.status == ToolStatus.Cancelled
-        })
+        assertTrue(
+            cancelled.steps.any { step ->
+                step is AgentStep.ToolObserved &&
+                    step.result.status == ToolStatus.Cancelled
+            }
+        )
         assertEquals(
             listOf(
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ConfirmationRequested,
                 ToolAuditEventType.UserCancelled,
-                ToolAuditEventType.ToolObserved,
+                ToolAuditEventType.ToolObserved
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
     }
 
@@ -8215,23 +8347,23 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val nextDraft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "搜索完成后继续打开 Wi-Fi 设置页。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
         val nextRequest = ToolRequest(
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = nextDraft.summary,
+            reason = nextDraft.summary
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -8241,15 +8373,15 @@ class AgentLoopRuntimeTest {
                 AgentObservationReplan(
                     request = nextRequest,
                     draft = nextDraft,
-                    fallbackReason = "test replan",
+                    fallbackReason = "test replan"
                 )
             },
-            maxRunToolSteps = 1,
+            maxRunToolSteps = 1
         )
         val planned = runtime.runOnce(
             input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8260,8 +8392,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成搜索",
-                data = webSearchResultData(summaryText = "已完成搜索"),
-            ),
+                data = webSearchResultData(summaryText = "已完成搜索")
+            )
         )
 
         requireNotNull(observed)
@@ -8269,13 +8401,15 @@ class AgentLoopRuntimeTest {
         require(observed.decision is AgentObservationDecision.Fail)
         assertTrue(
             "Unexpected failure reason: ${observed.decision.reason}",
-            observed.decision.reason.contains("budget exceeded"),
+            observed.decision.reason.contains("budget exceeded")
         )
         assertNull(runtime.latestPendingConfirmation())
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.Failed &&
-                step.reason.contains("budget exceeded")
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("budget exceeded")
+            }
+        )
         assertEquals(0, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
     }
 
@@ -8291,65 +8425,69 @@ class AgentLoopRuntimeTest {
                         title = "邮件草稿",
                         summary = "将打开邮件 App 并填入草稿内容。",
                         parameters = mapOf("subject" to "Hi"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = true,
-                fallbackReason = null,
-            ),
+                fallbackReason = null
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "帮我写邮件",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
         require(result.plan is AgentPlan.RejectedTool)
         assertEquals(ToolStatus.Rejected, result.plan.result.status)
         assertTrue(result.plan.result.summary.contains("body"))
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.ToolRejected &&
-                step.result.status == ToolStatus.Rejected
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.ToolRejected &&
+                    step.result.status == ToolStatus.Rejected
+            }
+        )
     }
 
     @Test
     fun modelBackedActionPlanningWithoutMobileActionReturnsMissingModel() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = modelBackedWifiPlanningResult(),
+            planningResult = modelBackedWifiPlanningResult()
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            actionModelPath = "/verified/action-model.task",
+            actionModelPath = "/verified/action-model.task"
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
         require(result.plan is AgentPlan.MissingModel)
         assertEquals(ModelCapability.MobileAction, result.plan.capability)
         assertEquals(1, actionRuntime.planCallCount)
-        assertTrue(result.steps.any { step ->
-            step is AgentStep.ModelPlanned &&
-                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
-        })
+        assertTrue(
+            result.steps.any { step ->
+                step is AgentStep.ModelPlanned &&
+                    step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+            }
+        )
         assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
         assertNull(runtime.latestPendingConfirmation())
     }
@@ -8358,13 +8496,13 @@ class AgentLoopRuntimeTest {
     fun modelBackedActionPlanningPrefersCapabilityProfilesOverCapabilitySet() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = modelBackedWifiPlanningResult(),
+            planningResult = modelBackedWifiPlanningResult()
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
@@ -8372,7 +8510,7 @@ class AgentLoopRuntimeTest {
             installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
             memoryEnabled = false,
             actionModelPath = "/verified/action-model.task",
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID))
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
@@ -8387,19 +8525,19 @@ class AgentLoopRuntimeTest {
     fun ruleBackedActionPlanningDoesNotRequireMobileAction() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = wifiPlanningResult(),
+            planningResult = wifiPlanningResult()
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -8414,13 +8552,13 @@ class AgentLoopRuntimeTest {
     fun modelBackedActionPlanningWorksWhenMobileActionInstalled() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = modelBackedWifiPlanningResult(),
+            planningResult = modelBackedWifiPlanningResult()
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
@@ -8428,7 +8566,7 @@ class AgentLoopRuntimeTest {
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
             actionModelPath = "/verified/action-model.task",
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -8451,27 +8589,27 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = InvalidSkillRuntime(
                 invalidForTool = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "Kotlin"),
+                arguments = mapOf("query" to "Kotlin")
             ),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = "搜一下 Kotlin",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
@@ -8495,44 +8633,44 @@ class AgentLoopRuntimeTest {
                         title = "Web 搜索",
                         summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "test fallback",
-            ),
+                fallbackReason = "test fallback"
+            )
         )
         val nextDraft = ActionDraft(
             functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
             title = "打开 Wi-Fi 设置",
             summary = "搜索完成后继续打开 Wi-Fi 设置页。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         )
         val nextRequest = ToolRequest(
             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            reason = nextDraft.summary,
+            reason = nextDraft.summary
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = InvalidSkillRuntime(
                 invalidForTool = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                arguments = emptyMap(),
+                arguments = emptyMap()
             ),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = AgentObservationReplanner {
                 AgentObservationReplan(
                     request = nextRequest,
                     draft = nextDraft,
-                    fallbackReason = "test replan",
+                    fallbackReason = "test replan"
                 )
-            },
+            }
         )
         val planned = runtime.runOnce(
             input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8543,8 +8681,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -8564,8 +8702,8 @@ class AgentLoopRuntimeTest {
                 title = "Web 搜索",
                 summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -8574,13 +8712,13 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val planned = runtime.runOnce(
             input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8593,25 +8731,29 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.Failed, observed.run.state)
         require(observed.decision is AgentObservationDecision.Fail)
         assertTrue(observed.decision.reason.contains("Missing model capability MobileAction"))
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ModelPlanned &&
-                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.ModelPlanned &&
+                    step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+            }
+        )
         assertEquals(
             confirmationRequestCountBeforeObservation,
-            observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size,
+            observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size
         )
-        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-            step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
-        })
+        assertTrue(
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -8623,8 +8765,8 @@ class AgentLoopRuntimeTest {
                 title = "Web 搜索",
                 summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -8633,14 +8775,14 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val planned = runtime.runOnce(
             input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID))
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8651,21 +8793,25 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.Failed, observed.run.state)
         require(observed.decision is AgentObservationDecision.Fail)
         assertTrue(observed.decision.reason.contains("Missing model capability MobileAction"))
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ModelPlanned &&
-                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
-        })
-        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-            step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
-        })
+        assertTrue(
+            observed.steps.any { step ->
+                step is AgentStep.ModelPlanned &&
+                    step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+            }
+        )
+        assertTrue(
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -8676,12 +8822,12 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime)
         )
         val planned = runtime.runOnce(
             input = "先搜一下 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8692,8 +8838,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -8712,8 +8858,8 @@ class AgentLoopRuntimeTest {
                 title = "Web 搜索",
                 summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
         val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
@@ -8728,14 +8874,14 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val planned = runtime.runOnce(
             input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8746,8 +8892,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -8762,9 +8908,9 @@ class AgentLoopRuntimeTest {
         assertEquals(
             listOf(
                 MobileActionFunctions.WEB_SEARCH,
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS
             ),
-            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName }
         )
         assertEquals(1, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
         assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
@@ -8775,9 +8921,9 @@ class AgentLoopRuntimeTest {
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ToolObserved,
                 ToolAuditEventType.ToolPlanned,
-                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.ConfirmationRequested
             ),
-            auditSink.events.map { it.eventType },
+            auditSink.events.map { it.eventType }
         )
 
         runtime.confirmToolRequest(planned.run.id, nextPlan.request.id)
@@ -8787,8 +8933,8 @@ class AgentLoopRuntimeTest {
                 requestId = nextPlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
-                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
-            ),
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS)
+            )
         )
 
         requireNotNull(completed)
@@ -8805,8 +8951,8 @@ class AgentLoopRuntimeTest {
                 title = "查询当前前台应用",
                 summary = "将读取当前前台应用名称。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -8815,13 +8961,13 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val planned = runtime.runOnce(
             input = "当前应用是什么 token=opaque-private-value，并基于结果决定是否打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8840,9 +8986,9 @@ class AgentLoopRuntimeTest {
                     "confidence" to "estimate",
                     "packageName" to "com.private.mail",
                     "appLabel" to "Sensitive Mail",
-                    "lastTimeUsedMillis" to "1234",
-                ),
-            ),
+                    "lastTimeUsedMillis" to "1234"
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -8870,15 +9016,15 @@ class AgentLoopRuntimeTest {
                 title = "当前屏幕截图 OCR",
                 summary = "单次截取当前屏幕并在本地提取 OCR 文本。",
                 parameters = mapOf("captureMode" to "current_screen"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             ),
             modelDraft = ActionDraft(
                 functionName = MobileActionFunctions.UI_TAP,
                 title = "点击继续",
                 summary = "点击当前屏幕上的继续按钮。",
                 parameters = mapOf("target" to "继续"),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
         val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
@@ -8893,8 +9039,8 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val rawOcrText = "继续"
         val rawObservationJson = """
@@ -8939,7 +9085,7 @@ class AgentLoopRuntimeTest {
             input = "看当前屏幕 OCR，点击继续",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -8952,9 +9098,9 @@ class AgentLoopRuntimeTest {
                 summary = "已读取当前屏幕截图 OCR 摘录",
                 data = currentScreenshotOcrResultData(
                     text = rawOcrText,
-                    screenObservationJson = rawObservationJson,
-                ),
-            ),
+                    screenObservationJson = rawObservationJson
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -8964,7 +9110,7 @@ class AgentLoopRuntimeTest {
         assertEquals(
             "actionModelPaths=${actionRuntime.actionModelPaths}, plannedInputs=${actionRuntime.plannedInputs}",
             MobileActionFunctions.UI_TAP,
-            nextPlan.request.toolName,
+            nextPlan.request.toolName
         )
         assertTrue(nextPlan.plannedByModel)
         assertEquals("继续", nextPlan.request.arguments["target"])
@@ -8995,15 +9141,15 @@ class AgentLoopRuntimeTest {
                 title = "当前屏幕截图 OCR",
                 summary = "单次截取当前屏幕并在本地提取 OCR 文本。",
                 parameters = mapOf("captureMode" to "current_screen"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             ),
             modelDraft = ActionDraft(
                 functionName = MobileActionFunctions.WEB_SEARCH,
                 title = "Web 搜索",
                 summary = "错误地把当前屏幕 OCR 文本改写为网络搜索。",
                 parameters = mapOf("query" to "Kotlin协程"),
-                requiresConfirmation = false,
-            ),
+                requiresConfirmation = false
+            )
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -9012,8 +9158,8 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val rawObservationJson = """
             {
@@ -9046,7 +9192,7 @@ class AgentLoopRuntimeTest {
             input = "看当前屏幕 OCR，帮我决定下一步",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -9059,9 +9205,9 @@ class AgentLoopRuntimeTest {
                 summary = "已读取当前屏幕截图 OCR 摘录",
                 data = currentScreenshotOcrResultData(
                     text = "Kotlin协程",
-                    screenObservationJson = rawObservationJson,
-                ),
-            ),
+                    screenObservationJson = rawObservationJson
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -9072,13 +9218,15 @@ class AgentLoopRuntimeTest {
         // Full observation prompt, then ONE corrective re-prompt for the guard-rejected web_search.
         assertEquals(
             listOf(null, "/verified/mobile-action.litertlm", "/verified/mobile-action.litertlm"),
-            actionRuntime.actionModelPaths,
+            actionRuntime.actionModelPaths
         )
         assertTrue(actionRuntime.plannedInputs[1].contains("LocalOnly observation evidence"))
         assertTrue(actionRuntime.plannedInputs[2].contains("(non_local_observation_tool)"))
-        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-            step.request.toolName == MobileActionFunctions.WEB_SEARCH
-        })
+        assertTrue(
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.toolName == MobileActionFunctions.WEB_SEARCH
+            }
+        )
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -9090,15 +9238,15 @@ class AgentLoopRuntimeTest {
                 title = "点击搜索入口",
                 summary = "点击当前屏幕上的搜索入口。",
                 parameters = mapOf("target" to "搜索入口"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             ),
             modelDraft = ActionDraft(
                 functionName = MobileActionFunctions.UI_TAP,
                 title = "点击搜索输入框",
                 summary = "根据失败后的屏幕证据点击搜索输入框。",
                 parameters = mapOf("target" to "搜索输入框"),
-                requiresConfirmation = true,
-            ),
+                requiresConfirmation = true
+            )
         )
         val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
@@ -9113,8 +9261,8 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val beforeObservationJson = screenObservationJson("before-failed-tap", "com.example.app")
         val afterObservationJson = screenObservationJson("after-failed-tap", "com.example.app")
@@ -9126,7 +9274,7 @@ class AgentLoopRuntimeTest {
             input = "点击搜索入口",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
-            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID))
         )
         require(planned.plan is AgentPlan.UseTool)
         assertEquals(MobileActionFunctions.UI_TAP, planned.plan.request.toolName)
@@ -9150,9 +9298,9 @@ class AgentLoopRuntimeTest {
                     "verificationSummary" to "动作失败后已观察当前屏幕。",
                     "beforeScreenObservationJson" to beforeObservationJson,
                     "afterScreenObservationJson" to afterObservationJson,
-                    "screenObservationDiffSummary" to diffSummary,
-                ),
-            ),
+                    "screenObservationDiffSummary" to diffSummary
+                )
+            )
         )
 
         requireNotNull(observed)
@@ -9176,9 +9324,11 @@ class AgentLoopRuntimeTest {
         assertFalse(observed.steps.toString().contains(beforeObservationJson))
         assertFalse(observed.steps.toString().contains(diffSummary))
         assertFalse(auditSink.events.toString().contains(diffSummary))
-        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
-            step.request.reason == "Device control failure recovery checkpoint."
-        })
+        assertTrue(
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+                step.request.reason == "Device control failure recovery checkpoint."
+            }
+        )
     }
 
     @Test
@@ -9189,9 +9339,9 @@ class AgentLoopRuntimeTest {
                 title = "Web 搜索",
                 summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             ),
-            modelUsed = false,
+            modelUsed = false
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -9200,13 +9350,13 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
                 actionPlanningRuntime = actionRuntime,
-                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
-            ),
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" }
+            )
         )
         val planned = runtime.runOnce(
             input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -9217,8 +9367,8 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成 Web 搜索：Kotlin search summary",
-                data = webSearchResultData(),
-            ),
+                data = webSearchResultData()
+            )
         )
 
         requireNotNull(observed)
@@ -9248,26 +9398,26 @@ class AgentLoopRuntimeTest {
         val expectedToolName: String,
         val expectedSafety: SafetyOutcome,
         val requiresConfirmation: Boolean,
-        val expectedArguments: Map<String, String> = emptyMap(),
+        val expectedArguments: Map<String, String> = emptyMap()
     )
 
     private fun assertReducedConfirmationInitialPlan(case: ReducedConfirmationInitialCase) {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
-            planningResult = case.planningResult,
+            planningResult = case.planningResult
         )
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             skillRuntime = NoDirectPlanSkillRuntime(),
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
         )
 
         val result = runtime.runOnce(
             input = case.input,
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = true,
-            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true)
         )
 
         assertEquals(case.name, case.expectedRunState, result.run.state)
@@ -9285,25 +9435,25 @@ class AgentLoopRuntimeTest {
     private data class StartedOpenAppUiSearchRun(
         val runtime: AgentLoopRuntime,
         val planned: AgentLoopResult,
-        val nextPlan: AgentPlan.UseTool,
+        val nextPlan: AgentPlan.UseTool
     )
 
     private fun startOpenAppUiSearch(
         input: String,
         appName: String = "淘宝",
         observationReplanner: AgentObservationReplanner =
-            AgentObservationReplanner { error("skill progression should not replan") },
+            AgentObservationReplanner { error("skill progression should not replan") }
     ): StartedOpenAppUiSearchRun {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = observationReplanner,
+            observationReplanner = observationReplanner
         )
         val planned = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
         require(planned.plan is AgentPlan.UseTool)
@@ -9322,22 +9472,21 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
                     completionVerified = false,
                     externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
-            ),
+                    externalOutcomeSource = "Unknown"
+                )
+            )
         )
         return StartedOpenAppUiSearchRun(
             runtime = runtime,
             planned = planned,
-            nextPlan = opened.requireNextTool(MobileActionFunctions.UI_WAIT),
+            nextPlan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
         )
     }
 
-    private fun StartedOpenAppUiSearchRun.observeToolResult(result: ToolResult): AgentObservationResult? =
-        runtime.observeToolResult(planned.run.id, result)
+    private fun StartedOpenAppUiSearchRun.observeToolResult(result: ToolResult): AgentObservationResult? = runtime.observeToolResult(planned.run.id, result)
 
     private fun StartedOpenAppUiSearchRun.advanceOpenAppUiSearchToVerificationWait(
-        query: String,
+        query: String
     ): AgentPlan.UseTool {
         var plan = nextPlan
         plan = observeToolResult(uiActionResult(plan.request, actionType = "wait"))
@@ -9358,24 +9507,22 @@ class AgentLoopRuntimeTest {
     }
 
     private fun StartedOpenAppUiSearchRun.verifyOpenAppUiSearch(
-        plan: AgentPlan.UseTool,
-    ): AgentObservationResult =
-        requireNotNull(observeToolResult(verifiedOpenAppSearchResult(plan.request)))
+        plan: AgentPlan.UseTool
+    ): AgentObservationResult = requireNotNull(observeToolResult(verifiedOpenAppSearchResult(plan.request)))
 
-    private fun verifiedOpenAppSearchResult(request: ToolRequest): ToolResult =
-        uiActionResult(
-            request = request,
-            actionType = "wait",
-            extraData = mapOf(
-                "searchVerificationStatus" to "verified",
-                "searchVerificationEvidence" to "query_visible_after_change",
-            ),
+    private fun verifiedOpenAppSearchResult(request: ToolRequest): ToolResult = uiActionResult(
+        request = request,
+        actionType = "wait",
+        extraData = mapOf(
+            "searchVerificationStatus" to "verified",
+            "searchVerificationEvidence" to "query_visible_after_change"
         )
+    )
 
     private fun assertOpenAppUiSearchRuntimeFlow(searchCase: OpenAppUiSearchRuntimeCase) {
         val run = startOpenAppUiSearch(
             input = searchCase.input,
-            appName = searchCase.appName,
+            appName = searchCase.appName
         )
 
         var plan = run.nextPlan
@@ -9386,15 +9533,15 @@ class AgentLoopRuntimeTest {
                 request = plan.request,
                 actionType = "wait",
                 packageName = searchCase.expectedPackageName,
-                textSummary = searchCase.appName,
-            ),
+                textSummary = searchCase.appName
+            )
         ).requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
         plan = run.observeToolResult(
             observeScreenResult(
                 request = plan.request,
                 packageName = searchCase.expectedPackageName,
-                textSummary = "${searchCase.appName} 搜索入口",
-            ),
+                textSummary = "${searchCase.appName} 搜索入口"
+            )
         ).requireNextTool(MobileActionFunctions.UI_TAP)
         assertEquals("搜索入口", plan.request.arguments["target"])
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
@@ -9404,8 +9551,8 @@ class AgentLoopRuntimeTest {
                 actionType = "tap",
                 target = "搜索入口",
                 packageName = searchCase.expectedPackageName,
-                textSummary = "${searchCase.appName} 搜索输入框",
-            ),
+                textSummary = "${searchCase.appName} 搜索输入框"
+            )
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = run.observeToolResult(
@@ -9413,8 +9560,8 @@ class AgentLoopRuntimeTest {
                 request = plan.request,
                 actionType = "wait",
                 packageName = searchCase.expectedPackageName,
-                textSummary = "${searchCase.appName} 搜索输入框",
-            ),
+                textSummary = "${searchCase.appName} 搜索输入框"
+            )
         ).requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
         assertEquals(searchCase.query, plan.request.arguments["text"])
         assertEquals("搜索输入框", plan.request.arguments["target"])
@@ -9425,8 +9572,8 @@ class AgentLoopRuntimeTest {
                 actionType = "type_text",
                 target = "搜索输入框",
                 packageName = searchCase.expectedPackageName,
-                textSummary = "${searchCase.appName} ${searchCase.query}",
-            ),
+                textSummary = "${searchCase.appName} ${searchCase.query}"
+            )
         ).requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
         plan = run.observeToolResult(
@@ -9434,8 +9581,8 @@ class AgentLoopRuntimeTest {
                 request = plan.request,
                 actionType = "submit_search",
                 packageName = searchCase.expectedPackageName,
-                textSummary = searchCase.resultSummary,
-            ),
+                textSummary = searchCase.resultSummary
+            )
         ).requireNextTool(MobileActionFunctions.UI_WAIT)
         assertEquals(searchCase.query, plan.request.arguments["verifySearchQuery"])
         assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
@@ -9450,10 +9597,10 @@ class AgentLoopRuntimeTest {
                     textSummary = searchCase.resultSummary,
                     extraData = mapOf(
                         "searchVerificationStatus" to "verified",
-                        "searchVerificationEvidence" to "query_visible_with_result_hint",
-                    ),
-                ),
-            ),
+                        "searchVerificationEvidence" to "query_visible_with_result_hint"
+                    )
+                )
+            )
         )
 
         assertEquals(AgentRunState.Completed, verified.run.state)
@@ -9466,177 +9613,167 @@ class AgentLoopRuntimeTest {
         val appName: String,
         val query: String,
         val expectedPackageName: String,
-        val resultSummary: String,
+        val resultSummary: String
     )
 
     private fun webSearchResultData(
         query: String = "Kotlin",
         summaryText: String = "Kotlin search summary",
         retrievedAt: String = "2026-06-13T00:00:00Z",
-        resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
-    ): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.WEB_SEARCH,
-            "privacy" to MessagePrivacy.RemoteEligible.name,
-            "requiresLocalModel" to "false",
-            "query" to query,
-            "source" to "duckduckgo",
-            "searchMode" to "general",
-            "retrievedAt" to retrievedAt,
-            "freshness" to "current",
-            "maxResults" to "3",
-            "summaryText" to summaryText,
-            "resultsJson" to resultsJson,
-        )
+        resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}"""
+    ): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.WEB_SEARCH,
+        "privacy" to MessagePrivacy.RemoteEligible.name,
+        "requiresLocalModel" to "false",
+        "query" to query,
+        "source" to "duckduckgo",
+        "searchMode" to "general",
+        "retrievedAt" to retrievedAt,
+        "freshness" to "current",
+        "maxResults" to "3",
+        "summaryText" to summaryText,
+        "resultsJson" to resultsJson
+    )
 
     private fun successfulWebSearchResult(
         requestId: String,
         summary: String,
         query: String,
         summaryText: String,
-        resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
-    ): ToolResult =
-        ToolResult(
-            requestId = requestId,
-            status = ToolStatus.Succeeded,
-            summary = summary,
-            data = webSearchResultData(
-                query = query,
-                summaryText = summaryText,
-                resultsJson = resultsJson,
-            ),
+        resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}"""
+    ): ToolResult = ToolResult(
+        requestId = requestId,
+        status = ToolStatus.Succeeded,
+        summary = summary,
+        data = webSearchResultData(
+            query = query,
+            summaryText = summaryText,
+            resultsJson = resultsJson
         )
+    )
 
-    private fun clipboardResultData(text: String): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-            "privacy" to MessagePrivacy.LocalOnly.name,
-            "requiresLocalModel" to "true",
-            "text" to text,
-            "truncated" to "false",
-        )
+    private fun clipboardResultData(text: String): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+        "privacy" to MessagePrivacy.LocalOnly.name,
+        "requiresLocalModel" to "true",
+        "text" to text,
+        "truncated" to "false"
+    )
 
     private fun recentImageOcrResultData(
         toolName: String,
         text: String,
         source: String,
-        maxCount: String,
-    ): Map<String, String> =
-        mapOf(
-            "toolName" to toolName,
-            "privacy" to MessagePrivacy.LocalOnly.name,
-            "requiresLocalModel" to "true",
-            "source" to source,
-            "maxCount" to maxCount,
-            "scannedCount" to "1",
-            "mediaAccessScope" to "full_visual_media",
-            "ocrText" to text,
-            "truncated" to "false",
-            "ocrTextIncluded" to "true",
-            "rawPayloadIncluded" to "false",
-            "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
-        )
+        maxCount: String
+    ): Map<String, String> = mapOf(
+        "toolName" to toolName,
+        "privacy" to MessagePrivacy.LocalOnly.name,
+        "requiresLocalModel" to "true",
+        "source" to source,
+        "maxCount" to maxCount,
+        "scannedCount" to "1",
+        "mediaAccessScope" to "full_visual_media",
+        "ocrText" to text,
+        "truncated" to "false",
+        "ocrTextIncluded" to "true",
+        "rawPayloadIncluded" to "false",
+        "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted"
+    )
 
     private fun currentScreenshotOcrResultData(
         text: String,
-        screenObservationJson: String,
-    ): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
-            "privacy" to MessagePrivacy.LocalOnly.name,
-            "requiresLocalModel" to "true",
-            "source" to CurrentScreenshotOcrContract.SOURCE,
-            "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
-            "ocrText" to text,
-            "truncated" to "false",
-            "ocrTextIncluded" to "true",
-            "screenObservationIncluded" to "true",
-            "screenObservationJson" to screenObservationJson,
-            "rawPayloadIncluded" to "false",
-            "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
-        )
+        screenObservationJson: String
+    ): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+        "privacy" to MessagePrivacy.LocalOnly.name,
+        "requiresLocalModel" to "true",
+        "source" to CurrentScreenshotOcrContract.SOURCE,
+        "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
+        "ocrText" to text,
+        "truncated" to "false",
+        "ocrTextIncluded" to "true",
+        "screenObservationIncluded" to "true",
+        "screenObservationJson" to screenObservationJson,
+        "rawPayloadIncluded" to "false",
+        "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY
+    )
 
-    private fun currentScreenTextResultData(text: String): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            "privacy" to MessagePrivacy.LocalOnly.name,
-            "requiresLocalModel" to "true",
-            "source" to "accessibility_active_window",
-            "maxChars" to "1200",
-            "capturedAtMillis" to "1000",
-            "nodeCount" to "1",
-            "screenText" to text,
-            "truncated" to "false",
-            "screenTextIncluded" to "true",
-            "structureSummaryIncluded" to "false",
-            "rawTreeIncluded" to "false",
-            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
-        )
+    private fun currentScreenTextResultData(text: String): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+        "privacy" to MessagePrivacy.LocalOnly.name,
+        "requiresLocalModel" to "true",
+        "source" to "accessibility_active_window",
+        "maxChars" to "1200",
+        "capturedAtMillis" to "1000",
+        "nodeCount" to "1",
+        "screenText" to text,
+        "truncated" to "false",
+        "screenTextIncluded" to "true",
+        "structureSummaryIncluded" to "false",
+        "rawTreeIncluded" to "false",
+        "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted"
+    )
 
-    private fun contactsResultData(): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.QUERY_CONTACTS,
-            "privacy" to MessagePrivacy.LocalOnly.name,
-            "requiresLocalModel" to "true",
-            "query" to "Alice",
-            "maxCount" to "5",
-            "contactCount" to "1",
-            "contactsJson" to """[{"name":"Alice","phone":"+1 555 0100"}]""",
-        )
+    private fun contactsResultData(): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.QUERY_CONTACTS,
+        "privacy" to MessagePrivacy.LocalOnly.name,
+        "requiresLocalModel" to "true",
+        "query" to "Alice",
+        "maxCount" to "5",
+        "contactCount" to "1",
+        "contactsJson" to """[{"name":"Alice","phone":"+1 555 0100"}]"""
+    )
 
     private fun scheduleReminderResultData(
         taskId: String,
-        triggerAtMillis: String,
-    ): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
-            "taskId" to taskId,
-            "taskStatus" to "Scheduled",
-            "triggerAtMillis" to triggerAtMillis,
-            "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
-            "recoveryTaskId" to taskId,
-        )
+        triggerAtMillis: String
+    ): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+        "taskId" to taskId,
+        "taskStatus" to "Scheduled",
+        "triggerAtMillis" to triggerAtMillis,
+        "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+        "recoveryTaskId" to taskId
+    )
 
-    private fun cancelReminderResultData(taskId: String): Map<String, String> =
-        mapOf(
-            "toolName" to MobileActionFunctions.CANCEL_REMINDER,
-            "taskId" to taskId,
-            "taskStatus" to "Cancelled",
-        )
+    private fun cancelReminderResultData(taskId: String): Map<String, String> = mapOf(
+        "toolName" to MobileActionFunctions.CANCEL_REMINDER,
+        "taskId" to taskId,
+        "taskStatus" to "Cancelled"
+    )
 
     private fun externalOutcomeRuntime(
         auditSink: InMemoryToolAuditSink,
-        onReplan: () -> AgentObservationReplan,
-    ): AgentLoopRuntime =
-        AgentLoopRuntime(
-            memoryIndex = MemoryRepository(),
-            actionPlanningRuntime = RecordingActionRuntime(
-                likelyAction = true,
-                planningResult = ActionPlanningResult(
-                    plan = ActionPlan(
-                        kind = ActionPlanKind.Draft,
-                        draft = ActionDraft(
-                            functionName = MobileActionFunctions.OPEN_DEEP_LINK,
-                            title = "打开深链",
-                            summary = "将打开示例网页。",
-                            parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
-                            requiresConfirmation = true,
-                        ),
-                    ),
-                    usedModel = false,
-                    fallbackReason = "test fallback",
+        onReplan: () -> AgentObservationReplan
+    ): AgentLoopRuntime = AgentLoopRuntime(
+        memoryIndex = MemoryRepository(),
+        actionPlanningRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_DEEP_LINK,
+                        title = "打开深链",
+                        summary = "将打开示例网页。",
+                        parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
+                        requiresConfirmation = true
+                    )
                 ),
-            ),
-            auditSink = auditSink,
-            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = AgentObservationReplanner { onReplan() },
-        )
+                usedModel = false,
+                fallbackReason = "test fallback"
+            )
+        ),
+        auditSink = auditSink,
+        traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        observationReplanner = AgentObservationReplanner { onReplan() }
+    )
 
     private fun externalActivityResultData(
         toolName: String,
         completionVerified: Boolean = true,
         externalOutcome: String = "Completed",
-        externalOutcomeSource: String = "UserConfirmed",
+        externalOutcomeSource: String = "UserConfirmed"
     ): Map<String, String> {
         val (targetKind, intentAction) = when (toolName) {
             MobileActionFunctions.SHARE_TEXT -> "android_chooser" to "android.intent.action.SEND"
@@ -9652,19 +9789,18 @@ class AgentLoopRuntimeTest {
             "targetKind" to targetKind,
             "intentAction" to intentAction,
             "metadataPolicy" to "no_raw_payload_persisted",
-            "rawPayloadIncluded" to "false",
+            "rawPayloadIncluded" to "false"
         )
     }
 
-    private fun org.json.JSONArray.toStringListForTest(): List<String> =
-        (0 until length()).map { index -> getString(index) }
+    private fun org.json.JSONArray.toStringListForTest(): List<String> = (0 until length()).map { index -> getString(index) }
 
     private data class SkillFirstDraftCase(
         val input: String,
         val toolName: String,
         val skillId: String,
         val argumentName: String,
-        val argumentValue: String,
+        val argumentValue: String
     )
 
     private class SequentialStepActionRuntime : ActionPlanningRuntime {
@@ -9683,7 +9819,7 @@ class AgentLoopRuntimeTest {
                     title = "Web 搜索",
                     summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                     parameters = mapOf("query" to "Kotlin"),
-                    requiresConfirmation = true,
+                    requiresConfirmation = true
                 )
 
                 input.contains("Wi-Fi", ignoreCase = true) || input.contains("wifi", ignoreCase = true) ->
@@ -9692,7 +9828,7 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     )
 
                 input.contains("手电筒") || input.contains("flashlight", ignoreCase = true) ->
@@ -9701,19 +9837,19 @@ class AgentLoopRuntimeTest {
                         title = "打开手电筒设置",
                         summary = "将打开系统设置，由你手动确认手电筒相关操作。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     )
 
                 else -> return ActionPlanningResult(
                     plan = ActionPlan(ActionPlanKind.NoAction),
                     usedModel = false,
-                    fallbackReason = "test fallback",
+                    fallbackReason = "test fallback"
                 )
             }
             return ActionPlanningResult(
                 plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
                 usedModel = false,
-                fallbackReason = "test fallback",
+                fallbackReason = "test fallback"
             )
         }
     }
@@ -9734,7 +9870,7 @@ class AgentLoopRuntimeTest {
                     title = "查询当前前台应用",
                     summary = "将读取当前前台应用名称。",
                     parameters = emptyMap(),
-                    requiresConfirmation = true,
+                    requiresConfirmation = true
                 )
 
                 input.contains("Wi-Fi", ignoreCase = true) || input.contains("wifi", ignoreCase = true) ->
@@ -9743,19 +9879,19 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     )
 
                 else -> return ActionPlanningResult(
                     plan = ActionPlan(ActionPlanKind.NoAction),
                     usedModel = false,
-                    fallbackReason = "test fallback",
+                    fallbackReason = "test fallback"
                 )
             }
             return ActionPlanningResult(
                 plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
                 usedModel = false,
-                fallbackReason = "test fallback",
+                fallbackReason = "test fallback"
             )
         }
     }
@@ -9767,9 +9903,9 @@ class AgentLoopRuntimeTest {
             title = "打开 Wi-Fi 设置",
             summary = "将打开系统 Wi-Fi 设置页。",
             parameters = emptyMap(),
-            requiresConfirmation = true,
+            requiresConfirmation = true
         ),
-        private val modelUsed: Boolean = true,
+        private val modelUsed: Boolean = true
     ) : ActionPlanningRuntime {
         val plannedInputs: List<String>
             get() = mutablePlannedInputs.toList()
@@ -9788,13 +9924,13 @@ class AgentLoopRuntimeTest {
                 ActionPlanningResult(
                     plan = ActionPlan(kind = ActionPlanKind.Draft, draft = initialDraft),
                     usedModel = false,
-                    fallbackReason = "test initial rule plan",
+                    fallbackReason = "test initial rule plan"
                 )
             } else {
                 ActionPlanningResult(
                     plan = ActionPlan(kind = ActionPlanKind.Draft, draft = modelDraft),
                     usedModel = modelUsed,
-                    fallbackReason = if (modelUsed) null else "test rule fallback",
+                    fallbackReason = if (modelUsed) null else "test rule fallback"
                 )
             }
         }
@@ -9803,25 +9939,23 @@ class AgentLoopRuntimeTest {
     private class RuleActionRuntime : ActionPlanningRuntime {
         private val planner = MobileActionPlanner()
 
-        override fun isLikelyAction(input: String): Boolean =
-            planner.isLikelyAction(input)
+        override fun isLikelyAction(input: String): Boolean = planner.isLikelyAction(input)
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
             val plan = planner.plan(input)
             return ActionPlanningResult(
                 plan = plan,
                 usedModel = false,
-                fallbackReason = "test fallback",
+                fallbackReason = "test fallback"
             )
         }
     }
 
     private class WifiFlashlightActionRuntime : ActionPlanningRuntime {
-        override fun isLikelyAction(input: String): Boolean =
-            input.contains("Wi-Fi", ignoreCase = true) ||
-                input.contains("wifi", ignoreCase = true) ||
-                input.contains("手电筒") ||
-                input.contains("flashlight", ignoreCase = true)
+        override fun isLikelyAction(input: String): Boolean = input.contains("Wi-Fi", ignoreCase = true) ||
+            input.contains("wifi", ignoreCase = true) ||
+            input.contains("手电筒") ||
+            input.contains("flashlight", ignoreCase = true)
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
             val draft = when {
@@ -9831,7 +9965,7 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     )
 
                 input.contains("手电筒") || input.contains("flashlight", ignoreCase = true) ->
@@ -9840,19 +9974,19 @@ class AgentLoopRuntimeTest {
                         title = "打开手电筒设置",
                         summary = "将打开系统设置，由你手动确认手电筒相关操作。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
+                        requiresConfirmation = true
                     )
 
                 else -> return ActionPlanningResult(
                     plan = ActionPlan(ActionPlanKind.NoAction),
                     usedModel = false,
-                    fallbackReason = "test fallback",
+                    fallbackReason = "test fallback"
                 )
             }
             return ActionPlanningResult(
                 plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
                 usedModel = false,
-                fallbackReason = "test fallback",
+                fallbackReason = "test fallback"
             )
         }
     }
@@ -9861,12 +9995,11 @@ class AgentLoopRuntimeTest {
         var planCallCount: Int = 0
             private set
 
-        override fun classifyIntent(input: String): IntentCandidate =
-            IntentCandidate(
-                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                confidence = ActionIntentConfidence.Low,
-                reason = "ambiguous action mention",
-            )
+        override fun classifyIntent(input: String): IntentCandidate = IntentCandidate(
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            confidence = ActionIntentConfidence.Low,
+            reason = "ambiguous action mention"
+        )
 
         override fun isLikelyAction(input: String): Boolean = true
 
@@ -9880,11 +10013,11 @@ class AgentLoopRuntimeTest {
                         title = "打开 Wi-Fi 设置",
                         summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
-                        requiresConfirmation = true,
-                    ),
+                        requiresConfirmation = true
+                    )
                 ),
                 usedModel = false,
-                fallbackReason = "low confidence should not plan",
+                fallbackReason = "low confidence should not plan"
             )
         }
     }
@@ -9896,8 +10029,7 @@ class AgentLoopRuntimeTest {
 
         override fun plan(input: String): SkillPlan? = null
 
-        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? =
-            delegate.plan(input, draft, request)
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = delegate.plan(input, draft, request)
     }
 
     private class CheckpointingLowRiskTapSkillRuntime : SkillRuntime {
@@ -9910,7 +10042,7 @@ class AgentLoopRuntimeTest {
             requiredTools = listOf(MobileActionFunctions.UI_TAP),
             inputSchemaJson = """{"type":"object","properties":{"input":{"type":"string"}}}""",
             riskLevel = RiskLevel.MediumDraftOrNavigation,
-            lowRiskAppControlEligible = true,
+            lowRiskAppControlEligible = true
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -9922,7 +10054,7 @@ class AgentLoopRuntimeTest {
                 val target = "搜索$index"
                 val arguments = mapOf(
                     "target" to target,
-                    "timeoutMillis" to "1500",
+                    "timeoutMillis" to "1500"
                 )
                 SkillStep.ToolStep(
                     id = stepId,
@@ -9931,14 +10063,14 @@ class AgentLoopRuntimeTest {
                         id = stepId,
                         toolName = MobileActionFunctions.UI_TAP,
                         arguments = arguments,
-                        reason = "点击低风险目标：$target。",
+                        reason = "点击低风险目标：$target。"
                     ),
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.UI_TAP,
                         title = "点击屏幕元素",
                         summary = "点击低风险目标：$target。",
-                        parameters = arguments,
-                    ),
+                        parameters = arguments
+                    )
                 )
             }
             return SkillPlan(
@@ -9946,10 +10078,10 @@ class AgentLoopRuntimeTest {
                     id = "checkpoint-skill-request",
                     skillId = manifest.id,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
-                steps = steps,
+                steps = steps
             )
         }
 
@@ -9969,11 +10101,11 @@ class AgentLoopRuntimeTest {
             triggerExamples = listOf(INPUT),
             requiredTools = listOf(
                 MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_TAP
             ),
             inputSchemaJson = """{"type":"object","properties":{"input":{"type":"string"}}}""",
             riskLevel = RiskLevel.MediumDraftOrNavigation,
-            lowRiskAppControlEligible = true,
+            lowRiskAppControlEligible = true
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -9982,18 +10114,18 @@ class AgentLoopRuntimeTest {
             if (input != INPUT) return null
             val observeArguments = mapOf(
                 "maxTextChars" to "2000",
-                "maxNodes" to "80",
+                "maxNodes" to "80"
             )
             val tapArguments = mapOf(
                 "target" to "确认支付",
-                "timeoutMillis" to "1500",
+                "timeoutMillis" to "1500"
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "high-risk-continuation-skill-request",
                     skillId = manifest.id,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
                 steps = listOf(
@@ -10003,14 +10135,14 @@ class AgentLoopRuntimeTest {
                             id = "observe",
                             toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                             arguments = observeArguments,
-                            reason = "观察当前屏幕。",
+                            reason = "观察当前屏幕。"
                         ),
                         draft = ActionDraft(
                             functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                             title = "观察当前屏幕",
                             summary = "观察当前屏幕。",
-                            parameters = observeArguments,
-                        ),
+                            parameters = observeArguments
+                        )
                     ),
                     SkillStep.ToolStep(
                         id = "tap_confirm_payment",
@@ -10019,16 +10151,16 @@ class AgentLoopRuntimeTest {
                             id = "tap_confirm_payment",
                             toolName = MobileActionFunctions.UI_TAP,
                             arguments = tapArguments,
-                            reason = "点击高风险目标：确认支付。",
+                            reason = "点击高风险目标：确认支付。"
                         ),
                         draft = ActionDraft(
                             functionName = MobileActionFunctions.UI_TAP,
                             title = "点击屏幕元素",
                             summary = "点击高风险目标：确认支付。",
-                            parameters = tapArguments,
-                        ),
-                    ),
-                ),
+                            parameters = tapArguments
+                        )
+                    )
+                )
             )
         }
 
@@ -10042,29 +10174,24 @@ class AgentLoopRuntimeTest {
     private class RuleOnlyActionRuntime : ActionPlanningRuntime {
         private val planner = MobileActionPlanner()
 
-        override fun classifyIntent(input: String): IntentCandidate =
-            planner.classifyIntent(input)
+        override fun classifyIntent(input: String): IntentCandidate = planner.classifyIntent(input)
 
-        override fun isLikelyAction(input: String): Boolean =
-            planner.isLikelyAction(input)
+        override fun isLikelyAction(input: String): Boolean = planner.isLikelyAction(input)
 
-        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
-            ActionPlanningResult(
-                plan = planner.plan(input),
-                usedModel = false,
-                fallbackReason = "rule-only test",
-            )
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult = ActionPlanningResult(
+            plan = planner.plan(input),
+            usedModel = false,
+            fallbackReason = "rule-only test"
+        )
 
-        override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
-            planner.parseModelToolOutput(output)
+        override fun parseModelToolOutput(output: String): ModelToolOutputParseResult = planner.parseModelToolOutput(output)
     }
 
-    private fun modelToolOutputPlanningResult(output: String): ModelToolOutputParseResult =
-        MobileActionPlanner().parseModelToolOutput(output)
+    private fun modelToolOutputPlanningResult(output: String): ModelToolOutputParseResult = MobileActionPlanner().parseModelToolOutput(output)
 
     private data class AuditedRuntime(
         val runtime: AgentLoopRuntime,
-        val auditSink: InMemoryToolAuditSink,
+        val auditSink: InMemoryToolAuditSink
     )
 
     private fun agentLoopRuntime(
@@ -10076,26 +10203,25 @@ class AgentLoopRuntimeTest {
         maxToolRetryAttempts: Int = 1,
         maxRunToolSteps: Int = 10,
         maxObservationDecisions: Int = 16,
-        deviceControlSessionFinisher: () -> Unit = {},
-    ): AgentLoopRuntime =
-        AgentLoopRuntime(
-            memoryIndex = memoryIndex,
-            actionPlanningRuntime = actionPlanningRuntime,
-            auditSink = auditSink,
-            traceStore = traceStore,
-            observationReplanner = observationReplanner,
-            maxToolRetryAttempts = maxToolRetryAttempts,
-            maxRunToolSteps = maxRunToolSteps,
-            maxObservationDecisions = maxObservationDecisions,
-            deviceControlSessionFinisher = deviceControlSessionFinisher,
-        )
+        deviceControlSessionFinisher: () -> Unit = {}
+    ): AgentLoopRuntime = AgentLoopRuntime(
+        memoryIndex = memoryIndex,
+        actionPlanningRuntime = actionPlanningRuntime,
+        auditSink = auditSink,
+        traceStore = traceStore,
+        observationReplanner = observationReplanner,
+        maxToolRetryAttempts = maxToolRetryAttempts,
+        maxRunToolSteps = maxRunToolSteps,
+        maxObservationDecisions = maxObservationDecisions,
+        deviceControlSessionFinisher = deviceControlSessionFinisher
+    )
 
     private fun auditedAgentLoopRuntime(
         memoryIndex: MemoryIndex = MemoryRepository(),
         actionPlanningRuntime: ActionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
         traceStore: AgentTraceStore = defaultTraceStore(),
         observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
-        maxToolRetryAttempts: Int = 1,
+        maxToolRetryAttempts: Int = 1
     ): AuditedRuntime {
         val auditSink = InMemoryToolAuditSink()
         return AuditedRuntime(
@@ -10105,14 +10231,13 @@ class AgentLoopRuntimeTest {
                 auditSink = auditSink,
                 traceStore = traceStore,
                 observationReplanner = observationReplanner,
-                maxToolRetryAttempts = maxToolRetryAttempts,
+                maxToolRetryAttempts = maxToolRetryAttempts
             ),
-            auditSink = auditSink,
+            auditSink = auditSink
         )
     }
 
-    private fun defaultTraceStore(): AgentTraceStore =
-        InMemoryAgentTraceStore(clockMillis = { 1_000L })
+    private fun defaultTraceStore(): AgentTraceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
 
     private fun assertCameraUseToolPlan(input: String, plan: AgentPlan.UseTool) {
         assertEquals("$input should use the system camera tool", MobileActionFunctions.OPEN_CAMERA, plan.request.toolName)
@@ -10124,23 +10249,23 @@ class AgentLoopRuntimeTest {
         val runtime: AgentLoopRuntime,
         val auditSink: InMemoryToolAuditSink,
         val result: AgentLoopResult,
-        val plan: AgentPlan.UseTool,
+        val plan: AgentPlan.UseTool
     )
 
     private fun runSkillFirstUseTool(
         input: String,
-        expectedState: AgentRunState = AgentRunState.AwaitingUserConfirmation,
+        expectedState: AgentRunState = AgentRunState.AwaitingUserConfirmation
     ): SkillFirstUseToolRun {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val audited = auditedAgentLoopRuntime(
-            actionPlanningRuntime = actionRuntime,
+            actionPlanningRuntime = actionRuntime
         )
         val runtime = audited.runtime
 
         val result = runtime.runOnce(
             input = input,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
 
         assertEquals(expectedState, result.run.state)
@@ -10153,104 +10278,98 @@ class AgentLoopRuntimeTest {
             runtime = runtime,
             auditSink = audited.auditSink,
             result = result,
-            plan = plan,
+            plan = plan
         )
     }
 
-    private fun wifiPlanningResult(): ActionPlanningResult =
-        ActionPlanningResult(
-            plan = ActionPlan(
-                kind = ActionPlanKind.Draft,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                    title = "打开 Wi-Fi 设置",
-                    summary = "将打开系统 Wi-Fi 设置页。",
-                    parameters = emptyMap(),
-                    requiresConfirmation = true,
-                ),
-            ),
-            usedModel = false,
-            fallbackReason = "test fallback",
-        )
+    private fun wifiPlanningResult(): ActionPlanningResult = ActionPlanningResult(
+        plan = ActionPlan(
+            kind = ActionPlanKind.Draft,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "将打开系统 Wi-Fi 设置页。",
+                parameters = emptyMap(),
+                requiresConfirmation = true
+            )
+        ),
+        usedModel = false,
+        fallbackReason = "test fallback"
+    )
 
-    private fun modelBackedWifiPlanningResult(): ActionPlanningResult =
-        wifiPlanningResult().copy(
-            usedModel = true,
-            fallbackReason = null,
-        )
+    private fun modelBackedWifiPlanningResult(): ActionPlanningResult = wifiPlanningResult().copy(
+        usedModel = true,
+        fallbackReason = null
+    )
 
-    private fun uiTapPlanningResult(target: String): ActionPlanningResult =
-        ActionPlanningResult(
-            plan = ActionPlan(
-                kind = ActionPlanKind.Draft,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.UI_TAP,
-                    title = "点击当前屏幕元素",
-                    summary = "将点击当前屏幕上的 $target。",
-                    parameters = mapOf("target" to target),
-                    requiresConfirmation = true,
-                ),
-            ),
-            usedModel = false,
-            fallbackReason = "test fallback",
-        )
+    private fun uiTapPlanningResult(target: String): ActionPlanningResult = ActionPlanningResult(
+        plan = ActionPlan(
+            kind = ActionPlanKind.Draft,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.UI_TAP,
+                title = "点击当前屏幕元素",
+                summary = "将点击当前屏幕上的 $target。",
+                parameters = mapOf("target" to target),
+                requiresConfirmation = true
+            )
+        ),
+        usedModel = false,
+        fallbackReason = "test fallback"
+    )
 
-    private fun composeEmailPlanningResult(): ActionPlanningResult =
-        ActionPlanningResult(
-            plan = ActionPlan(
-                kind = ActionPlanKind.Draft,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.COMPOSE_EMAIL,
-                    title = "邮件草稿",
-                    summary = "将打开邮件 App 并填入草稿内容。",
-                    parameters = mapOf("body" to "明天聊"),
-                    requiresConfirmation = true,
-                ),
-            ),
-            usedModel = false,
-            fallbackReason = "test fallback",
-        )
+    private fun composeEmailPlanningResult(): ActionPlanningResult = ActionPlanningResult(
+        plan = ActionPlan(
+            kind = ActionPlanKind.Draft,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.COMPOSE_EMAIL,
+                title = "邮件草稿",
+                summary = "将打开邮件 App 并填入草稿内容。",
+                parameters = mapOf("body" to "明天聊"),
+                requiresConfirmation = true
+            )
+        ),
+        usedModel = false,
+        fallbackReason = "test fallback"
+    )
 
-    private fun openAccessibilitySettingsPlanningResult(): ActionPlanningResult =
-        ActionPlanningResult(
-            plan = ActionPlan(
-                kind = ActionPlanKind.Draft,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-                    title = "打开无障碍设置",
-                    summary = "将打开无障碍设置，由你手动完成后续操作。",
-                    parameters = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
-                    requiresConfirmation = true,
-                ),
-            ),
-            usedModel = false,
-            fallbackReason = "test fallback",
-        )
+    private fun openAccessibilitySettingsPlanningResult(): ActionPlanningResult = ActionPlanningResult(
+        plan = ActionPlan(
+            kind = ActionPlanKind.Draft,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                title = "打开无障碍设置",
+                summary = "将打开无障碍设置，由你手动完成后续操作。",
+                parameters = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
+                requiresConfirmation = true
+            )
+        ),
+        usedModel = false,
+        fallbackReason = "test fallback"
+    )
 
-    private fun readClipboardPlanningResult(): ActionPlanningResult =
-        ActionPlanningResult(
-            plan = ActionPlan(
-                kind = ActionPlanKind.Draft,
-                draft = ActionDraft(
-                    functionName = MobileActionFunctions.READ_CLIPBOARD,
-                    title = "读取剪贴板",
-                    summary = "将读取当前剪贴板文本。",
-                    parameters = emptyMap(),
-                    requiresConfirmation = true,
-                ),
-            ),
-            usedModel = false,
-            fallbackReason = "test fallback",
-        )
+    private fun readClipboardPlanningResult(): ActionPlanningResult = ActionPlanningResult(
+        plan = ActionPlan(
+            kind = ActionPlanKind.Draft,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.READ_CLIPBOARD,
+                title = "读取剪贴板",
+                summary = "将读取当前剪贴板文本。",
+                parameters = emptyMap(),
+                requiresConfirmation = true
+            )
+        ),
+        usedModel = false,
+        fallbackReason = "test fallback"
+    )
 
     private data class PersistedToolToToolCancelPending(
         val runId: String,
-        val cancelRequestId: String,
+        val cancelRequestId: String
     )
 
     private fun persistToolToToolCancelPending(
         dao: FakeAgentTraceDao,
-        runId: String,
+        runId: String
     ): PersistedToolToToolCancelPending {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val initialRuntime = AgentLoopRuntime(
@@ -10260,13 +10379,13 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(
                 traceDao = dao,
                 clockMillis = { 1_000L },
-                runIdFactory = { runId },
-            ),
+                runIdFactory = { runId }
+            )
         )
         val planned = initialRuntime.runOnce(
             input = ToolToToolSkillRuntime.REMINDER_INPUT,
             installedCapabilities = setOf(ModelCapability.Chat),
-            memoryEnabled = false,
+            memoryEnabled = false
         )
         require(planned.plan is AgentPlan.UseTool)
         initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
@@ -10276,29 +10395,26 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已安排 10000 触发的后台提醒",
-                data = scheduleReminderResultData(taskId = "task-restored", triggerAtMillis = "10000"),
-            ),
+                data = scheduleReminderResultData(taskId = "task-restored", triggerAtMillis = "10000")
+            )
         )
         requireNotNull(observed)
         require(observed.decision is AgentObservationDecision.PlanNextTool)
         return PersistedToolToToolCancelPending(
             runId = planned.run.id,
-            cancelRequestId = observed.decision.plan.request.id,
+            cancelRequestId = observed.decision.plan.request.id
         )
     }
 
     private class ManifestTransformingSkillRuntime(
         private val delegate: SkillRuntime,
-        private val transform: (SkillManifest) -> SkillManifest,
+        private val transform: (SkillManifest) -> SkillManifest
     ) : SkillRuntime {
-        override fun manifests(): List<SkillManifest> =
-            delegate.manifests().map(transform)
+        override fun manifests(): List<SkillManifest> = delegate.manifests().map(transform)
 
-        override fun plan(input: String): SkillPlan? =
-            delegate.plan(input)
+        override fun plan(input: String): SkillPlan? = delegate.plan(input)
 
-        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? =
-            delegate.plan(input, draft, request)
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = delegate.plan(input, draft, request)
     }
 
     private class ToolToToolSkillRuntime : SkillRuntime {
@@ -10306,27 +10422,26 @@ class AgentLoopRuntimeTest {
             id = REMINDER_SKILL_ID,
             requiredTools = listOf(
                 MobileActionFunctions.SCHEDULE_REMINDER,
-                MobileActionFunctions.CANCEL_REMINDER,
+                MobileActionFunctions.CANCEL_REMINDER
             ),
-            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            riskLevel = RiskLevel.MediumDraftOrNavigation
         )
         private val unsafeContactsManifest = manifest(
             id = UNSAFE_CONTACTS_SKILL_ID,
             requiredTools = listOf(
                 MobileActionFunctions.QUERY_CONTACTS,
-                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.SHARE_TEXT
             ),
-            riskLevel = RiskLevel.HighExternalSend,
+            riskLevel = RiskLevel.HighExternalSend
         )
 
         override fun manifests(): List<SkillManifest> = listOf(reminderManifest, unsafeContactsManifest)
 
-        override fun plan(input: String): SkillPlan? =
-            when (input) {
-                REMINDER_INPUT -> reminderPlan(input)
-                UNSAFE_CONTACTS_INPUT -> unsafeContactsPlan(input)
-                else -> null
-            }
+        override fun plan(input: String): SkillPlan? = when (input) {
+            REMINDER_INPUT -> reminderPlan(input)
+            UNSAFE_CONTACTS_INPUT -> unsafeContactsPlan(input)
+            else -> null
+        }
 
         override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
 
@@ -10336,21 +10451,21 @@ class AgentLoopRuntimeTest {
                 title = "安排提醒",
                 summary = "安排一个测试提醒。",
                 parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val cancelDraft = ActionDraft(
                 functionName = MobileActionFunctions.CANCEL_REMINDER,
                 title = "撤销提醒",
                 summary = "撤销刚安排的提醒。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "tool-to-tool-reminder-skill-request",
                     skillId = REMINDER_SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = reminderManifest,
                 steps = listOf(
@@ -10360,9 +10475,9 @@ class AgentLoopRuntimeTest {
                             id = "tool-to-tool-schedule-request",
                             toolName = MobileActionFunctions.SCHEDULE_REMINDER,
                             arguments = scheduleDraft.parameters,
-                            reason = scheduleDraft.summary,
+                            reason = scheduleDraft.summary
                         ),
-                        draft = scheduleDraft,
+                        draft = scheduleDraft
                     ),
                     SkillStep.ToolStep(
                         id = "cancel",
@@ -10370,12 +10485,12 @@ class AgentLoopRuntimeTest {
                         request = ToolRequest(
                             id = "tool-to-tool-cancel-request",
                             toolName = MobileActionFunctions.CANCEL_REMINDER,
-                            reason = cancelDraft.summary,
+                            reason = cancelDraft.summary
                         ),
                         draft = cancelDraft,
-                        argumentBindings = mapOf("taskId" to "schedule.taskId"),
-                    ),
-                ),
+                        argumentBindings = mapOf("taskId" to "schedule.taskId")
+                    )
+                )
             )
         }
 
@@ -10385,21 +10500,21 @@ class AgentLoopRuntimeTest {
                 title = "查询联系人",
                 summary = "查询联系人摘要。",
                 parameters = mapOf("query" to "Alice"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val shareDraft = ActionDraft(
                 functionName = MobileActionFunctions.SHARE_TEXT,
                 title = "分享联系人",
                 summary = "分享联系人摘要。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "unsafe-contacts-skill-request",
                     skillId = UNSAFE_CONTACTS_SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = unsafeContactsManifest,
                 steps = listOf(
@@ -10409,9 +10524,9 @@ class AgentLoopRuntimeTest {
                             id = "unsafe-contacts-request",
                             toolName = MobileActionFunctions.QUERY_CONTACTS,
                             arguments = contactsDraft.parameters,
-                            reason = contactsDraft.summary,
+                            reason = contactsDraft.summary
                         ),
-                        draft = contactsDraft,
+                        draft = contactsDraft
                     ),
                     SkillStep.ToolStep(
                         id = "share",
@@ -10419,28 +10534,27 @@ class AgentLoopRuntimeTest {
                         request = ToolRequest(
                             id = "unsafe-share-request",
                             toolName = MobileActionFunctions.SHARE_TEXT,
-                            reason = shareDraft.summary,
+                            reason = shareDraft.summary
                         ),
                         draft = shareDraft,
-                        argumentBindings = mapOf("text" to "contacts.contactsJson"),
-                    ),
-                ),
+                        argumentBindings = mapOf("text" to "contacts.contactsJson")
+                    )
+                )
             )
         }
 
         private fun manifest(
             id: String,
             requiredTools: List<String>,
-            riskLevel: RiskLevel,
-        ): SkillManifest =
-            SkillManifest(
-                id = id,
-                version = 1,
-                title = id,
-                description = "Test-only tool-to-tool skill",
-                triggerExamples = listOf(id),
-                requiredTools = requiredTools,
-                inputSchemaJson = """
+            riskLevel: RiskLevel
+        ): SkillManifest = SkillManifest(
+            id = id,
+            version = 1,
+            title = id,
+            description = "Test-only tool-to-tool skill",
+            triggerExamples = listOf(id),
+            requiredTools = requiredTools,
+            inputSchemaJson = """
                     {
                       "type": "object",
                       "required": ["input"],
@@ -10452,9 +10566,9 @@ class AgentLoopRuntimeTest {
                       },
                       "additionalProperties": false
                     }
-                """.trimIndent(),
-                riskLevel = riskLevel,
-            )
+            """.trimIndent(),
+            riskLevel = riskLevel
+        )
 
         companion object {
             const val REMINDER_INPUT = "tool to tool reminder skill"
@@ -10466,7 +10580,7 @@ class AgentLoopRuntimeTest {
 
     private class CustomClipboardTransformSkillRuntime(
         private val shareBinding: String = "custom_model.shareText",
-        private val includeUnmetShareDependency: Boolean = false,
+        private val includeUnmetShareDependency: Boolean = false
     ) : SkillRuntime {
         private val manifest = SkillManifest(
             id = SKILL_ID,
@@ -10476,7 +10590,7 @@ class AgentLoopRuntimeTest {
             triggerExamples = listOf("custom clipboard transform"),
             requiredTools = listOf(
                 MobileActionFunctions.READ_CLIPBOARD,
-                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.SHARE_TEXT
             ) + if (includeUnmetShareDependency) {
                 listOf(MobileActionFunctions.QUERY_FOREGROUND_APP)
             } else {
@@ -10495,7 +10609,7 @@ class AgentLoopRuntimeTest {
                   "additionalProperties": false
                 }
             """.trimIndent(),
-            riskLevel = RiskLevel.HighExternalSend,
+            riskLevel = RiskLevel.HighExternalSend
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -10506,40 +10620,40 @@ class AgentLoopRuntimeTest {
                 title = "读取剪贴板",
                 summary = "将读取当前剪贴板文本。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val readRequest = ToolRequest(
                 id = "custom-read-request",
                 toolName = MobileActionFunctions.READ_CLIPBOARD,
-                reason = readDraft.summary,
+                reason = readDraft.summary
             )
             val shareDraft = ActionDraft(
                 functionName = MobileActionFunctions.SHARE_TEXT,
                 title = "分享转换结果",
                 summary = "将分享模型转换后的文本。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val shareRequest = ToolRequest(
                 id = "custom-share-request",
                 toolName = MobileActionFunctions.SHARE_TEXT,
-                reason = shareDraft.summary,
+                reason = shareDraft.summary
             )
             val foregroundDraft = ActionDraft(
                 functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
                 title = "查询前台应用",
                 summary = "查询当前前台应用。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val foregroundStep = SkillStep.ToolStep(
                 id = "custom_foreground",
                 request = ToolRequest(
                     id = "custom-foreground-request",
                     toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
-                    reason = foregroundDraft.summary,
+                    reason = foregroundDraft.summary
                 ),
-                draft = foregroundDraft,
+                draft = foregroundDraft
             )
             val shareDependsOn = if (includeUnmetShareDependency) {
                 listOf("custom_model", foregroundStep.id)
@@ -10550,7 +10664,7 @@ class AgentLoopRuntimeTest {
                 SkillStep.ToolStep(
                     id = "custom_read",
                     request = readRequest,
-                    draft = readDraft,
+                    draft = readDraft
                 ),
                 SkillStep.ModelStep(
                     id = "custom_model",
@@ -10558,8 +10672,8 @@ class AgentLoopRuntimeTest {
                     title = "转换剪贴板内容",
                     instruction = "转换用户确认读取的剪贴板内容。",
                     inputBindings = mapOf("clipboardText" to "custom_read.text"),
-                    outputKey = "shareText",
-                ),
+                    outputKey = "shareText"
+                )
             )
             if (includeUnmetShareDependency) {
                 steps += foregroundStep
@@ -10569,17 +10683,17 @@ class AgentLoopRuntimeTest {
                 dependsOn = shareDependsOn,
                 request = shareRequest,
                 draft = shareDraft,
-                argumentBindings = mapOf("text" to shareBinding),
+                argumentBindings = mapOf("text" to shareBinding)
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "custom-skill-request",
                     skillId = SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
-                steps = steps,
+                steps = steps
             )
         }
 
@@ -10591,7 +10705,7 @@ class AgentLoopRuntimeTest {
     }
 
     private class ValueFreeFrontierSkillRuntime(
-        private val nextStepBindsModelPayload: Boolean = false,
+        private val nextStepBindsModelPayload: Boolean = false
     ) : SkillRuntime {
         private val finalToolName = if (nextStepBindsModelPayload) {
             MobileActionFunctions.SHARE_TEXT
@@ -10607,7 +10721,7 @@ class AgentLoopRuntimeTest {
             requiredTools = listOf(
                 MobileActionFunctions.READ_CLIPBOARD,
                 MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                finalToolName,
+                finalToolName
             ),
             inputSchemaJson = """
                 {
@@ -10626,7 +10740,7 @@ class AgentLoopRuntimeTest {
                 RiskLevel.HighExternalSend
             } else {
                 RiskLevel.MediumDraftOrNavigation
-            },
+            }
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -10638,23 +10752,23 @@ class AgentLoopRuntimeTest {
                 title = "读取剪贴板",
                 summary = "将读取当前剪贴板文本。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val readStep = SkillStep.ToolStep(
                 id = "frontier_read",
                 request = ToolRequest(
                     id = "frontier-read-request",
                     toolName = MobileActionFunctions.READ_CLIPBOARD,
-                    reason = readDraft.summary,
+                    reason = readDraft.summary
                 ),
-                draft = readDraft,
+                draft = readDraft
             )
             val wifiDraft = ActionDraft(
                 functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 title = "打开 Wi-Fi 设置",
                 summary = "将打开系统 Wi-Fi 设置页。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val wifiStep = SkillStep.ToolStep(
                 id = "frontier_wifi",
@@ -10662,9 +10776,9 @@ class AgentLoopRuntimeTest {
                 request = ToolRequest(
                     id = "frontier-wifi-request",
                     toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                    reason = wifiDraft.summary,
+                    reason = wifiDraft.summary
                 ),
-                draft = wifiDraft,
+                draft = wifiDraft
             )
             val finalDraft = if (nextStepBindsModelPayload) {
                 ActionDraft(
@@ -10672,7 +10786,7 @@ class AgentLoopRuntimeTest {
                     title = "分享恢复摘要",
                     summary = "将分享模型生成的摘要。",
                     parameters = emptyMap(),
-                    requiresConfirmation = true,
+                    requiresConfirmation = true
                 )
             } else {
                 ActionDraft(
@@ -10680,7 +10794,7 @@ class AgentLoopRuntimeTest {
                     title = "打开手电筒设置",
                     summary = "将打开系统设置，由你手动确认手电筒相关操作。",
                     parameters = emptyMap(),
-                    requiresConfirmation = true,
+                    requiresConfirmation = true
                 )
             }
             val finalStep = SkillStep.ToolStep(
@@ -10689,21 +10803,21 @@ class AgentLoopRuntimeTest {
                 request = ToolRequest(
                     id = "frontier-final-request",
                     toolName = finalToolName,
-                    reason = finalDraft.summary,
+                    reason = finalDraft.summary
                 ),
                 draft = finalDraft,
                 argumentBindings = if (nextStepBindsModelPayload) {
                     mapOf("text" to "frontier_model.shareText")
                 } else {
                     emptyMap()
-                },
+                }
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "frontier-skill-request",
                     skillId = SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
                 steps = listOf(
@@ -10714,11 +10828,11 @@ class AgentLoopRuntimeTest {
                         title = "摘要剪贴板",
                         instruction = "生成一个后续步骤可使用的摘要。",
                         inputBindings = mapOf("clipboardText" to "frontier_read.text"),
-                        outputKey = "shareText",
+                        outputKey = "shareText"
                     ),
                     wifiStep,
-                    finalStep,
-                ),
+                    finalStep
+                )
             )
         }
 
@@ -10751,7 +10865,7 @@ class AgentLoopRuntimeTest {
                   "additionalProperties": false
                 }
             """.trimIndent(),
-            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            riskLevel = RiskLevel.MediumDraftOrNavigation
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -10763,14 +10877,14 @@ class AgentLoopRuntimeTest {
                 title = "读取截图 OCR",
                 summary = "将读取最近截图并提取 OCR。",
                 parameters = mapOf("maxCount" to "1"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "ocr-skill-request",
                     skillId = SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
                 steps = listOf(
@@ -10780,9 +10894,9 @@ class AgentLoopRuntimeTest {
                             id = "ocr-read-request",
                             toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                             arguments = draft.parameters,
-                            reason = draft.summary,
+                            reason = draft.summary
                         ),
-                        draft = draft,
+                        draft = draft
                     ),
                     SkillStep.ModelStep(
                         id = "summarize_ocr",
@@ -10791,9 +10905,9 @@ class AgentLoopRuntimeTest {
                         instruction = "只保留 OCR 里的待办线索。",
                         inputBindings = mapOf("ocrText" to "ocr_read.ocrText"),
                         outputKey = "summary",
-                        keepsSensitiveInputLocal = false,
-                    ),
-                ),
+                        keepsSensitiveInputLocal = false
+                    )
+                )
             )
         }
 
@@ -10825,7 +10939,7 @@ class AgentLoopRuntimeTest {
                   "additionalProperties": false
                 }
             """.trimIndent(),
-            riskLevel = RiskLevel.LowReadOnly,
+            riskLevel = RiskLevel.LowReadOnly
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -10837,14 +10951,14 @@ class AgentLoopRuntimeTest {
                 title = "查询联系人",
                 summary = "将读取联系人摘要。",
                 parameters = mapOf("query" to "Alice"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "local-only-skill-request",
                     skillId = SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
                 steps = listOf(
@@ -10854,9 +10968,9 @@ class AgentLoopRuntimeTest {
                             id = "local-only-contacts-request",
                             toolName = MobileActionFunctions.QUERY_CONTACTS,
                             arguments = draft.parameters,
-                            reason = draft.summary,
+                            reason = draft.summary
                         ),
-                        draft = draft,
+                        draft = draft
                     ),
                     SkillStep.ModelStep(
                         id = "summarize_contacts",
@@ -10865,9 +10979,9 @@ class AgentLoopRuntimeTest {
                         instruction = "根据联系人摘要回答用户。",
                         inputBindings = mapOf("contactSummary" to "contacts.summary"),
                         outputKey = "answer",
-                        keepsSensitiveInputLocal = false,
-                    ),
-                ),
+                        keepsSensitiveInputLocal = false
+                    )
+                )
             )
         }
 
@@ -10888,7 +11002,7 @@ class AgentLoopRuntimeTest {
             requiredTools = listOf(
                 MobileActionFunctions.WEB_SEARCH,
                 MobileActionFunctions.SHARE_TEXT,
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS
             ),
             inputSchemaJson = """
                 {
@@ -10903,7 +11017,7 @@ class AgentLoopRuntimeTest {
                   "additionalProperties": false
                 }
             """.trimIndent(),
-            riskLevel = RiskLevel.HighExternalSend,
+            riskLevel = RiskLevel.HighExternalSend
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -10915,28 +11029,28 @@ class AgentLoopRuntimeTest {
                 title = "Web 搜索",
                 summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val shareDraft = ActionDraft(
                 functionName = MobileActionFunctions.SHARE_TEXT,
                 title = "分享摘要",
                 summary = "将分享搜索摘要。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             val wifiDraft = ActionDraft(
                 functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 title = "打开 Wi-Fi 设置",
                 summary = "将打开系统 Wi-Fi 设置页。",
                 parameters = emptyMap(),
-                requiresConfirmation = true,
+                requiresConfirmation = true
             )
             return SkillPlan(
                 request = SkillRequest(
                     id = "multi-model-skill-request",
                     skillId = SKILL_ID,
                     arguments = mapOf("input" to input),
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
                 steps = listOf(
@@ -10946,9 +11060,9 @@ class AgentLoopRuntimeTest {
                             id = "multi-search-request",
                             toolName = MobileActionFunctions.WEB_SEARCH,
                             arguments = mapOf("query" to "Kotlin"),
-                            reason = searchDraft.summary,
+                            reason = searchDraft.summary
                         ),
-                        draft = searchDraft,
+                        draft = searchDraft
                     ),
                     SkillStep.ModelStep(
                         id = "summarize_search",
@@ -10957,7 +11071,7 @@ class AgentLoopRuntimeTest {
                         instruction = "把搜索结果整理成适合分享的一句话。",
                         inputBindings = mapOf("searchSummary" to "search.summary"),
                         outputKey = "shareText",
-                        keepsSensitiveInputLocal = false,
+                        keepsSensitiveInputLocal = false
                     ),
                     SkillStep.ToolStep(
                         id = "share_search",
@@ -10965,10 +11079,10 @@ class AgentLoopRuntimeTest {
                         request = ToolRequest(
                             id = "multi-share-request",
                             toolName = MobileActionFunctions.SHARE_TEXT,
-                            reason = shareDraft.summary,
+                            reason = shareDraft.summary
                         ),
                         draft = shareDraft,
-                        argumentBindings = mapOf("text" to "summarize_search.shareText"),
+                        argumentBindings = mapOf("text" to "summarize_search.shareText")
                     ),
                     SkillStep.ModelStep(
                         id = "decide_settings",
@@ -10977,7 +11091,7 @@ class AgentLoopRuntimeTest {
                         instruction = "根据分享工具结果输出下一步确认说明。",
                         inputBindings = mapOf("shareSummary" to "share_search.summary"),
                         outputKey = "nextStep",
-                        keepsSensitiveInputLocal = false,
+                        keepsSensitiveInputLocal = false
                     ),
                     SkillStep.ToolStep(
                         id = "open_wifi",
@@ -10985,11 +11099,11 @@ class AgentLoopRuntimeTest {
                         request = ToolRequest(
                             id = "multi-wifi-request",
                             toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                            reason = wifiDraft.summary,
+                            reason = wifiDraft.summary
                         ),
-                        draft = wifiDraft,
-                    ),
-                ),
+                        draft = wifiDraft
+                    )
+                )
             )
         }
 
@@ -11002,7 +11116,7 @@ class AgentLoopRuntimeTest {
 
     private class InvalidSkillRuntime(
         private val invalidForTool: String,
-        private val arguments: Map<String, String>,
+        private val arguments: Map<String, String>
     ) : SkillRuntime {
         private val manifest = SkillManifest(
             id = "invalid_attached_skill",
@@ -11024,7 +11138,7 @@ class AgentLoopRuntimeTest {
                   "additionalProperties": false
                 }
             """.trimIndent(),
-            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            riskLevel = RiskLevel.MediumDraftOrNavigation
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -11036,16 +11150,16 @@ class AgentLoopRuntimeTest {
                     id = "invalid-skill-request",
                     skillId = manifest.id,
                     arguments = arguments,
-                    reason = input,
+                    reason = input
                 ),
                 manifest = manifest,
-                steps = listOf(SkillStep.ToolStep(request, draft)),
+                steps = listOf(SkillStep.ToolStep(request, draft))
             )
         }
     }
 
     private class ClearPendingThrowingTraceStore(
-        private val delegate: AgentTraceStore,
+        private val delegate: AgentTraceStore
     ) : AgentTraceStore by delegate {
         override fun clearPendingConfirmation(runId: String, requestId: String): Boolean {
             error("pending delete failed")
@@ -11063,7 +11177,6 @@ class AgentLoopRuntimeTest {
             error("memory unavailable")
         }
 
-        override fun buildContext(hits: List<MemoryHit>): String =
-            error("memory context unavailable")
+        override fun buildContext(hits: List<MemoryHit>): String = error("memory context unavailable")
     }
 }
